@@ -66,10 +66,10 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   };
 
   if (TFI->hasFP(*MF))
-    return (F->getCallingConv() == CallingConv::Patmos_INTR ?
+    return (F->getCallingConv() == CallingConv::MSP430_INTR ? // FIXME
             CalleeSavedRegsIntrFP : CalleeSavedRegsFP);
   else
-    return (F->getCallingConv() == CallingConv::Patmos_INTR ?
+    return (F->getCallingConv() == CallingConv::MSP430_INTR ? // FIXME
             CalleeSavedRegsIntr : CalleeSavedRegs);
 
 }
