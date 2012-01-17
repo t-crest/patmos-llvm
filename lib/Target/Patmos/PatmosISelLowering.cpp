@@ -258,7 +258,7 @@ PatmosTargetLowering::LowerFormalArguments(SDValue Chain,
   case CallingConv::C:
   case CallingConv::Fast:
     return LowerCCCArguments(Chain, CallConv, isVarArg, Ins, dl, DAG, InVals);
-  case CallingConv::Patmos_INTR:
+  case CallingConv::MSP430_INTR: // FIXME
    if (Ins.empty())
      return Chain;
    else {
@@ -287,7 +287,7 @@ PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
   case CallingConv::C:
     return LowerCCCCallTo(Chain, Callee, CallConv, isVarArg, isTailCall,
                           Outs, OutVals, Ins, dl, DAG, InVals);
-  case CallingConv::Patmos_INTR:
+  case CallingConv::MSP430_INTR: // FIXME
     report_fatal_error("ISRs cannot be called directly");
     return SDValue();
   }
@@ -390,7 +390,7 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   SmallVector<CCValAssign, 16> RVLocs;
 
   // ISRs cannot return any value.
-  if (CallConv == CallingConv::Patmos_INTR && !Outs.empty()) {
+  if (CallConv == CallingConv::MSP430_INTR && !Outs.empty()) { // FIXME
     report_fatal_error("ISRs cannot return any value");
     return SDValue();
   }
@@ -425,7 +425,7 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
     Flag = Chain.getValue(1);
   }
 
-  unsigned Opc = (CallConv == CallingConv::Patmos_INTR ?
+  unsigned Opc = (CallConv == CallingConv::MSP430_INTR ? // FIXME
                   PatmosISD::RETI_FLAG : PatmosISD::RET_FLAG);
 
   if (Flag.getNode())
