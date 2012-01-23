@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TARGET_PATMOS_ISELLOWERING_H
-#define LLVM_TARGET_PATMOS_ISELLOWERING_H
+#ifndef _LLVM_TARGET_PATMOS_ISELLOWERING_H_
+#define _LLVM_TARGET_PATMOS_ISELLOWERING_H_
 
 #include "Patmos.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -27,6 +27,7 @@ namespace llvm {
       /// Return with a flag operand. Operand 0 is the chain operand.
       RET_FLAG,
 
+#if 0
       /// Same as RET_FLAG, but used for returning from ISRs.
       RETI_FLAG,
 
@@ -63,9 +64,9 @@ namespace llvm {
 
       /// SHL, SRA, SRL - Non-constant shifts.
       SHL, SRA, SRL
+#endif
     };
-  }
-
+  } // end namespaece PatmosISD
   class PatmosSubtarget;
   class PatmosTargetMachine;
 
@@ -73,14 +74,15 @@ namespace llvm {
   public:
     explicit PatmosTargetLowering(PatmosTargetMachine &TM);
 
-    virtual MVT getShiftAmountTy(EVT LHSTy) const { return MVT::i8; }
-
     /// LowerOperation - Provide custom lowering hooks for some operations.
     virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
 
     /// getTargetNodeName - This method returns the name of a target specific
     /// DAG node.
     virtual const char *getTargetNodeName(unsigned Opcode) const;
+
+#if 0
+    virtual MVT getShiftAmountTy(EVT LHSTy) const { return MVT::i8; }
 
     SDValue LowerShifts(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
@@ -121,7 +123,17 @@ namespace llvm {
     MachineBasicBlock* EmitShiftInstr(MachineInstr *MI,
                                       MachineBasicBlock *BB) const;
 
+#endif
   private:
+    SDValue LowerCCCArguments(SDValue Chain,
+                              CallingConv::ID CallConv,
+                              bool isVarArg,
+                              const SmallVectorImpl<ISD::InputArg> &Ins,
+                              DebugLoc dl,
+                              SelectionDAG &DAG,
+                              SmallVectorImpl<SDValue> &InVals) const;
+
+#if 0
     SDValue LowerCCCCallTo(SDValue Chain, SDValue Callee,
                            CallingConv::ID CallConv, bool isVarArg,
                            bool isTailCall,
@@ -131,26 +143,27 @@ namespace llvm {
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals) const;
 
-    SDValue LowerCCCArguments(SDValue Chain,
-                              CallingConv::ID CallConv,
-                              bool isVarArg,
-                              const SmallVectorImpl<ISD::InputArg> &Ins,
-                              DebugLoc dl,
-                              SelectionDAG &DAG,
-                              SmallVectorImpl<SDValue> &InVals) const;
-
     SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
                             CallingConv::ID CallConv, bool isVarArg,
                             const SmallVectorImpl<ISD::InputArg> &Ins,
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
-
+#endif
     virtual SDValue
       LowerFormalArguments(SDValue Chain,
                            CallingConv::ID CallConv, bool isVarArg,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals) const;
+
+    virtual SDValue
+      LowerReturn(SDValue Chain,
+                  CallingConv::ID CallConv, bool isVarArg,
+                  const SmallVectorImpl<ISD::OutputArg> &Outs,
+                  const SmallVectorImpl<SDValue> &OutVals,
+                  DebugLoc dl, SelectionDAG &DAG) const;
+
+#if 0
     virtual SDValue
       LowerCall(SDValue Chain, SDValue Callee,
                 CallingConv::ID CallConv, bool isVarArg, bool &isTailCall,
@@ -160,23 +173,16 @@ namespace llvm {
                 DebugLoc dl, SelectionDAG &DAG,
                 SmallVectorImpl<SDValue> &InVals) const;
 
-    virtual SDValue
-      LowerReturn(SDValue Chain,
-                  CallingConv::ID CallConv, bool isVarArg,
-                  const SmallVectorImpl<ISD::OutputArg> &Outs,
-                  const SmallVectorImpl<SDValue> &OutVals,
-                  DebugLoc dl, SelectionDAG &DAG) const;
-
     virtual bool getPostIndexedAddressParts(SDNode *N, SDNode *Op,
                                             SDValue &Base,
                                             SDValue &Offset,
                                             ISD::MemIndexedMode &AM,
                                             SelectionDAG &DAG) const;
-
+#endif
     const PatmosSubtarget &Subtarget;
     const PatmosTargetMachine &TM;
     const TargetData *TD;
   };
 } // namespace llvm
 
-#endif // LLVM_TARGET_PATMOS_ISELLOWERING_H
+#endif // _LLVM_TARGET_PATMOS_ISELLOWERING_H_

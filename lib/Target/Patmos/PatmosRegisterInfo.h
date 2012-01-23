@@ -36,10 +36,9 @@ public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 
   /// Code Generation virtual methods...
-  const unsigned *getCalleeSavedRegs(const MachineFunction *MF = 0) const;
+  const unsigned *getCalleeSavedRegs(const MachineFunction *MF = 0) const;//XXX
 
-  BitVector getReservedRegs(const MachineFunction &MF) const;
-  const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
+  BitVector getReservedRegs(const MachineFunction &MF) const;//XXX
 
   const TargetRegisterClass *
   getMatchingSuperRegClass(const TargetRegisterClass *A,
@@ -48,17 +47,21 @@ public:
     return A;
   }
 
+#if 0
+  const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
+
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
 
-  void eliminateFrameIndex(MachineBasicBlock::iterator II,
-                           int SPAdj, RegScavenger *RS = NULL) const;
-
   void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;
+#endif
+
+  void eliminateFrameIndex(MachineBasicBlock::iterator II,
+                           int SPAdj, RegScavenger *RS = NULL) const;//XXX
 
   // Debug information queries.
-  unsigned getFrameRegister(const MachineFunction &MF) const;
+  unsigned getFrameRegister(const MachineFunction &MF) const;//XXX
 };
 
 } // end namespace llvm

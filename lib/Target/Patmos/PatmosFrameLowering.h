@@ -35,6 +35,7 @@ public:
   void emitPrologue(MachineFunction &MF) const;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
 
+#if 0
   bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MI,
                                  const std::vector<CalleeSavedInfo> &CSI,
@@ -43,9 +44,10 @@ public:
                                    MachineBasicBlock::iterator MI,
                                    const std::vector<CalleeSavedInfo> &CSI,
                                    const TargetRegisterInfo *TRI) const;
+  bool hasReservedCallFrame(const MachineFunction &MF) const;
+#endif
 
   bool hasFP(const MachineFunction &MF) const;
-  bool hasReservedCallFrame(const MachineFunction &MF) const;
 };
 
 } // End llvm namespace

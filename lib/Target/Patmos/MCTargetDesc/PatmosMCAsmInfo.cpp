@@ -15,14 +15,12 @@
 using namespace llvm;
 
 PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT) {
-  PointerSize = 2;
-
+  PointerSize = 4;
+  IsLittleEndian = true;
+  StackGrowsUp = false;
+  PCSymbol=".PC";
+  CommentString = "#";
+  LabelSuffix = ":";
   PrivateGlobalPrefix = ".L";
-  WeakRefDirective ="\t.weak\t";
-  PCSymbol=".";
-  CommentString = ";";
-
-  AlignmentIsInBytes = false;
-  AllowNameToStartWithDigit = true;
-  UsesELFSectionDirectiveForBSS = true;
+  AlignmentIsInBytes = false; // in words
 }

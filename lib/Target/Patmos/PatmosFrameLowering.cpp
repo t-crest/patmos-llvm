@@ -27,18 +27,26 @@
 using namespace llvm;
 
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
+#if 0
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-
   return (DisableFramePointerElim(MF) ||
           MF.getFrameInfo()->hasVarSizedObjects() ||
           MFI->isFrameAddressTaken());
+#endif
+  return true;
 }
 
+#if 0
 bool PatmosFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
   return !MF.getFrameInfo()->hasVarSizedObjects();
 }
+#endif
+
 
 void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
+
+//FIXME Patmos needs implementation
+#if 0
   MachineBasicBlock &MBB = MF.front();   // Prolog goes in entry BB
   MachineFrameInfo *MFI = MF.getFrameInfo();
   PatmosMachineFunctionInfo *PatmosFI = MF.getInfo<PatmosMachineFunctionInfo>();
@@ -101,10 +109,13 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
       MI->getOperand(3).setIsDead();
     }
   }
+#endif
 }
 
 void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
+//FIXME Patmos needs implementation
+#if 0
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   PatmosMachineFunctionInfo *PatmosFI = MF.getInfo<PatmosMachineFunctionInfo>();
   const PatmosInstrInfo &TII =
@@ -173,8 +184,11 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
       MI->getOperand(3).setIsDead();
     }
   }
+#endif
 }
 
+
+#if 0
 // FIXME: Can we eleminate these in favour of generic code?
 bool
 PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
@@ -221,3 +235,5 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   return true;
 }
+
+#endif

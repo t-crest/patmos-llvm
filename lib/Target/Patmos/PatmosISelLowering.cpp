@@ -40,6 +40,7 @@
 #include "llvm/ADT/VectorExtras.h"
 using namespace llvm;
 
+#if 0
 typedef enum {
   NoHWMult,
   HWMultIntr,
@@ -58,6 +59,7 @@ HWMultMode("patmos-hwmult-mode",
              clEnumValN(HWMultNoIntr, "use",
                 "Assume hardware multiplier cannot be used inside interrupts"),
              clEnumValEnd));
+#endif
 
 PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   TargetLowering(tm, new TargetLoweringObjectFileELF()),
@@ -66,8 +68,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   TD = getTargetData();
 
   // Set up the register classes.
-  addRegisterClass(MVT::i8,  Patmos::GR8RegisterClass);
-  addRegisterClass(MVT::i16, Patmos::GR16RegisterClass);
+  addRegisterClass(MVT::i32, Patmos::RRegsRegisterClass);
 
   // Compute derived properties from the register classes
   computeRegisterProperties();
@@ -77,8 +78,11 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   // Division is expensive
   setIntDivIsCheap(false);
 
-  setStackPointerRegisterToSaveRestore(Patmos::SPW);
+  setStackPointerRegisterToSaveRestore(Patmos::R31);
   setBooleanContents(ZeroOrOneBooleanContent);
+
+
+#if 0
   setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
   setSchedulingPreference(Sched::Latency);
 
@@ -174,11 +178,14 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   setMinFunctionAlignment(1);
   setPrefFunctionAlignment(2);
+#endif
 }
 
 SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
                                              SelectionDAG &DAG) const {
+
   switch (Op.getOpcode()) {
+#if 0 //FIXME
   case ISD::SHL: // FALLTHROUGH
   case ISD::SRL:
   case ISD::SRA:              return LowerShifts(Op, DAG);
@@ -191,6 +198,7 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
   case ISD::SIGN_EXTEND:      return LowerSIGN_EXTEND(Op, DAG);
   case ISD::RETURNADDR:       return LowerRETURNADDR(Op, DAG);
   case ISD::FRAMEADDR:        return LowerFRAMEADDR(Op, DAG);
+#endif
   default:
     llvm_unreachable("unimplemented operand");
     return SDValue();
@@ -201,6 +209,7 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
 //                       Patmos Inline Assembly Support
 //===----------------------------------------------------------------------===//
 
+#if 0
 /// getConstraintType - Given a constraint letter, return the type of
 /// constraint it is for this target.
 TargetLowering::ConstraintType
@@ -234,6 +243,9 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 
   return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
 }
+#endif
+
+
 
 //===----------------------------------------------------------------------===//
 //                      Calling Convention Implementation
@@ -258,16 +270,10 @@ PatmosTargetLowering::LowerFormalArguments(SDValue Chain,
   case CallingConv::C:
   case CallingConv::Fast:
     return LowerCCCArguments(Chain, CallConv, isVarArg, Ins, dl, DAG, InVals);
-  case CallingConv::MSP430_INTR: // FIXME
-   if (Ins.empty())
-     return Chain;
-   else {
-    report_fatal_error("ISRs cannot have arguments");
-    return SDValue();
-   }
   }
 }
 
+#if 0
 SDValue
 PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                 CallingConv::ID CallConv, bool isVarArg,
@@ -287,11 +293,9 @@ PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
   case CallingConv::C:
     return LowerCCCCallTo(Chain, Callee, CallConv, isVarArg, isTailCall,
                           Outs, OutVals, Ins, dl, DAG, InVals);
-  case CallingConv::MSP430_INTR: // FIXME
-    report_fatal_error("ISRs cannot be called directly");
-    return SDValue();
   }
 }
+#endif
 
 /// LowerCCCArguments - transform physical registers into virtual registers and
 /// generate load operations for arguments places on the stack.
@@ -307,6 +311,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
                                         SelectionDAG &DAG,
                                         SmallVectorImpl<SDValue> &InVals)
                                           const {
+
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
@@ -333,9 +338,9 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
 #endif
           llvm_unreachable(0);
         }
-      case MVT::i16:
+      case MVT::i32:
         unsigned VReg =
-          RegInfo.createVirtualRegister(Patmos::GR16RegisterClass);
+          RegInfo.createVirtualRegister(Patmos::RRegsRegisterClass);
         RegInfo.addLiveIn(VA.getLocReg(), VReg);
         SDValue ArgValue = DAG.getCopyFromReg(Chain, dl, VReg, RegVT);
 
@@ -359,7 +364,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
       assert(VA.isMemLoc());
       // Load the argument to a virtual register
       unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
-      if (ObjSize > 2) {
+      if (ObjSize > 4) {
         errs() << "LowerFormalArguments Unhandled argument type: "
              << EVT(VA.getLocVT()).getEVTString()
              << "\n";
@@ -375,7 +380,6 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
                                    false, false, 0));
     }
   }
-
   return Chain;
 }
 
@@ -390,10 +394,13 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   SmallVector<CCValAssign, 16> RVLocs;
 
   // ISRs cannot return any value.
-  if (CallConv == CallingConv::MSP430_INTR && !Outs.empty()) { // FIXME
+  // FIXME we have no interrupt handling yet for Patmos...
+  /*
+  if (CallConv == CallingConv::MSP430_INTR && !Outs.empty()) {
     report_fatal_error("ISRs cannot return any value");
     return SDValue();
   }
+  */
 
   // CCState - Info about the registers and stack slot.
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
@@ -425,8 +432,13 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
     Flag = Chain.getValue(1);
   }
 
+  // FIXME Interrupt handling for Patmos?
+  /*
   unsigned Opc = (CallConv == CallingConv::MSP430_INTR ? // FIXME
                   PatmosISD::RETI_FLAG : PatmosISD::RET_FLAG);
+  */
+
+  unsigned Opc = PatmosISD::RET_FLAG;
 
   if (Flag.getNode())
     return DAG.getNode(Opc, dl, MVT::Other, Chain, Flag);
@@ -435,6 +447,7 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   return DAG.getNode(Opc, dl, MVT::Other, Chain);
 }
 
+#if 0
 /// LowerCCCCallTo - functions arguments are copied from virtual regs to
 /// (physical regs)/(stack frame), CALLSEQ_START and CALLSEQ_END are emitted.
 /// TODO: sret.
@@ -560,6 +573,8 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
   return LowerCallResult(Chain, InFlag, CallConv, isVarArg, Ins, dl,
                          DAG, InVals);
 }
+
+
 
 /// LowerCallResult - Lower the result values of a call into the
 /// appropriate copies out of appropriate physical registers.
@@ -876,23 +891,6 @@ SDValue PatmosTargetLowering::LowerSIGN_EXTEND(SDValue Op,
                      DAG.getValueType(Val.getValueType()));
 }
 
-SDValue
-PatmosTargetLowering::getReturnAddressFrameIndex(SelectionDAG &DAG) const {
-  MachineFunction &MF = DAG.getMachineFunction();
-  PatmosMachineFunctionInfo *FuncInfo = MF.getInfo<PatmosMachineFunctionInfo>();
-  int ReturnAddrIndex = FuncInfo->getRAIndex();
-
-  if (ReturnAddrIndex == 0) {
-    // Set up a frame object for the return address.
-    uint64_t SlotSize = TD->getPointerSize();
-    ReturnAddrIndex = MF.getFrameInfo()->CreateFixedObject(SlotSize, -SlotSize,
-                                                           true);
-    FuncInfo->setRAIndex(ReturnAddrIndex);
-  }
-
-  return DAG.getFrameIndex(ReturnAddrIndex, getPointerTy());
-}
-
 SDValue PatmosTargetLowering::LowerRETURNADDR(SDValue Op,
                                               SelectionDAG &DAG) const {
   MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
@@ -934,6 +932,23 @@ SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op,
   return FrameAddr;
 }
 
+SDValue
+PatmosTargetLowering::getReturnAddressFrameIndex(SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  PatmosMachineFunctionInfo *FuncInfo = MF.getInfo<PatmosMachineFunctionInfo>();
+  int ReturnAddrIndex = FuncInfo->getRAIndex();
+
+  if (ReturnAddrIndex == 0) {
+    // Set up a frame object for the return address.
+    uint64_t SlotSize = TD->getPointerSize();
+    ReturnAddrIndex = MF.getFrameInfo()->CreateFixedObject(SlotSize, -SlotSize,
+                                                           true);
+    FuncInfo->setRAIndex(ReturnAddrIndex);
+  }
+
+  return DAG.getFrameIndex(ReturnAddrIndex, getPointerTy());
+}
+
 /// getPostIndexedAddressParts - returns true by value, base pointer and
 /// offset pointer and addressing mode by reference if this node can be
 /// combined with a load / store to form a post-indexed load / store.
@@ -942,7 +957,6 @@ bool PatmosTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
                                                       SDValue &Offset,
                                                       ISD::MemIndexedMode &AM,
                                                       SelectionDAG &DAG) const {
-
   LoadSDNode *LD = cast<LoadSDNode>(N);
   if (LD->getExtensionType() != ISD::NON_EXTLOAD)
     return false;
@@ -965,15 +979,15 @@ bool PatmosTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
     AM = ISD::POST_INC;
     return true;
   }
-
   return false;
 }
-
+#endif
 
 const char *PatmosTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   default: return NULL;
   case PatmosISD::RET_FLAG:           return "PatmosISD::RET_FLAG";
+  /*
   case PatmosISD::RETI_FLAG:          return "PatmosISD::RETI_FLAG";
   case PatmosISD::RRA:                return "PatmosISD::RRA";
   case PatmosISD::RLA:                return "PatmosISD::RLA";
@@ -985,9 +999,11 @@ const char *PatmosTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case PatmosISD::SELECT_CC:          return "PatmosISD::SELECT_CC";
   case PatmosISD::SHL:                return "PatmosISD::SHL";
   case PatmosISD::SRA:                return "PatmosISD::SRA";
+  */
   }
 }
 
+#if 0
 bool PatmosTargetLowering::isTruncateFree(Type *Ty1,
                                           Type *Ty2) const {
   if (!Ty1->isIntegerTy() || !Ty2->isIntegerTy())
@@ -1017,114 +1033,6 @@ bool PatmosTargetLowering::isZExtFree(EVT VT1, EVT VT2) const {
 //  Other Lowering Code
 //===----------------------------------------------------------------------===//
 
-MachineBasicBlock*
-PatmosTargetLowering::EmitShiftInstr(MachineInstr *MI,
-                                     MachineBasicBlock *BB) const {
-  MachineFunction *F = BB->getParent();
-  MachineRegisterInfo &RI = F->getRegInfo();
-  DebugLoc dl = MI->getDebugLoc();
-  const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
-
-  unsigned Opc;
-  const TargetRegisterClass * RC;
-  switch (MI->getOpcode()) {
-  default:
-    assert(0 && "Invalid shift opcode!");
-  case Patmos::Shl8:
-   Opc = Patmos::SHL8r1;
-   RC = Patmos::GR8RegisterClass;
-   break;
-  case Patmos::Shl16:
-   Opc = Patmos::SHL16r1;
-   RC = Patmos::GR16RegisterClass;
-   break;
-  case Patmos::Sra8:
-   Opc = Patmos::SAR8r1;
-   RC = Patmos::GR8RegisterClass;
-   break;
-  case Patmos::Sra16:
-   Opc = Patmos::SAR16r1;
-   RC = Patmos::GR16RegisterClass;
-   break;
-  case Patmos::Srl8:
-   Opc = Patmos::SAR8r1c;
-   RC = Patmos::GR8RegisterClass;
-   break;
-  case Patmos::Srl16:
-   Opc = Patmos::SAR16r1c;
-   RC = Patmos::GR16RegisterClass;
-   break;
-  }
-
-  const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineFunction::iterator I = BB;
-  ++I;
-
-  // Create loop block
-  MachineBasicBlock *LoopBB = F->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *RemBB  = F->CreateMachineBasicBlock(LLVM_BB);
-
-  F->insert(I, LoopBB);
-  F->insert(I, RemBB);
-
-  // Update machine-CFG edges by transferring all successors of the current
-  // block to the block containing instructions after shift.
-  RemBB->splice(RemBB->begin(), BB,
-                llvm::next(MachineBasicBlock::iterator(MI)),
-                BB->end());
-  RemBB->transferSuccessorsAndUpdatePHIs(BB);
-
-  // Add adges BB => LoopBB => RemBB, BB => RemBB, LoopBB => LoopBB
-  BB->addSuccessor(LoopBB);
-  BB->addSuccessor(RemBB);
-  LoopBB->addSuccessor(RemBB);
-  LoopBB->addSuccessor(LoopBB);
-
-  unsigned ShiftAmtReg = RI.createVirtualRegister(Patmos::GR8RegisterClass);
-  unsigned ShiftAmtReg2 = RI.createVirtualRegister(Patmos::GR8RegisterClass);
-  unsigned ShiftReg = RI.createVirtualRegister(RC);
-  unsigned ShiftReg2 = RI.createVirtualRegister(RC);
-  unsigned ShiftAmtSrcReg = MI->getOperand(2).getReg();
-  unsigned SrcReg = MI->getOperand(1).getReg();
-  unsigned DstReg = MI->getOperand(0).getReg();
-
-  // BB:
-  // cmp 0, N
-  // je RemBB
-  BuildMI(BB, dl, TII.get(Patmos::CMP8ri))
-    .addReg(ShiftAmtSrcReg).addImm(0);
-  BuildMI(BB, dl, TII.get(Patmos::JCC))
-    .addMBB(RemBB)
-    .addImm(PatmosCC::COND_E);
-
-  // LoopBB:
-  // ShiftReg = phi [%SrcReg, BB], [%ShiftReg2, LoopBB]
-  // ShiftAmt = phi [%N, BB],      [%ShiftAmt2, LoopBB]
-  // ShiftReg2 = shift ShiftReg
-  // ShiftAmt2 = ShiftAmt - 1;
-  BuildMI(LoopBB, dl, TII.get(Patmos::PHI), ShiftReg)
-    .addReg(SrcReg).addMBB(BB)
-    .addReg(ShiftReg2).addMBB(LoopBB);
-  BuildMI(LoopBB, dl, TII.get(Patmos::PHI), ShiftAmtReg)
-    .addReg(ShiftAmtSrcReg).addMBB(BB)
-    .addReg(ShiftAmtReg2).addMBB(LoopBB);
-  BuildMI(LoopBB, dl, TII.get(Opc), ShiftReg2)
-    .addReg(ShiftReg);
-  BuildMI(LoopBB, dl, TII.get(Patmos::SUB8ri), ShiftAmtReg2)
-    .addReg(ShiftAmtReg).addImm(1);
-  BuildMI(LoopBB, dl, TII.get(Patmos::JCC))
-    .addMBB(LoopBB)
-    .addImm(PatmosCC::COND_NE);
-
-  // RemBB:
-  // DestReg = phi [%SrcReg, BB], [%ShiftReg, LoopBB]
-  BuildMI(*RemBB, RemBB->begin(), dl, TII.get(Patmos::PHI), DstReg)
-    .addReg(SrcReg).addMBB(BB)
-    .addReg(ShiftReg2).addMBB(LoopBB);
-
-  MI->eraseFromParent();   // The pseudo instruction is gone now.
-  return RemBB;
-}
 
 MachineBasicBlock*
 PatmosTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
@@ -1196,3 +1104,5 @@ PatmosTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
   MI->eraseFromParent();   // The pseudo instruction is gone now.
   return BB;
 }
+#endif
+

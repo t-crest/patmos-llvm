@@ -39,7 +39,7 @@ static MCInstrInfo *createPatmosMCInstrInfo() {
 
 static MCRegisterInfo *createPatmosMCRegisterInfo(StringRef TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitPatmosMCRegisterInfo(X, Patmos::PCW);
+  InitPatmosMCRegisterInfo(X, Patmos::R1);
   return X;
 }
 

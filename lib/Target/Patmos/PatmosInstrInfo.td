@@ -16,12 +16,15 @@ include "PatmosInstrFormats.td"
 //===----------------------------------------------------------------------===//
 // Type Constraints.
 //===----------------------------------------------------------------------===//
-class SDTCisI8<int OpNum> : SDTCisVT<OpNum, i8>;
+class SDTCisI8<int OpNum>  : SDTCisVT<OpNum,  i8>;
 class SDTCisI16<int OpNum> : SDTCisVT<OpNum, i16>;
+class SDTCisI32<int OpNum> : SDTCisVT<OpNum, i32>;
 
 //===----------------------------------------------------------------------===//
 // Type Profiles.
 //===----------------------------------------------------------------------===//
+
+/*
 def SDT_PatmosCall         : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
 def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisVT<0, i16>]>;
 def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisVT<0, i16>, SDTCisVT<1, i16>]>;
@@ -35,12 +38,14 @@ def SDT_PatmosSelectCC     : SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>,
                                                   SDTCisVT<3, i8>]>;
 def SDT_PatmosShift        : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>,
                                                   SDTCisI8<2>]>;
+ */
 
 //===----------------------------------------------------------------------===//
 // Patmos Specific Node Definitions.
 //===----------------------------------------------------------------------===//
 def Patmosretflag  : SDNode<"PatmosISD::RET_FLAG", SDTNone,
                        [SDNPHasChain, SDNPOptInGlue]>;
+/*
 def Patmosretiflag : SDNode<"PatmosISD::RETI_FLAG", SDTNone,
                        [SDNPHasChain, SDNPOptInGlue]>;
 
@@ -65,11 +70,31 @@ def Patmosselectcc: SDNode<"PatmosISD::SELECT_CC", SDT_PatmosSelectCC,
 def Patmosshl     : SDNode<"PatmosISD::SHL", SDT_PatmosShift, []>;
 def Patmossra     : SDNode<"PatmosISD::SRA", SDT_PatmosShift, []>;
 def Patmossrl     : SDNode<"PatmosISD::SRL", SDT_PatmosShift, []>;
+*/
+
+
+
 
 //===----------------------------------------------------------------------===//
 // Patmos Operand Definitions.
 //===----------------------------------------------------------------------===//
 
+// additional immediate operands
+//
+let OperandType = "OPERAND_IMMEDIATE" in {
+  def i12imm  : Operand<i32> {
+    let PrintMethod = "printOperand";
+    //TODO let PrintMethod = "printSExtConstOperand<12>";
+  }
+
+  def i22imm  : Operand<i32> {
+    let PrintMethod = "printOperand";
+    //TODO let PrintMethod = "printSExtConstOperand<22>";
+  }
+}
+
+
+/*
 // Address operands
 def memsrc : Operand<i16> {
   let PrintMethod = "printSrcMemOperand";
@@ -90,11 +115,14 @@ def jmptarget : Operand<OtherVT> {
 def cc : Operand<i8> {
   let PrintMethod = "printCCOperand";
 }
+*/
+
 
 //===----------------------------------------------------------------------===//
 // Patmos Complex Pattern Definitions.
 //===----------------------------------------------------------------------===//
 
+/*
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 
 //===----------------------------------------------------------------------===//
@@ -153,19 +181,31 @@ let usesCustomInserter = 1 in {
   }
 }
 
+*/
+
 let neverHasSideEffects = 1 in
-def NOP : Pseudo<(outs), (ins), "nop", []>;
+def NOP : PseudoInst<(outs), (ins), "nop", []>;
+
+
 
 //===----------------------------------------------------------------------===//
 //  Control Flow Instructions...
 //
 
+let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
+  def RET  : PFLr<0b0000, (outs), (ins), "ret",  [(Patmosretflag)]>;
+  //def RETI : II16r<0x0, (outs), (ins), "reti", [(Patmosretiflag)]>;
+}
+
+/*
 // FIXME: Provide proper encoding!
 let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
   def RET  : IForm16<0x0, DstReg, SrcPostInc, Size2Bytes,
                      (outs), (ins), "ret",  [(Patmosretflag)]>;
   def RETI : II16r<0x0, (outs), (ins), "reti", [(Patmosretiflag)]>;
 }
+
+
 
 let isBranch = 1, isTerminator = 1 in {
 
@@ -199,9 +239,15 @@ let Uses = [SRW] in
                    [(Patmosbrcc bb:$dst, imm:$cc)]>;
 } // isBranch, isTerminator
 
+
+*/
+
 //===----------------------------------------------------------------------===//
 //  Call Instructions...
 //
+
+/*
+
 let isCall = 1 in
   // All calls clobber the non-callee saved registers. SPW is marked as
   // a use to prevent stack-pointer assignments that appear immediately
@@ -220,10 +266,13 @@ let isCall = 1 in
                           "call\t${dst:mem}", [(Patmoscall (load addr:$dst))]>;
   }
 
+*/
 
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions...
 //
+
+/*
 let Defs = [SPW], Uses = [SPW], neverHasSideEffects=1 in {
 let mayLoad = 1 in
 def POP16r   : IForm16<0x0, DstReg, SrcPostInc, Size2Bytes,
@@ -233,10 +282,13 @@ let mayStore = 1 in
 def PUSH16r  : II16r<0x0,
                      (outs), (ins GR16:$reg), "push.w\t$reg",[]>;
 }
+*/
+
 
 //===----------------------------------------------------------------------===//
 // Move Instructions
 
+/*
 // FIXME: Provide proper encoding!
 let neverHasSideEffects = 1 in {
 def MOV8rr  : I8rr<0x0,
@@ -332,9 +384,13 @@ def MOV16mm : I16mm<0x0,
                     "mov.w\t{$src, $dst}",
                     [(store (i16 (load addr:$src)), addr:$dst)]>;
 
+*/
+
 //===----------------------------------------------------------------------===//
 // Arithmetic Instructions
 
+
+/*
 let Constraints = "$src = $dst" in {
 
 let Defs = [SRW] in {
@@ -1120,8 +1176,15 @@ def BIT16mm : I16mm<0x0,
                      (implicit SRW)]>;
 } // Defs = [SRW]
 
+*/
+
+
+
+
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
+
+/*
 
 // extload
 def : Pat<(extloadi16i8 addr:$src), (MOVZX16rm8 addr:$src)>;
@@ -1209,3 +1272,6 @@ def : Pat<(and GR16:$src, 255), (ZEXT16r GR16:$src)>;
 def : Pat<(Patmoscmp (trunc (and_su GR16:$src, GR16:$src2)), 0),
           (BIT8rr (EXTRACT_SUBREG GR16:$src, subreg_8bit),
                   (EXTRACT_SUBREG GR16:$src2, subreg_8bit))>;
+
+*/
+

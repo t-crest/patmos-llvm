@@ -29,9 +29,10 @@
 using namespace llvm;
 
 PatmosInstrInfo::PatmosInstrInfo(PatmosTargetMachine &tm)
-  : PatmosGenInstrInfo(Patmos::ADJCALLSTACKDOWN, Patmos::ADJCALLSTACKUP),
+  : PatmosGenInstrInfo(-1, -1),
     RI(tm, *this), TM(tm) {}
 
+#if 0
 void PatmosInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
                                           MachineBasicBlock::iterator MI,
                                     unsigned SrcReg, bool isKill, int FrameIdx,
@@ -334,3 +335,5 @@ unsigned PatmosInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
 
   return 6;
 }
+
+#endif

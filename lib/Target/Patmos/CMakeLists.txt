@@ -9,7 +9,6 @@ llvm_tablegen(PatmosGenSubtargetInfo.inc -gen-subtarget)
 add_public_tablegen_target(PatmosCommonTableGen)
 
 add_llvm_target(PatmosCodeGen
-  PatmosBranchSelector.cpp
   PatmosISelDAGToDAG.cpp
   PatmosISelLowering.cpp
   PatmosInstrInfo.cpp

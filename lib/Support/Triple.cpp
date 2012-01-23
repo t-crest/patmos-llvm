@@ -27,6 +27,7 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case mips64:  return "mips64";
   case mips64el:return "mips64el";
   case msp430:  return "msp430";
+  case patmos:  return "patmos";
   case ppc64:   return "powerpc64";
   case ppc:     return "powerpc";
   case sparc:   return "sparc";
@@ -153,6 +154,8 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     return mips64el;
   if (Name == "msp430")
     return msp430;
+  if (Name == "patmos")
+    return patmos;
   if (Name == "ppc64")
     return ppc64;
   if (Name == "ppc32")
@@ -302,6 +305,8 @@ Triple::ArchType Triple::ParseArch(StringRef ArchName) {
     return cellspu;
   else if (ArchName == "msp430")
     return msp430;
+  else if (ArchName == "patmos")
+    return patmos;
   else if (ArchName == "mips" || ArchName == "mipseb" ||
            ArchName == "mipsallegrex")
     return mips;
