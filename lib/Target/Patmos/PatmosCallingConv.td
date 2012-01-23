@@ -13,25 +13,24 @@
 // Patmos Return Value Calling Convention
 //===----------------------------------------------------------------------===//
 def RetCC_Patmos : CallingConv<[
-  // i8 are returned in registers R15B, R14B, R13B, R12B
-  CCIfType<[i8], CCAssignToReg<[R15B, R14B, R13B, R12B]>>,
-
-  // i16 are returned in registers R15, R14, R13, R12
-  CCIfType<[i16], CCAssignToReg<[R15W, R14W, R13W, R12W]>>
+  // i32 are returned in registers R1, R2
+  CCIfType<[i32], CCAssignToReg<[R1, R2]>>
+  // TODO return i64 in R1 and R2
 ]>;
 
 //===----------------------------------------------------------------------===//
 // Patmos Argument Calling Conventions
 //===----------------------------------------------------------------------===//
 def CC_Patmos : CallingConv<[
-  // Promote i8 arguments to i16.
-  CCIfType<[i8], CCPromoteToType<i16>>,
-
-  // The first 4 integer arguments of non-varargs functions are passed in
+  // Promote i8 arguments to i32.
+  CCIfType<[i8], CCPromoteToType<i32>>,
+  // Promote i16 arguments to i32.
+  CCIfType<[i16], CCPromoteToType<i32>>,
+  // The first 6 integer arguments of non-varargs functions are passed in
   // integer registers.
-  CCIfNotVarArg<CCIfType<[i16], CCAssignToReg<[R15W, R14W, R13W, R12W]>>>,
+  CCIfNotVarArg<CCIfType<[i32], CCAssignToReg<[R3, R4, R5, R6, R7, R8]>>>,
 
-  // Integer values get stored in stack slots that are 2 bytes in
-  // size and 2-byte aligned.
-  CCIfType<[i16], CCAssignToStack<2, 2>>
+  // Integer values get stored in stack slots that are 4 bytes in
+  // size and 4-byte aligned.
+  CCIfType<[i32], CCAssignToStack<4, 4>>
 ]>;

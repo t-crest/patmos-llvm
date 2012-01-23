@@ -27,6 +27,7 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case mips64:  return "mips64";
   case mips64el:return "mips64el";
   case msp430:  return "msp430";
+  case patmos:  return "patmos";
   case ppc64:   return "powerpc64";
   case ppc:     return "powerpc";
   case r600:    return "r600";
@@ -56,6 +57,8 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   case thumb:   return "arm";
 
   case cellspu: return "spu";
+  
+  case patmos:  return "patmos";
 
   case ppc64:
   case ppc:     return "ppc";
@@ -147,6 +150,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("mips64", mips64)
     .Case("mips64el", mips64el)
     .Case("msp430", msp430)
+    .Case("patmos", patmos)
     .Case("ppc64", ppc64)
     .Case("ppc32", ppc)
     .Case("ppc", ppc)
@@ -206,6 +210,7 @@ const char *Triple::getArchNameForAssembler() {
   return StringSwitch<const char*>(getArchName())
     .Case("i386", "i386")
     .Case("x86_64", "x86_64")
+    .Case("patmos", "patmos")
     .Case("powerpc", "ppc")
     .Case("powerpc64", "ppc64")
     .Cases("mblaze", "microblaze", "mblaze")
@@ -239,6 +244,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .StartsWith("thumbv", Triple::thumb)
     .Cases("spu", "cellspu", Triple::cellspu)
     .Case("msp430", Triple::msp430)
+    .Case("patmos", Triple::patmos)
     .Cases("mips", "mipseb", "mipsallegrex", Triple::mips)
     .Cases("mipsel", "mipsallegrexel", Triple::mipsel)
     .Cases("mips64", "mips64eb", Triple::mips64)
@@ -644,6 +650,7 @@ static unsigned getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::msp430:
     return 16;
 
+  case llvm::Triple::patmos:
   case llvm::Triple::amdil:
   case llvm::Triple::arm:
   case llvm::Triple::cellspu:
@@ -693,6 +700,7 @@ Triple Triple::get32BitArchVariant() const {
     T.setArch(UnknownArch);
     break;
 
+  case Triple::patmos:
   case Triple::amdil:
   case Triple::arm:
   case Triple::cellspu:
@@ -733,6 +741,7 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::le32:
   case Triple::mblaze:
   case Triple::msp430:
+  case Triple::patmos:
   case Triple::r600:
   case Triple::tce:
   case Triple::thumb:

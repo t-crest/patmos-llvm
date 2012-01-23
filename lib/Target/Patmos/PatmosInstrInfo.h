@@ -24,6 +24,7 @@ namespace llvm {
 
 class PatmosTargetMachine;
 
+#if 0
 /// PatmosII - This namespace holds all of the target specific flags that
 /// instruction info tracks.
 ///
@@ -39,6 +40,7 @@ namespace PatmosII {
     Size6Bytes  = 4 << SizeShift
   };
 }
+#endif
 
 class PatmosInstrInfo : public PatmosGenInstrInfo {
   const PatmosRegisterInfo RI;
@@ -52,6 +54,7 @@ public:
   ///
   virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
 
+#if 0
   void copyPhysReg(MachineBasicBlock &MBB,
                    MachineBasicBlock::iterator I, DebugLoc DL,
                    unsigned DestReg, unsigned SrcReg,
@@ -85,6 +88,7 @@ public:
                         const SmallVectorImpl<MachineOperand> &Cond,
                         DebugLoc DL) const;
 
+#endif
 };
 
 }

@@ -34,43 +34,35 @@ using namespace llvm;
 // FIXME: Provide proper call frame setup / destroy opcodes.
 PatmosRegisterInfo::PatmosRegisterInfo(PatmosTargetMachine &tm,
                                        const TargetInstrInfo &tii)
-  : PatmosGenRegisterInfo(Patmos::PCW), TM(tm), TII(tii) {
+  : PatmosGenRegisterInfo(Patmos::R1), TM(tm), TII(tii) {
   StackAlign = TM.getFrameLowering()->getStackAlignment();
 }
 
 const unsigned*
 PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   const TargetFrameLowering *TFI = MF->getTarget().getFrameLowering();
-  const Function* F = MF->getFunction();
+  //const Function* F = MF->getFunction();
   static const unsigned CalleeSavedRegs[] = {
-    Patmos::FPW, Patmos::R5W, Patmos::R6W, Patmos::R7W,
-    Patmos::R8W, Patmos::R9W, Patmos::R10W, Patmos::R11W,
+    // GPR
+    Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
+    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
+    // Predicate regs
+    Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
+    Patmos::P5, Patmos::P6, Patmos::P7,
     0
   };
   static const unsigned CalleeSavedRegsFP[] = {
-    Patmos::R5W, Patmos::R6W, Patmos::R7W,
-    Patmos::R8W, Patmos::R9W, Patmos::R10W, Patmos::R11W,
-    0
-  };
-  static const unsigned CalleeSavedRegsIntr[] = {
-    Patmos::FPW,  Patmos::R5W,  Patmos::R6W,  Patmos::R7W,
-    Patmos::R8W,  Patmos::R9W,  Patmos::R10W, Patmos::R11W,
-    Patmos::R12W, Patmos::R13W, Patmos::R14W, Patmos::R15W,
-    0
-  };
-  static const unsigned CalleeSavedRegsIntrFP[] = {
-    Patmos::R5W,  Patmos::R6W,  Patmos::R7W,
-    Patmos::R8W,  Patmos::R9W,  Patmos::R10W, Patmos::R11W,
-    Patmos::R12W, Patmos::R13W, Patmos::R14W, Patmos::R15W,
+    // GPR
+    Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
+    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
+    Patmos::R30,
+    // Predicate regs
+    Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
+    Patmos::P5, Patmos::P6, Patmos::P7,
     0
   };
 
-  if (TFI->hasFP(*MF))
-    return (F->getCallingConv() == CallingConv::MSP430_INTR ? // FIXME
-            CalleeSavedRegsIntrFP : CalleeSavedRegsFP);
-  else
-    return (F->getCallingConv() == CallingConv::MSP430_INTR ? // FIXME
-            CalleeSavedRegsIntr : CalleeSavedRegs);
+  return (TFI->hasFP(*MF)) ? CalleeSavedRegsFP : CalleeSavedRegs;
 
 }
 
@@ -78,23 +70,34 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
 
-  // Mark 4 special registers with subregisters as reserved.
-  Reserved.set(Patmos::PCB);
-  Reserved.set(Patmos::SPB);
-  Reserved.set(Patmos::SRB);
-  Reserved.set(Patmos::CGB);
-  Reserved.set(Patmos::PCW);
-  Reserved.set(Patmos::SPW);
-  Reserved.set(Patmos::SRW);
-  Reserved.set(Patmos::CGW);
+  // All the special registers are reserved
+  Reserved.set(Patmos::S0);
+  Reserved.set(Patmos::SM);
+  Reserved.set(Patmos::SL);
+  Reserved.set(Patmos::SH);
+  Reserved.set(Patmos::SB);
+  Reserved.set(Patmos::SO);
+  Reserved.set(Patmos::ST);
+  Reserved.set(Patmos::S7);
+  Reserved.set(Patmos::S8);
+  Reserved.set(Patmos::S9);
+  Reserved.set(Patmos::S10);
+  Reserved.set(Patmos::S11);
+  Reserved.set(Patmos::S12);
+  Reserved.set(Patmos::S13);
+  Reserved.set(Patmos::S14);
+  Reserved.set(Patmos::S15);
 
+  // stack pointer
+  Reserved.set(Patmos::R31);
   // Mark frame pointer as reserved if needed.
   if (TFI->hasFP(MF))
-    Reserved.set(Patmos::FPW);
+    Reserved.set(Patmos::R30);
 
   return Reserved;
 }
 
+#if 0
 const TargetRegisterClass *
 PatmosRegisterInfo::getPointerRegClass(unsigned Kind) const {
   return &Patmos::GR16RegClass;
@@ -160,9 +163,28 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   MBB.erase(I);
 }
 
+
+void
+PatmosRegisterInfo::processFunctionBeforeFrameFinalized(MachineFunction &MF)
+                                                                         const {
+  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+
+  // Create a frame entry for the FPW register that must be saved.
+  if (TFI->hasFP(MF)) {
+    int FrameIdx = MF.getFrameInfo()->CreateFixedObject(2, -4, true);
+    (void)FrameIdx;
+    assert(FrameIdx == MF.getFrameInfo()->getObjectIndexBegin() &&
+           "Slot for FPW register must be last in order to be found!");
+  }
+}
+
+#endif
+
 void
 PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                         int SPAdj, RegScavenger *RS) const {
+  assert(0 && "Not yet implemented");
+#if 0
   assert(SPAdj == 0 && "Unexpected");
 
   unsigned i = 0;
@@ -217,24 +239,11 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   MI.getOperand(i).ChangeToRegister(BasePtr, false);
   MI.getOperand(i+1).ChangeToImmediate(Offset);
-}
-
-void
-PatmosRegisterInfo::processFunctionBeforeFrameFinalized(MachineFunction &MF)
-                                                                         const {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-
-  // Create a frame entry for the FPW register that must be saved.
-  if (TFI->hasFP(MF)) {
-    int FrameIdx = MF.getFrameInfo()->CreateFixedObject(2, -4, true);
-    (void)FrameIdx;
-    assert(FrameIdx == MF.getFrameInfo()->getObjectIndexBegin() &&
-           "Slot for FPW register must be last in order to be found!");
-  }
+#endif
 }
 
 unsigned PatmosRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
 
-  return TFI->hasFP(MF) ? Patmos::FPW : Patmos::SPW;
+  return TFI->hasFP(MF) ? Patmos::R30 : Patmos::R31;
 }

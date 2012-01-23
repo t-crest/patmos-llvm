@@ -40,7 +40,7 @@ namespace llvm {
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM,
                                     CodeGenOpt::Level OptLevel);
 
-  FunctionPass *createPatmosBranchSelectionPass();
+  //FunctionPass *createPatmosBranchSelectionPass();
 
 } // end namespace llvm;
 

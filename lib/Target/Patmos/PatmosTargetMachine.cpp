@@ -32,7 +32,7 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
   : LLVMTargetMachine(T, TT, CPU, FS, RM, CM),
     Subtarget(TT, CPU, FS),
     // FIXME: Check TargetData string.
-    DataLayout("e-p:16:16:16-i8:8:8-i16:16:16-i32:16:32-n8:16"),
+    DataLayout("e-S32-p:32:32-i8:8:8-i16:16:16-i32:32:32-i64:32:64-n32"),
     InstrInfo(*this), TLInfo(*this), TSInfo(*this),
     FrameLowering(Subtarget) { }
 
@@ -47,6 +47,6 @@ bool PatmosTargetMachine::addInstSelector(PassManagerBase &PM,
 bool PatmosTargetMachine::addPreEmitPass(PassManagerBase &PM,
                                          CodeGenOpt::Level OptLevel) {
   // Must run branch selection immediately preceding the asm printer.
-  PM.add(createPatmosBranchSelectionPass());
+  //PM.add(createPatmosBranchSelectionPass());
   return false;
 }
