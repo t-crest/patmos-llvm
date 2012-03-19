@@ -69,6 +69,8 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeScalarEvolutionPass(Registry);
   initializeScalarEvolutionAliasAnalysisPass(Registry);
   initializeTypeBasedAliasAnalysisPass(Registry);
+
+  initializeDomLeavesPass(Registry);
 }
 
 void LLVMInitializeAnalysis(LLVMPassRegistryRef R) {
