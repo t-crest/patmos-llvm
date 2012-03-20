@@ -1,4 +1,4 @@
-//===- BBInstCnt.cpp - Example code from "Writing an LLVM Pass" ---------------===//
+//===- BBInstCnt.cpp - Basic block instruction counter pass ---------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,8 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements two versions of the LLVM "BBInstCnt" pass described
-// in docs/WritingAnLLVMPass.html
+// Simple basic block instruction counter analysis pass for IPET on LLIR level.
 //
 //===----------------------------------------------------------------------===//
 
@@ -19,8 +18,6 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Statistic.h"
 using namespace llvm;
-
-//STATISTIC(BBInstCntCounter, "Counts number of functions greeted");
 
 
 namespace ipet {
@@ -33,7 +30,7 @@ namespace ipet {
     virtual bool runOnBasicBlock(BasicBlock &BB) {
       int counter = 0;
       for (BasicBlock::iterator i=BB.begin(), e=BB.end(); i != e; i++) {
-        errs() << (*i).getOpcodeName() << "\n";
+        //errs() << (*i).getOpcodeName() << "\n";
         counter++;
       }
       bbcosts[BB.getName()] = counter;
@@ -46,8 +43,13 @@ namespace ipet {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
     }
+
+    //FIXME Y U NO work?
+    virtual void print(std::ostream &O, const Module *M) const {
+      O << "Analyzed.\n";
+    }
   };
 }
 
 char ipet::BBInstCnt::ID = 0;
-static RegisterPass<ipet::BBInstCnt> X("bbinstcnt", "BBInstCnt Pass (with getAnalysisUsage implemented)");
+static RegisterPass<ipet::BBInstCnt> X("bbinstcnt", "Basic Block Instruction Counter Pass)");

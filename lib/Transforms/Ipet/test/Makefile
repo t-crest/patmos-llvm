@@ -13,4 +13,5 @@ P=PATH=$(BUILDDIR)/bin
 test: hello.ll
 	$(P) opt  --debug-pass=Structure \
                   -load $(BUILDDIR)/lib/libLLVMIpet.so -bbinstcnt \
+                  -analyze \
                   < $< > /dev/null
