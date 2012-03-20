@@ -1,4 +1,5 @@
 #include "llvm/ADT/SCCIterator.h"
+#include "llvm/Analysis/DOTGraphTraitsPass.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Pass.h"
@@ -43,42 +44,135 @@ FunctionPass *llvm::createDomLeavesPass() {
   return new DomLeaves();
 }
 
-bool DomLeaves::runOnFunction(Function &F) {
-  DominatorTree &DT = getAnalysis<DominatorTree>();
-  PostDominatorTree &PDT = getAnalysis<PostDominatorTree>();
 
-  struct leaves_t { std::set<BasicBlock*> DT, PDT; } leaves;
+//
+// Combined dominators graph
+//
 
-  for (Function::iterator I = F.begin(), E = F.end(); I != E; ++I) {
-    DomTreeNode *N = DT.getNode(I);
-    if (!N->getNumChildren()) {
-      DEBUG(dbgs() << I->getName() << " is a dom-leaf\n");
-      leaves.DT.insert(I);
+class graph_t;
+
+struct node_t {
+  graph_t *G;
+  int Idx;
+  node_t(graph_t *g, int n) : G(g), Idx(n) {}
+};
+
+typedef std::vector<node_t*> adj_t;
+
+struct graph_t {
+  std::vector<BasicBlock*> Blocks;
+  std::vector<node_t*> Nodes;
+  std::vector<adj_t> Succs;
+
+  std::map<BasicBlock*, int> map;
+
+  ~graph_t() {
+    // we own the nodes
+    for (std::vector<node_t*>::iterator I = Nodes.begin(), E = Nodes.end();
+         I != E; ++I)
+      delete *I;
+  }
+};
+
+namespace llvm {
+template <> struct GraphTraits<node_t*> {
+  typedef node_t NodeType;
+  typedef std::vector<node_t*>::iterator ChildIteratorType;
+
+  static NodeType *getEntryNode(node_t *N) { return N; }
+
+  static inline ChildIteratorType child_begin(node_t *N) {
+    return N->G->Succs[N->Idx].begin();
+  }
+  static inline ChildIteratorType child_end(node_t *N) {
+    return N->G->Succs[N->Idx].end();
+  }
+};
+
+//
+// graph traits for SCC algorithm
+
+template <> struct GraphTraits<graph_t*> : public GraphTraits<node_t*> {
+  static NodeType *getEntryNode(graph_t *G) { return G->Nodes[0]; }
+
+  typedef std::vector<node_t*>::iterator nodes_iterator;
+  static nodes_iterator nodes_begin(graph_t *G) { return G->Nodes.begin(); }
+  static nodes_iterator nodes_end  (graph_t *G) { return G->Nodes.end(); }
+};
+}
+
+template<class T_tree, class T_node>
+void copyEdges(T_tree *t, graph_t &g) {
+  typedef GraphTraits<T_tree*> GDT;
+  typedef GraphTraits<T_node*> GDN;
+  for (typename GDT::nodes_iterator I = GDT::nodes_begin(t),
+       E = GDT::nodes_end(t); I != E; ++I) {
+    for (typename GDN::ChildIteratorType II = GDN::child_begin(*I),
+         EE = GDN::child_end(*I); II != EE; ++II) {
+      int srcidx = g.map[I->getBlock()];
+      node_t *dst = g.Nodes[g.map[(*II)->getBlock()]];
+      g.Succs[srcidx].push_back(dst);
     }
-    N = PDT.getNode(I);
-    if (!N->getNumChildren()) {
-      DEBUG(dbgs() << I->getName() << " is a post-dom-leaf\n");
-      leaves.PDT.insert(I);
+  }
+}
+
+BasicBlock *escapesLeaf(std::vector<node_t*> &SCC) {
+  for (std::vector<node_t*>::iterator I = SCC.begin(),
+       E = SCC.end(); I != E; ++I) {
+    graph_t *g = (*I)->G;
+    for (adj_t::iterator SI = g->Succs[(*I)->Idx].begin(),
+         SE = g->Succs[(*I)->Idx].end(); SI != SE; ++SI) {
+      if (std::find(SCC.begin(), SCC.end(), *SI) == SCC.end())
+        return g->Blocks[(*I)->Idx];
     }
   }
 
-  std::list<BasicBlock*> inters;
-  std::set_intersection(leaves.DT.begin(), leaves.DT.end(),
-                        leaves.PDT.begin(), leaves.PDT.end(),
-                        std::back_inserter(inters));
+  return NULL;
+}
 
-  std::map<BasicBlock*, int> SCCMap;
+//
+// Pass implementation
+//
+
+bool DomLeaves::runOnFunction(Function &F) {
+
+  DominatorTree &DT = getAnalysis<DominatorTree>();
+  PostDominatorTree &PDT = getAnalysis<PostDominatorTree>();
+
+  graph_t G;
+
+  for (Function::iterator I = F.begin(), E = F.end(); I != E; ++I) {
+    node_t *N = new node_t(&G, G.Nodes.size());
+    G.Nodes.push_back(N);
+    G.Blocks.push_back(I);
+    G.Succs.push_back(adj_t());
+    G.map[I] = N->Idx;
+  }
+
+
+  copyEdges<DominatorTree, DomTreeNode>(&DT, G);
+  copyEdges<PostDominatorTree, DomTreeNode>(&PDT, G);
+
   unsigned sccNum = 0;
   unsigned sccNonTriv = 0;
+  unsigned leaves = 0;
   DEBUG(errs() << "SCCs for Function " << F.getName() << " in PostOrder:");
-  for (scc_iterator<Function*> SCCI = scc_begin(&F),
-         E = scc_end(&F); SCCI != E; ++SCCI) {
-    std::vector<BasicBlock*> &nextSCC = *SCCI;
+  for (scc_iterator<graph_t*> SCCI = scc_begin(&G),
+         E = scc_end(&G); SCCI != E; ++SCCI) {
+    std::vector<node_t*> &nextSCC = *SCCI;
     DEBUG(errs() << "\nSCC #" << sccNum << " : ");
-    for (std::vector<BasicBlock*>::const_iterator I = nextSCC.begin(),
+    for (std::vector<node_t*>::iterator I = nextSCC.begin(),
            E = nextSCC.end(); I != E; ++I) {
-      SCCMap[*I] = sccNum;
-      DEBUG(errs() << (*I)->getName() << ", ");
+      //SCCMap[*I] = sccNum;
+      BasicBlock *BB = G.Blocks[(*I)->Idx];
+      DEBUG(errs() << BB->getName() << ", ");
+    }
+    BasicBlock *esc = escapesLeaf(nextSCC);
+    if (esc)
+      DEBUG(dbgs() << "  (" << esc->getName() << " escapes SCC)");
+    else {
+      DEBUG(dbgs() << "  (leaf)");
+      leaves++;
     }
     if (nextSCC.size() > 1)
       sccNonTriv++;
@@ -86,31 +180,61 @@ bool DomLeaves::runOnFunction(Function &F) {
   }
   DEBUG(errs() << "\n");
 
-  std::vector<int> SCCs;
-  for (std::list<BasicBlock*>::iterator I = inters.begin(), E = inters.end();
-       E != I; ++I) {
-    DEBUG(dbgs() << "leaf: " << (*I)->getName() << "\n");
-    SCCs.push_back(SCCMap[*I]);
-    DEBUG(dbgs() << "scc idx: " << SCCMap[*I] << "\n");
-  }
-
-  std::sort(SCCs.begin(), SCCs.end());
-  SCCs.resize(std::unique(SCCs.begin(), SCCs.end()) - SCCs.begin());
 
   DEBUG(DT.dump());
   DEBUG(PDT.dump());
+
+  //ViewGraph(&DT, "dom");
+  //ViewGraph(&PDT, "post-dom");
+  //ViewGraph(&G, "combined dominators");
+
+
   std::string err, sep = "\t";
   SmallVector<StringRef, 4> matches;
   Regex rx("([a-z0-9]*).ll");
   assert(rx.isValid(err));
   const std::string &modname = F.getParent()->getModuleIdentifier();
   rx.match(modname, &matches);
-  DEBUG(errs() << "#BBs\t#leaves\t#SCCs\t#SCC-leaves\n");
+  DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\n");
   errs() << (matches.size() > 1 ? matches[1] : StringRef(modname))
     << "::" << F.getName() << sep << F.size() << sep << sccNonTriv
-    << sep << inters.size() <<  sep << SCCs.size() << "\n";
-
-  //ViewGraph(&DT, "dom");
-  //ViewGraph(&PDT, "post-dom");
+    << sep << leaves << "\n";
   return false;
+}
+
+
+//
+// DOT graph drawing
+//
+namespace llvm {
+template<>
+struct DOTGraphTraits<node_t*> : public DefaultDOTGraphTraits {
+
+  DOTGraphTraits (bool isSimple=false)
+    : DefaultDOTGraphTraits(isSimple) {}
+
+  std::string getNodeLabel(node_t *node, node_t *graph) {
+    BasicBlock *BB = node->G->Blocks[node->Idx];
+
+    assert(BB);
+
+    return DOTGraphTraits<const Function*>
+      ::getSimpleNodeLabel(BB, BB->getParent());
+  }
+};
+
+template<>
+struct DOTGraphTraits<graph_t*> : public DOTGraphTraits<node_t*> {
+
+  DOTGraphTraits (bool isSimple=false)
+    : DOTGraphTraits<node_t*>(isSimple) {}
+
+  static std::string getGraphName(graph_t *G) {
+    return "Foo graph";
+  }
+
+  std::string getNodeLabel(node_t *Node, graph_t *G) {
+    return DOTGraphTraits<node_t*>::getNodeLabel(Node, NULL);
+  }
+};
 }
