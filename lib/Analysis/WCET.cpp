@@ -125,6 +125,8 @@ void copyEdges(T_tree *t, graph_t &g) {
   }
 }
 
+// analyze an SCC to find out if it is a leaf, or an edge escapes to another
+// vertex. return that vertex or NULL if it is a leaf
 BasicBlock *escapesLeaf(std::vector<node_t*> &SCC) {
   for (std::vector<node_t*>::iterator I = SCC.begin(),
        E = SCC.end(); I != E; ++I) {
@@ -135,15 +137,22 @@ BasicBlock *escapesLeaf(std::vector<node_t*> &SCC) {
         return g->Blocks[(*I)->Idx];
     }
   }
-
   return NULL;
 }
+
+template<class T>
+struct SizeGreaterOne {
+  bool operator()(const T &t) { return t.size() > 1; }
+  bool operator()(const T *t) { return t->size() > 1; }
+};
 
 //
 // Pass implementation
 //
 
 bool DomLeaves::runOnFunction(Function &F) {
+
+  using namespace std;
 
   DominatorTree &DT = getAnalysis<DominatorTree>();
   PostDominatorTree &PDT = getAnalysis<PostDominatorTree>();
@@ -158,34 +167,39 @@ bool DomLeaves::runOnFunction(Function &F) {
     G.map[I] = N->Idx;
   }
 
-
+  // combine dom and post-dom edges in new graph
   copyEdges<DominatorTree, DomTreeNode>(&DT, G);
   copyEdges<PostDominatorTree, DomTreeNode>(&PDT, G);
 
-  unsigned sccNum = 0;
-  unsigned sccNonTriv = 0;
-  unsigned leaves = 0;
+  typedef std::vector<node_t*> SCC_t;
+  std::vector<SCC_t> SCCs;
+  std::vector<const SCC_t*> leaves;
+  std::vector<bool> isLeaf;
+
+  // prevent any further reallocation (b/c we take pointers)
+  SCCs.reserve(G.Nodes.size());
+
   DEBUG(dbgs() << "SCCs for Function " << F.getName() << " in PostOrder:");
   for (scc_iterator<graph_t*> SCCI = scc_begin(&G),
          E = scc_end(&G); SCCI != E; ++SCCI) {
     std::vector<node_t*> &nextSCC = *SCCI;
+    unsigned sccNum = SCCs.size();
+    SCCs.push_back(nextSCC);
     DEBUG(dbgs() << "\nSCC #" << sccNum << " : ");
     for (std::vector<node_t*>::iterator I = nextSCC.begin(),
            E = nextSCC.end(); I != E; ++I) {
-      //SCCMap[*I] = sccNum;
       BasicBlock *BB = G.Blocks[(*I)->Idx];
       DEBUG(dbgs() << BB->getName() << ", ");
     }
     BasicBlock *esc = escapesLeaf(nextSCC);
-    if (esc)
-      DEBUG(dbgs() << "  (" << esc->getName() << " escapes SCC)");
-    else {
+    if (!esc) {
       DEBUG(dbgs() << "  (leaf)");
-      leaves++;
-    }
-    if (nextSCC.size() > 1)
-      sccNonTriv++;
-    sccNum++;
+      leaves.push_back(&SCCs.back());
+    } else
+      DEBUG(dbgs() << "  (" << esc->getName() << " escapes SCC)");
+
+    isLeaf.push_back(esc ? false : true);
+
   }
   DEBUG(dbgs() << "\n");
 
@@ -196,7 +210,6 @@ bool DomLeaves::runOnFunction(Function &F) {
   //ViewGraph(&DT, "dom");
   //ViewGraph(&PDT, "post-dom");
   //ViewGraph(&G, "combined dominators");
-
 
   std::string err, sep = "\t";
   SmallVector<StringRef, 4> matches;
@@ -216,10 +229,15 @@ bool DomLeaves::runOnFunction(Function &F) {
     dumpGraph(&G, filename);
   }
 
-  DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\n");
+  assert((int) leaves.size() == count(isLeaf.begin(), isLeaf.end(), true));
+
+  DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\t#(non-triv)\n");
   errs() << name
-    << sep << F.size() << sep << sccNonTriv
-    << sep << leaves << "\n";
+    << sep << F.size()
+    << sep << count_if(SCCs.begin(), SCCs.end(), SizeGreaterOne<SCC_t>())
+    << sep << count(isLeaf.begin(), isLeaf.end(), true)
+    << sep << count_if(leaves.begin(), leaves.end(), SizeGreaterOne<SCC_t>())
+    << "\n";
   return false;
 }
 
