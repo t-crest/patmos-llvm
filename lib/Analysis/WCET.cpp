@@ -3,6 +3,7 @@
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
@@ -12,11 +13,17 @@
 #include <list>
 #include <set>
 #include <map>
+#include <sstream>
 
 using namespace llvm;
 
+static cl::opt<bool>
+DumpCDG("dot-domleaves", cl::init(false), cl::Hidden,
+  cl::desc("Dump combined dominator graph."));
+
 namespace {
 
+  class graph_t;
 
   struct DomLeaves : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
@@ -32,6 +39,8 @@ namespace {
     }
 
     virtual bool runOnFunction(Function &F);
+
+    void dumpGraph(graph_t *G, const std::string &name) const;
   };
 }
 
@@ -49,8 +58,7 @@ FunctionPass *llvm::createDomLeavesPass() {
 // Combined dominators graph
 //
 
-class graph_t;
-
+namespace {
 struct node_t {
   graph_t *G;
   int Idx;
@@ -73,6 +81,7 @@ struct graph_t {
       delete *I;
   }
 };
+}
 
 namespace llvm {
 template <> struct GraphTraits<node_t*> {
@@ -156,16 +165,16 @@ bool DomLeaves::runOnFunction(Function &F) {
   unsigned sccNum = 0;
   unsigned sccNonTriv = 0;
   unsigned leaves = 0;
-  DEBUG(errs() << "SCCs for Function " << F.getName() << " in PostOrder:");
+  DEBUG(dbgs() << "SCCs for Function " << F.getName() << " in PostOrder:");
   for (scc_iterator<graph_t*> SCCI = scc_begin(&G),
          E = scc_end(&G); SCCI != E; ++SCCI) {
     std::vector<node_t*> &nextSCC = *SCCI;
-    DEBUG(errs() << "\nSCC #" << sccNum << " : ");
+    DEBUG(dbgs() << "\nSCC #" << sccNum << " : ");
     for (std::vector<node_t*>::iterator I = nextSCC.begin(),
            E = nextSCC.end(); I != E; ++I) {
       //SCCMap[*I] = sccNum;
       BasicBlock *BB = G.Blocks[(*I)->Idx];
-      DEBUG(errs() << BB->getName() << ", ");
+      DEBUG(dbgs() << BB->getName() << ", ");
     }
     BasicBlock *esc = escapesLeaf(nextSCC);
     if (esc)
@@ -178,7 +187,7 @@ bool DomLeaves::runOnFunction(Function &F) {
       sccNonTriv++;
     sccNum++;
   }
-  DEBUG(errs() << "\n");
+  DEBUG(dbgs() << "\n");
 
 
   DEBUG(DT.dump());
@@ -193,15 +202,40 @@ bool DomLeaves::runOnFunction(Function &F) {
   SmallVector<StringRef, 4> matches;
   Regex rx("([a-z0-9]*).ll");
   assert(rx.isValid(err));
-  const std::string &modname = F.getParent()->getModuleIdentifier();
-  rx.match(modname, &matches);
+  const std::string &modid = F.getParent()->getModuleIdentifier();
+  rx.match(modid, &matches);
+  assert(matches.size() > 1 && "unexpected module name");
+
+  std::stringstream ss;
+  ss << matches[1].str() << "::" <<  F.getName().str();
+  std::string name = ss.str();
+
+  if (DumpCDG) {
+    std::string filename = name;
+    std::replace(filename.begin(), filename.end(), ':', '_');
+    dumpGraph(&G, filename);
+  }
+
   DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\n");
-  errs() << (matches.size() > 1 ? matches[1] : StringRef(modname))
-    << "::" << F.getName() << sep << F.size() << sep << sccNonTriv
+  errs() << name
+    << sep << F.size() << sep << sccNonTriv
     << sep << leaves << "\n";
   return false;
 }
 
+void DomLeaves::dumpGraph(graph_t *G, const std::string &name) const {
+  std::string Filename = "cdg." + name + ".dot";
+  dbgs() << "Writing '" << Filename << "'...";
+
+  std::string ErrorInfo;
+  raw_fd_ostream File(Filename.c_str(), ErrorInfo);
+
+  if (ErrorInfo.empty())
+    WriteGraph(File, G);
+  else
+    dbgs() << "  error opening file for writing!";
+  dbgs() << "\n";
+}
 
 //
 // DOT graph drawing
