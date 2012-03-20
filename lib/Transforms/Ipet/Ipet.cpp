@@ -21,44 +21,31 @@ using namespace llvm;
 
 STATISTIC(IpetCounter, "Counts number of functions greeted");
 
-namespace {
+
+namespace ipet {
+  struct BBInstCnt; //FIXME
+
   // Ipet - The first implementation, without getAnalysisUsage.
   struct Ipet : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
     Ipet() : FunctionPass(ID) {}
 
     virtual bool runOnFunction(Function &F) {
+      BBInstCnt &bbic = getAnalysis<BBInstCnt>();
+
       ++IpetCounter;
       errs() << "Ipet: ";
-      errs().write_escaped(F.getName()) << '\n';
-      return false;
-    }
-  };
-}
-
-char Ipet::ID = 0;
-static RegisterPass<Ipet> X("ipet", "Ipet Pass");
-
-namespace {
-  // Ipet2 - The second implementation with getAnalysisUsage implemented.
-  struct Ipet2 : public FunctionPass {
-    static char ID; // Pass identification, replacement for typeid
-    Ipet2() : FunctionPass(ID) {}
-
-    virtual bool runOnFunction(Function &F) {
-      ++IpetCounter;
-      errs() << "Ipet: ";
-      errs().write_escaped(F.getName()) << '\n';
+      errs().write_escaped(F.getName()) << " costmap " << bbic.costs << '\n';
       return false;
     }
 
     // We don't modify the program, so we preserve all analyses
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
+      AU.addRequired<BBInstCnt>();
     }
   };
 }
 
-char Ipet2::ID = 0;
-static RegisterPass<Ipet2>
-Y("ipet2", "Ipet Pass (with getAnalysisUsage implemented)");
+char ipet::Ipet::ID = 0;
+static RegisterPass<ipet::Ipet> X("ipet", "Ipet Pass (with getAnalysisUsage implemented)");

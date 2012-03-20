@@ -7,5 +7,10 @@ P=PATH=$(BUILDDIR)/bin
 %.bc: %.c
 	$(P) clang -O0 -emit-llvm $< -c -o $@
 
-test: hello.bc
-	$(P) opt -load $(BUILDDIR)/lib/Ipet.so -ipet2 < hello.bc > /dev/null
+%.ll: %.c
+	$(P) clang -O0 -emit-llvm -S $< -o $@
+
+test: hello.ll
+	$(P) opt  --debug-pass=Structure \
+                  -load $(BUILDDIR)/lib/libLLVMIpet.so -bbinstcnt \
+                  < $< > /dev/null

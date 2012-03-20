@@ -8,7 +8,7 @@
 ##===----------------------------------------------------------------------===##
 
 LEVEL = ../../..
-LIBRARYNAME = Ipet
+LIBRARYNAME = libLLVMIpet
 LOADABLE_MODULE = 1
 USEDLIBS =
 
