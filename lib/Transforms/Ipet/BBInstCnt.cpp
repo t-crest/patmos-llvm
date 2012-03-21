@@ -13,43 +13,52 @@
 
 #define DEBUG_TYPE "ipet"
 #include "llvm/Pass.h"
-#include "llvm/BasicBlock.h"
+#include "llvm/Module.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Statistic.h"
+
+#include "BBInstCnt.h"
+
 using namespace llvm;
 
 
 namespace ipet {
-  struct BBInstCnt : BasicBlockPass {
-    static char ID; // Pass identification, replacement for typeid
-    BBInstCnt() : BasicBlockPass(ID) {}
 
-    StringMap<int> bbcosts;
 
-    virtual bool runOnBasicBlock(BasicBlock &BB) {
-      int counter = 0;
-      for (BasicBlock::iterator i=BB.begin(), e=BB.end(); i != e; i++) {
-        //errs() << (*i).getOpcodeName() << "\n";
-        counter++;
-      }
-      bbcosts[BB.getName()] = counter;
-      errs() << "BBInstCnt: (";
-      errs().write_escaped(BB.getName()) << ", " << bbcosts[BB.getName()]<< ")\n";
-      return false;
-    }
-
-    // We don't modify the program, so we preserve all analyses
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.setPreservesAll();
-    }
-
-    //FIXME Y U NO work?
-    virtual void print(std::ostream &O, const Module *M) const {
-      O << "Analyzed.\n";
-    }
-  };
+BBInstCnt::~BBInstCnt() {
+  for (StringMap<StringMap<int> *>::const_iterator mi = bbcosts.begin(), me = bbcosts.end(); mi!=me; ++mi) {
+    delete mi->getValue();
+  }
 }
 
-char ipet::BBInstCnt::ID = 0;
-static RegisterPass<ipet::BBInstCnt> X("bbinstcnt", "Basic Block Instruction Counter Pass)");
+bool BBInstCnt::runOnModule(Module &M) {
+  for (Module::iterator mi = M.begin(), me = M.end(); mi != me; ++mi) {
+    StringMap<int> *fmap = new StringMap<int>();
+    bbcosts[mi->getName()] = fmap;
+    for (Function::iterator fi = mi->begin(), fe = mi->end(); fi != fe; ++fi) {
+      (*fmap)[fi->getName()] = fi->size();
+    }
+  }
+  return false;
+}
+
+
+void BBInstCnt::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.setPreservesAll();
+}
+
+void BBInstCnt::print(raw_ostream &OS, const Module *M) const {
+  for (StringMap<StringMap<int> *>::const_iterator mi = bbcosts.begin(), me = bbcosts.end(); mi!=me; ++mi) {
+    OS << mi->getKey() << '\n';
+    StringMap<int> *fmap = mi->getValue();
+    for (StringMap<int>::const_iterator i = fmap->begin(), e = fmap->end(); i!=e; ++i) {
+      OS << "  " << i->getKey() << " " << i->getValue() << '\n';
+    }
+  }
+}
+
+char BBInstCnt::ID = 0;
+static RegisterPass<BBInstCnt> X("bbinstcnt", "Basic Block Instruction Counter Pass");
+
+}

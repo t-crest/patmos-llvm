@@ -1,4 +1,4 @@
-//===- Ipet.cpp - Example code from "Writing an LLVM Pass" ---------------===//
+//===- Ipet.cpp - Generate an ILP problem for WCET Analysis ---------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,45 +7,42 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements two versions of the LLVM "Ipet" pass described
-// in docs/WritingAnLLVMPass.html
+// This file implements a pass to generate an ILP problem.
 //
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "ipet"
 #include "llvm/Pass.h"
-#include "llvm/Function.h"
+#include "llvm/Module.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/Statistic.h"
+#include "BBInstCnt.h"
 using namespace llvm;
 
-STATISTIC(IpetCounter, "Counts number of functions greeted");
+//STATISTIC(SomeCounter, "Counts something");
 
 
 namespace ipet {
-  //struct BBInstCnt; //FIXME
 
-  // Ipet - The first implementation, without getAnalysisUsage.
-  struct Ipet : public FunctionPass {
-    static char ID; // Pass identification, replacement for typeid
-    Ipet() : FunctionPass(ID) {}
+  class Ipet : public ModulePass {
+    public:
+      static char ID; // Pass identification, replacement for typeid
+      Ipet() : ModulePass(ID) {}
 
-    virtual bool runOnFunction(Function &F) {
-      //BBInstCnt &bbic = getAnalysis<BBInstCnt>();
+      virtual bool runOnModule(Module &M) {
+        BBInstCnt &bbic = getAnalysis<BBInstCnt>();
+        //++SomeCounter;//bump
+        errs() << "Ipet: ";
+        errs() << M << " costmap " << &bbic.bbcosts << '\n';
+        return false;
+      }
 
-      ++IpetCounter;
-      errs() << "Ipet: ";
-      //errs().write_escaped(F.getName()) << " costmap " << bbic.costs << '\n';
-      return false;
-    }
-
-    // We don't modify the program, so we preserve all analyses
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.setPreservesAll();
-      //AU.addRequired<BBInstCnt>();
-    }
+      virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+        AU.setPreservesAll();
+        AU.addRequired<BBInstCnt>();
+      }
   };
 }
 
 char ipet::Ipet::ID = 0;
-static RegisterPass<ipet::Ipet> X("ipet", "Ipet Pass (with getAnalysisUsage implemented)");
+static RegisterPass<ipet::Ipet> X("ipet", "IPET Pass");
