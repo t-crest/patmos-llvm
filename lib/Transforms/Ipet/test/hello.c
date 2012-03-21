@@ -1,7 +1,10 @@
 #include <stdio.h>
 
+extern int foo();
+
 void test1() {
-  printf("hello world 1\n");
+  int a = foo();
+  printf("hello world %d\n", a);
 }
 
 int main() {
