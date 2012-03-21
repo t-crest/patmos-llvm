@@ -12,11 +12,15 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "ipet"
+
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/CallGraphSCCPass.h"
+#include "llvm/Analysis/CallGraph.h"
 #include "BBInstCnt.h"
+
 using namespace llvm;
 
 //STATISTIC(SomeCounter, "Counts something");
@@ -24,16 +28,27 @@ using namespace llvm;
 
 namespace ipet {
 
-  class Ipet : public ModulePass {
+  class Ipet : public CallGraphSCCPass {
     public:
       static char ID; // Pass identification, replacement for typeid
-      Ipet() : ModulePass(ID) {}
+      Ipet() : CallGraphSCCPass(ID) {}
 
-      virtual bool runOnModule(Module &M) {
+      virtual bool runOnSCC(CallGraphSCC &SCC) {
         BBInstCnt &bbic = getAnalysis<BBInstCnt>();
-        //++SomeCounter;//bump
+
         errs() << "Ipet: ";
-        errs() << M << " costmap " << &bbic.bbcosts << '\n';
+        //++SomeCounter;//bump
+        if (!SCC.isSingular()) {
+        	errs() << "Not a singular SCC\n";
+        	return false;
+        }
+        Function *F = (*(SCC.begin()))->getFunction();
+        
+        if (!F) {
+        	errs() << "No function\n";
+        	return false;
+        }
+        errs() << F->getName() << ", costmap:\n"; bbic.dump();
         return false;
       }
 

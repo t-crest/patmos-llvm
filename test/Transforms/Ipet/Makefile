@@ -1,5 +1,12 @@
 
-BUILDDIR=../../../../Debug+Asserts
+# for configure+make
+#BUILDDIR=../../../../patmos-llvm-obj/Debug+Asserts
+#LIB=$(BUILDDIR)/lib/libLLVMIpet.so
+
+# for cmake+make
+BUILDDIR=../../../../patmos-llvm-obj/
+LIB=$(BUILDDIR)/lib/Ipet.so
+
 P=PATH=$(BUILDDIR)/bin
 
 .PHONY: all test
@@ -12,6 +19,6 @@ P=PATH=$(BUILDDIR)/bin
 
 test: hello.ll
 	$(P) opt  --debug-pass=Structure \
-                  -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet -bbinstcnt \
+                  -load $(LIB) -ipet -bbinstcnt \
                   -analyze \
                   < $< > $@.out
