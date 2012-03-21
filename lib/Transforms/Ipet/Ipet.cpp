@@ -36,19 +36,25 @@ namespace ipet {
       virtual bool runOnSCC(CallGraphSCC &SCC) {
         BBInstCnt &bbic = getAnalysis<BBInstCnt>();
 
-        errs() << "Ipet: ";
+        errs() << "------- Ipet: ";
         //++SomeCounter;//bump
         if (!SCC.isSingular()) {
-        	errs() << "Not a singular SCC\n";
-        	return false;
-        }
-        Function *F = (*(SCC.begin()))->getFunction();
+        	errs() << "Not a singular SCC; size: " << SCC.size() << "\n";
+        } else {
+        	Function *F = (*(SCC.begin()))->getFunction();
         
-        if (!F) {
-        	errs() << "No function\n";
-        	return false;
-        }
-        errs() << F->getName() << ", costmap:\n"; bbic.dump();
+			if (!F) {
+				errs() << "No function\n";
+				return false;
+			}
+			errs() << F->getName() << "\n";
+       }
+   	   for (CallGraphSCC::iterator it = SCC.begin(); it != SCC.end(); it++) {
+   		  (*it)->dump();
+   	   }
+
+
+        errs() << " - costmap:\n"; bbic.dump();
         return false;
       }
 
@@ -56,6 +62,9 @@ namespace ipet {
         AU.setPreservesAll();
         AU.addRequired<BBInstCnt>();
       }
+
+    private:
+
   };
 }
 

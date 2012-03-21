@@ -7,7 +7,7 @@ static void baz() {
 }
 
 void bar() {
-//    foo();
+    foo();
 }
 
 void foo() {
@@ -25,6 +25,8 @@ int main(int argc, char** argv) {
   } else {
       bar();
   }
+  test1();
+  bar();
   return 0;
 }
 
