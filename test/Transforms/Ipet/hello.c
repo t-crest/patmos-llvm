@@ -18,6 +18,12 @@ void test1() {
   printf("hello world 1\n");
 }
 
+void tricky(int a) {
+    void (*f)(void);
+    f = a ? foo : bar;
+    f();
+}
+
 int main(int argc, char** argv) {
   test1();
   if (argc) {
@@ -25,7 +31,7 @@ int main(int argc, char** argv) {
   } else {
       bar();
   }
-  test1();
+  tricky(argc - 1);
   bar();
   return 0;
 }
