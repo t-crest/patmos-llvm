@@ -25,6 +25,7 @@ DumpCDG("dot-domleaves", cl::init(false), cl::Hidden,
 namespace {
 
   class graph_t;
+  class annotations_t;
 
   struct DomLeaves : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
@@ -75,13 +76,28 @@ struct graph_t {
 
   std::map<BasicBlock*, int> map;
 
-  ~graph_t() {
-    // we own the nodes
-    for (std::vector<node_t*>::iterator I = Nodes.begin(), E = Nodes.end();
-         I != E; ++I)
-      delete *I;
-  }
+  annotations_t *Annotations;
+
+  graph_t() : Annotations(0) {}
+  ~graph_t();
 };
+
+struct annotations_t {
+  std::map<BasicBlock*, int> SCCMap;
+  std::vector<bool> isLeaf;
+  std::vector<int> nonDomSCCs;
+  std::vector<BasicBlock*> nonDomBBs;
+  std::vector<bool> total;
+};
+
+graph_t::~graph_t() {
+  // we own the nodes
+  for (std::vector<node_t*>::iterator I = Nodes.begin(), E = Nodes.end();
+       I != E; ++I)
+    delete *I;
+  // and the annotations object
+  delete Annotations;
+}
 }
 
 namespace llvm {
@@ -254,9 +270,13 @@ bool DomLeaves::runOnFunction(Function &F) {
   std::string name = ss.str();
 
   if (DumpCDG) {
-    std::string filename = name;
-    std::replace(filename.begin(), filename.end(), ':', '_');
-    dumpGraph(&G, filename);
+    G.Annotations = new annotations_t();
+    G.Annotations->SCCMap = SCCMap;
+    G.Annotations->isLeaf = isLeaf;
+    G.Annotations->nonDomSCCs = nonDomSCCs;
+    G.Annotations->nonDomBBs = nonDomBBs;
+    G.Annotations->total = total;
+    dumpGraph(&G, name);
   }
 
   assert((int) leaves.size() == count(isLeaf.begin(), isLeaf.end(), true));
@@ -294,14 +314,16 @@ bool DomLeaves::runOnFunction(Function &F) {
 }
 
 void DomLeaves::dumpGraph(graph_t *G, const std::string &name) const {
-  std::string Filename = "cdg." + name + ".dot";
+  std::string safename = name;
+  std::replace(safename.begin(), safename.end(), ':', '_');
+  std::string Filename = "cdg." + safename + ".dot";
   dbgs() << "Writing '" << Filename << "'...";
 
   std::string ErrorInfo;
   raw_fd_ostream File(Filename.c_str(), ErrorInfo);
 
   if (ErrorInfo.empty())
-    WriteGraph(File, G);
+    WriteGraph(File, G, false, "Combined dominator graph for " + name);
   else
     dbgs() << "  error opening file for writing!";
   dbgs() << "\n";
@@ -317,13 +339,45 @@ struct DOTGraphTraits<node_t*> : public DefaultDOTGraphTraits {
   DOTGraphTraits (bool isSimple=false)
     : DefaultDOTGraphTraits(isSimple) {}
 
-  std::string getNodeLabel(node_t *node, node_t *graph) {
+  std::string getNodeLabel(node_t *node, node_t*) {
     BasicBlock *BB = node->G->Blocks[node->Idx];
 
     assert(BB);
 
-    return DOTGraphTraits<const Function*>
-      ::getSimpleNodeLabel(BB, BB->getParent());
+    std::string str;
+    raw_string_ostream OS(str);
+
+    WriteAsOperand(OS, BB, false);
+    annotations_t *anno = node->G->Annotations;
+    if (anno) {
+      OS << " (#" << anno->SCCMap[BB] << ")";
+    }
+    return OS.str();
+  }
+
+  std::string getNodeAttributes(const node_t *N,
+                                       graph_t *G) {
+    annotations_t *anno = G->Annotations;
+    std::stringstream attr;
+    BasicBlock *BB = G->Blocks[N->Idx];
+    if (anno) {
+      if (anno->isLeaf[getSCCIdx(N, anno)])
+        attr << "color=forestgreen";
+      else
+        attr << "color=black";
+      if (std::find(anno->nonDomBBs.begin(), anno->nonDomBBs.end(),
+                    BB) != anno->nonDomBBs.end())
+        attr << ",fontcolor=firebrick1";
+      if (anno->total[getSCCIdx(N, anno)])
+        attr << ",style=filled,fillcolor=gray89";
+
+    }
+    return attr.str();
+  }
+
+  int getSCCIdx(const node_t *N, annotations_t *A) {
+    assert(A);
+    return A->SCCMap[N->G->Blocks[N->Idx]];
   }
 };
 
@@ -332,10 +386,6 @@ struct DOTGraphTraits<graph_t*> : public DOTGraphTraits<node_t*> {
 
   DOTGraphTraits (bool isSimple=false)
     : DOTGraphTraits<node_t*>(isSimple) {}
-
-  static std::string getGraphName(graph_t *G) {
-    return "Foo graph";
-  }
 
   std::string getNodeLabel(node_t *Node, graph_t *G) {
     return DOTGraphTraits<node_t*>::getNodeLabel(Node, NULL);
