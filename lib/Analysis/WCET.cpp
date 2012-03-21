@@ -2,13 +2,14 @@
 #include "llvm/Analysis/DOTGraphTraitsPass.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
-#include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Regex.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Module.h"
+#include "llvm/Pass.h"
 
 #include <list>
 #include <set>
@@ -158,13 +159,25 @@ bool DomLeaves::runOnFunction(Function &F) {
   PostDominatorTree &PDT = getAnalysis<PostDominatorTree>();
 
   graph_t G;
+  std::vector<BasicBlock*> nonDomBBs;
 
   for (Function::iterator I = F.begin(), E = F.end(); I != E; ++I) {
+    // populate the new graph with nodes
     node_t *N = new node_t(&G, G.Nodes.size());
     G.Nodes.push_back(N);
     G.Blocks.push_back(I);
     G.Succs.push_back(adj_t());
     G.map[I] = N->Idx;
+
+    // critical edge analysis
+    TerminatorInst *TI = I->getTerminator();
+    assert(!isa<IndirectBrInst>(TI) && "fixme: what to do here?");
+    for (unsigned i = 0, e = TI->getNumSuccessors(); i != e; ++i)
+      if (isCriticalEdge(TI, i, false)) {
+        DEBUG(dbgs() << "critical edge found: " << I->getName() << " -- "
+                     << TI->getSuccessor(i)->getName() << "\n");
+        nonDomBBs.push_back(I);
+      }
   }
 
   // combine dom and post-dom edges in new graph
@@ -175,6 +188,7 @@ bool DomLeaves::runOnFunction(Function &F) {
   std::vector<SCC_t> SCCs;
   std::vector<const SCC_t*> leaves;
   std::vector<bool> isLeaf;
+  std::map<BasicBlock*, int> SCCMap;
 
   // prevent any further reallocation (b/c we take pointers)
   SCCs.reserve(G.Nodes.size());
@@ -189,6 +203,7 @@ bool DomLeaves::runOnFunction(Function &F) {
     for (std::vector<node_t*>::iterator I = nextSCC.begin(),
            E = nextSCC.end(); I != E; ++I) {
       BasicBlock *BB = G.Blocks[(*I)->Idx];
+      SCCMap[BB] = sccNum;
       DEBUG(dbgs() << BB->getName() << ", ");
     }
     BasicBlock *esc = escapesLeaf(nextSCC);
@@ -203,9 +218,24 @@ bool DomLeaves::runOnFunction(Function &F) {
   }
   DEBUG(dbgs() << "\n");
 
-
   DEBUG(DT.dump());
   DEBUG(PDT.dump());
+
+  // find blocks (SCCs) that fail to dominate b/c of at least one critical edge
+  std::vector<int> nonDomSCCs;
+  std::vector<bool> total(isLeaf); // add to the leaves for a grand total
+  for (std::vector<BasicBlock*>::iterator I = nonDomBBs.begin(),
+       E = nonDomBBs.end(); I != E; ++I) {
+    assert(SCCMap.count(*I));
+    int sccidx = SCCMap[*I];
+    DEBUG(dbgs() << "non-dominating-BB " << (*I)->getName()
+          << " in SCC #" << sccidx << "\n");
+    nonDomSCCs.push_back(sccidx);
+    total[sccidx] = true;
+  }
+  std::sort(nonDomSCCs.begin(), nonDomSCCs.end());
+  nonDomSCCs.resize(std::unique(nonDomSCCs.begin(), nonDomSCCs.end())
+                    - nonDomSCCs.begin());
 
   //ViewGraph(&DT, "dom");
   //ViewGraph(&PDT, "post-dom");
@@ -231,13 +261,35 @@ bool DomLeaves::runOnFunction(Function &F) {
 
   assert((int) leaves.size() == count(isLeaf.begin(), isLeaf.end(), true));
 
-  DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\t#(non-triv)\n");
+  DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\t#(non-triv)"
+                  "\tnon-dom-BBs"
+                  "\tnon-dom-SCCs"
+                  "\ttotal\n");
   errs() << name
     << sep << F.size()
     << sep << count_if(SCCs.begin(), SCCs.end(), SizeGreaterOne<SCC_t>())
     << sep << count(isLeaf.begin(), isLeaf.end(), true)
     << sep << count_if(leaves.begin(), leaves.end(), SizeGreaterOne<SCC_t>())
+    << sep << nonDomBBs.size()
+    << sep << nonDomSCCs.size()
+    << sep << count(total.begin(), total.end(), true)
     << "\n";
+
+  for (int i = 0, e = nonDomSCCs.size(); i < e; ++i) {
+    SCC_t &SCC = SCCs[nonDomSCCs[i]];
+    errs() << ";nonDomSCC-Info(" << name << ") #" << nonDomSCCs[i];
+    if (isLeaf[nonDomSCCs[i]]) errs() << " [isLeaf]";
+    errs() << ": ";
+    for (SCC_t::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
+      BasicBlock *BB = G.Blocks[(*I)->Idx];
+      errs() << BB->getName();
+      if (std::find(nonDomBBs.begin(), nonDomBBs.end(), BB) != nonDomBBs.end())
+        errs() << "*";
+      errs() << ", ";
+    }
+    errs() << "\n";
+  }
+
   return false;
 }
 
