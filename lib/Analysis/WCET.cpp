@@ -84,10 +84,11 @@ struct graph_t {
 
 struct annotations_t {
   std::map<BasicBlock*, int> SCCMap;
-  std::vector<bool> isLeaf;
+  std::vector<bool> leafSCCs;
   std::vector<int> nonDomSCCs;
   std::vector<BasicBlock*> nonDomBBs;
-  std::vector<bool> total;
+  std::vector<bool> calcSCCs;
+  std::set<BasicBlock*> derivBBs;
 };
 
 graph_t::~graph_t() {
@@ -163,6 +164,19 @@ struct SizeGreaterOne {
   bool operator()(const T *t) { return t->size() > 1; }
 };
 
+template<class T_IterCFG, class T_IterSCC, class T_Dom>
+bool canDerive(BasicBlock *BB, T_IterCFG succ_begin, T_IterCFG succ_end,
+               T_IterSCC scc_begin, T_IterSCC scc_end, const T_Dom &DT) {
+  for (T_IterCFG SI = succ_begin, SE = succ_end; SI != SE; ++SI) {
+    assert(*SI != BB && "interesting self-loop");
+    if (std::binary_search(scc_begin, scc_end, *SI))
+      return false;
+    if (!DT.dominates(BB, *SI))
+      return false;
+  }
+  return true;
+}
+
 //
 // Pass implementation
 //
@@ -174,8 +188,26 @@ bool DomLeaves::runOnFunction(Function &F) {
   DominatorTree &DT = getAnalysis<DominatorTree>();
   PostDominatorTree &PDT = getAnalysis<PostDominatorTree>();
 
+  // our combined dominator graph (CDG)
   graph_t G;
+
+  // SCC data structures
+  typedef std::vector<node_t*> SCC_t;
+  std::vector<SCC_t> SCCs;
+  std::vector<const SCC_t*> leaves;
+  std::vector<bool> leafSCCs;
+  std::map<BasicBlock*, int> SCCMap;
+
+  // blocks with an outgoing critical edge do not dominate WCET properties
   std::vector<BasicBlock*> nonDomBBs;
+  std::vector<int> nonDomSCCs; // SCCs containing the above blocks
+
+  // blocks on the border of SCCs that can be derived from neighboring blocks
+  // outside their SCC
+  std::set<BasicBlock*> derivBBs;
+
+  // all SCCs that we need to calculate (leaves and non-derivable ones)
+  std::vector<bool> calcSCCs;
 
   for (Function::iterator I = F.begin(), E = F.end(); I != E; ++I) {
     // populate the new graph with nodes
@@ -200,11 +232,6 @@ bool DomLeaves::runOnFunction(Function &F) {
   copyEdges<DominatorTree, DomTreeNode>(&DT, G);
   copyEdges<PostDominatorTree, DomTreeNode>(&PDT, G);
 
-  typedef std::vector<node_t*> SCC_t;
-  std::vector<SCC_t> SCCs;
-  std::vector<const SCC_t*> leaves;
-  std::vector<bool> isLeaf;
-  std::map<BasicBlock*, int> SCCMap;
 
   // prevent any further reallocation (b/c we take pointers)
   SCCs.reserve(G.Nodes.size());
@@ -229,7 +256,7 @@ bool DomLeaves::runOnFunction(Function &F) {
     } else
       DEBUG(dbgs() << "  (" << esc->getName() << " escapes SCC)");
 
-    isLeaf.push_back(esc ? false : true);
+    leafSCCs.push_back(esc ? false : true);
 
   }
   DEBUG(dbgs() << "\n");
@@ -237,9 +264,9 @@ bool DomLeaves::runOnFunction(Function &F) {
   DEBUG(DT.dump());
   DEBUG(PDT.dump());
 
-  // find blocks (SCCs) that fail to dominate b/c of at least one critical edge
-  std::vector<int> nonDomSCCs;
-  std::vector<bool> total(isLeaf); // add to the leaves for a grand total
+  // start with the leaves that we need to calculate for sure
+  calcSCCs = leafSCCs;
+
   for (std::vector<BasicBlock*>::iterator I = nonDomBBs.begin(),
        E = nonDomBBs.end(); I != E; ++I) {
     assert(SCCMap.count(*I));
@@ -247,16 +274,13 @@ bool DomLeaves::runOnFunction(Function &F) {
     DEBUG(dbgs() << "non-dominating-BB " << (*I)->getName()
           << " in SCC #" << sccidx << "\n");
     nonDomSCCs.push_back(sccidx);
-    total[sccidx] = true;
+    calcSCCs[sccidx] = true;
   }
   std::sort(nonDomSCCs.begin(), nonDomSCCs.end());
   nonDomSCCs.resize(std::unique(nonDomSCCs.begin(), nonDomSCCs.end())
                     - nonDomSCCs.begin());
 
-  //ViewGraph(&DT, "dom");
-  //ViewGraph(&PDT, "post-dom");
-  //ViewGraph(&G, "combined dominators");
-
+  // figure out name for statistics output
   std::string err, sep = "\t";
   SmallVector<StringRef, 4> matches;
   Regex rx("([a-z0-9]*).ll");
@@ -264,51 +288,79 @@ bool DomLeaves::runOnFunction(Function &F) {
   const std::string &modid = F.getParent()->getModuleIdentifier();
   rx.match(modid, &matches);
   assert(matches.size() > 1 && "unexpected module name");
-
   std::stringstream ss;
   ss << matches[1].str() << "::" <<  F.getName().str();
   std::string name = ss.str();
 
+
+  // analyse nonDomBBs and impact on their containing SCCs
+  for (int i = 0, e = nonDomSCCs.size(); i < e; ++i) {
+    SCC_t &SCC = SCCs[nonDomSCCs[i]];
+    std::vector<BasicBlock*> cand;
+    std::vector<BasicBlock*> SCCBBs; // XXX ugly overhead for searching
+    errs() << ";nonDomSCC-Info(" << name << ") #" << nonDomSCCs[i];
+    if (leafSCCs[nonDomSCCs[i]]) errs() << " [isLeaf]";
+    errs() << ": ";
+    for (SCC_t::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
+      BasicBlock *BB = G.Blocks[(*I)->Idx];
+      SCCBBs.push_back(BB);
+      errs() << BB->getName();
+      if (std::find(nonDomBBs.begin(), nonDomBBs.end(), BB) != nonDomBBs.end())
+        errs() << "*";
+      else
+        cand.push_back(BB);
+      errs() << ", ";
+    }
+    errs() << "\n";
+    errs() << "; ^--has " << cand.size() << " candidate(s)\n";
+    std::sort(SCCBBs.begin(), SCCBBs.end());
+    for (std::vector<BasicBlock*>::iterator I = cand.begin(), E = cand.end();
+         I != E; ++I) {
+      BasicBlock *BB = *I;
+      // check if any of the candidates can be derived
+      if (canDerive(BB, succ_begin(BB), succ_end(BB), SCCBBs.begin(),
+                     SCCBBs.end(), DT) ||
+          canDerive(BB, pred_begin(BB), pred_end(BB), SCCBBs.begin(),
+                    SCCBBs.end(), PDT)) {
+        // at this point all BB's successors are dominated by BB and outside
+        // its SCC.
+        errs() << ";        ^--"<< BB->getName() << " saves the day\n";
+        derivBBs.insert(BB);
+        calcSCCs[nonDomSCCs[i]] = false;
+      }
+    }
+  }
+
+  //ViewGraph(&DT, "dom");
+  //ViewGraph(&PDT, "post-dom");
+  //ViewGraph(&G, "combined dominators");
+
   if (DumpCDG) {
     G.Annotations = new annotations_t();
     G.Annotations->SCCMap = SCCMap;
-    G.Annotations->isLeaf = isLeaf;
+    G.Annotations->leafSCCs = leafSCCs;
     G.Annotations->nonDomSCCs = nonDomSCCs;
     G.Annotations->nonDomBBs = nonDomBBs;
-    G.Annotations->total = total;
+    G.Annotations->calcSCCs = calcSCCs;
+    G.Annotations->derivBBs = derivBBs;
     dumpGraph(&G, name);
   }
 
-  assert((int) leaves.size() == count(isLeaf.begin(), isLeaf.end(), true));
+  assert((int) leaves.size() == count(leafSCCs.begin(), leafSCCs.end(), true));
 
   DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\t#(non-triv)"
                   "\tnon-dom-BBs"
                   "\tnon-dom-SCCs"
-                  "\ttotal\n");
+                  "\tcalcSCCs\n");
   errs() << name
     << sep << F.size()
     << sep << count_if(SCCs.begin(), SCCs.end(), SizeGreaterOne<SCC_t>())
-    << sep << count(isLeaf.begin(), isLeaf.end(), true)
+    << sep << count(leafSCCs.begin(), leafSCCs.end(), true)
     << sep << count_if(leaves.begin(), leaves.end(), SizeGreaterOne<SCC_t>())
     << sep << nonDomBBs.size()
     << sep << nonDomSCCs.size()
-    << sep << count(total.begin(), total.end(), true)
+    << sep << count(calcSCCs.begin(), calcSCCs.end(), true)
     << "\n";
-
-  for (int i = 0, e = nonDomSCCs.size(); i < e; ++i) {
-    SCC_t &SCC = SCCs[nonDomSCCs[i]];
-    errs() << ";nonDomSCC-Info(" << name << ") #" << nonDomSCCs[i];
-    if (isLeaf[nonDomSCCs[i]]) errs() << " [isLeaf]";
-    errs() << ": ";
-    for (SCC_t::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
-      BasicBlock *BB = G.Blocks[(*I)->Idx];
-      errs() << BB->getName();
-      if (std::find(nonDomBBs.begin(), nonDomBBs.end(), BB) != nonDomBBs.end())
-        errs() << "*";
-      errs() << ", ";
-    }
-    errs() << "\n";
-  }
 
   return false;
 }
@@ -361,14 +413,16 @@ struct DOTGraphTraits<node_t*> : public DefaultDOTGraphTraits {
     std::stringstream attr;
     BasicBlock *BB = G->Blocks[N->Idx];
     if (anno) {
-      if (anno->isLeaf[getSCCIdx(N, anno)])
+      if (anno->leafSCCs[getSCCIdx(N, anno)])
         attr << "color=forestgreen";
       else
         attr << "color=black";
       if (std::find(anno->nonDomBBs.begin(), anno->nonDomBBs.end(),
                     BB) != anno->nonDomBBs.end())
         attr << ",fontcolor=firebrick1";
-      if (anno->total[getSCCIdx(N, anno)])
+      else if (anno->derivBBs.count(BB))
+        attr << ",fontcolor=dodgerblue1";
+      if (anno->calcSCCs[getSCCIdx(N, anno)])
         attr << ",style=filled,fillcolor=gray89";
 
     }
