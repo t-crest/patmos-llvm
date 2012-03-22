@@ -1,18 +1,20 @@
 
 # for configure+make
-#BUILDDIR=../../../../patmos-llvm-obj/Debug+Asserts
+BUILDDIR=../../../../patmos-llvm-obj/Debug+Asserts
 
 # for cmake+eclipse
-BUILDDIR=../../../../patmos-llvm-obj/
-
-#P=PATH=$(BUILDDIR)/bin:$(PATH)
+#BUILDDIR=../../../../patmos-eclipse-obj/
 
 CLANG=$(BUILDDIR)/bin/clang
 OPT=$(BUILDDIR)/bin/opt
 LINK=$(BUILDDIR)/bin/llvm-link
 DIS=$(BUILDDIR)/bin/llvm-dis
 
-.PHONY: all test
+-include config.mk
+
+CLANG := $(shell if [ -e $(CLANG) ]; then echo $(CLANG); else echo clang; fi)
+
+.PHONY: all test clean
 
 %.bc: %.c
 	$(CLANG) -O0 -emit-llvm $< -c -o $@
@@ -30,3 +32,6 @@ test: main.ll
                 -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet -bbinstcnt \
                 -analyze \
                 < $< > $@.out
+
+clean:
+	rm -f *.bc *.ll *.out
