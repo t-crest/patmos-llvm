@@ -1,5 +1,7 @@
 #define DEBUG_TYPE "wcet"
 #include "llvm/ADT/SCCIterator.h"
+#include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/DOTGraphTraitsPass.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/PostDominators.h"
@@ -18,6 +20,8 @@
 #include <sstream>
 
 using namespace llvm;
+
+STATISTIC(NumCallsInSCC, "Number of calls in remaining SCCs");
 
 static cl::opt<bool>
 DumpCDG("dot-domleaves", cl::init(false), cl::Hidden,
@@ -38,6 +42,7 @@ namespace {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.addRequired<DominatorTree>();
       AU.addRequired<PostDominatorTree>();
+      AU.addRequired<CallGraph>();
       AU.setPreservesAll();
     }
 
@@ -64,6 +69,7 @@ std::string field_names[] = {
   "non-dom-BBs",
   "non-dom-SCCs",
   "deriv-BBs",
+  "call-deriv",
   "calcSCCs"
 };
 
@@ -185,6 +191,13 @@ template<class T>
 struct SizeGreaterOne {
   bool operator()(const T &t) { return t.size() > 1; }
   bool operator()(const T *t) { return t->size() > 1; }
+};
+
+template<class T>
+struct PairFirstLess : std::binary_function<T,T,bool> {
+  bool operator() (const T &lhs, const T &rhs) {
+    return lhs.first < rhs.first;
+  }
 };
 
 template<class T_IterCFG, class T_IterSCC, class T_Dom>
@@ -367,6 +380,57 @@ bool DomLeaves::runOnFunction(Function &F) {
 
   assert((int) leaves.size() == count(leafSCCs.begin(), leafSCCs.end(), true));
 
+
+  // IPA
+  std::vector<int> callDerivSCCs;
+  CallGraph& CG = getAnalysis<CallGraph>();
+  CallGraphNode *CGN = CG[&F];
+  do {
+    if (!CGN->size())
+      break;
+
+    DEBUG(dbgs() << "has " << CGN->size() << " call(s)\n");
+    typedef GraphTraits<CallGraphNode*> CGT;
+    std::set<CallGraphNode*> callDests(CGT::child_begin(CGN),
+                                       CGT::child_end(CGN));
+    DEBUG(dbgs() << "with " << callDests.size() << " destination(s)\n");
+
+    if (callDests.size() > 1)
+      break;
+
+    typedef std::pair<int, Instruction*> callsite_t; // <sccidx, instr> pair
+    std::set<callsite_t, PairFirstLess<callsite_t> > diffs;
+
+    // all call sites within the same SCC?
+    for (CallGraphNode::iterator I = CGN->begin(), E = CGN->end(); I != E; ++I)
+      diffs.insert(std::make_pair(
+          SCCMap[dyn_cast<CallInst>(I->first)->getParent()],
+                 dyn_cast<CallInst>(I->first)));
+
+    if (diffs.size() > 1) {
+      DEBUG(dbgs() << "call sites in different SCCs:\n");
+      for (std::set<callsite_t>::iterator I = diffs.begin(), E = diffs.end();
+           I != E; ++I)
+        DEBUG(dbgs() << "SCC #" << I->first << *I->second << "\n");
+    } else {
+      assert(diffs.size() == 1);
+      int sccidx = diffs.begin()->first;
+      if (calcSCCs[sccidx]) {
+        DEBUG(dbgs() << "SCC #" << sccidx << " must not be calculated\n");
+        calcSCCs[sccidx] = false;
+        callDerivSCCs.push_back(sccidx);
+      }
+    }
+  } while(false);
+
+  // count SCCs with calls in them left
+  for (CallGraphNode::iterator I = CGN->begin(), E = CGN->end(); I != E; ++I) {
+    Instruction *call = dyn_cast<CallInst>(I->first);
+    int sccidx = SCCMap[call->getParent()];
+    if (calcSCCs[sccidx])
+      ++NumCallsInSCC;
+  }
+
   std::string sep = "\t";
 
   errs() << name
@@ -381,7 +445,8 @@ bool DomLeaves::runOnFunction(Function &F) {
     << sep << DbgField(6) << nonDomBBs.size()
     << sep << DbgField(7) << nonDomSCCs.size()
     << sep << DbgField(8) << derivBBs.size()
-    << sep << DbgField(9) << count(calcSCCs.begin(), calcSCCs.end(), true)
+    << sep << DbgField(9) << callDerivSCCs.size()
+    << sep << DbgField(10) << count(calcSCCs.begin(), calcSCCs.end(), true)
     << "\n";
 
   return false;
