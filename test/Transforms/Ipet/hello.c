@@ -2,16 +2,20 @@
 
 void foo();
 
+void foo2();
+
 static void baz() {
     foo();
 }
 
 void bar() {
+    foo2();
     foo();
 }
 
 void foo() {
     bar();
+    baz();
 }
 
 void test1() {
