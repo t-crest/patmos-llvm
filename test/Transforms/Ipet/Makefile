@@ -1,5 +1,10 @@
 
-BUILDDIR=../../../../Debug+Asserts
+# for configure+make
+#BUILDDIR=../../../../patmos-llvm-obj/Debug+Asserts
+
+# for cmake+eclipse
+BUILDDIR=../../../../patmos-llvm-obj/
+
 P=PATH=$(BUILDDIR)/bin
 
 .PHONY: all test

@@ -1,4 +1,4 @@
-add_llvm_loadable_module( Ipet
+add_llvm_loadable_module( libLLVMIpet
   BBInstCnt.cpp
   Ipet.cpp
   )
