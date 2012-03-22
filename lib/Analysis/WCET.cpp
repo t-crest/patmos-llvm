@@ -1,3 +1,4 @@
+#define DEBUG_TYPE "wcet"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/Analysis/DOTGraphTraitsPass.h"
 #include "llvm/Analysis/Passes.h"
@@ -43,6 +44,7 @@ namespace {
     virtual bool runOnFunction(Function &F);
 
     void dumpGraph(graph_t *G, const std::string &name) const;
+    std::string getNameForOutput(const Function &F) const;
   };
 }
 
@@ -55,6 +57,27 @@ FunctionPass *llvm::createDomLeavesPass() {
   return new DomLeaves();
 }
 
+// debug output helper
+std::string field_names[] = {
+  "name", "BBs", "SCCs", "leaves", "(non-triv)",
+  "crit-edges",
+  "non-dom-BBs",
+  "non-dom-SCCs",
+  "deriv-BBs",
+  "calcSCCs"
+};
+
+struct DbgField {
+  std::string field;
+  DbgField(int i) : field(field_names[i]) {}
+  std::string get() const { return field; }
+};
+
+raw_ostream &operator<<(raw_ostream &os, const DbgField &f) {
+  if (DebugFlag && isCurrentDebugType(DEBUG_TYPE))
+    os << f.get() << ":";
+  return os;
+}
 
 //
 // Combined dominators graph
@@ -209,6 +232,8 @@ bool DomLeaves::runOnFunction(Function &F) {
   // all SCCs that we need to calculate (leaves and non-derivable ones)
   std::vector<bool> calcSCCs;
 
+  unsigned numCritEdges = 0;
+
   for (Function::iterator I = F.begin(), E = F.end(); I != E; ++I) {
     // populate the new graph with nodes
     node_t *N = new node_t(&G, G.Nodes.size());
@@ -225,8 +250,12 @@ bool DomLeaves::runOnFunction(Function &F) {
         DEBUG(dbgs() << "critical edge found: " << I->getName() << " -- "
                      << TI->getSuccessor(i)->getName() << "\n");
         nonDomBBs.push_back(I);
+        numCritEdges++;
       }
   }
+  std::sort(nonDomBBs.begin(), nonDomBBs.end());
+  nonDomBBs.resize(std::unique(nonDomBBs.begin(), nonDomBBs.end())
+                    - nonDomBBs.begin());
 
   // combine dom and post-dom edges in new graph
   copyEdges<DominatorTree, DomTreeNode>(&DT, G);
@@ -281,17 +310,7 @@ bool DomLeaves::runOnFunction(Function &F) {
                     - nonDomSCCs.begin());
 
   // figure out name for statistics output
-  std::string err, sep = "\t";
-  SmallVector<StringRef, 4> matches;
-  Regex rx("([a-z0-9]*).ll");
-  assert(rx.isValid(err));
-  const std::string &modid = F.getParent()->getModuleIdentifier();
-  rx.match(modid, &matches);
-  assert(matches.size() > 1 && "unexpected module name");
-  std::stringstream ss;
-  ss << matches[1].str() << "::" <<  F.getName().str();
-  std::string name = ss.str();
-
+  std::string name = getNameForOutput(F);
 
   // analyse nonDomBBs and impact on their containing SCCs
   for (int i = 0, e = nonDomSCCs.size(); i < e; ++i) {
@@ -348,18 +367,21 @@ bool DomLeaves::runOnFunction(Function &F) {
 
   assert((int) leaves.size() == count(leafSCCs.begin(), leafSCCs.end(), true));
 
-  DEBUG(errs() << "name\t#BBs\t#SCCs\t#leaves\t#(non-triv)"
-                  "\tnon-dom-BBs"
-                  "\tnon-dom-SCCs"
-                  "\tcalcSCCs\n");
+  std::string sep = "\t";
+
   errs() << name
-    << sep << F.size()
-    << sep << count_if(SCCs.begin(), SCCs.end(), SizeGreaterOne<SCC_t>())
-    << sep << count(leafSCCs.begin(), leafSCCs.end(), true)
-    << sep << count_if(leaves.begin(), leaves.end(), SizeGreaterOne<SCC_t>())
-    << sep << nonDomBBs.size()
-    << sep << nonDomSCCs.size()
-    << sep << count(calcSCCs.begin(), calcSCCs.end(), true)
+    << sep << DbgField(1) << F.size()
+    << sep << DbgField(2)
+           << count_if(SCCs.begin(), SCCs.end(), SizeGreaterOne<SCC_t>())
+    << sep << DbgField(3)
+           << count(leafSCCs.begin(), leafSCCs.end(), true)
+    << sep << DbgField(4)
+           << count_if(leaves.begin(), leaves.end(), SizeGreaterOne<SCC_t>())
+    << sep << DbgField(5) << numCritEdges
+    << sep << DbgField(6) << nonDomBBs.size()
+    << sep << DbgField(7) << nonDomSCCs.size()
+    << sep << DbgField(8) << derivBBs.size()
+    << sep << DbgField(9) << count(calcSCCs.begin(), calcSCCs.end(), true)
     << "\n";
 
   return false;
@@ -379,6 +401,19 @@ void DomLeaves::dumpGraph(graph_t *G, const std::string &name) const {
   else
     dbgs() << "  error opening file for writing!";
   dbgs() << "\n";
+}
+
+std::string DomLeaves::getNameForOutput(const Function &F) const {
+  SmallVector<StringRef, 4> matches;
+  std::string err;
+  Regex rx("([a-z0-9]*).ll");
+  assert(rx.isValid(err));
+  const std::string &modid = F.getParent()->getModuleIdentifier();
+  rx.match(modid, &matches);
+  assert(matches.size() > 1 && "unexpected module name");
+  std::stringstream ss;
+  ss << matches[1].str() << "::" <<  F.getName().str();
+  return ss.str();
 }
 
 //
