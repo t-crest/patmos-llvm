@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "ipet"
 
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
@@ -19,7 +18,9 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Analysis/CallGraph.h"
+
 #include "BBInstCnt.h"
+#include "Ipet.h"
 
 using namespace llvm;
 
@@ -27,44 +28,40 @@ using namespace llvm;
 
 namespace ipet {
 
-  class Ipet: public CallGraphSCCPass {
-    public:
-      static char ID; // Pass identification, replacement for typeid
-      Ipet(): CallGraphSCCPass(ID) {}
+bool Ipet::runOnSCC(CallGraphSCC & SCC) {
+  BBInstCnt & bbic = getAnalysis < BBInstCnt > ();
 
-      virtual bool runOnSCC(CallGraphSCC & SCC) {
-        BBInstCnt & bbic = getAnalysis < BBInstCnt > ();
+  errs() << "------- Ipet: ";
+  //++SomeCounter;//bump
+  if (!SCC.isSingular()) {
+    errs() << "Not a singular SCC; size: " <<
+      SCC.size() << "\n";
+  } else {
+    Function *F = (*(SCC.begin()))->getFunction();
 
-        errs() << "------- Ipet: ";
-        //++SomeCounter;//bump
-        if (!SCC.isSingular()) {
-          errs() << "Not a singular SCC; size: " <<
-            SCC.size() << "\n";
-        } else {
-          Function *F = (*(SCC.begin()))->getFunction();
+    if (!F) {
+      errs() << "No function\n";
+      return false;
+    }
+    errs() << F->getName() << "\n";
 
-          if (!F) {
-            errs() << "No function\n";
-            return false;
-          }
-          errs() << F->getName() << "\n";
-        }
-        for (CallGraphSCC::iterator it = SCC.begin();
-            it != SCC.end(); it++) {
-          (*it)->dump();
-        }
+    doIpet(*F);
+  }
+  for (CallGraphSCC::iterator it = SCC.begin();
+      it != SCC.end(); it++) {
+    (*it)->dump();
+  }
 
-        errs() << " - costmap:\n";
-        bbic.dump();
-        return false;
-      }
+  errs() << " - costmap:\n";
+  bbic.dump();
+  return false;
+}
 
-      virtual void getAnalysisUsage(AnalysisUsage & AU) const {
-        AU.setPreservesAll();
-        AU.addRequired<BBInstCnt>();
-      } private:
 
-  };
+void Ipet::doIpet(Function &F) {
+  errs() << "Do Ipet on " << F.getName() << '\n';
+}
+
 }
 
 char ipet::Ipet::ID = 0;

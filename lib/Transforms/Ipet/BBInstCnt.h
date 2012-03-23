@@ -11,6 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef _LLVM_IPET_BBINSTCNT_H_
+#define _LLVM_IPET_BBINSTCNT_H_
+
 //#define DEBUG_TYPE "ipet"
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
@@ -39,3 +42,4 @@ namespace ipet {
   };
 }
 
+#endif // _LLVM_IPET_BBINSTCNT_H_
