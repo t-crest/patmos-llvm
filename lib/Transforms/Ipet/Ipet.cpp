@@ -25,45 +25,44 @@ using namespace llvm;
 
 //STATISTIC(SomeCounter, "Counts something");
 
-
 namespace ipet {
 
-  class Ipet : public CallGraphSCCPass {
+  class Ipet: public CallGraphSCCPass {
     public:
       static char ID; // Pass identification, replacement for typeid
-      Ipet() : CallGraphSCCPass(ID) {}
+      Ipet(): CallGraphSCCPass(ID) {}
 
-      virtual bool runOnSCC(CallGraphSCC &SCC) {
-        BBInstCnt &bbic = getAnalysis<BBInstCnt>();
+      virtual bool runOnSCC(CallGraphSCC & SCC) {
+        BBInstCnt & bbic = getAnalysis < BBInstCnt > ();
 
         errs() << "------- Ipet: ";
         //++SomeCounter;//bump
         if (!SCC.isSingular()) {
-        	errs() << "Not a singular SCC; size: " << SCC.size() << "\n";
+          errs() << "Not a singular SCC; size: " <<
+            SCC.size() << "\n";
         } else {
-        	Function *F = (*(SCC.begin()))->getFunction();
-        
-			if (!F) {
-				errs() << "No function\n";
-				return false;
-			}
-			errs() << F->getName() << "\n";
-       }
-   	   for (CallGraphSCC::iterator it = SCC.begin(); it != SCC.end(); it++) {
-   		  (*it)->dump();
-   	   }
+          Function *F = (*(SCC.begin()))->getFunction();
 
+          if (!F) {
+            errs() << "No function\n";
+            return false;
+          }
+          errs() << F->getName() << "\n";
+        }
+        for (CallGraphSCC::iterator it = SCC.begin();
+            it != SCC.end(); it++) {
+          (*it)->dump();
+        }
 
-        errs() << " - costmap:\n"; bbic.dump();
+        errs() << " - costmap:\n";
+        bbic.dump();
         return false;
       }
 
-      virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+      virtual void getAnalysisUsage(AnalysisUsage & AU) const {
         AU.setPreservesAll();
         AU.addRequired<BBInstCnt>();
-      }
-
-    private:
+      } private:
 
   };
 }

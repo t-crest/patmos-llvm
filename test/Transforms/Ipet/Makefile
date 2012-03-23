@@ -22,6 +22,12 @@ CLANG := $(shell if [ -e $(CLANG) ]; then echo $(CLANG); else echo clang; fi)
 %.ll: %.c
 	$(CLANG) -O0 -emit-llvm -S $< -o $@
 
+%.graphs: %.ll
+	$(OPT) -disable-opt -dot-cfg-only -dot-callgraph $< > /dev/null
+	mkdir -p $@
+	mv *.dot $@
+	for DOTFILE in $@/*.dot; do dot -Tpng $$DOTFILE > $${DOTFILE%.*}.png && rm $$DOTFILE; done
+
 main.bc: hello.ll test.ll
 	$(LINK) $^ -o $@
 main.ll: main.bc
