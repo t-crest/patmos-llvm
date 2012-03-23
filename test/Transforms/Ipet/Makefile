@@ -33,11 +33,12 @@ main.bc: hello.ll test.ll
 main.ll: main.bc
 	$(DIS) $<
 
-test: main.ll
+%: %.ll
 	$(OPT)  --debug-pass=Structure \
                 -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet -bbinstcnt \
+                -loops \
                 -analyze \
-                < $< > $@.out
+                < $< > $@.out 2> $@.err
 
 clean:
 	rm -f *.bc *.ll *.out
