@@ -9,6 +9,12 @@
 //
 // This file implements a pass to generate an ILP problem.
 //
+// TODO support enforcing the WCET path over some nodes (take care of nodes in loops!)
+//
+// TODO construct an overlay graph, containing edges and split nodes for call sites, support indirect calls
+// TODO construct a supergraph for callgraph regions, support SCCs of size > 1, construct global problem?
+// TODO read loop bounds and costs of external calls from file, read flow-facts from file (as separate pass)
+//
 //===----------------------------------------------------------------------===//
 
 
@@ -27,6 +33,12 @@ using namespace llvm;
 //STATISTIC(SomeCounter, "Counts something");
 
 namespace ipet {
+
+bool Ipet::doInitialization(CallGraph &CG) {
+  // TODO initialize all data structures?
+
+  return false;
+}
 
 bool Ipet::runOnSCC(CallGraphSCC & SCC) {
   BBInstCnt & bbic = getAnalysis < BBInstCnt > ();
@@ -60,6 +72,23 @@ bool Ipet::runOnSCC(CallGraphSCC & SCC) {
 
 void Ipet::doIpet(Function &F) {
   errs() << "Do Ipet on " << F.getName() << '\n';
+
+  // initialize (clear all maps, collect edges, construct edge list)
+
+  // initialize lp-solve (create lp-solve instance, add variables)
+
+  // construct objective function (max sum( edge-freq * edge-cost ))
+
+  // construct structural constraints
+
+  // construct flow constraints
+
+  // run lp-solve, handle errors (did not terminate, no solution,..)
+
+  // map results back to edges and basic blocks
+
+  // dump lp-solve file
+
 }
 
 }
