@@ -1,4 +1,4 @@
 add_llvm_loadable_module( libLLVMIpet
-  BBInstCnt.cpp
+  CostProvider.cpp
   Ipet.cpp
   )

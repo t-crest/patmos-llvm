@@ -35,7 +35,7 @@ main.ll: main.bc
 
 %: %.ll
 	$(OPT)  --debug-pass=Structure \
-                -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet -bbinstcnt \
+                -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet \
                 -loops \
                 -analyze \
                 < $< > $@.out 2> $@.err

@@ -18,7 +18,7 @@
 
 #include "llvm/Pass.h"
 #include "llvm/CallGraphSCCPass.h"
-#include "BBInstCnt.h"
+#include "CostProvider.h"
 
 using namespace llvm;
 
@@ -35,7 +35,6 @@ namespace ipet {
 
       virtual void getAnalysisUsage(AnalysisUsage & AU) const {
         AU.setPreservesAll();
-        AU.addRequired<BBInstCnt>();
       }
 
       /**
@@ -60,7 +59,7 @@ namespace ipet {
       // TODO int getCost(BasicBlock &BB, bool localOnly);
 
     private:
-      void doIpet(Function &F);
+      void doIpet(Function &F, CostProvider &CP);
 
       //TODO void initProblem(Function &F);
 

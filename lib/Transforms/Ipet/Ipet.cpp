@@ -25,7 +25,7 @@
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Analysis/CallGraph.h"
 
-#include "BBInstCnt.h"
+#include "CostProvider.h"
 #include "Ipet.h"
 
 using namespace llvm;
@@ -41,7 +41,7 @@ bool Ipet::doInitialization(CallGraph &CG) {
 }
 
 bool Ipet::runOnSCC(CallGraphSCC & SCC) {
-  BBInstCnt & bbic = getAnalysis < BBInstCnt > ();
+  CostProvider *CP = new BasicCostProvider();
 
   errs() << "------- Ipet: ";
   //++SomeCounter;//bump
@@ -57,22 +57,21 @@ bool Ipet::runOnSCC(CallGraphSCC & SCC) {
     }
     errs() << F->getName() << "\n";
 
-    doIpet(*F);
+    doIpet(*F, *CP);
   }
   for (CallGraphSCC::iterator it = SCC.begin();
       it != SCC.end(); it++) {
     (*it)->dump();
   }
-
-  errs() << " - costmap:\n";
-  bbic.dump();
+  delete CP;
   return false;
 }
 
 
-void Ipet::doIpet(Function &F) {
+void Ipet::doIpet(Function &F, CostProvider &CP) {
   errs() << "Do Ipet on " << F.getName() << '\n';
 
+  
   // initialize (clear all maps, collect edges, construct edge list)
 
   // initialize lp-solve (create lp-solve instance, add variables)
