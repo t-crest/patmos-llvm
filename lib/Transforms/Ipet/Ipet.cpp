@@ -41,6 +41,7 @@ bool Ipet::doInitialization(CallGraph &CG) {
 }
 
 bool Ipet::runOnSCC(CallGraphSCC & SCC) {
+  //CostProvider *CP = new SimpleCostProvider();
   CostProvider *CP = new BasicCostProvider();
 
   errs() << "------- Ipet: ";
@@ -71,7 +72,11 @@ bool Ipet::runOnSCC(CallGraphSCC & SCC) {
 void Ipet::doIpet(Function &F, CostProvider &CP) {
   errs() << "Do Ipet on " << F.getName() << '\n';
 
-  
+  for (Function::iterator i=F.begin(), e=F.end(); i!=e; i++) {
+    BasicBlock &B = *i;
+    errs() << B.getName() << " cost: " << CP.getCost(B) << '\n';
+  }
+
   // initialize (clear all maps, collect edges, construct edge list)
 
   // initialize lp-solve (create lp-solve instance, add variables)
