@@ -29,7 +29,7 @@ namespace ipet {
 
 int SimpleCostProvider::getCost(BasicBlock& BB) {
   cur_bb_cost = 0;
-  visitBasicBlock(BB);
+  visit(BB);
   return cur_bb_cost;
 }
 

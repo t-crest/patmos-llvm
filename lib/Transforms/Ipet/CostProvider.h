@@ -46,13 +46,8 @@ namespace ipet {
     public CostProvider, public InstVisitor<SimpleCostProvider> {
     friend class InstVisitor<SimpleCostProvider>;
     //protected:
-      void visitInstruction(Instruction &I) {
-        errs() << "visiting Inst " << I.getName() << '\n';
-        cur_bb_cost++;
-      }
-      void visitLoadInst(LoadInst     &I) { cur_bb_cost += 20;
-        errs() << "visiting Load " << I.getName() << '\n';
-      }
+      void visitInstruction(Instruction &I) { cur_bb_cost++; }
+      void visitLoadInst(LoadInst     &I) { cur_bb_cost += 20; }
       void visitStoreInst(StoreInst   &I) { cur_bb_cost += 20; }
       void visitMul(BinaryOperator    &I) { cur_bb_cost +=  4; }
 

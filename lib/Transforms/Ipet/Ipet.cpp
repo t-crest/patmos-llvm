@@ -41,8 +41,9 @@ bool Ipet::doInitialization(CallGraph &CG) {
 }
 
 bool Ipet::runOnSCC(CallGraphSCC & SCC) {
-  //CostProvider *CP = new SimpleCostProvider();
-  CostProvider *CP = new BasicCostProvider();
+  //TODO find a way to select between cost providers
+  CostProvider *CP = new SimpleCostProvider();
+  //CostProvider *CP = new BasicCostProvider();
 
   errs() << "------- Ipet: ";
   //++SomeCounter;//bump
