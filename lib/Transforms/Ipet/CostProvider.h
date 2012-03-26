@@ -34,13 +34,13 @@ namespace ipet {
       /**
        * Get the WCET for a call site to an unknown function (should be user-provided).
        */
-      virtual int getNonlocalCost(CallSite &CS);
+      virtual int getNonlocalCost(const CallSite &CS);
 
       /**
        * Get the WCET for a call site to a function outside this module (from stored
        * analysis results or something).
        */
-      virtual int getNonlocalCost(CallSite &CS, Function &F);
+      virtual int getNonlocalCost(const CallSite &CS, const Function &F);
   };
 
   class BasicCostProvider : public CostProvider {
@@ -52,11 +52,11 @@ namespace ipet {
         return BB.size();
       }
 
-      virtual int getNonlocalCost(CallSite &CS) {
+      virtual int getNonlocalCost(const CallSite &CS) {
         return 1;
       }
 
-      virtual int getNonlocalCost(CallSite &CS, Function &F) {
+      virtual int getNonlocalCost(const CallSite &CS, Function &F) {
         return 1;
       }
   };
@@ -80,9 +80,9 @@ namespace ipet {
 
       virtual int getLocalCost(BasicBlock& BB);
 
-      virtual int getNonlocalCost(CallSite &CS);
+      virtual int getNonlocalCost(const CallSite &CS);
 
-      virtual int getNonlocalCost(CallSite &CS, Function &F);
+      virtual int getNonlocalCost(const CallSite &CS, const Function &F);
 
     private:
       int cur_bb_cost;

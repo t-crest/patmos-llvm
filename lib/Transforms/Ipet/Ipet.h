@@ -16,9 +16,12 @@
 
 #define DEBUG_TYPE "ipet"
 
+#include <lpsolve/lp_lib.h>
+
 #include "llvm/Pass.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Support/CallSite.h"
+
 #include "CostProvider.h"
 #include "FlowFactProvider.h"
 
@@ -61,21 +64,29 @@ namespace ipet {
       /**
        * Get the execution frequency of a basic block for the worst-case path.
        */
-      uint64_t getWCExecFrequency(BasicBlock &BB);
+      uint64_t getWCExecFrequency(const BasicBlock &BB) const;
 
       /**
        * get the WCET of function F (including subcalls)
        */
-      uint64_t getWCET(Function &F);
+      uint64_t getWCET(const Function &F) const;
+
+      bool hasWCET(const Function &F) const;
 
       /**
-       * Get the costs of one basic block.
+       * Get the costs of one basic block, including nonlocal costs.
        *
        * Get the costs for the basic block from the cost analysis. Add costs of calls (use max costs
        * for indirect calls), use calculated costs for subcalls, or use (user-provided?) costs for external
        * calls.
        */
       uint64_t getCost(BasicBlock &BB);
+
+      /**
+       * Get the nonlocal costs of a call site, using either existing analysis results, a recursive analysis,
+       * or the cost provider for calls to external functions.
+       */
+      uint64_t getNonlocalCost(CallSite &CS, Function &Callee);
 
       /**
        * Run (or rerun) IPET analysis on function F.
@@ -85,6 +96,8 @@ namespace ipet {
        * @return true if the analysis succeeded.
        */
       bool analyze(Function &F);
+
+      bool inProgress(const Function &F) const;
 
       /**
        * Run IPET analysis on a connected subgraph of the call graph.
@@ -96,11 +109,26 @@ namespace ipet {
       //void analyze(ArrayRef<Function> &CC);
 
     private:
-      Function* getCallee(CallSite &CS);
+      Function* getCallee(const CallSite &CS);
 
-      //TODO void initProblem(Function &F);
+      void setWCET(Function &F, uint64_t wcet);
+      void setWCExecFrequency(BasicBlock &BB, uint64_t wcef);
 
-      //TODO void
+      void loadStructure(Function &F);
+
+      lprec *initSolver(Function &F);
+
+      void setObjective(lprec *lp, Function &F);
+
+      void setStructConstraints(lprec *lp, Function &F);
+
+      void setFlowConstraints(lprec *lp, Function &F);
+
+      bool runSolver(lprec *lp);
+
+      void readResults(lprec *lp, Function &F);
+
+      void dumpProblem(lprec *lp, Function &F);
 
       CallGraph        &CG;
       CostProvider     &CP;
@@ -114,6 +142,8 @@ namespace ipet {
 
 
 }
+
+
 
 
 #endif // _LLVM_IPET_H_

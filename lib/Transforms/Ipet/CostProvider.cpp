@@ -33,13 +33,13 @@ int SimpleCostProvider::getLocalCost(BasicBlock& BB) {
   return cur_bb_cost;
 }
 
-int SimpleCostProvider::getNonlocalCost(CallSite &CS) {
+int SimpleCostProvider::getNonlocalCost(const CallSite &CS) {
   // TODO get from somewhere
   errs() << "Warning: assuming nonlocal costs of 100 for call site " << CS << "\n";
   return 100;
 }
 
-int SimpleCostProvider::getNonlocalCost(CallSite &CS, Function &F) {
+int SimpleCostProvider::getNonlocalCost(const CallSite &CS, const Function &F) {
   // TODO get from somewhere
   errs() << "Warning: assuming nonlocal costs of 100 for call site " << CS << ", calling function " << F << "\n";
   return 100;
