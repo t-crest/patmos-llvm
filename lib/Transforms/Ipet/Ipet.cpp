@@ -82,6 +82,7 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
 
 
 void Ipet::reset() {
+  // TODO clear all results
 
 }
 
@@ -206,35 +207,39 @@ Function* Ipet::getCallee(const CallSite &CS) {
 
 void Ipet::loadStructure(Function & F)
 {
+  // TODO find all edges in the CFG
+
 }
-
-
 
 lprec *Ipet::initSolver(Function & F)
 {
-  int cols = 1;
+  int numEdges = 1;
 
-  lprec *lp = make_lp(0, cols);
+  lprec *lp = make_lp(0, numEdges);
 
   return lp;
 }
-
-
 
 void Ipet::setObjective(lprec *lp, Function & F)
 {
   set_maxim(lp);
 
+  // TODO for every edge, get costs of BB at source of edge, add as costs to edge, build objective function
+
 
 }
-
-
 
 void Ipet::setStructConstraints(lprec *lp, Function & F)
 {
+  // TODO add struct constaints for all edges
+
 }
 
+void Ipet::setFlowConstraints(lprec *lp, Function &F)
+{
+  // TODO find all loops, use FlowFactProvider to get loop bounds, add other flow facts?
 
+}
 
 bool Ipet::runSolver(lprec *lp, Function &F)
 {
@@ -278,6 +283,8 @@ void Ipet::cleanup(lprec *lp, Function &F, bool success) {
 
   if (!success) {
     // TODO remove WCET result / inProgress marker
+
+
   }
 }
 
