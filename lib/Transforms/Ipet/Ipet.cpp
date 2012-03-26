@@ -324,11 +324,23 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
   REAL row[1] = { 0 };
   int colno[1] = { 0 };
   add_constraintex(lp, 1, row, colno, EQ, 1);
+  set_row_name(lp, 1, "c_entry");
 
   // TODO add struct constaints for all edges (for entry block, do not forget to add entry edge as input edge!)
+  for (Function::iterator it = F.begin(), end = F.end(); it != end; ++it) {
+    BasicBlock *BB = it;
 
-  // TODO add constraint that exactly one exit edge will be taken (is this required?)
+    // sum over all ingoing edges - sum over all outgoing edges = 0
+    // => row=1 for all ingoing edges, row=-1 for all outgoing edges, row=0 for self-loops)
 
+
+    // collect all exit edges (edge.second == NULL)
+
+  }
+
+  // TODO add constraint that exactly one exit edge will be taken
+
+  //set_row_name(lp, get_Nrows(lp)-1, "c_exit");
 }
 
 void Ipet::setFlowConstraints(lprec *lp, Function &F)
