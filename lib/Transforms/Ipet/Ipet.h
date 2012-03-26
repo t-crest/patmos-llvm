@@ -136,15 +136,24 @@ namespace ipet {
 
       void cleanup(lprec *lp, Function &F, bool success);
 
+      int findEdge(const BasicBlock *source, const BasicBlock *target);
+
       CallGraph        &CG;
       CostProvider     &CP;
       FlowFactProvider &FFP;
 
       typedef ValueMap<const Function *,   uint64_t> FunctionMap;
       typedef ValueMap<const BasicBlock *, uint64_t> BasicBlockMap;
+      typedef ValueMap<const BasicBlock *, size_t>   BBIndexMap;
+
+      typedef std::pair<const BasicBlock *, const BasicBlock *> Edge;
+      typedef std::vector<Edge> EdgeList;
 
       FunctionMap   costWCET;
       BasicBlockMap execFreq;
+
+      EdgeList      edges;
+      BBIndexMap    bbIndexMap;
   };
 
   // TODO IpetPrint pass: print results of Ipet pass (as graph, csv, ...)
