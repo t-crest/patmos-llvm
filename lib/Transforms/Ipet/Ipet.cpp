@@ -275,8 +275,13 @@ lprec *Ipet::initSolver(Function & F)
   set_add_rowmode(lp, TRUE);
 
   for (size_t i = 0; i < edges.size(); i++) {
-    // TODO set name
-    //set_col_name(lp, i, "e");
+    // build edge name
+    std::string edge_name = std::string("e_");
+    edge_name.append(edges[i].first->getName());
+    edge_name.append("__");
+    edge_name.append(edges[i].second->getName());
+
+    set_col_name(lp, i, (char*)edge_name.c_str());
     set_int(lp, i, TRUE);
   }
 
@@ -324,7 +329,7 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
   REAL row[1] = { 0 };
   int colno[1] = { 0 };
   add_constraintex(lp, 1, row, colno, EQ, 1);
-  set_row_name(lp, 1, "c_entry");
+  set_row_name(lp, 1, (char*)"c_entry");
 
   // TODO add struct constaints for all edges (for entry block, do not forget to add entry edge as input edge!)
   for (Function::iterator it = F.begin(), end = F.end(); it != end; ++it) {
@@ -412,7 +417,9 @@ void Ipet::readResults(lprec *lp, Function & F)
 
 void Ipet::dumpProblem(lprec *lp, Function & F)
 {
-  write_lp(lp, "model.lp");
+  std::string fname = std::string(F.getName().str());
+  fname.append(".lp");
+  write_lp(lp, (char*)fname.c_str());
 }
 
 void Ipet::cleanup(lprec *lp, Function &F, bool success) {

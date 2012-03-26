@@ -56,7 +56,7 @@ namespace ipet {
         return 1;
       }
 
-      virtual int getNonlocalCost(const CallSite &CS, Function &F) {
+      virtual int getNonlocalCost(const CallSite &CS, const Function &F) {
         return 1;
       }
   };

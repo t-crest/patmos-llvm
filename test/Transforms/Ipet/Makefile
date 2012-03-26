@@ -37,6 +37,8 @@ main.ll: main.bc
 	$(OPT)  --debug-pass=Structure \
                 -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet \
                 -loops \
+                -scalar-evolution \
+                -sccp -mem2reg -instcombine \
                 -analyze \
                 < $< > $@.out 2> $@.err
 
