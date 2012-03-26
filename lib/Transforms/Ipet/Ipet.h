@@ -21,6 +21,7 @@
 #include "llvm/Pass.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Support/CallSite.h"
+#include "llvm/ADT/ValueMap.h"
 
 #include "CostProvider.h"
 #include "FlowFactProvider.h"
@@ -114,6 +115,9 @@ namespace ipet {
       void setWCET(Function &F, uint64_t wcet);
       void setWCExecFrequency(BasicBlock &BB, uint64_t wcef);
 
+      void setInProgress(const Function &F);
+      void clearInProgress(const Function &F, bool success);
+
       void loadStructure(Function &F);
 
       lprec *initSolver(Function &F);
@@ -136,7 +140,11 @@ namespace ipet {
       CostProvider     &CP;
       FlowFactProvider &FFP;
 
+      typedef ValueMap<const Function *,   uint64_t> FunctionMap;
+      typedef ValueMap<const BasicBlock *, uint64_t> BasicBlockMap;
 
+      FunctionMap   costWCET;
+      BasicBlockMap execFreq;
   };
 
   // TODO IpetPrint pass: print results of Ipet pass (as graph, csv, ...)

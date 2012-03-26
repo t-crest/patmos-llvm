@@ -82,23 +82,22 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
 
 
 void Ipet::reset() {
-  // TODO clear all results
-
+  // clear all results
+  costWCET.clear();
+  execFreq.clear();
 }
 
 uint64_t Ipet::getWCExecFrequency(const BasicBlock &BB) const {
-  // TODO get from map
-  return 0;
+  if (!execFreq.count(&BB)) return 0;
+  return execFreq.lookup(&BB);
 }
 
 uint64_t Ipet::getWCET(const Function &F) const {
-  // TODO get from map
-  return 0;
+  return costWCET.lookup(&F);
 }
 
 bool Ipet::hasWCET(const Function &F) const {
-
-  return false;
+  return costWCET.count(&F);
 }
 
 uint64_t Ipet::getCost(BasicBlock &BB) {
@@ -150,9 +149,19 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
 }
 
 bool Ipet::inProgress(const Function &F) const {
-  // TODO check if we called initialize(F) without calling saveresults(F) (i.e., wcet is set to MAX_UINT64)
+  if (!hasWCET(F)) return false;
+  return getWCET(F) == UINT64_MAX;
+}
 
-  return false;
+void Ipet::setInProgress(const Function &F) {
+  costWCET.erase(&F);
+  costWCET.insert(FunctionMap::value_type(&F, UINT64_MAX));
+}
+
+void Ipet::clearInProgress(const Function &F, bool success) {
+  if (!success) {
+    costWCET.erase(&F);
+  }
 }
 
 bool Ipet::analyze(Function &F) {
@@ -209,6 +218,7 @@ void Ipet::loadStructure(Function & F)
 {
   // TODO find all edges in the CFG
 
+  setInProgress(F);
 }
 
 lprec *Ipet::initSolver(Function & F)
@@ -216,6 +226,8 @@ lprec *Ipet::initSolver(Function & F)
   int numEdges = 1;
 
   lprec *lp = make_lp(0, numEdges);
+
+  set_add_rowmode(lp, TRUE);
 
   return lp;
 }
@@ -226,7 +238,7 @@ void Ipet::setObjective(lprec *lp, Function & F)
 
   // TODO for every edge, get costs of BB at source of edge, add as costs to edge, build objective function
 
-
+  //set_obj_fnex(lp, cnt, row, colno)
 }
 
 void Ipet::setStructConstraints(lprec *lp, Function & F)
@@ -281,11 +293,7 @@ void Ipet::cleanup(lprec *lp, Function &F, bool success) {
 
   // TODO cleanup temp structures
 
-  if (!success) {
-    // TODO remove WCET result / inProgress marker
-
-
-  }
+  clearInProgress(F, success);
 }
 
 }
