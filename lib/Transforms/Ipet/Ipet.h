@@ -146,7 +146,7 @@ namespace ipet {
       typedef ValueMap<const BasicBlock *, uint64_t> BasicBlockMap;
       typedef ValueMap<const BasicBlock *, size_t>   BBIndexMap;
 
-      typedef std::pair<const BasicBlock *, const BasicBlock *> Edge;
+      typedef std::pair<BasicBlock *, BasicBlock *> Edge;
       typedef std::vector<Edge> EdgeList;
 
       FunctionMap   costWCET;

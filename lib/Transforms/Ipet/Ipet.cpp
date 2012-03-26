@@ -177,6 +177,7 @@ bool Ipet::analyze(Function &F) {
     errs() << "Recursive call found for function " << F << ", not implemented!\n";
     return false;
   }
+  setInProgress(F);
 
   // initialize (clear all maps, collect edges, construct edge list)
   loadStructure(F);
@@ -273,7 +274,8 @@ lprec *Ipet::initSolver(Function & F)
 
   set_add_rowmode(lp, TRUE);
 
-  for (int i = 0; i < edges.size(); i++) {
+  for (size_t i = 0; i < edges.size(); i++) {
+    // TODO set name
     //set_col_name(lp, i, "e");
     set_int(lp, i, TRUE);
   }
@@ -285,14 +287,47 @@ void Ipet::setObjective(lprec *lp, Function & F)
 {
   set_maxim(lp);
 
-  // TODO for every edge, get costs of BB at source of edge, add as costs to edge, build objective function
+  // For every edge, get costs of BB at source of edge, add as costs to edge, build objective function
+  // We use the costs of the source BB so that we can support different costs for the terminator instruction
+  // depending on the target)
+  REAL *row = new REAL[edges.size()];
+  int *colno = new int[edges.size()];
+  int cnt = 0;
 
-  //set_obj_fnex(lp, cnt, row, colno)
+  // cost of the entry edge is zero
+  row[0] = 0;
+  colno[0] = 0;
+  cnt++;
+
+  for (size_t i = 1; i < edges.size(); i++) {
+    BasicBlock *source = edges[i].first;
+
+    // TODO we could use different costs for different outgoing edges here (e.g. to have different
+    //  costs for branch-taken and branch-not-taken)
+    uint64_t cost = getCost(*source);
+    if (!cost) continue;
+
+    row[cnt] = cost;
+    colno[cnt] = i;
+    cnt++;
+  }
+
+  set_obj_fnex(lp, cnt, row, colno);
+
+  delete[] row;
+  delete[] colno;
 }
 
 void Ipet::setStructConstraints(lprec *lp, Function & F)
 {
-  // TODO add struct constaints for all edges
+  // add constraint for entry
+  REAL row[1] = { 0 };
+  int colno[1] = { 0 };
+  add_constraintex(lp, 1, row, colno, EQ, 1);
+
+  // TODO add struct constaints for all edges (for entry block, do not forget to add entry edge as input edge!)
+
+  // TODO add constraint that exactly one exit edge will be taken (is this required?)
 
 }
 
@@ -328,8 +363,39 @@ void Ipet::readResults(lprec *lp, Function & F)
 {
   setWCET(F, get_objective(lp));
 
-  // TODO read ef for all edges, sum up all incoming edges to get wcef for basic blocks
+  // read ef for all edges, sum up all outgoing edges to get wcef for basic blocks
+  for (Function::iterator bb = F.begin(), end = F.end(); bb != end; ++bb) {
+    execFreq.erase(bb);
+  }
 
+  REAL *vars;
+  get_ptr_variables(lp, &vars);
+
+  const BasicBlock *curr = NULL;
+  uint64_t ef = 0;
+
+  // skip the entry edge, should be 1
+  for (size_t i = 1; i < edges.size(); i++) {
+    const BasicBlock *source = edges[i].first;
+
+    // next segment in edge array for next source basic block found
+    if (source != curr) {
+      // skip entry edge
+      if (curr != NULL) {
+        execFreq.erase(curr);
+        execFreq.insert(BasicBlockMap::value_type(curr, ef));
+      }
+      ef = 0;
+      curr = source;
+    }
+
+    ef += vars[i];
+  }
+  // update last block
+  if (curr != NULL) {
+    execFreq.erase(curr);
+    execFreq.insert(BasicBlockMap::value_type(curr, ef));
+  }
 }
 
 void Ipet::dumpProblem(lprec *lp, Function & F)
@@ -351,7 +417,7 @@ int Ipet::findEdge(const BasicBlock *source, const BasicBlock *target)
 {
   if (!source) return 0;
 
-  int pos = bbIndexMap.lookup(source);
+  size_t pos = bbIndexMap.lookup(source);
   while (pos < edges.size()) {
     Edge edge = edges[pos];
     if (edge.first != source) {
