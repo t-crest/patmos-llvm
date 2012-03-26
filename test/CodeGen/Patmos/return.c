@@ -1,0 +1,6 @@
+
+void simple(void)
+{
+  return;
+}
+
