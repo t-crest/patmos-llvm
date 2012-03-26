@@ -22,10 +22,16 @@
 using namespace llvm;
 
 STATISTIC(NumCallsInSCC, "Number of calls in remaining SCCs");
+STATISTIC(NumCallsToSingleBlock, "Number of calls from marked SCCs to "
+          "single block functions");
 
 static cl::opt<bool>
 DumpCDG("dot-domleaves", cl::init(false), cl::Hidden,
   cl::desc("Dump combined dominator graph."));
+
+static cl::opt<bool>
+DisableIPA("domleaves-disable-ipa", cl::init(false), cl::Hidden,
+  cl::desc("Disable analysis on the callgraph."));
 
 namespace {
 
@@ -242,6 +248,9 @@ bool DomLeaves::runOnFunction(Function &F) {
   // outside their SCC
   std::set<BasicBlock*> derivBBs;
 
+  // SCCs that can be derived by analyzing callsites
+  std::vector<int> callDerivSCCs;
+
   // all SCCs that we need to calculate (leaves and non-derivable ones)
   std::vector<bool> calcSCCs;
 
@@ -381,8 +390,8 @@ bool DomLeaves::runOnFunction(Function &F) {
   assert((int) leaves.size() == count(leafSCCs.begin(), leafSCCs.end(), true));
 
 
-  // IPA
-  std::vector<int> callDerivSCCs;
+  if (!DisableIPA)
+  { // IPA
   CallGraph& CG = getAnalysis<CallGraph>();
   CallGraphNode *CGN = CG[&F];
   do {
@@ -423,13 +432,20 @@ bool DomLeaves::runOnFunction(Function &F) {
     }
   } while(false);
 
+  static std::vector<Function*> simpleFs;
+
   // count SCCs with calls in them left
   for (CallGraphNode::iterator I = CGN->begin(), E = CGN->end(); I != E; ++I) {
     Instruction *call = dyn_cast<CallInst>(I->first);
     int sccidx = SCCMap[call->getParent()];
-    if (calcSCCs[sccidx])
+    if (calcSCCs[sccidx]) {
       ++NumCallsInSCC;
+      Function *calleeF = I->second->getFunction();
+      if (calleeF && calleeF->size() == 1)
+        ++NumCallsToSingleBlock;
+    }
   }
+  } // end IPA
 
   std::string sep = "\t";
 
