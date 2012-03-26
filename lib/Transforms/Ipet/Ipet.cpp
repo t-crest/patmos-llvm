@@ -24,9 +24,11 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/BasicBlock.h"
 
 #include "CostProvider.h"
 #include "Ipet.h"
+#include "llvm/IntrinsicInst.h"
 
 using namespace llvm;
 
@@ -34,49 +36,94 @@ using namespace llvm;
 
 namespace ipet {
 
-bool Ipet::doInitialization(CallGraph &CG) {
-  // TODO initialize all data structures?
+bool IpetPass::doInitialization(CallGraph &CG) {
+
+  destroy();
+
+  //TODO find a way to select between cost providers
+  CP  = new SimpleCostProvider();
+  // CP = new BasicCostProvider();
+
+  FFP = new SimpleFlowFactProvider();
+
+  IPET = new Ipet(CG, *CP, *FFP);
 
   return false;
 }
 
-bool Ipet::runOnSCC(CallGraphSCC & SCC) {
-  //TODO find a way to select between cost providers
-  CostProvider *CP = new SimpleCostProvider();
-  //CostProvider *CP = new BasicCostProvider();
+void IpetPass::destroy() {
+  if (IPET) delete IPET;
+  if (CP)   delete CP;
+  if (FFP)  delete FFP;
+}
 
-  errs() << "------- Ipet: ";
-  //++SomeCounter;//bump
+bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
+
   if (!SCC.isSingular()) {
-    errs() << "Not a singular SCC; size: " <<
-      SCC.size() << "\n";
+    // TODO call IPET solver for whole SCC
+
+    errs() << "Not a singular SCC; size: " << SCC.size() << "\n";
+
   } else {
     Function *F = (*(SCC.begin()))->getFunction();
-
     if (!F) {
-      errs() << "No function\n";
+      // anything we should do here?
       return false;
     }
-    errs() << F->getName() << "\n";
 
-    doIpet(*F, *CP);
+    IPET->analyze(*F);
   }
-  for (CallGraphSCC::iterator it = SCC.begin();
-      it != SCC.end(); it++) {
-    (*it)->dump();
-  }
-  delete CP;
+
   return false;
 }
 
 
-void Ipet::doIpet(Function &F, CostProvider &CP) {
-  errs() << "Do Ipet on " << F.getName() << '\n';
 
-  for (Function::iterator i=F.begin(), e=F.end(); i!=e; i++) {
-    BasicBlock &B = *i;
-    errs() << B.getName() << " cost: " << CP.getCost(B) << '\n';
+void Ipet::reset() {
+
+}
+
+uint64_t Ipet::getWCExecFrequency(BasicBlock &BB) {
+  // TODO get from map
+  return 0;
+}
+
+uint64_t Ipet::getWCET(Function &F) {
+  // TODO get from map
+  return 0;
+}
+
+uint64_t Ipet::getCost(BasicBlock &BB) {
+  int costs = CP.getLocalCost(BB);
+
+  // add costs of callees for all call sites in the basic block
+  for (BasicBlock::iterator II = BB.begin(), IE = BB.end(); II != IE; ++II) {
+    CallSite CS(cast<Value>(II));
+    if (!CS) continue;
+
+    if (!isa<IntrinsicInst>(II)) {
+      const Function *Callee = getCallee(CS);
+
+      // TODO in case we have more than one callee, get max over all callees
+
+      if (Callee) {
+
+
+      } else {
+        // This is a call to an unknown function, need to ask the cost provider
+        costs += CP.getNonlocalCost(CS);
+      }
+
+    } else {
+      // we have an intrinsic call .. this should already be included in the local costs (?)
+    }
   }
+
+  return costs;
+}
+
+bool Ipet::analyze(Function &F) {
+
 
   // initialize (clear all maps, collect edges, construct edge list)
 
@@ -94,9 +141,15 @@ void Ipet::doIpet(Function &F, CostProvider &CP) {
 
   // dump lp-solve file
 
+  return true;
+}
+
+Function* Ipet::getCallee(CallSite &CS) {
+  // TODO handle function pointer calls, invokes, .. etc, which may call more than one function!
+  return CS.getCalledFunction();
 }
 
 }
 
-char ipet::Ipet::ID = 0;
-static RegisterPass<ipet::Ipet> X("ipet", "IPET Pass");
+char ipet::IpetPass::ID = 0;
+static RegisterPass<ipet::IpetPass> X("ipet", "IPET Pass");

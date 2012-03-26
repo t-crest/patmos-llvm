@@ -20,6 +20,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/InstVisitor.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/CallSite.h"
 //#include "llvm/ADT/Statistic.h"
 using namespace llvm;
 
@@ -28,7 +29,18 @@ namespace ipet {
   class CostProvider {
     public:
       virtual ~CostProvider() {}
-      virtual int getCost(BasicBlock& BB) = 0;
+      virtual int getLocalCost(BasicBlock& BB) = 0;
+
+      /**
+       * Get the WCET for a call site to an unknown function (should be user-provided).
+       */
+      virtual int getNonlocalCost(CallSite &CS);
+
+      /**
+       * Get the WCET for a call site to a function outside this module (from stored
+       * analysis results or something).
+       */
+      virtual int getNonlocalCost(CallSite &CS, Function &F);
   };
 
   class BasicCostProvider : public CostProvider {
@@ -36,8 +48,16 @@ namespace ipet {
       BasicCostProvider() {}
       virtual ~BasicCostProvider() {}
 
-      virtual int getCost(BasicBlock& BB) {
+      virtual int getLocalCost(BasicBlock& BB) {
         return BB.size();
+      }
+
+      virtual int getNonlocalCost(CallSite &CS) {
+        return 1;
+      }
+
+      virtual int getNonlocalCost(CallSite &CS, Function &F) {
+        return 1;
       }
   };
 
@@ -51,13 +71,18 @@ namespace ipet {
       void visitStoreInst(StoreInst   &I) { cur_bb_cost += 20; }
       void visitMul(BinaryOperator    &I) { cur_bb_cost +=  4; }
 
+      // TODO handle call, invoke and intrinsic calls
 
 
     public:
       SimpleCostProvider() : cur_bb_cost(0) {}
       virtual ~SimpleCostProvider() {}
 
-      virtual int getCost(BasicBlock& BB);
+      virtual int getLocalCost(BasicBlock& BB);
+
+      virtual int getNonlocalCost(CallSite &CS);
+
+      virtual int getNonlocalCost(CallSite &CS, Function &F);
 
     private:
       int cur_bb_cost;

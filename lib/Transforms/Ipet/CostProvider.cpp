@@ -1,4 +1,4 @@
-//===- BBInstCnt.cpp - Basic block instruction counter pass ---------------===//
+//===- CostProvider.cpp - Simple Cost Provider Implementation -------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Simple basic block instruction counter analysis pass for IPET on LLIR level.
+// Simple basic block instruction counter analysis for IPET on LLIR level.
 //
 //===----------------------------------------------------------------------===//
 
@@ -27,13 +27,23 @@ namespace ipet {
 
 
 
-int SimpleCostProvider::getCost(BasicBlock& BB) {
+int SimpleCostProvider::getLocalCost(BasicBlock& BB) {
   cur_bb_cost = 0;
   visit(BB);
   return cur_bb_cost;
 }
 
+int SimpleCostProvider::getNonlocalCost(CallSite &CS) {
+  // TODO get from somewhere
+  errs() << "Warning: assuming nonlocal costs of 100 for call site " << CS << "\n";
+  return 100;
+}
 
+int SimpleCostProvider::getNonlocalCost(CallSite &CS, Function &F) {
+  // TODO get from somewhere
+  errs() << "Warning: assuming nonlocal costs of 100 for call site " << CS << ", calling function " << F << "\n";
+  return 100;
+}
 
 
 }
