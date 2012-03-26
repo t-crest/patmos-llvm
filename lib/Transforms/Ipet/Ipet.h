@@ -124,11 +124,13 @@ namespace ipet {
 
       void setFlowConstraints(lprec *lp, Function &F);
 
-      bool runSolver(lprec *lp);
+      bool runSolver(lprec *lp, Function &F);
 
       void readResults(lprec *lp, Function &F);
 
       void dumpProblem(lprec *lp, Function &F);
+
+      void cleanup(lprec *lp, Function &F, bool success);
 
       CallGraph        &CG;
       CostProvider     &CP;

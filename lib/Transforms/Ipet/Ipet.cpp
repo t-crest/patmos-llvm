@@ -180,19 +180,22 @@ bool Ipet::analyze(Function &F) {
 
   // TODO add additional constraints to force WCEP
 
+  // dump lp-solve file
+  // TODO make this optional
+  dumpProblem(lp, F);
+
   // run lp-solve, handle errors (did not terminate, no solution,..)
-  if (!runSolver(lp)) {
+  if (!runSolver(lp, F)) {
+    cleanup(lp, F, false);
     return false;
   }
 
   // map results back to edges and basic blocks
   readResults(lp, F);
 
-  // dump lp-solve file
-  dumpProblem(lp, F);
+  // TODO dump/print results? -> used by IpetPrintPass or something
 
-  // TODO dump results ?
-
+  cleanup(lp, F, true);
   return true;
 }
 
@@ -209,13 +212,20 @@ void Ipet::loadStructure(Function & F)
 
 lprec *Ipet::initSolver(Function & F)
 {
-  return 0;
+  int cols = 1;
+
+  lprec *lp = make_lp(0, cols);
+
+  return lp;
 }
 
 
 
 void Ipet::setObjective(lprec *lp, Function & F)
 {
+  set_maxim(lp);
+
+
 }
 
 
@@ -226,25 +236,50 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
 
 
 
-bool Ipet::runSolver(lprec *lp)
+bool Ipet::runSolver(lprec *lp, Function &F)
 {
+  set_verbose(lp, IMPORTANT);
+  set_timeout(lp, 600);
+  //set_presolve(lp, PRESOLVE_ROWS, 2);
 
-  return true;
+  int ret = solve(lp);
+  if (ret == OPTIMAL || ret == PRESOLVED) {
+    errs() << "Found optimal result for " << F << "\n";
+    return true;
+  }
+  if (ret == SUBOPTIMAL) {
+    errs() << "Found suboptimal result for " << F << "\n";
+    return true;
+  }
+
+  errs() << "Failed to calculate solution for function " << F << ", retcode: " << ret << "\n";
+  return false;
 }
 
 
 
 void Ipet::readResults(lprec *lp, Function & F)
 {
+  setWCET(F, get_objective(lp));
+
+  // TODO read ef for all edges, sum up all incoming edges to get wcef for basic blocks
+
 }
-
-
 
 void Ipet::dumpProblem(lprec *lp, Function & F)
 {
+  write_lp(lp, "model.lp");
 }
 
+void Ipet::cleanup(lprec *lp, Function &F, bool success) {
+  if (lp) delete_lp(lp);
 
+  // TODO cleanup temp structures
+
+  if (!success) {
+    // TODO remove WCET result / inProgress marker
+  }
+}
 
 }
 
