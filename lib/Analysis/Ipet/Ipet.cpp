@@ -17,6 +17,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "ipet"
+
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
 #include "llvm/ADT/Statistic.h"
@@ -25,6 +27,7 @@
 #include "llvm/BasicBlock.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Instructions.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
@@ -71,7 +74,7 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
   if (!SCC.isSingular()) {
     // TODO call IPET solver for whole SCC
 
-    errs() << "Not a singular SCC; size: " << SCC.size() << "\n";
+    DEBUG(errs() << "Not a singular SCC; size: " << SCC.size() << "\n");
 
   } else {
     Function *F = (*(SCC.begin()))->getFunction();
@@ -80,12 +83,24 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
       return false;
     }
 
+    if (F->isDeclaration()) {
+      DEBUG(errs() << "Skipping declaration " << F->getName() << "\n");
+      return false;
+    }
+
+    DEBUG(errs() << "Analyzing function " << F->getName() << "\n");
+
     IPET->analyze(*F);
   }
 
   return false;
 }
 
+void IpetPass::print(raw_ostream &O, const Module *M) const {
+  if (IPET) {
+    IPET->print(O);
+  }
+}
 
 
 void Ipet::reset() {
@@ -295,10 +310,13 @@ lprec *Ipet::initSolver(Function & F)
 
   for (size_t i = 0; i < edges.size(); i++) {
     // build edge name
+    const BasicBlock *source = edges[i].first;
+    const BasicBlock *target = edges[i].second;
+
     std::string edge_name = std::string("e_");
-    edge_name.append(edges[i].first->getName());
+    edge_name.append(source ? source->getName() : "entry");
     edge_name.append("__");
-    edge_name.append(edges[i].second->getName());
+    edge_name.append(target ? target->getName() : "exit");
 
     set_col_name(lp, i+1, (char*)edge_name.c_str());
     set_int(lp, i+1, TRUE);
@@ -491,6 +509,26 @@ void Ipet::cleanup(lprec *lp, Function &F, bool success) {
   bbIndexMap.clear();
 
   clearInProgress(F, success);
+}
+
+void Ipet::print(raw_ostream &O) const
+{
+  O << "Dumping IPET results:\n";
+
+  for (FunctionMap::const_iterator it = costWCET.begin(), end = costWCET.end(); it != end; ++it) {
+    const Function *F = it->first;
+    uint64_t wcet = it->second;
+
+    O << " Result for " << F->getName() << ": WCET " << wcet << "\n";
+
+    for (Function::const_iterator bit = F->begin(), bend = F->end(); bit != bend; ++bit) {
+      const BasicBlock *bb = bit;
+      if (execFreq.count(bb)) {
+        O << "  Block " << bb->getName() << ": ef " << execFreq.lookup(bb) << "\n";
+      }
+    }
+  }
+
 }
 
 int Ipet::findEdge(const BasicBlock *source, const BasicBlock *target)

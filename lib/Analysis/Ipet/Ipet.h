@@ -48,6 +48,8 @@ namespace ipet {
 
       Ipet *getIPET() { return IPET; }
 
+      virtual void print(raw_ostream &O, const Module *M) const;
+
     private:
       void destroy();
 
@@ -110,6 +112,8 @@ namespace ipet {
        * TODO implement.
        */
       //void analyze(ArrayRef<Function> &CC);
+
+      void print(raw_ostream &O) const;
 
     private:
       Function* getCallee(const CallSite &CS);
