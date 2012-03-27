@@ -37,13 +37,13 @@ main.ll: main.bc
 
 %: %.ll
 	rm -f $@.out $@.err
-	(LD_LIBRARY_PATH=/usr/lib/lp_solve $(OPT)  --debug-pass=Structure \
+	(LD_LIBRARY_PATH=/usr/lib/lp_solve $(OPT)  --debug-pass=Structure -debug-only=ipet \
                 -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet \
                 -loops \
                 -scalar-evolution \
                 -sccp -mem2reg -instcombine \
                 -analyze \
-                < $< >> $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
+                < $< | tee -a $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
 
 clean:
 	rm -f *.bc *.ll *.out

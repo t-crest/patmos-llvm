@@ -41,7 +41,7 @@ int SimpleCostProvider::getNonlocalCost(const CallSite &CS) {
 
 int SimpleCostProvider::getNonlocalCost(const CallSite &CS, const Function &F) {
   // TODO get from somewhere
-  errs() << "Warning: assuming nonlocal costs of 100 for call site " << CS << ", calling function " << F << "\n";
+  errs() << "Warning: assuming nonlocal costs of 100 for call site " << CS << ", calling function " << F.getName() << "\n";
   return 100;
 }
 

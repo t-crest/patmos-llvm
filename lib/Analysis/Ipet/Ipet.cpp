@@ -194,11 +194,12 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
   // we have a definition at this point, try to get costs from recursive analysis
 
   if (!hasWCET(Callee)) {
-    if (!analyze(Callee)) {
-      errs() << "Failed to get analysis results for call site " << CS << " calling function " << Callee << "\n";
+    //if (!analyze(Callee)) {
+      errs() << "Failed to get analysis results for call site " << CS <<
+                " calling function " << Callee.getName() << "\n";
       // TODO some error handling
       return 0;
-    }
+    //}
   }
 
   return getWCET(Callee);
@@ -209,7 +210,7 @@ bool Ipet::analyze(Function &F) {
 
   // poor-mans recursion handling: abort if we are within recursive calls
   if (inProgress(F)) {
-    errs() << "Recursive call found for function " << F << ", not implemented!\n";
+    errs() << "Recursive call found for function " << F.getName() << ", not implemented!\n";
     return false;
   }
   setInProgress(F);
@@ -281,6 +282,8 @@ void Ipet::loadStructure(Function & F)
 
   // .. for now, we just construct a simple edge graph containing basic blocks, and null pointer for entry/exit
   // Note: all edges with the same source node are stored sequentially in the vector!
+
+  edges.clear();
 
   // add an entry edge
   edges.push_back(Edge(NULL, &(F.getEntryBlock())));
@@ -451,7 +454,7 @@ bool Ipet::runSolver(lprec *lp, Function &F)
     return true;
   }
 
-  errs() << "Failed to calculate solution for function " << F << ", retcode: " << ret << "\n";
+  errs() << "Failed to calculate solution for function " << F.getName() << ", retcode: " << ret << "\n";
   return false;
 }
 
