@@ -62,6 +62,8 @@ namespace ipet {
 
       void reset();
 
+      void clearResults(Function &F);
+
       /**
        * Get the execution frequency of a basic block for the worst-case path.
        */
@@ -113,7 +115,6 @@ namespace ipet {
       Function* getCallee(const CallSite &CS);
 
       void setWCET(Function &F, uint64_t wcet);
-      void setWCExecFrequency(BasicBlock &BB, uint64_t wcef);
 
       void setInProgress(const Function &F);
       void clearInProgress(const Function &F, bool success);

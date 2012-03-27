@@ -105,7 +105,39 @@ bool Ipet::hasWCET(const Function &F) const {
   return costWCET.count(&F);
 }
 
-uint64_t Ipet::getCost(BasicBlock &BB) {
+bool Ipet::inProgress(const Function &F) const {
+  if (!hasWCET(F)) return false;
+  return getWCET(F) == UINT64_MAX;
+}
+
+void Ipet::setInProgress(const Function &F) {
+  costWCET.erase(&F);
+  costWCET.insert(std::make_pair(&F, UINT64_MAX));
+}
+
+void Ipet::clearInProgress(const Function &F, bool success) {
+  if (!success) {
+    costWCET.erase(&F);
+  }
+}
+
+void Ipet::setWCET(Function &F, uint64_t wcet)
+{
+  costWCET.erase(&F);
+  costWCET.insert(std::make_pair(&F, wcet));
+}
+
+void Ipet::clearResults(Function &F)
+{
+  costWCET.erase(&F);
+
+  for (Function::iterator bb = F.begin(), end = F.end(); bb != end; ++bb) {
+    execFreq.erase(bb);
+  }
+}
+
+uint64_t Ipet::getCost(BasicBlock &BB)
+{
   int costs = CP.getLocalCost(BB);
 
   // add costs of callees for all call sites in the basic block
@@ -140,7 +172,7 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
      return CP.getNonlocalCost(CS, Callee);
   }
 
-  // we have a definition at this point
+  // we have a definition at this point, try to get costs from recursive analysis
 
   if (!hasWCET(Callee)) {
     if (!analyze(Callee)) {
@@ -151,22 +183,6 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
   }
 
   return getWCET(Callee);
-}
-
-bool Ipet::inProgress(const Function &F) const {
-  if (!hasWCET(F)) return false;
-  return getWCET(F) == UINT64_MAX;
-}
-
-void Ipet::setInProgress(const Function &F) {
-  costWCET.erase(&F);
-  costWCET.insert(FunctionMap::value_type(&F, UINT64_MAX));
-}
-
-void Ipet::clearInProgress(const Function &F, bool success) {
-  if (!success) {
-    costWCET.erase(&F);
-  }
 }
 
 bool Ipet::analyze(Function &F) {
@@ -220,6 +236,7 @@ Function* Ipet::getCallee(const CallSite &CS) {
   return CS.getCalledFunction();
 }
 
+
 void Ipet::loadStructure(Function & F)
 {
   // find all edges in the CFG
@@ -253,7 +270,7 @@ void Ipet::loadStructure(Function & F)
   for (Function::iterator it = F.begin(), end = F.end(); it != end; ++it) {
     BasicBlock *BB = it;
 
-    bbIndexMap.insert(BBIndexMap::value_type(BB, edges.size()));
+    bbIndexMap.insert(std::make_pair(BB, edges.size()));
 
     for (succ_iterator SI = succ_begin(BB), E = succ_end(BB); SI != E; ++SI) {
       edges.push_back(Edge(BB, *SI));
@@ -264,8 +281,6 @@ void Ipet::loadStructure(Function & F)
       edges.push_back(Edge(BB, NULL));
     }
   }
-
-  setInProgress(F);
 }
 
 lprec *Ipet::initSolver(Function & F)
@@ -281,8 +296,8 @@ lprec *Ipet::initSolver(Function & F)
     edge_name.append("__");
     edge_name.append(edges[i].second->getName());
 
-    set_col_name(lp, i, (char*)edge_name.c_str());
-    set_int(lp, i, TRUE);
+    set_col_name(lp, i+1, (char*)edge_name.c_str());
+    set_int(lp, i+1, TRUE);
   }
 
   return lp;
@@ -299,10 +314,7 @@ void Ipet::setObjective(lprec *lp, Function & F)
   int *colno = new int[edges.size()];
   int cnt = 0;
 
-  // cost of the entry edge is zero
-  row[0] = 0;
-  colno[0] = 0;
-  cnt++;
+  // cost of the entry edge is zero (no need to set zero value explicitly, skip it)
 
   for (size_t i = 1; i < edges.size(); i++) {
     BasicBlock *source = edges[i].first;
@@ -313,7 +325,7 @@ void Ipet::setObjective(lprec *lp, Function & F)
     if (!cost) continue;
 
     row[cnt] = cost;
-    colno[cnt] = i;
+    colno[cnt] = i+1;
     cnt++;
   }
 
@@ -325,27 +337,74 @@ void Ipet::setObjective(lprec *lp, Function & F)
 
 void Ipet::setStructConstraints(lprec *lp, Function & F)
 {
+  std::vector<REAL> row;
+  std::vector<int> colno;
+
   // add constraint for entry
-  REAL row[1] = { 0 };
-  int colno[1] = { 0 };
-  add_constraintex(lp, 1, row, colno, EQ, 1);
+  row.push_back(1);
+  colno.push_back(1);
+  add_constraintex(lp, 1, &row[0], &colno[0], EQ, 1);
   set_row_name(lp, 1, (char*)"c_entry");
 
-  // TODO add struct constaints for all edges (for entry block, do not forget to add entry edge as input edge!)
+  std::vector<int> exits;
+
+  // add struct constaints for all edges
   for (Function::iterator it = F.begin(), end = F.end(); it != end; ++it) {
     BasicBlock *BB = it;
+    size_t idx = bbIndexMap.lookup(BB);
 
     // sum over all ingoing edges - sum over all outgoing edges = 0
     // => row=1 for all ingoing edges, row=-1 for all outgoing edges, row=0 for self-loops)
+    row.clear();
+    colno.clear();
 
+    // get outgoing edges, excluding self-loops
+    size_t i = idx;
+    while (i < edges.size() && edges[i].first == BB) {
+      const BasicBlock *target = edges[i].second;
 
-    // collect all exit edges (edge.second == NULL)
+      // skip self-loops
+      if (target != BB) {
+        row.push_back(-1);
+        colno.push_back(i+1);
+      }
+      // collect all exit edges
+      if (target == NULL) {
+        exits.push_back(i+1);
+      }
+      i++;
+    }
 
+    // get ingoing edges, excluding self-loops
+    for (pred_iterator pi = pred_begin(BB), end = pred_end(BB); pi != end; ++pi) {
+      if (*pi == BB) continue;
+      int edge = findEdge(*pi, BB);
+
+      row.push_back(1);
+      colno.push_back(edge+1);
+    }
+
+    // for entry block, add entry edge as ingoing edge
+    if (BB == &F.getEntryBlock()) {
+      row.push_back(1);
+      colno.push_back(1);
+    }
+
+    add_constraintex(lp, exits.size(), &row[0], &colno[0], EQ, 1);
+
+    std::string block_name = std::string("b_");
+    block_name.append(BB->getName());
+    set_row_name(lp, get_Nrows(lp)-1, (char*)block_name.c_str());
   }
 
-  // TODO add constraint that exactly one exit edge will be taken
+  // add constraint that exactly one exit edge will be taken
+  row.clear();
+  for (size_t i = 0; i < exits.size(); i++) {
+    row.push_back(1);
+  }
 
-  //set_row_name(lp, get_Nrows(lp)-1, "c_exit");
+  add_constraintex(lp, exits.size(), &row[0], &exits[0], EQ, 1);
+  set_row_name(lp, get_Nrows(lp)-1, (char*)"c_exit");
 }
 
 void Ipet::setFlowConstraints(lprec *lp, Function &F)
@@ -378,13 +437,13 @@ bool Ipet::runSolver(lprec *lp, Function &F)
 
 void Ipet::readResults(lprec *lp, Function & F)
 {
+  // kill old wcet and ef results
+  clearResults(F);
+
+  // store new WCET
   setWCET(F, get_objective(lp));
 
   // read ef for all edges, sum up all outgoing edges to get wcef for basic blocks
-  for (Function::iterator bb = F.begin(), end = F.end(); bb != end; ++bb) {
-    execFreq.erase(bb);
-  }
-
   REAL *vars;
   get_ptr_variables(lp, &vars);
 
@@ -399,8 +458,7 @@ void Ipet::readResults(lprec *lp, Function & F)
     if (source != curr) {
       // skip entry edge
       if (curr != NULL) {
-        execFreq.erase(curr);
-        execFreq.insert(BasicBlockMap::value_type(curr, ef));
+        execFreq.insert(std::make_pair(curr, ef));
       }
       ef = 0;
       curr = source;
@@ -410,8 +468,7 @@ void Ipet::readResults(lprec *lp, Function & F)
   }
   // update last block
   if (curr != NULL) {
-    execFreq.erase(curr);
-    execFreq.insert(BasicBlockMap::value_type(curr, ef));
+    execFreq.insert(std::make_pair(curr, ef));
   }
 }
 
