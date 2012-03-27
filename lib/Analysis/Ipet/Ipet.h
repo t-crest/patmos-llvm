@@ -31,11 +31,12 @@ using namespace llvm;
 namespace ipet {
 
   class Ipet;
+  class IpetResult;
 
   class IpetPass: public CallGraphSCCPass {
     public:
       static char ID; // Pass ID
-      IpetPass(): CallGraphSCCPass(ID), IPET(0), CP(0), FFP(0) {}
+      IpetPass(): CallGraphSCCPass(ID), ipetResult(0), CP(0), FFP(0) {}
       virtual ~IpetPass() { destroy(); }
 
       virtual bool doInitialization(CallGraph &CG);
@@ -46,37 +47,21 @@ namespace ipet {
         AU.setPreservesAll();
       }
 
-      Ipet *getIPET() { return IPET; }
+      IpetResult *getIpetResult() { return ipetResult; }
 
       virtual void print(raw_ostream &O, const Module *M) const;
 
     private:
       void destroy();
 
-      Ipet             *IPET;
+      IpetResult       *ipetResult;
       CostProvider     *CP;
       FlowFactProvider *FFP;
   };
 
   class Ipet {
     public:
-      Ipet(CallGraph &CG, CostProvider &CP, FlowFactProvider &FFP) : CG(CG), CP(CP), FFP(FFP) {}
-
-      void reset();
-
-      void clearResults(Function &F);
-
-      /**
-       * Get the execution frequency of a basic block for the worst-case path.
-       */
-      uint64_t getWCExecFrequency(const BasicBlock &BB) const;
-
-      /**
-       * get the WCET of function F (including subcalls)
-       */
-      uint64_t getWCET(const Function &F) const;
-
-      bool hasWCET(const Function &F) const;
+      Ipet(IpetResult &result);
 
       /**
        * Get the costs of one basic block, including nonlocal costs.
@@ -102,8 +87,6 @@ namespace ipet {
        */
       bool analyze(Function &F);
 
-      bool inProgress(const Function &F) const;
-
       /**
        * Run IPET analysis on a connected subgraph of the call graph.
        *
@@ -113,15 +96,8 @@ namespace ipet {
        */
       //void analyze(ArrayRef<Function> &CC);
 
-      void print(raw_ostream &O) const;
-
     private:
       Function* getCallee(const CallSite &CS);
-
-      void setWCET(Function &F, uint64_t wcet);
-
-      void setInProgress(const Function &F);
-      void clearInProgress(const Function &F, bool success);
 
       void loadStructure(Function &F);
 
@@ -145,22 +121,69 @@ namespace ipet {
 
       int findEdge(const BasicBlock *source, const BasicBlock *target);
 
+      IpetResult       &result;
+
+      CallGraph        &CG;
+      CostProvider     &CP;
+      FlowFactProvider &FFP;
+
+      typedef ValueMap<const BasicBlock *, size_t>   BBIndexMap;
+
+      typedef std::pair<BasicBlock *, BasicBlock *> Edge;
+      typedef std::vector<Edge> EdgeList;
+
+      EdgeList      edges;
+      BBIndexMap    bbIndexMap;
+  };
+
+  class IpetResult {
+    friend class Ipet;
+
+    public:
+      IpetResult(CallGraph &CG, CostProvider &CP, FlowFactProvider &FFP) : CG(CG), CP(CP), FFP(FFP) {}
+
+
+      void reset();
+
+      void clearResults(Function &F);
+
+      /**
+       * Get the execution frequency of a basic block for the worst-case path.
+       */
+      uint64_t getWCExecFrequency(const BasicBlock &BB) const;
+
+      /**
+       * get the WCET of function F (including subcalls)
+       */
+      uint64_t getWCET(const Function &F) const;
+
+      bool hasWCET(const Function &F) const;
+
+      bool inProgress(const Function &F) const;
+
+      void print(raw_ostream &O) const;
+
+      CallGraph &getCallGraph() { return CG; }
+      CostProvider &getCostProvider() { return CP; }
+      FlowFactProvider &getFlowFactProvider() { return FFP; }
+
+    private:
+      void setWCET(Function &F, uint64_t wcet);
+      void setExecFrequency(const BasicBlock &BB, uint64_t freq);
+
+      void setInProgress(const Function &F);
+      void clearInProgress(const Function &F, bool success);
+
       CallGraph        &CG;
       CostProvider     &CP;
       FlowFactProvider &FFP;
 
       typedef ValueMap<const Function *,   uint64_t> FunctionMap;
       typedef ValueMap<const BasicBlock *, uint64_t> BasicBlockMap;
-      typedef ValueMap<const BasicBlock *, size_t>   BBIndexMap;
-
-      typedef std::pair<BasicBlock *, BasicBlock *> Edge;
-      typedef std::vector<Edge> EdgeList;
 
       FunctionMap   costWCET;
       BasicBlockMap execFreq;
 
-      EdgeList      edges;
-      BBIndexMap    bbIndexMap;
   };
 
   // TODO IpetPrint pass: print results of Ipet pass (as graph, csv, ...)

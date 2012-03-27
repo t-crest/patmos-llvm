@@ -58,13 +58,13 @@ bool IpetPass::doInitialization(CallGraph &CG) {
 
   FFP = new SimpleFlowFactProvider();
 
-  IPET = new Ipet(CG, *CP, *FFP);
+  ipetResult = new IpetResult(CG, *CP, *FFP);
 
   return false;
 }
 
 void IpetPass::destroy() {
-  if (IPET) delete IPET;
+  if (ipetResult) delete ipetResult;
   if (CP)   delete CP;
   if (FFP)  delete FFP;
 }
@@ -90,69 +90,27 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
 
     DEBUG(errs() << "Analyzing function " << F->getName() << "\n");
 
-    IPET->analyze(*F);
+    Ipet ipet(*ipetResult);
+
+    ipet.analyze(*F);
   }
 
   return false;
 }
 
 void IpetPass::print(raw_ostream &O, const Module *M) const {
-  if (IPET) {
-    IPET->print(O);
+  if (ipetResult) {
+    ipetResult->print(O);
   }
 }
 
 
-void Ipet::reset() {
-  // clear all results
-  costWCET.clear();
-  execFreq.clear();
-  edges.clear();
-  bbIndexMap.clear();
-}
 
-uint64_t Ipet::getWCExecFrequency(const BasicBlock &BB) const {
-  if (!execFreq.count(&BB)) return 0;
-  return execFreq.lookup(&BB);
-}
 
-uint64_t Ipet::getWCET(const Function &F) const {
-  return costWCET.lookup(&F);
-}
-
-bool Ipet::hasWCET(const Function &F) const {
-  return costWCET.count(&F);
-}
-
-bool Ipet::inProgress(const Function &F) const {
-  if (!hasWCET(F)) return false;
-  return getWCET(F) == UINT64_MAX;
-}
-
-void Ipet::setInProgress(const Function &F) {
-  costWCET.erase(&F);
-  costWCET.insert(std::make_pair(&F, UINT64_MAX));
-}
-
-void Ipet::clearInProgress(const Function &F, bool success) {
-  if (!success) {
-    costWCET.erase(&F);
-  }
-}
-
-void Ipet::setWCET(Function &F, uint64_t wcet)
+Ipet::Ipet(IpetResult &result)
+ : result(result), CG(result.getCallGraph()), CP(result.getCostProvider()),
+   FFP(result.getFlowFactProvider())
 {
-  costWCET.erase(&F);
-  costWCET.insert(std::make_pair(&F, wcet));
-}
-
-void Ipet::clearResults(Function &F)
-{
-  costWCET.erase(&F);
-
-  for (Function::iterator bb = F.begin(), end = F.end(); bb != end; ++bb) {
-    execFreq.erase(bb);
-  }
 }
 
 uint64_t Ipet::getCost(BasicBlock &BB)
@@ -193,27 +151,30 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
 
   // we have a definition at this point, try to get costs from recursive analysis
 
-  if (!hasWCET(Callee)) {
-    //if (!analyze(Callee)) {
+  if (!result.hasWCET(Callee)) {
+
+    Ipet ipet(result);
+
+    if (!ipet.analyze(Callee)) {
       errs() << "Failed to get analysis results for call site " << CS <<
                 " calling function " << Callee.getName() << "\n";
       // TODO some error handling
       return 0;
-    //}
+    }
   }
 
-  return getWCET(Callee);
+  return result.getWCET(Callee);
 }
 
 bool Ipet::analyze(Function &F) {
   // TODO if F is part of a SCC in the call-graph or has any non-local flow-facts, call analyze for whole SCC
 
   // poor-mans recursion handling: abort if we are within recursive calls
-  if (inProgress(F)) {
+  if (result.inProgress(F)) {
     errs() << "Recursive call found for function " << F.getName() << ", not implemented!\n";
     return false;
   }
-  setInProgress(F);
+  result.setInProgress(F);
 
   // initialize (clear all maps, collect edges, construct edge list)
   loadStructure(F);
@@ -453,11 +414,11 @@ bool Ipet::runSolver(lprec *lp, Function &F)
 
   int ret = solve(lp);
   if (ret == OPTIMAL || ret == PRESOLVED) {
-    errs() << "Found optimal result for " << F << "\n";
+    errs() << "Found optimal result for " << F.getName() << "\n";
     return true;
   }
   if (ret == SUBOPTIMAL) {
-    errs() << "Found suboptimal result for " << F << "\n";
+    errs() << "Found suboptimal result for " << F.getName() << "\n";
     return true;
   }
 
@@ -470,10 +431,10 @@ bool Ipet::runSolver(lprec *lp, Function &F)
 void Ipet::readResults(lprec *lp, Function & F)
 {
   // kill old wcet and ef results
-  clearResults(F);
+  result.clearResults(F);
 
   // store new WCET
-  setWCET(F, get_objective(lp));
+  result.setWCET(F, get_objective(lp));
 
   // read ef for all edges, sum up all outgoing edges to get wcef for basic blocks
   REAL *vars;
@@ -490,7 +451,7 @@ void Ipet::readResults(lprec *lp, Function & F)
     if (source != curr) {
       // skip entry edge
       if (curr != NULL) {
-        execFreq.insert(std::make_pair(curr, ef));
+        result.setExecFrequency(*curr, ef);
       }
       ef = 0;
       curr = source;
@@ -500,7 +461,7 @@ void Ipet::readResults(lprec *lp, Function & F)
   }
   // update last block
   if (curr != NULL) {
-    execFreq.insert(std::make_pair(curr, ef));
+    result.setExecFrequency(*curr, ef);
   }
 }
 
@@ -518,27 +479,7 @@ void Ipet::cleanup(lprec *lp, Function &F, bool success) {
   edges.clear();
   bbIndexMap.clear();
 
-  clearInProgress(F, success);
-}
-
-void Ipet::print(raw_ostream &O) const
-{
-  O << "Dumping IPET results:\n";
-
-  for (FunctionMap::const_iterator it = costWCET.begin(), end = costWCET.end(); it != end; ++it) {
-    const Function *F = it->first;
-    uint64_t wcet = it->second;
-
-    O << " Result for " << F->getName() << ": WCET " << wcet << "\n";
-
-    for (Function::const_iterator bit = F->begin(), bend = F->end(); bit != bend; ++bit) {
-      const BasicBlock *bb = bit;
-      if (execFreq.count(bb)) {
-        O << "  Block " << bb->getName() << ": ef " << execFreq.lookup(bb) << "\n";
-      }
-    }
-  }
-
+  result.clearInProgress(F, success);
 }
 
 int Ipet::findEdge(const BasicBlock *source, const BasicBlock *target)
@@ -560,6 +501,85 @@ int Ipet::findEdge(const BasicBlock *source, const BasicBlock *target)
 
   return -1;
 }
+
+
+
+void IpetResult::reset() {
+  // clear all results
+  costWCET.clear();
+  execFreq.clear();
+}
+
+uint64_t IpetResult::getWCExecFrequency(const BasicBlock &BB) const {
+  if (!execFreq.count(&BB)) return 0;
+  return execFreq.lookup(&BB);
+}
+
+uint64_t IpetResult::getWCET(const Function &F) const {
+  return costWCET.lookup(&F);
+}
+
+bool IpetResult::hasWCET(const Function &F) const {
+  return costWCET.count(&F);
+}
+
+bool IpetResult::inProgress(const Function &F) const {
+  if (!hasWCET(F)) return false;
+  return getWCET(F) == UINT64_MAX;
+}
+
+void IpetResult::setInProgress(const Function &F) {
+  costWCET.erase(&F);
+  costWCET.insert(std::make_pair(&F, UINT64_MAX));
+}
+
+void IpetResult::clearInProgress(const Function &F, bool success) {
+  if (!success) {
+    costWCET.erase(&F);
+  }
+}
+
+void IpetResult::setWCET(Function &F, uint64_t wcet)
+{
+  costWCET.erase(&F);
+  costWCET.insert(std::make_pair(&F, wcet));
+}
+
+void IpetResult::setExecFrequency(const BasicBlock &BB, uint64_t freq)
+{
+  // we assume that clearResults(F) has been called!
+  execFreq.insert(std::make_pair(&BB, freq));
+}
+
+void IpetResult::clearResults(Function &F)
+{
+  costWCET.erase(&F);
+
+  for (Function::iterator bb = F.begin(), end = F.end(); bb != end; ++bb) {
+    execFreq.erase(bb);
+  }
+}
+
+void IpetResult::print(raw_ostream &O) const
+{
+  O << "Dumping IPET results:\n";
+
+  for (FunctionMap::const_iterator it = costWCET.begin(), end = costWCET.end(); it != end; ++it) {
+    const Function *F = it->first;
+    uint64_t wcet = it->second;
+
+    O << " Result for " << F->getName() << ": WCET " << wcet << "\n";
+
+    for (Function::const_iterator bit = F->begin(), bend = F->end(); bit != bend; ++bit) {
+      const BasicBlock *bb = bit;
+      if (execFreq.count(bb)) {
+        O << "  Block " << bb->getName() << ": ef " << execFreq.lookup(bb) << "\n";
+      }
+    }
+  }
+
+}
+
 
 }
 
