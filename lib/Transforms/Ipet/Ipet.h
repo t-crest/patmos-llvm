@@ -58,7 +58,7 @@ namespace ipet {
 
   class Ipet {
     public:
-      Ipet(CallGraph &CG, CostProvider &CP, FlowFactProvider &FFP);
+      Ipet(CallGraph &CG, CostProvider &CP, FlowFactProvider &FFP) : CG(CG), CP(CP), FFP(FFP) {}
 
       void reset();
 
