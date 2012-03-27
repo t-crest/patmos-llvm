@@ -232,6 +232,8 @@ bool Ipet::analyze(Function &F) {
 
   // TODO add additional constraints to force WCEP
 
+  finishEntry(lp, F);
+
   // dump lp-solve file
   // TODO make this optional
   dumpProblem(lp, F);
@@ -415,7 +417,7 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
       colno.push_back(1);
     }
 
-    add_constraintex(lp, exits.size(), &row[0], &colno[0], EQ, 1);
+    add_constraintex(lp, colno.size(), &row[0], &colno[0], EQ, 0);
 
     std::string block_name = std::string("b_");
     block_name.append(BB->getName());
@@ -436,6 +438,11 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
 {
   // TODO find all loops, use FlowFactProvider to get loop bounds, add other flow facts?
 
+}
+
+void Ipet::finishEntry(lprec *lp, Function &F)
+{
+  set_add_rowmode(lp, FALSE);
 }
 
 bool Ipet::runSolver(lprec *lp, Function &F)

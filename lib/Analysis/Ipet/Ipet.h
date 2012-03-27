@@ -133,6 +133,8 @@ namespace ipet {
 
       void setFlowConstraints(lprec *lp, Function &F);
 
+      void finishEntry(lprec *lp, Function &F);
+
       bool runSolver(lprec *lp, Function &F);
 
       void readResults(lprec *lp, Function &F);
