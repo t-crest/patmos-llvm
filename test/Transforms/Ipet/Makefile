@@ -34,13 +34,14 @@ main.ll: main.bc
 	$(DIS) $<
 
 %: %.ll
-	$(OPT)  --debug-pass=Structure \
+	rm -f $@.out $@.err
+	($(OPT)  --debug-pass=Structure \
                 -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet \
                 -loops \
                 -scalar-evolution \
                 -sccp -mem2reg -instcombine \
                 -analyze \
-                < $< > $@.out 2> $@.err
+                < $< >> $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
 
 clean:
 	rm -f *.bc *.ll *.out

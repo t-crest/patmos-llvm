@@ -1,4 +1,5 @@
 config.mk
+*.err
 *.out
 *.bc
 *.ll
