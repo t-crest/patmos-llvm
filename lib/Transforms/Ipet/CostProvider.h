@@ -34,13 +34,13 @@ namespace ipet {
       /**
        * Get the WCET for a call site to an unknown function (should be user-provided).
        */
-      virtual int getNonlocalCost(const CallSite &CS);
+      virtual int getNonlocalCost(const CallSite &CS) = 0;
 
       /**
        * Get the WCET for a call site to a function outside this module (from stored
        * analysis results or something).
        */
-      virtual int getNonlocalCost(const CallSite &CS, const Function &F);
+      virtual int getNonlocalCost(const CallSite &CS, const Function &F) = 0;
   };
 
   class BasicCostProvider : public CostProvider {
