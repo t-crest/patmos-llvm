@@ -143,6 +143,15 @@
 /* Define to 1 if you have the <ffi.h> header file. */
 #undef HAVE_FFI_H
 
+/* Define if liblpsolve is available on this platform. */
+#undef HAVE_LPSOLVE_CALL
+
+/* Define to 1 if you have the <lpsolve/lp_lib.h> header file. */
+#undef HAVE_LPSOLVE_LPLIB_H
+
+/* Define to 1 if you have the <lp_lib.h> header file. */
+#undef HAVE_LPLIB_H
+
 /* Set to 1 if the finite function is found in <ieeefp.h> */
 #undef HAVE_FINITE_IN_IEEEFP_H
 

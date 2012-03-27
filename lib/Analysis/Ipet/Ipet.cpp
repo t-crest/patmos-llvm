@@ -17,11 +17,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <lpsolve/lp_lib.h>
-
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Analysis/CallGraph.h"
@@ -30,10 +27,17 @@
 #include "llvm/Instructions.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Config/config.h"
 
 #include "CostProvider.h"
 #include "Ipet.h"
 
+#ifdef HAVE_LPLIB_H
+#include <lp_lib.h>
+#else
+#include <lpsolve/lp_lib.h>
+#endif
 
 using namespace llvm;
 

@@ -145,6 +145,15 @@
 /* Define to 1 if you have the <ffi.h> header file. */
 #cmakedefine HAVE_FFI_H ${HAVE_FFI_H}
 
+/* Define if liblpsolve is available on this platform. */
+#cmakedefine HAVE_LPSOLVE_CALL ${HAVE_LPSOLVE_CALL}
+
+/* Define to 1 if you have the <lpsolve/lp_lib.h> header file. */
+#cmakedefine HAVE_LPSOLVE_LPLIB_H ${HAVE_LPSOLVE_LPLIB_H}
+
+/* Define to 1 if you have the <lp_lib.h> header file. */
+#cmakedefine HAVE_LPLIB_H ${HAVE_LPLIB_H}
+
 /* Set to 1 if the finite function is found in <ieeefp.h> */
 #cmakedefine HAVE_FINITE_IN_IEEEFP_H ${HAVE_FINITE_IN_IEEEFP_H}
 
