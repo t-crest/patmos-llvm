@@ -22,4 +22,5 @@ endif
 
 include $(LEVEL)/Makefile.common
 
-LIBS+= -L/usr/lib/lp_solve -llpsolve55
+#LIBS+= -L/usr/lib/lp_solve -llpsolve55
+LIBS+=/usr/lib/liblpsolve55_pic.a
