@@ -136,6 +136,9 @@ namespace ipet {
       BBIndexMap    bbIndexMap;
   };
 
+
+  // TODO slight misnomer here: holds not only results but also "settings" (CostProvider,..), rename to IpetState or something
+
   class IpetResult {
     friend class Ipet;
 
@@ -161,11 +164,15 @@ namespace ipet {
 
       bool inProgress(const Function &F) const;
 
-      void print(raw_ostream &O) const;
-
       CallGraph &getCallGraph() { return CG; }
       CostProvider &getCostProvider() { return CP; }
       FlowFactProvider &getFlowFactProvider() { return FFP; }
+
+      // TODO maybe separate printing stuff (print, getBlockLabel) to separate Printer class?
+
+      void print(raw_ostream &O) const;
+
+      std::string getBlockLabel(const BasicBlock &BB, const Function &F) const;
 
     private:
       void setWCET(Function &F, uint64_t wcet);

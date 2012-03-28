@@ -44,5 +44,8 @@ main.ll: main.bc
                 -analyze \
                 < $< | tee -a $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
 
+ipet: main.ll
+	$(OPT) --debug-pass=Structure --debug-only=ipet -load $(BUILDDIR)/lib/libLLVMIpet.so -instnamer -ipet -analyze -dot-callgraph -dot-cfg  main.ll
+
 clean:
 	rm -f *.bc *.ll *.out

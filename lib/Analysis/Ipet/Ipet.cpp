@@ -27,6 +27,7 @@
 #include "llvm/BasicBlock.h"
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Instructions.h"
+#include "llvm/Analysis/CFGPrinter.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Casting.h"
@@ -219,7 +220,6 @@ Function* Ipet::getCallee(const CallSite &CS) {
   return CS.getCalledFunction();
 }
 
-
 void Ipet::loadStructure(Function & F)
 {
   // find all edges in the CFG
@@ -280,9 +280,9 @@ lprec *Ipet::initSolver(Function & F)
     const BasicBlock *target = edges[i].second;
 
     std::string edge_name = std::string("e_");
-    edge_name.append(source ? source->getName() : "entry");
+    edge_name.append(source ? result.getBlockLabel(*source, F) : "entry");
     edge_name.append("__");
-    edge_name.append(target ? target->getName() : "exit");
+    edge_name.append(target ? result.getBlockLabel(*target, F) : "exit");
 
     set_col_name(lp, i+1, (char*)edge_name.c_str());
     set_int(lp, i+1, TRUE);
@@ -381,7 +381,8 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
     add_constraintex(lp, colno.size(), &row[0], &colno[0], EQ, 0);
 
     std::string block_name = std::string("b_");
-    block_name.append(BB->getName());
+    block_name.append(result.getBlockLabel(*BB, F));
+
     set_row_name(lp, get_Nrows(lp)-1, (char*)block_name.c_str());
   }
 
@@ -562,7 +563,7 @@ void IpetResult::clearResults(Function &F)
 
 void IpetResult::print(raw_ostream &O) const
 {
-  O << "Dumping IPET results:\n";
+  //O << "Dumping IPET results:\n";
 
   for (FunctionMap::const_iterator it = costWCET.begin(), end = costWCET.end(); it != end; ++it) {
     const Function *F = it->first;
@@ -573,15 +574,20 @@ void IpetResult::print(raw_ostream &O) const
     for (Function::const_iterator bit = F->begin(), bend = F->end(); bit != bend; ++bit) {
       const BasicBlock *bb = bit;
       if (execFreq.count(bb)) {
-        O << "  Block " << bb->getName() << ": ef " << execFreq.lookup(bb) << "\n";
+        O << "   Block " << getBlockLabel(*bb, *F) << ": ef " << execFreq.lookup(bb) << "\n";
       }
     }
   }
+}
 
+std::string IpetResult::getBlockLabel(const BasicBlock &BB, const Function &F) const
+{
+  return DOTGraphTraits<const Function*>::getSimpleNodeLabel(&BB, &F);
 }
 
 
-}
+
+} // namespace ipet
 
 char ipet::IpetPass::ID = 0;
 static RegisterPass<ipet::IpetPass> X("ipet", "IPET Pass");
