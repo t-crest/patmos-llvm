@@ -35,6 +35,7 @@
 #include "llvm/Config/config.h"
 
 #include "CostProvider.h"
+#include "FlowFactProvider.h"
 #include "Ipet.h"
 
 #ifdef HAVE_LPLIB_H
@@ -57,7 +58,7 @@ bool IpetPass::doInitialization(CallGraph &CG) {
   CP  = new SimpleCostProvider();
   // CP = new BasicCostProvider();
 
-  FFP = new SimpleFlowFactProvider();
+  FFP = new SCEVFlowFactProvider();
 
   ipetResult = new IpetResult(CG, *CP, *FFP);
 
@@ -192,8 +193,7 @@ bool Ipet::analyze(Function &F) {
   // construct flow constraints
   setFlowConstraints(lp, F);
 
-  // TODO add additional constraints to force WCEP
-
+  // close entry mode
   finishEntry(lp, F);
 
   // dump lp-solve file
@@ -398,7 +398,95 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
 
 void Ipet::setFlowConstraints(lprec *lp, Function &F)
 {
-  // TODO find all loops, use FlowFactProvider to get loop bounds, add other flow facts?
+  std::vector<REAL> row;
+  std::vector<int> colno;
+
+  // add all block constraints
+  for (FlowFactProvider::BlockConstraints::iterator bc = FFP.getBlockConstraints().begin(),
+       end = FFP.getBlockConstraints().end(); bc != end; ++bc)
+  {
+    const BasicBlock *bb = bc->Block;
+    const BasicBlock *ref = bc->Ref;
+    int cmp = getConstrType(bc->Cmp);
+    int N = bc->N;
+
+    // build constraint of form Block - N * Ref <cmp> 0, or Block <cmp> N if Ref == NULL
+    row.clear();
+    colno.clear();
+
+    // collect outgoing edges of Block
+    size_t i = bbIndexMap.lookup(bb);
+    while (i < edges.size() && edges[i].first == bb) {
+      const BasicBlock *target = edges[i].second;
+      row.push_back(1);
+      colno.push_back(i+1);
+      i++;
+    }
+
+    // collect outgoing edges of Ref
+    if (ref != NULL) {
+      i = bbIndexMap.lookup(ref);
+      while (i < edges.size() && edges[i].first == ref) {
+        const BasicBlock *target = edges[i].second;
+        row.push_back(-N);
+        colno.push_back(i+1);
+        i++;
+      }
+    }
+
+    add_constraintex(lp, colno.size(), &row[0], &colno[0], cmp, ref != NULL ? 0 : N);
+    set_row_name(lp, get_Nrows(lp)-1, (char*)("ff_"+result.getBlockLabel(*bb, F)));
+  }
+
+  // add edge constraints
+
+  // do we have any edges in the edge list that end in Ref?
+  SmallSet<int,4> skipEdges;
+
+  for (FlowFactProvider::EdgeConstraints::iterator ec = FFP.getEdgeConstraints().begin(),
+       end = FFP.getEdgeConstraints().end(); ec != end; ++ec)
+  {
+    const BasicBlock *ref = ec->Ref;
+    int cmp = getConstrType(ec->Cmp);
+    int N = ec->N;
+
+    // build constraint of form: sum(edges) - N * (Ingoing(Ref)\Edges) <cmp> 0, or sum(edges) <cmp> N if Ref == NULL
+    row.clear();
+    colno.clear();
+    skipEdges.clear();
+
+    // add all edges
+    for (FlowFactProvider::EdgeList::iterator edge = ec->Edges.begin(),
+         eend = ec->Edges.end(); edge != eend; ++edge)
+    {
+      int idx = findEdge(edge->first, edge->second);
+      if (idx < 0) {
+        errs() << "Did not find edge!\n";
+        continue;
+      }
+
+      row.push_back(1);
+      colno.push_back(idx+1);
+
+      // ingoing edge in ref is skipped
+      if (edge->second == ref) skipEdges.insert(idx);
+    }
+
+    // add ingoing(ref)\edges
+    if (ref != NULL) {
+      for (pred_iterator pi = pred_begin(ref), end = pred_end(ref); pi != end; ++pi) {
+        int idx = findEdge(*pi, ref);
+        if (skipEdges.count(idx)) continue;
+
+        row.push_back(-N);
+        colno.push_back(idx+1);
+      }
+    }
+
+    add_constraintex(lp, colno.size(), &row[0], &colno[0], cmp, ref != NULL ? 0 : N);
+
+    // TODO add name ff_something
+  }
 
 }
 
@@ -503,6 +591,17 @@ int Ipet::findEdge(const BasicBlock *source, const BasicBlock *target)
   return -1;
 }
 
+int Ipet::getConstrType(FlowFactProvider::ConstraintType type)
+{
+  switch (type) {
+    case FlowFactProvider::ConstraintType::CT_LE: return LE;
+    case FlowFactProvider::ConstraintType::CT_GE: return GE;
+    case FlowFactProvider::ConstraintType::CT_EQ: return EQ;
+    default:
+      errs() << "You naughty boy!\n";
+      return 0;
+  }
+}
 
 
 void IpetResult::reset() {

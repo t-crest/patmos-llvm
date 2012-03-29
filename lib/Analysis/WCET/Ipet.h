@@ -16,15 +16,21 @@
 
 #define DEBUG_TYPE "ipet"
 
-#include <lpsolve/lp_lib.h>
-
 #include "llvm/Pass.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Support/CallSite.h"
 #include "llvm/ADT/ValueMap.h"
+#include "llvm/Config/config.h"
 
 #include "CostProvider.h"
 #include "FlowFactProvider.h"
+
+#ifdef HAVE_LPLIB_H
+#include <lp_lib.h>
+#else
+#include <lpsolve/lp_lib.h>
+#endif
+
 
 using namespace llvm;
 
@@ -121,6 +127,8 @@ namespace ipet {
 
       int findEdge(const BasicBlock *source, const BasicBlock *target);
 
+      int getConstrType(FlowFactProvider::ConstraintType type);
+
       IpetResult       &result;
 
       CallGraph        &CG;
@@ -128,6 +136,10 @@ namespace ipet {
       FlowFactProvider &FFP;
 
       typedef ValueMap<const BasicBlock *, size_t>   BBIndexMap;
+
+      // Note: in the future we may change the edge and edge-type list to something more generic to support
+      // context-sensitive interproc. analysis and indirect calls, so this is not the same as the Edge and EdgeList
+      // from FlowFactProvider
 
       typedef std::pair<BasicBlock *, BasicBlock *> Edge;
       typedef std::vector<Edge> EdgeList;

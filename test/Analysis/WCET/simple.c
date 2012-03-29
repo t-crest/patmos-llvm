@@ -10,6 +10,9 @@ int main()
     sum = 0;
     for (i=0; i<10; i++) {
       sum += i;
+      for (int j = i; j<5; j++) {
+	  sum += j;
+      }
     }
   }
   return sum;
