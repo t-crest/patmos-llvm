@@ -65,5 +65,5 @@ add_llvm_library_dependencies(LLVMAnalysis
   )
 
 add_subdirectory(IPA)
-add_subdirectory(Ipet)
+add_subdirectory(WCET)
 

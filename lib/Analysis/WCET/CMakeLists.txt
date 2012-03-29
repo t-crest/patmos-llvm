@@ -42,12 +42,17 @@ endif( LLVM_ENABLE_IPET )
 
 
 if( LLVM_ENABLE_IPET )
-  add_llvm_loadable_module( libLLVMIpet
+  add_llvm_loadable_module( libLLVMWCET
     CostProvider.cpp
     FlowFactProvider.cpp
     Ipet.cpp
   )
 
-  target_link_libraries( libLLVMIpet ${LPSOLVE_LIBRARY_PATH} )
+  target_link_libraries( libLLVMWCET ${LPSOLVE_LIBRARY_PATH} )
+else()
+  add_llvm_loadable_module( libLLVMWCET
+    CostProvider.cpp
+    FlowFactProvider.cpp
+  )
 endif()
 

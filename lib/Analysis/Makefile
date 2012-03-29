@@ -9,7 +9,7 @@
 
 LEVEL = ../..
 LIBRARYNAME = LLVMAnalysis
-DIRS = IPA Ipet
+DIRS = IPA WCET
 BUILD_ARCHIVE = 1
 
 include $(LEVEL)/Makefile.common
