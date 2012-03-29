@@ -44,7 +44,8 @@ size_t FlowFactProvider::addEdgeConstraint(const BasicBlock *source, const Basic
 }
 
 
-SCEVFlowFactProvider::SCEVFlowFactProvider()  : FlowFactProvider(), ModulePass(ID)
+
+SCEVFlowFactProvider::SCEVFlowFactProvider()  : ModulePass(ID), FlowFactProvider()
 {
   initialBlockConstr = 0;
   initialEdgeConstr = 0;
@@ -123,6 +124,7 @@ void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &SCEV)
     loadLoop(*it, SCEV);
   }
 }
+
 
 } // namespace wcet
 

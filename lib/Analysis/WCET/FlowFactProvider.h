@@ -98,7 +98,7 @@ namespace wcet {
       EdgeConstraints   ecList;
   };
 
-  class SCEVFlowFactProvider : public FlowFactProvider, public ModulePass {
+  class SCEVFlowFactProvider : public ModulePass, public FlowFactProvider{
     public:
       static char ID; // Pass ID
       SCEVFlowFactProvider();
