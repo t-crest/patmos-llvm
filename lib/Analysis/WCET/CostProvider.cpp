@@ -17,6 +17,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/PassSupport.h"
 
 #include "CostProvider.h"
 
@@ -47,3 +48,10 @@ int SimpleCostProvider::getNonlocalCost(const CallSite &CS, const Function &F) {
 
 
 } // namespace wcet
+
+char wcet::BasicCostProvider::ID = 0;
+static RegisterPass<wcet::BasicCostProvider> X("basic-cost", "Basic instruction counting cost provider");
+
+char wcet::SimpleCostProvider::ID = 0;
+static RegisterPass<wcet::SimpleCostProvider> Y("simple-cost", "Simple instruction counting cost provider");
+

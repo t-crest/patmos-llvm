@@ -43,7 +43,7 @@ namespace wcet {
   class IpetPass: public CallGraphSCCPass {
     public:
       static char ID; // Pass ID
-      IpetPass(): CallGraphSCCPass(ID), ipetConfig(0), ipetResult(0) {}
+      IpetPass(): CallGraphSCCPass(ID), CG(0), ipetConfig(0), ipetResult(0) {}
       virtual ~IpetPass() { destroy(); }
 
       virtual bool doInitialization(CallGraph &CG);
@@ -62,6 +62,8 @@ namespace wcet {
 
     private:
       void destroy();
+
+      CallGraph        *CG;
 
       IpetConfig       *ipetConfig;
       IpetResult       *ipetResult;

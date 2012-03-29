@@ -55,8 +55,9 @@ bool IpetPass::doInitialization(CallGraph &CG) {
 
   destroy();
 
+  this->CG = &CG;
+
   ipetResult = new IpetResult();
-  ipetConfig = new IpetConfig(CG, getAnalysis<SimpleCostProvider>(), getAnalysis<SCEVFlowFactProvider>());
 
   return false;
 }
@@ -87,8 +88,11 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
     DEBUG(errs() << "Analyzing function " << F->getName() << "\n");
 
     //TODO find a way to select between cost providers
+    SimpleCostProvider CP;
 
-    Ipet ipet(*ipetConfig, *ipetResult);
+    IpetConfig ipetConfig(*CG, CP, getAnalysis<SCEVFlowFactProvider>());
+
+    Ipet ipet(ipetConfig, *ipetResult);
 
     ipet.analyze(*F);
   }

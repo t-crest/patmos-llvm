@@ -90,8 +90,8 @@ namespace wcet {
       size_t addEdgeConstraint(const BasicBlock *source, const BasicBlock *target, int N, ConstraintType cmp = CT_LE,
           const BasicBlock *Ref = NULL);
 
-      const BlockConstraints &getBlockConstraints() const { return bcList; }
-      const EdgeConstraints  &getEdgeConstraints() const  { return ecList; }
+      virtual const BlockConstraints &getBlockConstraints() const { return bcList; }
+      virtual const EdgeConstraints  &getEdgeConstraints() const  { return ecList; }
 
     protected:
       BlockConstraints  bcList;

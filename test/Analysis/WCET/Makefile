@@ -37,10 +37,7 @@ main.ll: main.bc
 %: %.ll
 	rm -f $@.out $@.err
 	($(OPT)  --debug-pass=Structure --debug-only=ipet \
-                -load $(BUILDDIR)/lib/libLLVMIpet.so -ipet \
-                -loops \
-                -scalar-evolution \
-                -sccp -mem2reg -instcombine \
+                -load $(BUILDDIR)/lib/libLLVMWCET.so -mem2reg -ipet \
                 -analyze \
                 < $< | tee -a $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
 
