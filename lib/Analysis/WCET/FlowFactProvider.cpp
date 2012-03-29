@@ -86,12 +86,43 @@ void SCEVFlowFactProvider::print(raw_ostream& O, const Module* M) const
 void SCEVFlowFactProvider::loadLoopBounds(Function &F, LoopInfo &loopInfo, ScalarEvolution &SCEV)
 {
   LoopInfoBase<BasicBlock,Loop> &base = loopInfo.getBase();
-  for (LoopInfoBase<BasicBlock,Loop>::iterator it = base.begin(), end = base.end(); it != end; ++it) {
 
+  // iterate over top-level loops
+  for (LoopInfoBase<BasicBlock,Loop>::iterator it = base.begin(), end = base.end(); it != end; ++it) {
+    loadLoop(*it, SCEV);
   }
 
 }
 
+void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &SCEV)
+{
+  BasicBlock *header = loop->getHeader();
+
+  EdgeList edges;
+  // its a back-edge if its an ingoing edge of the header and comes from some block in the loop
+  for (pred_iterator pre = pred_begin(header), end = pred_end(header); pre != end; ++pre) {
+    if (loop->contains(*pre)) {
+      edges.push_back(std::make_pair(*pre, header));
+    }
+  }
+
+  int trip = loop->getSmallConstantTripCount();
+  if (trip == 0) {
+    // TODO use SCEV or manual annotation
+    trip = 10;
+  }
+  // TODO merge trip-count with SCEV or manual annotation, get minimum
+
+
+  // add loop bound
+  ecList.push_back(EdgeConstraint(edges, header, CT_LE, trip));
+  initialEdgeConstr++;
+
+  // iterate over sub-loops
+  for (Loop::iterator it = loop->begin(), end = loop->end(); it != end; ++it) {
+    loadLoop(*it, SCEV);
+  }
+}
 
 } // namespace wcet
 

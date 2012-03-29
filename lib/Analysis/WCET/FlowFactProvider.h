@@ -119,6 +119,8 @@ namespace wcet {
     private:
       void loadLoopBounds(Function &F, LoopInfo &loopInfo, ScalarEvolution &SCEV);
 
+      void loadLoop(Loop *loop, ScalarEvolution &SCEV);
+
       int  initialBlockConstr;
       int  initialEdgeConstr;
   };
