@@ -14,7 +14,8 @@
 #ifndef _LLVM_IPET_COSTPROVIDER_H_
 #define _LLVM_IPET_COSTPROVIDER_H_
 
-//#define DEBUG_TYPE "ipet"
+#define DEBUG_TYPE "ipet"
+
 #include "llvm/Pass.h"
 #include "llvm/BasicBlock.h"
 #include "llvm/Support/raw_ostream.h"
@@ -22,10 +23,11 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/CallSite.h"
 //#include "llvm/ADT/Statistic.h"
+
 using namespace llvm;
 
 
-namespace ipet {
+namespace wcet {
   class CostProvider {
     public:
       virtual ~CostProvider() {}
@@ -43,9 +45,10 @@ namespace ipet {
       virtual int getNonlocalCost(const CallSite &CS, const Function &F) = 0;
   };
 
-  class BasicCostProvider : public CostProvider {
+  class BasicCostProvider : public CostProvider, public ImmutablePass {
     public:
-      BasicCostProvider() {}
+      static char ID; // Pass ID
+      BasicCostProvider() : ImmutablePass(ID) {}
       virtual ~BasicCostProvider() {}
 
       virtual int getLocalCost(BasicBlock& BB) {
@@ -63,7 +66,7 @@ namespace ipet {
 
 
   class SimpleCostProvider :
-    public CostProvider, public InstVisitor<SimpleCostProvider> {
+    public CostProvider, public InstVisitor<SimpleCostProvider>, public ImmutablePass {
     friend class InstVisitor<SimpleCostProvider>;
     //protected:
       void visitInstruction(Instruction &I) { cur_bb_cost++; }
@@ -75,7 +78,8 @@ namespace ipet {
 
 
     public:
-      SimpleCostProvider() : cur_bb_cost(0) {}
+      static char ID; // Pass ID
+      SimpleCostProvider() : ImmutablePass(ID), cur_bb_cost(0) {}
       virtual ~SimpleCostProvider() {}
 
       virtual int getLocalCost(BasicBlock& BB);

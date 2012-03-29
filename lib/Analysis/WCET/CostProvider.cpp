@@ -23,7 +23,7 @@
 using namespace llvm;
 
 
-namespace ipet {
+namespace wcet {
 
 
 
@@ -46,4 +46,4 @@ int SimpleCostProvider::getNonlocalCost(const CallSite &CS, const Function &F) {
 }
 
 
-}
+} // namespace wcet

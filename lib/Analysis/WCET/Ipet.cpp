@@ -42,33 +42,27 @@
 #include <lp_lib.h>
 #else
 #include <lpsolve/lp_lib.h>
+#include "llvm/ADT/SmallSet.h"
 #endif
 
 using namespace llvm;
 
 //STATISTIC(SomeCounter, "Counts something");
 
-namespace ipet {
+namespace wcet {
 
 bool IpetPass::doInitialization(CallGraph &CG) {
 
   destroy();
 
-  //TODO find a way to select between cost providers
-  CP  = new SimpleCostProvider();
-  // CP = new BasicCostProvider();
-
-  FFP = new SCEVFlowFactProvider();
-
-  ipetResult = new IpetResult(CG, *CP, *FFP);
+  ipetResult = new IpetResult();
+  ipetConfig = new IpetConfig(CG, getAnalysis<SimpleCostProvider>(), getAnalysis<SCEVFlowFactProvider>());
 
   return false;
 }
 
 void IpetPass::destroy() {
   if (ipetResult) delete ipetResult;
-  if (CP)   delete CP;
-  if (FFP)  delete FFP;
 }
 
 bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
@@ -92,7 +86,9 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
 
     DEBUG(errs() << "Analyzing function " << F->getName() << "\n");
 
-    Ipet ipet(*ipetResult);
+    //TODO find a way to select between cost providers
+
+    Ipet ipet(*ipetConfig, *ipetResult);
 
     ipet.analyze(*F);
   }
@@ -109,9 +105,8 @@ void IpetPass::print(raw_ostream &O, const Module *M) const {
 
 
 
-Ipet::Ipet(IpetResult &result)
- : result(result), CG(result.getCallGraph()), CP(result.getCostProvider()),
-   FFP(result.getFlowFactProvider())
+Ipet::Ipet(IpetConfig &config, IpetResult &result)
+ : config(config), result(result), CP(config.getCostProvider()), FFP(config.getFlowFactProvider())
 {
 }
 
@@ -147,7 +142,7 @@ uint64_t Ipet::getCost(BasicBlock &BB)
 
 uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
 
-  if (Callee.isDeclaration()) {
+  if (Callee.isDeclaration() || result.isUnbounded(Callee)) {
      return CP.getNonlocalCost(CS, Callee);
   }
 
@@ -155,14 +150,15 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
 
   if (!result.hasWCET(Callee)) {
 
-    Ipet ipet(result);
+    Ipet ipet(config, result);
 
     if (!ipet.analyze(Callee)) {
       errs() << "Failed to get analysis results for call site " << CS <<
                 " calling function " << Callee.getName() << "\n";
       // TODO some error handling
-      return 0;
+      return CP.getNonlocalCost(CS, Callee);
     }
+
   }
 
   return result.getWCET(Callee);
@@ -402,7 +398,7 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
   std::vector<int> colno;
 
   // add all block constraints
-  for (FlowFactProvider::BlockConstraints::iterator bc = FFP.getBlockConstraints().begin(),
+  for (FlowFactProvider::BlockConstraints::const_iterator bc = FFP.getBlockConstraints().begin(),
        end = FFP.getBlockConstraints().end(); bc != end; ++bc)
   {
     const BasicBlock *bb = bc->Block;
@@ -417,7 +413,6 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
     // collect outgoing edges of Block
     size_t i = bbIndexMap.lookup(bb);
     while (i < edges.size() && edges[i].first == bb) {
-      const BasicBlock *target = edges[i].second;
       row.push_back(1);
       colno.push_back(i+1);
       i++;
@@ -427,7 +422,6 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
     if (ref != NULL) {
       i = bbIndexMap.lookup(ref);
       while (i < edges.size() && edges[i].first == ref) {
-        const BasicBlock *target = edges[i].second;
         row.push_back(-N);
         colno.push_back(i+1);
         i++;
@@ -435,7 +429,7 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
     }
 
     add_constraintex(lp, colno.size(), &row[0], &colno[0], cmp, ref != NULL ? 0 : N);
-    set_row_name(lp, get_Nrows(lp)-1, (char*)("ff_"+result.getBlockLabel(*bb, F)));
+    //set_row_name(lp, get_Nrows(lp)-1, (char*)("ff_"+result.getBlockLabel(*bb, F)));
   }
 
   // add edge constraints
@@ -443,7 +437,7 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
   // do we have any edges in the edge list that end in Ref?
   SmallSet<int,4> skipEdges;
 
-  for (FlowFactProvider::EdgeConstraints::iterator ec = FFP.getEdgeConstraints().begin(),
+  for (FlowFactProvider::EdgeConstraints::const_iterator ec = FFP.getEdgeConstraints().begin(),
        end = FFP.getEdgeConstraints().end(); ec != end; ++ec)
   {
     const BasicBlock *ref = ec->Ref;
@@ -456,7 +450,7 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
     skipEdges.clear();
 
     // add all edges
-    for (FlowFactProvider::EdgeList::iterator edge = ec->Edges.begin(),
+    for (FlowFactProvider::EdgeList::const_iterator edge = ec->Edges.begin(),
          eend = ec->Edges.end(); edge != eend; ++edge)
     {
       int idx = findEdge(edge->first, edge->second);
@@ -474,7 +468,7 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
 
     // add ingoing(ref)\edges
     if (ref != NULL) {
-      for (pred_iterator pi = pred_begin(ref), end = pred_end(ref); pi != end; ++pi) {
+      for (const_pred_iterator pi = pred_begin(ref), end = pred_end(ref); pi != end; ++pi) {
         int idx = findEdge(*pi, ref);
         if (skipEdges.count(idx)) continue;
 
@@ -568,7 +562,7 @@ void Ipet::cleanup(lprec *lp, Function &F, bool success) {
   edges.clear();
   bbIndexMap.clear();
 
-  result.clearInProgress(F, success);
+  result.setFinished(F, !success);
 }
 
 int Ipet::findEdge(const BasicBlock *source, const BasicBlock *target)
@@ -594,9 +588,9 @@ int Ipet::findEdge(const BasicBlock *source, const BasicBlock *target)
 int Ipet::getConstrType(FlowFactProvider::ConstraintType type)
 {
   switch (type) {
-    case FlowFactProvider::ConstraintType::CT_LE: return LE;
-    case FlowFactProvider::ConstraintType::CT_GE: return GE;
-    case FlowFactProvider::ConstraintType::CT_EQ: return EQ;
+    case FlowFactProvider::CT_LE: return LE;
+    case FlowFactProvider::CT_GE: return GE;
+    case FlowFactProvider::CT_EQ: return EQ;
     default:
       errs() << "You naughty boy!\n";
       return 0;
@@ -608,6 +602,7 @@ void IpetResult::reset() {
   // clear all results
   costWCET.clear();
   execFreq.clear();
+  status.clear();
 }
 
 uint64_t IpetResult::getWCExecFrequency(const BasicBlock &BB) const {
@@ -624,18 +619,25 @@ bool IpetResult::hasWCET(const Function &F) const {
 }
 
 bool IpetResult::inProgress(const Function &F) const {
-  if (!hasWCET(F)) return false;
-  return getWCET(F) == UINT64_MAX;
+  if (!status.count(&F)) return false;
+  return status.lookup(&F) == IPET_RUNNING;
+}
+
+bool IpetResult::isUnbounded(const Function &F) const {
+  if (!status.count(&F)) return false;
+  return status.lookup(&F) == IPET_UNBOUNDED;
 }
 
 void IpetResult::setInProgress(const Function &F) {
-  costWCET.erase(&F);
-  costWCET.insert(std::make_pair(&F, UINT64_MAX));
+  status.erase(&F);
+  status.insert(std::make_pair(&F, IPET_RUNNING));
 }
 
-void IpetResult::clearInProgress(const Function &F, bool success) {
-  if (!success) {
+void IpetResult::setFinished(const Function &F, bool unbounded) {
+  status.erase(&F);
+  if (unbounded) {
     costWCET.erase(&F);
+    status.insert(std::make_pair(&F, IPET_UNBOUNDED));
   }
 }
 
@@ -688,5 +690,5 @@ std::string IpetResult::getBlockLabel(const BasicBlock &BB, const Function &F) c
 
 } // namespace ipet
 
-char ipet::IpetPass::ID = 0;
-static RegisterPass<ipet::IpetPass> X("ipet", "IPET Pass");
+char wcet::IpetPass::ID = 0;
+static RegisterPass<wcet::IpetPass> X("ipet", "IPET Pass");

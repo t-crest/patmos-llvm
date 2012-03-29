@@ -34,15 +34,16 @@
 
 using namespace llvm;
 
-namespace ipet {
+namespace wcet {
 
   class Ipet;
   class IpetResult;
+  class IpetConfig;
 
   class IpetPass: public CallGraphSCCPass {
     public:
       static char ID; // Pass ID
-      IpetPass(): CallGraphSCCPass(ID), ipetResult(0), CP(0), FFP(0) {}
+      IpetPass(): CallGraphSCCPass(ID), ipetConfig(0), ipetResult(0) {}
       virtual ~IpetPass() { destroy(); }
 
       virtual bool doInitialization(CallGraph &CG);
@@ -51,6 +52,8 @@ namespace ipet {
 
       virtual void getAnalysisUsage(AnalysisUsage & AU) const {
         AU.setPreservesAll();
+        AU.addRequired<SimpleCostProvider>();
+        AU.addRequired<SCEVFlowFactProvider>();
       }
 
       IpetResult *getIpetResult() { return ipetResult; }
@@ -60,14 +63,13 @@ namespace ipet {
     private:
       void destroy();
 
+      IpetConfig       *ipetConfig;
       IpetResult       *ipetResult;
-      CostProvider     *CP;
-      FlowFactProvider *FFP;
   };
 
   class Ipet {
     public:
-      Ipet(IpetResult &result);
+      Ipet(IpetConfig &config, IpetResult &result);
 
       /**
        * Get the costs of one basic block, including nonlocal costs.
@@ -129,9 +131,9 @@ namespace ipet {
 
       int getConstrType(FlowFactProvider::ConstraintType type);
 
+      IpetConfig       &config;
       IpetResult       &result;
 
-      CallGraph        &CG;
       CostProvider     &CP;
       FlowFactProvider &FFP;
 
@@ -148,14 +150,25 @@ namespace ipet {
       BBIndexMap    bbIndexMap;
   };
 
+  class IpetConfig {
+    public:
+      IpetConfig(CallGraph &CG, CostProvider &CP, FlowFactProvider &FFP) : CG(CG), CP(CP), FFP(FFP) {}
 
-  // TODO slight misnomer here: holds not only results but also "settings" (CostProvider,..), rename to IpetState or something
+      CallGraph &getCallGraph() { return CG; }
+      CostProvider &getCostProvider() { return CP; }
+      FlowFactProvider &getFlowFactProvider() { return FFP; }
+
+    private:
+      CallGraph        &CG;
+      CostProvider     &CP;
+      FlowFactProvider &FFP;
+  };
 
   class IpetResult {
     friend class Ipet;
 
     public:
-      IpetResult(CallGraph &CG, CostProvider &CP, FlowFactProvider &FFP) : CG(CG), CP(CP), FFP(FFP) {}
+      IpetResult() {}
 
 
       void reset();
@@ -176,9 +189,7 @@ namespace ipet {
 
       bool inProgress(const Function &F) const;
 
-      CallGraph &getCallGraph() { return CG; }
-      CostProvider &getCostProvider() { return CP; }
-      FlowFactProvider &getFlowFactProvider() { return FFP; }
+      bool isUnbounded(const Function &F) const;
 
       // TODO maybe separate printing stuff (print, getBlockLabel) to separate Printer class?
 
@@ -191,18 +202,17 @@ namespace ipet {
       void setExecFrequency(const BasicBlock &BB, uint64_t freq);
 
       void setInProgress(const Function &F);
-      void clearInProgress(const Function &F, bool success);
+      void setFinished(const Function &F, bool unbounded);
 
-      CallGraph        &CG;
-      CostProvider     &CP;
-      FlowFactProvider &FFP;
+      enum IpetStatus { IPET_RUNNING, IPET_UNBOUNDED };
 
       typedef ValueMap<const Function *,   uint64_t> FunctionMap;
       typedef ValueMap<const BasicBlock *, uint64_t> BasicBlockMap;
+      typedef ValueMap<const Function *, IpetStatus> StatusMap;
 
       FunctionMap   costWCET;
       BasicBlockMap execFreq;
-
+      FunctionMap   status;
   };
 
   // TODO IpetPrint pass: print results of Ipet pass (as graph, csv, ...)

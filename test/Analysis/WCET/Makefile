@@ -48,7 +48,7 @@ ipet: main.ll
 	$(OPT) --debug-pass=Structure --debug-only=ipet -load $(BUILDDIR)/lib/libLLVMWCET.so -instnamer -ipet -analyze -dot-callgraph -dot-cfg  main.ll
 
 loop: simple.ll
-	$(OPT) -debug-pass=Structure -debug -mem2reg -scalar-evolution -analyze simple.ll
+	$(OPT) -debug-pass=Structure -debug -mem2reg -loops -analyze simple.ll
 
 clean:
 	rm -f *.bc *.ll *.out

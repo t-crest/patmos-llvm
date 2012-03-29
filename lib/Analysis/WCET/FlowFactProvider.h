@@ -23,17 +23,20 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/PassAnalysisSupport.h"
 
 
 using namespace llvm;
 
-namespace ipet {
+namespace wcet {
 
   class FlowFactProvider {
     public:
       enum ConstraintType { CT_LE, CT_EQ, CT_GE };
 
-      typedef std::pair<BasicBlock*,BasicBlock*> Edge;
+      typedef std::pair<const BasicBlock*,const BasicBlock*> Edge;
       typedef std::vector<Edge> EdgeList;
 
       /**
@@ -44,6 +47,7 @@ namespace ipet {
        * TODO maybe support a set of blocks instead of Block?
        */
       struct BlockConstraint {
+          BlockConstraint() {};
           BlockConstraint(const BasicBlock *Block, const BasicBlock *Ref, ConstraintType Cmp, int N) :
             Block(Block), Ref(Ref), Cmp(Cmp), N(N) {}
 
@@ -60,6 +64,7 @@ namespace ipet {
        * A loop bound can be expressed as edges := backedges, Ref := loop-header, N := loop-bound, Cmp := LE.
        */
       struct EdgeConstraint {
+          EdgeConstraint() {};
           EdgeConstraint(EdgeList Edges, const BasicBlock *Ref, ConstraintType Cmp, int N) :
             Edges(Edges), Ref(Ref), Cmp(Cmp), N(N) {}
 
@@ -93,16 +98,29 @@ namespace ipet {
       EdgeConstraints   ecList;
   };
 
-  class SCEVFlowFactProvider : public FlowFactProvider {
+  class SCEVFlowFactProvider : public FlowFactProvider, public ModulePass {
     public:
+      static char ID; // Pass ID
       SCEVFlowFactProvider();
       virtual ~SCEVFlowFactProvider() {}
 
+      virtual bool runOnModule(Module &M);
+
+      virtual void getAnalysisUsage(AnalysisUsage & AU) const {
+        AU.setPreservesAll();
+        AU.addRequired<LoopInfo>();
+        AU.addRequired<ScalarEvolution>();
+      }
+
       virtual void reset();
 
-    private:
-      void loadLoopBounds();
+      virtual void print(raw_ostream &O, const Module *M) const;
 
+    private:
+      void loadLoopBounds(Function &F, LoopInfo &loopInfo, ScalarEvolution &SCEV);
+
+      int  initialBlockConstr;
+      int  initialEdgeConstr;
   };
 
 }

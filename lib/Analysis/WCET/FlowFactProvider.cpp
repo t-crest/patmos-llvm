@@ -12,18 +12,20 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "ipet"
+
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/PassSupport.h"
 
 #include "FlowFactProvider.h"
 
 using namespace llvm;
 
 
-namespace ipet {
+namespace wcet {
 
 size_t FlowFactProvider::addBlockConstraint(const BasicBlock *block, int N,
     ConstraintType cmp, const BasicBlock *Ref)
@@ -42,22 +44,57 @@ size_t FlowFactProvider::addEdgeConstraint(const BasicBlock *source, const Basic
 }
 
 
-
-SCEVFlowFactProvider::SCEVFlowFactProvider()
-  : FlowFactProvider()
+SCEVFlowFactProvider::SCEVFlowFactProvider()  : FlowFactProvider(), ModulePass(ID)
 {
-  loadLoopBounds();
+  initialBlockConstr = 0;
+  initialEdgeConstr = 0;
 }
 
 void SCEVFlowFactProvider::reset()
 {
-
+  // clear everything except the constraints loaded from the analyses
+  bcList.resize(initialBlockConstr, BlockConstraint());
+  ecList.resize(initialEdgeConstr,  EdgeConstraint());
 }
 
-void SCEVFlowFactProvider::loadLoopBounds()
+bool SCEVFlowFactProvider::runOnModule(Module& M)
 {
+  initialBlockConstr = 0;
+  initialEdgeConstr = 0;
+  bcList.clear();
+  ecList.clear();
+
+  for (Module::iterator F = M.begin(), end = M.end(); F != end; ++F) {
+    if (F->isDeclaration()) continue;
+
+    loadLoopBounds(*F, getAnalysis<LoopInfo>(*F), getAnalysis<ScalarEvolution>(*F));
+  }
+
+  return false;
+}
+
+void SCEVFlowFactProvider::print(raw_ostream& O, const Module* M) const
+{
+  O << " Analysed flow facts: (TODO)\n";
+
+  // TODO dump
+
+  O << " Additional flow facts: (TODO)\n";
+
+}
+
+void SCEVFlowFactProvider::loadLoopBounds(Function &F, LoopInfo &loopInfo, ScalarEvolution &SCEV)
+{
+  LoopInfoBase<BasicBlock,Loop> &base = loopInfo.getBase();
+  for (LoopInfoBase<BasicBlock,Loop>::iterator it = base.begin(), end = base.end(); it != end; ++it) {
+
+  }
 
 }
 
 
-}
+} // namespace wcet
+
+
+char wcet::SCEVFlowFactProvider::ID = 0;
+static RegisterPass<wcet::SCEVFlowFactProvider> X("scev-ffp", "Scalar evolution based flowfact provider");
