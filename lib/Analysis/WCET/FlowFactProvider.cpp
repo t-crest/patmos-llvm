@@ -19,6 +19,8 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/PassSupport.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 
 #include "FlowFactProvider.h"
 
@@ -95,7 +97,7 @@ void SCEVFlowFactProvider::loadLoopBounds(Function &F, LoopInfo &loopInfo, Scala
 
 }
 
-void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &SCEV)
+void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &scev)
 {
   BasicBlock *header = loop->getHeader();
 
@@ -114,6 +116,11 @@ void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &SCEV)
   }
   // TODO merge trip-count with SCEV or manual annotation, get minimum
 
+  const SCEV *value = scev.getMaxBackedgeTakenCount(loop);
+  const SCEVConstant *c = dyn_cast_or_null<SCEVConstant>(value);
+  if (c) {
+    trip = c->getValue()->getSExtValue();
+  }
 
   // add loop bound
   ecList.push_back(EdgeConstraint(edges, header, CT_LE, trip));
@@ -121,7 +128,7 @@ void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &SCEV)
 
   // iterate over sub-loops
   for (Loop::iterator it = loop->begin(), end = loop->end(); it != end; ++it) {
-    loadLoop(*it, SCEV);
+    loadLoop(*it, scev);
   }
 }
 

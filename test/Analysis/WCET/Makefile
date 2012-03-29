@@ -38,7 +38,7 @@ main.ll: main.bc
 	rm -f $@.out $@.err
 	($(OPT)  --debug-pass=Structure --debug-only=ipet \
                 -load $(BUILDDIR)/lib/libLLVMWCET.so -mem2reg -ipet \
-                -analyze \
+                -analyze -dot-cfg \
                 < $< | tee -a $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
 
 ipet: main.ll
