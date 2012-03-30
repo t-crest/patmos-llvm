@@ -9,6 +9,13 @@
 //
 // Simple flowfact provider implementation.
 //
+// TODO better support enforcing the WCET path over some nodes (take care of nodes in loops!)
+//
+// TODO implement print() method
+// TODO store flow-facts per function (?)
+// TODO read flow-facts from file, read call costs from file, read indirect call targets from file;
+//      persist as meta-data?
+//
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "ipet"

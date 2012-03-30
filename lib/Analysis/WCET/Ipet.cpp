@@ -9,11 +9,8 @@
 //
 // This file implements a pass to generate an ILP problem.
 //
-// TODO support enforcing the WCET path over some nodes (take care of nodes in loops!)
-//
 // TODO construct an overlay graph, containing edges and split nodes for call sites, support indirect calls
 // TODO construct a supergraph for callgraph regions, support SCCs of size > 1, construct global problem?
-// TODO read loop bounds and costs of external calls from file, read flow-facts from file (as separate pass)
 //
 //===----------------------------------------------------------------------===//
 
