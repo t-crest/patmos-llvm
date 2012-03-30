@@ -20,6 +20,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/PassSupport.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 
 #include "FlowFactProvider.h"
@@ -109,17 +110,35 @@ void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &scev)
     }
   }
 
-  int trip = loop->getSmallConstantTripCount();
-  if (trip == 0) {
-    // TODO use SCEV or manual annotation
-    trip = 10;
-  }
-  // TODO merge trip-count with SCEV or manual annotation, get minimum
+  int trip;
+  bool bounded = false;
 
   const SCEV *value = scev.getMaxBackedgeTakenCount(loop);
   const SCEVConstant *c = dyn_cast_or_null<SCEVConstant>(value);
   if (c) {
     trip = c->getValue()->getSExtValue();
+    if ( trip < 0 ) {
+      errs() << "** Invalid SCEV max back-edge taken count: "; c->print(errs()); errs() << "\n";
+      trip = 1000;
+    } else {
+      bounded = true;
+    }
+  } else {
+    DEBUG(errs() << "** Could not get SCEV loop bound\n");
+  }
+  if (!bounded) {
+    trip = loop->getSmallConstantTripCount();
+    if (trip > 0) {
+      bounded = true;
+    }
+  }
+  if (!bounded) {
+    // TODO try use manual annotation
+    errs() << "** Failed to get loop trip count for loop (using default bound of 1000):\n";
+    loop->print(errs(), 2);
+    trip = 1000;
+  } else {
+    DEBUG(errs() << "Using loop bound " << trip << " for loop:\n"; loop->print(errs(), 2));
   }
 
   // add loop bound

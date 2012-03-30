@@ -90,8 +90,19 @@ namespace wcet {
       size_t addEdgeConstraint(const BasicBlock *source, const BasicBlock *target, int N, ConstraintType cmp = CT_LE,
           const BasicBlock *Ref = NULL);
 
+      /**
+       *  Get all block constraints (for all functions)
+       *
+       *  TODO get per function, store per function
+       */
       virtual const BlockConstraints &getBlockConstraints() const { return bcList; }
+
+      /**
+       *  Get all edge constraints (for all functions)
+       */
       virtual const EdgeConstraints  &getEdgeConstraints() const  { return ecList; }
+
+
 
     protected:
       BlockConstraints  bcList;

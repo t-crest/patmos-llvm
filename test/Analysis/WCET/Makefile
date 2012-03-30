@@ -15,7 +15,8 @@ DIS=$(BUILDDIR)/bin/llvm-dis
 
 CLANG := $(shell if [ -e $(CLANG) ]; then echo $(CLANG); else echo clang; fi)
 
-.PHONY: all test clean
+.PHONY: all clean
+.SUFFIXES:
 
 %.bc: %.c
 	$(CLANG) -O0 -emit-llvm $< -c -o $@
@@ -35,17 +36,17 @@ main.ll: main.bc
 	$(DIS) $<
 
 %: %.ll
-	rm -f $@.out $@.err
-	($(OPT)  --debug-pass=Structure --debug-only=ipet \
-                -load $(BUILDDIR)/lib/libLLVMWCET.so -mem2reg -ipet \
-                -analyze -dot-cfg \
-                < $< | tee -a $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
+#	rm -f $@.out $@.err
+#	($(OPT)  --debug-pass=Structure --debug-only=ipet \
+#                -load $(BUILDDIR)/lib/libLLVMWCET.so -mem2reg -ipet \
+#                -analyze -dot-cfg \
+#                < $< | tee -a $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
+	$(OPT)  --debug-pass=Structure --debug-only=ipet \
+                 -load $(BUILDDIR)/lib/libLLVMWCET.so -mem2reg -ipet \
+                 -analyze -dot-cfg -time-passes $<
 
 ipet: main.ll
 	$(OPT) --debug-pass=Structure --debug-only=ipet -load $(BUILDDIR)/lib/libLLVMWCET.so -instnamer -ipet -analyze -dot-callgraph -dot-cfg  main.ll
-
-loop: simple.ll
-	$(OPT) -debug-pass=Structure -debug -mem2reg -loops -analyze simple.ll
 
 clean:
 	rm -f *.bc *.ll *.out

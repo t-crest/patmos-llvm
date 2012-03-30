@@ -71,7 +71,7 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
   if (!SCC.isSingular()) {
     // TODO call IPET solver for whole SCC
 
-    DEBUG(errs() << "Not a singular SCC; size: " << SCC.size() << "\n");
+    errs() << "** Not a singular SCC; size: " << SCC.size() << "\n";
 
   } else {
     Function *F = (*(SCC.begin()))->getFunction();
@@ -157,9 +157,9 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
     Ipet ipet(config, result);
 
     if (!ipet.analyze(Callee)) {
-      errs() << "Failed to get analysis results for call site " << CS <<
+      errs() << "** Failed to get analysis results for call site " << CS <<
                 " calling function " << Callee.getName() << "\n";
-      // TODO some error handling
+      // TODO some error handling?
       return CP.getNonlocalCost(CS, Callee);
     }
 
@@ -173,7 +173,7 @@ bool Ipet::analyze(Function &F) {
 
   // poor-mans recursion handling: abort if we are within recursive calls
   if (result.inProgress(F)) {
-    errs() << "Recursive call found for function " << F.getName() << ", not implemented!\n";
+    errs() << "** Recursive call found for function " << F.getName() << ", not implemented!\n";
     return false;
   }
   result.setInProgress(F);
@@ -401,14 +401,23 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
   std::vector<REAL> row;
   std::vector<int> colno;
 
+  // TODO get this per function / per set of analyzed functions
+  const FlowFactProvider::BlockConstraints &bcList = FFP.getBlockConstraints();
+  const FlowFactProvider::EdgeConstraints  &ecList = FFP.getEdgeConstraints();
+
   // add all block constraints
-  for (FlowFactProvider::BlockConstraints::const_iterator bc = FFP.getBlockConstraints().begin(),
-       end = FFP.getBlockConstraints().end(); bc != end; ++bc)
+  for (FlowFactProvider::BlockConstraints::const_iterator bc = bcList.begin(),
+       end = bcList.end(); bc != end; ++bc)
   {
     const BasicBlock *bb = bc->Block;
     const BasicBlock *ref = bc->Ref;
     int cmp = getConstrType(bc->Cmp);
     int N = bc->N;
+
+    // TODO for now, we just skip over constraints from other functions.
+    if (bb->getParent() != &F || (ref && ref->getParent() != &F)) {
+      continue;
+    }
 
     // build constraint of form Block - N * Ref <cmp> 0, or Block <cmp> N if Ref == NULL
     row.clear();
@@ -441,12 +450,21 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
   // do we have any edges in the edge list that end in Ref?
   SmallSet<int,4> skipEdges;
 
-  for (FlowFactProvider::EdgeConstraints::const_iterator ec = FFP.getEdgeConstraints().begin(),
-       end = FFP.getEdgeConstraints().end(); ec != end; ++ec)
+  for (FlowFactProvider::EdgeConstraints::const_iterator ec = ecList.begin(),
+       end = ecList.end(); ec != end; ++ec)
   {
     const BasicBlock *ref = ec->Ref;
     int cmp = getConstrType(ec->Cmp);
     int N = ec->N;
+
+    // TODO messy hack: for now, just skip over flowfacts from different function.
+    //      We should store flow-facts per function, get flow-facts per function.
+    //      If flowfacts are intra-procedural, the Ipet-analysis also be intra-procedural.
+    if ((ref && ref->getParent() != &F) ||
+        ((ec->Edges[0].first ? ec->Edges[0].first : ec->Edges[0].second)->getParent() != &F))
+    {
+      continue;
+    }
 
     // build constraint of form: sum(edges) - N * (Ingoing(Ref)\Edges) <cmp> 0, or sum(edges) <cmp> N if Ref == NULL
     row.clear();
@@ -459,7 +477,8 @@ void Ipet::setFlowConstraints(lprec *lp, Function &F)
     {
       int idx = findEdge(edge->first, edge->second);
       if (idx < 0) {
-        errs() << "Did not find edge!\n";
+        errs() << "** Did not find edge between " << result.getBlockLabel(*edge->first, F) << " and " <<
+            result.getBlockLabel(*edge->second, F) << "\n";
         continue;
       }
 
@@ -501,15 +520,15 @@ bool Ipet::runSolver(lprec *lp, Function &F)
 
   int ret = solve(lp);
   if (ret == OPTIMAL || ret == PRESOLVED) {
-    errs() << "Found optimal result for " << F.getName() << "\n";
+    DEBUG(errs() << "Found optimal result for " << F.getName() << "\n");
     return true;
   }
   if (ret == SUBOPTIMAL) {
-    errs() << "Found suboptimal result for " << F.getName() << "\n";
+    DEBUG(errs() << "Found suboptimal result for " << F.getName() << "\n");
     return true;
   }
 
-  errs() << "Failed to calculate solution for function " << F.getName() << ", retcode: " << ret << "\n";
+  errs() << "** Failed to calculate solution for function " << F.getName() << ", retcode: " << ret << "\n";
   return false;
 }
 

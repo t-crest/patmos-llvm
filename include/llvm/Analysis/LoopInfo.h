@@ -41,8 +41,10 @@
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Assembly/Writer.h"
 #include <algorithm>
 #include <map>
+
 
 namespace llvm {
 
