@@ -35,6 +35,9 @@
 #include "FlowFactProvider.h"
 #include "Ipet.h"
 
+#include <ctime>
+#include <sstream>
+
 #ifdef HAVE_LPLIB_H
 #include <lp_lib.h>
 #else
@@ -175,27 +178,44 @@ bool Ipet::analyze(Function &F) {
   }
   result.setInProgress(F);
 
+  clock_t t[10];
+  DEBUG(t[0] = clock());
+
   // initialize (clear all maps, collect edges, construct edge list)
   loadStructure(F);
+
+  DEBUG(t[1] = clock());
 
   // initialize lp-solve (create lp-solve instance, add variables)
   lprec *lp = initSolver(F);
 
+  DEBUG(t[2] = clock());
+
   // construct objective function (max sum( edge-freq * edge-cost ))
   setObjective(lp, F);
+
+  DEBUG(t[3] = clock());
 
   // construct structural constraints
   setStructConstraints(lp, F);
 
+  DEBUG(t[4] = clock());
+
   // construct flow constraints
   setFlowConstraints(lp, F);
+
+  DEBUG(t[5] = clock());
 
   // close entry mode
   finishEntry(lp, F);
 
+  DEBUG(t[6] = clock());
+
   // dump lp-solve file
   // TODO make this optional
   dumpProblem(lp, F);
+
+  DEBUG(t[7] = clock());
 
   // run lp-solve, handle errors (did not terminate, no solution,..)
   if (!runSolver(lp, F)) {
@@ -203,8 +223,17 @@ bool Ipet::analyze(Function &F) {
     return false;
   }
 
+  DEBUG(t[8] = clock());
+
   // map results back to edges and basic blocks
   readResults(lp, F);
+
+  DEBUG(t[9] = clock();
+  errs() << "IPET Time: ";
+  for (int i = 0; i < 9; i++) {
+    errs() << (i+1) << ": " << ((float)(t[i+1]-t[i]))/CLOCKS_PER_SEC << ", ";
+  }
+  errs() << "clocks: " << CLOCKS_PER_SEC << "\n");
 
   // TODO dump/print results? -> used by IpetPrintPass or something
 
@@ -276,12 +305,13 @@ lprec *Ipet::initSolver(Function & F)
     const BasicBlock *source = edges[i].first;
     const BasicBlock *target = edges[i].second;
 
-    std::string edge_name = std::string("e_");
-    edge_name.append(source ? result.getBlockLabel(*source, F) : "entry");
-    edge_name.append("__");
-    edge_name.append(target ? result.getBlockLabel(*target, F) : "exit");
+    std::stringstream edge_name;
+    edge_name << "e_";
+    edge_name << (source ? result.getBlockLabel(*source, F) : "entry");
+    edge_name << "__";
+    edge_name << (target ? result.getBlockLabel(*target, F) : "exit");
 
-    set_col_name(lp, i+1, (char*)edge_name.c_str());
+    set_col_name(lp, i+1, (char*)edge_name.str().c_str());
     set_int(lp, i+1, TRUE);
   }
 
@@ -703,6 +733,7 @@ void IpetResult::print(raw_ostream &O) const
 
 std::string IpetResult::getBlockLabel(const BasicBlock &BB, const Function &F) const
 {
+  // TODO this is slow as hell for unnamed blocks (the WriteAsOperand stuff)
   return DOTGraphTraits<const Function*>::getSimpleNodeLabel(&BB, &F);
 }
 
