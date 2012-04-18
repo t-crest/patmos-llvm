@@ -43,7 +43,7 @@ main.ll: main.bc
 #                < $< | tee -a $@.out) 2>&1 | tee $@.err | tee -a $@.out 1>&2
 	$(OPT)  --debug-pass=Structure --debug-only=ipet \
                  -load $(BUILDDIR)/lib/libLLVMWCET.so -mem2reg -instnamer -ipet \
-                 -analyze -dot-cfg -time-passes $<
+                 -analyze -dot-cfg -stats -time-passes $<
 
 ipet: main.ll
 	$(OPT) --debug-pass=Structure --debug-only=ipet -load $(BUILDDIR)/lib/libLLVMWCET.so -instnamer -ipet -analyze -dot-callgraph -dot-cfg  main.ll
