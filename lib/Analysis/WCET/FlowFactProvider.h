@@ -84,6 +84,10 @@ namespace wcet {
        */
       virtual void reset() { bcList.clear(); ecList.clear(); }
 
+      size_t addForceBlockConstraint(const BasicBlock *block) {
+        return addBlockConstraint(block, 1, CT_GE);
+      }
+
       size_t addBlockConstraint(const BasicBlock *block, int N, ConstraintType cmp = CT_LE,
           const BasicBlock *Ref = NULL);
 

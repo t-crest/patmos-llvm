@@ -19,6 +19,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/CallGraphSCCPass.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/BasicBlock.h"
@@ -39,15 +40,15 @@
 #include <sstream>
 
 #ifdef HAVE_LPLIB_H
-#include <lp_lib.h>
+#include <lpsolve/lp_lib.h>
 #else
 #include <lpsolve/lp_lib.h>
-#include "llvm/ADT/SmallSet.h"
 #endif
 
 using namespace llvm;
 
-//STATISTIC(SomeCounter, "Counts something");
+STATISTIC(numTotalBlocks, "Total number of blocks");
+STATISTIC(numWCEPBlocks, "Number of blocks on WCEP");
 
 namespace wcet {
 
@@ -282,6 +283,7 @@ void Ipet::loadStructure(Function & F)
     BasicBlock *BB = it;
 
     bbIndexMap.insert(std::make_pair(BB, edges.size()));
+    ++numTotalBlocks;
 
     for (succ_iterator SI = succ_begin(BB), E = succ_end(BB); SI != E; ++SI) {
       edges.push_back(Edge(BB, *SI));
@@ -585,6 +587,7 @@ void Ipet::readResults(lprec *lp, Function & F)
       // skip entry edge
       if (curr != NULL) {
         result.setExecFrequency(*curr, ef);
+        if (ef != 0) ++numWCEPBlocks;
       }
       ef = 0;
       curr = source;
@@ -595,6 +598,7 @@ void Ipet::readResults(lprec *lp, Function & F)
   // update last block
   if (curr != NULL) {
     result.setExecFrequency(*curr, ef);
+    if (ef != 0) ++numWCEPBlocks;
   }
 }
 

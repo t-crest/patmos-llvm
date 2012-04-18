@@ -46,6 +46,7 @@ if( LLVM_ENABLE_IPET )
     CostProvider.cpp
     FlowFactProvider.cpp
     Ipet.cpp
+    Criticality.cpp
   )
 
   target_link_libraries( libLLVMWCET ${LPSOLVE_LIBRARY_PATH} )
@@ -53,6 +54,7 @@ else()
   add_llvm_loadable_module( libLLVMWCET
     CostProvider.cpp
     FlowFactProvider.cpp
+    Criticality.cpp
   )
 endif()
 

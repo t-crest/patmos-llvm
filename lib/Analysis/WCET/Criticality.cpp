@@ -60,13 +60,12 @@ namespace {
 }
 
 char DomLeaves::ID = 0;
-INITIALIZE_PASS(DomLeaves, "domleaves",
-                "prototype pass", false, false)
+static RegisterPass<DomLeaves> tmp("domleaves", "prototype pass", false, false);
 
 // Public interface to the pass
-FunctionPass *llvm::createDomLeavesPass() {
-  return new DomLeaves();
-}
+//FunctionPass *llvm::createDomLeavesPass() {
+//  return new DomLeaves();
+//}
 
 // debug output helper
 std::string field_names[] = {
