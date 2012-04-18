@@ -26,7 +26,7 @@
 #include "FlowFactProvider.h"
 
 #ifdef HAVE_LPLIB_H
-#include <lpsolve/lp_lib.h>
+#include <lp_lib.h>
 #else
 #include <lpsolve/lp_lib.h>
 #endif
