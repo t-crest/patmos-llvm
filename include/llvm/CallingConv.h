@@ -95,6 +95,8 @@ namespace CallingConv {
     /// MBLAZE_INTR - Calling convention used for MBlaze interrupt support
     /// routines (i.e. GCC's save_volatiles attribute).
     MBLAZE_SVOL = 74
+
+    /// TODO Special calling conventions for Patmos
   };
 } // End CallingConv namespace
 

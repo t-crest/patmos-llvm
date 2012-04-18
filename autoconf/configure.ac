@@ -361,6 +361,7 @@ AC_CACHE_CHECK([target architecture],[llvm_cv_target_arch],
   bfin-*)                 llvm_cv_target_arch="Blackfin" ;;
   mblaze-*)               llvm_cv_target_arch="MBlaze" ;;
   ptx-*)                  llvm_cv_target_arch="PTX" ;;
+  patmos-*)               llvm_cv_target_arch="Patmos" ;;
   *)                      llvm_cv_target_arch="Unknown" ;;
 esac])
 
@@ -498,6 +499,7 @@ else
     Blackfin)    AC_SUBST(TARGET_HAS_JIT,0) ;;
     MBlaze)      AC_SUBST(TARGET_HAS_JIT,0) ;;
     PTX)         AC_SUBST(TARGET_HAS_JIT,0) ;;
+    Patmos)      AC_SUBST(TARGET_HAS_JIT,0) ;;
     *)           AC_SUBST(TARGET_HAS_JIT,0) ;;
   esac
 fi
@@ -608,13 +610,13 @@ TARGETS_TO_BUILD=""
 AC_ARG_ENABLE([targets],AS_HELP_STRING([--enable-targets],
     [Build specific host targets: all or target1,target2,... Valid targets are:
      host, x86, x86_64, sparc, powerpc, alpha, arm, mips, spu,
-     xcore, msp430, systemz, blackfin, ptx, cbe, and cpp (default=all)]),,
+     xcore, msp430, systemz, blackfin, ptx, patmos, cbe, and cpp (default=all)]),,
     enableval=all)
 if test "$enableval" = host-only ; then
   enableval=host
 fi
 case "$enableval" in
-  all) TARGETS_TO_BUILD="X86 Sparc PowerPC Alpha ARM Mips CellSPU XCore MSP430 SystemZ Blackfin CBackend CppBackend MBlaze PTX" ;;
+  all) TARGETS_TO_BUILD="X86 Sparc PowerPC Alpha ARM Mips CellSPU XCore MSP430 SystemZ Blackfin CBackend CppBackend MBlaze PTX Patmos" ;;
   *)for a_target in `echo $enableval|sed -e 's/,/ /g' ` ; do
       case "$a_target" in
         x86)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
@@ -633,6 +635,7 @@ case "$enableval" in
         cpp)      TARGETS_TO_BUILD="CppBackend $TARGETS_TO_BUILD" ;;
         mblaze)   TARGETS_TO_BUILD="MBlaze $TARGETS_TO_BUILD" ;;
         ptx)      TARGETS_TO_BUILD="PTX $TARGETS_TO_BUILD" ;;
+        patmos)   TARGETS_TO_BUILD="Patmos $TARGETS_TO_BUILD" ;;
         host) case "$llvm_cv_target_arch" in
             x86)         TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
             x86_64)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
@@ -648,6 +651,7 @@ case "$enableval" in
             s390x)       TARGETS_TO_BUILD="SystemZ $TARGETS_TO_BUILD" ;;
             Blackfin)    TARGETS_TO_BUILD="Blackfin $TARGETS_TO_BUILD" ;;
             PTX)         TARGETS_TO_BUILD="PTX $TARGETS_TO_BUILD" ;;
+            Patmos)      TARGETS_TO_BUILD="Patmos $TARGETS_TO_BUILD" ;;
             *)       AC_MSG_ERROR([Can not set target to build]) ;;
           esac ;;
         *) AC_MSG_ERROR([Unrecognized target $a_target]) ;;
@@ -1082,10 +1086,10 @@ fi
 dnl Verify that GCC is version 3.0 or higher
 if test "$GCC" = "yes"
 then
-  AC_COMPILE_IFELSE([[#if !defined(__GNUC__) || __GNUC__ < 3
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([[#if !defined(__GNUC__) || __GNUC__ < 3
 #error Unsupported GCC version
 #endif
-]], [], [AC_MSG_ERROR([gcc 3.x required, but you have a lower version])])
+]])], [], [AC_MSG_ERROR([gcc 3.x required, but you have a lower version])])
 fi
 
 dnl Check for GNU Make.  We use its extensions, so don't build without it
@@ -1243,13 +1247,13 @@ AC_CHECK_HEADERS([CrashReporterClient.h])
 dnl Try to find Darwin specific crash reporting global.
 AC_MSG_CHECKING([__crashreporter_info__])
 AC_LINK_IFELSE(
-  AC_LANG_SOURCE(
+  [AC_LANG_SOURCE(
     [[extern const char *__crashreporter_info__;
       int main() {
         __crashreporter_info__ = "test";
         return 0;
       }
-    ]]),
+    ]])],
   AC_MSG_RESULT(yes)
   AC_DEFINE(HAVE_CRASHREPORTER_INFO, 1, Can use __crashreporter_info__),
   AC_MSG_RESULT(no)
@@ -1317,10 +1321,10 @@ fi
 dnl Check Win32 API EnumerateLoadedModules.
 if test "$llvm_cv_os_type" = "MingW" ; then
   AC_MSG_CHECKING([whether EnumerateLoadedModules() accepts new decl])
-  AC_COMPILE_IFELSE([[#include <windows.h>
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([[#include <windows.h>
 #include <imagehlp.h>
 extern void foo(PENUMLOADED_MODULES_CALLBACK);
-extern void foo(BOOL(CALLBACK*)(PCSTR,ULONG_PTR,ULONG,PVOID));]],
+extern void foo(BOOL(CALLBACK*)(PCSTR,ULONG_PTR,ULONG,PVOID));]])],
 [
   AC_MSG_RESULT([yes])
   llvm_cv_win32_elmcb_pcstr="PCSTR"
@@ -1361,7 +1365,7 @@ dnl Since we'll be using these atomic builtins in C++ files we should test
 dnl the C++ compiler.
 AC_LANG_PUSH([C++])
 AC_LINK_IFELSE(
-  AC_LANG_SOURCE(
+  [AC_LANG_SOURCE(
     [[int main() {
         volatile unsigned long val = 1;
         __sync_synchronize();
@@ -1370,7 +1374,7 @@ AC_LINK_IFELSE(
         __sync_sub_and_fetch(&val, 1);
         return 0;
       }
-    ]]),
+    ]])],
   AC_LANG_POP([C++])
   AC_MSG_RESULT(yes)
   AC_DEFINE(LLVM_HAS_ATOMICS, 1, Has gcc/MSVC atomic intrinsics),

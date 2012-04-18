@@ -8,9 +8,9 @@ AC_DEFUN([AC_HUGE_VAL_CHECK],[
     ac_save_CXXFLAGS=$CXXFLAGS
     CXXFLAGS=-pedantic
     AC_RUN_IFELSE(
-      AC_LANG_PROGRAM(
+      [AC_LANG_PROGRAM(
         [#include <math.h>],
-        [double x = HUGE_VAL; return x != x; ]),
+        [double x = HUGE_VAL; return x != x; ])],
       [ac_cv_huge_val_sanity=yes],[ac_cv_huge_val_sanity=no],
       [ac_cv_huge_val_sanity=yes])
     CXXFLAGS=$ac_save_CXXFLAGS
