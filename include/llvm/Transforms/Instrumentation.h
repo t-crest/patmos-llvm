@@ -31,6 +31,9 @@ ModulePass *createPathProfilerPass();
 ModulePass *createGCOVProfilerPass(bool EmitNotes = true, bool EmitData = true,
                                    bool Use402Format = false);
 
+class FunctionPass;
+FunctionPass *createDomLeavesPass();
+
 } // End llvm namespace
 
 #endif

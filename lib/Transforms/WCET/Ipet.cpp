@@ -30,6 +30,7 @@
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/WCET.h"
 #include "llvm/Config/config.h"
 
 #include "CostProvider.h"
@@ -106,8 +107,6 @@ void IpetPass::print(raw_ostream &O, const Module *M) const {
     ipetResult->print(O);
   }
 }
-
-
 
 
 Ipet::Ipet(IpetConfig &config, IpetResult &result)
@@ -747,3 +746,8 @@ std::string IpetResult::getBlockLabel(const BasicBlock &BB, const Function &F) c
 
 char wcet::IpetPass::ID = 0;
 static RegisterPass<wcet::IpetPass> X("ipet", "IPET Pass");
+
+CallGraphSCCPass *llvm::createIpetPass() {
+  return new wcet::IpetPass();
+}
+

@@ -32,6 +32,7 @@
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/UnifyFunctionExitNodes.h"
+#include "llvm/Transforms/WCET.h"
 #include <cstdlib>
 
 namespace {
@@ -150,6 +151,9 @@ namespace {
       (void) llvm::createCorrelatedValuePropagationPass();
       (void) llvm::createMemDepPrinter();
       (void) llvm::createInstructionSimplifierPass();
+
+      (void) llvm::createDomLeavesPass();
+      (void) llvm::createIpetPass();
 
       (void)new llvm::IntervalPartition();
       (void)new llvm::FindUsedTypes();

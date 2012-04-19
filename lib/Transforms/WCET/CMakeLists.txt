@@ -27,15 +27,16 @@ if( LLVM_ENABLE_IPET )
 
   # TODO we need the _pic.a file if we build an .so file, but for windows (and probably other non-ubuntu dists?) there is no such thing!
   find_library(LPSOLVE_LIBRARY_PATH lpsolve55 PATHS ${LPSOLVE_LIBRARY_DIR})
+  find_library(COLAMD_LIBRARY_PATH  colamd    PATHS ${LPSOLVE_LIBRARY_DIR})
   if( NOT LPSOLVE_LIBRARY_PATH )
     message(FATAL_ERROR "liblpsolve55 is not found.")
   endif()
 
-  list(APPEND CMAKE_REQUIRED_LIBRARIES ${LPSOLVE_LIBRARY_PATH})
-  list(APPEND CMAKE_REQUIRED_INCLUDES ${LPSOLVE_INCLUDE_PATH})
+  list(APPEND CMAKE_REQUIRED_LIBRARIES ${LPSOLVE_LIBRARY_PATH} ${COLAMD_LIBRARY_PATH})
+  list(APPEND CMAKE_REQUIRED_INCLUDES ${LPSOLVE_INCLUDE_PATH} ${COLAMD_LIBRARY_PATH})
   check_symbol_exists(make_lp ${LPSOLVE_HEADER} HAVE_LPSOLVE_CALL)
-  list(REMOVE_ITEM CMAKE_REQUIRED_INCLUDES ${LPSOLVE_INCLUDE_PATH})
-  list(REMOVE_ITEM CMAKE_REQUIRED_LIBRARIES ${LPSOLVE_LIBRARY_PATH})
+  list(REMOVE_ITEM CMAKE_REQUIRED_INCLUDES ${LPSOLVE_INCLUDE_PATH} ${COLAMD_LIBRARY_PATH})
+  list(REMOVE_ITEM CMAKE_REQUIRED_LIBRARIES ${LPSOLVE_LIBRARY_PATH} ${COLAMD_LIBRARY_PATH})
 else()
   unset(HAVE_LPSOLVE_LPLIB_H CACHE)
   unset(HAVE_LPLIB_H CACHE)
@@ -54,9 +55,18 @@ if( LLVM_ENABLE_IPET )
   )
 endif()
 
-add_llvm_library( LLVMAnalysisWCET ${SOURCES} )
+add_llvm_library( LLVMwcet ${SOURCES} )
+
+add_llvm_library_dependencies( LLVMwcet
+  LLVMAnalysis
+  LLVMSupport
+  LLVMTransformUtils
+)
 
 if( LLVM_ENABLE_IPET )
-  target_link_libraries( LLVMAnalysisWCET ${LPSOLVE_LIBRARY_PATH} )
+  target_link_libraries( LLVMwcet 
+    ${LPSOLVE_LIBRARY_PATH} 
+    ${COLAMD_LIBRARY_PATH}
+  )
 endif()
 

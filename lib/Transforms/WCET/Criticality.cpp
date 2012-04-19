@@ -11,6 +11,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/WCET.h"
 #include "llvm/Module.h"
 #include "llvm/Pass.h"
 
@@ -42,7 +43,7 @@ namespace {
     static char ID; // Pass identification, replacement for typeid
 
     DomLeaves() : FunctionPass(ID) {
-      initializeDomLeavesPass(*PassRegistry::getPassRegistry());
+      //initializeDomLeavesPass(*PassRegistry::getPassRegistry());
     }
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
@@ -60,12 +61,16 @@ namespace {
 }
 
 char DomLeaves::ID = 0;
-INITIALIZE_PASS(DomLeaves, "domleaves",
-                "Criticalities prototype pass", false, false)
+static RegisterPass<DomLeaves> tmp( "domleaves",
+                "Criticalities prototype pass", false, false);
+
+namespace llvm {
 
 // Public interface to the pass
-FunctionPass *llvm::createDomLeavesPass() {
+FunctionPass *createDomLeavesPass() {
   return new DomLeaves();
+}
+
 }
 
 // debug output helper

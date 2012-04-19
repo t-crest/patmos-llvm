@@ -1,4 +1,4 @@
-set(LLVM_LINK_COMPONENTS asmparser instrumentation scalaropts ipo
+set(LLVM_LINK_COMPONENTS asmparser instrumentation scalaropts ipo wcet
   linker bitreader bitwriter)
 
 add_llvm_tool(bugpoint
