@@ -26,6 +26,7 @@
 #include "llvm/IntrinsicInst.h"
 #include "llvm/Instructions.h"
 #include "llvm/Analysis/CFGPrinter.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Casting.h"
@@ -52,6 +53,12 @@ STATISTIC(numTotalBlocks, "Blocks total count");
 STATISTIC(numWCEPBlocks, "Blocks on WCEP");
 
 namespace wcet {
+
+static cl::opt<bool> DumpILP("dump-ilp", cl::init(false), cl::Hidden,
+    cl::desc("Dump lpsolve ILP problems."));
+
+static cl::opt<bool> SimpleCrit("simple-crit", cl::init(false), cl::Hidden,
+    cl::desc("Perform simple criticality calculation."));
 
 bool IpetPass::doInitialization(CallGraph &CG) {
 
@@ -97,9 +104,48 @@ bool IpetPass::runOnSCC(CallGraphSCC & SCC) {
     Ipet ipet(ipetConfig, *ipetResult);
 
     ipet.analyze(*F);
+
+    if (SimpleCrit) {
+      calcSimpleCriticalities(*F, ipet);
+    }
   }
 
   return false;
+}
+
+void IpetPass::calcSimpleCriticalities(Function &F, Ipet &ipet)
+{
+  // We assume that ipet has been calculated for F already
+  uint64_t wcet = ipetResult->getWCET(F);
+
+  printf("Calculating criticalities for %s (WCET: %lu)\n", F.getNameStr().c_str(), wcet);
+
+  IpetResult result;
+  Ipet localIpet(ipet.getConfig(), result, true);
+
+  for (Function::iterator II = F.begin(), IE = F.end(); II != IE; ++II) {
+    BasicBlock &BB = *II;
+
+    if (ipetResult->isOnWCEP(BB)) {
+      printf(" %s: 1.0\n", ipetResult->getBlockLabel(BB, F).c_str());
+      continue;
+    }
+
+    localIpet.getFlowProvider().reset();
+    localIpet.getFlowProvider().forceBlock(&BB);
+
+    if (!localIpet.analyze(F)) {
+      printf(" %s: no result!\n", ipetResult->getBlockLabel(BB, F).c_str());
+      continue;
+    }
+
+    uint64_t wcet_bb = result.getWCET(F);
+
+    double crit = ((double)wcet_bb)/(double)wcet;
+
+    printf(" %s: %Lf (WCET: %lu)\n", ipetResult->getBlockLabel(BB, F).c_str(), (long double) crit, wcet_bb);
+  }
+
 }
 
 void IpetPass::print(raw_ostream &O, const Module *M) const {
@@ -109,8 +155,9 @@ void IpetPass::print(raw_ostream &O, const Module *M) const {
 }
 
 
-Ipet::Ipet(IpetConfig &config, IpetResult &result)
- : config(config), result(result), CP(config.getCostProvider()), FFP(config.getFlowFactProvider())
+Ipet::Ipet(IpetConfig &config, IpetResult &result, bool quiet)
+ : config(config), result(result), CP(config.getCostProvider()), FFP(config.getFlowFactProvider()),
+   quiet(quiet)
 {
 }
 
@@ -228,12 +275,14 @@ bool Ipet::analyze(Function &F) {
   // map results back to edges and basic blocks
   readResults(lp, F);
 
+  if (!quiet) {
   DEBUG(t[9] = clock();
   errs() << "IPET Time: ";
   for (int i = 0; i < 9; i++) {
     errs() << (i+1) << ": " << ((float)(t[i+1]-t[i]))/CLOCKS_PER_SEC << ", ";
   }
   errs() << "clocks: " << CLOCKS_PER_SEC << "\n");
+  }
 
   // TODO dump/print results? -> used by IpetPrintPass or something
 
@@ -548,11 +597,11 @@ bool Ipet::runSolver(lprec *lp, Function &F)
 
   int ret = solve(lp);
   if (ret == OPTIMAL || ret == PRESOLVED) {
-    DEBUG(errs() << "Found optimal result for " << F.getName() << "\n");
+    DEBUG(if (!quiet) errs() << "Found optimal result for " << F.getName() << "\n");
     return true;
   }
   if (ret == SUBOPTIMAL) {
-    DEBUG(errs() << "Found suboptimal result for " << F.getName() << "\n");
+    DEBUG(if (!quiet) errs() << "Found suboptimal result for " << F.getName() << "\n");
     return true;
   }
 
@@ -603,6 +652,8 @@ void Ipet::readResults(lprec *lp, Function & F)
 
 void Ipet::dumpProblem(lprec *lp, Function & F)
 {
+  if (!DumpILP) return;
+
   std::string fname = std::string(F.getName().str());
   fname.append(".lp");
   write_lp(lp, (char*)fname.c_str());

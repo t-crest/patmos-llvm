@@ -90,6 +90,10 @@ namespace wcet {
       size_t addEdgeConstraint(const BasicBlock *source, const BasicBlock *target, int N, ConstraintType cmp = CT_LE,
           const BasicBlock *Ref = NULL);
 
+      size_t forceBlock(const BasicBlock *block) {
+        return addBlockConstraint(block, 1, CT_GE);
+      }
+
       /**
        *  Get all block constraints (for all functions)
        *

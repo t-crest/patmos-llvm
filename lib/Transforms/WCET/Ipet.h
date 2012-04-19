@@ -63,6 +63,8 @@ namespace wcet {
     private:
       void destroy();
 
+      void calcSimpleCriticalities(Function &F, Ipet &ipet);
+
       CallGraph        *CG;
 
       IpetConfig       *ipetConfig;
@@ -71,7 +73,7 @@ namespace wcet {
 
   class Ipet {
     public:
-      Ipet(IpetConfig &config, IpetResult &result);
+      Ipet(IpetConfig &config, IpetResult &result, bool quiet = false);
 
       /**
        * Get the costs of one basic block, including nonlocal costs.
@@ -106,6 +108,14 @@ namespace wcet {
        */
       //void analyze(ArrayRef<Function> &CC);
 
+      IpetConfig &getConfig() { return config; }
+
+      IpetResult &getResult() { return result; }
+
+      CostProvider &getCostProvider() { return CP; }
+
+      FlowFactProvider &getFlowProvider() { return FFP; }
+
     private:
       Function* getCallee(const CallSite &CS);
 
@@ -138,6 +148,8 @@ namespace wcet {
 
       CostProvider     &CP;
       FlowFactProvider &FFP;
+
+      bool             quiet;
 
       typedef ValueMap<const BasicBlock *, size_t>   BBIndexMap;
 
@@ -181,6 +193,10 @@ namespace wcet {
        * Get the execution frequency of a basic block for the worst-case path.
        */
       uint64_t getWCExecFrequency(const BasicBlock &BB) const;
+
+      bool isOnWCEP(const BasicBlock &BB) const {
+        return getWCExecFrequency(BB) > 0;
+      }
 
       /**
        * get the WCET of function F (including subcalls)

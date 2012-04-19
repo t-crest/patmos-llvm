@@ -123,7 +123,7 @@ void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &scev)
   const SCEV *value = scev.getMaxBackedgeTakenCount(loop);
   const SCEVConstant *c = dyn_cast_or_null<SCEVConstant>(value);
   if (c) {
-    trip = c->getValue()->getSExtValue();
+    trip = c->getValue()->getLimitedValue(INT_MAX);
     if ( trip < 0 ) {
       errs() << "** Invalid SCEV max back-edge taken count: "; c->print(errs()); errs() << "\n";
       trip = 1000;
