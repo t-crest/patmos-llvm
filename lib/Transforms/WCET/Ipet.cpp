@@ -201,7 +201,7 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
 
   if (!result.hasWCET(Callee)) {
 
-    Ipet ipet(config, result);
+    Ipet ipet(config, result, quiet);
 
     if (!ipet.analyze(Callee)) {
       errs() << "** Failed to get analysis results for call site " << CS <<
@@ -212,7 +212,12 @@ uint64_t Ipet::getNonlocalCost(CallSite &CS, Function &Callee) {
 
   }
 
-  return result.getWCET(Callee);
+  uint64_t wcet = result.getWCET(Callee);
+  if (wcet > 1000000) {
+    errs() << "WCET of callee " << Callee.getName() << " is too big, approximating with 1000000!\n";
+    return 1000000;
+  }
+  return wcet;
 }
 
 bool Ipet::analyze(Function &F) {

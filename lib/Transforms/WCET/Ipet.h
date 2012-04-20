@@ -149,6 +149,7 @@ namespace wcet {
       CostProvider     &CP;
       FlowFactProvider &FFP;
 
+      // TODO move this into IpetConfig (?)
       bool             quiet;
 
       typedef ValueMap<const BasicBlock *, size_t>   BBIndexMap;

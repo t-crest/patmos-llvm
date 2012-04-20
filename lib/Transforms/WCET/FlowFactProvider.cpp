@@ -28,14 +28,20 @@
 #include "llvm/PassSupport.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 
 #include "FlowFactProvider.h"
 
 using namespace llvm;
 
-
 namespace wcet {
+
+static cl::opt<int> defaultLoopCount("def-loopcnt", cl::init(20), cl::Hidden,
+       cl::desc("Default loop count for unbounded loops."));
+
+static cl::opt<int> maxLoopCount("max-loopcnt", cl::init(100), cl::Hidden,
+       cl::desc("Max loop count."));
 
 size_t FlowFactProvider::addBlockConstraint(const BasicBlock *block, int N,
     ConstraintType cmp, const BasicBlock *Ref)
@@ -123,27 +129,23 @@ void SCEVFlowFactProvider::loadLoop(Loop *loop, ScalarEvolution &scev)
   const SCEV *value = scev.getMaxBackedgeTakenCount(loop);
   const SCEVConstant *c = dyn_cast_or_null<SCEVConstant>(value);
   if (c) {
-    trip = c->getValue()->getLimitedValue(INT_MAX);
-    if ( trip < 0 ) {
-      errs() << "** Invalid SCEV max back-edge taken count: "; c->print(errs()); errs() << "\n";
-      trip = 1000;
-    } else {
-      bounded = true;
-    }
+    //trip = c->getValue()->getLimitedValue(INT_MAX);
+    trip = c->getValue()->getLimitedValue(maxLoopCount);
+    bounded = true;
   } else {
     DEBUG(errs() << "** Could not get SCEV loop bound\n");
   }
-  if (!bounded) {
-    trip = loop->getSmallConstantTripCount();
-    if (trip > 0) {
-      bounded = true;
-    }
-  }
+  //if (!bounded) {
+  //  trip = loop->getSmallConstantTripCount();
+  //  if (trip > 0) {
+  //    bounded = true;
+  //  }
+  //}
   if (!bounded) {
     // TODO try use manual annotation
-    errs() << "** Failed to get loop trip count for loop (using default bound of 1000):\n";
+    errs() << "** Failed to get loop trip count for loop (using default bound of " << defaultLoopCount << "):\n";
     loop->print(errs(), 2);
-    trip = 1000;
+    trip = defaultLoopCount;
   } else {
     DEBUG(errs() << "Using loop bound " << trip << " for loop:\n"; loop->print(errs(), 2));
   }
