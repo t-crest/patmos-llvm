@@ -2,9 +2,9 @@
 BUILDDIR=../../../Debug+Asserts/
 
 # to override default BUILDDIR
-include config.mk
+-include config.mk
 
-LLC=$(BUILDDIR)/bin/llc
+LLC=$(BUILDDIR)/bin/llc -load $(BUILDDIR)/lib/libLLVMPatmosCodeGen.so -march=patmos
 CLANG=$(BUILDDIR)/bin/clang
 
 VIEW= \
@@ -25,5 +25,5 @@ all: return.s
 	$(CLANG) -O0 -S -emit-llvm -o $@ $<
 
 %.s: %.ll
-	$(LLC) -march=patmos -O0 $(VIEW) -o $@ $<
+	$(LLC) -O0 $(VIEW) -o $@ $<
 	@echo

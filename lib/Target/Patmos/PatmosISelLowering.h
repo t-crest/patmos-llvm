@@ -27,6 +27,9 @@ namespace llvm {
       /// Return with a flag operand. Operand 0 is the chain operand.
       RET_FLAG,
 
+      /// subract left from right
+      RSUB
+
 #if 0
       /// Same as RET_FLAG, but used for returning from ISRs.
       RETI_FLAG,
@@ -66,7 +69,7 @@ namespace llvm {
       SHL, SRA, SRL
 #endif
     };
-  } // end namespaece PatmosISD
+  } // end namespace PatmosISD
   class PatmosSubtarget;
   class PatmosTargetMachine;
 

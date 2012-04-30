@@ -45,6 +45,9 @@ def SDT_PatmosShift        : SDTypeProfile<1, 2, [SDTCisSameAs<0, 1>,
 //===----------------------------------------------------------------------===//
 def Patmosretflag  : SDNode<"PatmosISD::RET_FLAG", SDTNone,
                        [SDNPHasChain, SDNPOptInGlue]>;
+
+
+def rsub : SDNode<"PatmosISD::RSUB", SDTIntBinOp>;
 /*
 def Patmosretiflag : SDNode<"PatmosISD::RETI_FLAG", SDTNone,
                        [SDNPHasChain, SDNPOptInGlue]>;
@@ -388,6 +391,128 @@ def MOV16mm : I16mm<0x0,
 
 //===----------------------------------------------------------------------===//
 // Arithmetic Instructions
+
+multiclass ALU_ilr <string asmstr, bits<4> func, SDNode opnode> {
+  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins RRegs:$rs1, i12imm:$imm),
+                !strconcat(asmstr, " $rd, $rs1, $imm"),
+                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>; //TODO xform
+
+  def l : ALUl<func, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+                !strconcat(asmstr, " $rd, $rs1, $imm"),
+                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>;
+
+  def r : ALUr<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                !strconcat(asmstr, " $rd, $rs1, $rs2"),
+                [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
+}
+
+
+multiclass ALU_lr <string asmstr, bits<4> func, SDNode opnode> {
+  def l : ALUl<func, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+                !strconcat(asmstr, " $rd, $rs1, $imm"),
+                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>;
+
+  def r : ALUr<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                !strconcat(asmstr, " $rd, $rs1, $rs2"),
+                [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
+}
+
+
+/** also short immediates ******/
+
+let isCommutable = 1 in {
+defm ADD : ALU_ilr <"add", 0b0000, add>;
+
+defm OR  : ALU_ilr <"or" , 0b0110, or >;
+defm AND : ALU_ilr <"and", 0b0111, and>;
+}
+
+defm SUB  : ALU_ilr <"sub",  0b0001, sub>;
+defm RSUB : ALU_ilr <"rsub", 0b0010, rsub>; // custom for Patmos
+defm SL   : ALU_ilr <"sl",   0b0011, shl>;
+defm SR   : ALU_ilr <"sr",   0b0100, srl>;
+defm SRA  : ALU_ilr <"sra",  0b0101, sra>;
+
+/********/
+
+defm RL   : ALU_lr <"rl",   0b1000, rotl>;
+defm RR   : ALU_lr <"rr",   0b1001, rotr>;
+
+let isCommutable = 1 in {
+defm XOR  : ALU_lr <"xor" , 0b0110, or >;
+
+def NORl  : ALUl <0b1011,
+              (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+              "nor $rd, $rs1, $imm",
+              [(set RRegs:$rd, (not (or RRegs:$rs1, imm:$imm)))]>;
+def NORr  : ALUl <0b1011,
+              (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+              "nor $rd, $rs1, $rs2",
+              [(set RRegs:$rd, (not (or RRegs:$rs1, RRegs:$rs2)))]>;
+}
+
+//defm CARR   : ALU_lr <"carr",   0b1100, XXX>;
+//defm BORR   : ALU_lr <"borr",   0b1101, XXX>;
+//defm SHADD  : ALU_lr <"shadd",  0b1110, XXX>;
+//defm SHADD2 : ALU_lr <"shadd2", 0b1111, XXX>;
+
+
+/********/
+// Unary Arithmetic
+
+
+/*
+def SEXT8  : ALUu <0b0000,
+              (outs RRegs:$rd), (ins RRegs:$rs1),
+              "sext8 $rd, $rs1",
+              [(set RRegs:$rd, (sext RRegs:$rs1))]>;
+
+def SEXT16 : ALUu <0b0001,
+              (outs RRegs:$rd), (ins RRegs:$rs1),
+              "sext16 $rd, $rs1",
+              [(set RRegs:$rd, (sext RRegs:$rs1))]>;
+
+def ZEXT16 : ALUu <0b0010,
+              (outs RRegs:$rd), (ins RRegs:$rs1),
+              "zext16 $rd, $rs1",
+              [(set RRegs:$rd, (zext RRegs:$rs1))]>;
+*/
+
+def CLZ    : ALUu <0b0011,
+              (outs RRegs:$rd), (ins RRegs:$rs1),
+              "clz $rd, $rs1",
+              [(set RRegs:$rd, (ctlz RRegs:$rs1))]>;
+
+def CTZ    : ALUu <0b0100,
+              (outs RRegs:$rd), (ins RRegs:$rs1),
+              "ctz $rd, $rs1",
+              [(set RRegs:$rd, (cttz RRegs:$rs1))]>;
+
+/*
+def ABS    : ALUu <0b0101,
+              (outs RRegs:$rd), (ins RRegs:$rs1),
+              "abs $rd, $rs1",
+              [(set RRegs:$rd, (XXX RRegs:$rs1))]>;
+*/
+
+
+
+
+// Multiply
+/*
+def MUL  : ALUm <0b0000,
+              (outs SRegs:SL, SRegs:SH), (ins RRegs:$rs1, RRegs:$rs2),
+              "mul $rs1, $rs2",
+              [(set SRegs:SL, (mul RRegs:$rs1, RRegs:$rs2))]>;
+
+def MULU : ALUm <0b0001,
+              (outs SRegs:SL, SRegs:SH), (ins RRegs:$rs1, RRegs:$rs2),
+              "mulu $rs1, $rs2",
+              [(set SRegs:SL, (mul RRegs:$rs1, RRegs:$rs2))]>;
+*/
+
+
+
 
 
 /*
