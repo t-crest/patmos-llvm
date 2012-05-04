@@ -82,19 +82,10 @@ def Patmossrl     : SDNode<"PatmosISD::SRL", SDT_PatmosShift, []>;
 // Patmos Operand Definitions.
 //===----------------------------------------------------------------------===//
 
-// additional immediate operands
-//
-let OperandType = "OPERAND_IMMEDIATE" in {
-  def i12imm  : Operand<i32> {
-    let PrintMethod = "printOperand";
-    //TODO let PrintMethod = "printSExtConstOperand<12>";
-  }
+def uimm12   : PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
+def uimm22   : PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
 
-  def i22imm  : Operand<i32> {
-    let PrintMethod = "printOperand";
-    //TODO let PrintMethod = "printSExtConstOperand<22>";
-  }
-}
+
 
 
 /*
@@ -393,9 +384,9 @@ def MOV16mm : I16mm<0x0,
 // Arithmetic Instructions
 
 multiclass ALU_ilr <string asmstr, bits<4> func, SDNode opnode> {
-  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins RRegs:$rs1, i12imm:$imm),
+  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
                 !strconcat(asmstr, " $rd, $rs1, $imm"),
-                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>; //TODO xform
+                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
 
   def l : ALUl<func, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
                 !strconcat(asmstr, " $rd, $rs1, $imm"),
@@ -457,6 +448,8 @@ def NORr  : ALUl <0b1011,
 //defm SHADD2 : ALU_lr <"shadd2", 0b1111, XXX>;
 
 
+
+
 /********/
 // Unary Arithmetic
 
@@ -469,7 +462,7 @@ def SEXT8  : ALUu <0b0000,
 
 def SEXT16 : ALUu <0b0001,
               (outs RRegs:$rd), (ins RRegs:$rs1),
-              "sext16 $rd, $rs1",
+               A"sext16 $rd, $rs1",
               [(set RRegs:$rd, (sext RRegs:$rs1))]>;
 
 def ZEXT16 : ALUu <0b0010,
@@ -513,6 +506,31 @@ def MULU : ALUm <0b0001,
 
 
 
+// Compare
+
+multiclass ALUc_cn <string asmstr, bits<4> func, PatFrag cnode, PatFrag nnode> {
+  def c : ALUc<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                !strconcat(asmstr, " $rd, $rs1, $rs2"),
+                [(set RRegs:$rd, (cnode RRegs:$rs1, RRegs:$rs2))]>;
+
+  def n : ALUc<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                !strconcat(asmstr, " $rd, $rs1, $rs2"),
+                [(set RRegs:$rd, (nnode RRegs:$rs1, RRegs:$rs2))]>;
+}
+
+defm CMPEQ  : ALUc_cn <"cmpeq",  0b0000, seteq,  seteq>;
+defm CMPNEQ : ALUc_cn <"cmpneq", 0b0001, setne,  setne>;
+defm CMPLT  : ALUc_cn <"cmplt",  0b0010, setlt,  setgt>;
+defm CMPLE  : ALUc_cn <"cmple",  0b0011, setle,  setge>;
+defm CMPULT : ALUc_cn <"cmpult", 0b0100, setult, setugt>;
+defm CMPULE : ALUc_cn <"cmpule", 0b0101, setule, setuge>;
+
+def BTEST : ALUc<0b0110, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                  "btest $rd, $rs1, $rs2",
+                  [(set RRegs:$rd, (setne (and RRegs:$rs1, (shl (i32 1), RRegs:$rs2)), (i32 0)))]>;
+
+
+// Predicate
 
 
 /*
