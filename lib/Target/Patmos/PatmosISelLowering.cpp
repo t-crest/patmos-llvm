@@ -81,10 +81,10 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setStackPointerRegisterToSaveRestore(Patmos::R31);
   setBooleanContents(ZeroOrOneBooleanContent);
 
+  //setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
+  //setSchedulingPreference(Sched::Latency);
 
 #if 0
-  setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
-  setSchedulingPreference(Sched::Latency);
 
   // We have post-incremented loads / stores.
   setIndexedLoadAction(ISD::POST_INC, MVT::i8, Legal);
