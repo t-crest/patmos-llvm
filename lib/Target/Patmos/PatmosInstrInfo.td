@@ -118,9 +118,15 @@ def cc : Operand<i8> {
 
 /*
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
+*/
 
 //===----------------------------------------------------------------------===//
 // Pattern Fragments
+
+// Helper fragment for predicate inversion
+def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
+
+/*
 def zextloadi16i8 : PatFrag<(ops node:$ptr), (i16 (zextloadi8 node:$ptr))>;
 def  extloadi16i8 : PatFrag<(ops node:$ptr), (i16 ( extloadi8 node:$ptr))>;
 def and_su : PatFrag<(ops node:$lhs, node:$rhs), (and node:$lhs, node:$rhs), [{
@@ -177,8 +183,8 @@ let usesCustomInserter = 1 in {
 
 */
 
-let neverHasSideEffects = 1 in
-def NOP : PseudoInst<(outs), (ins), "nop", []>;
+//let neverHasSideEffects = 1 in
+//def NOP : PseudoInst<(outs), (ins), "nop", []>;
 
 
 
@@ -481,29 +487,33 @@ def CTZ    : ALUu <0b0100,
               "ctz $rd, $rs1",
               [(set RRegs:$rd, (cttz RRegs:$rs1))]>;
 
-/*
+//FIXME
 def ABS    : ALUu <0b0101,
               (outs RRegs:$rd), (ins RRegs:$rs1),
               "abs $rd, $rs1",
-              [(set RRegs:$rd, (XXX RRegs:$rs1))]>;
-*/
+              []>;
+              //[(set RRegs:$rd, (XXX RRegs:$rs1))]>;
+
 
 
 
 
 // Multiply
-/*
+
+// TODO
+let Defs = [SL,SH], isCommutable=1 in {
 def MUL  : ALUm <0b0000,
-              (outs SRegs:SL, SRegs:SH), (ins RRegs:$rs1, RRegs:$rs2),
+              (outs), (ins RRegs:$rs1, RRegs:$rs2),
               "mul $rs1, $rs2",
-              [(set SRegs:SL, (mul RRegs:$rs1, RRegs:$rs2))]>;
+              []>;
+              //[(set SRegs:$sl, (mul RRegs:$rs1, RRegs:$rs2))]>;
 
 def MULU : ALUm <0b0001,
-              (outs SRegs:SL, SRegs:SH), (ins RRegs:$rs1, RRegs:$rs2),
+              (outs), (ins RRegs:$rs1, RRegs:$rs2),
               "mulu $rs1, $rs2",
-              [(set SRegs:SL, (mul RRegs:$rs1, RRegs:$rs2))]>;
-*/
-
+              []>;
+              //[(set SRegs:$sl, (mul RRegs:$rs1, RRegs:$rs2))]>;
+}
 
 
 // Compare
@@ -529,8 +539,54 @@ def BTEST : ALUc<0b0110, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
                   "btest $rd, $rs1, $rs2",
                   [(set RRegs:$rd, (setne (and RRegs:$rs1, (shl (i32 1), RRegs:$rs2)), (i32 0)))]>;
 
+// isodd Pd = Rs1 ... btest Pd = Rs1[r0]
+
+
 
 // Predicate
+
+//or
+def POR: ALUp <0b0110, (outs PRegs:$pd), (ins PRegs:$ps1, PRegs:$ps2),
+                "or $pd, $ps1, $ps2",
+                [(set PRegs:$pd, (or PRegs:$ps1, PRegs:$ps2))]>;
+
+//and
+def PAND: ALUp <0b0110, (outs PRegs:$pd), (ins PRegs:$ps1, PRegs:$ps2),
+                "and $pd, $ps1, $ps2",
+                [(set PRegs:$pd, (and PRegs:$ps1, PRegs:$ps2))]>;
+//xor
+def PXOR: ALUp <0b1010, (outs PRegs:$pd), (ins PRegs:$ps1, PRegs:$ps2),
+                "xor $pd, $ps1, $ps2",
+                [(set PRegs:$pd, (xor PRegs:$ps1, PRegs:$ps2))]>;
+//nor
+def PNOR: ALUp <0b1010, (outs PRegs:$pd), (ins PRegs:$ps1, PRegs:$ps2),
+                "xor $pd, $ps1, $ps2",
+                [(set PRegs:$pd, (notcc (or PRegs:$ps1, PRegs:$ps2)))]>;
+
+
+// Pseudos:
+//mov
+//not
+//set
+//clr
+
+
+// NOP
+def NOP  : SPCn <(outs), (ins i32imm:$imm), "nop $imm", []>;
+
+// Wait
+def WAIT : SPCw <0b0000, (outs), (ins), "wait.mem", []>;
+
+// move to special
+def MTS  : SPCt <(outs SRegs:$sd), (ins RRegs:$rs), "mts $sd, $rs", [] >;
+
+// move from special
+def MFS  : SPCf <(outs RRegs:$rd), (ins SRegs:$ss), "mfs $rd, $ss", [] >;
+
+
+
+// Load typed
+
 
 
 /*
