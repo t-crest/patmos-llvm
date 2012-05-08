@@ -8,8 +8,8 @@
 ##===----------------------------------------------------------------------===##
 
 LEVEL = ../../..
-LIBRARYNAME = libLLVMPatmosCodeGen
-LOADABLE_MODULE = 1
+LIBRARYNAME = LLVMPatmosCodeGen
+#LOADABLE_MODULE = 1
 TARGET = Patmos
 
 # Make sure that tblgen is run, first thing.
