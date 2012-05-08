@@ -27,13 +27,12 @@
 using namespace llvm;
 
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
-#if 0
   const MachineFrameInfo *MFI = MF.getFrameInfo();
+
+  //return (MF.getTarget().Options.DisableFramePointerElim(MF) ||
   return (DisableFramePointerElim(MF) ||
           MF.getFrameInfo()->hasVarSizedObjects() ||
           MFI->isFrameAddressTaken());
-#endif
-  return true;
 }
 
 #if 0

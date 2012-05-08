@@ -18,9 +18,12 @@ include "llvm/Target/Target.td"
 //===----------------------------------------------------------------------===//
 // Subtarget Features. 
 //===----------------------------------------------------------------------===//
+
+/*
 def FeatureX
  : SubtargetFeature<"ext", "ExtendedInsts", "true",
                     "Enable Patmos-X extensions">;
+*/
 
 //===----------------------------------------------------------------------===//
 // Patmos supported processors.
@@ -28,7 +31,7 @@ def FeatureX
 class Proc<string Name, list<SubtargetFeature> Features>
  : Processor<Name, NoItineraries, Features>;
 
-def : Proc<"generic",         []>;
+def : Proc<"generic", []>;
 
 //===----------------------------------------------------------------------===//
 // Register File Description

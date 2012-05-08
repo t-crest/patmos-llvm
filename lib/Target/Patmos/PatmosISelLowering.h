@@ -27,49 +27,15 @@ namespace llvm {
       /// Return with a flag operand. Operand 0 is the chain operand.
       RET_FLAG,
 
-      /// subract left from right
-      RSUB
-
-#if 0
-      /// Same as RET_FLAG, but used for returning from ISRs.
-      RETI_FLAG,
-
-      /// Y = R{R,L}A X, rotate right (left) arithmetically
-      RRA, RLA,
-
-      /// Y = RRC X, rotate right via carry
-      RRC,
-
       /// CALL - These operations represent an abstract call
       /// instruction, which includes a bunch of information.
       CALL,
 
-      /// Wrapper - A wrapper node for TargetConstantPool, TargetExternalSymbol,
-      /// and TargetGlobalAddress.
-      Wrapper,
-
-      /// CMP - Compare instruction.
-      CMP,
-
-      /// SetCC - Operand 0 is condition code, and operand 1 is the flag
-      /// operand produced by a CMP instruction.
-      SETCC,
-
-      /// Patmos conditional branches. Operand 0 is the chain operand, operand 1
-      /// is the block to branch if condition is true, operand 2 is the
-      /// condition code, and operand 3 is the flag operand produced by a CMP
-      /// instruction.
-      BR_CC,
-
-      /// SELECT_CC - Operand 0 and operand 1 are selection variable, operand 3
-      /// is condition code and operand 4 is flag operand.
-      SELECT_CC,
-
-      /// SHL, SRA, SRL - Non-constant shifts.
-      SHL, SRA, SRL
-#endif
+      /// subract left from right
+      RSUB
     };
   } // end namespace PatmosISD
+
   class PatmosSubtarget;
   class PatmosTargetMachine;
 
@@ -84,59 +50,11 @@ namespace llvm {
     /// DAG node.
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
-#if 0
-    virtual MVT getShiftAmountTy(EVT LHSTy) const { return MVT::i8; }
-
-    SDValue LowerShifts(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerExternalSymbol(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerSIGN_EXTEND(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
-    SDValue getReturnAddressFrameIndex(SelectionDAG &DAG) const;
-
-    TargetLowering::ConstraintType
-    getConstraintType(const std::string &Constraint) const;
-    std::pair<unsigned, const TargetRegisterClass*>
-    getRegForInlineAsmConstraint(const std::string &Constraint, EVT VT) const;
-
-    /// isTruncateFree - Return true if it's free to truncate a value of type
-    /// Ty1 to type Ty2. e.g. On FIXME msp430 it's free to truncate a i16 value in
-    /// register R15W to i8 by referencing its sub-register R15B.
-    virtual bool isTruncateFree(Type *Ty1, Type *Ty2) const;
-    virtual bool isTruncateFree(EVT VT1, EVT VT2) const;
-
-    /// isZExtFree - Return true if any actual instruction that defines a value
-    /// of type Ty1 implicit zero-extends the value to Ty2 in the result
-    /// register. This does not necessarily include registers defined in unknown
-    /// ways, such as incoming arguments, or copies from unknown virtual
-    /// registers. Also, if isTruncateFree(Ty2, Ty1) is true, this does not
-    /// necessarily apply to truncate instructions. e.g. on FIXME msp430, all
-    /// instructions that define 8-bit values implicit zero-extend the result
-    /// out to 16 bits.
-    virtual bool isZExtFree(Type *Ty1, Type *Ty2) const;
-    virtual bool isZExtFree(EVT VT1, EVT VT2) const;
-
-    MachineBasicBlock* EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                   MachineBasicBlock *BB) const;
-    MachineBasicBlock* EmitShiftInstr(MachineInstr *MI,
-                                      MachineBasicBlock *BB) const;
-
-#endif
   private:
-    SDValue LowerCCCArguments(SDValue Chain,
-                              CallingConv::ID CallConv,
-                              bool isVarArg,
-                              const SmallVectorImpl<ISD::InputArg> &Ins,
-                              DebugLoc dl,
-                              SelectionDAG &DAG,
-                              SmallVectorImpl<SDValue> &InVals) const;
+    const PatmosSubtarget &Subtarget;
+    const PatmosTargetMachine &TM;
+    const TargetData *TD;
 
-#if 0
     SDValue LowerCCCCallTo(SDValue Chain, SDValue Callee,
                            CallingConv::ID CallConv, bool isVarArg,
                            bool isTailCall,
@@ -146,46 +64,55 @@ namespace llvm {
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals) const;
 
+    SDValue LowerCCCArguments(SDValue Chain,
+                              CallingConv::ID CallConv,
+                              bool isVarArg,
+                              const SmallVectorImpl<ISD::InputArg> &Ins,
+                              DebugLoc dl,
+                              SelectionDAG &DAG,
+                              SmallVectorImpl<SDValue> &InVals) const;
+
     SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
                             CallingConv::ID CallConv, bool isVarArg,
                             const SmallVectorImpl<ISD::InputArg> &Ins,
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
-#endif
-    virtual SDValue
-      LowerFormalArguments(SDValue Chain,
-                           CallingConv::ID CallConv, bool isVarArg,
-                           const SmallVectorImpl<ISD::InputArg> &Ins,
-                           DebugLoc dl, SelectionDAG &DAG,
-                           SmallVectorImpl<SDValue> &InVals) const;
 
-    virtual SDValue
-      LowerReturn(SDValue Chain,
-                  CallingConv::ID CallConv, bool isVarArg,
-                  const SmallVectorImpl<ISD::OutputArg> &Outs,
-                  const SmallVectorImpl<SDValue> &OutVals,
-                  DebugLoc dl, SelectionDAG &DAG) const;
+    SDValue LowerCall(SDValue Chain, SDValue Callee, CallingConv::ID CallConv,
+                      bool isVarArg, bool &isTailCall,
+                      const SmallVectorImpl<ISD::OutputArg> &Outs,
+                      const SmallVectorImpl<SDValue> &OutVals,
+                      const SmallVectorImpl<ISD::InputArg> &Ins,
+                      DebugLoc dl, SelectionDAG &DAG,
+                      SmallVectorImpl<SDValue> &InVals) const;
 
-#if 0
-    virtual SDValue
-      LowerCall(SDValue Chain, SDValue Callee,
-                CallingConv::ID CallConv, bool isVarArg, bool &isTailCall,
-                const SmallVectorImpl<ISD::OutputArg> &Outs,
-                const SmallVectorImpl<SDValue> &OutVals,
-                const SmallVectorImpl<ISD::InputArg> &Ins,
-                DebugLoc dl, SelectionDAG &DAG,
-                SmallVectorImpl<SDValue> &InVals) const;
+    SDValue LowerFormalArguments(SDValue Chain,
+                                 CallingConv::ID CallConv, bool isVarArg,
+                                 const SmallVectorImpl<ISD::InputArg> &Ins,
+                                 DebugLoc dl, SelectionDAG &DAG,
+                                 SmallVectorImpl<SDValue> &InVals) const;
 
+    SDValue LowerReturn(SDValue Chain,
+                        CallingConv::ID CallConv, bool isVarArg,
+                        const SmallVectorImpl<ISD::OutputArg> &Outs,
+                        const SmallVectorImpl<SDValue> &OutVals,
+                        DebugLoc dl, SelectionDAG &DAG) const;
+
+    /*
     virtual bool getPostIndexedAddressParts(SDNode *N, SDNode *Op,
                                             SDValue &Base,
                                             SDValue &Offset,
                                             ISD::MemIndexedMode &AM,
                                             SelectionDAG &DAG) const;
-#endif
-    const PatmosSubtarget &Subtarget;
-    const PatmosTargetMachine &TM;
-    const TargetData *TD;
+    */
   };
 } // namespace llvm
 
 #endif // _LLVM_TARGET_PATMOS_ISELLOWERING_H_
+
+
+
+
+
+
+
