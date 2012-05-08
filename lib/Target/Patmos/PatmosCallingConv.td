@@ -26,6 +26,7 @@ def CC_Patmos : CallingConv<[
   CCIfType<[i8], CCPromoteToType<i32>>,
   // Promote i16 arguments to i32.
   CCIfType<[i16], CCPromoteToType<i32>>,
+
   // The first 6 integer arguments of non-varargs functions are passed in
   // integer registers.
   CCIfNotVarArg<CCIfType<[i32], CCAssignToReg<[R3, R4, R5, R6, R7, R8]>>>,

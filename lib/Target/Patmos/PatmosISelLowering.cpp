@@ -40,26 +40,6 @@
 #include "llvm/ADT/VectorExtras.h"
 using namespace llvm;
 
-#if 0
-typedef enum {
-  NoHWMult,
-  HWMultIntr,
-  HWMultNoIntr
-} HWMultUseMode;
-
-static cl::opt<HWMultUseMode>
-HWMultMode("patmos-hwmult-mode",
-           cl::desc("Hardware multiplier use mode"),
-           cl::init(HWMultNoIntr),
-           cl::values(
-             clEnumValN(NoHWMult, "no",
-                "Do not use hardware multiplier"),
-             clEnumValN(HWMultIntr, "interrupts",
-                "Assume hardware multiplier can be used inside interrupts"),
-             clEnumValN(HWMultNoIntr, "use",
-                "Assume hardware multiplier cannot be used inside interrupts"),
-             clEnumValEnd));
-#endif
 
 PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   TargetLowering(tm, new TargetLoweringObjectFileELF()),
@@ -69,6 +49,8 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   // Set up the register classes.
   addRegisterClass(MVT::i32, Patmos::RRegsRegisterClass);
+  addRegisterClass(MVT::i32, Patmos::SRegsRegisterClass);
+  addRegisterClass(MVT::i1,  Patmos::PRegsRegisterClass);
 
   // Compute derived properties from the register classes
   computeRegisterProperties();
@@ -84,166 +66,20 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   //setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
   //setSchedulingPreference(Sched::Latency);
 
-#if 0
-
-  // We have post-incremented loads / stores.
-  setIndexedLoadAction(ISD::POST_INC, MVT::i8, Legal);
-  setIndexedLoadAction(ISD::POST_INC, MVT::i16, Legal);
-
-  setLoadExtAction(ISD::EXTLOAD,  MVT::i1,  Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::ZEXTLOAD, MVT::i1,  Promote);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i8,  Expand);
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i16, Expand);
-
-  // We don't have any truncstores
-  setTruncStoreAction(MVT::i16, MVT::i8, Expand);
-
-  setOperationAction(ISD::SRA,              MVT::i8,    Custom);
-  setOperationAction(ISD::SHL,              MVT::i8,    Custom);
-  setOperationAction(ISD::SRL,              MVT::i8,    Custom);
-  setOperationAction(ISD::SRA,              MVT::i16,   Custom);
-  setOperationAction(ISD::SHL,              MVT::i16,   Custom);
-  setOperationAction(ISD::SRL,              MVT::i16,   Custom);
-  setOperationAction(ISD::ROTL,             MVT::i8,    Expand);
-  setOperationAction(ISD::ROTR,             MVT::i8,    Expand);
-  setOperationAction(ISD::ROTL,             MVT::i16,   Expand);
-  setOperationAction(ISD::ROTR,             MVT::i16,   Expand);
-  setOperationAction(ISD::GlobalAddress,    MVT::i16,   Custom);
-  setOperationAction(ISD::ExternalSymbol,   MVT::i16,   Custom);
-  setOperationAction(ISD::BlockAddress,     MVT::i16,   Custom);
-  setOperationAction(ISD::BR_JT,            MVT::Other, Expand);
-  setOperationAction(ISD::BR_CC,            MVT::i8,    Custom);
-  setOperationAction(ISD::BR_CC,            MVT::i16,   Custom);
-  setOperationAction(ISD::BRCOND,           MVT::Other, Expand);
-  setOperationAction(ISD::SETCC,            MVT::i8,    Custom);
-  setOperationAction(ISD::SETCC,            MVT::i16,   Custom);
-  setOperationAction(ISD::SELECT,           MVT::i8,    Expand);
-  setOperationAction(ISD::SELECT,           MVT::i16,   Expand);
-  setOperationAction(ISD::SELECT_CC,        MVT::i8,    Custom);
-  setOperationAction(ISD::SELECT_CC,        MVT::i16,   Custom);
-  setOperationAction(ISD::SIGN_EXTEND,      MVT::i16,   Custom);
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i8, Expand);
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i16, Expand);
-
-  setOperationAction(ISD::CTTZ,             MVT::i8,    Expand);
-  setOperationAction(ISD::CTTZ,             MVT::i16,   Expand);
-  setOperationAction(ISD::CTLZ,             MVT::i8,    Expand);
-  setOperationAction(ISD::CTLZ,             MVT::i16,   Expand);
-  setOperationAction(ISD::CTPOP,            MVT::i8,    Expand);
-  setOperationAction(ISD::CTPOP,            MVT::i16,   Expand);
-
-  setOperationAction(ISD::SHL_PARTS,        MVT::i8,    Expand);
-  setOperationAction(ISD::SHL_PARTS,        MVT::i16,   Expand);
-  setOperationAction(ISD::SRL_PARTS,        MVT::i8,    Expand);
-  setOperationAction(ISD::SRL_PARTS,        MVT::i16,   Expand);
-  setOperationAction(ISD::SRA_PARTS,        MVT::i8,    Expand);
-  setOperationAction(ISD::SRA_PARTS,        MVT::i16,   Expand);
-
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1,   Expand);
-
-  // FIXME: Implement efficiently multiplication by a constant
-  setOperationAction(ISD::MUL,              MVT::i8,    Expand);
-  setOperationAction(ISD::MULHS,            MVT::i8,    Expand);
-  setOperationAction(ISD::MULHU,            MVT::i8,    Expand);
-  setOperationAction(ISD::SMUL_LOHI,        MVT::i8,    Expand);
-  setOperationAction(ISD::UMUL_LOHI,        MVT::i8,    Expand);
-  setOperationAction(ISD::MUL,              MVT::i16,   Expand);
-  setOperationAction(ISD::MULHS,            MVT::i16,   Expand);
-  setOperationAction(ISD::MULHU,            MVT::i16,   Expand);
-  setOperationAction(ISD::SMUL_LOHI,        MVT::i16,   Expand);
-  setOperationAction(ISD::UMUL_LOHI,        MVT::i16,   Expand);
-
-  setOperationAction(ISD::UDIV,             MVT::i8,    Expand);
-  setOperationAction(ISD::UDIVREM,          MVT::i8,    Expand);
-  setOperationAction(ISD::UREM,             MVT::i8,    Expand);
-  setOperationAction(ISD::SDIV,             MVT::i8,    Expand);
-  setOperationAction(ISD::SDIVREM,          MVT::i8,    Expand);
-  setOperationAction(ISD::SREM,             MVT::i8,    Expand);
-  setOperationAction(ISD::UDIV,             MVT::i16,   Expand);
-  setOperationAction(ISD::UDIVREM,          MVT::i16,   Expand);
-  setOperationAction(ISD::UREM,             MVT::i16,   Expand);
-  setOperationAction(ISD::SDIV,             MVT::i16,   Expand);
-  setOperationAction(ISD::SDIVREM,          MVT::i16,   Expand);
-  setOperationAction(ISD::SREM,             MVT::i16,   Expand);
-
-  // Libcalls names.
-  if (HWMultMode == HWMultIntr) {
-    setLibcallName(RTLIB::MUL_I8,  "__mulqi3hw");
-    setLibcallName(RTLIB::MUL_I16, "__mulhi3hw");
-  } else if (HWMultMode == HWMultNoIntr) {
-    setLibcallName(RTLIB::MUL_I8,  "__mulqi3hw_noint");
-    setLibcallName(RTLIB::MUL_I16, "__mulhi3hw_noint");
-  }
-
-  setMinFunctionAlignment(1);
-  setPrefFunctionAlignment(2);
-#endif
+  setMinFunctionAlignment(4);
+  setPrefFunctionAlignment(4);
 }
+
 
 SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
                                              SelectionDAG &DAG) const {
 
   switch (Op.getOpcode()) {
-#if 0 //FIXME
-  case ISD::SHL: // FALLTHROUGH
-  case ISD::SRL:
-  case ISD::SRA:              return LowerShifts(Op, DAG);
-  case ISD::GlobalAddress:    return LowerGlobalAddress(Op, DAG);
-  case ISD::BlockAddress:     return LowerBlockAddress(Op, DAG);
-  case ISD::ExternalSymbol:   return LowerExternalSymbol(Op, DAG);
-  case ISD::SETCC:            return LowerSETCC(Op, DAG);
-  case ISD::BR_CC:            return LowerBR_CC(Op, DAG);
-  case ISD::SELECT_CC:        return LowerSELECT_CC(Op, DAG);
-  case ISD::SIGN_EXTEND:      return LowerSIGN_EXTEND(Op, DAG);
-  case ISD::RETURNADDR:       return LowerRETURNADDR(Op, DAG);
-  case ISD::FRAMEADDR:        return LowerFRAMEADDR(Op, DAG);
-#endif
   default:
     llvm_unreachable("unimplemented operand");
-    return SDValue();
+    //return SDValue();
   }
 }
-
-//===----------------------------------------------------------------------===//
-//                       Patmos Inline Assembly Support
-//===----------------------------------------------------------------------===//
-
-#if 0
-/// getConstraintType - Given a constraint letter, return the type of
-/// constraint it is for this target.
-TargetLowering::ConstraintType
-PatmosTargetLowering::getConstraintType(const std::string &Constraint) const {
-  if (Constraint.size() == 1) {
-    switch (Constraint[0]) {
-    case 'r':
-      return C_RegisterClass;
-    default:
-      break;
-    }
-  }
-  return TargetLowering::getConstraintType(Constraint);
-}
-
-std::pair<unsigned, const TargetRegisterClass*>
-PatmosTargetLowering::
-getRegForInlineAsmConstraint(const std::string &Constraint,
-                             EVT VT) const {
-  if (Constraint.size() == 1) {
-    // GCC Constraint Letters
-    switch (Constraint[0]) {
-    default: break;
-    case 'r':   // GENERAL_REGS
-      if (VT == MVT::i8)
-        return std::make_pair(0U, Patmos::GR8RegisterClass);
-
-      return std::make_pair(0U, Patmos::GR16RegisterClass);
-    }
-  }
-
-  return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
-}
-#endif
 
 
 
@@ -273,7 +109,6 @@ PatmosTargetLowering::LowerFormalArguments(SDValue Chain,
   }
 }
 
-#if 0
 SDValue
 PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                 CallingConv::ID CallConv, bool isVarArg,
@@ -295,7 +130,6 @@ PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                           Outs, OutVals, Ins, dl, DAG, InVals);
   }
 }
-#endif
 
 /// LowerCCCArguments - transform physical registers into virtual registers and
 /// generate load operations for arguments places on the stack.
@@ -344,7 +178,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
         RegInfo.addLiveIn(VA.getLocReg(), VReg);
         SDValue ArgValue = DAG.getCopyFromReg(Chain, dl, VReg, RegVT);
 
-        // If this is an 8-bit value, it is really passed promoted to 16
+        // If this is an 8/16-bit value, it is really passed promoted to 32
         // bits. Insert an assert[sz]ext to capture this, then truncate to the
         // right size.
         if (VA.getLocInfo() == CCValAssign::SExt)
@@ -364,7 +198,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
       assert(VA.isMemLoc());
       // Load the argument to a virtual register
       unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
-      if (ObjSize > 4) {
+      if (ObjSize > 2) {
         errs() << "LowerFormalArguments Unhandled argument type: "
              << EVT(VA.getLocVT()).getEVTString()
              << "\n";
@@ -374,7 +208,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
 
       // Create the SelectionDAG nodes corresponding to a load
       //from this parameter
-      SDValue FIN = DAG.getFrameIndex(FI, MVT::i16);
+      SDValue FIN = DAG.getFrameIndex(FI, MVT::i32);
       InVals.push_back(DAG.getLoad(VA.getLocVT(), dl, Chain, FIN,
                                    MachinePointerInfo::getFixedStack(FI),
                                    false, false, 0));
@@ -393,18 +227,9 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   // CCValAssign - represent the assignment of the return value to a location
   SmallVector<CCValAssign, 16> RVLocs;
 
-  // ISRs cannot return any value.
-  // FIXME we have no interrupt handling yet for Patmos...
-  /*
-  if (CallConv == CallingConv::MSP430_INTR && !Outs.empty()) {
-    report_fatal_error("ISRs cannot return any value");
-    return SDValue();
-  }
-  */
-
   // CCState - Info about the registers and stack slot.
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-		 getTargetMachine(), RVLocs, *DAG.getContext());
+                 getTargetMachine(), RVLocs, *DAG.getContext());
 
   // Analize return values.
   CCInfo.AnalyzeReturn(Outs, RetCC_Patmos);
@@ -432,12 +257,6 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
     Flag = Chain.getValue(1);
   }
 
-  // FIXME Interrupt handling for Patmos?
-  /*
-  unsigned Opc = (CallConv == CallingConv::MSP430_INTR ? // FIXME
-                  PatmosISD::RETI_FLAG : PatmosISD::RET_FLAG);
-  */
-
   unsigned Opc = PatmosISD::RET_FLAG;
 
   if (Flag.getNode())
@@ -447,7 +266,6 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   return DAG.getNode(Opc, dl, MVT::Other, Chain);
 }
 
-#if 0
 /// LowerCCCCallTo - functions arguments are copied from virtual regs to
 /// (physical regs)/(stack frame), CALLSEQ_START and CALLSEQ_END are emitted.
 /// TODO: sret.
@@ -464,14 +282,14 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-		 getTargetMachine(), ArgLocs, *DAG.getContext());
+                 getTargetMachine(), ArgLocs, *DAG.getContext());
 
   CCInfo.AnalyzeCallOperands(Outs, CC_Patmos);
 
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NumBytes = CCInfo.getNextStackOffset();
 
-  Chain = DAG.getCALLSEQ_START(Chain ,DAG.getConstant(NumBytes,
+  Chain = DAG.getCALLSEQ_START(Chain, DAG.getConstant(NumBytes,
                                                       getPointerTy(), true));
 
   SmallVector<std::pair<unsigned, SDValue>, 4> RegsToPass;
@@ -507,7 +325,7 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
       assert(VA.isMemLoc());
 
       if (StackPtr.getNode() == 0)
-        StackPtr = DAG.getCopyFromReg(Chain, dl, Patmos::SPW, getPointerTy());
+        StackPtr = DAG.getCopyFromReg(Chain, dl, Patmos::R31, getPointerTy());
 
       SDValue PtrOff = DAG.getNode(ISD::ADD, dl, getPointerTy(),
                                    StackPtr,
@@ -539,9 +357,9 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
   // turn it into a TargetGlobalAddress node so that legalize doesn't hack it.
   // Likewise ExternalSymbol -> TargetExternalSymbol.
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee))
-    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), dl, MVT::i16);
+    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), dl, MVT::i32);
   else if (ExternalSymbolSDNode *E = dyn_cast<ExternalSymbolSDNode>(Callee))
-    Callee = DAG.getTargetExternalSymbol(E->getSymbol(), MVT::i16);
+    Callee = DAG.getTargetExternalSymbol(E->getSymbol(), MVT::i32);
 
   // Returns a chain & a flag for retval copy to use.
   SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
@@ -574,8 +392,6 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
                          DAG, InVals);
 }
 
-
-
 /// LowerCallResult - Lower the result values of a call into the
 /// appropriate copies out of appropriate physical registers.
 ///
@@ -589,7 +405,7 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   // Assign locations to each value returned by this call.
   SmallVector<CCValAssign, 16> RVLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-		 getTargetMachine(), RVLocs, *DAG.getContext());
+                 getTargetMachine(), RVLocs, *DAG.getContext());
 
   CCInfo.AnalyzeCallResult(Ins, RetCC_Patmos);
 
@@ -604,505 +420,10 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   return Chain;
 }
 
-SDValue PatmosTargetLowering::LowerShifts(SDValue Op,
-                                          SelectionDAG &DAG) const {
-  unsigned Opc = Op.getOpcode();
-  SDNode* N = Op.getNode();
-  EVT VT = Op.getValueType();
-  DebugLoc dl = N->getDebugLoc();
-
-  // Expand non-constant shifts to loops:
-  if (!isa<ConstantSDNode>(N->getOperand(1)))
-    switch (Opc) {
-    default:
-      assert(0 && "Invalid shift opcode!");
-    case ISD::SHL:
-      return DAG.getNode(PatmosISD::SHL, dl,
-                         VT, N->getOperand(0), N->getOperand(1));
-    case ISD::SRA:
-      return DAG.getNode(PatmosISD::SRA, dl,
-                         VT, N->getOperand(0), N->getOperand(1));
-    case ISD::SRL:
-      return DAG.getNode(PatmosISD::SRL, dl,
-                         VT, N->getOperand(0), N->getOperand(1));
-    }
-
-  uint64_t ShiftAmount = cast<ConstantSDNode>(N->getOperand(1))->getZExtValue();
-
-  // Expand the stuff into sequence of shifts.
-  // FIXME: for some shift amounts this might be done better!
-  // E.g.: foo >> (8 + N) => sxt(swpb(foo)) >> N
-  SDValue Victim = N->getOperand(0);
-
-  if (Opc == ISD::SRL && ShiftAmount) {
-    // Emit a special goodness here:
-    // srl A, 1 => clrc; rrc A
-    Victim = DAG.getNode(PatmosISD::RRC, dl, VT, Victim);
-    ShiftAmount -= 1;
-  }
-
-  while (ShiftAmount--)
-    Victim = DAG.getNode((Opc == ISD::SHL ? PatmosISD::RLA : PatmosISD::RRA),
-                         dl, VT, Victim);
-
-  return Victim;
-}
-
-SDValue PatmosTargetLowering::LowerGlobalAddress(SDValue Op,
-                                                 SelectionDAG &DAG) const {
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-  int64_t Offset = cast<GlobalAddressSDNode>(Op)->getOffset();
-
-  // Create the TargetGlobalAddress node, folding in the constant offset.
-  SDValue Result = DAG.getTargetGlobalAddress(GV, Op.getDebugLoc(),
-                                              getPointerTy(), Offset);
-  return DAG.getNode(PatmosISD::Wrapper, Op.getDebugLoc(),
-                     getPointerTy(), Result);
-}
-
-SDValue PatmosTargetLowering::LowerExternalSymbol(SDValue Op,
-                                                  SelectionDAG &DAG) const {
-  DebugLoc dl = Op.getDebugLoc();
-  const char *Sym = cast<ExternalSymbolSDNode>(Op)->getSymbol();
-  SDValue Result = DAG.getTargetExternalSymbol(Sym, getPointerTy());
-
-  return DAG.getNode(PatmosISD::Wrapper, dl, getPointerTy(), Result);;
-}
-
-SDValue PatmosTargetLowering::LowerBlockAddress(SDValue Op,
-                                                SelectionDAG &DAG) const {
-  DebugLoc dl = Op.getDebugLoc();
-  const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
-  SDValue Result = DAG.getBlockAddress(BA, getPointerTy(), /*isTarget=*/true);
-
-  return DAG.getNode(PatmosISD::Wrapper, dl, getPointerTy(), Result);;
-}
-
-static SDValue EmitCMP(SDValue &LHS, SDValue &RHS, SDValue &TargetCC,
-                       ISD::CondCode CC,
-                       DebugLoc dl, SelectionDAG &DAG) {
-  // FIXME: Handle bittests someday
-  assert(!LHS.getValueType().isFloatingPoint() && "We don't handle FP yet");
-
-  // FIXME: Handle jump negative someday
-  PatmosCC::CondCodes TCC = PatmosCC::COND_INVALID;
-  switch (CC) {
-  default: llvm_unreachable("Invalid integer condition!");
-  case ISD::SETEQ:
-    TCC = PatmosCC::COND_E;     // aka COND_Z
-    // Minor optimization: if LHS is a constant, swap operands, then the
-    // constant can be folded into comparison.
-    if (LHS.getOpcode() == ISD::Constant)
-      std::swap(LHS, RHS);
-    break;
-  case ISD::SETNE:
-    TCC = PatmosCC::COND_NE;    // aka COND_NZ
-    // Minor optimization: if LHS is a constant, swap operands, then the
-    // constant can be folded into comparison.
-    if (LHS.getOpcode() == ISD::Constant)
-      std::swap(LHS, RHS);
-    break;
-  case ISD::SETULE:
-    std::swap(LHS, RHS);        // FALLTHROUGH
-  case ISD::SETUGE:
-    // Turn lhs u>= rhs with lhs constant into rhs u< lhs+1, this allows us to
-    // fold constant into instruction.
-    if (const ConstantSDNode * C = dyn_cast<ConstantSDNode>(LHS)) {
-      LHS = RHS;
-      RHS = DAG.getConstant(C->getSExtValue() + 1, C->getValueType(0));
-      TCC = PatmosCC::COND_LO;
-      break;
-    }
-    TCC = PatmosCC::COND_HS;    // aka COND_C
-    break;
-  case ISD::SETUGT:
-    std::swap(LHS, RHS);        // FALLTHROUGH
-  case ISD::SETULT:
-    // Turn lhs u< rhs with lhs constant into rhs u>= lhs+1, this allows us to
-    // fold constant into instruction.
-    if (const ConstantSDNode * C = dyn_cast<ConstantSDNode>(LHS)) {
-      LHS = RHS;
-      RHS = DAG.getConstant(C->getSExtValue() + 1, C->getValueType(0));
-      TCC = PatmosCC::COND_HS;
-      break;
-    }
-    TCC = PatmosCC::COND_LO;    // aka COND_NC
-    break;
-  case ISD::SETLE:
-    std::swap(LHS, RHS);        // FALLTHROUGH
-  case ISD::SETGE:
-    // Turn lhs >= rhs with lhs constant into rhs < lhs+1, this allows us to
-    // fold constant into instruction.
-    if (const ConstantSDNode * C = dyn_cast<ConstantSDNode>(LHS)) {
-      LHS = RHS;
-      RHS = DAG.getConstant(C->getSExtValue() + 1, C->getValueType(0));
-      TCC = PatmosCC::COND_L;
-      break;
-    }
-    TCC = PatmosCC::COND_GE;
-    break;
-  case ISD::SETGT:
-    std::swap(LHS, RHS);        // FALLTHROUGH
-  case ISD::SETLT:
-    // Turn lhs < rhs with lhs constant into rhs >= lhs+1, this allows us to
-    // fold constant into instruction.
-    if (const ConstantSDNode * C = dyn_cast<ConstantSDNode>(LHS)) {
-      LHS = RHS;
-      RHS = DAG.getConstant(C->getSExtValue() + 1, C->getValueType(0));
-      TCC = PatmosCC::COND_GE;
-      break;
-    }
-    TCC = PatmosCC::COND_L;
-    break;
-  }
-
-  TargetCC = DAG.getConstant(TCC, MVT::i8);
-  return DAG.getNode(PatmosISD::CMP, dl, MVT::Glue, LHS, RHS);
-}
-
-
-SDValue PatmosTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
-  SDValue Chain = Op.getOperand(0);
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(1))->get();
-  SDValue LHS   = Op.getOperand(2);
-  SDValue RHS   = Op.getOperand(3);
-  SDValue Dest  = Op.getOperand(4);
-  DebugLoc dl   = Op.getDebugLoc();
-
-  SDValue TargetCC;
-  SDValue Flag = EmitCMP(LHS, RHS, TargetCC, CC, dl, DAG);
-
-  return DAG.getNode(PatmosISD::BR_CC, dl, Op.getValueType(),
-                     Chain, Dest, TargetCC, Flag);
-}
-
-SDValue PatmosTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
-  SDValue LHS   = Op.getOperand(0);
-  SDValue RHS   = Op.getOperand(1);
-  DebugLoc dl   = Op.getDebugLoc();
-
-  // If we are doing an AND and testing against zero, then the CMP
-  // will not be generated.  The AND (or BIT) will generate the condition codes,
-  // but they are different from CMP.
-  // FIXME: since we're doing a post-processing, use a pseudoinstr here, so
-  // lowering & isel wouldn't diverge.
-  bool andCC = false;
-  if (ConstantSDNode *RHSC = dyn_cast<ConstantSDNode>(RHS)) {
-    if (RHSC->isNullValue() && LHS.hasOneUse() &&
-        (LHS.getOpcode() == ISD::AND ||
-         (LHS.getOpcode() == ISD::TRUNCATE &&
-          LHS.getOperand(0).getOpcode() == ISD::AND))) {
-      andCC = true;
-    }
-  }
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
-  SDValue TargetCC;
-  SDValue Flag = EmitCMP(LHS, RHS, TargetCC, CC, dl, DAG);
-
-  // Get the condition codes directly from the status register, if its easy.
-  // Otherwise a branch will be generated.  Note that the AND and BIT
-  // instructions generate different flags than CMP, the carry bit can be used
-  // for NE/EQ.
-  bool Invert = false;
-  bool Shift = false;
-  bool Convert = true;
-  switch (cast<ConstantSDNode>(TargetCC)->getZExtValue()) {
-   default:
-    Convert = false;
-    break;
-   case PatmosCC::COND_HS:
-     // Res = SRW & 1, no processing is required
-     break;
-   case PatmosCC::COND_LO:
-     // Res = ~(SRW & 1)
-     Invert = true;
-     break;
-   case PatmosCC::COND_NE:
-     if (andCC) {
-       // C = ~Z, thus Res = SRW & 1, no processing is required
-     } else {
-       // Res = ~((SRW >> 1) & 1)
-       Shift = true;
-       Invert = true;
-     }
-     break;
-   case PatmosCC::COND_E:
-     Shift = true;
-     // C = ~Z for AND instruction, thus we can put Res = ~(SRW & 1), however,
-     // Res = (SRW >> 1) & 1 is 1 word shorter.
-     break;
-  }
-  EVT VT = Op.getValueType();
-  SDValue One  = DAG.getConstant(1, VT);
-  if (Convert) {
-    SDValue SR = DAG.getCopyFromReg(DAG.getEntryNode(), dl, Patmos::SRW,
-                                    MVT::i16, Flag);
-    if (Shift)
-      // FIXME: somewhere this is turned into a SRL, lower it MSP specific?
-      SR = DAG.getNode(ISD::SRA, dl, MVT::i16, SR, One);
-    SR = DAG.getNode(ISD::AND, dl, MVT::i16, SR, One);
-    if (Invert)
-      SR = DAG.getNode(ISD::XOR, dl, MVT::i16, SR, One);
-    return SR;
-  } else {
-    SDValue Zero = DAG.getConstant(0, VT);
-    SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Glue);
-    SmallVector<SDValue, 4> Ops;
-    Ops.push_back(One);
-    Ops.push_back(Zero);
-    Ops.push_back(TargetCC);
-    Ops.push_back(Flag);
-    return DAG.getNode(PatmosISD::SELECT_CC, dl, VTs, &Ops[0], Ops.size());
-  }
-}
-
-SDValue PatmosTargetLowering::LowerSELECT_CC(SDValue Op,
-                                             SelectionDAG &DAG) const {
-  SDValue LHS    = Op.getOperand(0);
-  SDValue RHS    = Op.getOperand(1);
-  SDValue TrueV  = Op.getOperand(2);
-  SDValue FalseV = Op.getOperand(3);
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(4))->get();
-  DebugLoc dl    = Op.getDebugLoc();
-
-  SDValue TargetCC;
-  SDValue Flag = EmitCMP(LHS, RHS, TargetCC, CC, dl, DAG);
-
-  SDVTList VTs = DAG.getVTList(Op.getValueType(), MVT::Glue);
-  SmallVector<SDValue, 4> Ops;
-  Ops.push_back(TrueV);
-  Ops.push_back(FalseV);
-  Ops.push_back(TargetCC);
-  Ops.push_back(Flag);
-
-  return DAG.getNode(PatmosISD::SELECT_CC, dl, VTs, &Ops[0], Ops.size());
-}
-
-SDValue PatmosTargetLowering::LowerSIGN_EXTEND(SDValue Op,
-                                               SelectionDAG &DAG) const {
-  SDValue Val = Op.getOperand(0);
-  EVT VT      = Op.getValueType();
-  DebugLoc dl = Op.getDebugLoc();
-
-  assert(VT == MVT::i16 && "Only support i16 for now!");
-
-  return DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, VT,
-                     DAG.getNode(ISD::ANY_EXTEND, dl, VT, Val),
-                     DAG.getValueType(Val.getValueType()));
-}
-
-SDValue PatmosTargetLowering::LowerRETURNADDR(SDValue Op,
-                                              SelectionDAG &DAG) const {
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
-  MFI->setReturnAddressIsTaken(true);
-
-  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
-  DebugLoc dl = Op.getDebugLoc();
-
-  if (Depth > 0) {
-    SDValue FrameAddr = LowerFRAMEADDR(Op, DAG);
-    SDValue Offset =
-      DAG.getConstant(TD->getPointerSize(), MVT::i16);
-    return DAG.getLoad(getPointerTy(), dl, DAG.getEntryNode(),
-                       DAG.getNode(ISD::ADD, dl, getPointerTy(),
-                                   FrameAddr, Offset),
-                       MachinePointerInfo(), false, false, 0);
-  }
-
-  // Just load the return address.
-  SDValue RetAddrFI = getReturnAddressFrameIndex(DAG);
-  return DAG.getLoad(getPointerTy(), dl, DAG.getEntryNode(),
-                     RetAddrFI, MachinePointerInfo(), false, false, 0);
-}
-
-SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op,
-                                             SelectionDAG &DAG) const {
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
-  MFI->setFrameAddressIsTaken(true);
-
-  EVT VT = Op.getValueType();
-  DebugLoc dl = Op.getDebugLoc();  // FIXME probably not meaningful
-  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
-  SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl,
-                                         Patmos::FPW, VT);
-  while (Depth--)
-    FrameAddr = DAG.getLoad(VT, dl, DAG.getEntryNode(), FrameAddr,
-                            MachinePointerInfo(),
-                            false, false, 0);
-  return FrameAddr;
-}
-
-SDValue
-PatmosTargetLowering::getReturnAddressFrameIndex(SelectionDAG &DAG) const {
-  MachineFunction &MF = DAG.getMachineFunction();
-  PatmosMachineFunctionInfo *FuncInfo = MF.getInfo<PatmosMachineFunctionInfo>();
-  int ReturnAddrIndex = FuncInfo->getRAIndex();
-
-  if (ReturnAddrIndex == 0) {
-    // Set up a frame object for the return address.
-    uint64_t SlotSize = TD->getPointerSize();
-    ReturnAddrIndex = MF.getFrameInfo()->CreateFixedObject(SlotSize, -SlotSize,
-                                                           true);
-    FuncInfo->setRAIndex(ReturnAddrIndex);
-  }
-
-  return DAG.getFrameIndex(ReturnAddrIndex, getPointerTy());
-}
-
-/// getPostIndexedAddressParts - returns true by value, base pointer and
-/// offset pointer and addressing mode by reference if this node can be
-/// combined with a load / store to form a post-indexed load / store.
-bool PatmosTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
-                                                      SDValue &Base,
-                                                      SDValue &Offset,
-                                                      ISD::MemIndexedMode &AM,
-                                                      SelectionDAG &DAG) const {
-  LoadSDNode *LD = cast<LoadSDNode>(N);
-  if (LD->getExtensionType() != ISD::NON_EXTLOAD)
-    return false;
-
-  EVT VT = LD->getMemoryVT();
-  if (VT != MVT::i8 && VT != MVT::i16)
-    return false;
-
-  if (Op->getOpcode() != ISD::ADD)
-    return false;
-
-  if (ConstantSDNode *RHS = dyn_cast<ConstantSDNode>(Op->getOperand(1))) {
-    uint64_t RHSC = RHS->getZExtValue();
-    if ((VT == MVT::i16 && RHSC != 2) ||
-        (VT == MVT::i8 && RHSC != 1))
-      return false;
-
-    Base = Op->getOperand(0);
-    Offset = DAG.getConstant(RHSC, VT);
-    AM = ISD::POST_INC;
-    return true;
-  }
-  return false;
-}
-#endif
-
 const char *PatmosTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   default: return NULL;
   case PatmosISD::RET_FLAG:           return "PatmosISD::RET_FLAG";
-  /*
-  case PatmosISD::RETI_FLAG:          return "PatmosISD::RETI_FLAG";
-  case PatmosISD::RRA:                return "PatmosISD::RRA";
-  case PatmosISD::RLA:                return "PatmosISD::RLA";
-  case PatmosISD::RRC:                return "PatmosISD::RRC";
   case PatmosISD::CALL:               return "PatmosISD::CALL";
-  case PatmosISD::Wrapper:            return "PatmosISD::Wrapper";
-  case PatmosISD::BR_CC:              return "PatmosISD::BR_CC";
-  case PatmosISD::CMP:                return "PatmosISD::CMP";
-  case PatmosISD::SELECT_CC:          return "PatmosISD::SELECT_CC";
-  case PatmosISD::SHL:                return "PatmosISD::SHL";
-  case PatmosISD::SRA:                return "PatmosISD::SRA";
-  */
   }
 }
-
-#if 0
-bool PatmosTargetLowering::isTruncateFree(Type *Ty1,
-                                          Type *Ty2) const {
-  if (!Ty1->isIntegerTy() || !Ty2->isIntegerTy())
-    return false;
-
-  return (Ty1->getPrimitiveSizeInBits() > Ty2->getPrimitiveSizeInBits());
-}
-
-bool PatmosTargetLowering::isTruncateFree(EVT VT1, EVT VT2) const {
-  if (!VT1.isInteger() || !VT2.isInteger())
-    return false;
-
-  return (VT1.getSizeInBits() > VT2.getSizeInBits());
-}
-
-bool PatmosTargetLowering::isZExtFree(Type *Ty1, Type *Ty2) const {
-  // Patmos implicitly zero-extends 8-bit results in 16-bit registers.
-  return 0 && Ty1->isIntegerTy(8) && Ty2->isIntegerTy(16);
-}
-
-bool PatmosTargetLowering::isZExtFree(EVT VT1, EVT VT2) const {
-  // Patmos implicitly zero-extends 8-bit results in 16-bit registers.
-  return 0 && VT1 == MVT::i8 && VT2 == MVT::i16;
-}
-
-//===----------------------------------------------------------------------===//
-//  Other Lowering Code
-//===----------------------------------------------------------------------===//
-
-
-MachineBasicBlock*
-PatmosTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
-                                                  MachineBasicBlock *BB) const {
-  unsigned Opc = MI->getOpcode();
-
-  if (Opc == Patmos::Shl8 || Opc == Patmos::Shl16 ||
-      Opc == Patmos::Sra8 || Opc == Patmos::Sra16 ||
-      Opc == Patmos::Srl8 || Opc == Patmos::Srl16)
-    return EmitShiftInstr(MI, BB);
-
-  const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
-  DebugLoc dl = MI->getDebugLoc();
-
-  assert((Opc == Patmos::Select16 || Opc == Patmos::Select8) &&
-         "Unexpected instr type to insert");
-
-  // To "insert" a SELECT instruction, we actually have to insert the diamond
-  // control-flow pattern.  The incoming instruction knows the destination vreg
-  // to set, the condition code register to branch on, the true/false values to
-  // select between, and a branch opcode to use.
-  const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineFunction::iterator I = BB;
-  ++I;
-
-  //  thisMBB:
-  //  ...
-  //   TrueVal = ...
-  //   cmpTY ccX, r1, r2
-  //   jCC copy1MBB
-  //   fallthrough --> copy0MBB
-  MachineBasicBlock *thisMBB = BB;
-  MachineFunction *F = BB->getParent();
-  MachineBasicBlock *copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *copy1MBB = F->CreateMachineBasicBlock(LLVM_BB);
-  F->insert(I, copy0MBB);
-  F->insert(I, copy1MBB);
-  // Update machine-CFG edges by transferring all successors of the current
-  // block to the new block which will contain the Phi node for the select.
-  copy1MBB->splice(copy1MBB->begin(), BB,
-                   llvm::next(MachineBasicBlock::iterator(MI)),
-                   BB->end());
-  copy1MBB->transferSuccessorsAndUpdatePHIs(BB);
-  // Next, add the true and fallthrough blocks as its successors.
-  BB->addSuccessor(copy0MBB);
-  BB->addSuccessor(copy1MBB);
-
-  BuildMI(BB, dl, TII.get(Patmos::JCC))
-    .addMBB(copy1MBB)
-    .addImm(MI->getOperand(3).getImm());
-
-  //  copy0MBB:
-  //   %FalseValue = ...
-  //   # fallthrough to copy1MBB
-  BB = copy0MBB;
-
-  // Update machine-CFG edges
-  BB->addSuccessor(copy1MBB);
-
-  //  copy1MBB:
-  //   %Result = phi [ %FalseValue, copy0MBB ], [ %TrueValue, thisMBB ]
-  //  ...
-  BB = copy1MBB;
-  BuildMI(*BB, BB->begin(), dl, TII.get(Patmos::PHI),
-          MI->getOperand(0).getReg())
-    .addReg(MI->getOperand(2).getReg()).addMBB(copy0MBB)
-    .addReg(MI->getOperand(1).getReg()).addMBB(thisMBB);
-
-  MI->eraseFromParent();   // The pseudo instruction is gone now.
-  return BB;
-}
-#endif
-

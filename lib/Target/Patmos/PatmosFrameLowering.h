@@ -27,13 +27,15 @@ protected:
 
 public:
   explicit PatmosFrameLowering(const PatmosSubtarget &sti)
-    : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 2, -2), STI(sti) {
+    : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 8, 0), STI(sti) {
   }
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
   void emitPrologue(MachineFunction &MF) const;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
+
+  bool hasFP(const MachineFunction &MF) const;
 
 #if 0
   bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
@@ -47,7 +49,6 @@ public:
   bool hasReservedCallFrame(const MachineFunction &MF) const;
 #endif
 
-  bool hasFP(const MachineFunction &MF) const;
 };
 
 } // End llvm namespace
