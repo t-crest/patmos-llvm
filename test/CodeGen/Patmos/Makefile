@@ -4,11 +4,8 @@ BUILDDIR=../../../Debug+Asserts/
 # to override default BUILDDIR
 -include config.mk
 
-ifndef MARCH
-  LLC=$(BUILDDIR)/bin/llc -load $(BUILDDIR)/lib/libLLVMPatmosCodeGen.so -march=patmos
-else
-  LLC=$(BUILDDIR)/bin/llc -march=$(MARCH)
-endif
+MARCH ?= patmos
+LLC=$(BUILDDIR)/bin/llc -march=$(MARCH)
 
 CLANG=$(BUILDDIR)/bin/clang
 OPT=$(BUILDDIR)/bin/opt
