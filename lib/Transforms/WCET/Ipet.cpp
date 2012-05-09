@@ -465,7 +465,7 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
     std::string block_name = std::string("b_");
     block_name.append(result.getBlockLabel(*BB, F));
 
-    set_row_name(lp, get_Nrows(lp)-1, (char*)block_name.c_str());
+    set_row_name(lp, get_Nrows(lp), (char*)block_name.c_str());
   }
 
   // add constraint that exactly one exit edge will be taken
@@ -475,7 +475,7 @@ void Ipet::setStructConstraints(lprec *lp, Function & F)
   }
 
   add_constraintex(lp, exits.size(), &row[0], &exits[0], EQ, 1);
-  set_row_name(lp, get_Nrows(lp)-1, (char*)"c_exit");
+  set_row_name(lp, get_Nrows(lp), (char*)"c_exit");
 }
 
 void Ipet::setFlowConstraints(lprec *lp, Function &F)
