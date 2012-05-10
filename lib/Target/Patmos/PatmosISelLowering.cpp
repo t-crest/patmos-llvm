@@ -68,6 +68,8 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   setMinFunctionAlignment(4);
   setPrefFunctionAlignment(4);
+
+
 }
 
 

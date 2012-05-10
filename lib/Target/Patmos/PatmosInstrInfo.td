@@ -48,6 +48,7 @@ def rsub : SDNode<"PatmosISD::RSUB", SDTIntBinOp>;
 //===----------------------------------------------------------------------===//
 
 
+
 /*
 // Address operands
 def memsrc : Operand<i16> {
@@ -73,6 +74,19 @@ def cc : Operand<i8> {
 
 
 //===----------------------------------------------------------------------===//
+// Transformation Functions
+//===----------------------------------------------------------------------===//
+
+// Transformation Function - shift right by one/two bits
+def shrOne : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(N->getZExtValue() >> 1, MVT::i32);
+}]>;
+def shrTwo : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(N->getZExtValue() >> 2, MVT::i32);
+}]>;
+
+
+//===----------------------------------------------------------------------===//
 // Patmos Complex Pattern Definitions.
 //===----------------------------------------------------------------------===//
 
@@ -84,14 +98,28 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 // Pattern Fragments
 //===----------------------------------------------------------------------===//
 
+// offset of indexed load/store
+def imm7     : PatLeaf<(imm), [{return isInt <7>(N->getSExtValue());}]>;
+def uimm7    : PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
+// ALUi
 def uimm12   : PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
+// Call/Branch/StackCtrl
 def uimm22   : PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
+
+
+// 7 bit value, shifted by one bit (for 16-bit stores)
+def uimm7s1 : Operand<i32>, PatLeaf<(imm), [{
+ return isUInt<7>(N->getZExtValue() >> 1) && ((N->getZExtValue() & 0x01) == 0);
+}], shrOne>;
+// 7 bit value, shifted by two bits (for 32-bit stores)
+def uimm7s2 : Operand<i32>, PatLeaf<(imm), [{
+ return isUInt<7>(N->getZExtValue() >> 2) && ((N->getZExtValue() & 0x03) == 0);
+}], shrTwo>;
 
 
 
 // Helper fragment for predicate inversion
 def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
-
 
 
 //===----------------------------------------------------------------------===//
@@ -343,7 +371,13 @@ def MFS  : SPCf <(outs RRegs:$rd), (ins SRegs:$ss), "mfs $rd, $ss", [] >;
 
 // Load typed
 
+//FIXME
+def LWM : LDT <0b00011, (outs RRegs:$rd), (ins RRegs:$ra), "lwm $rd, $$ra", [(set RRegs:$rd, (load RRegs:$ra))]>;
 
+
+// Store typed
+
+def SWM : STT <0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs), "swm $$ra, $rs", [(store RRegs:$ra, RRegs:$rs)]>;
 
 
 
