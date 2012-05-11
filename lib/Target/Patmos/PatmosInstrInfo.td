@@ -208,10 +208,24 @@ defm AND : ALU_ilr <"and", 0b0111, and>;
 }
 
 defm SUB  : ALU_ilr <"sub",  0b0001, sub>;
-defm RSUB : ALU_ilr <"rsub", 0b0010, rsub>; // custom for Patmos
 defm SL   : ALU_ilr <"sl",   0b0011, shl>;
 defm SR   : ALU_ilr <"sr",   0b0100, srl>;
 defm SRA  : ALU_ilr <"sra",  0b0101, sra>;
+
+
+
+//TODO beautify with ALU_ilr multiclass
+def RSUBi : ALUi<0b0010, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+                "rsub $rd, $rs1, $imm",
+                [(set RRegs:$rd, (sub (i32 uimm12:$imm), RRegs:$rs1))]>;
+def RSUBl : ALUl<0b0010, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+                "rsub $rd, $rs1, $imm",
+                [(set RRegs:$rd, (sub (i32 imm:$imm), RRegs:$rs1))]>;
+def RSUBr : ALUr<0b0010, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                "rsub $rd, $rs1, $rs2",
+                [(set RRegs:$rd, (sub RRegs:$rs2, RRegs:$rs1))]>;
+
+
 
 /********/
 
@@ -236,7 +250,10 @@ def NORr  : ALUl <0b1011,
 //defm SHADD  : ALU_lr <"shadd",  0b1110, XXX>;
 //defm SHADD2 : ALU_lr <"shadd2", 0b1111, XXX>;
 
-
+// Pseudo instr LI uses add opcode
+def LI : ALUl<0b0000, (outs RRegs:$rd), (ins i32imm:$imm),
+                "li $rd, $imm",
+                [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
 
 
 /********/
@@ -377,7 +394,12 @@ def LWM : LDT <0b00011, (outs RRegs:$rd), (ins RRegs:$ra), "lwm $rd, $$ra", [(se
 
 // Store typed
 
-def SWM : STT <0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs), "swm $$ra, $rs", [(store RRegs:$ra, RRegs:$rs)]>;
+//def SWM   : STT <0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs), "swm $$ra, $rs", [(store RRegs:$ra, RRegs:$rs)]>;
+
+def SWMp  : STT<0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs),
+                "swm 0[$ra], $rs", [(store RRegs:$ra, RRegs:$rs)]>;
+def SWMpi : STT<0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs, i32imm:$off),
+                "swm $off[$ra], $rs",  [(store (add RRegs:$ra, (i32 uimm7s2:$off)), RRegs:$rs)]>;
 
 
 
@@ -387,3 +409,6 @@ def SWM : STT <0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs), "swm $$ra, $rs", [(
 //===----------------------------------------------------------------------===//
 
 
+def : Pat<(i32 imm:$imm),
+          (LI (i32 imm:$imm) )>;
+          //(ADDl R0, (i32 imm:$imm) )>;
