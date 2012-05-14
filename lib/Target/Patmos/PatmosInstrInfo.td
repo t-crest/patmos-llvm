@@ -40,7 +40,8 @@ def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_PatmosCallSeqStart,
 def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_PatmosCallSeqEnd,
                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
-def rsub : SDNode<"PatmosISD::RSUB", SDTIntBinOp>;
+def patmos_mul    : SDNode<"PatmosISD::MUL", SDTIntBinOp,
+                          [SDNPCommutative, SDNPAssociative]>;
 
 
 //===----------------------------------------------------------------------===//
@@ -233,7 +234,7 @@ defm RL   : ALU_lr <"rl",   0b1000, rotl>;
 defm RR   : ALU_lr <"rr",   0b1001, rotr>;
 
 let isCommutable = 1 in {
-defm XOR  : ALU_lr <"xor" , 0b0110, or >;
+defm XOR  : ALU_lr <"xor" , 0b1010, or >;
 
 def NORl  : ALUl <0b1011,
               (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
@@ -245,38 +246,73 @@ def NORr  : ALUl <0b1011,
               [(set RRegs:$rd, (not (or RRegs:$rs1, RRegs:$rs2)))]>;
 }
 
-//defm CARR   : ALU_lr <"carr",   0b1100, XXX>;
-//defm BORR   : ALU_lr <"borr",   0b1101, XXX>;
-//defm SHADD  : ALU_lr <"shadd",  0b1110, XXX>;
-//defm SHADD2 : ALU_lr <"shadd2", 0b1111, XXX>;
+//TODO beautify with ALU_ilr multiclass
+def SHADDl  : ALUl<0b1100, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+                  "shadd $rd, $rs1, $imm",
+                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 1)), (i32 imm:$imm)))]>;
+def SHADDr  : ALUr<0b1100, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                  "shadd $rd, $rs1, $rs2",
+                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 1)), RRegs:$rs2))]>;
+def SHADD2l : ALUl<0b1101, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+                  "shadd2 $rd, $rs1, $imm",
+                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 2)), (i32 imm:$imm)))]>;
+def SHADD2r : ALUr<0b1101, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                  "shadd2 $rd, $rs1, $rs2",
+                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 2)), RRegs:$rs2))]>;
+
+
+// Pseudos
+//mov
+
+// Pseudo instr NEG uses rsub opcode
+let Imm12 = 0 in
+def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins RRegs:$rs),
+                "neg $rd, $rs",
+                [(set RRegs:$rd, (ineg RRegs:$rs))]>;
+
+// Pseudo instr NOT uses rsub opcode (maybe prefer xor?)
+def NOT : ALUl<0b1011, (outs RRegs:$rd), (ins RRegs:$rs),
+                "not $rd, $rs",
+                [(set RRegs:$rd, (not RRegs:$rs))]>;
+
+// Pseudo instr ZEXT8 uses 'and' opcode
+def ZEXT8 : ALUi <0b0111,
+              (outs RRegs:$rd), (ins RRegs:$rs),
+              "zext8 $rd, $rs",
+              [(set RRegs:$rd, (and RRegs:$rs, (i32 0xff)))]>;
 
 // Pseudo instr LI uses add opcode
-def LI : ALUl<0b0000, (outs RRegs:$rd), (ins i32imm:$imm),
+let Rs1 = 0,
+    isReMaterializable = 1,
+    isAsCheapAsAMove = 1,
+    isMoveImm = 1 in {
+def LIi : ALUl<0b0000, (outs RRegs:$rd), (ins i32imm:$imm),
+                "li $rd, $imm",
+                [(set RRegs:$rd, (add R0, (i32 uimm12:$imm)))]>;
+def LIl : ALUl<0b0000, (outs RRegs:$rd), (ins i32imm:$imm),
                 "li $rd, $imm",
                 [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
-
+}
 
 /********/
 // Unary Arithmetic
 
-
-/*
 def SEXT8  : ALUu <0b0000,
-              (outs RRegs:$rd), (ins RRegs:$rs1),
-              "sext8 $rd, $rs1",
-              [(set RRegs:$rd, (sext RRegs:$rs1))]>;
+              (outs RRegs:$rd), (ins RRegs:$rs),
+              "sext8 $rd, $rs",
+              [(set RRegs:$rd, (sext_inreg RRegs:$rs, i8))]>;
 
 def SEXT16 : ALUu <0b0001,
-              (outs RRegs:$rd), (ins RRegs:$rs1),
-               A"sext16 $rd, $rs1",
-              [(set RRegs:$rd, (sext RRegs:$rs1))]>;
+              (outs RRegs:$rd), (ins RRegs:$rs),
+               "sext16 $rd, $rs",
+              [(set RRegs:$rd, (sext_inreg RRegs:$rs, i16))]>;
 
 def ZEXT16 : ALUu <0b0010,
-              (outs RRegs:$rd), (ins RRegs:$rs1),
-              "zext16 $rd, $rs1",
-              [(set RRegs:$rd, (zext RRegs:$rs1))]>;
-*/
+              (outs RRegs:$rd), (ins RRegs:$rs),
+              "zext16 $rd, $rs",
+              [(set RRegs:$rd, (and RRegs:$rs, (i32 0xffff)))]>;
 
+/*
 def CLZ    : ALUu <0b0011,
               (outs RRegs:$rd), (ins RRegs:$rs1),
               "clz $rd, $rs1",
@@ -286,13 +322,14 @@ def CTZ    : ALUu <0b0100,
               (outs RRegs:$rd), (ins RRegs:$rs1),
               "ctz $rd, $rs1",
               [(set RRegs:$rd, (cttz RRegs:$rs1))]>;
+*/
 
-//FIXME
-def ABS    : ALUu <0b0101,
-              (outs RRegs:$rd), (ins RRegs:$rs1),
-              "abs $rd, $rs1",
-              []>;
-              //[(set RRegs:$rd, (XXX RRegs:$rs1))]>;
+// TODO experimental: other lowerings?
+// TODO does the add overflow do any harm?
+def ABS    : ALUu <0b0011,
+              (outs RRegs:$rd), (ins RRegs:$rs),
+              "abs $rd, $rs",
+              [(set RRegs:$rd, (xor (add RRegs:$rs, (sra RRegs:$rs, (i32 31))), (sra RRegs:$rs, (i32 31))))]>;
 
 
 
@@ -301,12 +338,12 @@ def ABS    : ALUu <0b0101,
 // Multiply
 
 // TODO
+/*
 let Defs = [SL,SH], isCommutable=1 in {
 def MUL  : ALUm <0b0000,
               (outs), (ins RRegs:$rs1, RRegs:$rs2),
               "mul $rs1, $rs2",
-              []>;
-              //[(set SRegs:$sl, (mul RRegs:$rs1, RRegs:$rs2))]>;
+              [(set RRegs:$sl, (patmos_mul RRegs:$rs1, RRegs:$rs2))]>;
 
 def MULU : ALUm <0b0001,
               (outs), (ins RRegs:$rs1, RRegs:$rs2),
@@ -314,7 +351,7 @@ def MULU : ALUm <0b0001,
               []>;
               //[(set SRegs:$sl, (mul RRegs:$rs1, RRegs:$rs2))]>;
 }
-
+*/
 
 // Compare
 
@@ -409,6 +446,16 @@ def SWMpi : STT<0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs, i32imm:$off),
 //===----------------------------------------------------------------------===//
 
 
+// load immediate
+
 def : Pat<(i32 imm:$imm),
-          (LI (i32 imm:$imm) )>;
-          //(ADDl R0, (i32 imm:$imm) )>;
+          (LIi (i32 uimm12:$imm) )>;
+
+def : Pat<(i32 imm:$imm),
+          (LIl (i32 imm:$imm) )>;
+
+// multiplication
+
+//def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
+//          (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
+

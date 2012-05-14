@@ -108,6 +108,9 @@ def S14 : PatmosSPR<14, "s14">;
 def S15 : PatmosSPR<15, "s15">;
 
 
+
+def Mul : RegisterClass<"Patmos", [i32], 32, (add SL, SH)>;
+
 def RRegs : RegisterClass<"Patmos", [i32], 32,
    // scratch registers (caller saved)
   (add R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20,
