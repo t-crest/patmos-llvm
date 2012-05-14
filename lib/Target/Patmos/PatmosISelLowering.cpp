@@ -59,6 +59,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   // Division is expensive
   setIntDivIsCheap(false);
+  //setSelectIsExpensive(false);
 
   setStackPointerRegisterToSaveRestore(Patmos::R31);
   setBooleanContents(ZeroOrOneBooleanContent);

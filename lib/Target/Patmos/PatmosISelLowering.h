@@ -31,8 +31,11 @@ namespace llvm {
       /// instruction, which includes a bunch of information.
       CALL,
 
-      /// subract left from right
-      RSUB
+      /// subtract left from right
+      RSUB,
+
+      /// multiplication
+      MUL
     };
   } // end namespace PatmosISD
 

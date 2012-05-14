@@ -35,7 +35,7 @@ DEBUG=--debug
 all: return.s
 
 %.ll: %.c
-	$(CLANG) -O0 -S -emit-llvm -o $@ $<
+	$(CLANG) -O2 -S -emit-llvm -o $@ $<
 
 %.s: %.ll
 	$(LLC) -O0 $(DEBUG) $(VIEW) -o $@ $<
