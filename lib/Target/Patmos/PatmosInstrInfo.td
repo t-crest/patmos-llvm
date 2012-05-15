@@ -276,7 +276,7 @@ def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins RRegs:$rs),
                 [(set RRegs:$rd, (ineg RRegs:$rs))]>;
 
 // Pseudo instr NOT uses rsub opcode (maybe prefer xor?)
-def NOT : ALUl<0b1011, (outs RRegs:$rd), (ins RRegs:$rs),
+def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins RRegs:$rs),
                 "not $rd, $rs",
                 [(set RRegs:$rd, (not RRegs:$rs))]>;
 
@@ -361,15 +361,16 @@ def MULU : ALUm <0b0001,
 // Compare
 
 multiclass ALUc_cn <string asmstr, bits<4> func, PatFrag cnode, PatFrag nnode> {
-  def c : ALUc<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
-                !strconcat(asmstr, " $rd, $rs1, $rs2"),
-                [(set RRegs:$rd, (cnode RRegs:$rs1, RRegs:$rs2))]>;
+  def c : ALUc<func, (outs PRegs:$pd), (ins RRegs:$rs1, RRegs:$rs2),
+                !strconcat(asmstr, " $pd, $rs1, $rs2"),
+                [(set PRegs:$pd, (cnode RRegs:$rs1, RRegs:$rs2))]>;
 
-  def n : ALUc<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
-                !strconcat(asmstr, " $rd, $rs1, $rs2"),
-                [(set RRegs:$rd, (nnode RRegs:$rs1, RRegs:$rs2))]>;
+  def n : ALUc<func, (outs PRegs:$pd), (ins RRegs:$rs1, RRegs:$rs2),
+                !strconcat(asmstr, " $pd, $rs1, $rs2"),
+                [(set PRegs:$pd, (nnode RRegs:$rs1, RRegs:$rs2))]>;
 }
 
+// we simply invert setcc condition instead of emitting pseudo instructions
 defm CMPEQ  : ALUc_cn <"cmpeq",  0b0000, seteq,  seteq>;
 defm CMPNEQ : ALUc_cn <"cmpneq", 0b0001, setne,  setne>;
 defm CMPLT  : ALUc_cn <"cmplt",  0b0010, setlt,  setgt>;
@@ -377,12 +378,23 @@ defm CMPLE  : ALUc_cn <"cmple",  0b0011, setle,  setge>;
 defm CMPULT : ALUc_cn <"cmpult", 0b0100, setult, setugt>;
 defm CMPULE : ALUc_cn <"cmpule", 0b0101, setule, setuge>;
 
-def BTEST : ALUc<0b0110, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
-                  "btest $rd, $rs1, $rs2",
-                  [(set RRegs:$rd, (setne (and RRegs:$rs1, (shl (i32 1), RRegs:$rs2)), (i32 0)))]>;
+def  BTEST  : ALUc<0b0110, (outs PRegs:$pd), (ins RRegs:$rs1, RRegs:$rs2),
+                  "btest $pd, $rs1, $rs2",
+                  [(set PRegs:$pd, (setne (and RRegs:$rs1, (shl (i32 1), RRegs:$rs2)), (i32 0)))]>;
 
-// isodd Pd = Rs1 ... btest Pd = Rs1[r0]
+// Pseudo instr ISODD uses btest opcode
+let Rs2 = 0 in
+def  ISODD  : ALUc<0b0110, (outs PRegs:$pd), (ins RRegs:$rs),
+                  "isodd $pd, $rs",
+                  [(set PRegs:$pd, (setne (and RRegs:$rs, (i32 1)), (i32 1)))]>;
 
+// Pseudo mov Pd <- Rs uses cmpneq with r0
+/* I don't think it makes sense to define it at all
+let Rs2 = 0 in
+def  MOVrp  : ALUc<0b0001, (outs PRegs:$pd), (ins RRegs:$rs),
+                  "mov $pd, $rs",
+                  [(set (i1 PRegs:$pd), (i32 RRegs:$rs))]>;
+*/
 
 
 // Predicate
