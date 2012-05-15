@@ -38,11 +38,27 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                   bool KillSrc) const {
   unsigned Opc;
   if (Patmos::RRegsRegClass.contains(DestReg, SrcReg))
-    Opc = Patmos::ADDi;
+    Opc = Patmos::MOV;
   else
     llvm_unreachable("Impossible reg-to-reg copy");
 
   BuildMI(MBB, I, DL, get(Opc), DestReg)
-    .addReg(SrcReg, getKillRegState(KillSrc))
-    .addImm(0);
+    .addReg(SrcReg, getKillRegState(KillSrc));
+}
+
+
+void PatmosInstrInfo::storeRegToStackSlot( MachineBasicBlock &MBB,
+                                           MachineBasicBlock::iterator MI,
+                                           unsigned SrcReg, bool isKill,
+                                           int FrameIndex,
+                                           const TargetRegisterClass *RC,
+                                           const TargetRegisterInfo *TRI) const {
+//TODO
+}
+void PatmosInstrInfo::loadRegFromStackSlot( MachineBasicBlock &MBB,
+                                            MachineBasicBlock::iterator MI,
+                                            unsigned DestReg, int FrameIdx,
+                                            const TargetRegisterClass *RC,
+                                            const TargetRegisterInfo *TRI) const {
+//TODO
 }

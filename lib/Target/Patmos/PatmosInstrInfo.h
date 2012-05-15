@@ -40,6 +40,19 @@ public:
                    MachineBasicBlock::iterator I, DebugLoc DL,
                    unsigned DestReg, unsigned SrcReg,
                    bool KillSrc) const;
+
+  void storeRegToStackSlot(MachineBasicBlock &MBB,
+                           MachineBasicBlock::iterator MI,
+                           unsigned SrcReg, bool isKill,
+                           int FrameIndex,
+                           const TargetRegisterClass *RC,
+                           const TargetRegisterInfo *TRI) const;
+  void loadRegFromStackSlot(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator MI,
+                            unsigned DestReg, int FrameIdx,
+                            const TargetRegisterClass *RC,
+                            const TargetRegisterInfo *TRI) const;
+
 };
 
 }

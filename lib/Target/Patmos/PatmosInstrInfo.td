@@ -262,7 +262,12 @@ def SHADD2r : ALUr<0b1101, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
 
 
 // Pseudos
-//mov
+
+
+// Pseudo instr MOV uses add opcode
+let isAsCheapAsAMove = 1 in
+def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins RRegs:$rs),
+                "mov $rd, $rs", []>;
 
 // Pseudo instr NEG uses rsub opcode
 let Imm12 = 0 in
@@ -341,9 +346,9 @@ def ABS    : ALUu <0b0011,
 /*
 let Defs = [SL,SH], isCommutable=1 in {
 def MUL  : ALUm <0b0000,
-              (outs), (ins RRegs:$rs1, RRegs:$rs2),
-              "mul $rs1, $rs2",
-              [(set RRegs:$sl, (patmos_mul RRegs:$rs1, RRegs:$rs2))]>;
+              (outs Mul:$sd), (ins RRegs:$rs1, RRegs:$rs2),
+              "mul $$$sd, $rs1, $rs2",
+              [(set Mul:$sd, (patmos_mul RRegs:$rs1, RRegs:$rs2))]>;
 
 def MULU : ALUm <0b0001,
               (outs), (ins RRegs:$rs1, RRegs:$rs2),
@@ -455,7 +460,7 @@ def : Pat<(i32 imm:$imm),
           (LIl (i32 imm:$imm) )>;
 
 // multiplication
-
+// TODO
 //def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
 //          (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
 
