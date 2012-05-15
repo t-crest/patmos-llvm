@@ -276,7 +276,7 @@ class SPCf<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 // LDT - Load Typed
 //
-class LDT<bits<5> ty,
+class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
       dag outs, dag ins, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, asmstr, pattern> {
 
@@ -288,7 +288,9 @@ class LDT<bits<5> ty,
   bits<7> Offset;
 
   bits<5> Type;
-  let Type = ty;
+  let Type{0} = ts0;
+  let Type{1} = ts1;
+  let Type{4-2} = ty;
 
   let Inst{21-17} = Rd;
   let Inst{16-12} = Ra;
@@ -301,7 +303,7 @@ class LDT<bits<5> ty,
 
 // STT - Store Typed
 //
-class STT<bits<5> ty,
+class STT<bits<3> ty, bits<2> td,
       dag outs, dag ins, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, asmstr, pattern> {
 
@@ -313,7 +315,8 @@ class STT<bits<5> ty,
   bits<7> Offset;
 
   bits<5> Type;
-  let Type = ty;
+  let Type{1-0} = td;
+  let Type{4-2} = ty;
 
   let Inst{21-17} = Type;
   let Inst{16-12} = Ra;

@@ -48,8 +48,6 @@ def patmos_mul    : SDNode<"PatmosISD::MUL", SDTIntBinOp,
 // Patmos Operand Definitions.
 //===----------------------------------------------------------------------===//
 
-
-
 /*
 // Address operands
 def memsrc : Operand<i16> {
@@ -100,7 +98,7 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 //===----------------------------------------------------------------------===//
 
 // offset of indexed load/store
-def imm7     : PatLeaf<(imm), [{return isInt <7>(N->getSExtValue());}]>;
+def imm7     : Operand<i32>, PatLeaf<(imm), [{return isInt <7>(N->getSExtValue());}]>;
 def uimm7    : PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
 // ALUi
 def uimm12   : PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
@@ -117,7 +115,10 @@ def uimm7s2 : Operand<i32>, PatLeaf<(imm), [{
  return isUInt<7>(N->getZExtValue() >> 2) && ((N->getZExtValue() & 0x03) == 0);
 }], shrTwo>;
 
-
+// Transform all FrameIndex objects into TargetFrameIndex objects and define a 
+// pattern that allows us to match against FrameIndex patterns
+def FI_XForm : SDNodeXForm<frameindex, [{ return CurDAG->getTargetFrameIndex(N->getIndex(), N->getValueType(0)); }]>;
+def fipat : PatLeaf<(i32 frameindex), [{}], FI_XForm>;
 
 // Helper fragment for predicate inversion
 def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
@@ -133,7 +134,7 @@ def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
 // pointer before prolog-epilog rewriting occurs.
 // Pessimistically assume ADJCALLSTACKDOWN / ADJCALLSTACKUP will become
 // sub / add which can clobber SP.
-let Defs = [R30, R31], Uses = [R30, R31] in {
+let Defs = [RFP, RSP], Uses = [RFP, RSP] in {
 def ADJCALLSTACKDOWN : PatmosInst<(outs), (ins i32imm:$amt),
                                     "#ADJCALLSTACKDOWN",
                                     [(callseq_start timm:$amt)]>;
@@ -263,7 +264,7 @@ def SHADD2r : ALUr<0b1101, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
 
 // Pseudos
 
-
+                  
 // Pseudo instr MOV uses add opcode
 let isAsCheapAsAMove = 1 in
 def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins RRegs:$rs),
@@ -442,21 +443,138 @@ def MFS  : SPCf <(outs RRegs:$rd), (ins SRegs:$ss), "mfs $rd, $ss", [] >;
 
 // Load typed
 
-//FIXME
-def LWM : LDT <0b00011, (outs RRegs:$rd), (ins RRegs:$ra), "lwm $rd, $$ra", [(set RRegs:$rd, (load RRegs:$ra))]>;
+multiclass LoadTyped<bits<3> ty, string asmop>
+{
+  // load from stack cache
+  def S  : LDT<ty, 0b0, 0b0, (outs RRegs:$rd), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm),
+               !strconcat(!strconcat("($p) $rd = ", asmop), "s [$ra + $imm];"),
+               [] >;
+               
+  // load from local memory
+  def L  : LDT<ty, 0b0, 0b1, (outs RRegs:$rd), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm),
+               !strconcat(!strconcat("($p) $rd = ", asmop), "l [$ra + $imm];"),
+               [] >;
+               
+  // load from data cache
+  def C  : LDT<ty, 0b1, 0b0, (outs RRegs:$rd), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm),
+               !strconcat(!strconcat("($p) $rd = ", asmop), "c [$ra + $imm];"),
+               [] >;
+
+  // load from main memory
+  def M  : LDT<ty, 0b1, 0b1, (outs RRegs:$rd), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm),
+               !strconcat(!strconcat("($p) $rd = ", asmop), "m [$ra + $imm];"),
+               [] >;
+}
+
+multiclass DecoupledLoadTyped<bits<4> ty, string asmop>
+{
+  let Defs = [SM] in 
+  {
+    // load from data cache (no pattern to match)
+    def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
+                 (ins PRegs:$p, RRegs:$ra, imm7:$imm),
+                 !strconcat(!strconcat("($p) sm = d", asmop), "c [$ra + $imm];"),
+                 [] >;
+                  
+    // load from main memory (no pattern to match)
+    def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/), 
+                 (ins PRegs:$p, RRegs:$ra, imm7:$imm),
+                 !strconcat(!strconcat("($p) sm = d", asmop), "m [$ra + $imm];"),
+                 [] >;
+  }
+}
+
+multiclass LoadTypedPatterns<PatmosInst inst_C, PatFrag pfg>
+{
+  // load register indirect from cache
+  def ra : Pat<(pfg RRegs:$ra), (inst_C P0, RRegs:$ra, 0)>;
+  
+  // load register indirect + immediate from cache
+  def raimm : Pat<(pfg (add RRegs:$ra, imm7:$imm)), 
+                  (inst_C P0, RRegs:$ra, imm7:$imm)>;
+    
+  // load register indirect from stack cache
+  def fi : Pat<(pfg fipat:$fi), (inst_C P0, fipat:$fi, 0)>;
+  
+  // TODO: more patterns here
+}
+
+defm LW  : LoadTyped<0b000, "lw">;
+defm LH  : LoadTyped<0b001, "lh">;
+defm LB  : LoadTyped<0b010, "lb">;
+defm LHU : LoadTyped<0b011, "lhu">;
+defm LBU : LoadTyped<0b100, "lbu">;
+
+defm DLW  : DecoupledLoadTyped<0b1010, "lw">;
+defm DLH  : DecoupledLoadTyped<0b1011, "lh">;
+defm DLB  : DecoupledLoadTyped<0b1100, "lb">;
+defm DLHU : DecoupledLoadTyped<0b1101, "lhu">;
+defm DLBU : DecoupledLoadTyped<0b1110, "lbu">;
+
+defm LW  : LoadTypedPatterns<LWC , load>;
+defm LH  : LoadTypedPatterns<LHC , sextloadi16>;
+defm LB  : LoadTypedPatterns<LBC , sextloadi8>;
+defm LHU : LoadTypedPatterns<LHUC, zextloadi16>;
+defm LBU : LoadTypedPatterns<LBUC, zextloadi8>;
 
 
 // Store typed
 
-//def SWM   : STT <0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs), "swm $$ra, $rs", [(store RRegs:$ra, RRegs:$rs)]>;
+multiclass StoreTyped<bits<3> ty, string asmop>
+{
+  // store to stack cache
+  def S  : STT<ty, 0b00, (outs /*empty*/), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm, RRegs:$rs),
+               !strconcat("($p) ", !strconcat(asmop, "s [$ra + $imm] = $rs;")),
+               [] >;
+               
+  // store to local memory
+  def L  : STT<ty, 0b01, (outs /*empty*/), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm, RRegs:$rs),
+               !strconcat("($p) ", !strconcat(asmop, "l [$ra + $imm] = $rs;")),
+               [] >;
+               
+  // store to data cache
+  def C  : STT<ty, 0b10, (outs /*empty*/), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm, RRegs:$rs),
+               !strconcat("($p) ", !strconcat(asmop, "c [$ra + $imm] = $rs;")),
+               [] >;
+               
+  // store to stack cache
+  def M  : STT<ty, 0b11, (outs /*empty*/), 
+               (ins PRegs:$p, RRegs:$ra, imm7:$imm, RRegs:$rs),
+               !strconcat("($p) ", !strconcat(asmop, "m [$ra + $imm] = $rs;")),
+               [] >;
+}
 
-def SWMp  : STT<0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs),
-                "swm 0[$ra], $rs", [(store RRegs:$ra, RRegs:$rs)]>;
-def SWMpi : STT<0b00011, (outs ), (ins RRegs:$ra, RRegs:$rs, i32imm:$off),
-                "swm $off[$ra], $rs",  [(store (add RRegs:$ra, (i32 uimm7s2:$off)), RRegs:$rs)]>;
+multiclass StoreTypedPatterns<PatmosInst inst_C, PatFrag pfg>
+{
+  // load register indirect from cache
+  def ra : Pat<(pfg RRegs:$rs, RRegs:$ra), 
+               (inst_C P0, RRegs:$ra, 0, RRegs:$rs)>;
+  
+  // load register indirect + immediate from cache
+  def raimm : Pat<(pfg RRegs:$rs, (add RRegs:$ra, imm7:$imm)), 
+                  (inst_C P0, RRegs:$ra, imm7:$imm, RRegs:$rs)>;
+    
+  // load register indirect from stack cache
+  def fi : Pat<(pfg RRegs:$rs, fipat:$fi), 
+               (inst_C P0, fipat:$fi, 0, RRegs:$rs)>;
+  
+  // TODO: more patterns here
+}
 
+defm SW  : StoreTyped<0b000, "sw">;
+defm SH  : StoreTyped<0b001, "sh">;
+defm SB  : StoreTyped<0b010, "sb">;
 
-
+defm SW  : StoreTypedPatterns<SWC, store>;
+defm SH  : StoreTypedPatterns<SHC, truncstorei16>;
+defm SB  : StoreTypedPatterns<SBC, truncstorei8>;
 
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
