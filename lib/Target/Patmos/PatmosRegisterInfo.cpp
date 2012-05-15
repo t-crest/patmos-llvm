@@ -55,7 +55,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
-    Patmos::R30,
+    Patmos::RFP,
     // Predicate regs
     Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
     Patmos::P5, Patmos::P6, Patmos::P7,
@@ -89,10 +89,10 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Patmos::S15);
 
   // stack pointer
-  Reserved.set(Patmos::R31);
+  Reserved.set(Patmos::RSP);
   // Mark frame pointer as reserved if needed.
   if (TFI->hasFP(MF))
-    Reserved.set(Patmos::R30);
+    Reserved.set(Patmos::RFP);
 
   return Reserved;
 }
@@ -183,67 +183,47 @@ PatmosRegisterInfo::processFunctionBeforeFrameFinalized(MachineFunction &MF)
 void
 PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                         int SPAdj, RegScavenger *RS) const {
-  assert(0 && "Not yet implemented");
-#if 0
   assert(SPAdj == 0 && "Unexpected");
 
-  unsigned i = 0;
+  // get some references
   MachineInstr &MI = *II;
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
   DebugLoc dl = MI.getDebugLoc();
+  
+  // find position of the FrameIndex object
+  unsigned i = 0;
   while (!MI.getOperand(i).isFI()) {
     ++i;
     assert(i < MI.getNumOperands() && "Instr doesn't have FrameIndex operand!");
   }
 
-  int FrameIndex = MI.getOperand(i).getIndex();
+  // expect FrameIndex to be on second position for load/store operations
+  // TODO: position in other expressions than load/store!
+  assert(i == 1);
 
-  unsigned BasePtr = (TFI->hasFP(MF) ? Patmos::FPW : Patmos::SPW);
+  // get information on FrameIndex's stack slot 
+  int FrameIndex = MI.getOperand(i).getIndex(); 
+  unsigned BasePtr = (TFI->hasFP(MF) ? Patmos::RFP : Patmos::RSP);
   int Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex);
 
-  // Skip the saved PC
-  Offset += 2;
-
+  // adjust stack offset
   if (!TFI->hasFP(MF))
     Offset += MF.getFrameInfo()->getStackSize();
   else
-    Offset += 2; // Skip the saved FPW
+    Offset += 2; // Skip the saved RFP
 
   // Fold imm into offset
   Offset += MI.getOperand(i+1).getImm();
 
-  if (MI.getOpcode() == Patmos::ADD16ri) {
-    // This is actually "load effective address" of the stack slot
-    // instruction. We have only two-address instructions, thus we need to
-    // expand it into mov + add
-
-    MI.setDesc(TII.get(Patmos::MOV16rr));
-    MI.getOperand(i).ChangeToRegister(BasePtr, false);
-
-    if (Offset == 0)
-      return;
-
-    // We need to materialize the offset via add instruction.
-    unsigned DstReg = MI.getOperand(0).getReg();
-    if (Offset < 0)
-      BuildMI(MBB, llvm::next(II), dl, TII.get(Patmos::SUB16ri), DstReg)
-        .addReg(DstReg).addImm(-Offset);
-    else
-      BuildMI(MBB, llvm::next(II), dl, TII.get(Patmos::ADD16ri), DstReg)
-        .addReg(DstReg).addImm(Offset);
-
-    return;
-  }
-
+  // update the instruction's operands
   MI.getOperand(i).ChangeToRegister(BasePtr, false);
   MI.getOperand(i+1).ChangeToImmediate(Offset);
-#endif
 }
 
 unsigned PatmosRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
 
-  return TFI->hasFP(MF) ? Patmos::R30 : Patmos::R31;
+  return TFI->hasFP(MF) ? Patmos::RFP : Patmos::RSP;
 }

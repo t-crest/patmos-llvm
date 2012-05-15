@@ -61,7 +61,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setIntDivIsCheap(false);
   //setSelectIsExpensive(false);
 
-  setStackPointerRegisterToSaveRestore(Patmos::R31);
+  setStackPointerRegisterToSaveRestore(Patmos::RSP);
   setBooleanContents(ZeroOrOneBooleanContent);
 
   //setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
@@ -329,7 +329,7 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
       assert(VA.isMemLoc());
 
       if (StackPtr.getNode() == 0)
-        StackPtr = DAG.getCopyFromReg(Chain, dl, Patmos::R31, getPointerTy());
+        StackPtr = DAG.getCopyFromReg(Chain, dl, Patmos::RSP, getPointerTy());
 
       SDValue PtrOff = DAG.getNode(ISD::ADD, dl, getPointerTy(),
                                    StackPtr,
