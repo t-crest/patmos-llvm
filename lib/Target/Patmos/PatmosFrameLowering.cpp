@@ -26,6 +26,10 @@
 
 using namespace llvm;
 
+static unsigned AlignOffset(unsigned Offset, unsigned Align) {
+  return (Offset + Align - 1) / Align * Align; 
+} 
+
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
 
@@ -41,149 +45,84 @@ bool PatmosFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const 
 }
 #endif
 
-
 void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
-
-//FIXME Patmos needs implementation
-#if 0
-  MachineBasicBlock &MBB = MF.front();   // Prolog goes in entry BB
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  PatmosMachineFunctionInfo *PatmosFI = MF.getInfo<PatmosMachineFunctionInfo>();
+  // get some references
+  MachineBasicBlock &MBB   = MF.front();
+  MachineFrameInfo *MFI    = MF.getFrameInfo();
+  // TODO: track max. size of stack used for passing arguments
+  // PatmosFunctionInfo *PFI  = MF.getInfo<PatmosFunctionInfo>();
   const PatmosInstrInfo &TII =
     *static_cast<const PatmosInstrInfo*>(MF.getTarget().getInstrInfo());
 
+  
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
-  // Get the number of bytes to allocate from the FrameInfo.
-  uint64_t StackSize = MFI->getStackSize();
+  // First, compute final stack size.
+  unsigned StackAlign = getStackAlignment();
+  // TODO: track max. size of stack used for passing arguments
+  unsigned LocalVarAreaOffset = 0; // PFI->getMaxCallFrameSize();
+  unsigned StackSize = AlignOffset(LocalVarAreaOffset, StackAlign) +
+    AlignOffset(MFI->getStackSize(), StackAlign);
 
-  uint64_t NumBytes = 0;
-  if (hasFP(MF)) {
-    // Calculate required stack adjustment
-    uint64_t FrameSize = StackSize - 2;
-    NumBytes = FrameSize - PatmosFI->getCalleeSavedFrameSize();
+   // Update stack size
+  MFI->setStackSize(StackSize); 
+  
+  // No need to allocate space on the stack.
+  if (StackSize == 0 && !MFI->adjustsStack()) return;
 
-    // Get the offset of the stack slot for the EBP register... which is
-    // guaranteed to be the last slot by processFunctionBeforeFrameFinalized.
-    // Update the frame offset adjustment.
-    MFI->setOffsetAdjustment(-NumBytes);
-
-    // Save FPW into the appropriate stack slot...
-    BuildMI(MBB, MBBI, DL, TII.get(Patmos::PUSH16r))
-      .addReg(Patmos::FPW, RegState::Kill);
-
-    // Update FPW with the new base value...
-    BuildMI(MBB, MBBI, DL, TII.get(Patmos::MOV16rr), Patmos::FPW)
-      .addReg(Patmos::SPW);
-
-    // Mark the FramePtr as live-in in every block except the entry.
-    for (MachineFunction::iterator I = llvm::next(MF.begin()), E = MF.end();
-         I != E; ++I)
-      I->addLiveIn(Patmos::FPW);
-
-  } else
-    NumBytes = StackSize - PatmosFI->getCalleeSavedFrameSize();
-
-  // Skip the callee-saved push instructions.
-  while (MBBI != MBB.end() && (MBBI->getOpcode() == Patmos::PUSH16r))
-    ++MBBI;
-
-  if (MBBI != MBB.end())
-    DL = MBBI->getDebugLoc();
-
-  if (NumBytes) { // adjust stack pointer: SPW -= numbytes
-    // If there is an SUB16ri of SPW immediately before this instruction, merge
-    // the two.
-    //NumBytes -= mergeSPUpdates(MBB, MBBI, true);
-    // If there is an ADD16ri or SUB16ri of SPW immediately after this
-    // instruction, merge the two instructions.
-    // mergeSPUpdatesDown(MBB, MBBI, &NumBytes);
-
-    if (NumBytes) {
-      MachineInstr *MI =
-        BuildMI(MBB, MBBI, DL, TII.get(Patmos::SUB16ri), Patmos::SPW)
-        .addReg(Patmos::SPW).addImm(NumBytes);
-      // The SRW implicit def is dead.
-      MI->getOperand(3).setIsDead();
-    }
+  // adjust stack : sp -= stack size
+  if (StackSize <= 0xFFF) {
+    BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBi), Patmos::RSP)
+      .addReg(Patmos::RSP).addImm(StackSize);
   }
-#endif
+  else {
+    BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBl), Patmos::RSP)
+      .addReg(Patmos::RSP).addImm(StackSize);
+  }
+
+  // if framepointer enabled, set it to point to the stack pointer.
+  if (hasFP(MF)) {
+    // Set frame pointer: FP = SP
+    BuildMI(MBB, MBBI, dl, TII.get(Patmos::MOV), Patmos::RFP)
+      .addReg(Patmos::RSP);
+  }
 }
 
 void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
-//FIXME Patmos needs implementation
-#if 0
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
-  PatmosMachineFunctionInfo *PatmosFI = MF.getInfo<PatmosMachineFunctionInfo>();
+  MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
+  MachineFrameInfo *MFI            = MF.getFrameInfo();
   const PatmosInstrInfo &TII =
     *static_cast<const PatmosInstrInfo*>(MF.getTarget().getInstrInfo());
+  DebugLoc dl = MBBI->getDebugLoc();
 
-  MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
-  unsigned RetOpcode = MBBI->getOpcode();
-  DebugLoc DL = MBBI->getDebugLoc();
+  // Get the number of bytes from FrameInfo
+  unsigned StackSize = MFI->getStackSize();
 
-  switch (RetOpcode) {
-  case Patmos::RET:
-  case Patmos::RETI: break;  // These are ok
-  default:
-    llvm_unreachable("Can only insert epilog into returning blocks");
-  }
-
-  // Get the number of bytes to allocate from the FrameInfo
-  uint64_t StackSize = MFI->getStackSize();
-  unsigned CSSize = PatmosFI->getCalleeSavedFrameSize();
-  uint64_t NumBytes = 0;
-
+  // if framepointer enabled, restore the stack pointer.
   if (hasFP(MF)) {
-    // Calculate required stack adjustment
-    uint64_t FrameSize = StackSize - 2;
-    NumBytes = FrameSize - CSSize;
+    // Find the first instruction that restores a callee-saved register.
+    MachineBasicBlock::iterator I = MBBI;
+    
+    for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
+      --I;
 
-    // pop FPW.
-    BuildMI(MBB, MBBI, DL, TII.get(Patmos::POP16r), Patmos::FPW);
-  } else
-    NumBytes = StackSize - CSSize;
-
-  // Skip the callee-saved pop instructions.
-  while (MBBI != MBB.begin()) {
-    MachineBasicBlock::iterator PI = prior(MBBI);
-    unsigned Opc = PI->getOpcode();
-    if (Opc != Patmos::POP16r && !PI->getDesc().isTerminator())
-      break;
-    --MBBI;
+    // Restore stack pointer: SP = FP
+    BuildMI(MBB, I, dl, TII.get(Patmos::MOV), Patmos::RSP).addReg(Patmos::RFP);
   }
 
-  DL = MBBI->getDebugLoc();
-
-  // If there is an ADD16ri or SUB16ri of SPW immediately before this
-  // instruction, merge the two instructions.
-  //if (NumBytes || MFI->hasVarSizedObjects())
-  //  mergeSPUpdatesUp(MBB, MBBI, StackPtr, &NumBytes);
-
-  if (MFI->hasVarSizedObjects()) {
-    BuildMI(MBB, MBBI, DL,
-            TII.get(Patmos::MOV16rr), Patmos::SPW).addReg(Patmos::FPW);
-    if (CSSize) {
-      MachineInstr *MI =
-        BuildMI(MBB, MBBI, DL,
-                TII.get(Patmos::SUB16ri), Patmos::SPW)
-        .addReg(Patmos::SPW).addImm(CSSize);
-      // The SRW implicit def is dead.
-      MI->getOperand(3).setIsDead();
+  // adjust stack  : sp += stack size
+  if (StackSize) {
+    if (StackSize <= 0xFFF) {
+      BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDi), Patmos::RSP)
+        .addReg(Patmos::RSP).addImm(StackSize);
     }
-  } else {
-    // adjust stack pointer back: SPW += numbytes
-    if (NumBytes) {
-      MachineInstr *MI =
-        BuildMI(MBB, MBBI, DL, TII.get(Patmos::ADD16ri), Patmos::SPW)
-        .addReg(Patmos::SPW).addImm(NumBytes);
-      // The SRW implicit def is dead.
-      MI->getOperand(3).setIsDead();
+    else {
+      BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDl), Patmos::RSP)
+        .addReg(Patmos::RSP).addImm(StackSize);
     }
   }
-#endif
 }
 
 

@@ -76,8 +76,8 @@ def R26 : PatmosGPR<26, "r26">;
 def R27 : PatmosGPR<27, "r27">;
 def R28 : PatmosGPR<28, "r28">;
 def R29 : PatmosGPR<29, "r29">;
-def R30 : PatmosGPR<30, "r30">;
-def R31 : PatmosGPR<31, "r31">;
+def RFP : PatmosGPR<30, "r30">;
+def RSP : PatmosGPR<31, "r31">;
 
 def P0  : PatmosPRED<0, "p0">;
 def P1  : PatmosPRED<1, "p1">;
@@ -121,7 +121,7 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    // arguments (caller saved)
    R3, R4, R5, R6, R7, R8,
    // frame pointer, stack pointer (callee saved)
-   R30, R31,
+   RFP, RSP,
    // constant 0
    R0)>;
 
