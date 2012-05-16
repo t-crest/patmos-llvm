@@ -25,8 +25,8 @@ class SDTCisI32<int OpNum> : SDTCisVT<OpNum, i32>;
 //===----------------------------------------------------------------------===//
 
 //def SDT_PatmosCall         : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
-def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisVT<0, i32>]>;
-def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
+def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisI32<0>]>;
+def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisI32<0>, SDTCisI32<1>]>;
 
 //===----------------------------------------------------------------------===//
 // Patmos Specific Node Definitions.
@@ -174,45 +174,41 @@ let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
 // Arithmetic Instructions
 //===----------------------------------------------------------------------===//
 
-multiclass ALU_ilr <string asmstr, bits<4> func, SDNode opnode> {
+
+// no short immediates
+multiclass BinArith<bits<4> func, string asmstr, SDNode opnode, bit isrCommutable=0> {
+  def l : ALUl<func, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
+                !strconcat(asmstr, " $rd, $rs1, $imm"),
+                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>;
+
+  let isCommutable = isrCommutable in
+  def r : ALUr<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
+                !strconcat(asmstr, " $rd, $rs1, $rs2"),
+                [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
+}
+
+// also support short immediates
+multiclass BinArithI<bits<4> func, string asmstr, SDNode opnode, bit isrCommutable=0> {
   def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
                 !strconcat(asmstr, " $rd, $rs1, $imm"),
                 [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
-
-  def l : ALUl<func, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
-                !strconcat(asmstr, " $rd, $rs1, $imm"),
-                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>;
-
-  def r : ALUr<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
-                !strconcat(asmstr, " $rd, $rs1, $rs2"),
-                [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
+  // also L and R
+  defm #NAME# : BinArith<func, asmstr, opnode, isrCommutable>;
 }
 
-
-multiclass ALU_lr <string asmstr, bits<4> func, SDNode opnode> {
-  def l : ALUl<func, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
-                !strconcat(asmstr, " $rd, $rs1, $imm"),
-                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>;
-
-  def r : ALUr<func, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
-                !strconcat(asmstr, " $rd, $rs1, $rs2"),
-                [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
-}
 
 
 /** also short immediates ******/
 
-let isCommutable = 1 in {
-defm ADD : ALU_ilr <"add", 0b0000, add>;
+defm ADD : BinArithI<0b0000, "add", add, 1>;
 
-defm OR  : ALU_ilr <"or" , 0b0110, or >;
-defm AND : ALU_ilr <"and", 0b0111, and>;
-}
+defm OR  : BinArithI<0b0110, "or ", or , 1>;
+defm AND : BinArithI<0b0111, "and", and, 1>;
 
-defm SUB  : ALU_ilr <"sub",  0b0001, sub>;
-defm SL   : ALU_ilr <"sl",   0b0011, shl>;
-defm SR   : ALU_ilr <"sr",   0b0100, srl>;
-defm SRA  : ALU_ilr <"sra",  0b0101, sra>;
+defm SUB : BinArithI<0b0001, "sub", sub>;
+defm SL  : BinArithI<0b0011, "sl ", shl>;
+defm SR  : BinArithI<0b0100, "sr ", srl>;
+defm SRA : BinArithI<0b0101, "sra", sra>;
 
 
 
@@ -231,23 +227,23 @@ def RSUBr : ALUr<0b0010, (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
 
 /********/
 
-defm RL   : ALU_lr <"rl",   0b1000, rotl>;
-defm RR   : ALU_lr <"rr",   0b1001, rotr>;
+defm RL   : BinArith <0b1000, "rl ", rotl>;
+defm RR   : BinArith <0b1001, "rr ", rotr>;
 
-let isCommutable = 1 in {
-defm XOR  : ALU_lr <"xor" , 0b1010, or >;
+defm XOR  : BinArith<0b1010, "xor", xor , 1>;
 
 def NORl  : ALUl <0b1011,
               (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
               "nor $rd, $rs1, $imm",
               [(set RRegs:$rd, (not (or RRegs:$rs1, imm:$imm)))]>;
-def NORr  : ALUl <0b1011,
+
+let isCommutable = 1 in
+def NORr  : ALUr <0b1011,
               (outs RRegs:$rd), (ins RRegs:$rs1, RRegs:$rs2),
               "nor $rd, $rs1, $rs2",
               [(set RRegs:$rd, (not (or RRegs:$rs1, RRegs:$rs2)))]>;
-}
 
-//TODO beautify with ALU_ilr multiclass
+//TODO beautify with  multiclass
 def SHADDl  : ALUl<0b1100, (outs RRegs:$rd), (ins RRegs:$rs1, i32imm:$imm),
                   "shadd $rd, $rs1, $imm",
                 [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 1)), (i32 imm:$imm)))]>;
@@ -415,15 +411,30 @@ def PXOR: ALUp <0b1010, (outs PRegs:$pd), (ins PRegs:$ps1, PRegs:$ps2),
                 [(set PRegs:$pd, (xor PRegs:$ps1, PRegs:$ps2))]>;
 //nor
 def PNOR: ALUp <0b1010, (outs PRegs:$pd), (ins PRegs:$ps1, PRegs:$ps2),
-                "xor $pd, $ps1, $ps2",
+                "nor $pd, $ps1, $ps2",
                 [(set PRegs:$pd, (notcc (or PRegs:$ps1, PRegs:$ps2)))]>;
 
 
 // Pseudos:
-//mov
-//not
-//set
-//clr
+//mov uses or opcode (or Pd = Ps | Ps)
+//let Ps2 = Ps1 in
+def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins PRegs:$ps),
+                "mov $pd, $ps", []>;
+
+//not uses nor opcode
+//let Ps2 = Ps1 in
+def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins PRegs:$ps),
+                "not $pd, $ps",
+                [(set PRegs:$pd, (not PRegs:$ps))]>;
+
+//set uses or opcode
+let Ps1 = 0, Ps2 = 0 in
+def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins /*empty*/),
+                "set $pd", [(set PRegs:$pd, (i1 1))]>;
+//clr uses nor opcode
+let Ps1 = 0, Ps2 = 0 in
+def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins /*empty*/),
+                "clr $pd", [(set PRegs:$pd, (i1 0))]>;
 
 
 // NOP
