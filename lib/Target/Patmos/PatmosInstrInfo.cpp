@@ -32,6 +32,26 @@ PatmosInstrInfo::PatmosInstrInfo(PatmosTargetMachine &tm)
   : PatmosGenInstrInfo(Patmos::ADJCALLSTACKDOWN, Patmos::ADJCALLSTACKUP),
     RI(tm, *this), TM(tm) {}
 
+bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
+                                            unsigned &SrcOpIdx1,
+                                            unsigned &SrcOpIdx2) const {
+  switch (MI->getOpcode())
+  {
+    case Patmos::ADDr:
+    case Patmos::ORr:
+    case Patmos::ANDr:
+      SrcOpIdx1 = 3;
+      SrcOpIdx2 = 4;
+      return true;
+      break;
+    default:
+      assert("Unexpected commutable machine instruction." && false);
+      return false;
+  }
+
+  abort();
+}
+
 void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                   MachineBasicBlock::iterator I, DebugLoc DL,
                                   unsigned DestReg, unsigned SrcReg,
