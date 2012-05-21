@@ -24,7 +24,7 @@ class SDTCisI32<int OpNum> : SDTCisVT<OpNum, i32>;
 // Type Profiles.
 //===----------------------------------------------------------------------===//
 
-//def SDT_PatmosCall         : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
+def SDT_PatmosCall         : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
 def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisI32<0>]>;
 def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisI32<0>, SDTCisI32<1>]>;
 
@@ -34,6 +34,10 @@ def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisI32<0>, SDTCisI32<1>]>;
 
 def retflag       : SDNode<"PatmosISD::RET_FLAG", SDTNone,
                           [SDNPHasChain, SDNPOptInGlue]>;
+
+def PatmosCall    : SDNode<"PatmosISD::CALL",SDT_PatmosCall,
+                         [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
+                          SDNPVariadic]>;
 
 def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_PatmosCallSeqStart,
                           [SDNPHasChain, SDNPOutGlue]>;
@@ -115,7 +119,7 @@ def uimm7    : PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
 // ALUi
 def uimm12   : PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
 // Call/Branch/StackCtrl
-def uimm22   : PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
+def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
 
 
 // 7 bit value, shifted by one bit (for 16-bit stores)
@@ -183,6 +187,20 @@ let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
 //  Call Instructions...
 //===----------------------------------------------------------------------===//
 
+let isCall=1, hasDelaySlot=1,
+  // Calls may overwrite caller saved registers
+  Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
+          R17, R18, R19, R20,
+          SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
+
+  def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$imm),
+                    "$p bs $imm # FIXME delay slot",
+                    [(PatmosCall uimm22:$imm)]>;
+
+  def bsr: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs1),
+                    "$p bsr $rs1 # FIXME delay slot",
+                    [(PatmosCall RRegs:$rs1)]>;
+}
 
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions...
@@ -595,7 +613,7 @@ multiclass StoreTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
 
   // load register indirect from stack cache
   def fiimm : Pat<(pfg RRegs:$rs, (add fipat:$fi, immFg:$imm)),
-                  (inst_C pred:%P0, pred:0, fipat:$fi, immFg:$imm, RRegs:$rs)>;
+                  (inst_C fipat:$fi, immFg:$imm, RRegs:$rs)>;
 
   // TODO: more patterns here
 }
@@ -640,6 +658,9 @@ def : Pat<(add espat:$sym, (shl RRegs:$r, (i32 2))), (SHADD2l RRegs:$r, espat:$s
 def : Pat<(fipat:$fi) , (ADDi fipat:$fi, 0)>;
 def : Pat<(add fipat:$fi, imm7:$imm) , (ADDi fipat:$fi, imm7:$imm)>;
 def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
+
+def : Pat<(PatmosCall tglobaladdr:$sym), (bs tglobaladdr:$sym)>;
+def : Pat<(PatmosCall texternalsym:$sym), (bs texternalsym:$sym)>;
 
 // multiplication
 // TODO

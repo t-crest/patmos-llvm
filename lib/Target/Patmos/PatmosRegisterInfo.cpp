@@ -105,68 +105,16 @@ const TargetRegisterClass *
 PatmosRegisterInfo::getPointerRegClass(unsigned Kind) const {
   return &Patmos::GR16RegClass;
 }
+#endif
 
 void PatmosRegisterInfo::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator I) const {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-
-  if (!TFI->hasReservedCallFrame(MF)) {
-    // If the stack pointer can be changed after prologue, turn the
-    // adjcallstackup instruction into a 'sub SPW, <amt>' and the
-    // adjcallstackdown instruction into 'add SPW, <amt>'
-    // TODO: consider using push / pop instead of sub + store / add
-    MachineInstr *Old = I;
-    uint64_t Amount = Old->getOperand(0).getImm();
-    if (Amount != 0) {
-      // We need to keep the stack aligned properly.  To do this, we round the
-      // amount of space needed for the outgoing arguments up to the next
-      // alignment boundary.
-      Amount = (Amount+StackAlign-1)/StackAlign*StackAlign;
-
-      MachineInstr *New = 0;
-      if (Old->getOpcode() == TII.getCallFrameSetupOpcode()) {
-        New = BuildMI(MF, Old->getDebugLoc(),
-                      TII.get(Patmos::SUB16ri), Patmos::SPW)
-          .addReg(Patmos::SPW).addImm(Amount);
-      } else {
-        assert(Old->getOpcode() == TII.getCallFrameDestroyOpcode());
-        // factor out the amount the callee already popped.
-        uint64_t CalleeAmt = Old->getOperand(1).getImm();
-        Amount -= CalleeAmt;
-        if (Amount)
-          New = BuildMI(MF, Old->getDebugLoc(),
-                        TII.get(Patmos::ADD16ri), Patmos::SPW)
-            .addReg(Patmos::SPW).addImm(Amount);
-      }
-
-      if (New) {
-        // The SRW implicit def is dead.
-        New->getOperand(3).setIsDead();
-
-        // Replace the pseudo instruction with a new instruction...
-        MBB.insert(I, New);
-      }
-    }
-  } else if (I->getOpcode() == TII.getCallFrameDestroyOpcode()) {
-    // If we are performing frame pointer elimination and if the callee pops
-    // something off the stack pointer, add it back.
-    if (uint64_t CalleeAmt = I->getOperand(1).getImm()) {
-      MachineInstr *Old = I;
-      MachineInstr *New =
-        BuildMI(MF, Old->getDebugLoc(), TII.get(Patmos::SUB16ri),
-                Patmos::SPW).addReg(Patmos::SPW).addImm(CalleeAmt);
-      // The SRW implicit def is dead.
-      New->getOperand(3).setIsDead();
-
-      MBB.insert(I, New);
-    }
-  }
-
+  // Simply discard ADJCALLSTACKDOWN, ADJCALLSTACKUP instructions.
   MBB.erase(I);
 }
 
-
+#if 0
 void
 PatmosRegisterInfo::processFunctionBeforeFrameFinalized(MachineFunction &MF)
                                                                          const {
