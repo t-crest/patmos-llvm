@@ -70,7 +70,48 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setMinFunctionAlignment(4);
   setPrefFunctionAlignment(4);
 
+  setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
+
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i1, Promote);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::i1, Promote);
+
+  // Expand to S/UMUL_LOHI
   setOperationAction(ISD::MUL, MVT::i32, Expand);
+  // Patmos has no DIV, REM or DIVREM operations.
+  setOperationAction(ISD::MUL, MVT::i32, Expand);
+  setOperationAction(ISD::SDIV, MVT::i32, Expand);
+  setOperationAction(ISD::UDIV, MVT::i32, Expand);
+  setOperationAction(ISD::SREM, MVT::i32, Expand);
+  setOperationAction(ISD::UREM, MVT::i32, Expand);
+  setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
+  setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
+
+  // we don't have carry setting add/sub instructions.
+  // TODO custom lowering wih predicates?
+  setOperationAction(ISD::CARRY_FALSE, MVT::i32, Expand);
+  setOperationAction(ISD::ADDC, MVT::i32, Expand);
+  setOperationAction(ISD::SUBC, MVT::i32, Expand);
+  setOperationAction(ISD::ADDE, MVT::i32, Expand);
+  setOperationAction(ISD::SUBE, MVT::i32, Expand);
+  // add/sub/mul with overflow
+  setOperationAction(ISD::SADDO, MVT::i32, Expand);
+  setOperationAction(ISD::UADDO, MVT::i32, Expand);
+  setOperationAction(ISD::SSUBO, MVT::i32, Expand);
+  setOperationAction(ISD::USUBO, MVT::i32, Expand);
+  setOperationAction(ISD::SMULO, MVT::i32, Expand);
+  setOperationAction(ISD::UMULO, MVT::i32, Expand);
+
+  // no bit-fiddling
+  setOperationAction(ISD::BSWAP, MVT::i32, Expand);
+  setOperationAction(ISD::CTTZ , MVT::i32, Expand);
+  setOperationAction(ISD::CTLZ , MVT::i32, Expand);
+  setOperationAction(ISD::CTPOP, MVT::i32, Expand);
+
+  setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
+
+  //???
+  setOperationAction(ISD::TRUNCATE, MVT::i32, Expand);
+
 
 }
 

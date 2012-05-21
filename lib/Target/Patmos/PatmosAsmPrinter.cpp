@@ -48,6 +48,8 @@ namespace {
 
     void printOperand(const MachineInstr *MI, int OpNum,
                       raw_ostream &O, const char* Modifier = 0);
+    //void printPredicateOperand(const MachineInstr *MI, int OpNum,
+    //                           raw_ostream &O);
     void printSrcMemOperand(const MachineInstr *MI, int OpNum,
                             raw_ostream &O);
     bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
@@ -107,6 +109,7 @@ void PatmosAsmPrinter::printOperand(const MachineInstr *MI, int OpNum,
   }
   }
 }
+
 
 void PatmosAsmPrinter::printSrcMemOperand(const MachineInstr *MI, int OpNum,
                                           raw_ostream &O) {

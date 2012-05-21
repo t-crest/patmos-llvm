@@ -70,6 +70,9 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
 
+  Reserved.set(Patmos::R0);
+  Reserved.set(Patmos::P0);
+
   // All the special registers are reserved
   Reserved.set(Patmos::S0);
   Reserved.set(Patmos::SM);

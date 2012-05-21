@@ -29,6 +29,7 @@ class PatmosInst<dag outs, dag ins, // SizeVal sz, Format f,
 
   let AsmString   = asmstr;
   let Pattern     = pattern;
+  let isPredicable = 1;
 }
 
 

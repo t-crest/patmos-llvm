@@ -37,13 +37,24 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                   unsigned DestReg, unsigned SrcReg,
                                   bool KillSrc) const {
   unsigned Opc;
-  if (Patmos::RRegsRegClass.contains(DestReg, SrcReg))
+  if (Patmos::RRegsRegClass.contains(DestReg, SrcReg)) {
+    // General purpose register
     Opc = Patmos::MOV;
-  else
-    llvm_unreachable("Impossible reg-to-reg copy");
+    BuildMI(MBB, I, DL, get(Opc), DestReg)
+      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(SrcReg, getKillRegState(KillSrc));
 
-  BuildMI(MBB, I, DL, get(Opc), DestReg)
-    .addReg(SrcReg, getKillRegState(KillSrc));
+  } else if (Patmos::PRegsRegClass.contains(DestReg, SrcReg)) {
+    // Predicate register
+    Opc = Patmos::PMOV;
+    BuildMI(MBB, I, DL, get(Opc), DestReg)
+      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(SrcReg, getKillRegState(KillSrc));
+
+  } else {
+    llvm_unreachable("Impossible reg-to-reg copy");
+  }
+
 }
 
 

@@ -38,9 +38,23 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   if (Op.isReg()) {
     O << getRegisterName(Op.getReg());
   } else if (Op.isImm()) {
-    O << '#' << Op.getImm();
+    O << Op.getImm();
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
-    O << '#' << *Op.getExpr();
+    O << *Op.getExpr();
   }
 }
+
+void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O) {
+  //const MCOperand &Op = MI->getOperand(OpNo);
+  unsigned reg  = MI->getOperand(OpNo  ).getReg();
+  int      flag = MI->getOperand(OpNo+1).getImm();
+
+  if ((reg == Patmos::P0) && !flag) {
+    O << "     "; // instead of ( p0)
+  } else {
+    O << "(" << ((flag)?"!":" ") << getRegisterName(reg) << ")";
+  }
+}
+
+
