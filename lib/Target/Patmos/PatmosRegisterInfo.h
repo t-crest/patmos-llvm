@@ -49,11 +49,13 @@ public:
 
 #if 0
   const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
+#endif
 
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
 
+#if 0
   void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;
 #endif
 
