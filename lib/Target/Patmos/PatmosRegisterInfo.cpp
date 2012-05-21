@@ -194,7 +194,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineFunction &MF = *MBB.getParent();
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
   DebugLoc dl = MI.getDebugLoc();
-  
+
   // find position of the FrameIndex object
   unsigned i = 0;
   while (!MI.getOperand(i).isFI()) {
@@ -204,7 +204,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   // expect FrameIndex to be on second position for load/store operations
   // TODO: position in other expressions than load/store!
-  assert(i == 1);
+  assert(i == 2 || i == 3);
 
   // get information on FrameIndex's stack slot 
   int FrameIndex = MI.getOperand(i).getIndex(); 
@@ -219,6 +219,38 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   // Fold imm into offset
   Offset += MI.getOperand(i+1).getImm();
+
+  // ensure that the offset fits the instruction
+  switch (MI.getOpcode())
+  {
+    case Patmos::LWC: case Patmos::LWM: 
+    case Patmos::SWC: case Patmos::SWM:
+      // 9 bit
+      assert(isInt<9>(Offset));
+      break;
+    case Patmos::LHC: case Patmos::LHM:
+    case Patmos::LHUC: case Patmos::LHUM:
+    case Patmos::SHC: case Patmos::SHM:
+      // 8 bit
+      assert(isInt<8>(Offset));
+      break;
+    case Patmos::LBC: case Patmos::LBM:
+    case Patmos::LBUC: case Patmos::LBUM:
+    case Patmos::SBC: case Patmos::SBM:
+      // 7 bit
+      assert(isInt<7>(Offset));
+      break;
+    case Patmos::ADDi:
+      // 12 bit
+      assert(isUInt<12>(Offset));
+      break;
+    case Patmos::ADDl:
+      // all should be fine
+      break;
+    default:
+      assert("Unexpected operation with FrameIndex encountered." && false);
+      abort();
+  }
 
   // update the instruction's operands
   MI.getOperand(i).ChangeToRegister(BasePtr, false);
