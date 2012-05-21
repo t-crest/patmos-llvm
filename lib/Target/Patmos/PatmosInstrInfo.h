@@ -36,6 +36,12 @@ public:
   ///
   virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
 
+  /// findCommutedOpIndices - If specified MI is commutable, return the two
+  /// operand indices that would swap value. Return false if the instruction
+  /// is not in a form which this routine understands.
+  virtual bool findCommutedOpIndices(MachineInstr *MI, unsigned &SrcOpIdx1,
+                                     unsigned &SrcOpIdx2) const;
+
   void copyPhysReg(MachineBasicBlock &MBB,
                    MachineBasicBlock::iterator I, DebugLoc DL,
                    unsigned DestReg, unsigned SrcReg,
