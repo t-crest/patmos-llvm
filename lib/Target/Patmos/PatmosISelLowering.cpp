@@ -50,7 +50,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   // Set up the register classes.
   addRegisterClass(MVT::i32, Patmos::RRegsRegisterClass);
   //addRegisterClass(MVT::i32, Patmos::SRegsRegisterClass);
-  addRegisterClass(MVT::i1,  Patmos::PRegsRegisterClass);
+  //addRegisterClass(MVT::i1,  Patmos::PRegsRegisterClass);
 
   // Compute derived properties from the register classes
   computeRegisterProperties();
@@ -109,9 +109,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
 
-  //???
-  setOperationAction(ISD::TRUNCATE, MVT::i32, Expand);
-
+  setOperationAction(ISD::BR_CC, MVT::Other, Expand);
 
 }
 

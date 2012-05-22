@@ -21,15 +21,15 @@ class PatmosInst<dag outs, dag ins, // SizeVal sz, Format f,
 
   let Namespace = "Patmos";
 
-  bits<4> pred;
-  let Inst{30-27} = pred;
+  bits<4> Pred;
+  let Inst{30-27} = Pred;
 
   dag OutOperandList = outs;
   dag InOperandList  = ins;
 
   let AsmString   = asmstr;
   let Pattern     = pattern;
-  let isPredicable = 1;
+  let isPredicable = 1; // we have a fully predicated instruction set
 }
 
 

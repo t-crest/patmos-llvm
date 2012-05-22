@@ -4,6 +4,8 @@ BUILDDIR=../../../Debug+Asserts/
 # to override default BUILDDIR
 -include config.mk
 
+ON?=2
+
 MARCH ?= patmos
 LLC=$(BUILDDIR)/bin/llc -march=$(MARCH)
 
@@ -22,10 +24,10 @@ VIEW= \
   -view-sunit-dags
 
 VIEW= \
-  -view-dag-combine1-dags \
   -view-legalize-dags \
   -view-isel-dags \
   -view-sched-dags
+
 
 DEBUG=--debug
 
@@ -35,7 +37,7 @@ DEBUG=--debug
 all: return.s
 
 %.ll: %.c
-	$(CLANG) -O2 -S -emit-llvm -o $@ $<
+	$(CLANG) -O$(ON) -S -emit-llvm -o $@ $<
 
 %.s: %.ll
 	$(LLC) -O0 $(DEBUG) $(VIEW) -o $@ $<
