@@ -62,6 +62,10 @@ def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
 }
 
 
+// for cache relative branches
+def brtarget : Operand<OtherVT> {
+  //let PrintMethod = "printCacheRelImmOperand";
+}
 
 /*
 // Address operands
@@ -75,10 +79,6 @@ def memdst : Operand<i16> {
   let MIOperandInfo = (ops GR16, i16imm);
 }
 
-// Short jump targets have OtherVT type and are printed as pcrel imm values.
-def jmptarget : Operand<OtherVT> {
-  let PrintMethod = "printPCRelImmOperand";
-}
 
 // Operand for printing out a condition code.
 def cc : Operand<i8> {
@@ -111,6 +111,9 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 //===----------------------------------------------------------------------===//
 // Pattern Fragments
 //===----------------------------------------------------------------------===//
+
+// NOP
+def uimm4    : PatLeaf<(imm), [{return isUInt<4>(N->getZExtValue());}]>;
 
 // offset of indexed load/store
 def imm7     : Operand<i32>, PatLeaf<(imm), [{return isInt <7>(N->getSExtValue());}]>;
@@ -177,11 +180,27 @@ def ADJCALLSTACKUP   : PatmosInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 //  Control Flow Instructions...
 //===----------------------------------------------------------------------===//
 
-let isReturn = 1, isTerminator = 1, isBarrier = 1 in {
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
   def RET  : PFLr<0b0000, (outs), (ins pred:$p),
                   "$p ret # FIXME delay slot",  [(retflag)]>;
 }
 
+let isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
+  let isBranch=1 in
+  def BC  : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
+                  "$p bc # FIXME delay slot",  []>;
+
+  let isIndirectBranch=1 in
+  def BCR : PFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
+                  "$p bcr # FIXME delay slot",  []>;
+
+}
+
+def : Pat<(br bb:$target),   (BC  bb:$target)>;
+def : Pat<(brind RRegs:$rs), (BCR RRegs:$rs)>;
+
+
+//def : Pat<(brcond PRegs:$cond, bb:$target),(BC PRegs:$cond, bb:$target) >;
 
 //===----------------------------------------------------------------------===//
 //  Call Instructions...
@@ -626,18 +645,27 @@ defm SW  : StoreTypedPatterns<SWC, imm7s2, store>;
 defm SH  : StoreTypedPatterns<SHC, imm7s1, truncstorei16>;
 defm SB  : StoreTypedPatterns<SBC, imm7  , truncstorei8>;
 
+
+
+
+
+
+
+
+
+
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
 
 
 // load immediate
-
 def : Pat<(i32 imm:$imm),
           (LIi (i32 uimm12:$imm) )>;
 
 def : Pat<(i32 imm:$imm),
           (LIl (i32 imm:$imm) )>;
+
 
 // // jump-table.
 // def : Pat<(i32 tjumptable:$dst), (MOV_IMM tjumptable:$dst)>;
@@ -666,4 +694,5 @@ def : Pat<(PatmosCall texternalsym:$sym), (bs texternalsym:$sym)>;
 // TODO
 //def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
 //          (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
+
 
