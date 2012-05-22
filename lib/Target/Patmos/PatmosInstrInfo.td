@@ -254,7 +254,7 @@ multiclass BinArithI<bits<4> func, string asmstr, SDNode opnode, bit isrCommutab
                 !strconcat( "$p ", !strconcat(asmstr, " $rd, $rs1, $imm")),
                 [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
   // also L and R
-  defm #NAME# : BinArith<func, asmstr, opnode, isrCommutable>;
+  defm NAME : BinArith<func, asmstr, opnode, isrCommutable>;
 }
 
 

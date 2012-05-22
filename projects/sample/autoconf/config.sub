@@ -252,6 +252,7 @@ case $basic_machine in
 	| mipstx39 | mipstx39el \
 	| mn10200 | mn10300 \
 	| msp430 \
+	| patmos \
 	| ns16k | ns32k \
 	| openrisc | or32 \
 	| pdp10 | pdp11 | pj | pjl \
@@ -323,6 +324,7 @@ case $basic_machine in
 	| mipsisa64sr71k-* | mipsisa64sr71kel-* \
 	| mipstx39-* | mipstx39el-* \
 	| msp430-* \
+	| patmos-* \
 	| none-* | np1-* | nv1-* | ns16k-* | ns32k-* \
 	| orion-* \
 	| pdp10-* | pdp11-* | pj-* | pjl-* | pn-* | power-* \
