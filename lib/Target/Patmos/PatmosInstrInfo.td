@@ -57,7 +57,7 @@ def patmos_mul    : SDNode<"PatmosISD::MUL", SDTIntBinOp,
 // the first is the predicate register
 // and the second is the inversion flag
 def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
-                                     (ops P0, (i1 0))> {
+                                     (ops (i32 zero_reg), (i1 0))> {
   let PrintMethod = "printPredicateOperand";
 }
 

@@ -50,7 +50,7 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo, r
   unsigned reg  = MI->getOperand(OpNo  ).getReg();
   int      flag = MI->getOperand(OpNo+1).getImm();
 
-  if ((reg == Patmos::P0) && !flag) {
+  if (!reg || (reg == Patmos::P0) && !flag) {
     O << "     "; // instead of ( p0)
   } else {
     O << "(" << ((flag)?"!":" ") << getRegisterName(reg) << ")";

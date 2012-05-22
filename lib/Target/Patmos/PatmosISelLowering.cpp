@@ -87,7 +87,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
 
   // we don't have carry setting add/sub instructions.
-  // TODO custom lowering wih predicates?
+  // TODO custom lowering with predicates?
   setOperationAction(ISD::CARRY_FALSE, MVT::i32, Expand);
   setOperationAction(ISD::ADDC, MVT::i32, Expand);
   setOperationAction(ISD::SUBC, MVT::i32, Expand);
