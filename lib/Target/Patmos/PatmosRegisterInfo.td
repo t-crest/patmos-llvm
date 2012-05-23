@@ -129,9 +129,10 @@ def SRegs : RegisterClass<"Patmos", [i32], 32,
   (add S0, SM, SL, SH, SB, SO, ST, S7,
    S8, S9, S10, S11, S12, S13, S14, S15)>;
 
-def PRegs : RegisterClass<"Patmos", [i1], 32,
-   // callee saved
-  (add P1, P2, P3, P4, P5, P6, P7,
-   // constant true
-   P0)>;
-
+let Size = 32 in {
+  def PRegs : RegisterClass<"Patmos", [i1], 32,
+    // callee saved
+    (add P1, P2, P3, P4, P5, P6, P7,
+    // constant true
+    P0)>;
+}
