@@ -1,11 +1,11 @@
 set(LLVM_TARGET_DEFINITIONS Patmos.td)
 
-tablegen(PatmosGenRegisterInfo.inc -gen-register-info)
-tablegen(PatmosGenInstrInfo.inc -gen-instr-info)
-tablegen(PatmosGenAsmWriter.inc -gen-asm-writer)
-tablegen(PatmosGenDAGISel.inc -gen-dag-isel)
-tablegen(PatmosGenCallingConv.inc -gen-callingconv)
-tablegen(PatmosGenSubtargetInfo.inc -gen-subtarget)
+tablegen(LLVM PatmosGenRegisterInfo.inc -gen-register-info)
+tablegen(LLVM PatmosGenInstrInfo.inc -gen-instr-info)
+tablegen(LLVM PatmosGenAsmWriter.inc -gen-asm-writer)
+tablegen(LLVM PatmosGenDAGISel.inc -gen-dag-isel)
+tablegen(LLVM PatmosGenCallingConv.inc -gen-callingconv)
+tablegen(LLVM PatmosGenSubtargetInfo.inc -gen-subtarget)
 add_public_tablegen_target(PatmosCommonTableGen)
 
 add_llvm_target(PatmosCodeGen
