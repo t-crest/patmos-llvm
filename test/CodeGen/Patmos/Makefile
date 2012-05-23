@@ -1,9 +1,6 @@
 
 BUILDDIR=../../../Debug+Asserts/
 
-# to override default BUILDDIR
--include config.mk
-
 ON?=2
 
 MARCH ?= patmos
@@ -11,6 +8,9 @@ LLC=$(BUILDDIR)/bin/llc -march=$(MARCH)
 
 CLANG=$(BUILDDIR)/bin/clang
 OPT=$(BUILDDIR)/bin/opt
+
+# to override default BUILDDIR
+-include config.mk
 
 
 VIEW= \
@@ -31,7 +31,7 @@ VIEW= \
 
 DEBUG=--debug
 
-.PHONY: all
+.PHONY: all clean
 .PRECIOUS: %.ll
 
 all: return.s
@@ -42,3 +42,6 @@ all: return.s
 %.s: %.ll
 	$(LLC) -O0 $(DEBUG) $(VIEW) -o $@ $<
 	@echo
+
+clean:
+	rm -f *.s *.o *.ll
