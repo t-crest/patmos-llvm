@@ -61,14 +61,14 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     // General purpose register
     Opc = Patmos::MOV;
     BuildMI(MBB, I, DL, get(Opc), DestReg)
-      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(0).addImm(0) // predicate: always true
       .addReg(SrcReg, getKillRegState(KillSrc));
 
   } else if (Patmos::PRegsRegClass.contains(DestReg, SrcReg)) {
     // Predicate register
     Opc = Patmos::PMOV;
     BuildMI(MBB, I, DL, get(Opc), DestReg)
-      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(0).addImm(0) // predicate: always true
       .addReg(SrcReg, getKillRegState(KillSrc));
 
   } else {

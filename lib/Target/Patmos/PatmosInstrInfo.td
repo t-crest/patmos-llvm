@@ -200,7 +200,6 @@ def : Pat<(br bb:$target),   (BC  bb:$target)>;
 def : Pat<(brind RRegs:$rs), (BCR RRegs:$rs)>;
 
 
-//def : Pat<(brcond PRegs:$cond, bb:$target),(BC PRegs:$cond, bb:$target) >;
 
 //===----------------------------------------------------------------------===//
 //  Call Instructions...

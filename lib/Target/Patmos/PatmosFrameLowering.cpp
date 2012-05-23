@@ -74,12 +74,12 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // adjust stack : sp -= stack size
   if (StackSize <= 0xFFF) {
     BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBi), Patmos::RSP)
-      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(0).addImm(0) // predicate: always true
       .addReg(Patmos::RSP).addImm(StackSize);
   }
   else {
     BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBl), Patmos::RSP)
-      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(0).addImm(0) // predicate: always true
       .addReg(Patmos::RSP).addImm(StackSize);
   }
 
@@ -87,7 +87,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   if (hasFP(MF)) {
     // Set frame pointer: FP = SP
     BuildMI(MBB, MBBI, dl, TII.get(Patmos::MOV), Patmos::RFP)
-      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(0).addImm(0) // predicate: always true
       .addReg(Patmos::RSP);
   }
 }
@@ -113,7 +113,7 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
 
     // Restore stack pointer: SP = FP
     BuildMI(MBB, I, dl, TII.get(Patmos::MOV), Patmos::RSP)
-      .addReg(Patmos::P0).addImm(0) // predicate: always true
+      .addReg(0).addImm(0) // predicate: always true
       .addReg(Patmos::RFP);
   }
 
@@ -121,12 +121,12 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
   if (StackSize) {
     if (StackSize <= 0xFFF) {
       BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDi), Patmos::RSP)
-        .addReg(Patmos::P0).addImm(0) // predicate: always true
+        .addReg(0).addImm(0) // predicate: always true
         .addReg(Patmos::RSP).addImm(StackSize);
     }
     else {
       BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDl), Patmos::RSP)
-        .addReg(Patmos::P0).addImm(0) // predicate: always true
+        .addReg(0).addImm(0) // predicate: always true
         .addReg(Patmos::RSP).addImm(StackSize);
     }
   }
