@@ -33,8 +33,8 @@ static unsigned AlignOffset(unsigned Offset, unsigned Align) {
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
 
-  //return (MF.getTarget().Options.DisableFramePointerElim(MF) ||
-  return (DisableFramePointerElim(MF) ||
+  return (MF.getTarget().Options.DisableFramePointerElim(MF) ||
+  //return (DisableFramePointerElim(MF) ||
           MF.getFrameInfo()->hasVarSizedObjects() ||
           MFI->isFrameAddressTaken());
 }

@@ -37,7 +37,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/VectorExtras.h"
 using namespace llvm;
 
 
@@ -254,7 +253,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
       SDValue FIN = DAG.getFrameIndex(FI, MVT::i32);
       InVals.push_back(DAG.getLoad(VA.getLocVT(), dl, Chain, FIN,
                                    MachinePointerInfo::getFixedStack(FI),
-                                   false, false, 0));
+                                   false, false, 0, 0));
     }
   }
   return Chain;

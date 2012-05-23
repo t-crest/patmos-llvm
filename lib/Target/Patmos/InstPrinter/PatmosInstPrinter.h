@@ -21,8 +21,9 @@ namespace llvm {
 
   class PatmosInstPrinter : public MCInstPrinter {
   public:
-    PatmosInstPrinter(const MCAsmInfo &MAI)
-        : MCInstPrinter(MAI) {}
+    PatmosInstPrinter(const MCAsmInfo &mai, const MCInstrInfo &mii,
+	                    const MCRegisterInfo &mri)
+        : MCInstPrinter(mai, mii, mri) {}
 
 
     void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot);

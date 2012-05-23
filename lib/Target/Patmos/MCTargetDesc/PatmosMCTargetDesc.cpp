@@ -51,7 +51,7 @@ static MCSubtargetInfo *createPatmosMCSubtargetInfo(StringRef TT, StringRef CPU,
 }
 
 static MCCodeGenInfo *createPatmosMCCodeGenInfo(StringRef TT, Reloc::Model RM,
-                                                CodeModel::Model CM) {
+                                                CodeModel::Model CM, CodeGenOpt::Level L) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
   X->InitMCCodeGenInfo(RM, CM);
   return X;
@@ -60,9 +60,11 @@ static MCCodeGenInfo *createPatmosMCCodeGenInfo(StringRef TT, Reloc::Model RM,
 static MCInstPrinter *createPatmosMCInstPrinter(const Target &T,
                                                 unsigned SyntaxVariant,
                                                 const MCAsmInfo &MAI,
+						const MCInstrInfo &MII,
+						const MCRegisterInfo &MRI,
                                                 const MCSubtargetInfo &STI) {
   if (SyntaxVariant == 0)
-    return new PatmosInstPrinter(MAI);
+    return new PatmosInstPrinter(MAI, MII, MRI);
   return 0;
 }
 

@@ -38,11 +38,11 @@ PatmosRegisterInfo::PatmosRegisterInfo(PatmosTargetMachine &tm,
   StackAlign = TM.getFrameLowering()->getStackAlignment();
 }
 
-const unsigned*
+const uint16_t*
 PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   const TargetFrameLowering *TFI = MF->getTarget().getFrameLowering();
   //const Function* F = MF->getFunction();
-  static const unsigned CalleeSavedRegs[] = {
+  static const uint16_t CalleeSavedRegs[] = {
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
@@ -51,7 +51,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     Patmos::P5, Patmos::P6, Patmos::P7,
     0
   };
-  static const unsigned CalleeSavedRegsFP[] = {
+  static const uint16_t CalleeSavedRegsFP[] = {
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,

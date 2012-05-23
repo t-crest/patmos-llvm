@@ -40,7 +40,9 @@ class PatmosTargetMachine : public LLVMTargetMachine {
 public:
   PatmosTargetMachine(const Target &T, StringRef TT,
                       StringRef CPU, StringRef FS,
-                      Reloc::Model RM, CodeModel::Model CM);
+		      TargetOptions O,
+                      Reloc::Model RM, CodeModel::Model CM,
+		      CodeGenOpt::Level L);
 
   virtual const TargetFrameLowering *getFrameLowering() const {
     return &FrameLowering;

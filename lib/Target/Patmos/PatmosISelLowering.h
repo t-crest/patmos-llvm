@@ -81,7 +81,8 @@ namespace llvm {
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
 
-    SDValue LowerCall(SDValue Chain, SDValue Callee, CallingConv::ID CallConv,
+  public:
+    virtual SDValue LowerCall(SDValue Chain, SDValue Callee, CallingConv::ID CallConv,
                       bool isVarArg, bool &isTailCall,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
                       const SmallVectorImpl<SDValue> &OutVals,
@@ -89,13 +90,13 @@ namespace llvm {
                       DebugLoc dl, SelectionDAG &DAG,
                       SmallVectorImpl<SDValue> &InVals) const;
 
-    SDValue LowerFormalArguments(SDValue Chain,
+    virtual SDValue LowerFormalArguments(SDValue Chain,
                                  CallingConv::ID CallConv, bool isVarArg,
                                  const SmallVectorImpl<ISD::InputArg> &Ins,
                                  DebugLoc dl, SelectionDAG &DAG,
                                  SmallVectorImpl<SDValue> &InVals) const;
 
-    SDValue LowerReturn(SDValue Chain,
+    virtual SDValue LowerReturn(SDValue Chain,
                         CallingConv::ID CallConv, bool isVarArg,
                         const SmallVectorImpl<ISD::OutputArg> &Outs,
                         const SmallVectorImpl<SDValue> &OutVals,

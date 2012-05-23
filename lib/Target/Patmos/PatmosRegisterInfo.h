@@ -36,7 +36,7 @@ public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 
   /// Code Generation virtual methods...
-  const unsigned *getCalleeSavedRegs(const MachineFunction *MF = 0) const;//XXX
+  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;//XXX
 
   BitVector getReservedRegs(const MachineFunction &MF) const;//XXX
 
