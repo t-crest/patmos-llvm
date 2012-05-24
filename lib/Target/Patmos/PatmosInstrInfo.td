@@ -61,7 +61,6 @@ def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
   let PrintMethod = "printPredicateOperand";
 }
 
-
 // for cache relative branches
 def brtarget : Operand<OtherVT> {
   //let PrintMethod = "printCacheRelImmOperand";
@@ -175,12 +174,12 @@ def ADJCALLSTACKUP   : PatmosInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 }
 
 
-
 //===----------------------------------------------------------------------===//
 //  Control Flow Instructions...
 //===----------------------------------------------------------------------===//
 
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
+    Uses = [SB, SO] in {
   def RET  : PFLr<0b0000, (outs), (ins pred:$p),
                   "$p ret # FIXME delay slot",  [(retflag)]>;
 }
@@ -209,7 +208,7 @@ let isCall=1, hasDelaySlot=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
-          SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
+          SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$imm),
                     "$p bs $imm # FIXME delay slot",
@@ -664,7 +663,6 @@ def : Pat<(i32 imm:$imm),
 
 def : Pat<(i32 imm:$imm),
           (LIl (i32 imm:$imm) )>;
-
 
 // // jump-table.
 // def : Pat<(i32 tjumptable:$dst), (MOV_IMM tjumptable:$dst)>;

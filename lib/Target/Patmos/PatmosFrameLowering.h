@@ -37,7 +37,11 @@ public:
 
   bool hasFP(const MachineFunction &MF) const;
 
-#if 0
+  /// processFunctionBeforeCalleeSavedScan - This method is called immediately
+  /// before PrologEpilogInserter scans the physical registers used to determine
+  /// what callee saved registers should be spilled. This method is optional.
+  virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
+                                                 RegScavenger *RS = NULL) const;
   bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MI,
                                  const std::vector<CalleeSavedInfo> &CSI,
@@ -46,6 +50,7 @@ public:
                                    MachineBasicBlock::iterator MI,
                                    const std::vector<CalleeSavedInfo> &CSI,
                                    const TargetRegisterInfo *TRI) const;
+#if 0
   bool hasReservedCallFrame(const MachineFunction &MF) const;
 #endif
 

@@ -71,6 +71,18 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
       .addReg(0).addImm(0) // predicate: always true
       .addReg(SrcReg, getKillRegState(KillSrc));
 
+  } else if (Patmos::SRegsRegClass.contains(DestReg)) {
+    assert(Patmos::RRegsRegClass.contains(SrcReg));
+    BuildMI(MBB, I, DL, get(Patmos::MTS), DestReg)
+      .addReg(0).addImm(0) // predicate: always true
+      .addReg(SrcReg, getKillRegState(KillSrc));
+
+  } else if (Patmos::SRegsRegClass.contains(SrcReg)) {
+    assert(Patmos::RRegsRegClass.contains(DestReg));
+    BuildMI(MBB, I, DL, get(Patmos::MFS), DestReg)
+      .addReg(0).addImm(0) // predicate: always true
+      .addReg(SrcReg, getKillRegState(KillSrc));
+
   } else {
     llvm_unreachable("Impossible reg-to-reg copy");
   }
@@ -84,12 +96,52 @@ void PatmosInstrInfo::storeRegToStackSlot( MachineBasicBlock &MBB,
                                            int FrameIndex,
                                            const TargetRegisterClass *RC,
                                            const TargetRegisterInfo *TRI) const {
-//TODO
+  DebugLoc DL;
+  if (MI != MBB.end()) DL = MI->getDebugLoc();
+  unsigned Opc = 0;
+
+  if (RC == &Patmos::RRegsRegClass)
+    Opc = Patmos::SWC;
+  else if (RC == &Patmos::SRegsRegClass) {
+    Opc = Patmos::SWC;
+//     assert("Unexpected spill of special register." && false);
+//     abort();
+  }
+  else if (RC == &Patmos::PRegsRegClass) {
+    assert("Unexpected spill of special register." && false);
+    abort();
+  }
+
+  assert(Opc && "Register class not handled!");
+  BuildMI(MBB, MI, DL, get(Opc))
+    .addReg(0).addImm(0) // predicate
+    .addFrameIndex(FrameIndex).addImm(0) // address
+    .addReg(SrcReg, getKillRegState(isKill)); // value to store
 }
+
 void PatmosInstrInfo::loadRegFromStackSlot( MachineBasicBlock &MBB,
                                             MachineBasicBlock::iterator MI,
                                             unsigned DestReg, int FrameIdx,
                                             const TargetRegisterClass *RC,
                                             const TargetRegisterInfo *TRI) const {
-//TODO
+  DebugLoc DL;
+  if (MI != MBB.end()) DL = MI->getDebugLoc();
+  unsigned Opc = 0;
+
+  if (RC == &Patmos::RRegsRegClass)
+    Opc = Patmos::LWC;
+  else if (RC == &Patmos::SRegsRegClass) {
+    Opc = Patmos::LWC;
+//     assert("Unexpected spill of special register." && false);
+//     abort();
+  }
+  else if (RC == &Patmos::PRegsRegClass) {
+    assert("Unexpected spill of special register." && false);
+    abort();
+  }
+
+  assert(Opc && "Register class not handled!");
+  BuildMI(MBB, MI, DL, get(Opc), DestReg)
+    .addReg(0).addImm(0) // predicate
+    .addFrameIndex(FrameIdx).addImm(0); // address
 }

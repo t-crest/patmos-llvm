@@ -132,9 +132,26 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
   }
 }
 
+void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
+                                  MachineFunction& MF, RegScavenger* RS) const {
 
-#if 0
-// FIXME: Can we eleminate these in favour of generic code?
+  MachineRegisterInfo& MRI = MF.getRegInfo();
+
+  // Mark RFP, SB, and SO as used or unused.
+  if (hasFP(MF))
+    MRI.setPhysRegUsed(Patmos::RFP);
+
+  // Mark the special registers of the method cache to be used when calls exist.
+  if (MF.getFrameInfo()->hasCalls()) {
+    MRI.setPhysRegUsed(Patmos::SB);
+    MRI.setPhysRegUsed(Patmos::SO);
+  }
+  else {
+    MRI.setPhysRegUnused(Patmos::SB);
+    MRI.setPhysRegUnused(Patmos::SO);
+  }
+}
+
 bool
 PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
                                            MachineBasicBlock::iterator MI,
@@ -148,16 +165,40 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
-  PatmosMachineFunctionInfo *MFI = MF.getInfo<PatmosMachineFunctionInfo>();
-  MFI->setCalleeSavedFrameSize(CSI.size() * 2);
+  PatmosMachineFunctionInfo *PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
 
+  unsigned spilledSize = 0;
+  bool predicateSpilled = false;
   for (unsigned i = CSI.size(); i != 0; --i) {
     unsigned Reg = CSI[i-1].getReg();
     // Add the callee-saved register as live-in. It's killed at the spill.
     MBB.addLiveIn(Reg);
-    BuildMI(MBB, MI, DL, TII.get(Patmos::PUSH16r))
-      .addReg(Reg, RegState::Kill);
+
+    // copy to R register first, then spill
+    if (Patmos::SRegsRegClass.contains(Reg)) {
+      TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Reg, true);
+      Reg = Patmos::R9;
+    }
+    else if (Patmos::PRegsRegClass.contains(Reg)) {
+      if (predicateSpilled)
+        // store all predicate registers at once
+        continue;
+      else {
+        TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::S0, true);
+        Reg = Patmos::R9;
+        predicateSpilled = true;
+      }
+    }
+    // spill
+    const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
+    TII.storeRegToStackSlot(MBB, MI, Reg, true, CSI[i-1].getFrameIdx(), RC, TRI);
+
+    // increment spilled size
+    spilledSize += 4;
   }
+
+  PMFI->setCalleeSavedFrameSize(spilledSize);
+
   return true;
 }
 
@@ -175,10 +216,39 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
 
-  for (unsigned i = 0, e = CSI.size(); i != e; ++i)
-    BuildMI(MBB, MI, DL, TII.get(Patmos::POP16r), CSI[i].getReg());
+  bool predicateLoaded = false;
+  for (unsigned i = CSI.size(); i != 0; --i) {
+    unsigned Reg = CSI[i-1].getReg();
+    unsigned tmpReg = Reg;
+    // Add the callee-saved register as live-in. It's killed at the spill.
+    MBB.addLiveIn(Reg);
+
+    // copy to special register after reloading
+    if (Patmos::SRegsRegClass.contains(Reg))
+      tmpReg = Patmos::R9;
+
+    if (Patmos::PRegsRegClass.contains(Reg))
+    {
+      if (predicateLoaded)
+        continue;
+      else
+      {
+        tmpReg = Patmos::R9;
+        Reg = Patmos::S0; // load into S0
+        predicateLoaded = true;
+      }
+    }
+
+    // load
+    const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(tmpReg);
+    TII.loadRegFromStackSlot(MBB, MI, tmpReg, CSI[i-1].getFrameIdx(), RC, TRI);
+
+    // copy, if needed
+    if (tmpReg != Reg)
+    {
+      TII.copyPhysReg(MBB, MI, DL, Reg, tmpReg, true);
+    }
+  }
 
   return true;
 }
-
-#endif

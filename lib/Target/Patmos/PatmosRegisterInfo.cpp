@@ -43,6 +43,8 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   const TargetFrameLowering *TFI = MF->getTarget().getFrameLowering();
   //const Function* F = MF->getFunction();
   static const uint16_t CalleeSavedRegs[] = {
+    // Special regs
+    Patmos::S0, Patmos::SB, Patmos::SO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
@@ -52,6 +54,8 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     0
   };
   static const uint16_t CalleeSavedRegsFP[] = {
+    // Special regs
+    Patmos::S0, Patmos::SB, Patmos::SO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
@@ -174,13 +178,15 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::LWC: case Patmos::LWM: 
     case Patmos::SWC: case Patmos::SWM:
       // 9 bit
-      assert(isInt<9>(Offset));
+      Offset = Offset >> 2;
+      assert(isInt<7>(Offset));
       break;
     case Patmos::LHC: case Patmos::LHM:
     case Patmos::LHUC: case Patmos::LHUM:
     case Patmos::SHC: case Patmos::SHM:
       // 8 bit
-      assert(isInt<8>(Offset));
+      Offset = Offset >> 1;
+      assert(isInt<7>(Offset));
       break;
     case Patmos::LBC: case Patmos::LBM:
     case Patmos::LBUC: case Patmos::LBUM:
