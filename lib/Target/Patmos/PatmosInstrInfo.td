@@ -188,11 +188,11 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
 let isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
   let isBranch=1 in
   def BC  : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
-                  "$p bc # FIXME delay slot",  []>;
+                  "$p bc $target # FIXME delay slot",  []>;
 
   let isIndirectBranch=1 in
   def BCR : PFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                  "$p bcr # FIXME delay slot",  []>;
+                  "$p bcr $rs # FIXME delay slot",  []>;
 
 }
 

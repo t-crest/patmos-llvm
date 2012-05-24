@@ -54,8 +54,6 @@ namespace llvm {
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
 
-    virtual EVT getSetCCResultType(EVT VT) const;
-
   private:
     const PatmosSubtarget &Subtarget;
     const PatmosTargetMachine &TM;
@@ -112,6 +110,7 @@ namespace llvm {
                                             ISD::MemIndexedMode &AM,
                                             SelectionDAG &DAG) const;
     */
+    SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   };
 } // namespace llvm
 

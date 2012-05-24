@@ -144,6 +144,10 @@ FunctionPass *llvm::createPatmosISelDag(PatmosTargetMachine &TM) {
 
 
 SDNode *PatmosDAGToDAGISel::Select(SDNode *Node) {
+
+  if (Node->isMachineOpcode())
+    return NULL;   // Already selected.
+
   switch (Node->getOpcode()) {
   case ISD::BRCOND:
     return SelectBRCOND(Node);
@@ -162,7 +166,7 @@ SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
   SDValue Chain  = N->getOperand(0);
   SDValue Pred   = N->getOperand(1);
   SDValue Target = N->getOperand(2); // branch target
-  SDValue PredInvFlag = CurDAG->getTargetConstant(0, MVT::i32);
+  SDValue PredInvFlag = CurDAG->getTargetConstant(0, MVT::i1);
   DebugLoc dl = N->getDebugLoc();
 
   assert(Target.getOpcode()  == ISD::BasicBlock);
@@ -172,6 +176,8 @@ SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
   SDValue Ops[] = { Pred, PredInvFlag, Target, Chain };
   return CurDAG->getMachineNode(Patmos::BC, dl, MVT::Other, Ops, 4);
 }
+
+
 
 
 #if 0

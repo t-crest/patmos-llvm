@@ -50,7 +50,6 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   addRegisterClass(MVT::i32, Patmos::RRegsRegisterClass);
   addRegisterClass(MVT::i1,  Patmos::PRegsRegisterClass);
   //addRegisterClass(MVT::i32, Patmos::SRegsRegisterClass);
-
   // Compute derived properties from the register classes
   computeRegisterProperties();
 
@@ -71,6 +70,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
 
+  //TODO there are a bunch of operations which are not legal for i1 -> promote all
   setOperationAction(ISD::SIGN_EXTEND, MVT::i1, Promote);
   setOperationAction(ISD::ZERO_EXTEND, MVT::i1, Promote);
 
@@ -106,14 +106,10 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::CTLZ , MVT::i32, Expand);
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
 
-  setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
+  setOperationAction(ISD::SETCC,     MVT::i1, Legal);
+  setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
+  setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
 
-  setOperationAction(ISD::BR_CC, MVT::Other, Expand);
-
-}
-
-EVT PatmosTargetLowering::getSetCCResultType(EVT VT) const {
-  return MVT::i1;
 }
 
 
@@ -121,10 +117,27 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
                                              SelectionDAG &DAG) const {
 
   switch (Op.getOpcode()) {
+  case ISD::SETCC:
+    return LowerSETCC(Op, DAG);
   default:
-    llvm_unreachable("unimplemented operand");
-    //return SDValue();
+    llvm_unreachable("unimplemented operation");
   }
+}
+
+
+//===----------------------------------------------------------------------===//
+//                      Custom Lower Operation
+//===----------------------------------------------------------------------===//
+
+SDValue PatmosTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
+
+  //assert(Op.getValueType() == MVT::i1 && "SetCC type must be 1-bit integer");
+  SDValue Op0 = Op.getOperand(0);
+  SDValue Op1 = Op.getOperand(1);
+  SDValue Op2 = Op.getOperand(2);
+  DebugLoc dl = Op.getDebugLoc();
+
+  return DAG.getNode(ISD::SETCC, dl, MVT::i1, Op0, Op1, Op2);
 }
 
 
