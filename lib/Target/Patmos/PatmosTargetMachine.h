@@ -63,8 +63,9 @@ public:
     return &TSInfo;
   }
 
-  virtual bool addInstSelector(PassManagerBase &PM, CodeGenOpt::Level OptLevel);
-  virtual bool addPreEmitPass(PassManagerBase &PM, CodeGenOpt::Level OptLevel);
+  /// createPassConfig - Create a pass configuration object to be used by
+  /// addPassToEmitX methods for generating a pipeline of CodeGen passes.
+  virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);
 }; // PatmosTargetMachine.
 
 } // end namespace llvm

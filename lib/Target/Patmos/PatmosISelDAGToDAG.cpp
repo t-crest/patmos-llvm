@@ -98,8 +98,8 @@ namespace {
     const PatmosSubtarget &Subtarget;
 
   public:
-    PatmosDAGToDAGISel(PatmosTargetMachine &TM, CodeGenOpt::Level OptLevel)
-      : SelectionDAGISel(TM, OptLevel),
+    PatmosDAGToDAGISel(PatmosTargetMachine &TM)
+      : SelectionDAGISel(TM, TM.getOptLevel()),
         Lowering(*TM.getTargetLowering()),
         Subtarget(*TM.getSubtargetImpl()) { }
 
@@ -134,9 +134,8 @@ namespace {
 /// createPatmosISelDag - This pass converts a legalized DAG into a
 /// Patmos-specific DAG, ready for instruction scheduling.
 ///
-FunctionPass *llvm::createPatmosISelDag(PatmosTargetMachine &TM,
-                                        CodeGenOpt::Level OptLevel) {
-  return new PatmosDAGToDAGISel(TM, OptLevel);
+FunctionPass *llvm::createPatmosISelDag(PatmosTargetMachine &TM) {
+  return new PatmosDAGToDAGISel(TM);
 }
 
 

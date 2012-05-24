@@ -37,8 +37,7 @@ namespace llvm {
   class FunctionPass;
   class formatted_raw_ostream;
 
-  FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM,
-                                    CodeGenOpt::Level OptLevel);
+  FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
 
   //FunctionPass *createPatmosBranchSelectionPass();
 

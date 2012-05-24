@@ -24,13 +24,35 @@ extern "C" void LLVMInitializePatmosTarget() {
   RegisterTargetMachine<PatmosTargetMachine> X(ThePatmosTarget);
 }
 
+namespace {
+  /// Patmos Code Generator Pass Configuration Options.
+  class PatmosPassConfig : public TargetPassConfig {
+  public:
+    PatmosPassConfig(PatmosTargetMachine *TM, PassManagerBase &PM)
+      : TargetPassConfig(TM, PM) {}
+
+    PatmosTargetMachine &getPatmosTargetMachine() const {
+      return getTM<PatmosTargetMachine>();
+    }
+
+    const PatmosSubtarget &getPatmosSubtarget() const {
+      return *getPatmosTargetMachine().getSubtargetImpl();
+    }
+
+    virtual bool addInstSelector() {
+      PM->add(createPatmosISelDag(getPatmosTargetMachine()));
+      return false;
+    }
+  };
+} // namespace
+
 PatmosTargetMachine::PatmosTargetMachine(const Target &T,
                                          StringRef TT,
                                          StringRef CPU,
                                          StringRef FS,
-					 TargetOptions O, 
+                                         TargetOptions O, 
                                          Reloc::Model RM, CodeModel::Model CM,
-					 CodeGenOpt::Level L)
+                                         CodeGenOpt::Level L)
   : LLVMTargetMachine(T, TT, CPU, FS, O, RM, CM, L),
     Subtarget(TT, CPU, FS),
     // FIXME: Check TargetData string.
@@ -39,16 +61,7 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
     FrameLowering(Subtarget) { }
 
 
-bool PatmosTargetMachine::addInstSelector(PassManagerBase &PM,
-                                          CodeGenOpt::Level OptLevel) {
-  // Install an instruction selector.
-  PM.add(createPatmosISelDag(*this, OptLevel));
-  return false;
+TargetPassConfig *PatmosTargetMachine::createPassConfig(PassManagerBase &PM) {
+  return new PatmosPassConfig(this, PM);
 }
 
-bool PatmosTargetMachine::addPreEmitPass(PassManagerBase &PM,
-                                         CodeGenOpt::Level OptLevel) {
-  // Must run branch selection immediately preceding the asm printer.
-  //PM.add(createPatmosBranchSelectionPass());
-  return false;
-}
