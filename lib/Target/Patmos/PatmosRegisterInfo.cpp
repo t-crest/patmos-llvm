@@ -44,7 +44,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   //const Function* F = MF->getFunction();
   static const uint16_t CalleeSavedRegs[] = {
     // Special regs
-    Patmos::S0, Patmos::SB, Patmos::SO,
+    Patmos::SZ, Patmos::SB, Patmos::SO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
@@ -55,7 +55,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   };
   static const uint16_t CalleeSavedRegsFP[] = {
     // Special regs
-    Patmos::S0, Patmos::SB, Patmos::SO,
+    Patmos::SZ, Patmos::SB, Patmos::SO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
@@ -78,7 +78,7 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Patmos::P0);
 
   // All the special registers are reserved
-  Reserved.set(Patmos::S0);
+  Reserved.set(Patmos::SZ);
   Reserved.set(Patmos::SM);
   Reserved.set(Patmos::SL);
   Reserved.set(Patmos::SH);

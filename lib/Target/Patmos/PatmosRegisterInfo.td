@@ -24,7 +24,7 @@ class PatmosSPR<bits<4> num, string n> : PatmosReg<n> {
   field bits<4> Num = num;
 }
 
-//TODO define a subreg for the predicate register file in S0
+//TODO define a subreg for the predicate register file in SZ
 //     P# then are subregs of this subreg
 /*
 class PatmosSPRWithSubregs<bits<4> num, string n, list<PatmosReg> subregs>
@@ -88,9 +88,10 @@ def P5  : PatmosPRED<5, "p5">;
 def P6  : PatmosPRED<6, "p6">;
 def P7  : PatmosPRED<7, "p7">;
 
+// SZ (zero) instead of S0 to avoid confusion with SO 
 //def PRF : PatmosPRF<"pred", [P0, P1, P2, P3, P4, P5, P6, P7]>;
-//def S0  : PatmosSPRWithSubRegs< 0,  "s0", [PRF]>;
-def S0  : PatmosSPR< 0,  "s0">;
+//def SZ  : PatmosSPRWithSubRegs< 0,  "sz", [PRF]>;
+def SZ  : PatmosSPR< 0,  "sz">;
 def SM  : PatmosSPR< 1,  "sm">;
 def SL  : PatmosSPR< 2,  "sl">;
 def SH  : PatmosSPR< 3,  "sh">;
@@ -126,7 +127,7 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    R0)>;
 
 def SRegs : RegisterClass<"Patmos", [i32], 32,
-  (add S0, SM, SL, SH, SB, SO, ST, S7,
+  (add SZ, SM, SL, SH, SB, SO, ST, S7,
    S8, S9, S10, S11, S12, S13, S14, S15)>;
 
 let Size = 32 in {
