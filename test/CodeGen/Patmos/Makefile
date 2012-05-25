@@ -2,9 +2,11 @@
 BUILDDIR=../../../Debug+Asserts/
 
 ON?=2
+ARCH ?= patmos
 
-MARCH ?= patmos
-LLC=$(BUILDDIR)/bin/llc -march=$(MARCH)
+LLC=$(BUILDDIR)/bin/llc -march=$(ARCH)
+OBJDUMP=$(BUILDDIR)/bin/llvm-objdump
+MC=$(BUILDDIR)/bin/llvm-mc -arch=$(ARCH)
 
 CLANG=$(BUILDDIR)/bin/clang
 OPT=$(BUILDDIR)/bin/opt
@@ -43,5 +45,14 @@ all: return.s
 	$(LLC) -O0 $(DEBUG) $(VIEW) -o $@ $<
 	@echo
 
+%.o: %.ll
+	$(LLC) -O0 -filetype=obj -o $@ $<
+
+%.as: %.s
+	$(MC) -filetype=obj -assemble -o $@ $<
+
+%.dis: %.o
+	$(OBJDUMP) -disassemble $<
+
 clean:
-	rm -f *.s *.o *.ll
+	rm -f *.s *.o *.ll *.as
