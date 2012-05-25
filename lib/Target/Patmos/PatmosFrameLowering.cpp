@@ -184,7 +184,7 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
         // store all predicate registers at once
         continue;
       else {
-        TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::S0, true);
+        TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::SZ, true);
         Reg = Patmos::R9;
         predicateSpilled = true;
       }
@@ -234,7 +234,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
       else
       {
         tmpReg = Patmos::R9;
-        Reg = Patmos::S0; // load into S0
+        Reg = Patmos::SZ; // load into SZ
         predicateLoaded = true;
       }
     }
