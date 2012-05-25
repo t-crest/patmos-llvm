@@ -16,7 +16,7 @@ using namespace llvm;
 
 PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT) {
   PointerSize = 4;
-  IsLittleEndian = true;
+  IsLittleEndian = false;
   StackGrowsUp = false;
   PCSymbol=".PC";
   CommentString = "#";
