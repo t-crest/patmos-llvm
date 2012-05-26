@@ -73,21 +73,18 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // adjust stack : sp -= stack size
   if (StackSize <= 0xFFF) {
-    BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBi), Patmos::RSP)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBi), Patmos::RSP))
       .addReg(Patmos::RSP).addImm(StackSize);
   }
   else {
-    BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBl), Patmos::RSP)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBl), Patmos::RSP))
       .addReg(Patmos::RSP).addImm(StackSize);
   }
 
   // if framepointer enabled, set it to point to the stack pointer.
   if (hasFP(MF)) {
     // Set frame pointer: FP = SP
-    BuildMI(MBB, MBBI, dl, TII.get(Patmos::MOV), Patmos::RFP)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::MOV), Patmos::RFP))
       .addReg(Patmos::RSP);
   }
 }
@@ -112,21 +109,18 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
       --I;
 
     // Restore stack pointer: SP = FP
-    BuildMI(MBB, I, dl, TII.get(Patmos::MOV), Patmos::RSP)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, I, dl, TII.get(Patmos::MOV), Patmos::RSP))
       .addReg(Patmos::RFP);
   }
 
   // adjust stack  : sp += stack size
   if (StackSize) {
     if (StackSize <= 0xFFF) {
-      BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDi), Patmos::RSP)
-        .addReg(0).addImm(0) // predicate: always true
+      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDi), Patmos::RSP))
         .addReg(Patmos::RSP).addImm(StackSize);
     }
     else {
-      BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDl), Patmos::RSP)
-        .addReg(0).addImm(0) // predicate: always true
+      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDl), Patmos::RSP))
         .addReg(Patmos::RSP).addImm(StackSize);
     }
   }
@@ -184,7 +178,7 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
         // store all predicate registers at once
         continue;
       else {
-        TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::S0, true);
+        TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::SZ, true);
         Reg = Patmos::R9;
         predicateSpilled = true;
       }
@@ -234,7 +228,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
       else
       {
         tmpReg = Patmos::R9;
-        Reg = Patmos::S0; // load into S0
+        Reg = Patmos::SZ; // load into SZ
         predicateLoaded = true;
       }
     }

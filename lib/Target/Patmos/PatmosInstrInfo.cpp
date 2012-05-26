@@ -60,27 +60,23 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   if (Patmos::RRegsRegClass.contains(DestReg, SrcReg)) {
     // General purpose register
     Opc = Patmos::MOV;
-    BuildMI(MBB, I, DL, get(Opc), DestReg)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, I, DL, get(Opc), DestReg))
       .addReg(SrcReg, getKillRegState(KillSrc));
 
   } else if (Patmos::PRegsRegClass.contains(DestReg, SrcReg)) {
     // Predicate register
     Opc = Patmos::PMOV;
-    BuildMI(MBB, I, DL, get(Opc), DestReg)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, I, DL, get(Opc), DestReg))
       .addReg(SrcReg, getKillRegState(KillSrc));
 
   } else if (Patmos::SRegsRegClass.contains(DestReg)) {
     assert(Patmos::RRegsRegClass.contains(SrcReg));
-    BuildMI(MBB, I, DL, get(Patmos::MTS), DestReg)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, I, DL, get(Patmos::MTS), DestReg))
       .addReg(SrcReg, getKillRegState(KillSrc));
 
   } else if (Patmos::SRegsRegClass.contains(SrcReg)) {
     assert(Patmos::RRegsRegClass.contains(DestReg));
-    BuildMI(MBB, I, DL, get(Patmos::MFS), DestReg)
-      .addReg(0).addImm(0) // predicate: always true
+    AddDefaultPred(BuildMI(MBB, I, DL, get(Patmos::MFS), DestReg))
       .addReg(SrcReg, getKillRegState(KillSrc));
 
   } else {
@@ -113,8 +109,7 @@ void PatmosInstrInfo::storeRegToStackSlot( MachineBasicBlock &MBB,
   }
 
   assert(Opc && "Register class not handled!");
-  BuildMI(MBB, MI, DL, get(Opc))
-    .addReg(0).addImm(0) // predicate
+  AddDefaultPred(BuildMI(MBB, MI, DL, get(Opc)))
     .addFrameIndex(FrameIndex).addImm(0) // address
     .addReg(SrcReg, getKillRegState(isKill)); // value to store
 }
@@ -141,7 +136,7 @@ void PatmosInstrInfo::loadRegFromStackSlot( MachineBasicBlock &MBB,
   }
 
   assert(Opc && "Register class not handled!");
-  BuildMI(MBB, MI, DL, get(Opc), DestReg)
-    .addReg(0).addImm(0) // predicate
+  AddDefaultPred(BuildMI(MBB, MI, DL, get(Opc), DestReg))
     .addFrameIndex(FrameIdx).addImm(0); // address
 }
+
