@@ -15,10 +15,12 @@
 #define _LLVM_TARGET_PATMOS_INSTRINFO_H_
 
 #include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "PatmosRegisterInfo.h"
 
 #define GET_INSTRINFO_HEADER
 #include "PatmosGenInstrInfo.inc"
+
 
 namespace llvm {
 
@@ -59,8 +61,15 @@ public:
                             const TargetRegisterClass *RC,
                             const TargetRegisterInfo *TRI) const;
 
+
 };
 
+static inline
+const MachineInstrBuilder &AddDefaultPred(const MachineInstrBuilder &MIB) {
+  // predicate: always true
+  return MIB.addReg(0/*Patmos::NoRegister*/).addImm(0);
 }
+
+} // end namespace llvm
 
 #endif // _LLVM_TARGET_PATMOS_INSTRINFO_H_

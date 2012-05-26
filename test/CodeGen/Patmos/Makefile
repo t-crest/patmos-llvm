@@ -30,6 +30,7 @@ VIEW= \
   -view-isel-dags \
   -view-sched-dags
 
+VIEW=
 
 DEBUG=--debug
 

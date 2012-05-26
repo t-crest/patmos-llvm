@@ -52,7 +52,7 @@ def patmos_mul    : SDNode<"PatmosISD::MUL", SDTIntBinOp,
 // Patmos Operand Definitions.
 //===----------------------------------------------------------------------===//
 
-// Patmos predicate operand.
+// Patmos default predicate operand.
 // actually this is a pair of MachineOperands, where
 // the first is the predicate register
 // and the second is the inversion flag
@@ -61,12 +61,15 @@ def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
   let PrintMethod = "printPredicateOperand";
 }
 
-def predset : PredicateOperand<i1, (ops PRegs, i1imm),
-                                     (ops )> {
+// Patmos setable predicate operand
+// like, pred but no default values
+def predset : PredicateOperand<i1, (ops PRegs, i1imm), (ops )> {
   let PrintMethod = "printPredicateOperand";
 }
+
 // for cache relative branches
 def brtarget : Operand<OtherVT> {
+  //TODO
   //let PrintMethod = "printCacheRelImmOperand";
 }
 
@@ -107,8 +110,9 @@ def shrTwo : SDNodeXForm<imm, [{
 // Patmos Complex Pattern Definitions.
 //===----------------------------------------------------------------------===//
 
-def pred_preg    : ComplexPattern<i1, 2, "SelectPredPReg", [], []>;
-def pred_preginv : ComplexPattern<i1, 2, "SelectPredPRegInv", [], []>;
+def predreg    : ComplexPattern<i1, 2, "SelectPredPReg", [], []>;
+def predreginv : ComplexPattern<i1, 2, "SelectPredPRegInv", [], []>;
+
 /*
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 */
@@ -156,7 +160,7 @@ def gspat : PatLeaf<(i32 globaladdr), [{}], GS_XForm>;
 def ES_XForm : SDNodeXForm<externalsym, [{ return CurDAG->getTargetExternalSymbol(N->getSymbol(), N->getValueType(0), N->getTargetFlags()); }]>;
 def espat : PatLeaf<(i32 externalsym), [{}], ES_XForm>;
 
-// Helper fragment for predicate inversion
+// Helper fragment for condition inversion
 def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
 
 
@@ -208,7 +212,7 @@ let isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
 
   let isBranch=1 in
   def BCcond  : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
-                     "$p bc $target # FIXME delay slot", [(brcond pred_preg:$p, bb:$target)]>;
+                     "$p bc $target # FIXME delay slot", [(brcond predreg:$p, bb:$target)]>;
 }
 
 
@@ -225,12 +229,12 @@ let isCall=1, hasDelaySlot=1,
           SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$imm),
-                    "$p bs $imm # FIXME delay slot", []>;
-                    //[(PatmosCall uimm22:$imm)]>;
+                    "$p bs $imm # FIXME delay slot",
+                    [(PatmosCall uimm22:$imm)]>;
 
   def bsr: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs1),
-                    "$p bsr $rs1 # FIXME delay slot", []>;
-                    //[(PatmosCall RRegs:$rs1)]>;
+                    "$p bsr $rs1 # FIXME delay slot",
+                    [(PatmosCall RRegs:$rs1)]>;
 }
 
 //===----------------------------------------------------------------------===//
@@ -316,19 +320,19 @@ def NORr  : ALUr <0b1011,
               "$p nor $rd = $rs1, $rs2",
               [(set RRegs:$rd, (not (or RRegs:$rs1, RRegs:$rs2)))]>;
 
-//TODO beautify with  multiclass
-def SHADDl  : ALUl<0b1100, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                  "$p shadd $rd = $rs1, $imm",
-                  [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 1)), (i32 imm:$imm)))]>;
-def SHADDr  : ALUr<0b1100, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                  "$p shadd $rd = $rs1, $rs2",
-                  [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 1)), RRegs:$rs2))]>;
-def SHADD2l : ALUl<0b1101, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                  "$p shadd2 $rd = $rs1, $imm",
-                  [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 2)), (i32 imm:$imm)))]>;
-def SHADD2r : ALUr<0b1101, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                  "$p shadd2 $rd = $rs1, $rs2",
-                  [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 2)), RRegs:$rs2))]>;
+
+
+multiclass ShiftAdd<bits<4> opcode, string asmstr, int shval> {
+  def l  : ALUl<opcode, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
+                !strconcat("$p ", asmstr, " $rd = $rs1, $imm"),
+                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 shval)), (i32 imm:$imm)))]>;
+  def r  : ALUr<opcode, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
+                !strconcat("$p ", asmstr, " $rd = $rs1, $rs2"),
+                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 shval)), RRegs:$rs2))]>;
+}
+
+defm SHADD  : ShiftAdd<0b1100, "shadd",  1>;
+defm SHADD2 : ShiftAdd<0b1101, "shadd2", 2>;
 
 
 // Pseudos
@@ -338,6 +342,19 @@ def SHADD2r : ALUr<0b1101, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs
 let isAsCheapAsAMove = 1 in
 def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
                 "$p mov $rd = $rs", []>;
+
+
+// Pseudo instr CMOV uses add opcode
+// conditional move, settable predicate
+let isAsCheapAsAMove = 1,
+    Constraints = "$rs1 = $rd" in
+def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2),
+                "$p mov $rd = $rs2",
+                [(set RRegs:$rd, (select predreg:$p, RRegs:$rs2, RRegs:$rs1))]>;
+
+
+
+
 
 // Pseudo instr NEG uses rsub opcode
 let Imm12 = 0 in
@@ -458,24 +475,27 @@ def  MOVrp  : ALUc<0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
 
 // Predicate Combine
 
-//or
-def POR: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                "$p or $pd = $ps1, $ps2",
-                [(set PRegs:$pd, (or PRegs:$ps1, PRegs:$ps2))]>;
 
-//and
-def PAND: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                "$p and $pd = $ps1, $ps2",
-                [(set PRegs:$pd, (and PRegs:$ps1, PRegs:$ps2))]>;
-//xor
-def PXOR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                "$p xor $pd = $ps1, $ps2",
-                [(set PRegs:$pd, (xor PRegs:$ps1, PRegs:$ps2))]>;
-//nor
-def PNOR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                "$p nor $pd = $ps1, $ps2",
-                [(set PRegs:$pd, (notcc (or PRegs:$ps1, PRegs:$ps2)))]>;
+multiclass PredCombine<bits<4> opcode, string asmstr> {
+  def cc: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
+                !strconcat("$p ", asmstr, " $pd =  $ps1,  $ps2"), []>;
+  def cn: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
+                !strconcat("$p ", asmstr, " $pd =  $ps1, !$ps2"), []>;
+  def nc: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
+                !strconcat("$p ", asmstr, " $pd = !$ps1,  $ps2"), []>;
+  def nn: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
+                !strconcat("$p ", asmstr, " $pd = !$ps1, !$ps2"), []>;
+}
 
+defm POR:  PredCombine <0b0110, "or">;
+defm PAND: PredCombine <0b0110, "and">;
+defm PXOR: PredCombine <0b1010, "xor">;
+defm PNOR: PredCombine <0b1010, "nor">;
+
+def : Pat<(or  PRegs:$ps1, PRegs:$ps2),(PORcc  PRegs:$ps1, PRegs:$ps2)>;
+def : Pat<(and PRegs:$ps1, PRegs:$ps2),(PANDcc PRegs:$ps1, PRegs:$ps2)>;
+def : Pat<(xor PRegs:$ps1, PRegs:$ps2),(PANDcc PRegs:$ps1, PRegs:$ps2)>;
+def : Pat<(notcc (or PRegs:$ps1, PRegs:$ps2)),(PNORcc PRegs:$ps1, PRegs:$ps2)>;
 
 // Pseudos:
 //mov uses or opcode (or Pd = Ps | Ps)
@@ -563,24 +583,6 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
   }
 }
 
-multiclass LoadTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
-{
-  // load register indirect from cache
-  def ra : Pat<(pfg RRegs:$ra), (inst_C RRegs:$ra, 0)>;
-
-  // load register indirect + immediate from cache
-  def raimm : Pat<(pfg (add RRegs:$ra, immFg:$imm)),
-                  (inst_C RRegs:$ra, immFg:$imm)>;
-
-  // load register indirect from stack cache
-  def fi : Pat<(pfg fipat:$fi), (inst_C fipat:$fi, 0)>;
-
-  // load register indirect from stack cache
-  def fiimm : Pat<(pfg (add fipat:$fi, immFg:$imm)),
-                  (inst_C fipat:$fi, immFg:$imm)>;
-
-  // TODO: more patterns here
-}
 
 defm LW  : LoadTyped<0b000, imm7s2, "lw" >;
 defm LH  : LoadTyped<0b001, imm7s1, "lh" >;
@@ -594,11 +596,6 @@ defm DLB  : DecoupledLoadTyped<0b1100, imm7  , "lb" >;
 defm DLHU : DecoupledLoadTyped<0b1101, imm7s1, "lhu">;
 defm DLBU : DecoupledLoadTyped<0b1110, imm7  , "lbu">;
 
-defm LW  : LoadTypedPatterns<LWC , imm7s2, load>;
-defm LH  : LoadTypedPatterns<LHC , imm7s1, sextloadi16>;
-defm LB  : LoadTypedPatterns<LBC , imm7  , sextloadi8>;
-defm LHU : LoadTypedPatterns<LHUC, imm7s1, zextloadi16>;
-defm LBU : LoadTypedPatterns<LBUC, imm7  , zextloadi8>;
 
 
 // Store typed
@@ -630,40 +627,10 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
                [] >;
 }
 
-multiclass StoreTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
-{
-  // load register indirect from cache
-  def ra : Pat<(pfg RRegs:$rs, RRegs:$ra),
-               (inst_C RRegs:$ra, 0, RRegs:$rs)>;
-
-  // load register indirect + immediate from cache
-  def raimm : Pat<(pfg RRegs:$rs, (add RRegs:$ra, immFg:$imm)),
-                  (inst_C RRegs:$ra, immFg:$imm, RRegs:$rs)>;
-
-  // load register indirect from stack cache
-  def fi : Pat<(pfg RRegs:$rs, fipat:$fi),
-               (inst_C fipat:$fi, 0, RRegs:$rs)>;
-
-  // load register indirect from stack cache
-  def fiimm : Pat<(pfg RRegs:$rs, (add fipat:$fi, immFg:$imm)),
-                  (inst_C fipat:$fi, immFg:$imm, RRegs:$rs)>;
-
-  // TODO: more patterns here
-}
 
 defm SW  : StoreTyped<0b000, imm7s2, "sw">;
 defm SH  : StoreTyped<0b001, imm7s1, "sh">;
 defm SB  : StoreTyped<0b010, imm7  , "sb">;
-
-defm SW  : StoreTypedPatterns<SWC, imm7s2, store>;
-defm SH  : StoreTypedPatterns<SHC, imm7s1, truncstorei16>;
-defm SB  : StoreTypedPatterns<SBC, imm7  , truncstorei8>;
-
-
-
-
-
-
 
 
 
@@ -672,41 +639,6 @@ defm SB  : StoreTypedPatterns<SBC, imm7  , truncstorei8>;
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
 
-
-// load immediate
-def : Pat<(i32 imm:$imm),
-          (LIi (i32 uimm12:$imm) )>;
-
-def : Pat<(i32 imm:$imm),
-          (LIl (i32 imm:$imm) )>;
-
-// // jump-table.
-// def : Pat<(i32 tjumptable:$dst), (MOV_IMM tjumptable:$dst)>;
-
-// global addresses, external symbols, and frame indices
-def : Pat<(gspat:$sym), (LIl gspat:$sym)>;
-def : Pat<(espat:$sym), (LIl espat:$sym)>;
-
-def : Pat<(add gspat:$sym, RRegs:$r), (ADDl RRegs:$r, gspat:$sym)>;
-def : Pat<(add espat:$sym, RRegs:$r), (ADDl RRegs:$r, espat:$sym)>;
-
-def : Pat<(add gspat:$sym, (shl RRegs:$r, (i32 1))), (SHADDl RRegs:$r, gspat:$sym)>;
-def : Pat<(add espat:$sym, (shl RRegs:$r, (i32 1))), (SHADDl RRegs:$r, espat:$sym)>;
-
-def : Pat<(add gspat:$sym, (shl RRegs:$r, (i32 2))), (SHADD2l RRegs:$r, gspat:$sym)>;
-def : Pat<(add espat:$sym, (shl RRegs:$r, (i32 2))), (SHADD2l RRegs:$r, espat:$sym)>;
-
-def : Pat<(fipat:$fi) , (ADDi fipat:$fi, 0)>;
-def : Pat<(add fipat:$fi, imm7:$imm) , (ADDi fipat:$fi, imm7:$imm)>;
-def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
-
-def : Pat<(PatmosCall tglobaladdr:$sym), (bs tglobaladdr:$sym)>;
-def : Pat<(PatmosCall texternalsym:$sym), (bs texternalsym:$sym)>;
-
-// multiplication
-// TODO
-//def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
-//          (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
 
 
 // Patterns are in a separate file
