@@ -155,20 +155,11 @@ static DecodeStatus readInstruction(const MemoryObject &region,
     return MCDisassembler::Fail;
   }
 
-  if (isBigEndian) {
-    // Encoded as a big-endian 32-bit word in the stream.
-    insn = (Bytes[3] <<  0) |
-           (Bytes[2] <<  8) |
-           (Bytes[1] << 16) |
-           (Bytes[0] << 24);
-  }
-  else {
-    // Encoded as a small-endian 32-bit word in the stream.
-    insn = (Bytes[0] <<  0) |
-           (Bytes[1] <<  8) |
-           (Bytes[2] << 16) |
-           (Bytes[3] << 24);
-  }
+  // Encoded as a big-endian 32-bit word in the stream.
+  insn = (Bytes[3] <<  0) |
+         (Bytes[2] <<  8) |
+         (Bytes[1] << 16) |
+         (Bytes[0] << 24);
 
   return MCDisassembler::Success;
 }
@@ -182,17 +173,16 @@ PatmosDisassembler::getInstruction(MCInst &instr,
                                  raw_ostream &cStream) const {
   uint32_t Insn;
 
-  DecodeStatus Result = readInstruction(Region, Address, Size,
-                                          Insn, isBigEndian);
+  DecodeStatus Result = readInstruction(Region, Address, Size, Insn);
   if (Result == MCDisassembler::Fail)
     return MCDisassembler::Fail;
 
   // Calling the auto-generated decoder function.
-  Result = decodePatmosInstruction(instr, Insn, Address, this, STI);
-  if (Result != MCDisassembler::Fail) {
-    Size = 4;
-    return Result;
-  }
+  //Result = decodePatmosInstruction32(instr, Insn, Address, this, STI);
+  //if (Result != MCDisassembler::Fail) {
+  //  Size = 4;
+  //  return Result;
+  //}
 
   return MCDisassembler::Fail;
 }
@@ -222,15 +212,11 @@ static DecodeStatus DecodeMem(MCInst &Inst,
                               uint64_t Address,
                               const void *Decoder) {
   int Offset = SignExtend32<16>(Insn & 0xffff);
-  int Reg = (int)fieldFromInstruction32(Insn, 16, 5);
-  int Base = (int)fieldFromInstruction32(Insn, 21, 5);
+  //int Reg = (int)fieldFromInstruction32(Insn, 16, 5);
+  //int Base = (int)fieldFromInstruction32(Insn, 21, 5);
 
-  if(Inst.getOpcode() == Patmos::SC){
-    Inst.addOperand(MCOperand::CreateReg(CPURegsTable[Reg]));
-  }
-
-  Inst.addOperand(MCOperand::CreateReg(CPURegsTable[Reg]));
-  Inst.addOperand(MCOperand::CreateReg(CPURegsTable[Base]));
+  //Inst.addOperand(MCOperand::CreateReg(CPURegsTable[Reg]));
+  //Inst.addOperand(MCOperand::CreateReg(CPURegsTable[Base]));
   Inst.addOperand(MCOperand::CreateImm(Offset));
 
   return MCDisassembler::Success;
@@ -241,11 +227,11 @@ static DecodeStatus DecodeFMem(MCInst &Inst,
                                uint64_t Address,
                                const void *Decoder) {
   int Offset = SignExtend32<16>(Insn & 0xffff);
-  int Reg = (int)fieldFromInstruction32(Insn, 16, 5);
-  int Base = (int)fieldFromInstruction32(Insn, 21, 5);
+  //int Reg = (int)fieldFromInstruction32(Insn, 16, 5);
+  //int Base = (int)fieldFromInstruction32(Insn, 21, 5);
 
-  Inst.addOperand(MCOperand::CreateReg(FGR64RegsTable[Reg]));
-  Inst.addOperand(MCOperand::CreateReg(CPURegsTable[Base]));
+  //Inst.addOperand(MCOperand::CreateReg(FGR64RegsTable[Reg]));
+  //Inst.addOperand(MCOperand::CreateReg(CPURegsTable[Base]));
   Inst.addOperand(MCOperand::CreateImm(Offset));
 
   return MCDisassembler::Success;
@@ -276,8 +262,8 @@ static DecodeStatus DecodeJumpTarget(MCInst &Inst,
                                      uint64_t Address,
                                      const void *Decoder) {
 
-  unsigned JumpOffset = fieldFromInstruction32(Insn, 0, 26) << 2;
-  Inst.addOperand(MCOperand::CreateImm(JumpOffset));
+  //unsigned JumpOffset = fieldFromInstruction32(Insn, 0, 26) << 2;
+  //Inst.addOperand(MCOperand::CreateImm(JumpOffset));
   return MCDisassembler::Success;
 }
 
