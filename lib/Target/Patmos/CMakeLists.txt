@@ -6,6 +6,10 @@ tablegen(LLVM PatmosGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM PatmosGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM PatmosGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM PatmosGenSubtargetInfo.inc -gen-subtarget)
+tablegen(LLVM MipsGenCodeEmitter.inc -gen-emitter)
+tablegen(LLVM MipsGenMCCodeEmitter.inc -gen-emitter -mc-emitter)
+tablegen(LLVM MipsGenDisassemblerTables.inc -gen-disassembler)
+tablegen(LLVM MipsGenEDInfo.inc -gen-enhanced-disassembly-info)
 add_public_tablegen_target(PatmosCommonTableGen)
 
 add_llvm_target(PatmosCodeGen
@@ -19,8 +23,12 @@ add_llvm_target(PatmosCodeGen
   PatmosSelectionDAGInfo.cpp
   PatmosAsmPrinter.cpp
   PatmosMCInstLower.cpp
+  PatmosELFWriterInfo.cpp
+  PatmosTargetObjectFile.cpp
   )
 
 add_subdirectory(InstPrinter)
 add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)
+add_subdirectory(AsmParser)
+add_subdirectory(Disassembler)

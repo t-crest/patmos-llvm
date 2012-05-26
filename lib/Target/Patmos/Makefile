@@ -16,9 +16,11 @@ TARGET = Patmos
 BUILT_SOURCES = PatmosGenRegisterInfo.inc PatmosGenInstrInfo.inc \
 		PatmosGenAsmWriter.inc \
 		PatmosGenDAGISel.inc PatmosGenCallingConv.inc \
-		PatmosGenSubtargetInfo.inc
+		PatmosGenSubtargetInfo.inc \
+		PatmosGenCodeEmitter.inc PatmosGenMCCodeEmitter.inc \
+		PatmosGenEDInfo.inc PatmosGenDisassemblerTables.inc
 
-DIRS = InstPrinter TargetInfo MCTargetDesc
+DIRS = InstPrinter TargetInfo MCTargetDesc AsmParser Disassembler
 
 include $(LEVEL)/Makefile.common
 

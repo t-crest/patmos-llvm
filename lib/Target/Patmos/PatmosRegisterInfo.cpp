@@ -145,7 +145,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-  DebugLoc dl = MI.getDebugLoc();
+  //DebugLoc dl = MI.getDebugLoc();
 
   // find position of the FrameIndex object
   unsigned i = 0;

@@ -14,13 +14,28 @@
 #ifndef _PATMOS_MCTARGETDESC_H_
 #define _PATMOS_MCTARGETDESC_H_
 
+#include "llvm/Support/DataTypes.h"
+
 namespace llvm {
+class MCAsmBackend;
+class MCContext;
+class MCCodeEmitter;
+class MCInstrInfo;
+class MCObjectWriter;
 class MCSubtargetInfo;
 class Target;
 class StringRef;
+class raw_ostream;
 
 extern Target ThePatmosTarget;
 
+MCCodeEmitter *createPatmosMCCodeEmitter(const MCInstrInfo &MCII,
+                                         const MCSubtargetInfo &STI,
+                                         MCContext &Ctx);
+
+MCAsmBackend *createPatmosAsmBackend(const Target &T, StringRef TT);
+
+MCObjectWriter *createPatmosELFObjectWriter(raw_ostream &OS, uint8_t OSABI);
 } // End llvm namespace
 
 // Defines symbolic names for Patmos registers.
