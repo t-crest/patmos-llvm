@@ -2,14 +2,18 @@ set(LLVM_TARGET_DEFINITIONS Patmos.td)
 
 tablegen(LLVM PatmosGenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM PatmosGenInstrInfo.inc -gen-instr-info)
+# CodeEmitter seems to be used for JIT only, same as MCCodeEmitter except no Fixups
+#tablegen(LLVM PatmosGenCodeEmitter.inc -gen-emitter)
+tablegen(LLVM PatmosGenMCCodeEmitter.inc -gen-emitter -mc-emitter)
+#tablegen(LLVM PatmosGenMCPseudoLowering.inc -gen-pseudo-lowering)
 tablegen(LLVM PatmosGenAsmWriter.inc -gen-asm-writer)
+tablegen(LLVM PatmosGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM PatmosGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM PatmosGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM PatmosGenSubtargetInfo.inc -gen-subtarget)
-tablegen(LLVM PatmosGenCodeEmitter.inc -gen-emitter)
-tablegen(LLVM PatmosGenMCCodeEmitter.inc -gen-emitter -mc-emitter)
-tablegen(LLVM PatmosGenDisassemblerTables.inc -gen-disassembler)
+#tablegen(LLVM PatmosGenIntrinsics.inc -gen-tgt-intrinsic)
 tablegen(LLVM PatmosGenEDInfo.inc -gen-enhanced-disassembly-info)
+tablegen(LLVM PatmosGenDisassemblerTables.inc -gen-disassembler)
 add_public_tablegen_target(PatmosCommonTableGen)
 
 add_llvm_target(PatmosCodeGen
