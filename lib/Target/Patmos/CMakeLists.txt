@@ -28,7 +28,6 @@ add_llvm_target(PatmosCodeGen
   PatmosAsmPrinter.cpp
   PatmosMCInstLower.cpp
   PatmosELFWriterInfo.cpp
-  PatmosTargetObjectFile.cpp
   )
 
 add_subdirectory(InstPrinter)
