@@ -1,0 +1,20 @@
+python
+import sys
+sys.path.insert(0, '/home/user/gdb_printers/python')
+# Uncomment to use libstdc++ pretty printers (you need to check them out from SVN first)
+#from libstdcxx.v6.printers import register_libstdcxx_printers
+#register_libstdcxx_printers (None)
+from llvm.printers import register_llvm_printers
+register_llvm_printers (None)
+end
+
+# Enables indentation when printing nested structures, not the same as python pretty print or eclipse pretty print
+set print pretty on         
+set print array on
+set print object on
+set print static-members on
+set print vtbl on
+set print demangle on
+set demangle-style gnu-v3
+set print sevenbit-strings off
+
