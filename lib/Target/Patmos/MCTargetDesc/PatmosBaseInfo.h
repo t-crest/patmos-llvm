@@ -73,13 +73,14 @@ namespace PatmosII {
 
 
 /// getPatmosRegisterNumbering - Given the enum value for some register,
-/// return the number that it corresponds to.
+/// return the number that it corresponds to (the binary representation).
 inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
 {
   // TODO get this from tblgen somehow?
 
   using namespace Patmos;
   switch (RegEnum) {
+  case NoRegister: return 0;
   case R0:  case SZ:  case P0:  return 0;
   case R1:  case SM:  case P1:  return 1;
   case R2:  case SL:  case P2:  return 2;
@@ -114,7 +115,7 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case RFP: return 30;
   case RSP: return 31;
   default:
-    llvm_unreachable("Unknown ARM register!");
+    llvm_unreachable("Unknown Patmos register!");
   }
 }
 

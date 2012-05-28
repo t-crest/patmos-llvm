@@ -114,8 +114,8 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
 
   // Pseudo instructions don't get encoded and shouldn't be here
   // in the first place!
-  if ((TSFlags & PatmosII::FormMask) == PatmosII::Pseudo)
-    llvm_unreachable("Pseudo opcode found in EncodeInstruction()");
+  //if ((TSFlags & PatmosII::FormMask) == PatmosII::Pseudo)
+  //  llvm_unreachable("Pseudo opcode found in EncodeInstruction()");
 
   // For now all instructions are 4 bytes
   int Size = 4; // FIXME: Have Desc.getSize() return the correct value!

@@ -218,6 +218,7 @@ def build_llvm_dictionary ():
     #llvm_printer.add('ArrayRef', StdStringPrinter)
     #llvm_printer.add('TinyPtrVector', StdStringPrinter)
     llvm_printer.add('SmallVector', SmallVectorPrinter)
+    llvm_printer.add('SmallVectorImpl', SmallVectorPrinter)
     #llvm_printer.add('ilist', StdStringPrinter)
     #llvm_printer.add('PackedVector', StdStringPrinter)
 
