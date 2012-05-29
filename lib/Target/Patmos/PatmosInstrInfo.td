@@ -565,25 +565,25 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
   // load from stack cache
   def S  : LDT<ty, 0b0, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p $rd = ", asmop, "s [$ra + $imm];"),
+               !strconcat("$p ", asmop, "s $rd = [$ra + $imm]"),
                [] >;
 
   // load from local memory
   def L  : LDT<ty, 0b0, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p $rd = ", asmop, "l [$ra + $imm];"),
+               !strconcat("$p ", asmop, "l $rd = [$ra + $imm]"),
                [] >;
 
   // load from data cache
   def C  : LDT<ty, 0b1, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p $rd = ", asmop, "c [$ra + $imm];"),
+               !strconcat("$p ", asmop, "c $rd = [$ra + $imm]"),
                [] >;
 
   // load from main memory
   def M  : LDT<ty, 0b1, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p $rd = ", asmop, "m [$ra + $imm];"),
+               !strconcat("$p ", asmop, "m $rd = [$ra + $imm]"),
                [] >;
 }
 
@@ -594,13 +594,13 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
     // load from data cache (no pattern to match)
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 !strconcat("$p sm = d", asmop, "c [$ra + $imm];"),
+                 !strconcat("$p d", asmop, "c sm = [$ra + $imm]"),
                  [] >;
 
     // load from main memory (no pattern to match)
     def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 !strconcat("$p sm = d", asmop, "m [$ra + $imm];"),
+                 !strconcat("$p d", asmop, "m sm = [$ra + $imm]"),
                  [] >;
   }
 }
@@ -627,25 +627,25 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
   // store to stack cache
   def S  : STT<ty, 0b00, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "s [$ra + $imm] = $rs;"),
+               !strconcat("$p ", asmop, "s [$ra + $imm] = $rs"),
                [] >;
 
   // store to local memory
   def L  : STT<ty, 0b01, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "l [$ra + $imm] = $rs;"),
+               !strconcat("$p ", asmop, "l [$ra + $imm] = $rs"),
                [] >;
 
   // store to data cache
   def C  : STT<ty, 0b10, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "c [$ra + $imm] = $rs;"),
+               !strconcat("$p ", asmop, "c [$ra + $imm] = $rs"),
                [] >;
 
   // store to stack cache
   def M  : STT<ty, 0b11, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "m [$ra + $imm] = $rs;"),
+               !strconcat("$p ", asmop, "m [$ra + $imm] = $rs"),
                [] >;
 }
 
