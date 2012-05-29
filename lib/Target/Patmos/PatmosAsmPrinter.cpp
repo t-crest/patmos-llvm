@@ -38,9 +38,11 @@ using namespace llvm;
 
 namespace {
   class PatmosAsmPrinter : public AsmPrinter {
+  private:
+    PatmosMCInstLower MCInstLowering;
   public:
     PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer) {}
+      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *Mang, *this) {}
 
     virtual const char *getPassName() const {
       return "Patmos Assembly Printer";
@@ -157,8 +159,6 @@ bool PatmosAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 
 //===----------------------------------------------------------------------===//
 void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
-  PatmosMCInstLower MCInstLowering(OutContext, *Mang, *this);
-
   MCInst TmpInst;
   MCInstLowering.Lower(MI, TmpInst);
   OutStreamer.EmitInstruction(TmpInst);

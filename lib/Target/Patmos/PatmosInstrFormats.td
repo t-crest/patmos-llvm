@@ -30,6 +30,9 @@ class PatmosInst<dag outs, dag ins, // SizeVal sz, Format f,
   let AsmString   = asmstr;
   let Pattern     = pattern;
   let isPredicable = 1; // we have a fully predicated instruction set
+
+  // Tablegen cannot create a matcher for our format (requires starting with opcode mnemonic, not sure about bundle support)
+  let isCodeGenOnly = 1;
 }
 
 
@@ -417,4 +420,6 @@ class PFLr<bits<4>op,
 class PseudoInst<dag outs, dag ins, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, asmstr, pattern> {
   let Inst{31-0} = 0;
+
+  let isCodeGenOnly = 1;
 }

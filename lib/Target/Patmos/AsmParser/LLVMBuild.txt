@@ -1,4 +1,4 @@
-;===- ./lib/Target/Patmos/LLVMBuild.txt ------------------------*- Conf -*--===;
+;===- ./lib/Target/Patmos/AsmParser/LLVMBuild.txt ----------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;
@@ -15,20 +15,9 @@
 ;
 ;===------------------------------------------------------------------------===;
 
-[common]
-subdirectories = AsmParser Disassembler InstPrinter MCTargetDesc TargetInfo
-
 [component_0]
-type = TargetGroup
-name = Patmos
-parent = Target
-has_asmparser = 1
-has_asmprinter = 1
-has_disassembler = 1
-
-[component_1]
 type = Library
-name = PatmosCodeGen
+name = PatmosAsmParser
 parent = Patmos
-required_libraries = PatmosAsmPrinter PatmosDesc PatmosInfo Analysis AsmPrinter CodeGen Core MC SelectionDAG Support Target
+required_libraries = MC MCParser Support PatmosDesc PatmosInfo
 add_to_library_groups = Patmos

@@ -14,11 +14,13 @@ TARGET = Patmos
 
 # Make sure that tblgen is run, first thing.
 BUILT_SOURCES = PatmosGenRegisterInfo.inc PatmosGenInstrInfo.inc \
-		PatmosGenAsmWriter.inc \
+		PatmosGenAsmWriter.inc PatmosGenAsmMatcher.inc \
 		PatmosGenDAGISel.inc PatmosGenCallingConv.inc \
-		PatmosGenSubtargetInfo.inc
+		PatmosGenSubtargetInfo.inc \
+		PatmosGenMCCodeEmitter.inc \
+		PatmosGenEDInfo.inc PatmosGenDisassemblerTables.inc
 
-DIRS = InstPrinter TargetInfo MCTargetDesc
+DIRS = InstPrinter TargetInfo MCTargetDesc AsmParser Disassembler
 
 include $(LEVEL)/Makefile.common
 

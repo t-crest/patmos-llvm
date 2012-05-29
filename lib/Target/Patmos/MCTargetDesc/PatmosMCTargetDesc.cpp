@@ -17,6 +17,7 @@
 #include "llvm/MC/MCCodeGenInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/TargetRegistry.h"
 
@@ -30,6 +31,10 @@
 #include "PatmosGenRegisterInfo.inc"
 
 using namespace llvm;
+
+static MCAsmInfo *createPatmosMCAsmInfo(const Target &T, StringRef TT) {
+	return new PatmosMCAsmInfo(T, TT);
+}
 
 static MCInstrInfo *createPatmosMCInstrInfo() {
   MCInstrInfo *X = new MCInstrInfo();
@@ -57,6 +62,25 @@ static MCCodeGenInfo *createPatmosMCCodeGenInfo(StringRef TT, Reloc::Model RM,
   return X;
 }
 
+static MCStreamer *createPatmosMCStreamer(const Target &T, StringRef TT,
+                                    MCContext &Ctx, MCAsmBackend &MAB,
+                                    raw_ostream &_OS,
+                                    MCCodeEmitter *_Emitter,
+                                    bool RelaxAll,
+                                    bool NoExecStack) {
+  Triple TheTriple(TT);
+
+  if (TheTriple.isOSDarwin()) {
+    llvm_unreachable("Patmos does not support Darwin MACH-O format");
+  }
+
+  if (TheTriple.isOSWindows()) {
+    llvm_unreachable("Patmos does not support Windows COFF format");
+  }
+
+  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
+}
+
 static MCInstPrinter *createPatmosMCInstPrinter(const Target &T,
                                                 unsigned SyntaxVariant,
                                                 const MCAsmInfo &MAI,
@@ -70,7 +94,7 @@ static MCInstPrinter *createPatmosMCInstPrinter(const Target &T,
 
 extern "C" void LLVMInitializePatmosTargetMC() {
   // Register the MC asm info.
-  RegisterMCAsmInfo<PatmosMCAsmInfo> X(ThePatmosTarget);
+  TargetRegistry::RegisterMCAsmInfo(ThePatmosTarget, createPatmosMCAsmInfo);
 
   // Register the MC codegen info.
   TargetRegistry::RegisterMCCodeGenInfo(ThePatmosTarget,
@@ -90,4 +114,17 @@ extern "C" void LLVMInitializePatmosTargetMC() {
   // Register the MCInstPrinter.
   TargetRegistry::RegisterMCInstPrinter(ThePatmosTarget,
                                         createPatmosMCInstPrinter);
+
+  // Register the MC code emitter
+  TargetRegistry::RegisterMCCodeEmitter(ThePatmosTarget,
+                                        llvm::createPatmosMCCodeEmitter);
+
+  // Register the asm backend
+  TargetRegistry::RegisterMCAsmBackend(ThePatmosTarget,
+                                       createPatmosAsmBackend);
+
+  // Register the object streamer
+  TargetRegistry::RegisterMCObjectStreamer(ThePatmosTarget,
+                                           createPatmosMCStreamer);
+
 }
