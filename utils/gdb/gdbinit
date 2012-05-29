@@ -8,7 +8,6 @@ from llvm.printers import register_llvm_printers
 register_llvm_printers (None)
 end
 
-# Enables indentation when printing nested structures, not the same as python pretty print or eclipse pretty print
 set print pretty on         
 set print array on
 set print object on

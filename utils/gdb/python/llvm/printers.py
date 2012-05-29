@@ -51,6 +51,12 @@ def find_type(orig, name):
             raise ValueError, "Cannot find type %s::%s" % (str(orig), name)
         typ = field.type
 
+def gdb_eval(command, default):
+    try:
+	return gdb.parse_and_eval(command)
+    except:
+	return default
+
 
 ############################################################################
 
@@ -104,6 +110,114 @@ class SmallVectorPrinter:
 
     def display_hint (self):
         return 'array'
+
+class BucketIterator:
+    "Iterate over an array of elements that has Empty and Tombstone markers"
+
+    def __init__(self, start, size, numbuckets, empty, tombstone, eltype):
+	self.eltype = eltype
+	self.p = start.cast(eltype)
+	self.size = size
+	self.end = self.p + numbuckets
+	self.tombstone = tombstone
+	self.empty = empty
+	self.count = 0
+
+	self.advancePastEmpty()
+
+    def __iter__(self):
+	return self
+
+    def next(self):
+	if self.count >= self.size:
+	    raise StopIteration
+	
+	el = self.p.cast(self.eltype)
+
+	result = ('[%d]' % self.count, el)
+
+	self.count = self.count + 1
+	self.p = el + 1
+
+	self.advancePastEmpty()
+
+	return result
+
+    def advancePastEmpty(self):
+	while self.p != self.end:
+	    key = self.getKey()
+	    if key != self.empty and key != self.tombstone:
+		break
+	    b = self.p.cast(self.eltype)
+	    self.p = b + 1
+
+    def getKey(self):
+	return self.p
+
+
+class SmallPtrSetPrinter:
+    "Print a llvm::SmallPtrSet"
+
+    def __init__(self, typename, val):
+        self.typename = typename
+        self.val = val
+        self.keytype = val.type.template_argument(0)
+
+    def children(self):
+        start = self.val['CurArray']
+        size = self.val['NumElements']
+	buckets = self.val['CurArraySize']
+	array = self.val['SmallArray']
+
+	empty = -1
+	tombstone = -2
+	eltype = self.keytype.pointer()
+
+        return BucketIterator(start, size, buckets, empty, tombstone, eltype)
+
+    def to_string(self):
+        size = self.val['NumElements']
+	buckets = self.val['CurArraySize']
+	start = self.val['CurArray']
+	array = self.val['SmallArray']
+
+	small = "small" if start == array else "not small"
+        return '%s of length %d, buckets %d, %s' % (self.typename, long (size), long(buckets), small)
+
+    def display_hint (self):
+        return 'array'
+
+class DenseMapPrinter:
+    "Print a llvm::DenseMap"
+
+    class _iter(BucketIterator):
+	def getKey(self):
+	    return self.p['first']
+
+    def __init__(self, typename, val):
+        self.typename = typename
+        self.val = val
+
+    def children(self):
+        start = self.val['Buckets']
+        size = self.val['NumEntries']
+	buckets = self.val['NumBuckets']
+
+	# This is a bit of a hack: by using try-catch we remove a 'not found' warning message, but it works anyway
+	# Defaults to -4 if eval is not working (this should check for custom Infos, raise error if custom info and default is used)
+	empty = gdb_eval(str(self.val.type.template_argument(2))+'::getEmptyKey()', -4)
+	tombstone = gdb_eval(str(self.val.type.template_argument(2))+'::getTombstoneKey()', -4)
+
+        return self._iter(start, size, buckets, empty, tombstone, start.type)
+
+    def to_string(self):
+        size = self.val['NumEntries']
+	buckets = self.val['NumBuckets']
+
+        return '%s of length %d, buckets %d' % (self.typename, long (size), long(buckets))
+
+    def display_hint (self):
+        return 'map'
 
 
 class StringRefPrinter:
@@ -215,40 +329,41 @@ def build_llvm_dictionary ():
     llvm_printer = Printer("llvm")
 
     # llvm objects requiring pretty-printing.
-    #llvm_printer.add('ArrayRef', StdStringPrinter)
-    #llvm_printer.add('TinyPtrVector', StdStringPrinter)
+    #llvm_printer.add('ArrayRef', ArrayRefPrinter)
+    #llvm_printer.add('TinyPtrVector', TinyPtrVectorPrinter)
     llvm_printer.add('SmallVector', SmallVectorPrinter)
     llvm_printer.add('SmallVectorImpl', SmallVectorPrinter)
-    #llvm_printer.add('ilist', StdStringPrinter)
-    #llvm_printer.add('PackedVector', StdStringPrinter)
+    #llvm_printer.add('ilist', IlistPrinter)
+    #llvm_printer.add('PackedVector', PackedVectorPrinter)
+
+    #llvm_printer.add('SmallSet', SmallSetPrinter)
+    # TODO needs testing with nonempty set
+    #llvm_printer.add('SmallPtrSet', SmallPtrSetPrinter)
+    #llvm_printer.add('DenseSet', DenseSetPrinter)
+    #llvm_printer.add('SparseSet', SparseSetPrinter)
+    #llvm_printer.add('FoldingSet', FoldingSetPrinter)
+    #llvm_printer.add('SetVector', SetVectorPrinter)
+    #llvm_printer.add('UniqueVector', UniqueVectorPrinter)
+    #llvm_printer.add('ImmutableSet', ImmutableSetPrinter)
+
+    #llvm_printer.add('StringMap', StringMapPrinter)
+    #llvm_printer.add('IndexedMap', IndexedMapPrinter)
+    llvm_printer.add('DenseMap', DenseMapPrinter)
+    #llvm_printer.add('ValueMap', ValueMapPrinter)
+    #llvm_printer.add('MultiImplMap', MultiImplMapPrinter)
+    #llvm_printer.add('FlatArrayMap', FlatArrayMapPrinter)
+    #llvm_printer.add('SmallMap', SmallMapPrinter)
+    #llvm_printer.add('IntervalMap', IntervalMapPrinter)
+    #llvm_printer.add('IntEqClasses', IntEqClassesPrinter)
+    #llvm_printer.add('ImmutableMap', ImmutableMapPrinter)
+
+    #llvm_printer.add('BitVector', BitVectorPrinter)
+    #llvm_printer.add('SmallBitVector', SmallBitVectorPrinter)
+    #llvm_printer.add('SparseBitVector', SparseBitVectorPrinter)
 
     llvm_printer.add('StringRef', StringRefPrinter)
-    #llvm_printer.add('Twine', StdStringPrinter)
-    #llvm_printer.add('SmallString', StdStringPrinter)
-
-    #llvm_printer.add('SmallSet', StdStringPrinter)
-    #llvm_printer.add('SmallPtrSet', StdStringPrinter)
-    #llvm_printer.add('DenseSet', StdStringPrinter)
-    #llvm_printer.add('SparseSet', StdStringPrinter)
-    #llvm_printer.add('FoldingSet', StdStringPrinter)
-    #llvm_printer.add('SetVector', StdStringPrinter)
-    #llvm_printer.add('UniqueVector', StdStringPrinter)
-    #llvm_printer.add('ImmutableSet', StdStringPrinter)
-
-    #llvm_printer.add('StringMap', StdStringPrinter)
-    #llvm_printer.add('IndexedMap', StdStringPrinter)
-    #llvm_printer.add('DenseMap', StdStringPrinter)
-    #llvm_printer.add('ValueMap', StdStringPrinter)
-    #llvm_printer.add('MultiImplMap', StdStringPrinter)
-    #llvm_printer.add('FlatArrayMap', StdStringPrinter)
-    #llvm_printer.add('SmallMap', StdStringPrinter)
-    #llvm_printer.add('IntervalMap', StdStringPrinter)
-    #llvm_printer.add('IntEqClasses', StdStringPrinter)
-    #llvm_printer.add('ImmutableMap', StdStringPrinter)
-
-    #llvm_printer.add('BitVector', StdStringPrinter)
-    #llvm_printer.add('SmallBitVector', StdStringPrinter)
-    #llvm_printer.add('SparseBitVector', StdStringPrinter)
+    #llvm_printer.add('Twine', TwinePrinter)
+    #llvm_printer.add('SmallString', SmallStringPrinter)
 
     #if True:
         # These shouldn't be necessary, if GDB "print *i" worked.
