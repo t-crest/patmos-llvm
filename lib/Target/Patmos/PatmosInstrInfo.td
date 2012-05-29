@@ -209,11 +209,11 @@ def nor    : PatFrag<(ops node:$lhs, node:$rhs),
 // Pessimistically assume ADJCALLSTACKDOWN / ADJCALLSTACKUP will become
 // sub / add which can clobber SP.
 let Defs = [RFP, RSP], Uses = [RFP, RSP] in {
-def ADJCALLSTACKDOWN : PatmosInst<(outs), (ins i32imm:$amt),
-                                    "#ADJCALLSTACKDOWN",
+def ADJCALLSTACKDOWN : PseudoInst<(outs), (ins i32imm:$amt),
+                                    "#ADJCALLSTACKDOWN", "",
                                     [(callseq_start timm:$amt)]>;
-def ADJCALLSTACKUP   : PatmosInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
-                                    "#ADJCALLSTACKUP",
+def ADJCALLSTACKUP   : PseudoInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
+                                    "#ADJCALLSTACKUP", "",
                                     [(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
@@ -225,7 +225,7 @@ def ADJCALLSTACKUP   : PatmosInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
     Uses = [SB, SO] in {
   def RET  : PFLr<0b0000, (outs), (ins pred:$p),
-                  "$p ret # FIXME delay slot", [(retflag)]>;
+                  "ret", "# FIXME delay slot", [(retflag)]>;
 }
 
 
@@ -233,16 +233,16 @@ let isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
   // cache-relative direct branches
   let isBranch=1 in {
   def BC  : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
-                  "$p bc $target # FIXME delay slot", []>;
+                  "bc", "$target # FIXME delay slot", []>;
 
   def BCcond  : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
-                     "$p bc $target # FIXME delay slot", []>;
+                     "bc", "$target # FIXME delay slot", []>;
   }
 
   // cache-relative indirect branch
   let isIndirectBranch=1 in
   def BCR : PFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                  "$p bcr $rs # FIXME delay slot", []>;
+                  "bcr", "$rs # FIXME delay slot", []>;
 }
 
 
@@ -259,11 +259,11 @@ let isCall=1, hasDelaySlot=1,
           SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$imm),
-                    "$p bs $imm # FIXME delay slot",
+                    "bs", "$imm # FIXME delay slot",
                     [(PatmosCall uimm22:$imm)]>;
 
   def bsr: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs1),
-                    "$p bsr $rs1 # FIXME delay slot",
+                    "bsr", "$rs1 # FIXME delay slot",
                     [(PatmosCall RRegs:$rs1)]>;
 }
 
@@ -286,42 +286,42 @@ let isCall=1, hasDelaySlot=1,
 // no short immediates
 multiclass BinArithLR<bits<4> func, string asmop, SDNode opnode, bit isrCommutable=0> {
   def l : ALUl <func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                !strconcat( "$p ", asmop, " $rd = $rs1, $imm"),
+                asmop, "$rd = $rs1, $imm",
                 [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>;
 
   let isCommutable = isrCommutable in
   def r : ALUr <func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                !strconcat( "$p ", asmop, " $rd = $rs1, $rs2"),
+                asmop, "$rd = $rs1, $rs2",
                 [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
 }
 
 // also support short immediates
 multiclass BinArithILR<bits<4> func, string asmop, SDNode opnode, bit isrCommutable=0> {
   def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
-               !strconcat( "$p ", asmop, " $rd = $rs1, $imm"),
+               asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
   // also L and R
   defm NAME : BinArithLR<func, asmop, opnode, isrCommutable>;
 }
 
 // same as above with pattern fragments instead of simple sdnodes
-multiclass BinArithLRpfg<bits<4> func, string asmstr, PatFrag pfg, bit isrCommutable=0> {
+multiclass BinArithLRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommutable=0> {
   def l : ALUl<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-               !strconcat("$p ", asmstr, " $rd = $rs1, $imm"),
+               asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (pfg RRegs:$rs1, imm:$imm))]>;
 
   let isCommutable = isrCommutable in
   def r : ALUr<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-               !strconcat("$p ", asmstr, " $rd = $rs1, $rs2"),
+               asmop, "$rd = $rs1, $rs2",
                [(set RRegs:$rd, (pfg RRegs:$rs1, RRegs:$rs2))]>;
 }
 
-multiclass BinArithILRpfg<bits<4> func, string asmstr, PatFrag pfg, bit isrCommutable=0> {
+multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommutable=0> {
   def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
-               !strconcat( "$p ", asmstr, " $rd = $rs1, $imm"),
+               asmop, " $rd = $rs1, $imm",
                [(set RRegs:$rd, (pfg RRegs:$rs1, uimm12:$imm))]>;
   // also L and R
-  defm NAME : BinArithLRpfg<func, asmstr, pfg>;
+  defm NAME : BinArithLRpfg<func, asmop, pfg>;
 }
 
 
@@ -352,7 +352,7 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 let Defs = [RSP], Uses = [RSP] in
 def DYNALLOC : PatmosInst<(outs RRegs:$rd),
                           (ins pred:$p, RRegs:$rs1, uimm12:$imm),
-                          "$p add $rd = $rs1, $imm # dynalloc",
+                          "add", "$rd = $rs1, $imm # dynalloc",
                           []>;
 
 
@@ -360,32 +360,32 @@ def DYNALLOC : PatmosInst<(outs RRegs:$rd),
 let isAsCheapAsAMove=1, Imm12=0 in {
   // mov Rd = Rs ... add Rd = Rs + 0
   def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-                 "$p mov $rd = $rs", []>;
+                 "mov", "$rd = $rs", []>;
 
   // conditional move, like mov with setable predicate
   // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
   let Constraints = "$rs1 = $rd" in
   def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2),
-                  "$p mov $rd = $rs2",
+                  "mov", "$rd = $rs2",
                   [(set RRegs:$rd, (select predreg:$p, RRegs:$rs2, RRegs:$rs1))]>;
 }
 
 // neg Rd = -Rs ... rsub Rd = 0 - Rs
 let Imm12 = 0 in
 def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-               "$p neg $rd = $rs",
+               "neg", "$rd = $rs",
                [(set RRegs:$rd, (ineg RRegs:$rs))]>;
 
 // not Rd = ~Rs ... nor Rd = ~(Rs | Rs)
 def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs, RRegs:$rhidden),
-                "$p not $rd = $rs", []>;
+                "not", "$rd = $rs", []>;
 def : Pat<(not RRegs:$rs),(NOT RRegs:$rs, RRegs:$rs)>;
 
 // zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
 let Imm12 = 0xff in
 def ZEXT8 : ALUi <0b0111,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "$p zext8 $rd = $rs",
+              "zext8", "$rd = $rs",
               [(set RRegs:$rd, (and RRegs:$rs, (i32 0xff)))]>;
 
 // Pseudo instr LI uses add opcode
@@ -396,15 +396,15 @@ let Rs1 = 0,
 in {
   // li Rd = Immedate ... add Rd = r0 + Immediate (short, positive)
   def LIi : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, uimm12:$imm),
-                 "$p li $rd = $imm",
+                 "li", "$rd = $imm",
                  [(set RRegs:$rd, (add R0, (i32 uimm12:$imm)))]>;
   // li Rd = Immedate ... sub Rd = r0 - Immediate (short, negative)
   def LIin : ALUi<0b0001, (outs RRegs:$rd), (ins pred:$p, nuimm12:$imm),
-                  "$p li $rd = $imm",
+                  "li", "$rd = $imm",
                   [(set RRegs:$rd, (sub R0, (i32 nuimm12:$imm)))]>;
   // li Rd = Immedate ... add Rd = r0 + Immediate (long immediate)
   def LIl : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
-                  "$p li $rd = $imm",
+                  "li", "$rd = $imm",
                   [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
 }
 
@@ -413,17 +413,17 @@ in {
 
 def SEXT8  : ALUu <0b0000,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "$p sext8 $rd = $rs",
+              "sext8", "$rd = $rs",
               [(set RRegs:$rd, (sext_inreg RRegs:$rs, i8))]>;
 
 def SEXT16 : ALUu <0b0001,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-               "$p sext16 $rd = $rs",
+               "sext16", "$rd = $rs",
               [(set RRegs:$rd, (sext_inreg RRegs:$rs, i16))]>;
 
 def ZEXT16 : ALUu <0b0010,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "$p zext16 $rd = $rs",
+              "zext16", "$rd = $rs",
               [(set RRegs:$rd, (and RRegs:$rs, (i32 0xffff)))]>;
 
 
@@ -431,7 +431,7 @@ def ZEXT16 : ALUu <0b0010,
 // TODO does the add overflow do any harm?
 def ABS    : ALUu <0b0011,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "$p abs $rd = $rs",
+              "abs", "$rd = $rs",
               [(set RRegs:$rd, (xor (add RRegs:$rs, (sra RRegs:$rs, (i32 31))), (sra RRegs:$rs, (i32 31))))]>;
 
 
@@ -445,12 +445,12 @@ def ABS    : ALUu <0b0011,
 let Defs = [SL,SH], isCommutable=1 in {
 def MUL  : ALUm <0b0000,
               (outs Mul:$sd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-              "$p mul $$$sd, $rs1, $rs2",
+              "mul", "$$$sd, $rs1, $rs2",
               [(set Mul:$sd, (patmos_mul RRegs:$rs1, RRegs:$rs2))]>;
 
 def MULU : ALUm <0b0001,
               (outs), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-              "$p mulu $rs1, $rs2",
+              "mulu", "$rs1, $rs2",
               []>;
               //[(set SRegs:$sl, (mul RRegs:$rs1, RRegs:$rs2))]>;
 }
@@ -458,13 +458,13 @@ def MULU : ALUm <0b0001,
 
 // Compare
 
-multiclass ALUc_cn <string asmstr, bits<4> func, PatFrag cnode, PatFrag nnode> {
+multiclass ALUc_cn <string asmop, bits<4> func, PatFrag cnode, PatFrag nnode> {
   def c : ALUc<func, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                !strconcat( "$p ", asmstr, " $pd = $rs1, $rs2"),
+                asmop, "$pd = $rs1, $rs2",
                 [(set PRegs:$pd, (cnode RRegs:$rs1, RRegs:$rs2))]>;
 
   def n : ALUc<func, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                !strconcat( "$p ", asmstr, " $pd = $rs1, $rs2"),
+                asmop, "$pd = $rs1, $rs2",
                 [(set PRegs:$pd, (nnode RRegs:$rs1, RRegs:$rs2))]>;
 }
 
@@ -477,20 +477,20 @@ defm CMPULT : ALUc_cn <"cmpult", 0b0100, setult, setugt>;
 defm CMPULE : ALUc_cn <"cmpule", 0b0101, setule, setuge>;
 
 def  BTEST  : ALUc<0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                  "$p btest $pd = $rs1, $rs2",
+                  "btest", "$pd = $rs1, $rs2",
                   [(set PRegs:$pd, (setne (and RRegs:$rs1, (shl (i32 1), RRegs:$rs2)), (i32 0)))]>;
 
 // Pseudo instr ISODD uses btest opcode
 let Rs2 = 0 in
 def  ISODD  : ALUc<0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
-                  "$p isodd $pd = $rs",
+                  "isodd", "$pd = $rs",
                   [(set PRegs:$pd, (setne (and RRegs:$rs, (i32 1)), (i32 1)))]>;
 
 // Pseudo mov Pd <- Rs uses cmpneq with r0
 // I don't think it makes sense to define it at all
 let Rs2 = 0 in
 def  MOVrp  : ALUc<0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
-                  "$p mov $pd = $rs",
+                  "mov", "$pd = $rs",
                   [(set PRegs:$pd, (setne RRegs:$rs, (i32 0)))]>;
 
 
@@ -498,15 +498,15 @@ def  MOVrp  : ALUc<0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
 // Predicate Combine
 
 
-multiclass PredCombine<bits<4> opcode, string asmstr> {
+multiclass PredCombine<bits<4> opcode, string asmop> {
   def cc: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                !strconcat("$p ", asmstr, " $pd =  $ps1,  $ps2"), []>;
+                asmop, "$pd =  $ps1,  $ps2", []>;
   def cn: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                !strconcat("$p ", asmstr, " $pd =  $ps1, !$ps2"), []>;
+                asmop, "$pd =  $ps1, !$ps2", []>;
   def nc: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                !strconcat("$p ", asmstr, " $pd = !$ps1,  $ps2"), []>;
+                asmop, "$pd = !$ps1,  $ps2", []>;
   def nn: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                !strconcat("$p ", asmstr, " $pd = !$ps1, !$ps2"), []>;
+                asmop, "$pd = !$ps1, !$ps2", []>;
 }
 
 defm POR:  PredCombine <0b0110, "or">;
@@ -523,38 +523,38 @@ def : Pat<(notcc (or PRegs:$ps1, PRegs:$ps2)),(PNORcc PRegs:$ps1, PRegs:$ps2)>;
 //mov uses or opcode (or Pd = Ps | Ps)
 //let Ps2 = Ps1 in
 def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps),
-                "$p mov $pd = $ps", []>;
+                "mov", "$pd = $ps", []>;
 
 //not uses nor opcode
 //let Ps2 = Ps1 in
 def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps),
-                "$p not $pd = $ps",
+                "not", "$pd = $ps",
                 [(set PRegs:$pd, (not PRegs:$ps))]>;
 
 //set uses or opcode
 let Ps1 = 0, Ps2 = 0 in
 def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
-                "$p set $pd",
+                "set", "$pd",
                 [(set PRegs:$pd, (i1 1))]>;
 //clr uses nor opcode
 let Ps1 = 0, Ps2 = 0 in
 def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
-                "$p clr $pd",
+                "clr", "$pd",
                 [(set PRegs:$pd, (i1 0))]>;
 
 
 // NOP
 let neverHasSideEffects = 1 in
-def NOP  : SPCn <(outs), (ins pred:$p, i32imm:$imm), "$p nop $imm", []>;
+def NOP  : SPCn <(outs), (ins pred:$p, i32imm:$imm), "nop", "$imm", []>;
 
 // Wait
-def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "$p wait.mem", []>;
+def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;
 
 // move to special
-def MTS  : SPCt <(outs SRegs:$sd), (ins pred:$p, RRegs:$rs), "$p mts $sd = $rs", [] >;
+def MTS  : SPCt <(outs SRegs:$sd), (ins pred:$p, RRegs:$rs), "mts", "$sd = $rs", [] >;
 
 // move from special
-def MFS  : SPCf <(outs RRegs:$rd), (ins pred:$p, SRegs:$ss), "$p mfs $rd = $ss", [] >;
+def MFS  : SPCf <(outs RRegs:$rd), (ins pred:$p, SRegs:$ss), "mfs", "$rd = $ss", [] >;
 
 
 
@@ -565,25 +565,25 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
   // load from stack cache
   def S  : LDT<ty, 0b0, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p ", asmop, "s $rd = [$ra + $imm]"),
+               asmop # "s", "$rd = [$ra + $imm]",
                [] >;
 
   // load from local memory
   def L  : LDT<ty, 0b0, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p ", asmop, "l $rd = [$ra + $imm]"),
+               asmop # "l", "$rd = [$ra + $imm]",
                [] >;
 
   // load from data cache
   def C  : LDT<ty, 0b1, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p ", asmop, "c $rd = [$ra + $imm]"),
+               asmop # "c", "$rd = [$ra + $imm]",
                [] >;
 
   // load from main memory
   def M  : LDT<ty, 0b1, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               !strconcat("$p ", asmop, "m $rd = [$ra + $imm]"),
+               asmop # "m", "$rd = [$ra + $imm]",
                [] >;
 }
 
@@ -594,13 +594,13 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
     // load from data cache (no pattern to match)
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 !strconcat("$p d", asmop, "c sm = [$ra + $imm]"),
+                 "d" # asmop # "c", "sm = [$ra + $imm]",
                  [] >;
 
     // load from main memory (no pattern to match)
     def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 !strconcat("$p d", asmop, "m sm = [$ra + $imm]"),
+                 "d" # asmop # "m", "sm = [$ra + $imm]",
                  [] >;
   }
 }
@@ -627,25 +627,25 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
   // store to stack cache
   def S  : STT<ty, 0b00, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "s [$ra + $imm] = $rs"),
+               asmop # "s", "[$ra + $imm] = $rs",
                [] >;
 
   // store to local memory
   def L  : STT<ty, 0b01, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "l [$ra + $imm] = $rs"),
+               asmop # "l", "[$ra + $imm] = $rs",
                [] >;
 
   // store to data cache
   def C  : STT<ty, 0b10, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "c [$ra + $imm] = $rs"),
+               asmop # "c", "[$ra + $imm] = $rs",
                [] >;
 
   // store to stack cache
   def M  : STT<ty, 0b11, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               !strconcat("$p ", asmop, "m [$ra + $imm] = $rs"),
+               asmop # "m", "[$ra + $imm] = $rs",
                [] >;
 }
 

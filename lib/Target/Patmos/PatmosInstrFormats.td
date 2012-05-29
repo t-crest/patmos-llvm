@@ -15,23 +15,54 @@
 
 
 // Generic Patmos Format
-class PatmosInst<dag outs, dag ins, // SizeVal sz, Format f,
-                 string asmstr, list<dag> pattern> : Instruction {
+class PatmosInstBase<dag outs, dag ins, // SizeVal sz, Format f,
+                 list<dag> pattern> : Instruction 
+{
   field bits<32> Inst;
 
   let Namespace = "Patmos";
 
-  bits<4> Pred;
-  let Inst{30-27} = Pred;
-
   dag OutOperandList = outs;
   dag InOperandList  = ins;
 
-  let AsmString   = asmstr;
   let Pattern     = pattern;
-  let isPredicable = 1; // we have a fully predicated instruction set
 
   // Tablegen cannot create a matcher for our format (requires starting with opcode mnemonic, not sure about bundle support)
+  let isCodeGenOnly = 1;
+}
+
+class PatmosInst<dag outs, dag ins, // SizeVal sz, Format f,
+                 string op, string asmstr, list<dag> pattern> : 
+      PatmosInstBase<outs, ins, pattern> 
+{
+  bits<4> Pred;
+  let Inst{30-27} = Pred;
+  
+  let AsmString   = "$p " # op # " " # asmstr;
+  let isPredicable = 1; // we have a fully predicated instruction set
+}
+
+// Generic instruction, not predicated (mainly for pseudo instructions)
+class PatmosInstNoP<dag outs, dag ins, // SizeVal sz, Format f,
+                 string op, string asmstr, list<dag> pattern> : 
+      PatmosInstBase<outs, ins, pattern> 
+{
+  let Inst{30-27} = 0;
+
+  let AsmString   = op # " " # asmstr;
+  let isPredicable = 0; // we have a fully predicated instruction set
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Pseudo instructions
+//
+class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInstNoP<outs, ins, op, asmstr, pattern> 
+{
+  let Inst{31-0} = 0;
+
   let isCodeGenOnly = 1;
 }
 
@@ -41,8 +72,8 @@ class PatmosInst<dag outs, dag ins, // SizeVal sz, Format f,
 // ALUi - Arithmetic Immediate
 //
 class ALUi<bits<3> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, op, asmstr, pattern> {
 
   let Inst{26-25} = 0b00;
 
@@ -67,8 +98,8 @@ class ALUi<bits<3> func,
 // ALUl - Long Immediate
 //
 class ALUl<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, op, asmstr, pattern> {
 
   let Inst{31} = 1; //FIXME
 
@@ -96,8 +127,8 @@ class ALUl<bits<4> func,
 // ALU - Arithmetic
 // (superclass)
 class ALU<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, op, asmstr, pattern> {
 
   // common for ALU format
   let Inst{26-22} = 0b01000;
@@ -116,8 +147,8 @@ class ALU<bits<4> func,
 // ALUr - Register
 //
 class ALUr<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<func, outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b000;
 
@@ -134,8 +165,8 @@ class ALUr<bits<4> func,
 // ALUu - Unary
 //
 class ALUu<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<func, outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b001;
 
@@ -150,8 +181,8 @@ class ALUu<bits<4> func,
 // ALUm - Multiply
 //
 class ALUm<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<func, outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b010;
 
@@ -166,8 +197,8 @@ class ALUm<bits<4> func,
 // ALUc - Compare
 //
 class ALUc<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<func, outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b011;
 
@@ -184,8 +215,8 @@ class ALUc<bits<4> func,
 // ALUp - Predicate
 //
 class ALUp<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<func, outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b100;
 
@@ -206,8 +237,8 @@ class ALUp<bits<4> func,
 
 // SPC - Special
 // (superclass)
-class SPC<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+class SPC<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, op, asmstr, pattern> {
 
   // common for SPC format
   let Inst{26-22} = 0b01001;
@@ -220,8 +251,8 @@ class SPC<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 // SPCn - NOP
 //
-class SPCn<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, asmstr, pattern> {
+class SPCn<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : SPC<outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b000;
   // unbound fields
@@ -233,8 +264,8 @@ class SPCn<dag outs, dag ins, string asmstr, list<dag> pattern>
 // SPCw - Wait
 //
 class SPCw<bits<4> func,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : SPC<outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b001;
   bits<4> Func;
@@ -245,8 +276,8 @@ class SPCw<bits<4> func,
 
 // SPCt - Move To Special
 //
-class SPCt<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, asmstr, pattern> {
+class SPCt<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : SPC<outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b010;
 
@@ -260,8 +291,8 @@ class SPCt<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 // SPCf - Move From Special
 //
-class SPCf<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, asmstr, pattern> {
+class SPCf<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : SPC<outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b011;
 
@@ -280,8 +311,8 @@ class SPCf<dag outs, dag ins, string asmstr, list<dag> pattern>
 // LDT - Load Typed
 //
 class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, op, asmstr, pattern> {
 
   let Inst{26-22} = 0b01010;
 
@@ -307,8 +338,8 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
 // STT - Store Typed
 //
 class STT<bits<3> ty, bits<2> td,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, op, asmstr, pattern> {
 
   let Inst{26-22} = 0b01011;
 
@@ -335,8 +366,8 @@ class STT<bits<3> ty, bits<2> td,
 // STC - Stack Control
 //
 class STC<bits<2> op,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, asmop, asmstr, pattern> {
 
   let Inst{26-24} = 0b011;
 
@@ -356,8 +387,8 @@ class STC<bits<2> op,
 
 // PFL - Program Flow
 //
-class PFL<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
+class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, op, asmstr, pattern> {
 
   let Inst{26-25} = 0b11;
 
@@ -368,8 +399,8 @@ class PFL<dag outs, dag ins, string asmstr, list<dag> pattern>
 
 // PFLb - Call / Branch
 //
-class PFLb<bits<2> pflop, dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, asmstr, pattern> {
+class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : PFL<outs, ins, op, asmstr, pattern> {
 
   let Inst{24} = 0;
   let PFLOp = pflop;
@@ -381,8 +412,8 @@ class PFLb<bits<2> pflop, dag outs, dag ins, string asmstr, list<dag> pattern>
 // PFLi - Call / Branch Indirect
 //
 class PFLi<bits<4>op,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : PFL<outs, ins, asmop, asmstr, pattern> {
 
   let Inst{24} = 1;
   let PFLOp = 0b00;
@@ -399,8 +430,8 @@ class PFLi<bits<4>op,
 // PFLr - Return
 //
 class PFLr<bits<4>op,
-      dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, asmstr, pattern> {
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : PFL<outs, ins, asmop, asmstr, pattern> {
 
   let Inst{24} = 1;
   let PFLOp = 0b10;
@@ -411,14 +442,3 @@ class PFLr<bits<4>op,
 }
 
 
-///////////////////////////////////////////////////////////////////////////////
-
-
-// Pseudo instructions
-//
-class PseudoInst<dag outs, dag ins, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmstr, pattern> {
-  let Inst{31-0} = 0;
-
-  let isCodeGenOnly = 1;
-}
