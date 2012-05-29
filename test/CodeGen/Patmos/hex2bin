@@ -1,0 +1,42 @@
+#!/usr/bin/php
+<?
+// Thing is, I am simply too lazy to do it in awk/perl/shell now..
+
+if (count($argv) < 2) {
+    echo "Usage: ".$argv[0]." <file.s> [<outfile.s>]\n";
+    exit(1);
+}
+if (!file_exists($argv[1])) {
+    echo "File does not exist: ".$argv[1]."\n";
+    exit(1);
+}
+
+$lines = file($argv[1]);
+$data = array();
+
+foreach ($lines as $line) {
+    $rs = array();
+    if ( preg_match('/# encoding: \[([0-9a-fx,]*)\]/', $line, &$rs) ) {
+	$hex = $rs[1];
+	$vals = explode(",", $hex);
+	
+	$bin = " ";
+	foreach ($vals as $val) {
+	    $tmp = substr($val, 2, 2);
+	    $bin .= str_pad(base_convert($tmp, 16, 2), 8, '0', STR_PAD_LEFT) . " ";
+	}
+
+	$line = str_replace($hex, $bin, $line);
+    }
+
+    $data[] = $line;
+}
+
+if (count($argv) < 3) {
+    echo implode("",$data);
+} else {
+    $outfile = $argv[2];
+    file_put_contents($outfile, $data);
+}
+
+?>

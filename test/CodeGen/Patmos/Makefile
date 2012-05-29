@@ -4,9 +4,12 @@ BUILDDIR=../../../Debug+Asserts/
 ON?=2
 ARCH ?= patmos
 
-LLC=$(BUILDDIR)/bin/llc -march=$(ARCH)
+LLCBIN=$(BUILDDIR)/bin/llc
+MCBIN=$(BUILDDIR)/bin/llvm-mc
+
+LLC=$(LLCBIN) -march=$(ARCH)
 OBJDUMP=$(BUILDDIR)/bin/llvm-objdump
-MC=$(BUILDDIR)/bin/llvm-mc -arch=$(ARCH)
+MC=$(MCBIN) -arch=$(ARCH)
 
 CLANG=$(BUILDDIR)/bin/clang
 OPT=$(BUILDDIR)/bin/opt
@@ -41,17 +44,17 @@ all: return.s
 %.ll: %.c
 	$(CLANG) -O$(ON) -S -emit-llvm -o $@ $<
 
-%.s: %.ll
-	$(LLC) -O0 $(DEBUG) $(VIEW) -o $@ $<
+%.s: %.ll $(LLCBIN)
+	$(LLC) -O0 $(DEBUG) $(VIEW) -show-mc-encoding -o $@ $<
 	@echo
 
-%.o: %.ll
+%.o: %.ll $(LLCBIN)
 	$(LLC) -O0 -filetype=obj -o $@ $<
 
-%.as: %.s
+%.as: %.s $(MCBIN)
 	$(MC) -filetype=obj -assemble -o $@ $<
 
-%.dis: %.o
+%.dis: %.o $(MCBIN)
 	$(OBJDUMP) -disassemble $<
 
 clean:
