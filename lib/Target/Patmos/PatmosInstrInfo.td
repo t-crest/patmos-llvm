@@ -16,7 +16,7 @@ include "PatmosInstrFormats.td"
 //===----------------------------------------------------------------------===//
 // Type Constraints.
 //===----------------------------------------------------------------------===//
-class SDTCisI8<int OpNum>  : SDTCisVT<OpNum,  i8>;
+class SDTCisI8 <int OpNum> : SDTCisVT<OpNum,  i8>;
 class SDTCisI16<int OpNum> : SDTCisVT<OpNum, i16>;
 class SDTCisI32<int OpNum> : SDTCisVT<OpNum, i32>;
 
@@ -62,7 +62,7 @@ def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
 }
 
 // Patmos setable predicate operand
-// like, pred but no default values
+// like pred but no default values
 def predset : PredicateOperand<i1, (ops PRegs, i1imm), (ops )> {
   let PrintMethod = "printPredicateOperand";
 }
@@ -105,6 +105,10 @@ def shrTwo : SDNodeXForm<imm, [{
  return CurDAG->getTargetConstant(N->getZExtValue() >> 2, MVT::i32);
 }]>;
 
+// Transformation Function - negate
+def negate : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(-N->getAPIntValue(), MVT::i32);
+}]>;
 
 //===----------------------------------------------------------------------===//
 // Patmos Complex Pattern Definitions.
@@ -122,14 +126,16 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 //===----------------------------------------------------------------------===//
 
 // NOP
-def uimm4    : PatLeaf<(imm), [{return isUInt<4>(N->getZExtValue());}]>;
+def uimm4    : Operand<i32>, PatLeaf<(imm), [{return isUInt<4>(N->getZExtValue());}]>;
 
 // offset of indexed load/store
+def uimm7    : Operand<i32>, PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
 def imm7     : Operand<i32>, PatLeaf<(imm), [{return isInt <7>(N->getSExtValue());}]>;
-def uimm7    : PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
 
 // ALUi
-def uimm12   : PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
+def uimm12   : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
+  // Negated unsigned 12 bit value (for load negative short immediate)
+def nuimm12  : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(-N->getSExtValue()); }], negate>;
 // Call/Branch/StackCtrl
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
 
@@ -166,7 +172,26 @@ def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
 
 
 
-//def predfubar : PatFrag<(ops PRegs:$p, (i1 imm:$inv)), (i1 ( extloadi8 node:$ptr))>;
+
+
+
+
+
+// Patterns to match machine instructions that are more than simple SDNodes
+
+// sub with rhs-lhs
+def rsub   :  PatFrag<(ops node:$lhs, node:$rhs),
+                      (sub node:$rhs, node:$lhs)>;
+
+// shift-add, for address computations
+def shadd  : PatFrag<(ops node:$reg, node:$offs),
+                     (add (shl node:$reg, (i32 1)), node:$offs)>;
+def shadd2 : PatFrag<(ops node:$reg, node:$offs),
+                     (add (shl node:$reg, (i32 2)), node:$offs)>;
+
+def nor    : PatFrag<(ops node:$lhs, node:$rhs),
+                     (not (or node:$lhs, node:$rhs))>;
+
 
 //===----------------------------------------------------------------------===//
 // Instruction list..
@@ -200,19 +225,19 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
 
 
 let isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
-  let isBranch=1 in
+  // cache-relative direct branches
+  let isBranch=1 in {
   def BC  : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
                   "$p bc $target # FIXME delay slot", []>;
 
+  def BCcond  : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
+                     "$p bc $target # FIXME delay slot", []>;
+  }
+
+  // cache-relative indirect branch
   let isIndirectBranch=1 in
   def BCR : PFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
                   "$p bcr $rs # FIXME delay slot", []>;
-
-
-
-  let isBranch=1 in
-  def BCcond  : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
-                     "$p bc $target # FIXME delay slot", [(brcond predreg:$p, bb:$target)]>;
 }
 
 
@@ -252,122 +277,100 @@ let isCall=1, hasDelaySlot=1,
 // Arithmetic Instructions
 //===----------------------------------------------------------------------===//
 
+
 // no short immediates
-multiclass BinArith<bits<4> func, string asmstr, SDNode opnode, bit isrCommutable=0> {
-  def l : ALUl<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                !strconcat( "$p ", asmstr, " $rd = $rs1, $imm"),
+multiclass BinArithLR<bits<4> func, string asmop, SDNode opnode, bit isrCommutable=0> {
+  def l : ALUl <func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
+                !strconcat( "$p ", asmop, " $rd = $rs1, $imm"),
                 [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 imm:$imm)))]>;
 
   let isCommutable = isrCommutable in
-  def r : ALUr<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                !strconcat( "$p ", asmstr, " $rd = $rs1, $rs2"),
+  def r : ALUr <func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
+                !strconcat( "$p ", asmop, " $rd = $rs1, $rs2"),
                 [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
 }
 
 // also support short immediates
-multiclass BinArithI<bits<4> func, string asmstr, SDNode opnode, bit isrCommutable=0> {
-  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                !strconcat( "$p ", asmstr, " $rd = $rs1, $imm"),
-                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
+multiclass BinArithILR<bits<4> func, string asmop, SDNode opnode, bit isrCommutable=0> {
+  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
+               !strconcat( "$p ", asmop, " $rd = $rs1, $imm"),
+               [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
   // also L and R
-  defm NAME : BinArith<func, asmstr, opnode, isrCommutable>;
+  defm NAME : BinArithLR<func, asmop, opnode, isrCommutable>;
+}
+
+// same as above with pattern fragments instead of simple sdnodes
+multiclass BinArithLRpfg<bits<4> func, string asmstr, PatFrag pfg, bit isrCommutable=0> {
+  def l : ALUl<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
+               !strconcat("$p ", asmstr, " $rd = $rs1, $imm"),
+               [(set RRegs:$rd, (pfg RRegs:$rs1, imm:$imm))]>;
+
+  let isCommutable = isrCommutable in
+  def r : ALUr<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
+               !strconcat("$p ", asmstr, " $rd = $rs1, $rs2"),
+               [(set RRegs:$rd, (pfg RRegs:$rs1, RRegs:$rs2))]>;
+}
+
+multiclass BinArithILRpfg<bits<4> func, string asmstr, PatFrag pfg, bit isrCommutable=0> {
+  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
+               !strconcat( "$p ", asmstr, " $rd = $rs1, $imm"),
+               [(set RRegs:$rd, (pfg RRegs:$rs1, uimm12:$imm))]>;
+  // also L and R
+  defm NAME : BinArithLRpfg<func, asmstr, pfg>;
 }
 
 
+// Binary Arithmetic instructions
 
-/** also short immediates ******/
-
-defm ADD : BinArithI<0b0000, "add", add, 1>;
-
-defm OR  : BinArithI<0b0110, "or ", or , 1>;
-defm AND : BinArithI<0b0111, "and", and, 1>;
-
-defm SUB : BinArithI<0b0001, "sub", sub>;
-defm SL  : BinArithI<0b0011, "sl ", shl>;
-defm SR  : BinArithI<0b0100, "sr ", srl>;
-defm SRA : BinArithI<0b0101, "sra", sra>;
-
-
-
-//TODO beautify with ALU_ilr multiclass
-def RSUBi : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                "$p rsub $rd = $rs1, $imm",
-                [(set RRegs:$rd, (sub (i32 uimm12:$imm), RRegs:$rs1))]>;
-def RSUBl : ALUl<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                "$p rsub $rd = $rs1, $imm",
-                [(set RRegs:$rd, (sub (i32 imm:$imm), RRegs:$rs1))]>;
-def RSUBr : ALUr<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                "$p rsub $rd = $rs1, $rs2",
-                [(set RRegs:$rd, (sub RRegs:$rs2, RRegs:$rs1))]>;
+// with short immediates:
+defm ADD    : BinArithILR   <0b0000, "add"   , add, 1>;
+defm SUB    : BinArithILR   <0b0001, "sub"   , sub>;
+defm RSUB   : BinArithILRpfg<0b0010, "rsub"  , rsub>;
+defm SL     : BinArithILR   <0b0011, "sl"    , shl>;
+defm SR     : BinArithILR   <0b0100, "sr"    , srl>;
+defm SRA    : BinArithILR   <0b0101, "sra"   , sra>;
+defm OR     : BinArithILR   <0b0110, "or"    , or, 1>;
+defm AND    : BinArithILR   <0b0111, "and"   , and, 1>;
+// no short immediates:
+defm RL     : BinArithLR    <0b1000, "rl"    , rotl>;
+defm RR     : BinArithLR    <0b1001, "rr"    , rotr>;
+defm XOR    : BinArithLR    <0b1010, "xor"   , xor, 1>;
+defm NOR    : BinArithLRpfg <0b1011, "nor"   , nor, 1>;
+defm SHADD  : BinArithLRpfg <0b1100, "shadd ", shadd>;
+defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 
 
-
-/********/
-
-defm RL   : BinArith <0b1000, "rl ", rotl>;
-defm RR   : BinArith <0b1001, "rr ", rotr>;
-
-defm XOR  : BinArith<0b1010, "xor", xor , 1>;
-
-def NORl  : ALUl <0b1011,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-              "$p nor $rd = $rs1, $imm",
-              [(set RRegs:$rd, (not (or RRegs:$rs1, imm:$imm)))]>;
-
-let isCommutable = 1 in
-def NORr  : ALUr <0b1011,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-              "$p nor $rd = $rs1, $rs2",
-              [(set RRegs:$rd, (not (or RRegs:$rs1, RRegs:$rs2)))]>;
+// Pseudo Instructions using binary arithmetic opcodes
 
 
+// move instructions
+let isAsCheapAsAMove=1, Imm12=0 in {
+  // mov Rd = Rs ... add Rd = Rs + 0
+  def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
+                 "$p mov $rd = $rs", []>;
 
-multiclass ShiftAdd<bits<4> opcode, string asmstr, int shval> {
-  def l  : ALUl<opcode, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, i32imm:$imm),
-                !strconcat("$p ", asmstr, " $rd = $rs1, $imm"),
-                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 shval)), (i32 imm:$imm)))]>;
-  def r  : ALUr<opcode, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                !strconcat("$p ", asmstr, " $rd = $rs1, $rs2"),
-                [(set RRegs:$rd, (add (shl RRegs:$rs1, (i32 shval)), RRegs:$rs2))]>;
+  // conditional move, like mov with setable predicate
+  // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
+  let Constraints = "$rs1 = $rd" in
+  def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2),
+                  "$p mov $rd = $rs2",
+                  [(set RRegs:$rd, (select predreg:$p, RRegs:$rs2, RRegs:$rs1))]>;
 }
 
-defm SHADD  : ShiftAdd<0b1100, "shadd",  1>;
-defm SHADD2 : ShiftAdd<0b1101, "shadd2", 2>;
 
-
-// Pseudos
-
-
-// Pseudo instr MOV uses add opcode
-let isAsCheapAsAMove = 1 in
-def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-                "$p mov $rd = $rs", []>;
-
-
-// Pseudo instr CMOV uses add opcode
-// conditional move, settable predicate
-let isAsCheapAsAMove = 1,
-    Constraints = "$rs1 = $rd" in
-def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2),
-                "$p mov $rd = $rs2",
-                [(set RRegs:$rd, (select predreg:$p, RRegs:$rs2, RRegs:$rs1))]>;
-
-
-
-
-
-// Pseudo instr NEG uses rsub opcode
+// neg Rd = -Rs ... rsub Rd = 0 - Rs
 let Imm12 = 0 in
 def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-                "$p neg $rd = $rs",
-                [(set RRegs:$rd, (ineg RRegs:$rs))]>;
+               "$p neg $rd = $rs",
+               [(set RRegs:$rd, (ineg RRegs:$rs))]>;
 
-// Pseudo instr NOT uses rsub opcode (maybe prefer xor?)
-def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-                "$p not $rd = $rs",
-                [(set RRegs:$rd, (not RRegs:$rs))]>;
+// not Rd = ~Rs ... nor Rd = ~(Rs | Rs)
+def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs, RRegs:$rhidden),
+                "$p not $rd = $rs", []>;
+def : Pat<(not RRegs:$rs),(NOT RRegs:$rs, RRegs:$rs)>;
 
-// Pseudo instr ZEXT8 uses 'and' opcode
+// zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
+let Imm12 = 0xff in
 def ZEXT8 : ALUi <0b0111,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
               "$p zext8 $rd = $rs",
@@ -377,13 +380,20 @@ def ZEXT8 : ALUi <0b0111,
 let Rs1 = 0,
     isReMaterializable = 1,
     isAsCheapAsAMove = 1,
-    isMoveImm = 1 in {
-def LIi : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
-                "$p li $rd = $imm",
-                [(set RRegs:$rd, (add R0, (i32 uimm12:$imm)))]>;
-def LIl : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
-                "$p li $rd = $imm",
-                [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
+    isMoveImm = 1
+in {
+  // li Rd = Immedate ... add Rd = r0 + Immediate (short, positive)
+  def LIi : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, uimm12:$imm),
+                 "$p li $rd = $imm",
+                 [(set RRegs:$rd, (add R0, (i32 uimm12:$imm)))]>;
+  // li Rd = Immedate ... sub Rd = r0 - Immediate (short, negative)
+  def LIin : ALUi<0b0001, (outs RRegs:$rd), (ins pred:$p, nuimm12:$imm),
+                  "$p li $rd = $imm",
+                  [(set RRegs:$rd, (sub R0, (i32 nuimm12:$imm)))]>;
+  // li Rd = Immedate ... add Rd = r0 + Immediate (long immediate)
+  def LIl : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
+                  "$p li $rd = $imm",
+                  [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
 }
 
 /********/

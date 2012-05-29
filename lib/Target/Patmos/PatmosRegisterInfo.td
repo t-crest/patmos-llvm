@@ -76,8 +76,8 @@ def R26 : PatmosGPR<26, "r26">;
 def R27 : PatmosGPR<27, "r27">;
 def R28 : PatmosGPR<28, "r28">;
 def R29 : PatmosGPR<29, "r29">;
-def RFP : PatmosGPR<30, "r30">;
-def RSP : PatmosGPR<31, "r31">;
+def RFP : PatmosGPR<30, "r30">; // frame ptr
+def RSP : PatmosGPR<31, "r31">; // stack ptr
 
 def P0  : PatmosPRED<0, "p0">;
 def P1  : PatmosPRED<1, "p1">;
@@ -88,7 +88,7 @@ def P5  : PatmosPRED<5, "p5">;
 def P6  : PatmosPRED<6, "p6">;
 def P7  : PatmosPRED<7, "p7">;
 
-// SZ (zero) instead of S0 to avoid confusion with SO 
+// SZ (zero) instead of S0 to avoid confusion with SO
 //def PRF : PatmosPRF<"pred", [P0, P1, P2, P3, P4, P5, P6, P7]>;
 //def SZ  : PatmosSPRWithSubRegs< 0,  "sz", [PRF]>;
 def SZ  : PatmosSPR< 0,  "sz">;
