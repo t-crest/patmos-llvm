@@ -27,6 +27,7 @@ class SDTCisI32<int OpNum> : SDTCisVT<OpNum, i32>;
 def SDT_PatmosCall         : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
 def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisI32<0>]>;
 def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisI32<0>, SDTCisI32<1>]>;
+def SDT_PatmosDynAlloc     : SDTypeProfile<0, 1, [SDTCisI32<0>]>;
 
 //===----------------------------------------------------------------------===//
 // Patmos Specific Node Definitions.
@@ -46,6 +47,9 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_PatmosCallSeqEnd,
 
 def patmos_mul    : SDNode<"PatmosISD::MUL", SDTIntBinOp,
                           [SDNPCommutative, SDNPAssociative]>;
+
+def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
+                           [SDNPHasChain]>;
 
 
 //===----------------------------------------------------------------------===//
@@ -72,6 +76,7 @@ def brtarget : Operand<OtherVT> {
   //TODO
   //let PrintMethod = "printCacheRelImmOperand";
 }
+
 
 /*
 // Address operands
@@ -134,7 +139,7 @@ def imm7     : Operand<i32>, PatLeaf<(imm), [{return isInt <7>(N->getSExtValue()
 
 // ALUi
 def uimm12   : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
-  // Negated unsigned 12 bit value (for load negative short immediate)
+// Negated unsigned 12 bit value (for load negative short immediate)
 def nuimm12  : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(-N->getSExtValue()); }], negate>;
 // Call/Branch/StackCtrl
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
@@ -343,6 +348,14 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 // Pseudo Instructions using binary arithmetic opcodes
 
 
+// Allocate space on the current stack space -- aka alloca
+let Defs = [RSP], Uses = [RSP] in
+def DYNALLOC : PatmosInst<(outs RRegs:$rd),
+                          (ins pred:$p, RRegs:$rs1, uimm12:$imm),
+                          "$p add $rd = $rs1, $imm # dynalloc",
+                          []>;
+
+
 // move instructions
 let isAsCheapAsAMove=1, Imm12=0 in {
   // mov Rd = Rs ... add Rd = Rs + 0
@@ -356,7 +369,6 @@ let isAsCheapAsAMove=1, Imm12=0 in {
                   "$p mov $rd = $rs2",
                   [(set RRegs:$rd, (select predreg:$p, RRegs:$rs2, RRegs:$rs1))]>;
 }
-
 
 // neg Rd = -Rs ... rsub Rd = 0 - Rs
 let Imm12 = 0 in
@@ -643,12 +655,12 @@ defm SH  : StoreTyped<0b001, imm7s1, "sh">;
 defm SB  : StoreTyped<0b010, imm7  , "sb">;
 
 
-
-
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
 
+// dynamic stack allocation (aka alloca)
+def : Pat<(PatmosDynAlloc (i32 0)), (DYNALLOC RSP, 0)>;
 
 
 // Patterns are in a separate file

@@ -160,14 +160,12 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   // get information on FrameIndex's stack slot 
   int FrameIndex = MI.getOperand(i).getIndex(); 
-  unsigned BasePtr = (TFI->hasFP(MF) ? Patmos::RFP : Patmos::RSP);
-  int Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex);
+  unsigned BasePtr = (TFI->hasFP(MF) && !MI.getFlag(MachineInstr::FrameSetup)) ?
+                                                      Patmos::RFP : Patmos::RSP;
 
-  // adjust stack offset
-  if (!TFI->hasFP(MF))
-    Offset += MF.getFrameInfo()->getStackSize();
-  else
-    Offset += 2; // Skip the saved RFP
+  // get offset
+  int Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
+               MF.getFrameInfo()->getStackSize();
 
   // Fold imm into offset
   Offset += MI.getOperand(i+1).getImm();
