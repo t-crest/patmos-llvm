@@ -57,7 +57,8 @@ namespace {
     SDNode *Select(SDNode *N);
     SDNode *SelectBRCOND(SDNode *N);
 
-
+    // These two functions create a predicate operand from
+    // an i1 value. We assume it is not a constant for now!
     bool SelectPredPReg(SDValue N, SDValue &Reg, SDValue &Inv);
     bool SelectPredPRegInv(SDValue N, SDValue &Reg, SDValue &Inv);
   };

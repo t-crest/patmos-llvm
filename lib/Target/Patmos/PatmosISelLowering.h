@@ -31,6 +31,9 @@ namespace llvm {
       /// instruction, which includes a bunch of information.
       CALL,
 
+      /// DYNALLOC - Dynamic Stack Allocation.
+      DYNALLOC,
+
       /// subtract left from right
       RSUB,
 
@@ -81,7 +84,6 @@ namespace llvm {
                             const SmallVectorImpl<ISD::InputArg> &Ins,
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
-
   public:
     virtual SDValue LowerCall(SDValue Chain, SDValue Callee, CallingConv::ID CallConv,
                       bool isVarArg, bool doesNotRet, bool &isTailCall,
@@ -111,6 +113,9 @@ namespace llvm {
                                             SelectionDAG &DAG) const;
     */
     SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
+
+    /// LowerDYNAMIC_STACKALLOC - Lower a dynamic stack allocation (aka alloca).
+    SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
   };
 } // namespace llvm
 

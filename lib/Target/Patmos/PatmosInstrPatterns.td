@@ -14,11 +14,9 @@
 
 
 // load immediate
-def : Pat<(i32 imm:$imm),
-          (LIi (i32 uimm12:$imm) )>;
-
-def : Pat<(i32 imm:$imm),
-          (LIl (i32 imm:$imm) )>;
+def : Pat<(i32 uimm12:$imm),  (LIi uimm12:$imm)>;
+def : Pat<(i32 nuimm12:$imm), (LIin nuimm12:$imm)>;
+def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 
 // Return
 //def : Pat<(retflag ),(RET )>;
@@ -27,6 +25,10 @@ def : Pat<(i32 imm:$imm),
 
 def : Pat<(br bb:$target),   (BC  bb:$target)>;
 def : Pat<(brind RRegs:$rs), (BCR RRegs:$rs)>;
+
+// conditional branch
+def : Pat<(brcond predreg:$p, bb:$target),
+          (BCcond predreg:$p, bb:$target)>;
 
 // // jump-table.
 // def : Pat<(i32 tjumptable:$dst), (MOV_IMM tjumptable:$dst)>;

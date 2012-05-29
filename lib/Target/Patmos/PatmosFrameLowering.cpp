@@ -26,9 +26,6 @@
 
 using namespace llvm;
 
-static unsigned AlignOffset(unsigned Offset, unsigned Align) {
-  return (Offset + Align - 1) / Align * Align;
-}
 
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
@@ -47,45 +44,46 @@ bool PatmosFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const 
 
 void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // get some references
-  MachineBasicBlock &MBB   = MF.front();
-  MachineFrameInfo *MFI    = MF.getFrameInfo();
-  // TODO: track max. size of stack used for passing arguments
-  // PatmosFunctionInfo *PFI  = MF.getInfo<PatmosFunctionInfo>();
-  const PatmosInstrInfo &TII =
-    *static_cast<const PatmosInstrInfo*>(MF.getTarget().getInstrInfo());
+  MachineBasicBlock &MBB     = MF.front();
+  MachineFrameInfo *MFI      = MF.getFrameInfo();
+  const TargetInstrInfo *TII = MF.getTarget().getInstrInfo();
 
 
   MachineBasicBlock::iterator MBBI = MBB.begin();
   DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
-  // First, compute final stack size.
-  unsigned StackAlign = getStackAlignment();
-  // TODO: track max. size of stack used for passing arguments
-  unsigned LocalVarAreaOffset = 0; // PFI->getMaxCallFrameSize();
-  unsigned StackSize = AlignOffset(LocalVarAreaOffset, StackAlign) +
-    AlignOffset(MFI->getStackSize(), StackAlign);
-
-   // Update stack size
-  MFI->setStackSize(StackSize);
+  // First, get final stack size.
+  unsigned maxFrameSize = MFI->getMaxCallFrameSize();
+  unsigned stackSize = MFI->getStackSize() + (!hasFP(MF) ? 0 : maxFrameSize);
+  MFI->setStackSize(stackSize);
 
   // No need to allocate space on the stack.
-  if (StackSize == 0 && !MFI->adjustsStack()) return;
+  if (stackSize == 0 && !MFI->adjustsStack()) return;
 
   // adjust stack : sp -= stack size
-  if (StackSize <= 0xFFF) {
-    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBi), Patmos::RSP))
-      .addReg(Patmos::RSP).addImm(StackSize);
+  if (stackSize <= 0xFFF) {
+    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBi), Patmos::RSP))
+      .addReg(Patmos::RSP).addImm(stackSize);
   }
   else {
-    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::SUBl), Patmos::RSP))
-      .addReg(Patmos::RSP).addImm(StackSize);
+    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBl), Patmos::RSP))
+      .addReg(Patmos::RSP).addImm(stackSize);
   }
 
-  // if framepointer enabled, set it to point to the stack pointer.
-  if (hasFP(MF)) {
-    // Set frame pointer: FP = SP
-    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::MOV), Patmos::RFP))
-      .addReg(Patmos::RSP);
+  // eliminate DYNALLOC instruction (aka. alloca)
+  const MCInstrDesc &dynallocMCID = (maxFrameSize <= 0xFFF) ?
+                                TII->get(Patmos::SUBi) : TII->get(Patmos::SUBl);
+
+  for (MachineFunction::iterator BB(MF.begin()), E(MF.end()); BB != E; ++BB) {
+    for (MachineBasicBlock::iterator MI(BB->begin()), MIE(BB->end()); MI != MIE;
+         MI++) {
+      // found a DYNALLOC instruction?
+      if (MI->getOpcode() == Patmos::DYNALLOC) {
+        // rewrite it to a sub immediate/sub immediate long
+        MI->getOperand(4).setImm(maxFrameSize);
+        MI->setDesc(dynallocMCID);
+      }
+    }
   }
 }
 
@@ -93,35 +91,23 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
   MachineFrameInfo *MFI            = MF.getFrameInfo();
-  const PatmosInstrInfo &TII =
-    *static_cast<const PatmosInstrInfo*>(MF.getTarget().getInstrInfo());
-  DebugLoc dl = MBBI->getDebugLoc();
+  const TargetInstrInfo *TII       = MF.getTarget().getInstrInfo();
+  DebugLoc dl                      = MBBI->getDebugLoc();
 
   // Get the number of bytes from FrameInfo
-  unsigned StackSize = MFI->getStackSize();
-
-  // if framepointer enabled, restore the stack pointer.
-  if (hasFP(MF)) {
-    // Find the first instruction that restores a callee-saved register.
-    MachineBasicBlock::iterator I = MBBI;
-
-    for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
-      --I;
-
-    // Restore stack pointer: SP = FP
-    AddDefaultPred(BuildMI(MBB, I, dl, TII.get(Patmos::MOV), Patmos::RSP))
-      .addReg(Patmos::RFP);
-  }
+  unsigned stackSize = MFI->getStackSize();
 
   // adjust stack  : sp += stack size
-  if (StackSize) {
-    if (StackSize <= 0xFFF) {
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDi), Patmos::RSP))
-        .addReg(Patmos::RSP).addImm(StackSize);
+  if (stackSize) {
+    if (stackSize <= 0xFFF) {
+      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::ADDi),
+                             Patmos::RSP))
+        .addReg(Patmos::RSP).addImm(stackSize);
     }
     else {
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(Patmos::ADDl), Patmos::RSP))
-        .addReg(Patmos::RSP).addImm(StackSize);
+      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::ADDl),
+                             Patmos::RSP))
+        .addReg(Patmos::RSP).addImm(stackSize);
     }
   }
 }
@@ -148,7 +134,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
 
 bool
 PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                           MachineBasicBlock::iterator MI,
+                                        MachineBasicBlock::iterator MI,
                                         const std::vector<CalleeSavedInfo> &CSI,
                                         const TargetRegisterInfo *TRI) const {
   if (CSI.empty())
@@ -183,9 +169,11 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
         predicateSpilled = true;
       }
     }
+
     // spill
     const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
     TII.storeRegToStackSlot(MBB, MI, Reg, true, CSI[i-1].getFrameIdx(), RC, TRI);
+    prior(MI)->setFlag(MachineInstr::FrameSetup);
 
     // increment spilled size
     spilledSize += 4;
@@ -193,12 +181,19 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   PMFI->setCalleeSavedFrameSize(spilledSize);
 
+  // if framepointer enabled, set it to point to the stack pointer.
+  if (hasFP(MF)) {
+    // Set frame pointer: FP = SP
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::MOV), Patmos::RFP))
+      .addReg(Patmos::RSP);
+  }
+
   return true;
 }
 
 bool
 PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                                 MachineBasicBlock::iterator MI,
+                                        MachineBasicBlock::iterator MI,
                                         const std::vector<CalleeSavedInfo> &CSI,
                                         const TargetRegisterInfo *TRI) const {
   if (CSI.empty())
@@ -210,6 +205,14 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
 
+  // if framepointer enabled, first restore the stack pointer.
+  if (hasFP(MF)) {
+    // Restore stack pointer: SP = FP
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::MOV), Patmos::RSP))
+      .addReg(Patmos::RFP);
+  }
+
+  // restore the calle saved register
   bool predicateLoaded = false;
   for (unsigned i = CSI.size(); i != 0; --i) {
     unsigned Reg = CSI[i-1].getReg();
@@ -236,6 +239,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
     // load
     const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(tmpReg);
     TII.loadRegFromStackSlot(MBB, MI, tmpReg, CSI[i-1].getFrameIdx(), RC, TRI);
+    prior(MI)->setFlag(MachineInstr::FrameSetup);
 
     // copy, if needed
     if (tmpReg != Reg)

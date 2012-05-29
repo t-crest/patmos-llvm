@@ -27,7 +27,7 @@ protected:
 
 public:
   explicit PatmosFrameLowering(const PatmosSubtarget &sti)
-    : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 8, 0), STI(sti) {
+    : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 4, 0), STI(sti) {
   }
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
