@@ -26,7 +26,7 @@ foreach ($lines as $line) {
 	    $bin .= str_pad(base_convert($tmp, 16, 2), 8, '0', STR_PAD_LEFT) . " ";
 	}
 
-	$line = str_replace($hex, $bin, $line);
+	$line = str_replace($hex, " $hex |$bin", $line);
     }
 
     $data[] = $line;
