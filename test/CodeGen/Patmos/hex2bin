@@ -2,40 +2,95 @@
 <?
 // Thing is, I am simply too lazy to do it in awk/perl/shell now..
 
-if (count($argv) < 2) {
-    echo "Usage: ".$argv[0]." <file.s> [<outfile.s>]\n";
-    exit(1);
+function usage() {
+    echo "Usage: ".$argv[0]." [-b|-f] [-o <outfile.s>|-i] <file.s>\n";
 }
-if (!file_exists($argv[1])) {
-    echo "File does not exist: ".$argv[1]."\n";
+
+if (count($argv) < 2) {
+    usage();
     exit(1);
 }
 
-$lines = file($argv[1]);
+$infile = "";
+$outfile = "";
+$format = true;
+$binout = false;
+$inplace = false;
+
+for ($i = 1; $i < count($argv); $i++) {
+    $arg = $argv[$i];
+
+    switch ($arg) {
+	case "-b": $binout = true; break;
+	case "-f": $format = false; break;
+	case "-i": $inplace = true; break;
+	case "-h": case "--help": usage(); exit(0);
+	case "-o": $outfile = $argv[++$i]; break;
+	default:
+	    $infile = $arg;
+    }
+}
+
+if (!file_exists($infile)) {
+    echo "Input file does not exist: ".$argv[1]."\n";
+    exit(1);
+}
+if ($inplace) {
+    if ($outfile) {
+	echo "Error: -i not allowed with -o\n";
+	exit(1);
+    }
+    $outfile = $infile;
+}
+if ($binout) {
+    if ($inplace || $infile == $outfile) {
+	echo "You probably do not want to replace your .s file with the binary, cowardly backing out.\n";
+	exit(2);
+    }
+    if (!$outfile) {
+	echo "Error: -b must be used with -o\n";
+	exit(1);
+    }
+}
+
+$lines = file($infile);
 $data = array();
 
 foreach ($lines as $line) {
     $rs = array();
-    if ( preg_match('/# encoding: \[([0-9a-fx,]*)\]/', $line, &$rs) ) {
-	$hex = $rs[1];
+    if ( preg_match('/# encoding: \[( ?([0-9a-fx,]*) ?(\| [01 ]*)?)\]/', $line, &$rs) ) {
+	$hex = $rs[2];
 	$vals = explode(",", $hex);
 	
-	$bin = " ";
+	$bin = "";
 	foreach ($vals as $val) {
 	    $tmp = substr($val, 2, 2);
-	    $bin .= str_pad(base_convert($tmp, 16, 2), 8, '0', STR_PAD_LEFT) . " ";
+	    if ($binout) {
+		$bin .= $tmp;
+	    } else {
+		$bin .= str_pad(base_convert($tmp, 16, 2), 8, '0', STR_PAD_LEFT).($format?"":" ");
+	    }
 	}
 
-	$line = str_replace($hex, " $hex |$bin", $line);
-    }
+	if ($binout) {
+	    $data[] = pack('H*', $bin);
+	} else {
+	    if ($format) {
+		$bin = substr($bin,0,1)." ".substr($bin,1,4)." ".substr($bin,5,5)." ".
+		       substr($bin,10,4)." ".substr($bin,14,4)." ".substr($bin,18,4)." ".substr($bin,22)." ";
+	    }
 
-    $data[] = $line;
+	    $data[] = str_replace($rs[1], " $hex | $bin", $line);
+	}
+
+    } elseif (!$binout) {
+	$data[] = $line;
+    }
 }
 
-if (count($argv) < 3) {
+if (!$outfile) {
     echo implode("",$data);
 } else {
-    $outfile = $argv[2];
     file_put_contents($outfile, $data);
 }
 
