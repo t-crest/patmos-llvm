@@ -25,8 +25,7 @@ namespace llvm {
   class formatted_raw_ostream;
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
-
-  //FunctionPass *createPatmosBranchSelectionPass();
+  FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
 
 } // end namespace llvm;
 
