@@ -81,7 +81,7 @@ foreach ($lines as $line) {
 	} else {
 	    if ($format) {
 		$bin = substr($bin,0,1)." ".substr($bin,1,4)." ".substr($bin,5,5)." ".
-		       substr($bin,10,4)." ".substr($bin,14,4)." ".substr($bin,18,4)." ".substr($bin,22)." ";
+		       substr($bin,10,5)." ".substr($bin,15,5)." ".substr($bin,20,5)." ".substr($bin,25)." ";
 	    }
 
 	    $data[] = str_replace($rs[1], " $hex | $bin", $line);
