@@ -60,7 +60,10 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
     // FIXME: Check TargetData string.
     DataLayout("e-S32-p:32:32:32-i8:8:8-i16:16:16-i32:32:32-i64:32:64-n32"),
     InstrInfo(*this), TLInfo(*this), TSInfo(*this),
-    FrameLowering(Subtarget) { }
+    FrameLowering(Subtarget),
+    ELFWriterInfo(*this),
+    InstrItins(Subtarget.getInstrItineraryData()) {
+}
 
 
 TargetPassConfig *PatmosTargetMachine::createPassConfig(PassManagerBase &PM) {

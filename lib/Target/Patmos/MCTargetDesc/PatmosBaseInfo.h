@@ -80,7 +80,7 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
 
   using namespace Patmos;
   switch (RegEnum) {
-  case NoRegister: return 0;
+  case NoRegister: return 0; // Required for default P0 guard
   case R0:  case SZ:  case P0:  return 0;
   case R1:  case SM:  case P1:  return 1;
   case R2:  case SL:  case P2:  return 2;

@@ -117,7 +117,7 @@ extern "C" void LLVMInitializePatmosTargetMC() {
 
   // Register the MC code emitter
   TargetRegistry::RegisterMCCodeEmitter(ThePatmosTarget,
-                                        llvm::createPatmosMCCodeEmitter);
+                                        createPatmosMCCodeEmitter);
 
   // Register the asm backend
   TargetRegistry::RegisterMCAsmBackend(ThePatmosTarget,

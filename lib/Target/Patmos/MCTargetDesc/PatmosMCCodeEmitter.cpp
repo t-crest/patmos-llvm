@@ -109,8 +109,8 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   if (!Binary)
     llvm_unreachable("unimplemented opcode in EncodeInstruction()");
 
-  const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
-  uint64_t TSFlags = Desc.TSFlags;
+  //const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
+  //uint64_t TSFlags = Desc.TSFlags;
 
   // Pseudo instructions don't get encoded and shouldn't be here
   // in the first place!
