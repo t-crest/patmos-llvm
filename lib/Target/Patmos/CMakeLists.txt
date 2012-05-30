@@ -27,6 +27,7 @@ add_llvm_target(PatmosCodeGen
   PatmosAsmPrinter.cpp
   PatmosMCInstLower.cpp
   PatmosELFWriterInfo.cpp
+  PatmosDelaySlotFiller.cpp
   )
 
 add_subdirectory(AsmParser)

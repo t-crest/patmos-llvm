@@ -130,8 +130,6 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 // Pattern Fragments
 //===----------------------------------------------------------------------===//
 
-// NOP
-def uimm4    : Operand<i32>, PatLeaf<(imm), [{return isUInt<4>(N->getZExtValue());}]>;
 
 // offset of indexed load/store
 def uimm7    : Operand<i32>, PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
@@ -225,24 +223,25 @@ def ADJCALLSTACKUP   : PseudoInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
     Uses = [SB, SO] in {
   def RET  : PFLr<0b0000, (outs), (ins pred:$p),
-                  "ret", "# FIXME delay slot", [(retflag)]>;
+                  "ret", "", [(retflag)]>;
 }
 
 
-let isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
+let isTerminator=1, hasDelaySlot=1 in {
   // cache-relative direct branches
   let isBranch=1 in {
-  def BC  : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
-                  "bc", "$target # FIXME delay slot", []>;
+    let isBarrier=1 in
+    def BC     : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
+                      "bc", "$target", []>;
 
-  def BCcond  : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
-                     "bc", "$target # FIXME delay slot", []>;
+    def BCcond : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
+                      "bc", "$target", []>;
   }
 
   // cache-relative indirect branch
-  let isIndirectBranch=1 in
+  let isIndirectBranch=1, isBarrier=1 in
   def BCR : PFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                  "bcr", "$rs # FIXME delay slot", []>;
+                  "bcr", "$rs", []>;
 }
 
 
@@ -259,11 +258,11 @@ let isCall=1, hasDelaySlot=1,
           SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$imm),
-                    "bs", "$imm # FIXME delay slot",
+                    "bs", "$imm",
                     [(PatmosCall uimm22:$imm)]>;
 
   def bsr: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs1),
-                    "bsr", "$rs1 # FIXME delay slot",
+                    "bsr", "$rs1",
                     [(PatmosCall RRegs:$rs1)]>;
 }
 
@@ -331,14 +330,14 @@ multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommut
 defm ADD    : BinArithILR   <0b0000, "add"   , add, 1>;
 defm SUB    : BinArithILR   <0b0001, "sub"   , sub>;
 defm RSUB   : BinArithILRpfg<0b0010, "rsub"  , rsub>;
-defm SL     : BinArithILR   <0b0011, "sl"    , shl>;
-defm SR     : BinArithILR   <0b0100, "sr"    , srl>;
-defm SRA    : BinArithILR   <0b0101, "sra"   , sra>;
+defm SL     : BinArithILR   <0b0011, "sl"    , shl>; // FIXME 5 bits
+defm SR     : BinArithILR   <0b0100, "sr"    , srl>; // FIXME 5 bits
+defm SRA    : BinArithILR   <0b0101, "sra"   , sra>; // FIXME 5 bits
 defm OR     : BinArithILR   <0b0110, "or"    , or, 1>;
 defm AND    : BinArithILR   <0b0111, "and"   , and, 1>;
 // no short immediates:
-defm RL     : BinArithLR    <0b1000, "rl"    , rotl>;
-defm RR     : BinArithLR    <0b1001, "rr"    , rotr>;
+defm RL     : BinArithLR    <0b1000, "rl"    , rotl>; // FIXME 5 bits
+defm RR     : BinArithLR    <0b1001, "rr"    , rotr>; // FIXME 5 bits
 defm XOR    : BinArithLR    <0b1010, "xor"   , xor, 1>;
 defm NOR    : BinArithLRpfg <0b1011, "nor"   , nor, 1>;
 defm SHADD  : BinArithLRpfg <0b1100, "shadd ", shadd>;
@@ -389,6 +388,7 @@ def ZEXT8 : ALUi <0b0111,
               [(set RRegs:$rd, (and RRegs:$rs, (i32 0xff)))]>;
 
 // Pseudo instr LI uses add opcode
+// TODO conditional LI
 let Rs1 = 0,
     isReMaterializable = 1,
     isAsCheapAsAMove = 1,
@@ -458,6 +458,7 @@ def MULU : ALUm <0b0001,
 
 // Compare
 
+let isCompare=1 in
 multiclass ALUc_cn <string asmop, bits<4> func, PatFrag cnode, PatFrag nnode> {
   def c : ALUc<func, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
                 asmop, "$pd = $rs1, $rs2",
