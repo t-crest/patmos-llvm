@@ -4,6 +4,10 @@
 
 function usage() {
     echo "Usage: ".$argv[0]." [-b|-f] [-o <outfile.s>|-i] <file.s>\n";
+    echo "  -b  Produce binary file containing all instructions (use with -o)\n";
+    echo "  -f  Group binary representation per byte, not per field\n";
+    echo "  -i  Perform replacement in place on the input file.\n";
+    echo "  -o  Write output to file (otherwise to stdout).\n";
 }
 
 if (count($argv) < 2) {
