@@ -216,6 +216,7 @@ let isTerminator=1, hasDelaySlot=1 in {
     def BC     : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
                       "bc", "$target", []>;
 
+    let isBarrier=0 in
     def BCcond : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
                       "bc", "$target", []>;
   }
@@ -361,10 +362,12 @@ def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
                "neg", "$rd = $rs",
                [(set RRegs:$rd, (ineg RRegs:$rs))]>;
 
+
 // not Rd = ~Rs ... nor Rd = ~(Rs | Rs)
-def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs, RRegs:$rhidden),
-                "not", "$rd = $rs", []>;
-def : Pat<(not RRegs:$rs),(NOT RRegs:$rs, RRegs:$rs)>;
+def NOT : ALUrdup<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
+                "not", "$rd = $rs",
+                [(set RRegs:$rd, (not RRegs:$rs))]>;
+
 
 // zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
 let Imm12 = 0xff in
@@ -373,8 +376,8 @@ def ZEXT8 : ALUi <0b0111,
               "zext8", "$rd = $rs",
               [(set RRegs:$rd, (and RRegs:$rs, (i32 0xff)))]>;
 
-// Pseudo instr LI uses add opcode
-// TODO conditional LI
+
+
 let Rs1 = 0,
     isReMaterializable = 1,
     isAsCheapAsAMove = 1,
@@ -383,16 +386,18 @@ in {
   // li Rd = Immedate ... add Rd = r0 + Immediate (short, positive)
   def LIi : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, uimm12:$imm),
                  "li", "$rd = $imm",
-                 [(set RRegs:$rd, (add R0, (i32 uimm12:$imm)))]>;
+                 [(set RRegs:$rd, (add R0, uimm12:$imm))]>;
   // li Rd = Immedate ... sub Rd = r0 - Immediate (short, negative)
   def LIin : ALUi<0b0001, (outs RRegs:$rd), (ins pred:$p, nuimm12:$imm),
                   "li", "$rd = $imm",
-                  [(set RRegs:$rd, (sub R0, (i32 nuimm12:$imm)))]>;
+                  [(set RRegs:$rd, (sub R0, nuimm12:$imm))]>;
   // li Rd = Immedate ... add Rd = r0 + Immediate (long immediate)
   def LIl : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
                   "li", "$rd = $imm",
                   [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
 }
+
+
 
 /********/
 // Unary Arithmetic

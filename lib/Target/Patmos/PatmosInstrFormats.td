@@ -182,6 +182,16 @@ class ALUr<bits<4> func,
   let Inst{11-7}  = Rs2;
 }
 
+
+class ALUrdup<bits<4> func,
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALUr<func, outs, ins, op, asmstr, pattern>
+{
+  let Inst{11-7}  = Rs1;
+}
+
+
+
 // ALUu - Unary
 //
 class ALUu<bits<4> func,
