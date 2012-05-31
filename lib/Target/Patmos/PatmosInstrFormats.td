@@ -21,7 +21,10 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz, Format f,
 {
   field bits<32> Inst;
 
-  let Inst = 0;
+  // set bits to 0 per default
+  // TODO handle bit 31 somehow
+  let Inst{31-0} = 0;
+
   let Namespace = "Patmos";
 
   dag OutOperandList = outs;
@@ -56,12 +59,14 @@ class PatmosInstNoP<dag outs, dag ins, // SizeVal sz, Format f,
 
 
 // Pseudo instructions
-//
+// (note that this class is for instructions that should not be generated, not for instructions 
+// that are aliases for more generic instructions)
 class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInstNoP<outs, ins, op, asmstr, pattern> 
 {
   let Inst{31-0} = 0;
 
+  let isPseudo = 1;
   let isCodeGenOnly = 1;
 }
 
@@ -199,6 +204,9 @@ class ALUc<bits<4> func,
 
   let Opc = 0b011;
 
+  // TODO what does this do?
+  //let isCompare = 1;
+
   // unbound fields
   bits<3> Pd;
   bits<4> Pred;
@@ -326,6 +334,13 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
+<<<<<<< HEAD
+=======
+  let Inst{26-22} = 0b01010;
+
+  let mayLoad = 1;
+
+>>>>>>> set some more flags
   // unbound fields
   bits<5> Rd;
   bits<4> Pred;
@@ -354,6 +369,8 @@ class STT<bits<3> ty, bits<2> td,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
+
+  let mayStore = 1;
 
   // unbound fields
   bits<4> Pred;
