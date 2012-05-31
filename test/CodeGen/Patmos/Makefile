@@ -11,10 +11,12 @@ endif
 
 LLCBIN=$(BUILDDIR)/bin/llc
 MCBIN=$(BUILDDIR)/bin/llvm-mc
+TBLGENBIN=$(BUILDDIR)/bin/llvm-tblgen
 
 LLC=$(LLCBIN) -march=$(ARCH)
 OBJDUMP=$(BUILDDIR)/bin/llvm-objdump
 MC=$(MCBIN) -arch=$(ARCH)
+TBLGEN=$(TBLGENBIN)
 
 CLANG=$(BUILDDIR)/bin/clang
 OPT=$(BUILDDIR)/bin/opt
@@ -64,5 +66,8 @@ all: return.s
 %.dis: %.o $(MCBIN)
 	$(OBJDUMP) -disassemble $<
 
+Patmos.out: $(TBLGENBIN) ../../../lib/Target/Patmos/*.td
+	$(TBLGEN) -I=../../../include -I=../../../lib/Target/Patmos/ ../../../lib/Target/Patmos/Patmos.td > Patmos.out
+
 clean:
-	rm -f *.s *.o *.ll *.as
+	rm -f *.s *.o *.ll *.as *.out
