@@ -141,13 +141,16 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   assert(SPAdj == 0 && "Unexpected");
 
   // get some references
-  MachineInstr &MI = *II;
-  MachineBasicBlock &MBB = *MI.getParent();
-  MachineFunction &MF = *MBB.getParent();
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-  //DebugLoc dl = MI.getDebugLoc();
+  MachineInstr &MI                = *II;
+  MachineBasicBlock &MBB          = *MI.getParent();
+  MachineFunction &MF             = *MBB.getParent();
+  const TargetFrameLowering &TFI  = *MF.getTarget().getFrameLowering();
+  const MachineFrameInfo &MFI     = *MF.getFrameInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
+  //----------------------------------------------------------------------------
   // find position of the FrameIndex object
+
   unsigned i = 0;
   while (!MI.getOperand(i).isFI()) {
     ++i;
@@ -158,22 +161,54 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // TODO: position in other expressions than load/store!
   assert(i == 2 || i == 3);
 
-  // get information on FrameIndex's stack slot 
-  int FrameIndex = MI.getOperand(i).getIndex(); 
-  unsigned BasePtr = (TFI->hasFP(MF) && !MI.getFlag(MachineInstr::FrameSetup)) ?
-                                                      Patmos::RFP : Patmos::RSP;
+  //----------------------------------------------------------------------------
+  // Stack Object / Frame Index
+
+  int FrameIndex        = MI.getOperand(i).getIndex();
+  int FrameOffset       = MFI.getObjectOffset(FrameIndex);
+  int FrameDisplacement = MI.getOperand(i+1).getImm();
+
+  //----------------------------------------------------------------------------
+  // Stack cache info
+
+  int firstStackCacheOffset = PMFI.getFirstStackCacheOffset();
+  int lastStackCacheOffset  = PMFI.getLastStackCacheOffset();
+  bool isOnStackCache       = (firstStackCacheOffset <= FrameOffset) &&
+                              (FrameOffset <= lastStackCacheOffset);
+
+  //----------------------------------------------------------------------------
+  // Offset
 
   // get offset
-  int Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
-               MF.getFrameInfo()->getStackSize();
+  int Offset = MFI.getStackSize() + FrameOffset + FrameDisplacement;
 
-  // Fold imm into offset
-  Offset += MI.getOperand(i+1).getImm();
+  // adjust offset of stack cache accesses and those below
+  if (isOnStackCache)
+    Offset -= firstStackCacheOffset + MFI.getMaxCallFrameSize();
+  else if (lastStackCacheOffset < FrameOffset)
+    Offset -= lastStackCacheOffset;
+
+  //----------------------------------------------------------------------------
+  // Base register
+
+  // which register are we using as a base register?
+  unsigned BasePtr = (TFI.hasFP(MF) && !MI.getFlag(MachineInstr::FrameSetup)) ?
+                                                      Patmos::RFP : Patmos::RSP;
+
+  // no base pointer needed for stack cache
+  if (isOnStackCache)
+    BasePtr = Patmos::R0;
+
+  //----------------------------------------------------------------------------
+  // Update instruction
+
+  unsigned opcode = MI.getOpcode();
 
   // ensure that the offset fits the instruction
-  switch (MI.getOpcode())
+  // TODO: expand if needed
+  switch (opcode)
   {
-    case Patmos::LWC: case Patmos::LWM: 
+    case Patmos::LWC: case Patmos::LWM:
     case Patmos::SWC: case Patmos::SWM:
       // 9 bit
       Offset = Offset >> 2;
@@ -202,6 +237,29 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     default:
       assert("Unexpected operation with FrameIndex encountered." && false);
       abort();
+  }
+
+  // do we need to rewrite the instruction opcode?
+  switch (opcode)
+  {
+    case Patmos::LWC: case Patmos::LWM: opcode = Patmos::LWS; break;
+    case Patmos::LHC: case Patmos::LHM: opcode = Patmos::LHS; break;
+    case Patmos::LHUC: case Patmos::LHUM: opcode = Patmos::LHUS; break;
+    case Patmos::LBC: case Patmos::LBM: opcode = Patmos::LBS; break;
+    case Patmos::LBUC: case Patmos::LBUM: opcode = Patmos::LBUS; break;
+    case Patmos::SWC: case Patmos::SWM: opcode = Patmos::SWS; break;
+    case Patmos::SHC: case Patmos::SHM: opcode = Patmos::SHS; break;
+    case Patmos::SBC: case Patmos::SBM: opcode = Patmos::SBS; break;
+    case Patmos::ADDi: case Patmos::ADDl:
+      break;
+    default:
+      assert("Unexpected operation with FrameIndex encountered." && false);
+      abort();
+  }
+
+  if (isOnStackCache) {
+    const MCInstrDesc &newMCID = TII.get(opcode);
+    MI.setDesc(newMCID);
   }
 
   // update the instruction's operands

@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "patmos-framelowering"
 #include "PatmosFrameLowering.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
@@ -23,15 +24,34 @@
 #include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 
 using namespace llvm;
+
+/// EnableStackCache - Command line option to disable the usage of the stack 
+/// cache (enabled by default).
+static cl::opt<bool> DisableStackCache("patmos-disable-stack-cache",
+                            cl::init(false),
+                            cl::desc("Disable the use of Patmos' stack cache"));
+
+/// StackCacheBlockSize - Block size of the stack cache in bytes (default: 4, 
+/// i.e., word-sized).
+static cl::opt<unsigned> StackCacheBlockSize("patmos-stack-cache-block-size",
+                           cl::init(4),
+                           cl::desc("Block size of the stack cache in bytes."));
+
+/// StackCacheSize - Total size of the stack cache in bytes (default: 4096, 
+/// i.e., 1K words).
+static cl::opt<unsigned> StackCacheSize("patmos-stack-cache-size",
+                           cl::init(4096),
+                           cl::desc("Total size of the stack cache in bytes."));
+
 
 
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
 
   return (MF.getTarget().Options.DisableFramePointerElim(MF) ||
-  //return (DisableFramePointerElim(MF) ||
           MF.getFrameInfo()->hasVarSizedObjects() ||
           MFI->isFrameAddressTaken());
 }
@@ -42,32 +62,146 @@ bool PatmosFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const 
 }
 #endif
 
+unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
+  const MachineFrameInfo &MFI = *MF.getFrameInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
+  const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
+
+  assert(MFI.isCalleeSavedInfoValid());
+
+  // find all FIs used for callee saved registers
+  BitVector CSIFIs(MFI.getObjectIndexEnd());
+  for(std::vector<CalleeSavedInfo>::const_iterator i(CSI.begin()),
+      ie(CSI.end()); i != ie; i++)
+  {
+    CSIFIs[i->getFrameIdx()] = true;
+  }
+
+  // check all FIs
+  unsigned stackCacheSize = 0;
+  int offsetMin = std::numeric_limits<int>::max();
+  int offsetMax = std::numeric_limits<int>::min();
+  for(unsigned FI = MFI.getObjectIndexBegin(), FIe = MFI.getObjectIndexEnd();
+      FI != FIe; FI++) {
+
+    // find all spill slots and locations for callee saved registers
+    if (MFI.isSpillSlotObjectIndex(FI) || CSIFIs[FI]) {
+      // be sure to ignore all other kinds of stack objects
+      assert(!MFI.isFixedObjectIndex(FI) && !MFI.isObjectPreAllocated(FI) &&
+             MFI.getObjectSize(FI) != 0);
+
+      // check offset of the stack object
+      int FIOffset = MFI.getObjectOffset(FI);
+      int newOffsetMin = std::min(offsetMin, FIOffset);
+      int newOffsetMax = std::max(offsetMax, FIOffset);
+
+      // only assign the FI to the stack cache when it fits
+      if ((unsigned)(newOffsetMax - newOffsetMin) <= StackCacheSize) {
+        offsetMin = newOffsetMin;
+        offsetMax = newOffsetMax;
+      }
+
+      // update stack cache size
+      stackCacheSize += MFI.getObjectSize(FI);
+    }
+  }
+
+  // check that no other FI is in the min/max offset range of the FIs from above
+  for(unsigned FI = MFI.getObjectIndexBegin(), FIe = MFI.getObjectIndexEnd();
+      FI != FIe; FI++) {
+
+    // find all non-variable-sized objects that are not spill slots or callee
+    // saved locations
+    if (!MFI.isSpillSlotObjectIndex(FI) && !CSIFIs[FI] &&
+        MFI.getObjectSize(FI) != 0) {
+      int FIOffset = MFI.getObjectOffset(FI);
+      assert(FIOffset  < offsetMin || offsetMax < FIOffset);
+    }
+  }
+
+  DEBUG(dbgs() << "PatmosSC: min: " << offsetMin << ", max: " << offsetMax
+               << "\n");
+
+  // align the stack cache size
+  unsigned alignedStackCacheSize = std::ceil((float)stackCacheSize/
+                                             (float)StackCacheBlockSize);
+
+  // store assignment information
+  if (stackCacheSize) {
+    PMFI.setStackCacheReservedBytes(alignedStackCacheSize);
+    PMFI.setFirstStackCacheOffset(offsetMin);
+    PMFI.setLastStackCacheOffset(offsetMax);
+  }
+
+  return stackCacheSize;
+}
+
+void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator &MI,
+                                  unsigned Opcode) const {
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
+
+  unsigned alignedStackCacheSize = PMFI.getStackCacheReservedBytes();
+
+  if (alignedStackCacheSize)
+  {
+    assert(isUInt<22>(alignedStackCacheSize) && "Stack cache size exceeded.");
+
+    DebugLoc DL                      = (MI != MBB.end()) ? MI->getDebugLoc()
+                                                                   : DebugLoc();
+    const TargetInstrInfo &TII       = *MF.getTarget().getInstrInfo();
+
+    // emit reserve instruction
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Opcode)))
+      .addImm(alignedStackCacheSize);
+  }
+}
+
 void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // get some references
   MachineBasicBlock &MBB     = MF.front();
   MachineFrameInfo *MFI      = MF.getFrameInfo();
   const TargetInstrInfo *TII = MF.getTarget().getInstrInfo();
 
-
   MachineBasicBlock::iterator MBBI = MBB.begin();
   DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
+  //----------------------------------------------------------------------------
+  // Handle the stack cache -- if enabled.
+
+  // assign some FIs to the stack cache if possible
+  unsigned stackCacheSize = 0;
+  if (!DisableStackCache)
+  {
+    // assign some FIs to the stack cache
+    stackCacheSize = assignFIsToStackCache(MF);
+
+    // emit a reserve instruction
+    emitSTC(MF, MBB, MBBI, Patmos::SRES);
+  }
+
+  //----------------------------------------------------------------------------
+  // Handle the shadow stack
+
+  assert(stackCacheSize <= MFI->getStackSize());
+
   // First, get final stack size.
   unsigned maxFrameSize = MFI->getMaxCallFrameSize();
-  unsigned stackSize = MFI->getStackSize() + (!hasFP(MF) ? 0 : maxFrameSize);
+  unsigned stackSize = MFI->getStackSize() + (!hasFP(MF) ? 0 : maxFrameSize) -
+                       stackCacheSize;
   MFI->setStackSize(stackSize);
 
-  // No need to allocate space on the stack.
-  if (stackSize == 0 && !MFI->adjustsStack()) return;
-
-  // adjust stack : sp -= stack size
-  if (stackSize <= 0xFFF) {
-    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBi), Patmos::RSP))
-      .addReg(Patmos::RSP).addImm(stackSize);
-  }
-  else {
-    AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBl), Patmos::RSP))
-      .addReg(Patmos::RSP).addImm(stackSize);
+  // Do we need to allocate space on the stack?
+  if (stackSize) {
+    // adjust stack : sp -= stack size
+    if (stackSize <= 0xFFF) {
+      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBi), Patmos::RSP))
+        .addReg(Patmos::RSP).addImm(stackSize);
+    }
+    else {
+      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBl), Patmos::RSP))
+        .addReg(Patmos::RSP).addImm(stackSize);
+    }
   }
 
   // eliminate DYNALLOC instruction (aka. alloca)
@@ -93,6 +227,15 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
   MachineFrameInfo *MFI            = MF.getFrameInfo();
   const TargetInstrInfo *TII       = MF.getTarget().getInstrInfo();
   DebugLoc dl                      = MBBI->getDebugLoc();
+
+  //----------------------------------------------------------------------------
+  // Handle Stack Cache
+
+  // emit a free instruction
+  emitSTC(MF, MBB, MBBI, Patmos::SFREE);
+
+  //----------------------------------------------------------------------------
+  // Handle Shadow Stack
 
   // Get the number of bytes from FrameInfo
   unsigned stackSize = MFI->getStackSize();
@@ -145,7 +288,6 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
-  PatmosMachineFunctionInfo *PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
 
   unsigned spilledSize = 0;
   bool predicateSpilled = false;
@@ -178,8 +320,6 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
     // increment spilled size
     spilledSize += 4;
   }
-
-  PMFI->setCalleeSavedFrameSize(spilledSize);
 
   // if framepointer enabled, set it to point to the stack pointer.
   if (hasFP(MF)) {

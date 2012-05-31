@@ -25,7 +25,19 @@ class PatmosFrameLowering : public TargetFrameLowering {
 protected:
   const PatmosSubtarget &STI;
 
-public:
+  /// assignFIsToStackCache - Assign some FIs to the stack cache.
+  /// Currently this is only done for spill slots.
+  unsigned assignFIsToStackCache(MachineFunction &MF) const;
+
+  /// emitSTC - Emit a stack reserve/free/ensure operation.
+  /// The size of the stack frame is calculated before by assignFIsToStackCache
+  /// and is retrieved via the PatmosMachineFunctionInfo.
+  /// \see assignFIsToStackCache
+  /// \see PatmosMachineFunctionInfo
+  void emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
+               MachineBasicBlock::iterator &MI, unsigned Opcode) const;
+
+  public:
   explicit PatmosFrameLowering(const PatmosSubtarget &sti)
     : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 4, 0), STI(sti) {
   }
