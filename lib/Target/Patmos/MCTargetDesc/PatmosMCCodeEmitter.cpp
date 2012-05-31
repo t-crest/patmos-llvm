@@ -79,6 +79,8 @@ public:
   unsigned getMachineOpValue(const MCInst &MI,const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups) const;
 
+  unsigned getPredOperandEncoding(const MCInst &MI, unsigned OpNo,
+                                  SmallVectorImpl<MCFixup> &Fixups) const;
   unsigned getMemEncoding(const MCInst &MI, unsigned OpNo,
                           SmallVectorImpl<MCFixup> &Fixups) const;
   unsigned getSizeExtEncoding(const MCInst &MI, unsigned OpNo,
@@ -169,7 +171,7 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   } else if (MO.isFPImm()) {
     return static_cast<unsigned>(APFloat(MO.getFPImm())
         .bitcastToAPInt().getHiBits(32).getLimitedValue());
-  } 
+  }
 
   // MO must be an Expr.
   assert(MO.isExpr());
@@ -183,7 +185,7 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   }
 
   assert (Kind == MCExpr::SymbolRef);
-    
+
   Patmos::Fixups FixupKind = Patmos::Fixups(0);
 
   switch(cast<MCSymbolRefExpr>(Expr)->getKind()) {
@@ -197,6 +199,20 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   return 0;
 }
 
+/// getPredOperandEncoding - Return binary encoding of predicate operand.
+unsigned
+PatmosMCCodeEmitter::getPredOperandEncoding(const MCInst &MI, unsigned OpNo,
+                                  SmallVectorImpl<MCFixup> &Fixups) const {
+  // Base register is encoded in bits 20-16, offset is encoded in bits 15-0.
+  assert( "Invalid predicate operand in encoder method!"
+      && MI.getOperand(OpNo).isReg() && MI.getOperand(OpNo+1).isImm() );
+  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo),   Fixups);
+  unsigned InvBit  = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups);
+
+  return (InvBit << 3) | RegBits;
+}
+
+
 /// getMemEncoding - Return binary encoding of memory related operand.
 /// If the offset operand requires relocation, record the relocation.
 unsigned
@@ -204,7 +220,7 @@ PatmosMCCodeEmitter::getMemEncoding(const MCInst &MI, unsigned OpNo,
                                   SmallVectorImpl<MCFixup> &Fixups) const {
   // Base register is encoded in bits 20-16, offset is encoded in bits 15-0.
   assert(MI.getOperand(OpNo).isReg());
-  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo),Fixups) << 16;
+  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups);
   unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups);
 
   return (OffBits & 0xFFFF) | RegBits;

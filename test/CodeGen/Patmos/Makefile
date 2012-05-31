@@ -4,6 +4,11 @@ BUILDDIR=../../../Debug+Asserts/
 ON?=2
 ARCH ?= patmos
 
+GDB ?=
+ifeq ($(GDB),1)
+  GDB = gdb --args
+endif
+
 LLCBIN=$(BUILDDIR)/bin/llc
 MCBIN=$(BUILDDIR)/bin/llvm-mc
 
@@ -33,6 +38,7 @@ VIEW= \
   -view-isel-dags \
   -view-sched-dags
 
+VIEW=
 
 DEBUG=--debug
 
@@ -45,7 +51,8 @@ all: return.s
 	$(CLANG) -O$(ON) -S -emit-llvm -o $@ $<
 
 %.s: %.ll $(LLCBIN)
-	$(LLC) -O0 $(DEBUG) $(VIEW) -show-mc-encoding -o $@ $<
+	$(GDB) $(LLC) -O0 $(DEBUG) $(VIEW) -show-mc-encoding -o $@ $<
+	./hex2bin -i $@
 	@echo
 
 %.o: %.ll $(LLCBIN)

@@ -16,10 +16,12 @@
 
 // Generic Patmos Format
 class PatmosInstBase<dag outs, dag ins, // SizeVal sz, Format f,
-                 list<dag> pattern> : Instruction 
+                 list<dag> pattern>
+      : Instruction
 {
   field bits<32> Inst;
 
+  let Inst = 0;
   let Namespace = "Patmos";
 
   dag OutOperandList = outs;
@@ -32,20 +34,17 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz, Format f,
 }
 
 class PatmosInst<dag outs, dag ins, // SizeVal sz, Format f,
-                 string op, string asmstr, list<dag> pattern> : 
-      PatmosInstBase<outs, ins, pattern> 
+                 string op, string asmstr, list<dag> pattern>
+      : PatmosInstBase<outs, ins, pattern>
 {
-  bits<4> Pred;
-  let Inst{30-27} = Pred;
-  
   let AsmString   = "$p " # op # " " # asmstr;
   let isPredicable = 1; // we have a fully predicated instruction set
 }
 
 // Generic instruction, not predicated (mainly for pseudo instructions)
 class PatmosInstNoP<dag outs, dag ins, // SizeVal sz, Format f,
-                 string op, string asmstr, list<dag> pattern> : 
-      PatmosInstBase<outs, ins, pattern> 
+                 string op, string asmstr, list<dag> pattern>
+      : PatmosInstBase<outs, ins, pattern>
 {
   let Inst{30-27} = 0;
 
@@ -71,21 +70,19 @@ class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 
 // ALUi - Arithmetic Immediate
 //
-class ALUi<bits<3> func,
+class ALUi<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-  let Inst{26-25} = 0b00;
-
   // unbound fields
   bits<5> Rd;
+  bits<4> Pred;
   bits<5> Rs1;
   bits<12> Imm12;
 
-  bits<3> Func;
-  let Func = func;
-
-  let Inst{24-22} = Func;
+  let Inst{30-27} = Pred;
+  let Inst{26-25} = 0b00;
+  let Inst{24-22} = func{2-0};
   let Inst{21-17} = Rd;
   let Inst{16-12} = Rs1;
   let Inst{11-0}  = Imm12;
@@ -101,22 +98,20 @@ class ALUl<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-  let Inst{31} = 1; //FIXME
-
-  let Inst{26-22} = 0b11111;
-
   // unbound fields
   bits<5>  Rd;
+  bits<4>  Pred;
   bits<5>  Rs1;
   bits<32> Imm32;
-  bits<4>  Func;
 
-  let Func = func;
-
+  let Inst{31} = 1; //FIXME?
+  let Inst{30-27} = Pred;
+  let Inst{26-22} = 0b11111;
   let Inst{21-17} = Rd;
   let Inst{16-12} = Rs1;
+  let Inst{11-7} = 0b00000; //XXX don't care
   let Inst{6-4} = 0b000;
-  let Inst{3-0} = Func;
+  let Inst{3-0} = func;
 
   //TODO handle Imm32
 }
@@ -130,17 +125,13 @@ class ALU<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-  // common for ALU format
-  let Inst{26-22} = 0b01000;
-
   // each subclass specifies Opc
   bits<3> Opc;
-  bits<4> Func;
 
-  let Func = func;
-
+  // common for ALU format
+  let Inst{26-22} = 0b01000;
   let Inst{6-4} = Opc;
-  let Inst{3-0} = Func;
+  let Inst{3-0} = func;
 }
 
 
@@ -154,9 +145,11 @@ class ALUr<bits<4> func,
 
   // unbound fields
   bits<5> Rd;
+  bits<4> Pred;
   bits<5> Rs1;
   bits<5> Rs2;
 
+  let Inst{30-27} = Pred;
   let Inst{21-17} = Rd;
   let Inst{16-12} = Rs1;
   let Inst{11-7}  = Rs2;
@@ -172,8 +165,10 @@ class ALUu<bits<4> func,
 
   // unbound fields
   bits<5> Rd;
+  bits<4> Pred;
   bits<5> Rs1;
 
+  let Inst{30-27} = Pred;
   let Inst{21-17} = Rd;
   let Inst{16-12} = Rs1;
 }
@@ -187,9 +182,11 @@ class ALUm<bits<4> func,
   let Opc = 0b010;
 
   // unbound fields
+  bits<4> Pred;
   bits<5> Rs1;
   bits<5> Rs2;
 
+  let Inst{30-27} = Pred;
   let Inst{16-12} = Rs1;
   let Inst{11-7}  = Rs2;
 }
@@ -204,9 +201,11 @@ class ALUc<bits<4> func,
 
   // unbound fields
   bits<3> Pd;
+  bits<4> Pred;
   bits<5> Rs1;
   bits<5> Rs2;
 
+  let Inst{30-27} = Pred;
   let Inst{19-17} = Pd;
   let Inst{16-12} = Rs1;
   let Inst{11-7}  = Rs2;
@@ -222,9 +221,11 @@ class ALUp<bits<4> func,
 
   // unbound fields
   bits<3> Pd;
+  bits<4> Pred;
   bits<4> Ps1;
   bits<4> Ps2;
 
+  let Inst{30-27} = Pred;
   let Inst{19-17} = Pd;
   let Inst{15-12} = Ps1;
   let Inst{10-7}  = Ps2;
@@ -240,11 +241,11 @@ class ALUp<bits<4> func,
 class SPC<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-  // common for SPC format
-  let Inst{26-22} = 0b01001;
-
   // each subclass specifies Opc
   bits<3> Opc;
+
+  // common for SPC format
+  let Inst{26-22} = 0b01001;
   let Inst{6-4} = Opc;
 }
 
@@ -255,8 +256,12 @@ class SPCn<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : SPC<outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b000;
+
   // unbound fields
+  bits<4> Pred;
   bits<4> Imm4;
+
+  let Inst{30-27} = Pred;
   let Inst{3-0}  = Imm4;
 }
 
@@ -268,9 +273,12 @@ class SPCw<bits<4> func,
   : SPC<outs, ins, op, asmstr, pattern> {
 
   let Opc = 0b001;
-  bits<4> Func;
-  let Func = func;
-  let Inst{3-0}  = Func;
+
+  // unbound fields
+  bits<4> Pred;
+
+  let Inst{30-27} = Pred;
+  let Inst{3-0}   = func;
 }
 
 
@@ -282,9 +290,11 @@ class SPCt<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   let Opc = 0b010;
 
   // unbound fields
-  bits<5> Rs1;
   bits<4> Sd;
+  bits<4> Pred;
+  bits<5> Rs1;
 
+  let Inst{30-27} = Pred;
   let Inst{16-12} = Rs1;
   let Inst{3-0}   = Sd;
 }
@@ -298,8 +308,10 @@ class SPCf<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 
   // unbound fields
   bits<5> Rd;
+  bits<4> Pred;
   bits<4> Ss;
 
+  let Inst{30-27} = Pred;
   let Inst{21-17} = Rd;
   let Inst{3-0}   = Ss;
 }
@@ -314,10 +326,9 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-  let Inst{26-22} = 0b01010;
-
   // unbound fields
   bits<5> Rd;
+  bits<4> Pred;
   bits<5> Ra;
   bits<7> Offset;
 
@@ -326,6 +337,8 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
   let Type{1} = ts1;
   let Type{4-2} = ty;
 
+  let Inst{30-27} = Pred;
+  let Inst{26-22} = 0b01010;
   let Inst{21-17} = Rd;
   let Inst{16-12} = Ra;
   let Inst{11-7}  = Type;
@@ -341,9 +354,9 @@ class STT<bits<3> ty, bits<2> td,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-  let Inst{26-22} = 0b01011;
 
   // unbound fields
+  bits<4> Pred;
   bits<5> Ra;
   bits<5> Rs;
   bits<7> Offset;
@@ -352,6 +365,8 @@ class STT<bits<3> ty, bits<2> td,
   let Type{1-0} = td;
   let Type{4-2} = ty;
 
+  let Inst{30-27} = Pred;
+  let Inst{26-22} = 0b01011;
   let Inst{21-17} = Type;
   let Inst{16-12} = Ra;
   let Inst{11-7}  = Rs;
@@ -369,15 +384,13 @@ class STC<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, asmop, asmstr, pattern> {
 
-  let Inst{26-24} = 0b011;
-
-  // unbound immediate
+  // unbound fields
+  bits<4> Pred;
   bits<22> Imm22;
 
-  bits<2> Op;
-  let Op = op;
-  let Inst{23-22} = Op;
-
+  let Inst{30-27} = Pred;
+  let Inst{26-24} = 0b011;
+  let Inst{23-22} = op;
   let Inst{21-0} = Imm22;
 }
 
@@ -390,9 +403,8 @@ class STC<bits<2> op,
 class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-  let Inst{26-25} = 0b11;
-
   bits<2> PFLOp;
+  let Inst{26-25} = 0b11;
   let Inst{23-22} = PFLOp;
 }
 
@@ -402,10 +414,12 @@ class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PFL<outs, ins, op, asmstr, pattern> {
 
-  let Inst{24} = 0;
   let PFLOp = pflop;
 
+  bits<4> Pred;
   bits<22> Imm22;
+  let Inst{30-27} = Pred;
+  let Inst{24} = 0;
   let Inst{21-0} = Imm22;
 }
 
@@ -415,16 +429,16 @@ class PFLi<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
   : PFL<outs, ins, asmop, asmstr, pattern> {
 
-  let Inst{24} = 1;
   let PFLOp = 0b00;
 
   // unbound register field
+  bits<4> Pred;
   bits<5> Rs1;
-  let Inst{16-12} = Rs1;
 
-  bits<4> Op;
-  let Op = op;
-  let Inst{3-0} = Op;
+  let Inst{30-27} = Pred;
+  let Inst{24} = 1;
+  let Inst{16-12} = Rs1;
+  let Inst{3-0} = op;
 }
 
 // PFLr - Return
@@ -433,12 +447,13 @@ class PFLr<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
   : PFL<outs, ins, asmop, asmstr, pattern> {
 
-  let Inst{24} = 1;
   let PFLOp = 0b10;
 
-  bits<4> Op;
-  let Op = op;
-  let Inst{3-0} = Op;
+  bits<4> Pred;
+
+  let Inst{30-27} = Pred;
+  let Inst{24} = 1;
+  let Inst{3-0} = op;
 }
 
 

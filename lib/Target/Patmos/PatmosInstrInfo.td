@@ -63,12 +63,14 @@ def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
 def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
                                      (ops (i1 zero_reg), (i1 0))> {
   let PrintMethod = "printPredicateOperand";
+  let EncoderMethod = "getPredOperandEncoding";
 }
 
 // Patmos setable predicate operand
 // like pred but no default values
 def predset : PredicateOperand<i1, (ops PRegs, i1imm), (ops )> {
   let PrintMethod = "printPredicateOperand";
+  let EncoderMethod = "getPredOperandEncoding";
 }
 
 // for cache relative branches
@@ -296,7 +298,7 @@ multiclass BinArithLR<bits<4> func, string asmop, SDNode opnode, bit isrCommutab
 
 // also support short immediates
 multiclass BinArithILR<bits<4> func, string asmop, SDNode opnode, bit isrCommutable=0> {
-  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
+  def i : ALUi<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
   // also L and R
@@ -316,7 +318,7 @@ multiclass BinArithLRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommuta
 }
 
 multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommutable=0> {
-  def i : ALUi<func{1-3}, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
+  def i : ALUi<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                asmop, " $rd = $rs1, $imm",
                [(set RRegs:$rd, (pfg RRegs:$rs1, uimm12:$imm))]>;
   // also L and R
@@ -488,7 +490,6 @@ def  ISODD  : ALUc<0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
                   [(set PRegs:$pd, (setne (and RRegs:$rs, (i32 1)), (i32 1)))]>;
 
 // Pseudo mov Pd <- Rs uses cmpneq with r0
-// I don't think it makes sense to define it at all
 let Rs2 = 0 in
 def  MOVrp  : ALUc<0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
                   "mov", "$pd = $rs",
