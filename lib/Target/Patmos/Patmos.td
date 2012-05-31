@@ -15,29 +15,18 @@
 
 include "llvm/Target/Target.td"
 
-//===----------------------------------------------------------------------===//
-// Subtarget Features. 
-//===----------------------------------------------------------------------===//
-
-/*
-def FeatureX
- : SubtargetFeature<"ext", "ExtendedInsts", "true",
-                    "Enable Patmos-X extensions">;
-*/
-
-//===----------------------------------------------------------------------===//
-// Patmos supported processors.
-//===----------------------------------------------------------------------===//
-class Proc<string Name, list<SubtargetFeature> Features>
- : Processor<Name, NoItineraries, Features>;
-
-def : Proc<"generic", []>;
 
 //===----------------------------------------------------------------------===//
 // Register File Description
 //===----------------------------------------------------------------------===//
 
 include "PatmosRegisterInfo.td"
+
+//===----------------------------------------------------------------------===//
+// Scheduling Descriptions
+//===----------------------------------------------------------------------===//
+
+include "PatmosSchedule.td"
 
 //===----------------------------------------------------------------------===//
 // Calling Convention Description
@@ -57,6 +46,21 @@ def PatmosInstPrinter : AsmWriter {
   string AsmWriterClassName  = "InstPrinter";
   bit isMCAsmWriter = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// Subtarget Features. 
+//===----------------------------------------------------------------------===//
+
+/*
+def FeatureX
+ : SubtargetFeature<"ext", "ExtendedInsts", "true",
+                    "Enable Patmos-X extensions">;
+*/
+
+//===----------------------------------------------------------------------===//
+// Patmos supported processors.
+//===----------------------------------------------------------------------===//
+def : Processor<"generic", PatmosGenericItineraries, []>;
 
 //===----------------------------------------------------------------------===//
 // Target Declaration
