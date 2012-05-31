@@ -47,6 +47,10 @@ protected:
       if (regName)
         RegisterMap[regName] = i;
     }
+
+    // add register name aliases (any way to get this from altNames by tablegen?)
+    RegisterMap["rsp"] = Patmos::RSP;
+    RegisterMap["rfp"] = Patmos::RFP;
   }
 
   unsigned MatchRegisterName(StringRef Name) {
@@ -92,18 +96,6 @@ AsmToken PatmosAsmLexer::LexTokenUAL() {
     std::string lowerCase = lexedToken.getString().lower();
 
     unsigned regID = MatchRegisterName(lowerCase);
-    // Check for register aliases.
-    //   r13 -> sp
-    //   r14 -> lr
-    //   r15 -> pc
-    //   ip  -> r12
-    //   FIXME: Some assemblers support lots of others. Do we want them all?
-    if (!regID) {
-      regID = StringSwitch<unsigned>(lowerCase)
-        .Case("r30", Patmos::RFP)
-        .Case("r31", Patmos::RSP)
-        .Default(0);
-    }
 
     if (regID)
       return AsmToken(AsmToken::Register,

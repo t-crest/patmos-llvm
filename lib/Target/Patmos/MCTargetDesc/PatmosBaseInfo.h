@@ -26,6 +26,7 @@ namespace llvm {
 /// instruction info tracks.
 ///
 namespace PatmosII {
+  /* TODO is this needed ?
   /// Target Operand Flag enum.
   enum TOF {
     //===------------------------------------------------------------------===//
@@ -46,28 +47,29 @@ namespace PatmosII {
     /// MO_GPREL - Represents the offset from the current gp value to be used
     /// for the relocatable object file being produced.
     MO_GPREL
-
   };
+  */
 
   enum {
     //===------------------------------------------------------------------===//
     // Instruction encodings.  These are the standard/most common forms for
-    // Patmos instructions.
+    // Patmos instructions. This must be consistent with PatmosInstrFormats.td.
     //
+
+    /// FrmOther - This form is for instructions that have no specific format.
+    FrmOther = 0,
 
     // Pseudo - This represents an instruction that is a pseudo instruction
     // or one that has not been implemented yet.  It is illegal to code generate
     // it, but tolerated for intermediate implementation stages.
     // Note that this does not apply to 'pseudo' instruction aliases like 'mov'
     // which are translated to a normal instruction.
-    Pseudo   = 0,
+    FrmPseudo   = 1,
 
-    /// FrmR - This form is for instructions of the format R.
-    //FrmR  = 1,
-    /// FrmOther - This form is for instructions that have no specific format.
-    FrmOther = 6,
+    /// FrmALUl - This form is for instructions of the ALUl format.
+    FrmALUl  = 2,
 
-    FormMask = 15
+    FormMask = 31
   };
 }
 
@@ -76,7 +78,7 @@ namespace PatmosII {
 /// return the number that it corresponds to (the binary representation).
 inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
 {
-  // TODO get this from tblgen somehow?
+  // TODO get this from tblgen somehow? (from PatmosReg.Num)
 
   using namespace Patmos;
   switch (RegEnum) {

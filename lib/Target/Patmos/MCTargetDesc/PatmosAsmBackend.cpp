@@ -35,8 +35,8 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     return 0;
   case FK_GPRel_4:
   case FK_Data_4:
-  case Patmos::fixup_Patmos_LO16:
     break;
+/* TODO handle patmos specific fixups, handle ELF generic fixups if used.
   case Patmos::fixup_Patmos_PC16:
     // So far we are only using this type for branches.
     // For branches we start 1 instruction after the branch
@@ -57,6 +57,7 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     // Get the higher 16-bits. Also add 1 if bit 15 is 1.
     Value = ((Value + 0x8000) >> 16) & 0xffff;
     break;
+*/
   }
 
   return Value;
@@ -92,12 +93,11 @@ public:
     // Used to point to big endian bytes
     unsigned FullSize;
 
+    // TODO update this for various Patmos specific fixups
+    // Offset + FullSize must point to the LSB of the fixup!
     switch ((unsigned)Kind) {
     case Patmos::fixup_Patmos_16:
       FullSize = 2;
-      break;
-    case Patmos::fixup_Patmos_64:
-      FullSize = 8;
       break;
     default:
       FullSize = 4;
@@ -125,35 +125,15 @@ public:
   unsigned getNumFixupKinds() const { return Patmos::NumTargetFixupKinds; }
 
   const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const {
+
+    // TODO define Patmos specific fixup infos
     const static MCFixupKindInfo Infos[Patmos::NumTargetFixupKinds] = {
       // This table *must* be in same the order of fixup_* kinds in
       // PatmosFixupKinds.h.
       //
       // name                    offset  bits  flags
-      { "fixup_Patmos_16",           0,     16,   0 },
-      { "fixup_Patmos_32",           0,     32,   0 },
-      { "fixup_Patmos_REL32",        0,     32,   0 },
-      { "fixup_Patmos_26",           0,     26,   0 },
-      { "fixup_Patmos_HI16",         0,     16,   0 },
-      { "fixup_Patmos_LO16",         0,     16,   0 },
-      { "fixup_Patmos_GPREL16",      0,     16,   0 },
-      { "fixup_Patmos_LITERAL",      0,     16,   0 },
-      { "fixup_Patmos_GOT_Global",   0,     16,   0 },
-      { "fixup_Patmos_GOT_Local",    0,     16,   0 },
-      { "fixup_Patmos_PC16",         0,     16,  MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_Patmos_CALL16",       0,     16,   0 },
-      { "fixup_Patmos_GPREL32",      0,     32,   0 },
-      { "fixup_Patmos_SHIFT5",       6,      5,   0 },
-      { "fixup_Patmos_SHIFT6",       6,      5,   0 },
-      { "fixup_Patmos_64",           0,     64,   0 },
-      { "fixup_Patmos_TLSGD",        0,     16,   0 },
-      { "fixup_Patmos_GOTTPREL",     0,     16,   0 },
-      { "fixup_Patmos_TPREL_HI",     0,     16,   0 },
-      { "fixup_Patmos_TPREL_LO",     0,     16,   0 },
-      { "fixup_Patmos_TLSLDM",       0,     16,   0 },
-      { "fixup_Patmos_DTPREL_HI",    0,     16,   0 },
-      { "fixup_Patmos_DTPREL_LO",    0,     16,   0 },
-      { "fixup_Patmos_Branch_PCRel", 0,     16,  MCFixupKindInfo::FKF_IsPCRel }
+      { "fixup_Patmos_16",           0,     16,   0 }
+      /* { "fixup_Patmos_PC16",         0,     16,  MCFixupKindInfo::FKF_IsPCRel }, */
     };
 
     if (Kind < FirstTargetFixupKind)
@@ -172,6 +152,7 @@ public:
   ///
   /// \param Inst - The instruction to test.
   bool mayNeedRelaxation(const MCInst &Inst) const {
+    // TODO return true for small immediates (?)
     return false;
   }
 
@@ -180,8 +161,10 @@ public:
   bool fixupNeedsRelaxation(const MCFixup &Fixup,
                             uint64_t Value,
                             const MCInstFragment *DF,
-                            const MCAsmLayout &Layout) const {
-    // FIXME.
+                            const MCAsmLayout &Layout) const
+  {
+
+    // TODO check for branch/call immediate
     assert(0 && "RelaxInstruction() unimplemented");
     return false;
   }
@@ -193,6 +176,7 @@ public:
   /// as the output.
   /// \parm Res [output] - On return, the relaxed instruction.
   void relaxInstruction(const MCInst &Inst, MCInst &Res) const {
+    // TODO relax small immediates (?)
   }
 
   /// @}
@@ -203,6 +187,7 @@ public:
   ///
   /// \return - True on success.
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const {
+    // TODO write multicycle nops
     return true;
   }
 }; // class PatmosAsmBackend

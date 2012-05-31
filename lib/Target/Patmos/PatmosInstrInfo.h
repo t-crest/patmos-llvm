@@ -17,6 +17,7 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "PatmosRegisterInfo.h"
+#include "MCTargetDesc/PatmosMCTargetDesc.h"
 
 #define GET_INSTRINFO_HEADER
 #include "PatmosGenInstrInfo.inc"
@@ -67,7 +68,7 @@ public:
 static inline
 const MachineInstrBuilder &AddDefaultPred(const MachineInstrBuilder &MIB) {
   // predicate: always true
-  return MIB.addReg(0/*Patmos::NoRegister*/).addImm(0);
+  return MIB.addReg(Patmos::NoRegister).addImm(0);
 }
 
 } // end namespace llvm

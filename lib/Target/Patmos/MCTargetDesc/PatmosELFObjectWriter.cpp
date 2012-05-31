@@ -21,16 +21,6 @@
 using namespace llvm;
 
 namespace {
-  struct RelEntry {
-    RelEntry(const ELFRelocationEntry &R, const MCSymbol *S, int64_t O) :
-      Reloc(R), Sym(S), Offset(O) {}
-    ELFRelocationEntry Reloc;
-    const MCSymbol *Sym;
-    int64_t Offset;
-  };
-
-  typedef std::list<RelEntry> RelLs;
-  typedef RelLs::iterator RelLsIter;
 
   class PatmosELFObjectWriter : public MCELFObjectTargetWriter {
   public:
@@ -46,15 +36,17 @@ namespace {
 }
 
 PatmosELFObjectWriter::PatmosELFObjectWriter(uint8_t OSABI)
+  // TODO use EM_PATMOS
   : MCELFObjectTargetWriter(false, OSABI, ELF::EM_MIPS,
                             /*HasRelocationAddend*/ false) {}
 
 PatmosELFObjectWriter::~PatmosELFObjectWriter() {}
 
-// FIXME: get the real EABI Version from the Subtarget class.
 unsigned PatmosELFObjectWriter::getEFlags() const {
 
-  // FIXME: We can't tell if we are PIC (dynamic) or CPIC (static)
+  // TODO: use the proper EABI flags (EF_PATMOS_* )
+
+  // TODO: We can't tell if we are PIC (dynamic) or CPIC (static)
   unsigned Flag = ELF::EF_MIPS_NOREORDER;
 
   Flag |= ELF::EF_MIPS_ARCH_32R2;
@@ -67,7 +59,8 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
                                            bool IsPCRel,
                                            bool IsRelocWithSymbol,
                                            int64_t Addend) const {
-  // determine the type of the relocation
+  // TODO determine the type of the relocation, use Patmos types
+
   unsigned Type = (unsigned)ELF::R_MIPS_NONE;
   unsigned Kind = (unsigned)Fixup.getKind();
 

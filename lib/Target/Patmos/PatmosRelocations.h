@@ -20,6 +20,8 @@
 namespace llvm {
   namespace Patmos{
     enum RelocationType {
+      // TODO define used relocation types properly
+
       // reloc_patmos_abs - absolute relocation for branches.
       reloc_patmos_abs = 1,
 

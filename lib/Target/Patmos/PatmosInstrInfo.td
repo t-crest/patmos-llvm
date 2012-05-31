@@ -354,7 +354,7 @@ let Defs = [RSP], Uses = [RSP] in
 def DYNALLOC : PatmosInst<(outs RRegs:$rd),
                           (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                           "add", "$rd = $rs1, $imm # dynalloc",
-                          [], IIC_ALU>;
+                          [], FOther, IIC_ALU>;
 
 
 // move instructions

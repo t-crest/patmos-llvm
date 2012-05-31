@@ -63,7 +63,7 @@ const EDInstInfo *PatmosDisassembler::getEDInfo() const {
 #include "PatmosGenDisassemblerTables.inc"
 
   /// readInstruction - read four bytes from the MemoryObject
-static DecodeStatus readInstruction(const MemoryObject &region,
+static DecodeStatus readInstruction32(const MemoryObject &region,
                                       uint64_t address,
                                       uint64_t &size,
                                       uint32_t &insn) {
@@ -93,9 +93,12 @@ PatmosDisassembler::getInstruction(MCInst &instr,
                                  raw_ostream &cStream) const {
   uint32_t Insn;
 
-  DecodeStatus Result = readInstruction(Region, Address, Size, Insn);
+  DecodeStatus Result = readInstruction32(Region, Address, Size, Insn);
   if (Result == MCDisassembler::Fail)
     return MCDisassembler::Fail;
+
+  // TODO: if the first instruction is a ALUl format, read 32bit immediate
+
 
   // Calling the auto-generated decoder function.
   //Result = decodePatmosInstruction32(instr, Insn, Address, this, STI);

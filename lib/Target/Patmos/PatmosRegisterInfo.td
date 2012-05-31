@@ -11,7 +11,7 @@
 //  Declarations that describe the Patmos register file
 //===----------------------------------------------------------------------===//
 
-class PatmosReg<string n> : Register<n> {
+class PatmosReg<string n, list<string> altNames = []> : Register<n, altNames> {
   let Namespace = "Patmos";
 }
 

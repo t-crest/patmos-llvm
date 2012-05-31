@@ -7,27 +7,36 @@
 //
 //===----------------------------------------------------------------------===//
 
+// Format specifies some properties of the encoding used by the instruction.  
+// The format is stored in the TSFlags, the flags must match the table in 
+// MCTargetDesc/PatmosBaseInfo.h
+class Format<bits<5> val> {
+      bits<5> Value = val;
+}
+
+def FOther  : Format<0>;  
+def FPseudo : Format<1>;
+def FALUl   : Format<2>;  // 64bit long immediate instructions
+
+
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
 //
 
 
-
-
 // Generic Patmos Format
 class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
-                 list<dag> pattern, InstrItinClass itin>
+                 list<dag> pattern, Format form, InstrItinClass itin>
       : Instruction
 {
+  let Namespace = "Patmos";
+
   field bits<32> Inst;
 
   // set bits to 0 per default
-  // TODO handle bit 31 somehow
   let Inst{31-0} = 0;
-  
-  let Size = 4;
 
-  let Namespace = "Patmos";
+  let Size = 4;
 
   dag OutOperandList = outs;
   dag InOperandList  = ins;
@@ -37,11 +46,17 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
 
   // Tablegen cannot create a matcher for our format (requires starting with opcode mnemonic, not sure about bundle support)
   let isCodeGenOnly = 1;
+
+  Format  Form = form;
+  bits<5> FormBits = Form.Value;
+  
+  // The layout must match the definitions in PatmosBaseInfo.h
+  let TSFlags{4-0} = FormBits;
 }
 
-class PatmosInst<dag outs, dag ins, // SizeVal sz,
-                 string op, string asmstr, list<dag> pattern, InstrItinClass itin>
-      : PatmosInstBase<outs, ins, pattern, itin>
+class PatmosInst<dag outs, dag ins,
+                 string op, string asmstr, list<dag> pattern, Format form, InstrItinClass itin>
+      : PatmosInstBase<outs, ins, pattern, form, itin>
 {
   let AsmString   = "$p " # op # " " # asmstr;
   let isPredicable = 1; // we have a fully predicated instruction set
@@ -49,8 +64,8 @@ class PatmosInst<dag outs, dag ins, // SizeVal sz,
 
 // Generic instruction, not predicated (mainly for pseudo instructions)
 class PatmosInstNoP<dag outs, dag ins, // SizeVal sz,
-                 string op, string asmstr, list<dag> pattern, InstrItinClass itin>
-      : PatmosInstBase<outs, ins, pattern, itin>
+                 string op, string asmstr, list<dag> pattern, Format form, InstrItinClass itin>
+      : PatmosInstBase<outs, ins, pattern, form, itin>
 {
   let Inst{30-27} = 0;
 
@@ -65,7 +80,7 @@ class PatmosInstNoP<dag outs, dag ins, // SizeVal sz,
 // (note that this class is for instructions that should not be generated, not for instructions 
 // that are aliases for more generic instructions)
 class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInstNoP<outs, ins, op, asmstr, pattern, IIC_Pseudo> 
+  : PatmosInstNoP<outs, ins, op, asmstr, pattern, FPseudo, IIC_Pseudo> 
 {
   let Inst{31-0} = 0;
 
@@ -80,7 +95,7 @@ class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 //
 class ALUi<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, IIC_ALU> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_ALU> {
 
   // unbound fields
   bits<5> Rd;
@@ -104,7 +119,7 @@ class ALUi<bits<4> func,
 //
 class ALUl<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, IIC_ALUl> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FALUl, IIC_ALUl> {
   
   let Size = 8;
 
@@ -133,7 +148,7 @@ class ALUl<bits<4> func,
 // (superclass)
 class ALU<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern, InstrItinClass itin>
-  : PatmosInst<outs, ins, op, asmstr, pattern, itin> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, itin> {
 
   // each subclass specifies Opc
   bits<3> Opc;
@@ -252,7 +267,7 @@ class ALUp<bits<4> func,
 // SPC - Special
 // (superclass)
 class SPC<dag outs, dag ins, string op, string asmstr, list<dag> pattern, InstrItinClass itin>
-  : PatmosInst<outs, ins, op, asmstr, pattern, itin> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, itin> {
 
   // each subclass specifies Opc
   bits<3> Opc;
@@ -337,7 +352,7 @@ class SPCf<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 //
 class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, IIC_MEM> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_MEM> {
 
   let mayLoad = 1;
 
@@ -367,7 +382,7 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
 //
 class STT<bits<3> ty, bits<2> td,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, IIC_MEM> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_MEM> {
 
 
   let mayStore = 1;
@@ -399,7 +414,7 @@ class STT<bits<3> ty, bits<2> td,
 //
 class STC<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmop, asmstr, pattern, IIC_MEM> {
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FOther, IIC_MEM> {
 
   // unbound fields
   bits<4> Pred;
@@ -418,7 +433,7 @@ class STC<bits<2> op,
 // PFL - Program Flow
 //
 class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, IIC_PFL> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_PFL> {
 
   bits<2> PFLOp;
   let Inst{26-25} = 0b11;

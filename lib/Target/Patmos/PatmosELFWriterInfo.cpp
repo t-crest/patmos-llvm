@@ -67,14 +67,6 @@ unsigned PatmosELFWriterInfo::getRelocationTySize(unsigned RelTy) const {
   case ELF::R_MICROBLAZE_32_SYM_OP_SYM:
   case ELF::R_MICROBLAZE_GOTOFF_32:
     return 32;
-
-  case ELF::R_MICROBLAZE_64_PCREL:
-  case ELF::R_MICROBLAZE_64:
-  case ELF::R_MICROBLAZE_GOTPC_64:
-  case ELF::R_MICROBLAZE_GOT_64:
-  case ELF::R_MICROBLAZE_PLT_64:
-  case ELF::R_MICROBLAZE_GOTOFF_64:
-    return 64;
   }
 
   return 0;
