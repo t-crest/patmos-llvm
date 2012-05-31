@@ -52,9 +52,10 @@ def PatmosInstPrinter : AsmWriter {
 //===----------------------------------------------------------------------===//
 
 /*
-def FeatureX
- : SubtargetFeature<"ext", "ExtendedInsts", "true",
-                    "Enable Patmos-X extensions">;
+def FeatureX           : SubtargetFeature<"ext", "ExtendedInsts", "true",
+                                "Enable Patmos-X extensions">;
+def FeatureFPU         : SubtargetFeature<"fpu", "HasFPU", "true",
+                                "Implements floating point unit">;
 */
 
 //===----------------------------------------------------------------------===//

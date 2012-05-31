@@ -65,7 +65,7 @@ public:
   // getBranchJumpOpValue - Return binary encoding of the jump
   // target operand. If the machine operand requires relocation,
   // record the relocation and return zero.
-   unsigned getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
+  unsigned getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
                                  SmallVectorImpl<MCFixup> &Fixups) const;
 
    // getBranchTargetOpValue - Return binary encoding of the branch
@@ -83,10 +83,6 @@ public:
                                   SmallVectorImpl<MCFixup> &Fixups) const;
   unsigned getMemEncoding(const MCInst &MI, unsigned OpNo,
                           SmallVectorImpl<MCFixup> &Fixups) const;
-  unsigned getSizeExtEncoding(const MCInst &MI, unsigned OpNo,
-                              SmallVectorImpl<MCFixup> &Fixups) const;
-  unsigned getSizeInsEncoding(const MCInst &MI, unsigned OpNo,
-                              SmallVectorImpl<MCFixup> &Fixups) const;
 
 }; // class PatmosMCCodeEmitter
 }  // namespace
@@ -105,13 +101,13 @@ void PatmosMCCodeEmitter::
 EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                   SmallVectorImpl<MCFixup> &Fixups) const
 {
-  uint32_t Binary = getBinaryCodeForInstr(MI, Fixups);
+  uint64_t Binary = getBinaryCodeForInstr(MI, Fixups);
 
   // Check for unimplemented opcodes.
   if (!Binary)
     llvm_unreachable("unimplemented opcode in EncodeInstruction()");
 
-  //const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
+  const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
   //uint64_t TSFlags = Desc.TSFlags;
 
   // Pseudo instructions don't get encoded and shouldn't be here
@@ -119,8 +115,7 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   //if ((TSFlags & PatmosII::FormMask) == PatmosII::Pseudo)
   //  llvm_unreachable("Pseudo opcode found in EncodeInstruction()");
 
-  // For now all instructions are 4 bytes
-  int Size = 4; // FIXME: Have Desc.getSize() return the correct value!
+  int Size = Desc.Size;
 
   EmitInstruction(Binary, Size, OS);
 }
@@ -223,29 +218,9 @@ PatmosMCCodeEmitter::getMemEncoding(const MCInst &MI, unsigned OpNo,
   unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups);
   unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups);
 
-  return (OffBits & 0xFFFF) | RegBits;
+  return (OffBits & 0xFFFFF) | RegBits;
 }
 
-unsigned
-PatmosMCCodeEmitter::getSizeExtEncoding(const MCInst &MI, unsigned OpNo,
-                                      SmallVectorImpl<MCFixup> &Fixups) const {
-  assert(MI.getOperand(OpNo).isImm());
-  unsigned SizeEncoding = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups);
-  return SizeEncoding - 1;
-}
-
-// FIXME: should be called getMSBEncoding
-//
-unsigned
-PatmosMCCodeEmitter::getSizeInsEncoding(const MCInst &MI, unsigned OpNo,
-                                      SmallVectorImpl<MCFixup> &Fixups) const {
-  assert(MI.getOperand(OpNo-1).isImm());
-  assert(MI.getOperand(OpNo).isImm());
-  unsigned Position = getMachineOpValue(MI, MI.getOperand(OpNo-1), Fixups);
-  unsigned Size = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups);
-
-  return Position + Size - 1;
-}
 
 #include "PatmosGenMCCodeEmitter.inc"
 

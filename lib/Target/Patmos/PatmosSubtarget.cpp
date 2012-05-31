@@ -24,8 +24,10 @@ using namespace llvm;
 PatmosSubtarget::PatmosSubtarget(const std::string &TT,
                                  const std::string &CPU,
                                  const std::string &FS) :
-  PatmosGenSubtargetInfo(TT, CPU, FS) {
-  std::string CPUName = "generic";
+  PatmosGenSubtargetInfo(TT, CPU, FS)
+{
+  std::string CPUName = CPU;
+  if (CPUName.empty()) CPUName = "generic";
 
   // Parse features string.
   ParseSubtargetFeatures(CPUName, FS);

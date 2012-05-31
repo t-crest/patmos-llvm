@@ -24,6 +24,8 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
   // set bits to 0 per default
   // TODO handle bit 31 somehow
   let Inst{31-0} = 0;
+  
+  let Size = 4;
 
   let Namespace = "Patmos";
 
@@ -103,6 +105,8 @@ class ALUi<bits<4> func,
 class ALUl<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern, IIC_ALUl> {
+  
+  let Size = 8;
 
   // unbound fields
   bits<5>  Rd;
