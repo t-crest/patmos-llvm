@@ -60,7 +60,7 @@ def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
 // actually this is a pair of MachineOperands, where
 // the first is the predicate register
 // and the second is the inversion flag
-def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
+def pred : PredicateOperand<OtherVT, (ops PRegs:$preg, i1imm:$neg),
                                      (ops (i1 zero_reg), (i1 0))> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
@@ -68,7 +68,7 @@ def pred : PredicateOperand<OtherVT, (ops PRegs, i1imm),
 
 // Patmos setable predicate operand
 // like pred but no default values
-def predset : PredicateOperand<i1, (ops PRegs, i1imm), (ops )> {
+def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
 }
@@ -506,23 +506,23 @@ def : Pat<(xor PRegs:$ps1, PRegs:$ps2),(PANDcc PRegs:$ps1, PRegs:$ps2)>;
 def : Pat<(notcc (or PRegs:$ps1, PRegs:$ps2)),(PNORcc PRegs:$ps1, PRegs:$ps2)>;
 
 // Pseudos:
-//mov uses or opcode (or Pd = Ps | Ps)
-//let Ps2 = Ps1 in
+//mov uses or opcode (or Pd = Ps | !p0)
+let Ps2 = 0b1000 in
 def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps),
                 "mov", "$pd = $ps", []>;
 
-//not uses nor opcode
-//let Ps2 = Ps1 in
+//not uses nor opcode (nor Pd = Ps ^ p0)
+let Ps2 = 0 in
 def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps),
                 "not", "$pd = $ps",
                 [(set PRegs:$pd, (not PRegs:$ps))]>;
 
-//set uses or opcode
+//set uses or opcode (or Pd = p0 | p0)
 let Ps1 = 0, Ps2 = 0 in
 def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
                 "set", "$pd",
                 [(set PRegs:$pd, (i1 1))]>;
-//clr uses nor opcode
+//clr uses nor opcode (nor Pd = p0 ^ p0)
 let Ps1 = 0, Ps2 = 0 in
 def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
                 "clr", "$pd",
@@ -575,7 +575,7 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
 
 multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
 {
-  let Defs = [SM] in
+  let Defs = [SM], Rd = 0 in
   {
     // load from data cache (no pattern to match)
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),

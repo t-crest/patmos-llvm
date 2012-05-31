@@ -59,6 +59,8 @@ class PatmosInst<dag outs, dag ins,
       : PatmosInstBase<outs, ins, pattern, form, itin>
 {
   let AsmString   = "$p\t" # op # "\t" # asmstr;
+  let DisableEncoding = "$p.neg";
+
   let isPredicable = 1; // we have a fully predicated instruction set
 }
 

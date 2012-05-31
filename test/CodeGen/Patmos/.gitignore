@@ -2,3 +2,6 @@
 *.s
 *.o
 *.dot
+*.out
+*.bin
+tmp
