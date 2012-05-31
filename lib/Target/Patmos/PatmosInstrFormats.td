@@ -58,7 +58,7 @@ class PatmosInst<dag outs, dag ins,
                  string op, string asmstr, list<dag> pattern, Format form, InstrItinClass itin>
       : PatmosInstBase<outs, ins, pattern, form, itin>
 {
-  let AsmString   = "$p " # op # " " # asmstr;
+  let AsmString   = "$p\t" # op # "\t" # asmstr;
   let isPredicable = 1; // we have a fully predicated instruction set
 }
 
@@ -69,8 +69,8 @@ class PatmosInstNoP<dag outs, dag ins, // SizeVal sz,
 {
   let Inst{30-27} = 0;
 
-  let AsmString   = op # " " # asmstr;
-  let isPredicable = 0;
+  let AsmString   = "\t" # op # "\t" # asmstr;
+  let isPredicable = 0; // we have a fully predicated instruction set
 }
 
 ///////////////////////////////////////////////////////////////////////////////

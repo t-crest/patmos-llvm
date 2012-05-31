@@ -33,20 +33,33 @@ void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 
 void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                      raw_ostream &O, const char *Modifier) {
-  assert((Modifier == 0 || Modifier[0] == 0) && "No modifiers supported");
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
-    O << getRegisterName(Op.getReg());
+    // do not print register R0 in addressing modes
+    if ((Modifier && strcmp(Modifier, "addrmod") != 0) ||
+        (Op.getReg() != Patmos::R0))
+      O << getRegisterName(Op.getReg());
   } else if (Op.isImm()) {
-    O << Op.getImm();
+    if (Modifier && strcmp(Modifier, "addrmod") == 0) {
+      const MCOperand &baseOp = MI->getOperand(OpNo - 1);
+      if (baseOp.getReg() == Patmos::R0)
+        O << Op.getImm();
+      else if (Op.getImm() != 0)
+        O << ((Op.getImm() < 0) ? " - " : " + ") << std::abs(Op.getImm());
+    }
+    else
+      O << Op.getImm();
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
+
+    if (Modifier && strcmp(Modifier, "addrmod") == 0)
+      O << " + ";
+
     O << *Op.getExpr();
   }
 }
 
 void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O) {
-  //const MCOperand &Op = MI->getOperand(OpNo);
   unsigned reg  = MI->getOperand(OpNo  ).getReg();
   int      flag = MI->getOperand(OpNo+1).getImm();
 
@@ -56,5 +69,3 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo, r
     O << "(" << ((flag)?"!":" ") << getRegisterName(reg) << ")";
   }
 }
-
-

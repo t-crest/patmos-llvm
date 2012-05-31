@@ -80,26 +80,6 @@ def brtarget : Operand<OtherVT> {
 }
 
 
-/*
-// Address operands
-def memsrc : Operand<i16> {
-  let PrintMethod = "printSrcMemOperand";
-  let MIOperandInfo = (ops GR16, i16imm);
-}
-
-def memdst : Operand<i16> {
-  let PrintMethod = "printSrcMemOperand";
-  let MIOperandInfo = (ops GR16, i16imm);
-}
-
-
-// Operand for printing out a condition code.
-def cc : Operand<i8> {
-  let PrintMethod = "printCCOperand";
-}
-*/
-
-
 //===----------------------------------------------------------------------===//
 // Transformation Functions
 //===----------------------------------------------------------------------===//
@@ -272,7 +252,11 @@ let isCall=1, hasDelaySlot=1,
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-
+def SRES : STC<0b00, (outs), (ins pred:$p, uimm22:$imm), "sres", "$imm",
+               []>;
+def SENS : STC<0b01, (outs), (ins pred:$p, uimm22:$imm), "sens", "$imm",
+               []>;
+def SFREE: STC<0b10, (outs), (ins pred:$p, uimm22:$imm), "sfree", "$imm", []>;
 
 //===----------------------------------------------------------------------===//
 // Move Instructions
@@ -567,25 +551,25 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
   // load from stack cache
   def S  : LDT<ty, 0b0, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "s", "$rd = [$ra + $imm]",
+               asmop # "s", "$rd = [${ra:addrmod}${imm:addrmod}]",
                [] >;
 
   // load from local memory
   def L  : LDT<ty, 0b0, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "l", "$rd = [$ra + $imm]",
+               asmop # "l", "$rd = [${ra:addrmod}${imm:addrmod}]",
                [] >;
 
   // load from data cache
   def C  : LDT<ty, 0b1, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "c", "$rd = [$ra + $imm]",
+               asmop # "c", "$rd = [${ra:addrmod}${imm:addrmod}]",
                [] >;
 
   // load from main memory
   def M  : LDT<ty, 0b1, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "m", "$rd = [$ra + $imm]",
+               asmop # "m", "$rd = [${ra:addrmod}${imm:addrmod}]",
                [] >;
 }
 
@@ -596,13 +580,13 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
     // load from data cache (no pattern to match)
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 "d" # asmop # "c", "sm = [$ra + $imm]",
+                 "d" # asmop # "c", "sm = [${ra:addrmod}${imm:addrmod}]",
                  [] >;
 
     // load from main memory (no pattern to match)
     def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 "d" # asmop # "m", "sm = [$ra + $imm]",
+                 "d" # asmop # "m", "sm = [${ra:addrmod}${imm:addrmod}]",
                  [] >;
   }
 }
@@ -629,25 +613,25 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
   // store to stack cache
   def S  : STT<ty, 0b00, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "s", "[$ra + $imm] = $rs",
+               asmop # "s", "[${ra:addrmod}${imm:addrmod}] = $rs",
                [] >;
 
   // store to local memory
   def L  : STT<ty, 0b01, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "l", "[$ra + $imm] = $rs",
+               asmop # "l", "[${ra:addrmod}${imm:addrmod}] = $rs",
                [] >;
 
   // store to data cache
   def C  : STT<ty, 0b10, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "c", "[$ra + $imm] = $rs",
+               asmop # "c", "[${ra:addrmod}${imm:addrmod}] = $rs",
                [] >;
 
   // store to stack cache
   def M  : STT<ty, 0b11, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "m", "[$ra + $imm] = $rs",
+               asmop # "m", "[${ra:addrmod}${imm:addrmod}] = $rs",
                [] >;
 }
 
