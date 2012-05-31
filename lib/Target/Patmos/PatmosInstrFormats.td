@@ -334,13 +334,8 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern> {
 
-<<<<<<< HEAD
-=======
-  let Inst{26-22} = 0b01010;
-
   let mayLoad = 1;
 
->>>>>>> set some more flags
   // unbound fields
   bits<5> Rd;
   bits<4> Pred;
