@@ -60,10 +60,35 @@ def : Pat<(PatmosCall texternalsym:$sym), (bs texternalsym:$sym)>;
 
 
 
+// Compare patterns
+
+def : Pat<(seteq  RRegs:$a, RRegs:$b), (CMPEQ  RRegs:$a, RRegs:$b)>;
+def : Pat<(setne  RRegs:$a, RRegs:$b), (CMPNEQ RRegs:$a, RRegs:$b)>;
+def : Pat<(setlt  RRegs:$a, RRegs:$b), (CMPLT  RRegs:$a, RRegs:$b)>;
+def : Pat<(setle  RRegs:$a, RRegs:$b), (CMPLE  RRegs:$a, RRegs:$b)>;
+def : Pat<(setult RRegs:$a, RRegs:$b), (CMPULT RRegs:$a, RRegs:$b)>;
+def : Pat<(setule RRegs:$a, RRegs:$b), (CMPULE RRegs:$a, RRegs:$b)>;
+// we find paterns for inverted conditions (instead of Patmos pseudo instructions)
+def : Pat<(setgt  RRegs:$b, RRegs:$a), (CMPLT  RRegs:$a, RRegs:$b)>;
+def : Pat<(setge  RRegs:$b, RRegs:$a), (CMPLE  RRegs:$a, RRegs:$b)>;
+def : Pat<(setugt RRegs:$b, RRegs:$a), (CMPULT RRegs:$a, RRegs:$b)>;
+def : Pat<(setuge RRegs:$b, RRegs:$a), (CMPULE RRegs:$a, RRegs:$b)>;
+
+def : Pat<(setne (and RRegs:$a, (shl (i32 1), RRegs:$b)), (i32 0)),
+          (BTEST RRegs:$a, RRegs:$b)>;
+
+
+// Predicate Combine patterns
+
+def : Pat<(or  predreg:$ps1, predreg:$ps2),        (POR  predreg:$ps1, predreg:$ps2)>;
+def : Pat<(and predreg:$ps1, predreg:$ps2),        (PAND predreg:$ps1, predreg:$ps2)>;
+def : Pat<(xor predreg:$ps1, predreg:$ps2),        (PXOR predreg:$ps1, predreg:$ps2)>;
+def : Pat<(notcc (or predreg:$ps1, predreg:$ps2)), (PNOR predreg:$ps1, predreg:$ps2)>;
 
 
 
-// load patterns
+
+// Load patterns
 
 
 multiclass LoadTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>

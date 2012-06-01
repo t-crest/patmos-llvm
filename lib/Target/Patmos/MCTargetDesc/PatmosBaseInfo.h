@@ -71,6 +71,11 @@ namespace PatmosII {
 
     FormMask = 31
   };
+
+  enum {
+    PredSrcMask = (1 << 5),
+    PredAsSrc = 32
+  };
 }
 
 

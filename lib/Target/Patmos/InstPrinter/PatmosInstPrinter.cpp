@@ -14,7 +14,10 @@
 #define DEBUG_TYPE "asm-printer"
 #include "Patmos.h"
 #include "PatmosInstPrinter.h"
+#include "MCTargetDesc/PatmosBaseInfo.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrDesc.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -62,6 +65,15 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O) {
   unsigned reg  = MI->getOperand(OpNo  ).getReg();
   int      flag = MI->getOperand(OpNo+1).getImm();
+
+  const MCInstrDesc &Desc = MII.get(MI->getOpcode());
+  uint64_t TSFlags = Desc.TSFlags;
+
+  // handles predicate source operands for predicate combine instructions
+  if ((TSFlags & PatmosII::PredAsSrc) && OpNo > 2) {
+    O << ((flag)?"!":" ") << getRegisterName(reg);
+    return;
+  }
 
   if (reg == Patmos::NoRegister || ((reg == Patmos::P0) && !flag)) {
     O << "     "; // instead of ( p0)

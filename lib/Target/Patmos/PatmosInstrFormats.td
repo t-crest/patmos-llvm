@@ -2,19 +2,19 @@
 //
 //                     The LLVM Compiler Infrastructure
 //
-// This file is distributed under the University of Illinois Open Source 
+// This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
 
-// Format specifies some properties of the encoding used by the instruction.  
-// The format is stored in the TSFlags, the flags must match the table in 
+// Format specifies some properties of the encoding used by the instruction.
+// The format is stored in the TSFlags, the flags must match the table in
 // MCTargetDesc/PatmosBaseInfo.h
 class Format<bits<5> val> {
       bits<5> Value = val;
 }
 
-def FOther  : Format<0>;  
+def FOther  : Format<0>;
 def FPseudo : Format<1>;
 def FALUl   : Format<2>;  // 64bit long immediate instructions
 
@@ -49,9 +49,11 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
 
   Format  Form = form;
   bits<5> FormBits = Form.Value;
-  
+
+  bit hasPredAsSrc = 0;
   // The layout must match the definitions in PatmosBaseInfo.h
   let TSFlags{4-0} = FormBits;
+  let TSFlags{5}   = hasPredAsSrc;
 }
 
 class PatmosInst<dag outs, dag ins,
@@ -72,17 +74,17 @@ class PatmosInstNoP<dag outs, dag ins, // SizeVal sz,
   let Inst{30-27} = 0;
 
   let AsmString   = "\t" # op # "\t" # asmstr;
-  let isPredicable = 0; // we have a fully predicated instruction set
+  let isPredicable = 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
 
 // Pseudo instructions
-// (note that this class is for instructions that should not be generated, not for instructions 
+// (note that this class is for instructions that should not be generated, not for instructions
 // that are aliases for more generic instructions)
 class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInstNoP<outs, ins, op, asmstr, pattern, FPseudo, IIC_Pseudo> 
+  : PatmosInstNoP<outs, ins, op, asmstr, pattern, FPseudo, IIC_Pseudo>
 {
   let Inst{31-0} = 0;
 
@@ -122,7 +124,7 @@ class ALUi<bits<4> func,
 class ALUl<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern, FALUl, IIC_ALUl> {
-  
+
   let Size = 8;
 
   // unbound fields
@@ -131,7 +133,7 @@ class ALUl<bits<4> func,
   bits<5>  Rs1;
   bits<32> Imm32;
 
-  let Inst{31} = 1; //FIXME?
+  let Inst{31} = 1;
   let Inst{30-27} = Pred;
   let Inst{26-22} = 0b11111;
   let Inst{21-17} = Rd;
@@ -140,7 +142,6 @@ class ALUl<bits<4> func,
   let Inst{6-4} = 0b000;
   let Inst{3-0} = func;
 
-  //TODO handle Imm32
 }
 
 
@@ -236,9 +237,6 @@ class ALUc<bits<4> func,
 
   let Opc = 0b011;
 
-  // TODO what does this do?
-  //let isCompare = 1;
-
   // unbound fields
   bits<3> Pd;
   bits<4> Pred;
@@ -251,13 +249,15 @@ class ALUc<bits<4> func,
   let Inst{11-7}  = Rs2;
 }
 
-// ALUp - Predicate
+// ALUp - Predicate Combine
 //
 class ALUp<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : ALU<func, outs, ins, op, asmstr, pattern, IIC_ALU> {
 
   let Opc = 0b100;
+
+  let hasPredAsSrc = 1;
 
   // unbound fields
   bits<3> Pd;

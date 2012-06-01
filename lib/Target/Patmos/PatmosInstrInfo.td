@@ -449,38 +449,28 @@ def MULU : ALUm <0b0001,
 
 // Compare
 
-let isCompare=1 in
-multiclass ALUc_cn <string asmop, bits<4> func, PatFrag cnode, PatFrag nnode> {
-  def c : ALUc<func, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                asmop, "$pd = $rs1, $rs2",
-                [(set PRegs:$pd, (cnode RRegs:$rs1, RRegs:$rs2))]>;
+class Compare<string asmop, bits<4> opcode>
+      : ALUc <opcode,
+              (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
+              asmop, "$pd = $rs1, $rs2", []>;
 
-  def n : ALUc<func, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                asmop, "$pd = $rs1, $rs2",
-                [(set PRegs:$pd, (nnode RRegs:$rs1, RRegs:$rs2))]>;
-}
-
-// we simply invert setcc condition instead of emitting pseudo instructions
-defm CMPEQ  : ALUc_cn <"cmpeq",  0b0000, seteq,  seteq>;
-defm CMPNEQ : ALUc_cn <"cmpneq", 0b0001, setne,  setne>;
-defm CMPLT  : ALUc_cn <"cmplt",  0b0010, setlt,  setgt>;
-defm CMPLE  : ALUc_cn <"cmple",  0b0011, setle,  setge>;
-defm CMPULT : ALUc_cn <"cmpult", 0b0100, setult, setugt>;
-defm CMPULE : ALUc_cn <"cmpule", 0b0101, setule, setuge>;
-
-def  BTEST  : ALUc<0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                  "btest", "$pd = $rs1, $rs2",
-                  [(set PRegs:$pd, (setne (and RRegs:$rs1, (shl (i32 1), RRegs:$rs2)), (i32 0)))]>;
+def CMPEQ  : Compare <"cmpeq" , 0b0000>;
+def CMPNEQ : Compare <"cmpneq", 0b0001>;
+def CMPLT  : Compare <"cmplt" , 0b0010>;
+def CMPLE  : Compare <"cmple" , 0b0011>;
+def CMPULT : Compare <"cmpult", 0b0100>;
+def CMPULE : Compare <"cmpule", 0b0101>;
+def BTEST  : Compare <"btest" , 0b0110>;
 
 // Pseudo instr ISODD uses btest opcode
 let Rs2 = 0 in
-def  ISODD  : ALUc<0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
+def ISODD : ALUc <0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
                   "isodd", "$pd = $rs",
                   [(set PRegs:$pd, (setne (and RRegs:$rs, (i32 1)), (i32 1)))]>;
 
 // Pseudo mov Pd <- Rs uses cmpneq with r0
 let Rs2 = 0 in
-def  MOVrp  : ALUc<0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
+def MOVrp : ALUc <0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
                   "mov", "$pd = $rs",
                   [(set PRegs:$pd, (setne RRegs:$rs, (i32 0)))]>;
 
@@ -489,44 +479,35 @@ def  MOVrp  : ALUc<0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
 // Predicate Combine
 
 
-multiclass PredCombine<bits<4> opcode, string asmop> {
-  def cc: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                asmop, "$pd =  $ps1,  $ps2", []>;
-  def cn: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                asmop, "$pd =  $ps1, !$ps2", []>;
-  def nc: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                asmop, "$pd = !$ps1,  $ps2", []>;
-  def nn: ALUp <opcode, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps1, PRegs:$ps2),
-                asmop, "$pd = !$ps1, !$ps2", []>;
-}
+class PredCombine<bits<4> opcode, string asmop>
+      : ALUp <opcode,
+              (outs PRegs:$pd), (ins pred:$p, predset:$ps1, predset:$ps2),
+              asmop, "$pd = $ps1, $ps2", []>;
 
-defm POR:  PredCombine <0b0110, "or">;
-defm PAND: PredCombine <0b0110, "and">;
-defm PXOR: PredCombine <0b1010, "xor">;
-defm PNOR: PredCombine <0b1010, "nor">;
+def POR:  PredCombine <0b0110, "or">;
+def PAND: PredCombine <0b0110, "and">;
+def PXOR: PredCombine <0b1010, "xor">;
+def PNOR: PredCombine <0b1010, "nor">;
 
-def : Pat<(or  PRegs:$ps1, PRegs:$ps2),(PORcc  PRegs:$ps1, PRegs:$ps2)>;
-def : Pat<(and PRegs:$ps1, PRegs:$ps2),(PANDcc PRegs:$ps1, PRegs:$ps2)>;
-def : Pat<(xor PRegs:$ps1, PRegs:$ps2),(PANDcc PRegs:$ps1, PRegs:$ps2)>;
-def : Pat<(notcc (or PRegs:$ps1, PRegs:$ps2)),(PNORcc PRegs:$ps1, PRegs:$ps2)>;
 
 // Pseudos:
 //mov uses or opcode (or Pd = Ps | !p0)
 let Ps2 = 0b1000 in
-def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps),
+def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps),
                 "mov", "$pd = $ps", []>;
 
 //not uses nor opcode (nor Pd = Ps ^ p0)
 let Ps2 = 0 in
-def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, PRegs:$ps),
+def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps),
                 "not", "$pd = $ps",
-                [(set PRegs:$pd, (not PRegs:$ps))]>;
+                [(set PRegs:$pd, (not predreg:$ps))]>;
 
 //set uses or opcode (or Pd = p0 | p0)
 let Ps1 = 0, Ps2 = 0 in
 def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
                 "set", "$pd",
                 [(set PRegs:$pd, (i1 1))]>;
+
 //clr uses nor opcode (nor Pd = p0 ^ p0)
 let Ps1 = 0, Ps2 = 0 in
 def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
