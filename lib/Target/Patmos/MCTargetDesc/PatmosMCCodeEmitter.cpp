@@ -42,18 +42,6 @@ public:
 
   ~PatmosMCCodeEmitter() {}
 
-  void EmitByte(unsigned char C, raw_ostream &OS) const {
-    OS << (char)C;
-  }
-
-  void EmitInstruction(uint64_t Val, unsigned Size, raw_ostream &OS) const {
-    // Output the instruction encoding in big endian byte order.
-    for (unsigned i = 0; i < Size; ++i) {
-      unsigned Shift = (Size - 1 - i) * 8;
-      EmitByte((Val >> Shift) & 0xff, OS);
-    }
-  }
-
   void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups) const;
 
@@ -66,7 +54,7 @@ public:
 
   /****** Callback functions for TableGen'ed getBinaryCodeForInstr ******/
 
-   // getMachineOpValue - Return binary encoding of operand. If the machin
+   // getMachineOpValue - Return binary encoding of operand. If the machine
    // operand requires relocation, record the relocation and return zero.
   unsigned getMachineOpValue(const MCInst &MI,const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups) const;
@@ -74,23 +62,29 @@ public:
   unsigned getPredOperandEncoding(const MCInst &MI, unsigned OpNo,
                                   SmallVectorImpl<MCFixup> &Fixups) const;
 
-  /* TODO Currently not used.. Implement if needed to create correct Fixups.
-   * Functions must be registered in .td files.
-  // getBranchJumpOpValue - Return binary encoding of the jump
-  // target operand. If the machine operand requires relocation,
-  // record the relocation and return zero.
-  unsigned getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                 SmallVectorImpl<MCFixup> &Fixups) const;
+  /****** Helper functions to emit binary code ******/
 
-   // getBranchTargetOpValue - Return binary encoding of the branch
-   // target operand. If the machine operand requires relocation,
-   // record the relocation and return zero.
-  unsigned getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                  SmallVectorImpl<MCFixup> &Fixups) const;
+  void EmitByte(unsigned char C, raw_ostream &OS) const {
+    OS << (char)C;
+  }
 
-  unsigned getMemEncoding(const MCInst &MI, unsigned OpNo,
-                          SmallVectorImpl<MCFixup> &Fixups) const;
-  */
+  void EmitInstruction(uint64_t Val, unsigned Size, raw_ostream &OS) const {
+    // Output the instruction encoding in big endian byte order.
+    for (unsigned i = 0; i < Size; ++i) {
+      unsigned Shift = (Size - 1 - i) * 8;
+      EmitByte((Val >> Shift) & 0xff, OS);
+    }
+  }
+
+  /****** Helper functions to handle immediates and expressions ******/
+
+  unsigned getImmediateEncoding(const MCInst &MI, const MCOperand &MO,
+                           SmallVectorImpl<MCFixup> &Fixups) const;
+
+  void
+  addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
+                                          const MCSymbolRefExpr* Expr,
+                                          SmallVectorImpl<MCFixup> &Fixups) const;
 
 }; // class PatmosMCCodeEmitter
 }  // namespace
@@ -162,7 +156,28 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
     unsigned Reg = MO.getReg();
     unsigned RegNo = getPatmosRegisterNumbering(Reg);
     return RegNo;
-  } else if (MO.isImm()) {
+  } else {
+    return getImmediateEncoding(MI, MO, Fixups);
+  }
+}
+
+/// getPredOperandEncoding - Return binary encoding of predicate operand.
+unsigned
+PatmosMCCodeEmitter::getPredOperandEncoding(const MCInst &MI, unsigned OpNo,
+                                  SmallVectorImpl<MCFixup> &Fixups) const {
+  // Base register is encoded in bits 20-16, offset is encoded in bits 15-0.
+  assert( "Invalid predicate operand in encoder method!"
+      && MI.getOperand(OpNo).isReg() && MI.getOperand(OpNo+1).isImm() );
+  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo),   Fixups);
+  unsigned InvBit  = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups);
+
+  return (InvBit << 3) | RegBits;
+}
+
+unsigned
+PatmosMCCodeEmitter::getImmediateEncoding(const MCInst &MI, const MCOperand& MO,
+                                  SmallVectorImpl<MCFixup> &Fixups) const {
+  if (MO.isImm()) {
     return static_cast<unsigned>(MO.getImm());
   } else if (MO.isFPImm()) {
     return static_cast<unsigned>(APFloat(MO.getFPImm())
@@ -182,81 +197,41 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 
   assert (Kind == MCExpr::SymbolRef);
 
-  // TODO handle Expr
-
-  Patmos::Fixups FixupKind = Patmos::Fixups(0);
-
-  switch(cast<MCSymbolRefExpr>(Expr)->getKind()) {
-  default:
-    break;
-  } // switch
-
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(), MCFixupKind(FixupKind)));
+  addSymbolRefFixups(MI, MO, cast<MCSymbolRefExpr>(Expr), Fixups);
 
   // All of the information is in the fixup.
   return 0;
 }
 
-/// getPredOperandEncoding - Return binary encoding of predicate operand.
-unsigned
-PatmosMCCodeEmitter::getPredOperandEncoding(const MCInst &MI, unsigned OpNo,
-                                  SmallVectorImpl<MCFixup> &Fixups) const {
-  // Base register is encoded in bits 20-16, offset is encoded in bits 15-0.
-  assert( "Invalid predicate operand in encoder method!"
-      && MI.getOperand(OpNo).isReg() && MI.getOperand(OpNo+1).isImm() );
-  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo),   Fixups);
-  unsigned InvBit  = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups);
+void
+PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
+                                        const MCSymbolRefExpr* Expr,
+                                        SmallVectorImpl<MCFixup> &Fixups) const
+{
 
-  return (InvBit << 3) | RegBits;
+  // TODO handle fixups properly
+
+  Patmos::Fixups FixupKind = Patmos::Fixups(FK_Data_2);
+
+  /*
+  switch(Expr->getKind()) {
+  default:
+    break;
+  case MCSymbolRefExpr::VK_None:
+    break;
+  } // switch
+
+  switch (MI.getOpcode()) {
+  default:
+    FixupKind = FK_Data_2;
+    Fixups.push_back(MCFixup::Create(0, Expr, FixupKind));
+    break;
+  }
+  */
+
+
+  Fixups.push_back(MCFixup::Create(0, MO.getExpr(), MCFixupKind(FixupKind)));
 }
-
-
-/*
-/// getBranchTargetOpValue - Return binary encoding of the branch
-/// target operand. If the machine operand requires relocation,
-/// record the relocation and return zero.
-unsigned PatmosMCCodeEmitter::
-getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
-                       SmallVectorImpl<MCFixup> &Fixups) const {
-
-  const MCOperand &MO = MI.getOperand(OpNo);
-  assert(MO.isExpr() && "getBranchTargetOpValue expects only expressions");
-
-  const MCExpr *Expr = MO.getExpr();
-  Fixups.push_back(MCFixup::Create(0, Expr,
-                                   MCFixupKind(Patmos::fixup_Patmos_PC16)));
-  return 0;
-}
-
-/// getJumpTargetOpValue - Return binary encoding of the jump
-/// target operand. If the machine operand requires relocation,
-/// record the relocation and return zero.
-unsigned PatmosMCCodeEmitter::
-getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
-                     SmallVectorImpl<MCFixup> &Fixups) const {
-
-  const MCOperand &MO = MI.getOperand(OpNo);
-  assert(MO.isExpr() && "getJumpTargetOpValue expects only expressions");
-
-  const MCExpr *Expr = MO.getExpr();
-  Fixups.push_back(MCFixup::Create(0, Expr,
-                                   MCFixupKind(Patmos::fixup_Patmos_26)));
-  return 0;
-}
-
-/// getMemEncoding - Return binary encoding of memory related operand.
-/// If the offset operand requires relocation, record the relocation.
-unsigned
-PatmosMCCodeEmitter::getMemEncoding(const MCInst &MI, unsigned OpNo,
-                                  SmallVectorImpl<MCFixup> &Fixups) const {
-  // Base register is encoded in bits 20-16, offset is encoded in bits 15-0.
-  assert(MI.getOperand(OpNo).isReg());
-  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups);
-  unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups);
-
-  return (OffBits & 0xFFFFF) | RegBits;
-}
-*/
 
 #include "PatmosGenMCCodeEmitter.inc"
 

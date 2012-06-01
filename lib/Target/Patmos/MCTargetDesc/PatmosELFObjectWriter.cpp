@@ -65,6 +65,9 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
   unsigned Kind = (unsigned)Fixup.getKind();
 
   switch (Kind) {
+  case FK_Data_2:
+
+    break;
   default:
     llvm_unreachable("invalid fixup kind!");
   }

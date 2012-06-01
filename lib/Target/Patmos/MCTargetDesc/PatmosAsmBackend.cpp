@@ -96,7 +96,7 @@ public:
     // TODO update this for various Patmos specific fixups
     // Offset + FullSize must point to the LSB of the fixup!
     switch ((unsigned)Kind) {
-    case Patmos::fixup_Patmos_16:
+    case Patmos::FK_Patmos_22:
       FullSize = 2;
       break;
     default:
@@ -132,7 +132,7 @@ public:
       // PatmosFixupKinds.h.
       //
       // name                    offset  bits  flags
-      { "fixup_Patmos_16",           0,     16,   0 }
+      { "FK_Patmos_22",           0,     16,   0 }
       /* { "fixup_Patmos_PC16",         0,     16,  MCFixupKindInfo::FKF_IsPCRel }, */
     };
 
@@ -187,7 +187,20 @@ public:
   ///
   /// \return - True on success.
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const {
-    // TODO write multicycle nops
+
+    // Count is in terms of of ValueSize, which is always 1 Byte for ELF.
+    // This method is used to create a NOP slide for code segment alignment
+    // OW handles byteorder stuff.
+
+    if ((Count % 4) != 0)
+      return false;
+
+    // We should somehow initialize the NOP instruction code from TableGen, but
+    // I do not see how (without creating a new CodeEmitter and everything from Target)
+
+    for (uint64_t i = 0; i < Count; i += 4)
+        OW->Write32(0x02200000);
+
     return true;
   }
 }; // class PatmosAsmBackend

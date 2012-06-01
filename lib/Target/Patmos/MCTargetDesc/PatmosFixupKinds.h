@@ -23,8 +23,8 @@ namespace Patmos {
   // in PatmosAsmBackend.cpp.
   //
   enum Fixups {
-    // Branch fixups resulting in R_PATMOS_16.
-    fixup_Patmos_16 = FirstTargetFixupKind,
+    // Branch fixups resulting in R_PATMOS_22.
+    FK_Patmos_22 = FirstTargetFixupKind,
 
 
     // Marker
