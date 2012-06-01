@@ -16,8 +16,13 @@ class Format<bits<5> val> {
 
 def FOther  : Format<0>;
 def FPseudo : Format<1>;
-def FALUl   : Format<2>;  // 64bit long immediate instructions
-
+def FALUi   : Format<2>;  // ALU with 12bit immediate
+def FALUl   : Format<3>;  // 64bit long immediate instructions
+def FALUc   : Format<4>;  // Compare of registers
+def FALUp   : Format<5>;  // Combine predicates
+def FMem    : Format<6>;  // Memory ops with 7bit offset
+def FSTC    : Format<7>;  // Stack control with 22bit immediate
+def FPFLb   : Format<8>;  // Program flow control with 22bit immediate
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -50,10 +55,8 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
   Format  Form = form;
   bits<5> FormBits = Form.Value;
 
-  bit hasPredAsSrc = 0;
   // The layout must match the definitions in PatmosBaseInfo.h
   let TSFlags{4-0} = FormBits;
-  let TSFlags{5}   = hasPredAsSrc;
 }
 
 class PatmosInst<dag outs, dag ins,
@@ -99,7 +102,7 @@ class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 //
 class ALUi<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_ALU> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FALUi, IIC_ALU> {
 
   // unbound fields
   bits<5> Rd;
@@ -150,8 +153,8 @@ class ALUl<bits<4> func,
 // ALU - Arithmetic
 // (superclass)
 class ALU<bits<4> func,
-      dag outs, dag ins, string op, string asmstr, list<dag> pattern, InstrItinClass itin>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, itin> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format form, InstrItinClass itin>
+  : PatmosInst<outs, ins, op, asmstr, pattern, form, itin> {
 
   // each subclass specifies Opc
   bits<3> Opc;
@@ -167,7 +170,7 @@ class ALU<bits<4> func,
 //
 class ALUr<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, IIC_ALU> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FOther, IIC_ALU> {
 
   let Opc = 0b000;
 
@@ -197,7 +200,7 @@ class ALUrdup<bits<4> func,
 //
 class ALUu<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, IIC_ALU> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FOther, IIC_ALU> {
 
   let Opc = 0b001;
 
@@ -215,7 +218,7 @@ class ALUu<bits<4> func,
 //
 class ALUm<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, IIC_ALUm> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FOther, IIC_ALUm> {
 
   let Opc = 0b010;
 
@@ -233,7 +236,7 @@ class ALUm<bits<4> func,
 //
 class ALUc<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, IIC_ALU> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FALUc, IIC_ALU> {
 
   let Opc = 0b011;
 
@@ -253,11 +256,9 @@ class ALUc<bits<4> func,
 //
 class ALUp<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, IIC_ALU> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FALUp, IIC_ALU> {
 
   let Opc = 0b100;
-
-  let hasPredAsSrc = 1;
 
   // unbound fields
   bits<3> Pd;
@@ -364,7 +365,7 @@ class SPCf<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 //
 class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_MEM> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FMem, IIC_MEM> {
 
   let mayLoad = 1;
 
@@ -394,7 +395,7 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
 //
 class STT<bits<3> ty, bits<2> td,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_MEM> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FMem, IIC_MEM> {
 
 
   let mayStore = 1;
@@ -426,7 +427,7 @@ class STT<bits<3> ty, bits<2> td,
 //
 class STC<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmop, asmstr, pattern, FOther, IIC_MEM> {
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTC, IIC_MEM> {
 
   // unbound fields
   bits<4> Pred;
@@ -444,8 +445,8 @@ class STC<bits<2> op,
 
 // PFL - Program Flow
 //
-class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FOther, IIC_PFL> {
+class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format form>
+  : PatmosInst<outs, ins, op, asmstr, pattern, form, IIC_PFL> {
 
   bits<2> PFLOp;
   let Inst{26-25} = 0b11;
@@ -456,7 +457,7 @@ class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 // PFLb - Call / Branch
 //
 class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, op, asmstr, pattern> {
+  : PFL<outs, ins, op, asmstr, pattern, FPFLb> {
 
   let PFLOp = pflop;
 
@@ -471,7 +472,7 @@ class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag>
 //
 class PFLi<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, asmop, asmstr, pattern> {
+  : PFL<outs, ins, asmop, asmstr, pattern, FOther> {
 
   let PFLOp = 0b00;
 
@@ -489,7 +490,7 @@ class PFLi<bits<4>op,
 //
 class PFLr<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, asmop, asmstr, pattern> {
+  : PFL<outs, ins, asmop, asmstr, pattern, FOther> {
 
   let PFLOp = 0b10;
 

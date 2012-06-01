@@ -26,29 +26,6 @@ namespace llvm {
 /// instruction info tracks.
 ///
 namespace PatmosII {
-  /* TODO is this needed ?
-  /// Target Operand Flag enum.
-  enum TOF {
-    //===------------------------------------------------------------------===//
-    // Patmos Specific MachineOperand flags.
-
-    MO_NO_FLAG,
-
-    /// MO_GOT - Represents the offset into the global offset table at which
-    /// the address the relocation entry symbol resides during execution.
-    MO_GOT,
-
-    /// MO_GOT_CALL - Represents the offset into the global offset table at
-    /// which the address of a call site relocation entry symbol resides
-    /// during execution. This is different from the above since this flag
-    /// can only be present in call instructions.
-    MO_GOT_CALL,
-
-    /// MO_GPREL - Represents the offset from the current gp value to be used
-    /// for the relocatable object file being produced.
-    MO_GPREL
-  };
-  */
 
   enum {
     //===------------------------------------------------------------------===//
@@ -57,7 +34,7 @@ namespace PatmosII {
     //
 
     /// FrmOther - This form is for instructions that have no specific format.
-    FrmOther = 0,
+    FrmOther    = 0,
 
     // Pseudo - This represents an instruction that is a pseudo instruction
     // or one that has not been implemented yet.  It is illegal to code generate
@@ -66,16 +43,30 @@ namespace PatmosII {
     // which are translated to a normal instruction.
     FrmPseudo   = 1,
 
-    /// FrmALUl - This form is for instructions of the ALUl format.
-    FrmALUl  = 2,
+    /// FrmALUi - This format is for instructions of the ALUi format (12bit immediate).
+    FrmALUi     = 2,
 
-    FormMask = 31
+    /// FrmALUl - This format is for instructions of the ALUl format (32bit immediate).
+    FrmALUl     = 3,
+
+    /// FrmALUc - This format is for instructions of the ALUc format (Pd = Rs1 op Rs2).
+    FrmALUc     = 4,
+
+    /// FrmALUp - This format is for instructions of the ALUp format (Pd = Ps1 op Ps2).
+    FrmALUp     = 5,
+
+    /// FrmMem - This format is for memory instructions with 7bit offset.
+    FrmMem      = 6,
+
+    /// FrmSTC - This form is for instructions of the STC format (stack control, 22bit immediate).
+    FrmSTC      = 7,
+
+    /// FrmPFLb - This form is for instructions of the PBLb format (flow control, 22bit immediate).
+    FrmPFLb     = 8,
+
+    FormMask    = 31
   };
 
-  enum {
-    PredSrcMask = (1 << 5),
-    PredAsSrc = 32
-  };
 }
 
 

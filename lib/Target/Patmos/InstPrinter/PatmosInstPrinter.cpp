@@ -70,7 +70,7 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo, r
   uint64_t TSFlags = Desc.TSFlags;
 
   // handles predicate source operands for predicate combine instructions
-  if ((TSFlags & PatmosII::PredAsSrc) && OpNo > 2) {
+  if ((TSFlags & PatmosII::FormMask) == PatmosII::FrmALUp && OpNo > 2) {
     O << ((flag)?"!":" ") << getRegisterName(reg);
     return;
   }
