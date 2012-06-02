@@ -37,20 +37,14 @@ namespace {
 
 PatmosELFObjectWriter::PatmosELFObjectWriter(uint8_t OSABI)
   // TODO use EM_PATMOS
-  : MCELFObjectTargetWriter(false, OSABI, ELF::EM_MIPS,
+  : MCELFObjectTargetWriter(false, OSABI, ELF::EM_PATMOS,
                             /*HasRelocationAddend*/ false) {}
 
 PatmosELFObjectWriter::~PatmosELFObjectWriter() {}
 
 unsigned PatmosELFObjectWriter::getEFlags() const {
 
-  // TODO: use the proper EABI flags (EF_PATMOS_* )
-
-  // TODO: We can't tell if we are PIC (dynamic) or CPIC (static)
-  unsigned Flag = ELF::EF_MIPS_NOREORDER;
-
-  Flag |= ELF::EF_MIPS_ARCH_32R2;
-  return Flag;
+  return 0;
 }
 
 

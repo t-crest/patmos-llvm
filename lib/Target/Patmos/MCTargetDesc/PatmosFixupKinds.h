@@ -23,9 +23,13 @@ namespace Patmos {
   // in PatmosAsmBackend.cpp.
   //
   enum Fixups {
-    // Branch fixups resulting in R_PATMOS_22.
-    FK_Patmos_22 = FirstTargetFixupKind,
+    // ALU immediate data fixup resulting in R_PATMOS_12.
+    FK_Patmos_12 = FirstTargetFixupKind,
 
+    // Call direct fixup, 2bit immediate, resulting in R_PATMOS_22
+    FK_Patmos_22,
+
+    // TODO do we need fixups for 7bit memory offset, or 12/22/32bit cache relative branches
 
     // Marker
     LastTargetFixupKind,
