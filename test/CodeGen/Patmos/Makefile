@@ -21,10 +21,6 @@ TBLGEN=$(TBLGENBIN)
 CLANG=$(BUILDDIR)/bin/clang
 OPT=$(BUILDDIR)/bin/opt
 
-# to override default BUILDDIR
--include config.mk
-
-
 VIEW= \
   -view-dag-combine1-dags \
   -view-legalize-types-dags \
@@ -43,6 +39,11 @@ VIEW= \
 VIEW=
 
 DEBUG=--debug
+
+
+# to override default BUILDDIR, VIEW, ...
+-include config.mk
+
 
 .PHONY: all clean
 .PRECIOUS: %.ll
