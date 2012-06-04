@@ -39,9 +39,10 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
     // do not print register R0 in addressing modes
-    if ((Modifier && strcmp(Modifier, "addrmod") != 0) ||
-        (Op.getReg() != Patmos::R0))
+    if ( !(Modifier && strcmp(Modifier, "addrmod") == 0) ||
+         (Op.getReg() != Patmos::R0)) {
       O << getRegisterName(Op.getReg());
+    }
   } else if (Op.isImm()) {
     if (Modifier && strcmp(Modifier, "addrmod") == 0) {
       const MCOperand &baseOp = MI->getOperand(OpNo - 1);
