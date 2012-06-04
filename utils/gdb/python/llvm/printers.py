@@ -250,12 +250,22 @@ class InitPrinter:
 
     def to_string(self):
 	if self.val.type.code == gdb.TYPE_CODE_PTR:
-	    op = "->"
+	    val = self.val.dereference()
 	else:
-	    op = "."
-	#value = gdb_eval(str(self.val)+op+"getAsString()", "Error: Unhandled reference!");
+	    val = self.val
 
-	return str(self.val.dynamic_type)
+	dyn = str(val.dynamic_type)
+	dval = val.cast(val.dynamic_type)
+	if dyn == "llvm::StringInit":
+	    return str(dval['Value'])
+	    
+	if dyn == "llvm::BitInit":
+	    return "BitInit: " + str(dval['Value'])
+	    
+	if dyn == "llvm::IntInit":
+	    return dval['Value']
+	
+	return str(val.dynamic_type)
 	
     def display_hint(self):
 	return 'string'
@@ -286,9 +296,9 @@ class Printer(object):
         self.subprinters = []
         self.lookup = {}
         self.enabled = True
-        self.compiled_rx = re.compile('^([a-zA-Z0-9_:]+)<.*>$')
+        self.compiled_rx = re.compile('^([a-zA-Z0-9_:]+)<.*>( \*)?$')
 
-    def add(self, name, function):
+    def add(self, name, function, pointer = False):
 	name = "llvm::" + name
         # A small sanity check.
         if not self.compiled_rx.match(name + '<>'):
@@ -296,6 +306,8 @@ class Printer(object):
         printer = RxPrinter(name, function)
         self.subprinters.append(printer)
         self.lookup[name] = printer
+	if pointer:
+	    self.lookup[name+" *"] = printer
 
     @staticmethod
     def get_basic_type(type):
@@ -306,13 +318,16 @@ class Printer(object):
         # Get the unqualified type, stripped of typedefs.
         type = type.unqualified ().strip_typedefs ()
 
+	if type.code == gdb.TYPE_CODE_PTR:
+	    return str(type)
+
         return type.tag
 
     def __call__(self, val):
         typename = self.get_basic_type(val.type)
         if not typename:
             return None
-
+	
 	# Check for non-template type first
 	if typename in self.lookup:
 	    return self.lookup[typename].invoke(val)
@@ -387,7 +402,7 @@ def build_llvm_dictionary ():
     #llvm_printer.add('Twine', TwinePrinter)
     #llvm_printer.add('SmallString', SmallStringPrinter)
 
-    #llvm_printer.add('Init', InitPrinter)
+    llvm_printer.add('Init', InitPrinter, True)
 
     #if True:
         # These shouldn't be necessary, if GDB "print *i" worked.
