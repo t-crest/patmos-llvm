@@ -63,22 +63,19 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   }
 }
 
-void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O) {
+void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
+                                              raw_ostream &O, const char *Modifier)
+{
   unsigned reg  = MI->getOperand(OpNo  ).getReg();
   int      flag = MI->getOperand(OpNo+1).getImm();
 
-  const MCInstrDesc &Desc = MII.get(MI->getOpcode());
-  uint64_t TSFlags = Desc.TSFlags;
-
-  // handles predicate source operands for predicate combine instructions
-  if ((TSFlags & PatmosII::FormMask) == PatmosII::FrmALUp && OpNo > 2) {
-    O << ((flag)?"!":" ") << getRegisterName(reg);
-    return;
-  }
-
-  if (reg == Patmos::NoRegister || ((reg == Patmos::P0) && !flag)) {
-    O << "     "; // instead of ( p0)
+  if (Modifier && strcmp(Modifier, "guard") == 0) {
+    if (reg == Patmos::NoRegister || ((reg == Patmos::P0) && !flag)) {
+      O << "     "; // instead of ( p0)
+    } else {
+      O << "(" << ((flag)?"!":" ") << getRegisterName(reg) << ")";
+    }
   } else {
-    O << "(" << ((flag)?"!":" ") << getRegisterName(reg) << ")";
+    O << ((flag)?"!":" ") << getRegisterName(reg);
   }
 }

@@ -57,13 +57,15 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
 
   // The layout must match the definitions in PatmosBaseInfo.h
   let TSFlags{4-0} = FormBits;
+
+  let DecoderNamespace = "Patmos";
 }
 
 class PatmosInst<dag outs, dag ins,
                  string op, string asmstr, list<dag> pattern, Format form, InstrItinClass itin>
       : PatmosInstBase<outs, ins, pattern, form, itin>
 {
-  let AsmString   = "$p\t" # op # "\t" # asmstr;
+  let AsmString   = "${p:guard}\t" # op # "\t" # asmstr;
   let DisableEncoding = "$p.neg";
 
   let isPredicable = 1; // we have a fully predicated instruction set

@@ -101,13 +101,14 @@ PatmosDisassembler::getInstruction(MCInst &instr,
 
 
   // Calling the auto-generated decoder function.
-  //Result = decodePatmosInstruction32(instr, Insn, Address, this, STI);
-  //if (Result != MCDisassembler::Fail) {
-  //  Size = 4;
-  //  return Result;
-  //}
+  /*Result = decodePatmosInstruction32(instr, Insn, Address, this, STI);
+  if (Result != MCDisassembler::Fail) {
+    Size = 4;
+    return Result;
+  }
+  */
 
-  return MCDisassembler::Fail;
+  return Result;
 }
 
 
