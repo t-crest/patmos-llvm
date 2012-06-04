@@ -47,9 +47,10 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   TD = getTargetData();
 
   // Set up the register classes.
+  // SRegs are not used for computations.
   addRegisterClass(MVT::i32, Patmos::RRegsRegisterClass);
   addRegisterClass(MVT::i1,  Patmos::PRegsRegisterClass);
-  //addRegisterClass(MVT::i32, Patmos::SRegsRegisterClass);
+
   // Compute derived properties from the register classes
   computeRegisterProperties();
 
@@ -57,12 +58,12 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   // Division is expensive
   setIntDivIsCheap(false);
-  //setSelectIsExpensive(false);
+  // Select is not
+  setSelectIsExpensive(false);
 
   setStackPointerRegisterToSaveRestore(Patmos::RSP);
   setBooleanContents(ZeroOrOneBooleanContent);
 
-  //setBooleanVectorContents(ZeroOrOneBooleanContent); // FIXME: Is this correct?
   //setSchedulingPreference(Sched::Latency);
 
   setMinFunctionAlignment(4);

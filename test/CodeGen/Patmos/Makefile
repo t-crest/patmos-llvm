@@ -31,12 +31,6 @@ VIEW= \
   -view-sched-dags \
   -view-sunit-dags
 
-VIEW= \
-  -view-legalize-dags \
-  -view-isel-dags \
-  -view-sched-dags
-
-VIEW=
 
 DEBUG=--debug
 

@@ -86,15 +86,39 @@ def brtarget : Operand<OtherVT> {
 
 // Transformation Function - shift right by one/two bits
 def shrOne : SDNodeXForm<imm, [{
- return CurDAG->getTargetConstant(N->getZExtValue() >> 1, MVT::i32);
+ return CurDAG->getTargetConstant(
+              N->getZExtValue() >> 1,
+              MVT::i32 );
 }]>;
 def shrTwo : SDNodeXForm<imm, [{
- return CurDAG->getTargetConstant(N->getZExtValue() >> 2, MVT::i32);
+ return CurDAG->getTargetConstant(
+              N->getZExtValue() >> 2,
+              MVT::i32 );
 }]>;
+
+
+// Transformation Function - count trailing zeros.
+def trailingZeros : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getAPIntValue().countTrailingZeros(),
+              MVT::i32 );
+}]>;
+
+// Transformation Function - count trailing zeros.
+def trailingOnes : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getAPIntValue().countTrailingOnes(),
+              MVT::i32 );
+}]>;
+
+
+
 
 // Transformation Function - negate
 def negate : SDNodeXForm<imm, [{
- return CurDAG->getTargetConstant(-N->getAPIntValue(), MVT::i32);
+ return CurDAG->getTargetConstant(
+              -N->getAPIntValue(),
+              MVT::i32 );
 }]>;
 
 //===----------------------------------------------------------------------===//
@@ -123,6 +147,19 @@ def uimm12   : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue(
 def nuimm12  : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(-N->getSExtValue()); }], negate>;
 // Call/Branch/StackCtrl
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
+
+
+// 32-bit bitmask transformed to a bit number
+def uimm5mask : Operand<i32>, PatLeaf<(imm), [{
+ return isPowerOf2_32(N->getZExtValue());
+}], trailingZeros>;
+
+// 32-bit inverse bitmask transformed to a bit number
+def uimm5imask : Operand<i32>, PatLeaf<(imm), [{
+ return isPowerOf2_32(~N->getZExtValue());
+}], trailingOnes>;
+
+
 
 
 // 7 bit value, shifted by one bit (for 16-bit stores)
@@ -350,10 +387,10 @@ let isAsCheapAsAMove=1, Imm12=0 in {
 
   // conditional move, like mov with setable predicate
   // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
-  let Constraints = "$rs1 = $rd" in
-  def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2),
-                  "mov", "$rd = $rs2",
-                  [(set RRegs:$rd, (select predreg:$p, RRegs:$rs2, RRegs:$rs1))]>;
+  let Constraints = "$old = $rd" in
+  def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$old, RRegs:$new),
+                  "mov", "$rd = $new",
+                  [(set RRegs:$rd, (select predreg:$p, RRegs:$new, RRegs:$old))]>;
 }
 
 // neg Rd = -Rs ... rsub Rd = 0 - Rs
@@ -363,10 +400,11 @@ def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
                [(set RRegs:$rd, (ineg RRegs:$rs))]>;
 
 
-// not Rd = ~Rs ... nor Rd = ~(Rs | Rs)
-def NOT : ALUrdup<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-                "not", "$rd = $rs",
-                [(set RRegs:$rd, (not RRegs:$rs))]>;
+// not Rd = ~Rs ... nor Rd = ~(Rs | R0)
+let Rs2 = 0 in
+def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
+               "not", "$rd = $rs",
+               [(set RRegs:$rd, (not RRegs:$rs))]>;
 
 
 // zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
@@ -379,22 +417,30 @@ def ZEXT8 : ALUi <0b0111,
 
 
 let Rs1 = 0,
-    isReMaterializable = 1,
     isAsCheapAsAMove = 1,
     isMoveImm = 1
 in {
-  // li Rd = Immedate ... add Rd = r0 + Immediate (short, positive)
-  def LIi : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, uimm12:$imm),
-                 "li", "$rd = $imm",
-                 [(set RRegs:$rd, (add R0, uimm12:$imm))]>;
-  // li Rd = Immedate ... sub Rd = r0 - Immediate (short, negative)
-  def LIin : ALUi<0b0001, (outs RRegs:$rd), (ins pred:$p, nuimm12:$imm),
-                  "li", "$rd = $imm",
-                  [(set RRegs:$rd, (sub R0, nuimm12:$imm))]>;
-  // li Rd = Immedate ... add Rd = r0 + Immediate (long immediate)
-  def LIl : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
-                  "li", "$rd = $imm",
-                  [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
+  let isReMaterializable = 1 in {
+    // li Rd = Immedate ... add Rd = r0 + Immediate (short, positive)
+    def LIi  : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, uimm12:$imm),
+                    "li", "$rd = $imm",
+                    [(set RRegs:$rd, (add R0, uimm12:$imm))]>;
+    // li Rd = Immedate ... sub Rd = r0 - Immediate (short, negative)
+    def LIin : ALUi<0b0001, (outs RRegs:$rd), (ins pred:$p, nuimm12:$imm),
+                    "li", "$rd = $imm",
+                    [(set RRegs:$rd, (sub R0, nuimm12:$imm))]>;
+    // li Rd = Immedate ... add Rd = r0 + Immediate (long immediate)
+    def LIl  : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
+                    "li", "$rd = $imm",
+                    [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
+  }
+  // conditional load immediates
+  def CLIi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, uimm12:$imm),
+                   "li", "$rd = $imm", []>;
+  def CLIin : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, nuimm12:$imm),
+                   "li", "$rd = $imm", []>;
+  def CLIl  : ALUl<0b0000, (outs RRegs:$rd), (ins predset:$p, i32imm:$imm),
+                   "li", "$rd = $imm", []>;
 }
 
 
