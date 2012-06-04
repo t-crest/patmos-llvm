@@ -227,17 +227,39 @@ class StringRefPrinter:
         self.val = val
 
     def to_string(self):
-        # Make sure &string works, too.
-        type = self.val.type
-        if type.code == gdb.TYPE_CODE_REF:
-            type = type.target ()
-
-        ptr = self.val ['Data']
+        #type = self.val.type
+        #if type.code == gdb.TYPE_CODE_REF:
+        #    type = type.target ()
+	
+        ptr = self.val['Data']
         len = self.val['Length']
-        return ptr.string (length = len)
+	try:
+	    return ptr.string (encoding = "utf-8", length = len)
+	except:
+	    return ptr.string (encoding = "iso-8859-1", length = len)
 
     def display_hint (self):
         return 'string'
+
+class InitPrinter:
+    "Print a TableGen Init class nicely"
+
+    def __init__(self, typename, val):
+	self.val = val
+	self.typename = typename
+
+    def to_string(self):
+	if self.val.type.code == gdb.TYPE_CODE_PTR:
+	    op = "->"
+	else:
+	    op = "."
+	#value = gdb_eval(str(self.val)+op+"getAsString()", "Error: Unhandled reference!");
+
+	return str(self.val.dynamic_type)
+	
+    def display_hint(self):
+	return 'string'
+
 
 ############################################################################
 
@@ -364,6 +386,8 @@ def build_llvm_dictionary ():
     llvm_printer.add('StringRef', StringRefPrinter)
     #llvm_printer.add('Twine', TwinePrinter)
     #llvm_printer.add('SmallString', SmallStringPrinter)
+
+    #llvm_printer.add('Init', InitPrinter)
 
     #if True:
         # These shouldn't be necessary, if GDB "print *i" worked.
