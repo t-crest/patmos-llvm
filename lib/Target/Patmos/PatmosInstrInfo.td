@@ -394,7 +394,7 @@ let isAsCheapAsAMove=1, Imm12=0 in {
 
   // conditional move, like mov with setable predicate
   // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
-  let Constraints = "$old = $rd" in
+  let Constraints = "$old = $rd", isCodeGenOnly = 1 in
   def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$old, RRegs:$new),
                   "mov", "$rd = $new",
                   [(set RRegs:$rd, (select predsel:$p, RRegs:$new, RRegs:$old))]>;
@@ -442,12 +442,14 @@ in {
                     [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
   }
   // conditional load immediates
-  def CLIi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, uimm12:$imm),
-                   "li", "$rd = $imm", []>;
-  def CLIin : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, nuimm12:$imm),
-                   "li", "$rd = $imm", []>;
-  def CLIl  : ALUl<0b0000, (outs RRegs:$rd), (ins predset:$p, i32imm:$imm),
-                   "li", "$rd = $imm", []>;
+  let isCodeGenOnly = 1 in {
+    def CLIi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, uimm12:$imm),
+		     "li", "$rd = $imm", []>;
+    def CLIin : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, nuimm12:$imm),
+		     "li", "$rd = $imm", []>;
+    def CLIl  : ALUl<0b0000, (outs RRegs:$rd), (ins predset:$p, i32imm:$imm),
+		     "li", "$rd = $imm", []>;
+  }
 }
 
 
@@ -538,9 +540,9 @@ class PredCombine<bits<4> opcode, string asmop>
               asmop, "$pd = $ps1, $ps2", []>;
 
 def POR:  PredCombine <0b0110, "or">;
-def PAND: PredCombine <0b0110, "and">;
+def PAND: PredCombine <0b0111, "and">;
 def PXOR: PredCombine <0b1010, "xor">;
-def PNOR: PredCombine <0b1010, "nor">;
+def PNOR: PredCombine <0b1011, "nor">;
 
 
 // Pseudos:
