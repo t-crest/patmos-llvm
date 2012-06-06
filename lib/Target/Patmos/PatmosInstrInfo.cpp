@@ -140,3 +140,132 @@ void PatmosInstrInfo::loadRegFromStackSlot( MachineBasicBlock &MBB,
     .addFrameIndex(FrameIdx).addImm(0); // address
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Branch handling
+//
+
+bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
+                                    MachineBasicBlock *&TBB,
+                                    MachineBasicBlock *&FBB,
+                                    SmallVectorImpl<MachineOperand> &Cond,
+                                    bool AllowModify) const
+{
+  // Start from the bottom of the block and work up, examining the
+  // terminator instructions.
+  MachineBasicBlock::iterator I = MBB.end();
+  while (I != MBB.begin()) {
+    --I;
+    if (I->isDebugValue())
+      continue;
+
+    // Working from the bottom, when we see a non-terminator
+    // instruction, we're done.
+    if (!isUnpredicatedTerminator(I))
+      break;
+
+    // A terminator that isn't a (direct) branch can't easily be handled
+    // by this analysis.
+    if (!I->isBranch() || I->isIndirectBranch())
+      return true;
+
+    // Handle Unconditional branches
+    if (I->isUnconditionalBranch()) {
+      if (!AllowModify) {
+        TBB = getBranchTarget(I);
+        continue;
+      }
+      // If the block has any instructions after an uncond branch, delete them.
+      while (llvm::next(I) != MBB.end())
+        llvm::next(I)->eraseFromParent();
+      Cond.clear();
+      FBB = 0;
+
+      // If it is a fallthrough, eliminate also the unconditional branch
+      if (MBB.isLayoutSuccessor(getBranchTarget(I))) {
+        TBB = 0;
+        I->eraseFromParent();
+        I = MBB.end();
+        continue;
+      }
+
+      // TBB is used to indicate the unconditinal destination.
+      TBB = getBranchTarget(I);
+      continue;
+    }
+
+    // TODO Handle conditional branches
+    if (!I->isConditionalBranch())
+      return true; //Unknown Opcode
+
+    return true;
+  }
+  return false;
+}
+
+unsigned
+PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
+                              MachineBasicBlock *FBB,
+                              const SmallVectorImpl<MachineOperand> &Cond,
+                              DebugLoc DL) const {
+  assert(TBB && "InsertBranch must not be told to insert a fallthrough");
+  assert((Cond.size() == 1 || Cond.size() == 0) &&
+         "Patmos branch conditions should have one component!");
+
+  if (Cond.empty()) {
+    // Unconditional branch?
+    assert(TBB && !FBB && "Unconditional branch with multiple successors!");
+    BuildMI(&MBB, DL, get(Patmos::BCu)).addMBB(TBB);
+    return 1;
+  }
+
+  // Conditional branch.
+  unsigned Count = 0;
+  BuildMI(&MBB, DL, get(Patmos::BC))
+    .addReg(Cond[0].getReg()) .addImm(Cond[1].getImm()) // condition as predicate
+    .addMBB(TBB);
+  ++Count;
+
+  if (FBB) {
+    // Two-way Conditional branch. Insert the second (unconditional) branch.
+    BuildMI(&MBB, DL, get(Patmos::BCu)).addMBB(FBB);
+    ++Count;
+  }
+  return Count;
+
+}
+
+unsigned PatmosInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
+{
+  MachineBasicBlock::iterator I = MBB.end();
+  unsigned Count = 0;
+  while (I != MBB.begin()) {
+    --I;
+    if (I->isDebugValue())
+      continue;
+    if (!I->isBranch()) break; // Not a branch
+    // Remove the branch.
+    I->eraseFromParent();
+    I = MBB.end();
+    ++Count;
+  }
+  return Count;
+}
+
+bool PatmosInstrInfo::ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
+  // invert the flag
+  unsigned invflag = Cond[1].getImm();
+  Cond[1].setImm(1-invflag);
+  return false; //success
+}
+
+
+MachineBasicBlock *PatmosInstrInfo::getBranchTarget(const MachineInstr *MI) const {
+  assert(MI->isBranch() && "Not a branch instruction!");
+  switch(MI->getOpcode()) {
+    case Patmos::BC:    return MI->getOperand(2).getMBB();
+    case Patmos::BCu:   return MI->getOperand(0).getMBB();
+    default: llvm_unreachable("unhandled branch instruction");
+  }
+}

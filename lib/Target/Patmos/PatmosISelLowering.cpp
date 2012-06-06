@@ -107,9 +107,10 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::CTLZ , MVT::i32, Expand);
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
 
-  setOperationAction(ISD::SETCC,     MVT::i1, Legal);
   setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
+  // TODO at some point we want to support jumptables
+  setOperationAction(ISD::BR_JT,     MVT::Other, Expand);
 
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32  , Custom);
 }
@@ -119,7 +120,7 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
                                              SelectionDAG &DAG) const {
 
   switch (Op.getOpcode()) {
-    case ISD::SETCC:              return LowerSETCC(Op, DAG);
+    // alloca
     case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
     default:
       llvm_unreachable("unimplemented operation");
@@ -130,17 +131,6 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
 //===----------------------------------------------------------------------===//
 //                      Custom Lower Operation
 //===----------------------------------------------------------------------===//
-
-SDValue PatmosTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
-
-  //assert(Op.getValueType() == MVT::i1 && "SetCC type must be 1-bit integer");
-  SDValue Op0 = Op.getOperand(0);
-  SDValue Op1 = Op.getOperand(1);
-  SDValue Op2 = Op.getOperand(2);
-  DebugLoc dl = Op.getDebugLoc();
-
-  return DAG.getNode(ISD::SETCC, dl, MVT::i1, Op0, Op1, Op2);
-}
 
 
 

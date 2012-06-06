@@ -141,19 +141,16 @@ Filler::findDelayInstr(MachineBasicBlock &MBB,
   MachineBasicBlock::iterator I = slot;
 
 
-  return MBB.end();
-
-  unsigned opc = slot->getOpcode();
-  if (opc == Patmos::RET
-      || opc == Patmos::BC
-      || opc == Patmos::BCR
-      || opc == Patmos::BCcond
-      || opc == Patmos::BCcond
-      || opc == Patmos::bs
-      || opc == Patmos::bsr
-     ) return MBB.end();
   //FIXME this has to be removed and the implementation completed
-  llvm_unreachable("Forgot delay slot instruction?");
+  return MBB.end();
+  llvm_unreachable("findDelayInstr() needs implementation");
+
+  if (slot->isReturn()
+      || slot->isCall()
+      || slot->isBranch()
+      || slot->isIndirectBranch()
+     ) return MBB.end();
+
 
   insertDefsUses(slot, RegDefs, RegUses);
 

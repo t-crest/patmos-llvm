@@ -44,7 +44,13 @@ namespace {
       return false;
     }
 
-    virtual bool addPreEmitPass();
+    /// addPreEmitPass - This pass may be implemented by targets that want to run
+    /// passes immediately before machine code is emitted.  This should return
+    /// true if -print-machineinstrs should print out the code after the passes.
+    virtual bool addPreEmitPass(){
+      PM->add(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
+      return true;
+    }
   };
 } // namespace
 
@@ -70,11 +76,4 @@ TargetPassConfig *PatmosTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new PatmosPassConfig(this, PM);
 }
 
-/// addPreEmitPass - This pass may be implemented by targets that want to run
-/// passes immediately before machine code is emitted.  This should return
-/// true if -print-machineinstrs should print out the code after the passes.
-bool PatmosPassConfig::addPreEmitPass(){
-  PM->add(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
-  return true;
-}
 

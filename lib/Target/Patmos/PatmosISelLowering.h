@@ -34,9 +34,6 @@ namespace llvm {
       /// DYNALLOC - Dynamic Stack Allocation.
       DYNALLOC,
 
-      /// subtract left from right
-      RSUB,
-
       /// multiplication
       MUL
     };
@@ -55,7 +52,6 @@ namespace llvm {
     /// getTargetNodeName - This method returns the name of a target specific
     /// DAG node.
     virtual const char *getTargetNodeName(unsigned Opcode) const;
-
 
   private:
     const PatmosSubtarget &Subtarget;
@@ -112,7 +108,6 @@ namespace llvm {
                                             ISD::MemIndexedMode &AM,
                                             SelectionDAG &DAG) const;
     */
-    SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
 
     /// LowerDYNAMIC_STACKALLOC - Lower a dynamic stack allocation (aka alloca).
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;

@@ -63,12 +63,37 @@ public:
                             const TargetRegisterInfo *TRI) const;
 
 
+  // Branch handling
+
+  virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                             MachineBasicBlock *&FBB,
+                             SmallVectorImpl<MachineOperand> &Cond,
+                             bool AllowModify = false) const;
+
+  virtual unsigned RemoveBranch(MachineBasicBlock &MBB) const;
+
+  virtual unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                                MachineBasicBlock *FBB,
+                                const SmallVectorImpl<MachineOperand> &Cond,
+                                DebugLoc DL) const;
+
+  virtual bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const;
+
+
+  MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
 };
 
 static inline
 const MachineInstrBuilder &AddDefaultPred(const MachineInstrBuilder &MIB) {
   // predicate: always true
   return MIB.addReg(Patmos::NoRegister).addImm(0);
+}
+
+
+static inline
+bool HasDefaultPred(const MachineInstr *MI) {
+  return (MI->getOperand(0).getReg() == Patmos::NoRegister)
+      && (MI->getOperand(1).getImm() == 0);
 }
 
 } // end namespace llvm

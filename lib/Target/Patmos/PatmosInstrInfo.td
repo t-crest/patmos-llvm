@@ -16,6 +16,7 @@ include "PatmosInstrFormats.td"
 //===----------------------------------------------------------------------===//
 // Type Constraints.
 //===----------------------------------------------------------------------===//
+class SDTCisI1 <int OpNum> : SDTCisVT<OpNum,  i1>;
 class SDTCisI8 <int OpNum> : SDTCisVT<OpNum,  i8>;
 class SDTCisI16<int OpNum> : SDTCisVT<OpNum, i16>;
 class SDTCisI32<int OpNum> : SDTCisVT<OpNum, i32>;
@@ -29,24 +30,27 @@ def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisI32<0>]>;
 def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisI32<0>, SDTCisI32<1>]>;
 def SDT_PatmosDynAlloc     : SDTypeProfile<0, 1, [SDTCisI32<0>]>;
 
+
 //===----------------------------------------------------------------------===//
 // Patmos Specific Node Definitions.
 //===----------------------------------------------------------------------===//
 
-def retflag       : SDNode<"PatmosISD::RET_FLAG", SDTNone,
-                          [SDNPHasChain, SDNPOptInGlue]>;
+def PatmosReturn  : SDNode<"PatmosISD::RET_FLAG", SDTNone,
+                           [SDNPHasChain, SDNPOptInGlue]>;
 
 def PatmosCall    : SDNode<"PatmosISD::CALL",SDT_PatmosCall,
-                         [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
-                          SDNPVariadic]>;
+                           [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
+                            SDNPVariadic]>;
 
-def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_PatmosCallSeqStart,
-                          [SDNPHasChain, SDNPOutGlue]>;
-def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_PatmosCallSeqEnd,
-                          [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+def PatmosCallseqStart
+                  : SDNode<"ISD::CALLSEQ_START", SDT_PatmosCallSeqStart,
+                           [SDNPHasChain, SDNPOutGlue]>;
+def PatmosCallseqEnd
+                  : SDNode<"ISD::CALLSEQ_END",   SDT_PatmosCallSeqEnd,
+                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
-def patmos_mul    : SDNode<"PatmosISD::MUL", SDTIntBinOp,
-                          [SDNPCommutative, SDNPAssociative]>;
+def PatmosMul     : SDNode<"PatmosISD::MUL", SDTIntBinOp,
+                           [SDNPCommutative, SDNPAssociative]>;
 
 def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
                            [SDNPHasChain]>;
@@ -125,8 +129,8 @@ def negate : SDNodeXForm<imm, [{
 // Patmos Complex Pattern Definitions.
 //===----------------------------------------------------------------------===//
 
-def predreg    : ComplexPattern<i1, 2, "SelectPredPReg", [], []>;
-def predreginv : ComplexPattern<i1, 2, "SelectPredPRegInv", [], []>;
+def predsel    : ComplexPattern<i1, 2, "SelectPred",    [], []>;
+def predselinv : ComplexPattern<i1, 2, "SelectPredInv", [], []>;
 
 /*
 def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
@@ -228,10 +232,10 @@ def nor    : PatFrag<(ops node:$lhs, node:$rhs),
 let Defs = [RFP, RSP], Uses = [RFP, RSP] in {
 def ADJCALLSTACKDOWN : PseudoInst<(outs), (ins i32imm:$amt),
                                     "#ADJCALLSTACKDOWN", "",
-                                    [(callseq_start timm:$amt)]>;
+                                    [(PatmosCallseqStart timm:$amt)]>;
 def ADJCALLSTACKUP   : PseudoInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
                                     "#ADJCALLSTACKUP", "",
-                                    [(callseq_end timm:$amt1, timm:$amt2)]>;
+                                    [(PatmosCallseqEnd timm:$amt1, timm:$amt2)]>;
 }
 
 
@@ -242,26 +246,29 @@ def ADJCALLSTACKUP   : PseudoInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
     Uses = [SB, SO] in {
   def RET  : PFLr<0b0000, (outs), (ins pred:$p),
-                  "ret", "", [(retflag)]>;
+                  "ret", "", [(PatmosReturn)]>;
 }
 
 
+// isBarrier is cleared later on default predicate
 let isTerminator=1, hasDelaySlot=1 in {
-  // cache-relative direct branches
-  let isBranch=1 in {
-    let isBarrier=1 in
-    def BC     : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
-                      "bc", "$target", []>;
 
-    let isBarrier=0 in
-    def BCcond : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
-                      "bc", "$target", []>;
-  }
+  // cache-relative direct branches
+
+  // unconditional
+  let isBranch=1, isBarrier=1 in
+  def BCu : PFLub<0b01  , (outs), (ins brtarget:$target),
+                  "bc", "$target", [(br bb:$target)]>;
+
+  // conditional
+  let isBranch=1, isBarrier=0 in
+  def BC : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
+                "bc", "$target", [(brcond predsel:$p, bb:$target)]>;
 
   // cache-relative indirect branch
   let isIndirectBranch=1, isBarrier=1 in
-  def BCR : PFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                  "bcr", "$rs", []>;
+  def BCR : PFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
+                  "bcr", "$rs", [(brind RRegs:$rs)]>;
 }
 
 
@@ -390,7 +397,7 @@ let isAsCheapAsAMove=1, Imm12=0 in {
   let Constraints = "$old = $rd" in
   def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$old, RRegs:$new),
                   "mov", "$rd = $new",
-                  [(set RRegs:$rd, (select predreg:$p, RRegs:$new, RRegs:$old))]>;
+                  [(set RRegs:$rd, (select predsel:$p, RRegs:$new, RRegs:$old))]>;
 }
 
 // neg Rd = -Rs ... rsub Rd = 0 - Rs
@@ -546,7 +553,7 @@ def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps),
 let Ps2 = 0 in
 def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps),
                 "not", "$pd = $ps",
-                [(set PRegs:$pd, (not predreg:$ps))]>;
+                [(set PRegs:$pd, (not predsel:$ps))]>;
 
 //set uses or opcode (or Pd = p0 | p0)
 let Ps1 = 0, Ps2 = 0 in

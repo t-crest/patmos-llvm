@@ -21,22 +21,12 @@ def : Pat<(i32 nuimm12:$imm), (LIin nuimm12:$imm)>;
 def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 
 // for zext-ing an i1 to i32: conditionally load 1 into an RReg
-def : Pat<(zext (i1 predreg:$ps)), (CLIi predreg:$ps, (i32 1))>;
+def : Pat<(zext (i1 predsel:$ps)), (CLIi predsel:$ps, (i32 1))>;
 
 // Arithmetic optimizations
 def : Pat<(add RRegs:$rs, nuimm12:$imm), (SUBi RRegs:$rs, nuimm12:$imm)>;
 
-// Return
-//def : Pat<(retflag ),(RET )>;
 
-// Branch instructions
-
-def : Pat<(br bb:$target),   (BC  bb:$target)>;
-def : Pat<(brind RRegs:$rs), (BCR RRegs:$rs)>;
-
-// conditional branch
-def : Pat<(brcond predreg:$p, bb:$target),
-          (BCcond predreg:$p, bb:$target)>;
 
 // // jump-table.
 // def : Pat<(i32 tjumptable:$dst), (MOV_IMM tjumptable:$dst)>;
@@ -92,11 +82,11 @@ def : Pat<(seteq (and RRegs:$a, uimm5mask:$b), uimm5mask:$b),
 
 // Predicate Combine patterns
 
-def : Pat<(or  predreg:$ps1, predreg:$ps2), (POR  predreg:$ps1, predreg:$ps2)>;
-def : Pat<(and predreg:$ps1, predreg:$ps2), (PAND predreg:$ps1, predreg:$ps2)>;
-def : Pat<(xor predreg:$ps1, predreg:$ps2), (PXOR predreg:$ps1, predreg:$ps2)>;
-def : Pat<(notcc (or predreg:$ps1, predreg:$ps2)),
-                                            (PNOR predreg:$ps1, predreg:$ps2)>;
+def : Pat<(or  predsel:$ps1, predsel:$ps2), (POR  predsel:$ps1, predsel:$ps2)>;
+def : Pat<(and predsel:$ps1, predsel:$ps2), (PAND predsel:$ps1, predsel:$ps2)>;
+def : Pat<(xor predsel:$ps1, predsel:$ps2), (PXOR predsel:$ps1, predsel:$ps2)>;
+def : Pat<(notcc (or predsel:$ps1, predsel:$ps2)),
+                                            (PNOR predsel:$ps1, predsel:$ps2)>;
 
 
 
