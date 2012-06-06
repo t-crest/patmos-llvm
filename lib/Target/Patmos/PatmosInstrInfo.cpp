@@ -216,20 +216,22 @@ PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
   if (Cond.empty()) {
     // Unconditional branch?
     assert(TBB && !FBB && "Unconditional branch with multiple successors!");
-    BuildMI(&MBB, DL, get(Patmos::BCu)).addMBB(TBB);
+    AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BCu)))
+      .addMBB(TBB);
     return 1;
   }
 
   // Conditional branch.
   unsigned Count = 0;
   BuildMI(&MBB, DL, get(Patmos::BC))
-    .addReg(Cond[0].getReg()) .addImm(Cond[1].getImm()) // condition as predicate
+    .addReg(Cond[0].getReg()).addImm(Cond[1].getImm()) // condition as predicate
     .addMBB(TBB);
   ++Count;
 
   if (FBB) {
     // Two-way Conditional branch. Insert the second (unconditional) branch.
-    BuildMI(&MBB, DL, get(Patmos::BCu)).addMBB(FBB);
+    AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BCu)))
+      .addMBB(FBB);
     ++Count;
   }
   return Count;
@@ -263,9 +265,5 @@ bool PatmosInstrInfo::ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Co
 
 MachineBasicBlock *PatmosInstrInfo::getBranchTarget(const MachineInstr *MI) const {
   assert(MI->isBranch() && "Not a branch instruction!");
-  switch(MI->getOpcode()) {
-    case Patmos::BC:    return MI->getOperand(2).getMBB();
-    case Patmos::BCu:   return MI->getOperand(0).getMBB();
-    default: llvm_unreachable("unhandled branch instruction");
-  }
+  return MI->getOperand(2).getMBB();
 }

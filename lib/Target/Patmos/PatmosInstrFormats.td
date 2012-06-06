@@ -460,17 +460,6 @@ class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format
   let Inst{23-22} = PFLOp;
 }
 
-// PFL - Program Flow (Unconditional)
-//
-class PFLu<dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format form>
-  : PatmosInstNoP<outs, ins, op, asmstr, pattern, form, IIC_PFL> {
-
-  bits<2> PFLOp;
-
-  let Inst{26-25} = 0b11;
-  let Inst{23-22} = PFLOp;
-}
-
 
 
 
@@ -491,18 +480,6 @@ class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag>
   let Inst{21-0} = Imm22;
 }
 
-// PFLub - unconditional Call / Branch
-//
-class PFLub<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PFLu<outs, ins, op, asmstr, pattern, FPFLb> {
-
-  let PFLOp = pflop;
-
-  bits<22> Imm22;
-
-  let Inst{24} = 0;
-  let Inst{21-0} = Imm22;
-}
 
 // PFLi - Call / Branch Indirect
 //

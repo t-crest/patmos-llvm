@@ -264,8 +264,8 @@ let isTerminator=1, hasDelaySlot=1 in {
   // cache-relative direct branches
 
   // unconditional
-  let isBranch=1, isBarrier=1 in
-  def BCu : PFLub<0b01  , (outs), (ins brtarget:$target),
+  let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
+  def BCu : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
                   "bc", "$target", [(br bb:$target)]>;
 
   // conditional
