@@ -62,12 +62,18 @@ $data = array();
 
 foreach ($lines as $line) {
     $rs = array();
-    if ( preg_match('/# encoding: \[( ?([0-9a-fx,]*) ?(\| [01 ]*)?)\]/', $line, &$rs) ) {
+    if ( preg_match('/# encoding: \[( ?([0-9a-fx,A]*) *(\| [01x ]*)?)\]/', $line, &$rs) ) {
 	$hex = $rs[2];
 	$vals = explode(",", $hex);
 	
 	$bin = "";
+	$pad = "";
 	foreach ($vals as $val) {
+	    if ($val == "A") {
+		$bin .= $binout ? "00" : "xxxxxxxx";
+		$pad .= "   ";
+		continue;
+	    }
 	    $tmp = substr($val, 2, 2);
 	    if ($binout) {
 		$bin .= $tmp;
@@ -84,7 +90,7 @@ foreach ($lines as $line) {
 		       substr($bin,10,5)." ".substr($bin,15,5)." ".substr($bin,20,5)." ".substr($bin,25,7)." ".substr($bin,32) . (strlen($bin)<33?"":" ");
 	    }
 
-	    $data[] = str_replace($rs[1], " $hex | $bin", $line);
+	    $data[] = str_replace($rs[1], " $hex $pad| $bin", $line);
 	}
 
     } elseif (!$binout) {
