@@ -31,6 +31,7 @@ namespace {
 class PatmosMCCodeEmitter : public MCCodeEmitter {
   PatmosMCCodeEmitter(const PatmosMCCodeEmitter &); // DO NOT IMPLEMENT
   void operator=(const PatmosMCCodeEmitter &); // DO NOT IMPLEMENT
+
   const MCInstrInfo &MCII;
   const MCSubtargetInfo &STI;
   MCContext &Ctx;
@@ -119,25 +120,6 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
 
   int Size = Desc.Size;
 
-  // Encode Imm32 in ALUl
-  if ((TSFlags & PatmosII::FormMask) == PatmosII::FrmALUl) {
-
-    Binary <<= 32;
-
-    const MCOperand& imm = MI.getOperand(MI.getNumOperands()-1);
-
-    if (imm.isExpr()) {
-      // TODO create fixup
-
-
-
-    } else if (imm.isImm()) {
-      Binary |= (0xFFFFFFFF & imm.getImm());
-    } else {
-      llvm_unreachable("Could not get immediate value of ALUl op.");
-    }
-  }
-
   if ((TSFlags & PatmosII::FormMask) != PatmosII::FrmALUl) {
     // TODO for other instructions, set bit 31 if they are the first one inside a bundle
 
@@ -212,25 +194,18 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
   // TODO handle fixups properly
 
   Patmos::Fixups FixupKind = Patmos::Fixups(FK_Data_2);
+  unsigned Offset = 2;
 
-  /*
-  switch(Expr->getKind()) {
-  default:
-    break;
-  case MCSymbolRefExpr::VK_None:
-    break;
-  } // switch
+  // TODO handle Expr->getKind() ?
 
-  switch (MI.getOpcode()) {
-  default:
-    FixupKind = FK_Data_2;
-    Fixups.push_back(MCFixup::Create(0, Expr, FixupKind));
-    break;
+  const MCInstrDesc &MID = MCII.get(MI.getOpcode());
+
+  if ((MID.TSFlags & PatmosII::FormMask) == PatmosII::FrmALUl) {
+    FixupKind = Patmos::Fixups(FK_Data_4);
+    Offset = 4;
   }
-  */
 
-
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(), MCFixupKind(FixupKind)));
+  Fixups.push_back(MCFixup::Create(Offset, MO.getExpr(), MCFixupKind(FixupKind)));
 }
 
 #include "PatmosGenMCCodeEmitter.inc"

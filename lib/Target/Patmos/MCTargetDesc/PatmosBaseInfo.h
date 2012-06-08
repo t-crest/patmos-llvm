@@ -17,6 +17,7 @@
 #include "PatmosFixupKinds.h"
 #include "PatmosMCTargetDesc.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCInstrDesc.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -64,11 +65,18 @@ namespace PatmosII {
     /// FrmPFLb - This form is for instructions of the PBLb format (flow control, 22bit immediate).
     FrmPFLb     = 8,
 
-    FormMask    = 31
+    FormMask    = 0x0F
   };
 
 }
 
+/// getPatmosPredicateIndex - Given an instruction description, return the
+/// index of the predicate operand. Check MCID.isPredicable to see if the instruction
+/// actually has a predicate.
+inline static unsigned getPatmosPredicateIndex(const MCInstrDesc &MCID) {
+  // This must be consistent with PatmosInstrFormats.td
+  return (MCID.TSFlags & 0xF0) >> 4;
+}
 
 /// getPatmosRegisterNumbering - Given the enum value for some register,
 /// return the number that it corresponds to (the binary representation).

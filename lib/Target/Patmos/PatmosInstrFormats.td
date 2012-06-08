@@ -10,8 +10,8 @@
 // Format specifies some properties of the encoding used by the instruction.
 // The format is stored in the TSFlags, the flags must match the table in
 // MCTargetDesc/PatmosBaseInfo.h
-class Format<bits<5> val> {
-      bits<5> Value = val;
+class Format<bits<4> val> {
+      bits<4> Value = val;
 }
 
 def FOther  : Format<0>;
@@ -36,10 +36,9 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
 {
   let Namespace = "Patmos";
 
-  field bits<32> Inst;
+  field bits<64> Inst;
 
-  // set bits to 0 per default
-  let Inst{31-0} = 0;
+  field bits<64> SoftFail = 0;
 
   let Size = 4;
 
@@ -49,14 +48,15 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
   let Pattern     = pattern;
   let Itinerary   = itin;
 
-  // Tablegen cannot create a matcher for our format (requires starting with opcode mnemonic, not sure about bundle support)
-  let isCodeGenOnly = 1;
-
   Format  Form = form;
-  bits<5> FormBits = Form.Value;
+
+  // Index of the predicate operand, defaults to second operand (after the out op)
+  // Only valid if isPredicable is set
+  bits<4> PredIndex = 1;
 
   // The layout must match the definitions in PatmosBaseInfo.h
-  let TSFlags{4-0} = FormBits;
+  let TSFlags{7-4} = PredIndex;
+  let TSFlags{3-0} = Form.Value;
 
   let DecoderNamespace = "Patmos";
 }
@@ -65,7 +65,8 @@ class PatmosInst<dag outs, dag ins,
                  string op, string asmstr, list<dag> pattern, Format form, InstrItinClass itin>
       : PatmosInstBase<outs, ins, pattern, form, itin>
 {
-  let AsmString   = "${p:guard}\t" # op # "\t" # asmstr;
+  // we print the guard after the mnemonic to make tablegen happy, we use custom methods to bring it in front of the opcode
+  let AsmString   = op # "${p:skip}\t" # asmstr;
   let DisableEncoding = "$p.neg";
 
   let isPredicable = 1; // we have a fully predicated instruction set
@@ -78,7 +79,7 @@ class PatmosInstNoP<dag outs, dag ins, // SizeVal sz,
 {
   let Inst{30-27} = 0;
 
-  let AsmString   = "\t" # op # "\t" # asmstr;
+  let AsmString   = op # "\t" # asmstr;
   let isPredicable = 0;
 }
 
@@ -130,22 +131,23 @@ class ALUl<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, op, asmstr, pattern, FALUl, IIC_ALUl> {
 
-  let Size = 8;
-
   // unbound fields
   bits<5>  Rd;
   bits<4>  Pred;
   bits<5>  Rs1;
   bits<32> Imm32;
 
-  let Inst{31} = 1;
-  let Inst{30-27} = Pred;
-  let Inst{26-22} = 0b11111;
-  let Inst{21-17} = Rd;
-  let Inst{16-12} = Rs1;
-  let Inst{11-7} = 0b00000; //XXX don't care
-  let Inst{6-4} = 0b000;
-  let Inst{3-0} = func;
+  let Size = 8;
+
+  let Inst{63} = 1;
+  let Inst{62-59} = Pred;
+  let Inst{58-54} = 0b11111;
+  let Inst{53-49} = Rd;
+  let Inst{48-44} = Rs1;
+  let Inst{43-39} = 0b00000; //XXX don't care
+  let Inst{38-36} = 0b000;
+  let Inst{35-32} = func;
+  let Inst{31-0}  = Imm32;
 
 }
 
@@ -216,6 +218,8 @@ class ALUm<bits<4> func,
   : ALU<func, outs, ins, op, asmstr, pattern, FOther, IIC_ALUm> {
 
   let Opc = 0b010;
+
+  let PredIndex = 0;
 
   // unbound fields
   bits<4> Pred;
@@ -293,6 +297,8 @@ class SPCn<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 
   let Opc = 0b000;
 
+  let PredIndex = 0;
+
   // unbound fields
   bits<4> Pred;
   bits<4> Imm4;
@@ -309,6 +315,8 @@ class SPCw<bits<4> func,
   : SPC<outs, ins, op, asmstr, pattern, IIC_SPCw> {
 
   let Opc = 0b001;
+
+  let PredIndex = 0;
 
   // unbound fields
   bits<4> Pred;
@@ -394,6 +402,7 @@ class STT<bits<3> ty, bits<2> td,
 
 
   let mayStore = 1;
+  let PredIndex = 0;
 
   // unbound fields
   bits<4> Pred;
@@ -423,6 +432,8 @@ class STT<bits<3> ty, bits<2> td,
 class STC<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTC, IIC_MEM> {
+
+  let PredIndex = 0;
 
   // unbound fields
   bits<4> Pred;
@@ -470,6 +481,8 @@ class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag>
 
   let PFLOp = pflop;
 
+  let PredIndex = 0;
+
   bits<4> Pred;
   bits<22> Imm22;
 
@@ -491,13 +504,6 @@ class PFLub<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag
   let Inst{21-0} = Imm22;
 }
 
-
-
-
-
-
-
-
 // PFLi - Call / Branch Indirect
 //
 class PFLi<bits<4>op,
@@ -505,6 +511,8 @@ class PFLi<bits<4>op,
   : PFL<outs, ins, asmop, asmstr, pattern, FOther> {
 
   let PFLOp = 0b00;
+
+  let PredIndex = 0;
 
   // unbound register field
   bits<4> Pred;
@@ -523,6 +531,8 @@ class PFLr<bits<4>op,
   : PFL<outs, ins, asmop, asmstr, pattern, FOther> {
 
   let PFLOp = 0b10;
+
+  let PredIndex = 0;
 
   bits<4> Pred;
 

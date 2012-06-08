@@ -27,6 +27,9 @@ namespace llvm {
 
 
     void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot);
+
+    void printGuard(const MCInst *MI, raw_ostream &O);
+
     void printOperand(const MCInst *MI, unsigned OpNo,
                       raw_ostream &O, const char *Modifier = 0);
     void printPredicateOperand(const MCInst *MI, unsigned OpNo,

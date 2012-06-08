@@ -60,14 +60,21 @@ def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
 // Patmos Operand Definitions.
 //===----------------------------------------------------------------------===//
 
+def RegisterOperandClass : AsmOperandClass {
+  let Name = "Register";
+  let ParserMethod = "";
+}
+
 // Patmos default predicate operand.
 // actually this is a pair of MachineOperands, where
 // the first is the predicate register
 // and the second is the inversion flag
-def pred : PredicateOperand<OtherVT, (ops PRegs:$preg, i1imm:$neg),
+def pred : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg),
                                      (ops (i1 zero_reg), (i1 0))> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
+  let DecoderMethod = "";
+
 }
 
 // Patmos setable predicate operand
@@ -75,6 +82,7 @@ def pred : PredicateOperand<OtherVT, (ops PRegs:$preg, i1imm:$neg),
 def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
+  let DecoderMethod = "";
 }
 
 // for cache relative branches
@@ -348,7 +356,7 @@ multiclass BinArithLRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommuta
 
 multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommutable=0> {
   def i : ALUi<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
-               asmop, " $rd = $rs1, $imm",
+               asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (pfg RRegs:$rs1, uimm12:$imm))]>;
   // also L and R
   defm NAME : BinArithLRpfg<func, asmop, pfg>;

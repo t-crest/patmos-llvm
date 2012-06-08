@@ -21,7 +21,7 @@ def : Pat<(i32 nuimm12:$imm), (LIin nuimm12:$imm)>;
 def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 
 // for zext-ing an i1 to i32: conditionally load 1 into an RReg
-def : Pat<(zext (i1 predsel:$ps)), (CLIi predsel:$ps, (i32 1))>;
+def : Pat<(zext (i1 predsel:$p)), (CLIi predsel:$p, (i32 1))>;
 
 // Arithmetic optimizations
 def : Pat<(add RRegs:$rs, nuimm12:$imm), (SUBi RRegs:$rs, nuimm12:$imm)>;

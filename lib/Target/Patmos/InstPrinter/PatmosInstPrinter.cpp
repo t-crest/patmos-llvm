@@ -31,7 +31,31 @@ using namespace llvm;
 void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                   StringRef Annot) {
   printInstruction(MI, O);
+
+  // TODO if we are in a bundle, print the bundle separator ('||') instead.
+
+  O << ";";
+
   printAnnotation(O, Annot);
+}
+
+void PatmosInstPrinter::printGuard(const MCInst *MI, raw_ostream &O) {
+  // Print the predicate register first.
+  // This is a workaround. The guard cannot be printed before the mnemonic by tablegen,
+  // otherwise we would not be able to generate matcher tables. We therefore skip printing
+  // the guard in the AsmString and print it here as a prefix instead.
+
+  const MCInstrDesc &Desc = MII.get(MI->getOpcode());
+
+  if (Desc.isPredicable()) {
+    // Note: using Desc.findFirstPredicateOperand() would not work for predicate combine instructions
+    // correctly here
+    printPredicateOperand(MI, getPatmosPredicateIndex(Desc), O, "guard");
+  } else {
+    // TODO printing this should somehow be near the code for printing the guard
+    O << "     ";
+  }
+  O << " ";
 }
 
 void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
@@ -68,6 +92,10 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
 {
   unsigned reg  = MI->getOperand(OpNo  ).getReg();
   int      flag = MI->getOperand(OpNo+1).getImm();
+
+  if (Modifier && strcmp(Modifier, "skip") == 0) {
+    return;
+  }
 
   if (Modifier && strcmp(Modifier, "guard") == 0) {
     if (reg == Patmos::NoRegister || ((reg == Patmos::P0) && !flag)) {

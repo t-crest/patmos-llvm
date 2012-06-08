@@ -43,8 +43,9 @@ include "PatmosInstrInfo.td"
 def PatmosInstrInfo : InstrInfo;
 
 def PatmosInstPrinter : AsmWriter {
-  string AsmWriterClassName  = "InstPrinter";
-  bit isMCAsmWriter = 1;
+  let AsmWriterClassName  = "InstPrinter";
+  let isMCAsmWriter = 1;
+  let PrintPrefixMethod = "printGuard";
 }
 
 //===----------------------------------------------------------------------===//
