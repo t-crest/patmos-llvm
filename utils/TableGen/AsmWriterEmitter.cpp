@@ -396,6 +396,11 @@ void AsmWriterEmitter::EmitPrintInstruction(raw_ostream &O) {
 
   O << "  O << \"\\t\";\n\n";
 
+  std::string PrintPrefixMethod = AsmWriter->getValueAsString("PrintPrefixMethod");
+  if (!PrintPrefixMethod.empty()) {
+    O << "  " << PrintPrefixMethod << "(MI, O);\n\n";
+  }
+
   O << "  // Emit the opcode for the instruction.\n"
     << "  unsigned Bits = OpInfo[MI->getOpcode()];\n"
     << "  assert(Bits != 0 && \"Cannot print this instruction.\");\n"

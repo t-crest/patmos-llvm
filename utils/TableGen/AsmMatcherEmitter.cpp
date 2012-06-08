@@ -281,6 +281,9 @@ struct MatchableInfo {
     /// The operand name this is, if anything.
     StringRef SrcOpName;
 
+    /// The modifier for this operand, if used.
+    StringRef Modifier;
+
     /// The suboperand index within SrcOpName, or -1 for the entire operand.
     int SubOpIdx;
 
@@ -748,11 +751,17 @@ void MatchableInfo::TokenizeAsmString(const AsmMatcherInfo &Info) {
   if (AsmOperands.empty())
     throw TGError(TheDef->getLoc(),
                   "Instruction '" + TheDef->getName() + "' has no tokens");
+
   Mnemonic = AsmOperands[0].Token;
+  if (Mnemonic.size() == 0)
+    throw TGError(TheDef->getLoc(),
+                 "Instruction '" + TheDef->getName() + "' does not start with a mnemonic!");
+
   // FIXME : Check and raise an error if it is a register.
   if (Mnemonic[0] == '$')
     throw TGError(TheDef->getLoc(),
-                  "Invalid instruction mnemonic '" + Mnemonic.str() + "'!");
+                 "Invalid instruction mnemonic '" + Mnemonic.str() + "'!");
+
 
   // Remove the first operand, it is tracked in the mnemonic field.
   AsmOperands.erase(AsmOperands.begin());
@@ -787,10 +796,14 @@ bool MatchableInfo::Validate(StringRef CommentDelimiter, bool Hack) const {
   std::set<std::string> OperandNames;
   for (unsigned i = 0, e = AsmOperands.size(); i != e; ++i) {
     StringRef Tok = AsmOperands[i].Token;
-    if (Tok[0] == '$' && Tok.find(':') != StringRef::npos)
+
+    // Check for special format ('$:..' or '${:..}'), this is not supported yet
+    if (Tok[0] == '$' && ((Tok.size() > 1 && Tok[1] == ':') ||
+                          (Tok.size() > 2 && Tok[1] == '{' && Tok[2] == ':'))) {
       throw TGError(TheDef->getLoc(),
-                    "matchable with operand modifier '" + Tok.str() +
+                    "matchable with special modifier '" + Tok.str() +
                     "' not supported by asm matcher.  Mark isCodeGenOnly!");
+    }
 
     // Verify that any operand is only mentioned once.
     // We reject aliases and ignore instructions for now.
@@ -1308,6 +1321,11 @@ void AsmMatcherInfo::BuildInfo() {
         OperandName = Token.substr(2, Token.size() - 3);
       else
         OperandName = Token.substr(1);
+
+      // check for modifiers (we ruled out special modifiers ($:.. / ${:..}) in Verify
+      std::pair<StringRef,StringRef> mod = OperandName.split(':');
+      OperandName = mod.first;
+      Op.Modifier = mod.second;
 
       if (II->DefRec.is<const CodeGenInstruction*>())
         BuildInstructionOperandReference(II, OperandName, i);
