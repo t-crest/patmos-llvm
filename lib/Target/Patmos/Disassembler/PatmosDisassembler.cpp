@@ -71,9 +71,10 @@ static DecodeStatus readInstruction32(const MemoryObject &region,
 
   // We want to read exactly 4 Bytes of data.
   if (region.readBytes(address, 4, (uint8_t*)Bytes, NULL) == -1) {
-    size = 0;
     return MCDisassembler::Fail;
   }
+
+  size += 4;
 
   // Encoded as a big-endian 32-bit word in the stream.
   insn = (Bytes[3] <<  0) |
@@ -93,21 +94,39 @@ PatmosDisassembler::getInstruction(MCInst &instr,
                                  raw_ostream &cStream) const {
   uint32_t Insn;
 
+  Size = 0;
+
   DecodeStatus Result = readInstruction32(Region, Address, Size, Insn);
   if (Result == MCDisassembler::Fail)
     return MCDisassembler::Fail;
 
-  // TODO: if the first instruction is a ALUl format, read 32bit immediate
-
+  // TODO we could check the opcode for ALUl instruction format to avoid calling decode32 in that case
 
   // Calling the auto-generated decoder function.
   Result = decodePatmosInstruction32(instr, Insn, Address, this, STI);
+
+  bool isBundled = (Insn >> 31);
+
+  // Try decoding as 64bit ALUl instruction
   if (Result == MCDisassembler::Fail) {
-    return Result;
+    if (!isBundled) return MCDisassembler::Fail;
+
+    uint32_t InsnL;
+
+    Result = readInstruction32(Region, Address + 4, Size, InsnL);
+    if (Result == MCDisassembler::Fail) {
+      return MCDisassembler::Fail;
+    }
+
+    uint64_t Insn64 = ((uint64_t)Insn << 32) | InsnL;
+
+    Result = decodePatmosInstruction64(instr, Insn64, Address, this, STI);
+    if (Result == MCDisassembler::Fail)
+      return MCDisassembler::Fail;
+
   }
 
-  Size = 4;
-
+  // TODO handle bundled instructions somehow
 
   return Result;
 }

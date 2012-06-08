@@ -60,6 +60,7 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
 
   switch (Kind) {
   case FK_Data_2:
+  case FK_Data_4:
 
     break;
   default:
