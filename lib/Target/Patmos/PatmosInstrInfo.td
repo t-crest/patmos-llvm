@@ -73,7 +73,7 @@ def pred : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg),
                                      (ops (i1 zero_reg), (i1 0))> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
-  let DecoderMethod = "DecodePRegsRegisterClass";
+  let DecoderMethod = "DecodePredRegisterClass";
 
 }
 
@@ -82,7 +82,7 @@ def pred : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg),
 def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
-  let DecoderMethod = "DecodePRegsRegisterClass";
+  let DecoderMethod = "DecodePredRegisterClass";
 }
 
 // for cache relative branches

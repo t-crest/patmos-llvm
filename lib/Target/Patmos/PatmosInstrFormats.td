@@ -137,6 +137,7 @@ class ALUl<bits<4> func,
   let Size = 8;
 
   let Inst{63} = 1;
+  let Inst{62-59} = p;
   let Inst{58-54} = 0b11111;
   let Inst{53-49} = rd;
   let Inst{48-44} = rs1;

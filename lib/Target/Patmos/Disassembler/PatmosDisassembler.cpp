@@ -90,6 +90,8 @@ static DecodeStatus DecodeSRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint6
                                              const void *Decoder);
 static DecodeStatus DecodePRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
                                              const void *Decoder);
+static DecodeStatus DecodePredRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                            const void *Decoder);
 
 #include "PatmosGenDisassemblerTables.inc"
 
@@ -187,17 +189,25 @@ static DecodeStatus DecodeSRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint6
 static DecodeStatus DecodePRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
                                              const void *Decoder)
 {
+  if (RegNo > 7)
+    return MCDisassembler::Fail;
+
+  Inst.addOperand(MCOperand::CreateReg(PRegsTable[RegNo]));
+
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodePredRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                            const void *Decoder)
+{
   bool flag    = RegNo >> 3;
   unsigned reg = RegNo & 0x07;
-
-  // TODO technically, if this is operand 'pd' in ALUp, we should handle flag differently
 
   Inst.addOperand(MCOperand::CreateReg(PRegsTable[reg]));
   Inst.addOperand(MCOperand::CreateImm(flag));
 
   return MCDisassembler::Success;
 }
-
 
 
 namespace llvm {
