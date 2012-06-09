@@ -48,9 +48,8 @@ void PatmosInstPrinter::printGuard(const MCInst *MI, raw_ostream &O) {
   const MCInstrDesc &Desc = MII.get(MI->getOpcode());
 
   if (Desc.isPredicable()) {
-    // Note: using Desc.findFirstPredicateOperand() would not work for predicate combine instructions
-    // correctly here
-    printPredicateOperand(MI, getPatmosPredicateIndex(Desc), O, "guard");
+    // We assume that the predicate is the first in operand!
+    printPredicateOperand(MI, Desc.getNumDefs(), O, "guard");
   } else {
     // TODO printing this should somehow be near the code for printing the guard
     O << "     ";

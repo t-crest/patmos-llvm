@@ -59,6 +59,13 @@ const EDInstInfo *PatmosDisassembler::getEDInfo() const {
   return instInfoPatmos;
 }
 
+// Forward declarations for tablegen'd decoder
+static DecodeStatus DecodeRRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                             const void *Decoder);
+static DecodeStatus DecodeSRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                             const void *Decoder);
+static DecodeStatus DecodePRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                             const void *Decoder);
 
 #include "PatmosGenDisassemblerTables.inc"
 
@@ -131,6 +138,42 @@ PatmosDisassembler::getInstruction(MCInst &instr,
   return Result;
 }
 
+static DecodeStatus DecodeRRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                             const void *Decoder)
+{
+  if (RegNo > 31)
+    return MCDisassembler::Fail;
+
+  // TODO pass enum value instead of RegNo ??
+  Inst.addOperand(MCOperand::CreateReg(RegNo));
+
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodeSRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                             const void *Decoder)
+{
+  if (RegNo > 15)
+    return MCDisassembler::Fail;
+
+  // TODO pass enum value instead of RegNo ??
+  Inst.addOperand(MCOperand::CreateReg(RegNo));
+
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodePRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
+                                             const void *Decoder)
+{
+  bool flag    = RegNo >> 3;
+  unsigned reg = RegNo & 0x07;
+
+  // TODO pass enum value instead of RegNo ??
+  Inst.addOperand(MCOperand::CreateReg(reg));
+  Inst.addOperand(MCOperand::CreateImm(flag));
+
+  return MCDisassembler::Success;
+}
 
 
 namespace llvm {

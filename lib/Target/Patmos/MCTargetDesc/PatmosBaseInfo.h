@@ -70,14 +70,6 @@ namespace PatmosII {
 
 }
 
-/// getPatmosPredicateIndex - Given an instruction description, return the
-/// index of the predicate operand. Check MCID.isPredicable to see if the instruction
-/// actually has a predicate.
-inline static unsigned getPatmosPredicateIndex(const MCInstrDesc &MCID) {
-  // This must be consistent with PatmosInstrFormats.td
-  return (MCID.TSFlags & 0xF0) >> 4;
-}
-
 /// getPatmosRegisterNumbering - Given the enum value for some register,
 /// return the number that it corresponds to (the binary representation).
 inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)

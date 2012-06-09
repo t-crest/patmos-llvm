@@ -387,51 +387,56 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 
 
 // Allocate space on the current stack space -- aka alloca
+// FIXME: no opcode, no fields, no nothing in PatmosInst .. must derive from ALUi or something!
 let Defs = [RSP], Uses = [RSP] in
 def DYNALLOC : PatmosInst<(outs RRegs:$rd),
                           (ins pred:$p, RRegs:$rs1, uimm12:$imm),
-                          "add", "$rd = $rs1, $imm # dynalloc",
+                          "add", "$rd = $rs1, $imm", // dynalloc
                           [], FOther, IIC_ALU>;
 
 
 // move instructions
-let isAsCheapAsAMove=1, Imm12=0 in {
+let isAsCheapAsAMove=1, imm=0 in {
   // mov Rd = Rs ... add Rd = Rs + 0
-  def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-                 "mov", "$rd = $rs", []>;
+  def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
+                 "mov", "$rd = $rs1", []>;
 
   // conditional move, like mov with setable predicate
   // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
   let Constraints = "$old = $rd", isCodeGenOnly = 1 in
   def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$old, RRegs:$new),
                   "mov", "$rd = $new",
-                  [(set RRegs:$rd, (select predsel:$p, RRegs:$new, RRegs:$old))]>;
+                  [(set RRegs:$rd, (select predsel:$p, RRegs:$new, RRegs:$old))]> 
+  {
+    bits<5> new;
+    let rs1 = new;
+  }
 }
 
 // neg Rd = -Rs ... rsub Rd = 0 - Rs
-let Imm12 = 0 in
-def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-               "neg", "$rd = $rs",
-               [(set RRegs:$rd, (ineg RRegs:$rs))]>;
+let imm = 0 in
+def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
+               "neg", "$rd = $rs1",
+               [(set RRegs:$rd, (ineg RRegs:$rs1))]>;
 
 
 // not Rd = ~Rs ... nor Rd = ~(Rs | R0)
-let Rs2 = 0 in
-def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-               "not", "$rd = $rs",
-               [(set RRegs:$rd, (not RRegs:$rs))]>;
+let rs2 = 0 in
+def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
+               "not", "$rd = $rs1",
+               [(set RRegs:$rd, (not RRegs:$rs1))]>;
 
 
 // zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
-let Imm12 = 0xff in
+let imm = 0xff in
 def ZEXT8 : ALUi <0b0111,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "zext8", "$rd = $rs",
-              [(set RRegs:$rd, (and RRegs:$rs, (i32 0xff)))]>;
+              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
+              "zext8", "$rd = $rs1",
+              [(set RRegs:$rd, (and RRegs:$rs1, (i32 0xff)))]>;
 
 
 
-let Rs1 = 0,
+let rs1 = 0,
     isAsCheapAsAMove = 1,
     isMoveImm = 1
 in {
@@ -526,16 +531,16 @@ def CMPULE : Compare <"cmpule", 0b0101>;
 def BTEST  : Compare <"btest" , 0b0110>;
 
 // Pseudo instr ISODD uses btest opcode
-let Rs2 = 0 in
-def ISODD : ALUc <0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
-                  "isodd", "$pd = $rs",
-                  [(set PRegs:$pd, (setne (and RRegs:$rs, (i32 1)), (i32 1)))]>;
+let rs2 = 0 in
+def ISODD : ALUc <0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1),
+                  "isodd", "$pd = $rs1",
+                  [(set PRegs:$pd, (setne (and RRegs:$rs1, (i32 1)), (i32 1)))]>;
 
 // Pseudo mov Pd <- Rs uses cmpneq with r0
-let Rs2 = 0 in
-def MOVrp : ALUc <0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs),
-                  "mov", "$pd = $rs",
-                  [(set PRegs:$pd, (setne RRegs:$rs, (i32 0)))]>;
+let rs2 = 0 in
+def MOVrp : ALUc <0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1),
+                  "mov", "$pd = $rs1",
+                  [(set PRegs:$pd, (setne RRegs:$rs1, (i32 0)))]>;
 
 
 
@@ -555,24 +560,24 @@ def PNOR: PredCombine <0b1011, "nor">;
 
 // Pseudos:
 //mov uses or opcode (or Pd = Ps | !p0)
-let Ps2 = 0b1000 in
-def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps),
-                "mov", "$pd = $ps", []>;
+let ps2 = 0b1000 in
+def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
+                "mov", "$pd = $ps1", []>;
 
 //not uses nor opcode (nor Pd = Ps ^ p0)
-let Ps2 = 0 in
-def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps),
-                "not", "$pd = $ps",
-                [(set PRegs:$pd, (not predsel:$ps))]>;
+let ps2 = 0 in
+def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
+                "not", "$pd = $ps1",
+                [(set PRegs:$pd, (not predsel:$ps1))]>;
 
 //set uses or opcode (or Pd = p0 | p0)
-let Ps1 = 0, Ps2 = 0 in
+let ps1 = 0, ps2 = 0 in
 def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
                 "set", "$pd",
                 [(set PRegs:$pd, (i1 1))]>;
 
 //clr uses nor opcode (nor Pd = p0 ^ p0)
-let Ps1 = 0, Ps2 = 0 in
+let ps1 = 0, ps2 = 0 in
 def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
                 "clr", "$pd",
                 [(set PRegs:$pd, (i1 0))]>;
@@ -624,7 +629,7 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
 
 multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
 {
-  let Defs = [SM], Rd = 0 in
+  let Defs = [SM], rd = 0 in
   {
     // load from data cache (no pattern to match)
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
