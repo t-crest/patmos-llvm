@@ -54,10 +54,36 @@ public:
 
 };
 
-
 const EDInstInfo *PatmosDisassembler::getEDInfo() const {
   return instInfoPatmos;
 }
+
+// Register decoder tables.
+// We could use the info from PatmosGenRegisterInfo.td, but to do this properly
+// we would need to get the RegisterInfo and find the proper RegisterClass struct.
+// Much easier to just define the tables here separately.
+
+static const unsigned RRegsTable[] = {
+    Patmos::R0,  Patmos::R1,  Patmos::R2,  Patmos::R3,
+    Patmos::R4,  Patmos::R5,  Patmos::R6,  Patmos::R7,
+    Patmos::R8,  Patmos::R9,  Patmos::R10, Patmos::R11,
+    Patmos::R12, Patmos::R13, Patmos::R14, Patmos::R15,
+    Patmos::R16, Patmos::R17, Patmos::R18, Patmos::R19,
+    Patmos::R20, Patmos::R21, Patmos::R22, Patmos::R23,
+    Patmos::R24, Patmos::R25, Patmos::R26, Patmos::R27,
+    Patmos::R28, Patmos::R29, Patmos::RFP, Patmos::RSP,
+};
+static const unsigned SRegsTable[] = {
+    Patmos::SZ,  Patmos::SM,  Patmos::SL,  Patmos::SH,
+    Patmos::SB,  Patmos::SO,  Patmos::ST,  Patmos::S7,
+    Patmos::S8,  Patmos::S9,  Patmos::S10, Patmos::S11,
+    Patmos::S12, Patmos::S13, Patmos::S14, Patmos::S15,
+};
+static const unsigned PRegsTable[] = {
+    Patmos::P0,  Patmos::P1,  Patmos::P2,  Patmos::P3,
+    Patmos::P4,  Patmos::P5,  Patmos::P6,  Patmos::P7
+};
+
 
 // Forward declarations for tablegen'd decoder
 static DecodeStatus DecodeRRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
@@ -144,8 +170,7 @@ static DecodeStatus DecodeRRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint6
   if (RegNo > 31)
     return MCDisassembler::Fail;
 
-  // TODO pass enum value instead of RegNo ??
-  Inst.addOperand(MCOperand::CreateReg(RegNo));
+  Inst.addOperand(MCOperand::CreateReg(RRegsTable[RegNo]));
 
   return MCDisassembler::Success;
 }
@@ -156,8 +181,7 @@ static DecodeStatus DecodeSRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint6
   if (RegNo > 15)
     return MCDisassembler::Fail;
 
-  // TODO pass enum value instead of RegNo ??
-  Inst.addOperand(MCOperand::CreateReg(RegNo));
+  Inst.addOperand(MCOperand::CreateReg(SRegsTable[RegNo]));
 
   return MCDisassembler::Success;
 }
@@ -168,8 +192,7 @@ static DecodeStatus DecodePRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint6
   bool flag    = RegNo >> 3;
   unsigned reg = RegNo & 0x07;
 
-  // TODO pass enum value instead of RegNo ??
-  Inst.addOperand(MCOperand::CreateReg(reg));
+  Inst.addOperand(MCOperand::CreateReg(PRegsTable[reg]));
   Inst.addOperand(MCOperand::CreateImm(flag));
 
   return MCDisassembler::Success;
