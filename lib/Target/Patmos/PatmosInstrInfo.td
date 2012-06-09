@@ -73,7 +73,7 @@ def pred : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg),
                                      (ops (i1 zero_reg), (i1 0))> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
-  let DecoderMethod = "";
+  let DecoderMethod = "DecodePRegsRegisterClass";
 
 }
 
@@ -82,7 +82,7 @@ def pred : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg),
 def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
   let PrintMethod = "printPredicateOperand";
   let EncoderMethod = "getPredOperandEncoding";
-  let DecoderMethod = "";
+  let DecoderMethod = "DecodePRegsRegisterClass";
 }
 
 // for cache relative branches
@@ -147,7 +147,6 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 //===----------------------------------------------------------------------===//
 // Pattern Fragments
 //===----------------------------------------------------------------------===//
-
 
 // offset of indexed load/store
 def uimm7    : Operand<i32>, PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
@@ -292,13 +291,13 @@ let isCall=1, hasDelaySlot=1,
           R17, R18, R19, R20,
           SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
-  def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$imm),
-                    "bs", "$imm",
-                    [(PatmosCall uimm22:$imm)]>;
+  def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
+                    "bs", "$target",
+                    [(PatmosCall uimm22:$target)]>;
 
-  def bsr: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs1),
-                    "bsr", "$rs1",
-                    [(PatmosCall RRegs:$rs1)]>;
+  def bsr: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
+                    "bsr", "$rs",
+                    [(PatmosCall RRegs:$rs)]>;
 }
 
 //===----------------------------------------------------------------------===//

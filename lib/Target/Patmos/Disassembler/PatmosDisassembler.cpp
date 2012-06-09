@@ -58,11 +58,9 @@ const EDInstInfo *PatmosDisassembler::getEDInfo() const {
   return instInfoPatmos;
 }
 
-// Register decoder tables.
-// We could use the info from PatmosGenRegisterInfo.td, but to do this properly
-// we would need to get the RegisterInfo and find the proper RegisterClass struct.
-// Much easier to just define the tables here separately.
-
+// We could use the information from PatmosGenRegisterInfo.inc here,
+// but this would require linking to PatmosMCTargetDesc and providing
+// static functions there to access those structs.
 static const unsigned RRegsTable[] = {
     Patmos::R0,  Patmos::R1,  Patmos::R2,  Patmos::R3,
     Patmos::R4,  Patmos::R5,  Patmos::R6,  Patmos::R7,
@@ -192,11 +190,14 @@ static DecodeStatus DecodePRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint6
   bool flag    = RegNo >> 3;
   unsigned reg = RegNo & 0x07;
 
+  // TODO technically, if this is operand 'pd' in ALUp, we should handle flag differently
+
   Inst.addOperand(MCOperand::CreateReg(PRegsTable[reg]));
   Inst.addOperand(MCOperand::CreateImm(flag));
 
   return MCDisassembler::Success;
 }
+
 
 
 namespace llvm {

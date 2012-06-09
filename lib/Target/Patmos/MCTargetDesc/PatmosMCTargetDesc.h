@@ -36,6 +36,7 @@ MCCodeEmitter *createPatmosMCCodeEmitter(const MCInstrInfo &MCII,
 MCAsmBackend *createPatmosAsmBackend(const Target &T, StringRef TT);
 
 MCObjectWriter *createPatmosELFObjectWriter(raw_ostream &OS, uint8_t OSABI);
+
 } // End llvm namespace
 
 // Defines symbolic names for Patmos registers.
