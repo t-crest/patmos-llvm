@@ -34,32 +34,8 @@ class PatmosAsmLexer : public MCTargetAsmLexer {
   }
 
   AsmToken LexTokenUAL();
+
 protected:
-  typedef std::map <std::string, unsigned> rmap_ty;
-
-  rmap_ty RegisterMap;
-
-  void InitRegisterMap(const MCRegisterInfo *info) {
-    unsigned numRegs = info->getNumRegs();
-
-    for (unsigned i = 0; i < numRegs; ++i) {
-      const char *regName = info->getName(i);
-      if (regName)
-        RegisterMap[regName] = i;
-    }
-
-    // add register name aliases (any way to get this from altNames by tablegen?)
-    RegisterMap["rsp"] = Patmos::RSP;
-    RegisterMap["rfp"] = Patmos::RFP;
-  }
-
-  unsigned MatchRegisterName(StringRef Name) {
-    rmap_ty::iterator iter = RegisterMap.find(Name.str());
-    if (iter != RegisterMap.end())
-      return iter->second;
-    else
-      return 0;
-  }
 
   AsmToken LexToken() {
     if (!Lexer) {
@@ -75,14 +51,24 @@ protected:
       return LexTokenUAL();
     }
   }
+
 public:
+
   PatmosAsmLexer(const Target &T, const MCRegisterInfo &MRI, const MCAsmInfo &MAI)
-    : MCTargetAsmLexer(T), AsmInfo(MAI) {
-    InitRegisterMap(&MRI);
-  }
+    : MCTargetAsmLexer(T), AsmInfo(MAI) { }
+
 };
 
 } // end anonymous namespace
+
+
+/// @name Auto-generated Match Functions
+/// {
+
+#define GET_REGISTER_MATCHER
+#include "PatmosGenAsmMatcher.inc"
+
+/// }
 
 AsmToken PatmosAsmLexer::LexTokenUAL() {
   const AsmToken &lexedToken = lexDefinite();
@@ -93,14 +79,14 @@ AsmToken PatmosAsmLexer::LexTokenUAL() {
     SetError(Lexer->getErrLoc(), Lexer->getErr());
     break;
   case AsmToken::Identifier: {
-    std::string lowerCase = lexedToken.getString().lower();
 
-    unsigned regID = MatchRegisterName(lowerCase);
+    unsigned regID = MatchRegisterName(lexedToken.getString());
 
     if (regID)
       return AsmToken(AsmToken::Register,
                       lexedToken.getString(),
                       static_cast<int64_t>(regID));
+
     break;
   }
   }

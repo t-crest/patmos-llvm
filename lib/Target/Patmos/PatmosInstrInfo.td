@@ -60,10 +60,10 @@ def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
 // Patmos Operand Definitions.
 //===----------------------------------------------------------------------===//
 
-def RegisterOperandClass : AsmOperandClass {
-  let Name = "Register";
-  let ParserMethod = "";
-}
+//def RegisterOperandClass : AsmOperandClass {
+//  let Name = "Register";
+//  let ParserMethod = "";
+//}
 
 // Patmos default predicate operand.
 // actually this is a pair of MachineOperands, where
