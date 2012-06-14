@@ -106,3 +106,17 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
     O << ((flag)?"!":" ") << getRegisterName(reg);
   }
 }
+
+void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI, unsigned OpNo,
+                                            raw_ostream &O)
+{
+  const MCOperand &Op = MI->getOperand(OpNo);
+  assert(Op.isExpr() && "unknown operand kind in printCacheRelTargetOperand");
+
+  // print the expression as is (a difference bb_label-function_label
+  //O << *Op.getExpr();
+
+  // test more fancy stuff (@SH: don't kill me for this)
+  const MCExpr *bbtarget = static_cast<const MCBinaryExpr*>(Op.getExpr())->getLHS();
+  O << "(crel)" << *bbtarget;
+}

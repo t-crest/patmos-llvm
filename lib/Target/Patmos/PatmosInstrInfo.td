@@ -86,9 +86,9 @@ def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
 }
 
 // for cache relative branches
-def brtarget : Operand<OtherVT> {
-  //TODO
-  //let PrintMethod = "printCacheRelImmOperand";
+def creltarget : Operand<OtherVT> {
+  let PrintMethod = "printCacheRelTargetOperand";
+  //TODO encoder, decoder method
 }
 
 
@@ -264,12 +264,12 @@ let isTerminator=1, hasDelaySlot=1 in {
 
   // unconditional
   let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
-  def BCu : PFLb<0b01  , (outs), (ins pred:$p, brtarget:$target),
+  def BCu : PFLb<0b01  , (outs), (ins pred:$p, creltarget:$target),
                   "bc", "$target", [(br bb:$target)]>;
 
   // conditional
   let isBranch=1, isBarrier=0 in
-  def BC : PFLb<0b01  , (outs), (ins predset:$p, brtarget:$target),
+  def BC : PFLb<0b01  , (outs), (ins predset:$p, creltarget:$target),
                 "bc", "$target", [(brcond predsel:$p, bb:$target)]>;
 
   // cache-relative indirect branch
@@ -390,7 +390,7 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 let Defs = [RSP], Uses = [RSP] in
 def DYNALLOC : PatmosInst<(outs RRegs:$rd),
                           (ins pred:$p, RRegs:$rs1, uimm12:$imm),
-                          "add", "$rd = $rs1, $imm", // dynalloc
+                          "add", "$rd = $rs1, $imm",
                           [], FOther, IIC_ALU>;
 
 

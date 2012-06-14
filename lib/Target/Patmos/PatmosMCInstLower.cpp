@@ -126,8 +126,12 @@ void PatmosMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
       MCOp = MCOperand::CreateImm(MO.getImm());
       break;
     case MachineOperand::MO_MachineBasicBlock:
-      MCOp = MCOperand::CreateExpr(MCSymbolRefExpr::Create(
-                         MO.getMBB()->getSymbol(), Ctx));
+      // basic block targets
+      MCOp = MCOperand::CreateExpr(
+              MCBinaryExpr::CreateSub(
+                    MCSymbolRefExpr::Create(MO.getMBB()->getSymbol(), Ctx),
+                    MCSymbolRefExpr::Create(Printer.CurrentFnSym, Ctx), //CurrentFnSymForSize
+                    Ctx));
       break;
     case MachineOperand::MO_GlobalAddress:
       MCOp = LowerSymbolOperand(MO, GetGlobalAddressSymbol(MO));
