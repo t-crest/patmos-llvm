@@ -1,10 +1,14 @@
-//===-- PatmosAsmLexer.cpp - Tokenize Patmos assembly to AsmTokens --------------===//
+//===-- PatmosAsmLexer.cpp - Tokenize Patmos assembly to AsmTokens -------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
+//===----------------------------------------------------------------------===//
+// FIXME: This lexer is not used by the assembler, only by enhanced disassembler
+// and only to detect line endings. Is this lexer deprecated or will it be
+// used by AsmParser in the future?
 //===----------------------------------------------------------------------===//
 
 #include "MCTargetDesc/PatmosBaseInfo.h"

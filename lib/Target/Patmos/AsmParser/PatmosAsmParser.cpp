@@ -35,12 +35,6 @@ class PatmosAsmParser : public MCTargetAsmParser {
   void Warning(SMLoc L, const Twine &Msg) { Parser.Warning(L, Msg); }
   bool Error(SMLoc L, const Twine &Msg) { return Parser.Error(L, Msg); }
 
-  bool MatchAndEmitInstruction(SMLoc IDLoc,
-                               SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                               MCStreamer &Out);
-
-  bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc);
-
   #define GET_ASSEMBLER_HEADER
   #include "PatmosGenAsmMatcher.inc"
 
@@ -52,7 +46,13 @@ public:
   virtual bool ParseInstruction(StringRef Name, SMLoc NameLoc,
                                 SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
+  virtual bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc);
+
   virtual bool ParseDirective(AsmToken DirectiveID);
+
+  virtual bool MatchAndEmitInstruction(SMLoc IDLoc,
+                               SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                               MCStreamer &Out);
 
 };
 
@@ -265,23 +265,108 @@ void PatmosOperand::print(raw_ostream &OS) const {
 }
 
 
+/// @name Auto-generated Match Functions
+/// {
+
+#define GET_REGISTER_MATCHER
+#define GET_MATCHER_IMPLEMENTATION
+#include "PatmosGenAsmMatcher.inc"
+
+/// }
+
 
 bool PatmosAsmParser::
 MatchAndEmitInstruction(SMLoc IDLoc,
                         SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                         MCStreamer &Out) {
-  return true;
+  MCInst Inst;
+  SMLoc ErrorLoc;
+  unsigned ErrorInfo;
+
+  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo)) {
+  default: break;
+  case Match_Success:
+    Out.EmitInstruction(Inst);
+    return false;
+  case Match_MissingFeature:
+    return Error(IDLoc, "instruction use requires an option to be enabled");
+  case Match_MnemonicFail:
+      return Error(IDLoc, "unrecognized instruction mnemonic");
+  case Match_ConversionFail:
+    return Error(IDLoc, "unable to convert operands to instruction");
+  case Match_InvalidOperand:
+    ErrorLoc = IDLoc;
+    if (ErrorInfo != ~0U) {
+      if (ErrorInfo >= Operands.size())
+        return Error(IDLoc, "too few operands for instruction");
+
+      ErrorLoc = ((PatmosOperand*)Operands[ErrorInfo])->getStartLoc();
+      if (ErrorLoc == SMLoc()) ErrorLoc = IDLoc;
+    }
+
+    return Error(ErrorLoc, "invalid operand for instruction");
+  }
+
+  llvm_unreachable("Implement any new match types added!");
 }
 
 bool PatmosAsmParser::
 ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc) {
-  return true;
+  if (getLexer().getKind() == AsmToken::Identifier) {
+    RegNo = MatchRegisterName(getLexer().getTok().getIdentifier());
+    return (RegNo == 0);
+  }
+  return false;
 }
 
 bool PatmosAsmParser::
 ParseInstruction(StringRef Name, SMLoc NameLoc,
                  SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
-  return true;
+  // The first operands is the token for the instruction name
+  size_t dotLoc = Name.find('.');
+  Operands.push_back(PatmosOperand::CreateToken(Name.substr(0,dotLoc),NameLoc));
+  if (dotLoc < Name.size())
+    Operands.push_back(PatmosOperand::CreateToken(Name.substr(dotLoc),NameLoc));
+
+  // If there are no more operands then finish
+  if (getLexer().is(AsmToken::EndOfStatement))
+    return false;
+
+  // TODO parse the guard if we have one, add it as operand
+
+  // TODO parse operands, handle '=' and ',' delimiters
+
+  // TODO parse memory operands
+
+  // TODO parse bundle separator '||'
+
+  // TODO consume until next instruction or end of line (?)
+
+/*
+  // Parse the first operand
+  if (!ParseOperand(Operands))
+    return true;
+
+  while (getLexer().isNot(AsmToken::EndOfStatement) &&
+         getLexer().is(AsmToken::Comma)) {
+    // Consume the comma token
+    getLexer().Lex();
+
+    // Parse the next operand
+    if (!ParseOperand(Operands))
+      return true;
+  }
+
+  // If the instruction requires a memory operand then we need to
+  // replace the last two operands (base+offset) with a single
+  // memory operand.
+  if (Name.startswith("lw") || Name.startswith("sw") ||
+      Name.startswith("lh") || Name.startswith("sh") ||
+      Name.startswith("lb") || Name.startswith("sb"))
+    return (ParseMemory(Operands) == NULL);
+*/
+
+  return false;
 }
 
 bool PatmosAsmParser::
@@ -289,13 +374,12 @@ ParseDirective(AsmToken DirectiveID) {
   return true;
 }
 
+
+
 extern "C" void LLVMInitializePatmosAsmLexer();
 
 extern "C" void LLVMInitializePatmosAsmParser() {
   RegisterMCAsmParser<PatmosAsmParser> X(ThePatmosTarget);
   LLVMInitializePatmosAsmLexer();
 }
-
-#define GET_MATCHER_IMPLEMENTATION
-#include "PatmosGenAsmMatcher.inc"
 
