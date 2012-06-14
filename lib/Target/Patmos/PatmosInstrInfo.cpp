@@ -40,6 +40,8 @@ bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
     case Patmos::ADDr:
     case Patmos::ORr:
     case Patmos::ANDr:
+    case Patmos::XORr:
+    case Patmos::NORr:
       SrcOpIdx1 = 3;
       SrcOpIdx2 = 4;
       return true;

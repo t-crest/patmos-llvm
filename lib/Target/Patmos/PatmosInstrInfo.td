@@ -371,7 +371,7 @@ defm RSUB   : BinArithILRpfg<0b0010, "rsub"  , rsub>;
 defm SL     : BinArithILR   <0b0011, "sl"    , shl>; // FIXME 5 bits
 defm SR     : BinArithILR   <0b0100, "sr"    , srl>; // FIXME 5 bits
 defm SRA    : BinArithILR   <0b0101, "sra"   , sra>; // FIXME 5 bits
-defm OR     : BinArithILR   <0b0110, "or"    , or, 1>;
+defm OR     : BinArithILR   <0b0110, "or"    , or,  1>;
 defm AND    : BinArithILR   <0b0111, "and"   , and, 1>;
 // no short immediates:
 defm RL     : BinArithLR    <0b1000, "rl"    , rotl>; // FIXME 5 bits
