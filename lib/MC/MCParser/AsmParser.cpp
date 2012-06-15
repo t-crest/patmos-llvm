@@ -174,6 +174,9 @@ private:
   void CheckForValidSection();
 
   bool ParseStatement();
+  bool ParseInstruction(StringRef IDVal, SMLoc IDLoc,
+                        SmallVectorImpl<MCParsedAsmOperand*> &ParsedOperands);
+
   void EatToEndOfLine();
   bool ParseCppHashLineFilenameComment(const SMLoc &L);
 
@@ -991,7 +994,7 @@ bool AsmParser::ParseBinOpRHS(unsigned Precedence, const MCExpr *&Res,
 /// ParseStatement:
 ///   ::= EndOfStatement
 ///   ::= Label* Directive ...Operands... EndOfStatement
-///   ::= Label* Identifier OperandList* EndOfStatement
+///   ::= Label* Prefix* Identifier OperandList* EndOfStatement
 bool AsmParser::ParseStatement() {
   if (Lexer.is(AsmToken::EndOfStatement)) {
     Out.AddBlankLine();
@@ -1030,10 +1033,26 @@ bool AsmParser::ParseStatement() {
     Lex();
     IDVal = ".";
 
-  } else if (ParseIdentifier(IDVal)) {
-    if (!TheCondState.Ignore)
-      return TokError("unexpected token at start of statement");
-    IDVal = "";
+  } else {
+    SmallVector<MCParsedAsmOperand*, 8> ParsedOperands;
+    bool HasPrefix = false;
+
+    if (getTargetParser().ParsePrefix(IDLoc, ParsedOperands, HasPrefix)) {
+      if (!TheCondState.Ignore)
+        return TokError("unexpected token in prefix of instruction");
+      IDVal = "";
+
+    } else if (ParseIdentifier(IDVal)) {
+      if (!TheCondState.Ignore)
+        return TokError("unexpected token at start of statement");
+      IDVal = "";
+    }
+
+    // If an instruction prefix has been matched, the rest of the statement
+    // must be an instruction.
+    if (HasPrefix && !TheCondState.Ignore) {
+      return ParseInstruction(IDVal, IDLoc, ParsedOperands);
+    }
   }
 
 
@@ -1243,6 +1262,13 @@ bool AsmParser::ParseStatement() {
     return retval;
   }
 
+  SmallVector<MCParsedAsmOperand*, 8> ParsedOperands;
+  return ParseInstruction(IDVal, IDLoc, ParsedOperands);
+}
+
+bool AsmParser::ParseInstruction(StringRef IDVal, SMLoc IDLoc,
+                                 SmallVectorImpl<MCParsedAsmOperand*> &ParsedOperands) {
+
   CheckForValidSection();
 
   // Canonicalize the opcode to lower case.
@@ -1250,7 +1276,6 @@ bool AsmParser::ParseStatement() {
   for (unsigned i = 0, e = IDVal.size(); i != e; ++i)
     Opcode.push_back(tolower(IDVal[i]));
 
-  SmallVector<MCParsedAsmOperand*, 8> ParsedOperands;
   bool HadError = getTargetParser().ParseInstruction(Opcode.str(), IDLoc,
                                                      ParsedOperands);
 

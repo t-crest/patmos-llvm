@@ -67,6 +67,22 @@ public:
   virtual bool ParseInstruction(StringRef Name, SMLoc NameLoc,
                             SmallVectorImpl<MCParsedAsmOperand*> &Operands) = 0;
 
+  /// ParsePrefix - Parse the prefix of an assembly instruction.
+  ///
+  /// The parser is positioned at the start of the statement. The target
+  /// specific prefix parser should parse the prefix, fill the Operands
+  /// vector and set HasPrefix to true if the parser is positioned at a
+  /// valid instruction prefix.
+  ///
+  /// \param PrefixLoc - The source location of the prefix
+  /// \param Operands [out] - The operands in the prefix, will be passed to ParseInstruction.
+  /// \param HasPrefix [out] - True if a valid instruction prefix has been parsed.
+  /// \return True on failure.
+  virtual bool ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                           bool &HasPrefix) {
+    return false;
+  }
+
   /// ParseDirective - Parse a target specific assembler directive
   ///
   /// The parser is positioned following the directive name.  The target
