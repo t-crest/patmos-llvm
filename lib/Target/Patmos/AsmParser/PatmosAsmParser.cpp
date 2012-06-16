@@ -60,15 +60,15 @@ public:
                                MCStreamer &Out);
 
 private:
-  bool ParseRegister(unsigned &RegNo);
+  bool ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool Required);
 
-  bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+  bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo);
 
   bool ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
-  PatmosOperand* ParseImmediate();
+  bool ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 };
 
 /// PatmosOperand - Instances of this class represent a parsed Patmos machine
@@ -334,70 +334,73 @@ MatchAndEmitInstruction(SMLoc IDLoc,
 }
 
 bool PatmosAsmParser::
-ParseRegister(unsigned &RegNo) {
-  if (getLexer().getKind() != AsmToken::Identifier) {
-    return true;
+ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool Required) {
+  MCAsmLexer &Lexer = getLexer();
+  SMLoc S = Lexer.getLoc();
+  unsigned RegNo = 0;
+  if (!ParseRegister(RegNo, S, S)) {
+    return Required;
   }
-  RegNo = MatchRegisterName(getLexer().getTok().getIdentifier());
-  return (RegNo == 0);
+  if (RegNo == 0) return Required;
+
+  Operands.push_back(PatmosOperand::CreateReg(RegNo, S, S));
+
+  return false;
 }
 
 bool PatmosAsmParser::
 ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc) {
   if (getLexer().getKind() == AsmToken::Identifier) {
-    return ParseRegister(RegNo);
+    RegNo = MatchRegisterName(getLexer().getTok().getIdentifier());
+    return (RegNo == 0);
   }
   return false;
 }
 
 bool PatmosAsmParser::
 ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
+  MCAsmLexer &Lexer = getLexer();
+  SMLoc StartLoc = Lexer.getLoc();
+
+  if (Lexer.isNot(AsmToken::LBrac)) {
+    return true;
+  }
+  Lexer.Lex();
+
+  // try to match rN + Imm, rN, or Imm
+
+  if (ParseRegister(Operands, false)) {
+    Lexer.Lex();
+
+    if (Lexer.is(AsmToken::RBrac))
+      return false;
+    if (Lexer.is(AsmToken::Plus)) {
+      // lex away the plus symbol, leave a minus, fail on everything else
+      Lexer.Lex();
+    } else if (Lexer.isNot(AsmToken::Minus)) {
+      return true;
+    }
+  } else {
+    SMLoc EndLoc = Lexer.getLoc();
+    Operands.push_back(PatmosOperand::CreateReg(Patmos::R0, StartLoc, EndLoc));
+  }
+
+  if (!ParseImmediate(Operands)) {
+    return true;
+  }
+
+  if (Lexer.isNot(AsmToken::RBrac)) {
+    return true;
+  }
+  Lexer.Lex();
 
   return false;
 }
 
 bool PatmosAsmParser::
 ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
-
-  return false;
-}
-
-bool PatmosAsmParser::
-ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
-
-  return false;
-}
-
-
-PatmosOperand *PatmosAsmParser::ParseImmediate() {
-  SMLoc S = Parser.getTok().getLoc();
-  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-
-  const MCExpr *EVal;
-  switch (getLexer().getKind()) {
-  default: return 0;
-  case AsmToken::LParen:
-  case AsmToken::Plus:
-  case AsmToken::Minus:
-  case AsmToken::Integer:
-  case AsmToken::Identifier:
-    if (getParser().ParseExpression(EVal))
-      return 0;
-
-    return PatmosOperand::CreateImm(EVal, S, E);
-  }
-}
-
-bool PatmosAsmParser::
-ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool &HasPrefix) {
   MCAsmLexer &Lexer = getLexer();
-
-  if (Lexer.isNot(AsmToken::LParen)) {
-    return false;
-  }
-
-  // If it starts with '(', assume this is a guard, and try to parse it
-  Lexer.Lex();
+  SMLoc StartLoc = Lexer.getLoc();
 
   bool flag = false;
   if (Lexer.is(AsmToken::Exclaim)) {
@@ -405,22 +408,81 @@ ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands, bo
     Lexer.Lex();
   }
 
-  unsigned RegNo;
-  if (!ParseRegister(RegNo)) {
-    return true;
-  }
-
-  Lexer.Lex();
-
-  if (Lexer.isNot(AsmToken::RParen)) {
+  if (!ParseOperand(Operands, true)) {
     return true;
   }
 
   SMLoc EndLoc = Lexer.getLoc();
+  Operands.push_back(PatmosOperand::CreateFlag(flag, StartLoc, EndLoc, getParser().getContext()));
+
   Lexer.Lex();
 
-  Operands.push_back(PatmosOperand::CreateReg(RegNo, PrefixLoc, EndLoc));
-  Operands.push_back(PatmosOperand::CreateFlag(flag, PrefixLoc, EndLoc, getParser().getContext()));
+  return false;
+}
+
+bool PatmosAsmParser::
+ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
+  MCAsmLexer &Lexer = getLexer();
+
+  // Handle all the various operand types here: Imm, reg, memory, predicate
+  if (Lexer.is(AsmToken::LBrac)) {
+    return ParseMemoryOperand(Operands);
+  }
+  if (Lexer.is(AsmToken::Exclaim)) {
+    // we never allow a negated predicate as first out operand
+    if (OpNo == 0) return true;
+    return ParsePredicateOperand(Operands);
+  }
+  if (Lexer.is(AsmToken::Identifier)) {
+    // Big hack coming up: check if we have a predicate register, parse it as register+flag,
+    // but not if its the first out operand. We do not have a opcode matcher. This should do the trick..
+    if (OpNo > 0 && Lexer.getTok().getIdentifier()[0] == 'p') {
+      return ParsePredicateOperand(Operands);
+    }
+    return ParseRegister(Operands, true);
+  }
+
+  // Parse as immediate .. do we need to handle labels somehow?
+  return ParseImmediate(Operands);
+}
+
+
+bool PatmosAsmParser::ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
+  SMLoc S = Parser.getTok().getLoc();
+  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+
+  const MCExpr *EVal;
+  switch (getLexer().getKind()) {
+  default: return true;
+  case AsmToken::LParen:
+  case AsmToken::Plus:
+  case AsmToken::Minus:
+  case AsmToken::Integer:
+  case AsmToken::Identifier:
+    if (getParser().ParseExpression(EVal))
+      return true;
+
+    Operands.push_back(PatmosOperand::CreateImm(EVal, S, E));
+    return false;
+  }
+}
+
+bool PatmosAsmParser::
+ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool &HasPrefix) {
+  MCAsmLexer &Lexer = getLexer();
+
+  // If it starts with '(', assume this is a guard, and try to parse it, otherwise skip
+  if (Lexer.isNot(AsmToken::LParen)) {
+    return false;
+  }
+  Lexer.Lex();
+
+  ParsePredicateOperand(Operands);
+
+  if (Lexer.isNot(AsmToken::RParen)) {
+    return true;
+  }
+  Lexer.Lex();
 
   return false;
 }
@@ -435,9 +497,7 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
   // If this instruction has no guard, we just add a default one.
   // We do not yet know if the instruction actually requires one, so we might need to undo this
   // if we do not find a match (if we actually have instructions that have no guard).
-  bool addedDefault = false;
   if (Operands.size() == 1) {
-    addedDefault = true;
     Operands.push_back(PatmosOperand::CreateReg(Patmos::P0, NameLoc, NameLoc));
     Operands.push_back(PatmosOperand::CreateFlag(false, NameLoc, NameLoc, getParser().getContext()));
   }
@@ -460,6 +520,7 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
     }
 
     if (Lexer.is(AsmToken::Comma)) {
+      // we do not start with a comma before any operands
       if (OpNo == 0) return true;
       Lex();
     } else if (Lexer.is(AsmToken::Equal)) {
@@ -472,7 +533,7 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
       return true;
     }
 
-    if (!ParseOperand(Operands)) {
+    if (!ParseOperand(Operands, OpNo)) {
       return true;
     }
   }
