@@ -60,15 +60,17 @@ public:
                                MCStreamer &Out);
 
 private:
-  bool ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool Required);
-
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo);
+
+  bool ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+
+  bool ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands, AsmToken::TokenKind Kind);
 };
 
 /// PatmosOperand - Instances of this class represent a parsed Patmos machine
@@ -216,12 +218,16 @@ struct PatmosOperand : public MCParsedAsmOperand {
       return Op;
     }
 
-    static PatmosOperand *CreateFlag(bool flag, SMLoc S, SMLoc E, MCContext &Ctx) {
+    static PatmosOperand *CreateConstant(int value, SMLoc S, SMLoc E, MCContext &Ctx) {
       PatmosOperand *Op = new PatmosOperand(Immediate);
-      Op->Imm.Val = MCConstantExpr::Create(flag, Ctx);
+      Op->Imm.Val = MCConstantExpr::Create(value, Ctx);
       Op->StartLoc = S;
       Op->EndLoc = E;
       return Op;
+    }
+
+    static PatmosOperand *CreateFlag(bool flag, SMLoc S, SMLoc E, MCContext &Ctx) {
+      return CreateConstant(flag ? 1 : 0, S, E, Ctx);
     }
 
     static PatmosOperand *CreateMem(unsigned Base, const MCExpr *Off, SMLoc S,
@@ -301,21 +307,25 @@ MatchAndEmitInstruction(SMLoc IDLoc,
       if (ErrorLoc == SMLoc()) ErrorLoc = IDLoc;
     }
 
-    return Error(ErrorLoc, "invalid operand for instruction");
+    return Error(ErrorLoc, "invalid operand for instruction or syntax mismatch");
   }
 
   llvm_unreachable("Implement any new match types added!");
 }
 
 bool PatmosAsmParser::
-ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool Required) {
+ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   MCAsmLexer &Lexer = getLexer();
   SMLoc S = Lexer.getLoc();
+
   unsigned RegNo = 0;
   if (ParseRegister(RegNo, S, S)) {
-    return Required;
+    // identifier is not a register
+    return true;
   }
-  if (RegNo == 0) return Required;
+  // not an identifier
+  if (RegNo == 0) return true;
+
   SMLoc E = Lexer.getLoc();
   Lexer.Lex();
 
@@ -338,38 +348,40 @@ ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
   MCAsmLexer &Lexer = getLexer();
   SMLoc StartLoc = Lexer.getLoc();
 
-  if (Lexer.isNot(AsmToken::LBrac)) {
+  if (ParseToken(Operands, AsmToken::LBrac)) {
     return true;
   }
-  Lexer.Lex();
 
-  // try to match rN + Imm, rN, or Imm
+  // try to match rN +/- Imm, rN, or Imm
 
-  if (ParseRegister(Operands, false)) {
+  if (ParseRegister(Operands)) {
 
-    if (Lexer.is(AsmToken::RBrac))
-      return false;
-    if (Lexer.is(AsmToken::Plus)) {
+    // add default register
+    SMLoc EndLoc = Lexer.getLoc();
+    Operands.push_back(PatmosOperand::CreateReg(Patmos::R0, StartLoc, EndLoc));
+
+  } else {
+
+    if (Lexer.is(AsmToken::RBrac)) {
+      // Default offset
+      SMLoc E = Lexer.getLoc();
+      Operands.push_back(PatmosOperand::CreateConstant(0, E, E, getParser().getContext()));
+
+      return ParseToken(Operands, AsmToken::RBrac);
+
+    } else if (Lexer.is(AsmToken::Plus)) {
       // lex away the plus symbol, leave a minus, fail on everything else
       Lexer.Lex();
     } else if (Lexer.isNot(AsmToken::Minus)) {
       return true;
     }
-  } else {
-    SMLoc EndLoc = Lexer.getLoc();
-    Operands.push_back(PatmosOperand::CreateReg(Patmos::R0, StartLoc, EndLoc));
   }
 
-  if (!ParseImmediate(Operands)) {
+  if (ParseImmediate(Operands)) {
     return true;
   }
 
-  if (Lexer.isNot(AsmToken::RBrac)) {
-    return true;
-  }
-  Lexer.Lex();
-
-  return false;
+  return ParseToken(Operands, AsmToken::RBrac);
 }
 
 bool PatmosAsmParser::
@@ -383,7 +395,7 @@ ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
     Lexer.Lex();
   }
 
-  if (!ParseOperand(Operands, true)) {
+  if (!ParseRegister(Operands)) {
     return true;
   }
 
@@ -399,7 +411,7 @@ bool PatmosAsmParser::
 ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
   MCAsmLexer &Lexer = getLexer();
 
-  // Handle all the various operand types here: Imm, reg, memory, predicate
+  // Handle all the various operand types here: Imm, reg, memory, predicate, label
   if (Lexer.is(AsmToken::LBrac)) {
     return ParseMemoryOperand(Operands);
   }
@@ -409,12 +421,14 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
     return ParsePredicateOperand(Operands);
   }
   if (Lexer.is(AsmToken::Identifier)) {
-    // Big hack coming up: check if we have a predicate register, parse it as register+flag,
-    // but not if its the first out operand. We do not have a opcode matcher. This should do the trick..
+    // Uh, oh.. The only way we know how to parse the operand is by checking the opcode
+    // - If it is a pred-combine instruction, parse second and third op as pred+flag, but not the first
+    // - If it is an direct branch or call, parse it as a label / an expression (it can start with a 'p'!)
+    // - In any other case, parse it as a normal register (of any class)
     if (OpNo > 0 && Lexer.getTok().getIdentifier()[0] == 'p') {
       return ParsePredicateOperand(Operands);
     }
-    return ParseRegister(Operands, true);
+    return ParseRegister(Operands);
   }
 
   // Parse as immediate .. do we need to handle labels somehow?
@@ -441,6 +455,19 @@ bool PatmosAsmParser::ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Opera
     Operands.push_back(PatmosOperand::CreateImm(EVal, S, E));
     return false;
   }
+}
+
+bool PatmosAsmParser::ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands, AsmToken::TokenKind Kind) {
+  MCAsmLexer &Lexer = getLexer();
+
+  if (Lexer.isNot(Kind)) {
+    return true;
+  }
+
+  Operands.push_back(PatmosOperand::CreateToken(Lexer.getTok().getString(), Lexer.getLoc()));
+  Lexer.Lex();
+
+  return false;
 }
 
 bool PatmosAsmParser::
@@ -500,10 +527,12 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
       if (OpNo == 0) return true;
       Lex();
     } else if (Lexer.is(AsmToken::Equal)) {
-      // We only accept one '=' and only after the first operand
-      // TODO this also accepts some invalid formats since we do not check the opcode!
-      if (OpNo != 1) return true;
-      Lex();
+      // add it as a token for the matcher
+      // TODO if somebody writes something like 'r1, r2, r3' instead of 'r1 = r2, r3', he will
+      //      get a 'register type mismatch' error for 'r3', which is *very* confusing.
+      if (ParseToken(Operands, AsmToken::Equal)) {
+        return true;
+      }
     } else if (OpNo > 0) {
       // We need some separation between operands
       return true;

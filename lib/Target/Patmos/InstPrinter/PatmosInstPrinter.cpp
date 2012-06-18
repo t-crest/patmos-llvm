@@ -32,9 +32,8 @@ void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                   StringRef Annot) {
   printInstruction(MI, O);
 
-  // TODO if we are in a bundle, print the bundle separator ('||') instead.
+  // TODO if we are in a bundle, print the bundle separator ('||')
 
-  O << ";";
 
   printAnnotation(O, Annot);
 }
@@ -114,9 +113,5 @@ void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI, unsigned Op
   assert(Op.isExpr() && "unknown operand kind in printCacheRelTargetOperand");
 
   // print the expression as is (a difference bb_label-function_label
-  //O << *Op.getExpr();
-
-  // test more fancy stuff (@SH: don't kill me for this)
-  const MCExpr *bbtarget = static_cast<const MCBinaryExpr*>(Op.getExpr())->getLHS();
-  O << "(crel)" << *bbtarget;
+  O << *Op.getExpr();
 }
