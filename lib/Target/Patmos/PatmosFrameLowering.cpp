@@ -81,8 +81,7 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
   unsigned stackCacheSize = 0;
   int offsetMin = std::numeric_limits<int>::max();
   int offsetMax = std::numeric_limits<int>::min();
-  for(unsigned FI = MFI.getObjectIndexBegin(), FIe = MFI.getObjectIndexEnd();
-      FI != FIe; FI++) {
+  for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI < FIe; FI++) {
 
     // find all spill slots and locations for callee saved registers
     if (MFI.isSpillSlotObjectIndex(FI) || CSIFIs[FI]) {
@@ -107,8 +106,7 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
   }
 
   // check that no other FI is in the min/max offset range of the FIs from above
-  for(unsigned FI = MFI.getObjectIndexBegin(), FIe = MFI.getObjectIndexEnd();
-      FI != FIe; FI++) {
+  for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI < FIe; FI++) {
 
     // find all non-variable-sized objects that are not spill slots or callee
     // saved locations
@@ -122,13 +120,9 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
   DEBUG(dbgs() << "PatmosSC: min: " << offsetMin << ", max: " << offsetMax
                << "\n");
 
-  // align the stack cache size
-  unsigned alignedStackCacheSize = std::ceil((float)stackCacheSize/
-                                             (float)StackCacheBlockSize);
-
   // store assignment information
   if (stackCacheSize) {
-    PMFI.setStackCacheReservedBytes(alignedStackCacheSize);
+    PMFI.setStackCacheReservedBytes(stackCacheSize);
     PMFI.setFirstStackCacheOffset(offsetMin);
     PMFI.setLastStackCacheOffset(offsetMax);
   }
@@ -141,7 +135,10 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                                   unsigned Opcode) const {
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
-  unsigned alignedStackCacheSize = PMFI.getStackCacheReservedBytes();
+  // align the stack cache size
+  unsigned alignedStackCacheSize =
+                             std::ceil((float)PMFI.getStackCacheReservedBytes()/
+                                       (float)StackCacheBlockSize);
 
   if (alignedStackCacheSize)
   {

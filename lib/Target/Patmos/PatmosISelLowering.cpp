@@ -113,6 +113,12 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::BR_JT,     MVT::Other, Expand);
 
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32  , Custom);
+
+  // handling of variadic parameters
+  setOperationAction(ISD::VASTART, MVT::Other, Custom);
+  setOperationAction(ISD::VAARG  , MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY , MVT::Other, Expand);
+  setOperationAction(ISD::VAEND  , MVT::Other, Expand);
 }
 
 
@@ -122,6 +128,7 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
   switch (Op.getOpcode()) {
     // alloca
     case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
+    case ISD::VASTART:            return LowerVASTART(Op, DAG);
     default:
       llvm_unreachable("unimplemented operation");
   }
@@ -200,14 +207,13 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
 		 getTargetMachine(), ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeFormalArguments(Ins, CC_Patmos);
-
-  assert(!isVarArg && "Varargs not supported yet");
 
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     CCValAssign &VA = ArgLocs[i];
@@ -249,7 +255,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
       assert(VA.isMemLoc());
       // Load the argument to a virtual register
       unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
-      if (ObjSize > 2) {
+      if (ObjSize > 4) {
         errs() << "LowerFormalArguments Unhandled argument type: "
              << EVT(VA.getLocVT()).getEVTString()
              << "\n";
@@ -265,6 +271,15 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
                                    false, false, 0, 0));
     }
   }
+
+  // handle parameters of variadic functions.
+  if (isVarArg) {
+    // create a fixed FI to reference the variadic parameters passed on the 
+    // stack and store it with the patmos machine function info.
+    PMFI.setVarArgsFI(MFI->CreateFixedObject(4, CCInfo.getNextStackOffset(),
+                                             true));
+  }
+
   return Chain;
 }
 
@@ -500,6 +515,25 @@ PatmosTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   // merge results
   SDValue Ops[2] = { dynAlloc, writeSP };
   return DAG.getMergeValues(Ops, 2, dl);
+}
+
+SDValue
+PatmosTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
+
+  // get VarArgsFI, i.e., the FI used to access the variadic parameters of the 
+  // current function
+  DebugLoc dl = Op.getDebugLoc();
+  SDValue VarArgsFI = DAG.getFrameIndex(PMFI.getVarArgsFI(), getPointerTy());
+
+  // get the VarArgsFI and store it to the given address.
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), // chain
+                      dl,
+                      VarArgsFI, // VarArgsFI
+                      Op.getOperand(1), // destination address
+                      MachinePointerInfo(SV), false, false, 0);
 }
 
 const char *PatmosTargetLowering::getTargetNodeName(unsigned Opcode) const {

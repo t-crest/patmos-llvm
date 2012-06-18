@@ -111,6 +111,10 @@ namespace llvm {
 
     /// LowerDYNAMIC_STACKALLOC - Lower a dynamic stack allocation (aka alloca).
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+
+    /// LowerVASTART - Lower the va_start intrinsic to access parameters of 
+    /// variadic functions.
+    SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   };
 } // namespace llvm
 

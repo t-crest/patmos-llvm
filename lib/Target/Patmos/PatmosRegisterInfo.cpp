@@ -171,6 +171,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   //----------------------------------------------------------------------------
   // Stack cache info
 
+  unsigned stackCacheSize   = PMFI.getStackCacheReservedBytes();
   int firstStackCacheOffset = PMFI.getFirstStackCacheOffset();
   int lastStackCacheOffset  = PMFI.getLastStackCacheOffset();
   bool isOnStackCache       = (firstStackCacheOffset <= FrameOffset) &&
@@ -180,13 +181,13 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // Offset
 
   // get offset
-  int Offset = MFI.getStackSize() + FrameOffset + FrameDisplacement;
+  int Offset = MFI.getStackSize() + FrameOffset;
 
   // adjust offset of stack cache accesses and those below
   if (isOnStackCache)
-    Offset -= firstStackCacheOffset + MFI.getMaxCallFrameSize();
-  else if (lastStackCacheOffset < FrameOffset)
-    Offset -= lastStackCacheOffset;
+    Offset = FrameOffset - firstStackCacheOffset;
+  else if (FrameOffset < firstStackCacheOffset)
+    Offset += stackCacheSize;
 
   //----------------------------------------------------------------------------
   // Base register
@@ -211,28 +212,33 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::LWC: case Patmos::LWM:
     case Patmos::SWC: case Patmos::SWM:
       // 9 bit
-      Offset = Offset >> 2;
+      assert((Offset & 0x3) == 0);
+      Offset = (Offset >> 2) + FrameDisplacement;
       assert(isInt<7>(Offset));
       break;
     case Patmos::LHC: case Patmos::LHM:
     case Patmos::LHUC: case Patmos::LHUM:
     case Patmos::SHC: case Patmos::SHM:
       // 8 bit
-      Offset = Offset >> 1;
+      assert((Offset & 0x1) == 0);
+      Offset = (Offset >> 1) + FrameDisplacement;
       assert(isInt<7>(Offset));
       break;
     case Patmos::LBC: case Patmos::LBM:
     case Patmos::LBUC: case Patmos::LBUM:
     case Patmos::SBC: case Patmos::SBM:
       // 7 bit
+      Offset += FrameDisplacement;
       assert(isInt<7>(Offset));
       break;
     case Patmos::ADDi:
       // 12 bit
+      Offset += FrameDisplacement;
       assert(isUInt<12>(Offset));
       break;
     case Patmos::ADDl:
       // all should be fine
+      Offset += FrameDisplacement;
       break;
     default:
       assert("Unexpected operation with FrameIndex encountered." && false);

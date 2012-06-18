@@ -24,7 +24,7 @@ namespace llvm {
 /// contains private Patmos target-specific information for each 
 /// MachineFunction.
 class PatmosMachineFunctionInfo : public MachineFunctionInfo {
-  /// StackCacheReservedSize - Size of bytes that need to be reserved on the
+  /// StackCacheReservedSize - Size in bytes that need to be reserved on the
   /// stack cache.
   unsigned StackCacheReservedBytes;
 
@@ -34,13 +34,16 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// LastStackCacheOffset - Offset of the last FI assigned to the stack cache.
   int LastStackCacheOffset;
 
+  /// VarArgsFI - FrameIndex to access parameters of variadic functions.
+  int VarArgsFI;
+
   // do not provide any default constructor.
   PatmosMachineFunctionInfo() {}
 public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
     StackCacheReservedBytes(0),
     FirstStackCacheOffset(std::numeric_limits<int>::max()),
-    LastStackCacheOffset(std::numeric_limits<int>::max()) {
+    LastStackCacheOffset(std::numeric_limits<int>::max()), VarArgsFI(0) {
   }
 
   /// getFirstStackCacheOffset - Return the offset of the first FI assigned to 
@@ -67,7 +70,7 @@ public:
     LastStackCacheOffset = newIndex;
   }
 
-  /// getStackCacheReservedBytes - Get the number of bytes reserved on the 
+  /// getStackCacheReservedBytes - Get the number of bytes reserved on the
   /// stack cache.
   unsigned getStackCacheReservedBytes() const {
     return StackCacheReservedBytes;
@@ -77,6 +80,16 @@ public:
   /// cache.
   void setStackCacheReservedBytes(unsigned newSize) {
     StackCacheReservedBytes = newSize;
+  }
+
+  /// getVarArgsFI - Get the FI used to access parameters of variadic functions.
+  unsigned getVarArgsFI() const {
+    return VarArgsFI;
+  }
+
+  /// setVarArgsFI - Set the FI used to access parameters of variadic functions.
+  void setVarArgsFI(int newFI) {
+    VarArgsFI = newFI;
   }
 };
 

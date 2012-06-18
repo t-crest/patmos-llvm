@@ -103,11 +103,14 @@ multiclass LoadTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
   def raimm : Pat<(pfg (add RRegs:$ra, immFg:$imm)),
                   (inst_C RRegs:$ra, immFg:$imm)>;
 
-  // load register indirect from stack cache
+  // load register indirect from cache
   def fi : Pat<(pfg fipat:$fi), (inst_C fipat:$fi, 0)>;
 
-  // load register indirect from stack cache
+  // load register indirect from cache
   def fiimm : Pat<(pfg (add fipat:$fi, immFg:$imm)),
+                  (inst_C fipat:$fi, immFg:$imm)>;
+
+  def fior : Pat<(pfg (or fipat:$fi, immFg:$imm)),
                   (inst_C fipat:$fi, immFg:$imm)>;
 
   // TODO: more patterns here
@@ -134,12 +137,15 @@ multiclass StoreTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
   def raimm : Pat<(pfg RRegs:$rs, (add RRegs:$ra, immFg:$imm)),
                   (inst_C RRegs:$ra, immFg:$imm, RRegs:$rs)>;
 
-  // load register indirect from stack cache
+  // load register indirect from cache
   def fi : Pat<(pfg RRegs:$rs, fipat:$fi),
                (inst_C fipat:$fi, 0, RRegs:$rs)>;
 
-  // load register indirect from stack cache
+  // load register indirect from cache
   def fiimm : Pat<(pfg RRegs:$rs, (add fipat:$fi, immFg:$imm)),
+                  (inst_C fipat:$fi, immFg:$imm, RRegs:$rs)>;
+
+  def fior  : Pat<(pfg RRegs:$rs, (or fipat:$fi, immFg:$imm)),
                   (inst_C fipat:$fi, immFg:$imm, RRegs:$rs)>;
 
   // TODO: more patterns here
