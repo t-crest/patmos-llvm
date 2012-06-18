@@ -46,6 +46,7 @@ public:
     arm,     // ARM; arm, armv.*, xscale
     cellspu, // CellSPU: spu, cellspu
     hexagon, // Hexagon: hexagon
+    patmos,  // Patmos: patmos
     mips,    // MIPS: mips, mipsallegrex
     mipsel,  // MIPSEL: mipsel, mipsallegrexel
     mips64,  // MIPS64: mips64
@@ -62,7 +63,6 @@ public:
     x86_64,  // X86-64: amd64, x86_64
     xcore,   // XCore: xcore
     mblaze,  // MBlaze: mblaze
-    patmos,  // Patmos: patmos
     ptx32,   // PTX: ptx (32-bit)
     ptx64,   // PTX: ptx (64-bit)
     le32,    // le32: generic little-endian 32-bit CPU (PNaCl / Emscripten)
