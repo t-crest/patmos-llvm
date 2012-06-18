@@ -53,16 +53,16 @@ all: return.s
 	@echo
 
 %.o: %.ll $(LLCBIN)
-	$(LLC) -O0 -filetype=obj -o $@ $<
+	$(GDB) $(LLC) -O0 -filetype=obj -relocation-model=static -o $@ $<
 
 %.as: %.s $(MCBIN)
-	$(MC) -filetype=obj -assemble -o $@ $<
+	$(GDB) $(MC) -filetype=obj -show-inst-operands -assemble -o $@ $<
 
 %.dis: %.o $(MCBIN)
-	$(OBJDUMP) -disassemble $<
+	$(GDB) $(OBJDUMP) -disassemble $<
 
 Patmos.out: $(TBLGENBIN) ../../../lib/Target/Patmos/*.td
-	$(TBLGEN) -I=../../../include -I=../../../lib/Target/Patmos/ ../../../lib/Target/Patmos/Patmos.td > Patmos.out
+	$(GDB) $(TBLGEN) -I=../../../include -I=../../../lib/Target/Patmos/ ../../../lib/Target/Patmos/Patmos.td > Patmos.out
 
 clean:
 	rm -f *.s *.o *.ll *.as *.out
