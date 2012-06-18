@@ -76,9 +76,12 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::ZERO_EXTEND, MVT::i1, Promote);
 
   // Expand to S/UMUL_LOHI
-  setOperationAction(ISD::MUL, MVT::i32, Expand);
+  setOperationAction(ISD::MUL,   MVT::i32, Expand);
+  setOperationAction(ISD::MULHS, MVT::i32, Expand);
+  setOperationAction(ISD::MULHU, MVT::i32, Expand);
+  setOperationAction(ISD::SMUL_LOHI, MVT::i32, Custom);
+  setOperationAction(ISD::UMUL_LOHI, MVT::i32, Custom);
   // Patmos has no DIV, REM or DIVREM operations.
-  setOperationAction(ISD::MUL, MVT::i32, Expand);
   setOperationAction(ISD::SDIV, MVT::i32, Expand);
   setOperationAction(ISD::UDIV, MVT::i32, Expand);
   setOperationAction(ISD::SREM, MVT::i32, Expand);
@@ -126,6 +129,8 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
                                              SelectionDAG &DAG) const {
 
   switch (Op.getOpcode()) {
+    case ISD::SMUL_LOHI:
+    case ISD::UMUL_LOHI:          return LowerMUL_LOHI(Op, DAG);
     // alloca
     case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
     case ISD::VASTART:            return LowerVASTART(Op, DAG);
@@ -134,10 +139,52 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
   }
 }
 
+EVT PatmosTargetLowering::getSetCCResultType(EVT VT) const {
+  // All our compare results should be i1
+  return MVT::i1;
+}
+
 
 //===----------------------------------------------------------------------===//
 //                      Custom Lower Operation
 //===----------------------------------------------------------------------===//
+
+
+
+
+SDValue PatmosTargetLowering::LowerMUL_LOHI(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  unsigned MultOpc;
+  EVT Ty = Op.getValueType();
+  DebugLoc dl = Op.getDebugLoc();
+
+  assert(Ty == MVT::i32 && "Unexpected type for MUL");
+
+  MultOpc = (Op.getOpcode()==ISD::UMUL_LOHI)? PatmosISD::MULU
+                                            : PatmosISD::MUL;
+
+
+  SDValue Mul = DAG.getNode(MultOpc, dl, MVT::Glue,
+                            Op.getOperand(0), Op.getOperand(1));
+  SDValue InChain = DAG.getEntryNode();
+  SDValue InGlue = Mul;
+
+  if (!Op.getValue(0).use_empty()) {
+    SDValue CopyFromLo = DAG.getCopyFromReg(InChain, dl,
+        Patmos::SL, Ty, InGlue);
+    DAG.ReplaceAllUsesOfValueWith(Op.getValue(0), CopyFromLo);
+    InChain = CopyFromLo.getValue(1);
+    InGlue = CopyFromLo.getValue(2);
+  }
+  if (!Op.getValue(1).use_empty()) {
+    SDValue CopyFromHi = DAG.getCopyFromReg(InChain, dl,
+        Patmos::SH, Ty, InGlue);
+    DAG.ReplaceAllUsesOfValueWith(Op.getValue(1), CopyFromHi);
+  }
+
+  return Mul;
+}
+
 
 
 
@@ -167,6 +214,9 @@ PatmosTargetLowering::LowerFormalArguments(SDValue Chain,
   }
 }
 
+
+
+
 SDValue
 PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                 CallingConv::ID CallConv, bool isVarArg,
@@ -188,6 +238,10 @@ PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                           Outs, OutVals, Ins, dl, DAG, InVals);
   }
 }
+
+
+
+
 
 /// LowerCCCArguments - transform physical registers into virtual registers and
 /// generate load operations for arguments places on the stack.
@@ -283,6 +337,9 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
   return Chain;
 }
 
+
+
+
 SDValue
 PatmosTargetLowering::LowerReturn(SDValue Chain,
                                   CallingConv::ID CallConv, bool isVarArg,
@@ -331,6 +388,9 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   // Return Void
   return DAG.getNode(Opc, dl, MVT::Other, Chain);
 }
+
+
+
 
 /// LowerCCCCallTo - functions arguments are copied from virtual regs to
 /// (physical regs)/(stack frame), CALLSEQ_START and CALLSEQ_END are emitted.
@@ -458,6 +518,10 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
                          DAG, InVals);
 }
 
+
+
+
+
 /// LowerCallResult - Lower the result values of a call into the
 /// appropriate copies out of appropriate physical registers.
 ///
@@ -485,6 +549,10 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 
   return Chain;
 }
+
+
+
+
 
 SDValue
 PatmosTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
@@ -517,6 +585,10 @@ PatmosTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
   return DAG.getMergeValues(Ops, 2, dl);
 }
 
+
+
+
+
 SDValue
 PatmosTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
@@ -536,11 +608,14 @@ PatmosTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
                       MachinePointerInfo(SV), false, false, 0);
 }
 
+
 const char *PatmosTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   default: return NULL;
   case PatmosISD::RET_FLAG:           return "PatmosISD::RET_FLAG";
   case PatmosISD::CALL:               return "PatmosISD::CALL";
   case PatmosISD::DYNALLOC:           return "PatmosISD::DYNALLOC";
+  case PatmosISD::MUL:                return "PatmosISD::MUL";
+  case PatmosISD::MULU:               return "PatmosISD::MULU";
   }
 }

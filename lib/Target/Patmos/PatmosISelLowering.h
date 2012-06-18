@@ -35,7 +35,7 @@ namespace llvm {
       DYNALLOC,
 
       /// multiplication
-      MUL
+      MUL, MULU
     };
   } // end namespace PatmosISD
 
@@ -52,6 +52,8 @@ namespace llvm {
     /// getTargetNodeName - This method returns the name of a target specific
     /// DAG node.
     virtual const char *getTargetNodeName(unsigned Opcode) const;
+
+    virtual EVT getSetCCResultType(EVT VT) const;
 
   private:
     const PatmosSubtarget &Subtarget;
@@ -112,9 +114,12 @@ namespace llvm {
     /// LowerDYNAMIC_STACKALLOC - Lower a dynamic stack allocation (aka alloca).
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
 
-    /// LowerVASTART - Lower the va_start intrinsic to access parameters of 
+    /// LowerVASTART - Lower the va_start intrinsic to access parameters of
     /// variadic functions.
     SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
+
+    /// LowerMUL_LOHI - Lower Lo/Hi multiplications.
+    SDValue LowerMUL_LOHI(SDValue Op, SelectionDAG &DAG) const;
   };
 } // namespace llvm
 

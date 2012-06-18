@@ -38,7 +38,8 @@ static cl::opt<bool> DisableDelaySlotFiller(
   cl::Hidden);
 
 namespace {
-  struct Filler : public MachineFunctionPass {
+  class PatmosDelaySlotFiller : public MachineFunctionPass {
+  public:
     /// Target machine description which we query for reg. names, data
     /// layout, etc.
     ///
@@ -46,7 +47,7 @@ namespace {
     const TargetInstrInfo *TII;
 
     static char ID;
-    Filler(TargetMachine &tm)
+    PatmosDelaySlotFiller(TargetMachine &tm)
       : MachineFunctionPass(ID), TM(tm), TII(tm.getInstrInfo()) { }
 
     virtual const char *getPassName() const {
@@ -62,6 +63,7 @@ namespace {
       return Changed;
     }
 
+  private:
     bool isDelayFiller(MachineBasicBlock &MBB,
                        MachineBasicBlock::iterator candidate);
 
@@ -86,24 +88,31 @@ namespace {
     bool needsUnimp(MachineBasicBlock::iterator I, unsigned &StructSize);
 
   };
-  char Filler::ID = 0;
+  char PatmosDelaySlotFiller::ID = 0;
 } // end of anonymous namespace
 
 /// createPatmosDelaySlotFillerPass - Returns a pass that fills in delay
 /// slots in Patmos MachineFunctions
 ///
 FunctionPass *llvm::createPatmosDelaySlotFillerPass(TargetMachine &tm) {
-  return new Filler(tm);
+  return new PatmosDelaySlotFiller(tm);
 }
 
 
 /// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
 /// We assume there is only one delay slot per delayed instruction.
 ///
-bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
+bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
   bool Changed = false;
 
-  for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I)
+  for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
+    unsigned opc = I->getOpcode();
+    // FIXME: This should eventally be handled in the scheduler.
+    if (opc==Patmos::MUL || opc==Patmos::MULU) {
+      MachineBasicBlock::iterator J = I;
+      AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
+          .addImm(3);
+    } else // END_FIXME
     if (I->hasDelaySlot()) {
       MachineBasicBlock::iterator D = MBB.end();
       MachineBasicBlock::iterator J = I;
@@ -124,13 +133,14 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
       ++FilledSlots;  // update statistics
       Changed = true; // pass result
     }
+  }
   return Changed;
 }
 
 
 
 MachineBasicBlock::iterator
-Filler::findDelayInstr(MachineBasicBlock &MBB,
+PatmosDelaySlotFiller::findDelayInstr(MachineBasicBlock &MBB,
                        MachineBasicBlock::iterator slot)
 {
   SmallSet<unsigned, 32> RegDefs;
@@ -179,7 +189,7 @@ Filler::findDelayInstr(MachineBasicBlock &MBB,
   return MBB.end();
 }
 
-bool Filler::delayHasHazard(MachineBasicBlock::iterator candidate,
+bool PatmosDelaySlotFiller::delayHasHazard(MachineBasicBlock::iterator candidate,
                             bool &sawLoad,
                             bool &sawStore,
                             SmallSet<unsigned, 32> &RegDefs,
@@ -226,7 +236,7 @@ bool Filler::delayHasHazard(MachineBasicBlock::iterator candidate,
 
 
 //Insert Defs and Uses of MI into the sets RegDefs and RegUses.
-void Filler::insertDefsUses(MachineBasicBlock::iterator MI,
+void PatmosDelaySlotFiller::insertDefsUses(MachineBasicBlock::iterator MI,
                             SmallSet<unsigned, 32>& RegDefs,
                             SmallSet<unsigned, 32>& RegUses)
 {
@@ -246,7 +256,7 @@ void Filler::insertDefsUses(MachineBasicBlock::iterator MI,
 }
 
 //returns true if the Reg or its alias is in the RegSet.
-bool Filler::IsRegInSet(SmallSet<unsigned, 32>& RegSet, unsigned Reg)
+bool PatmosDelaySlotFiller::IsRegInSet(SmallSet<unsigned, 32>& RegSet, unsigned Reg)
 {
   if (RegSet.count(Reg))
     return true;
@@ -260,7 +270,7 @@ bool Filler::IsRegInSet(SmallSet<unsigned, 32>& RegSet, unsigned Reg)
 }
 
 // return true if the candidate is a delay filler.
-bool Filler::isDelayFiller(MachineBasicBlock &MBB,
+bool PatmosDelaySlotFiller::isDelayFiller(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator candidate)
 {
   if (candidate == MBB.begin())

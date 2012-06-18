@@ -45,13 +45,15 @@ bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
       SrcOpIdx1 = 3;
       SrcOpIdx2 = 4;
       return true;
-      break;
+    case Patmos::MUL:
+    case Patmos::MULU:
+      SrcOpIdx1 = 2;
+      SrcOpIdx2 = 3;
+      return true;
     default:
-      assert("Unexpected commutable machine instruction." && false);
-      return false;
+      llvm_unreachable("Unexpected commutable machine instruction.");
   }
-
-  abort();
+  return false;
 }
 
 void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,

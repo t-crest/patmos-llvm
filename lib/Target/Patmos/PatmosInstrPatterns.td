@@ -23,6 +23,8 @@ def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 // for zext-ing an i1 to i32: conditionally load 1 into an RReg
 def : Pat<(zext (i1 predsel:$p)), (CLIi predsel:$p, (i32 1))>;
 
+//def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;
+
 // Arithmetic optimizations
 def : Pat<(add RRegs:$rs, nuimm12:$imm), (SUBi RRegs:$rs, nuimm12:$imm)>;
 
@@ -51,11 +53,10 @@ def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
 def : Pat<(PatmosCall tglobaladdr:$sym), (bs tglobaladdr:$sym)>;
 def : Pat<(PatmosCall texternalsym:$sym), (bs texternalsym:$sym)>;
 
-// multiplication
-// TODO
+// NOTE: following works when not expanding MUL to S/UMUL_LOHI
+// multiplication (requiring only low part)
 //def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
 //          (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
-
 
 
 // Compare patterns

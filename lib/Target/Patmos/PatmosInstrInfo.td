@@ -30,6 +30,9 @@ def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisI32<0>]>;
 def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisI32<0>, SDTCisI32<1>]>;
 def SDT_PatmosDynAlloc     : SDTypeProfile<0, 1, [SDTCisI32<0>]>;
 
+def SDT_PatmosMul          : SDTypeProfile<0, 2, [SDTCisInt<0>,
+                                                  SDTCisSameAs<0, 1>]>;
+
 
 //===----------------------------------------------------------------------===//
 // Patmos Specific Node Definitions.
@@ -49,8 +52,11 @@ def PatmosCallseqEnd
                   : SDNode<"ISD::CALLSEQ_END",   SDT_PatmosCallSeqEnd,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
-def PatmosMul     : SDNode<"PatmosISD::MUL", SDTIntBinOp,
-                           [SDNPCommutative, SDNPAssociative]>;
+def PatmosMul     : SDNode<"PatmosISD::MUL", SDT_PatmosMul,
+                           [SDNPCommutative, SDNPAssociative, SDNPOutGlue]>;
+
+def PatmosMulU    : SDNode<"PatmosISD::MULU", SDT_PatmosMul,
+                           [SDNPCommutative, SDNPAssociative, SDNPOutGlue]>;
 
 def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
                            [SDNPHasChain]>;
@@ -497,22 +503,17 @@ def ABS    : ALUu <0b0011,
 
 
 // Multiply
-
-// TODO
-/*
 let Defs = [SL,SH], isCommutable=1 in {
 def MUL  : ALUm <0b0000,
-              (outs Mul:$sd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-              "mul", "$$$sd, $rs1, $rs2",
-              [(set Mul:$sd, (patmos_mul RRegs:$rs1, RRegs:$rs2))]>;
+              (outs ), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
+              "mul", "$rs1, $rs2",
+              [(PatmosMul RRegs:$rs1, RRegs:$rs2)]>;
 
 def MULU : ALUm <0b0001,
-              (outs), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
+              (outs ), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
               "mulu", "$rs1, $rs2",
-              []>;
-              //[(set SRegs:$sl, (mul RRegs:$rs1, RRegs:$rs2))]>;
+              [(PatmosMulU RRegs:$rs1, RRegs:$rs2)]>;
 }
-*/
 
 // Compare
 
