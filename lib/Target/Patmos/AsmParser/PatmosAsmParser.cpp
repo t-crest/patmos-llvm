@@ -99,7 +99,6 @@ struct PatmosOperand : public MCParsedAsmOperand {
 
       struct {
         unsigned Base;
-        unsigned OffReg;
         const MCExpr *Off;
       } Mem;
     };
@@ -152,11 +151,6 @@ struct PatmosOperand : public MCParsedAsmOperand {
       return Mem.Off;
     }
 
-    unsigned getMemOffReg() const {
-      assert(Kind == Memory && "Invalid access!");
-      return Mem.OffReg;
-    }
-
     bool isToken() const { return Kind == Token; }
     bool isImm() const { return Kind == Immediate; }
     bool isMem() const { return Kind == Memory; }
@@ -187,11 +181,7 @@ struct PatmosOperand : public MCParsedAsmOperand {
 
       Inst.addOperand(MCOperand::CreateReg(getMemBase()));
 
-      unsigned RegOff = getMemOffReg();
-      if (RegOff)
-        Inst.addOperand(MCOperand::CreateReg(RegOff));
-      else
-        addExpr(Inst, getMemOff());
+      addExpr(Inst, getMemOff());
     }
 
     StringRef getToken() const {
@@ -239,18 +229,6 @@ struct PatmosOperand : public MCParsedAsmOperand {
       PatmosOperand *Op = new PatmosOperand(Memory);
       Op->Mem.Base = Base;
       Op->Mem.Off = Off;
-      Op->Mem.OffReg = 0;
-      Op->StartLoc = S;
-      Op->EndLoc = E;
-      return Op;
-    }
-
-    static PatmosOperand *CreateMem(unsigned Base, unsigned Off, SMLoc S,
-                                    SMLoc E) {
-      PatmosOperand *Op = new PatmosOperand(Memory);
-      Op->Mem.Base = Base;
-      Op->Mem.OffReg = Off;
-      Op->Mem.Off = 0;
       Op->StartLoc = S;
       Op->EndLoc = E;
       return Op;
@@ -265,22 +243,18 @@ void PatmosOperand::print(raw_ostream &OS) const {
     getImm()->print(OS);
     break;
   case Register:
-    OS << "<register R";
-    OS << getPatmosRegisterNumbering(getReg()) << ">";
+    OS << "<register ";
+    OS << getReg() << ">";
     break;
   case Token:
     OS << "'" << getToken() << "'";
     break;
   case Memory: {
-    OS << "<memory R";
-    OS << getPatmosRegisterNumbering(getMemBase());
+    OS << "<memory ";
+    OS << getMemBase();
     OS << ", ";
 
-    unsigned RegOff = getMemOffReg();
-    if (RegOff)
-      OS << "R" << getPatmosRegisterNumbering(RegOff);
-    else
-      OS << getMemOff();
+    OS << getMemOff();
     OS << ">";
     }
     break;
@@ -338,12 +312,14 @@ ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool Required) {
   MCAsmLexer &Lexer = getLexer();
   SMLoc S = Lexer.getLoc();
   unsigned RegNo = 0;
-  if (!ParseRegister(RegNo, S, S)) {
+  if (ParseRegister(RegNo, S, S)) {
     return Required;
   }
   if (RegNo == 0) return Required;
+  SMLoc E = Lexer.getLoc();
+  Lexer.Lex();
 
-  Operands.push_back(PatmosOperand::CreateReg(RegNo, S, S));
+  Operands.push_back(PatmosOperand::CreateReg(RegNo, S, E));
 
   return false;
 }
@@ -370,7 +346,6 @@ ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
   // try to match rN + Imm, rN, or Imm
 
   if (ParseRegister(Operands, false)) {
-    Lexer.Lex();
 
     if (Lexer.is(AsmToken::RBrac))
       return false;
@@ -448,11 +423,11 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
 
 
 bool PatmosAsmParser::ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
-  SMLoc S = Parser.getTok().getLoc();
-  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  MCAsmLexer &Lexer = getLexer();
+  SMLoc S = Lexer.getLoc();
 
   const MCExpr *EVal;
-  switch (getLexer().getKind()) {
+  switch (Lexer.getKind()) {
   default: return true;
   case AsmToken::LParen:
   case AsmToken::Plus:
@@ -462,6 +437,7 @@ bool PatmosAsmParser::ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Opera
     if (getParser().ParseExpression(EVal))
       return true;
 
+    SMLoc E = Lexer.getLoc();
     Operands.push_back(PatmosOperand::CreateImm(EVal, S, E));
     return false;
   }
@@ -533,9 +509,11 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
       return true;
     }
 
-    if (!ParseOperand(Operands, OpNo)) {
+    if (ParseOperand(Operands, OpNo)) {
       return true;
     }
+
+    OpNo++;
   }
 
   return false;
