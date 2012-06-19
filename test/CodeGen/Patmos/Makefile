@@ -45,7 +45,7 @@ DEBUG=--debug
 all: return.s
 
 %.ll: %.c
-	$(CLANG) -O$(ON) -S -emit-llvm -o $@ $<
+	$(CLANG) -ccc-host-triple patmos-unknown -O$(ON) -S -emit-llvm -o $@ $<
 
 %.s: %.ll $(LLCBIN)
 	$(GDB) $(LLC) -O0 $(DEBUG) $(VIEW) -show-mc-encoding -o $@ $<
