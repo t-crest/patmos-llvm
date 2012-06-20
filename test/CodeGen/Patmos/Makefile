@@ -2,6 +2,7 @@
 BUILDDIR=../../../Debug+Asserts/
 
 ON?=2
+TRIPLE=patmos-unknown-elf
 ARCH ?= patmos
 
 GDB ?=
@@ -45,7 +46,7 @@ DEBUG=--debug
 all: return.s
 
 %.ll: %.c
-	$(CLANG) -ccc-host-triple patmos-unknown -O$(ON) -S -emit-llvm -o $@ $<
+	$(CLANG) -ccc-host-triple $(TRIPLE) -O$(ON) -S -emit-llvm -o $@ $<
 
 %.s: %.ll $(LLCBIN)
 	$(GDB) $(LLC) -O0 $(DEBUG) $(VIEW) -show-mc-encoding -o $@ $<
