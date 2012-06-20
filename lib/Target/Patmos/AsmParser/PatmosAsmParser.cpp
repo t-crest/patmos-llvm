@@ -9,6 +9,7 @@
 
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
+#include "InstPrinter/PatmosInstPrinter.h"
 #include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
@@ -69,7 +70,7 @@ private:
 
   bool ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
-  bool ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+  bool ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool checkClass = false);
 
   bool ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
@@ -255,7 +256,7 @@ void PatmosOperand::print(raw_ostream &OS) const {
     break;
   case Register:
     OS << "<register ";
-    OS << getReg() << ">";
+    OS << PatmosInstPrinter::getRegisterName(getReg()) << ">";
     break;
   case Token:
     OS << "'" << getToken() << "'";
@@ -324,12 +325,10 @@ ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   SMLoc S = Lexer.getLoc();
 
   unsigned RegNo = 0;
-  if (ParseRegister(RegNo, S, S)) {
-    // identifier is not a register
+  if (ParseRegister(RegNo, true)) {
+    // not a register
     return true;
   }
-  // not an identifier
-  if (RegNo == 0) return true;
 
   SMLoc E = Lexer.getLoc();
   Lexer.Lex();
@@ -408,7 +407,7 @@ ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
 }
 
 bool PatmosAsmParser::
-ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
+ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool checkClass)  {
   MCAsmLexer &Lexer = getLexer();
   SMLoc StartLoc = Lexer.getLoc();
 
@@ -418,14 +417,24 @@ ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
     Lexer.Lex();
   }
 
-  if (!ParseRegister(Operands)) {
+  SMLoc RegLoc = Lexer.getLoc();
+
+  if (ParseRegister(Operands)) {
     return true;
   }
 
-  SMLoc EndLoc = Lexer.getLoc();
-  Operands.push_back(PatmosOperand::CreateFlag(flag, StartLoc, EndLoc, getParser().getContext()));
+  if (checkClass) {
+    PatmosOperand *Op = (PatmosOperand*)Operands.back();
+    if (!Op->isReg()) return true;
 
-  Lexer.Lex();
+    // TODO There really should be a nicer way of doing this, but we do not have access to the RegisterInfo stuff here
+    if (PatmosInstPrinter::getRegisterName(Op->getReg())[0] != 'p') {
+      // Not a predicate register, do not emit a flag operand
+      return false;
+    }
+  }
+
+  Operands.push_back(PatmosOperand::CreateFlag(flag, StartLoc, RegLoc, getParser().getContext()));
 
   return false;
 }
@@ -447,7 +456,7 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
 
     StringRef Mnemonic = ((PatmosOperand*)Operands[0])->getToken();
     if (isPredSrcOperand(Mnemonic, OpNo)) {
-      return ParsePredicateOperand(Operands);
+      return ParsePredicateOperand(Operands, true);
     }
 
     return ParseRegister(Operands);
@@ -506,7 +515,11 @@ ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands, bo
   }
   Lexer.Lex();
 
-  ParsePredicateOperand(Operands);
+  HasPrefix = true;
+
+  if (ParsePredicateOperand(Operands)) {
+    return true;
+  }
 
   if (Lexer.isNot(AsmToken::RParen)) {
     return true;
@@ -585,10 +598,7 @@ bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
   // only src operands, only combine ops
   if (OpNo == 0) return false;
 
-  // HACK: some pseudo-operations accept both registers and predicates.
-  if (getLexer().getTok().is(AsmToken::Identifier) &&
-      getLexer().getTok().getIdentifier()[0] != 'p') return false;
-
+  // We check if the src op is actually a predicate register later in the parse method
   if (Mnemonic == "or"  || Mnemonic == "and" || Mnemonic == "xor" || Mnemonic == "nor") return true;
   if (Mnemonic == "mov" || Mnemonic == "neg") return true;
 

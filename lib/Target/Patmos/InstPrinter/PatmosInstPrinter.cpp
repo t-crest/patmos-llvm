@@ -112,6 +112,13 @@ void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI, unsigned Op
                                             raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
+  // For disassembly .. should we create a fixup for this in the disassembler, or an expression??
+  if (Op.isImm()) {
+    // TODO print as hex value;
+    O << Op.getImm();
+    return;
+  }
+
   assert(Op.isExpr() && "unknown operand kind in printCacheRelTargetOperand");
 
   // print the expression as is (a difference bb_label-function_label
