@@ -88,7 +88,9 @@ static MCInstPrinter *createPatmosMCInstPrinter(const Target &T,
 						const MCRegisterInfo &MRI,
                                                 const MCSubtargetInfo &STI) {
   if (SyntaxVariant == 0)
-    return new PatmosInstPrinter(MAI, MII, MRI);
+    return new PatmosInstPrinter(MAI, MII, MRI, true);
+  if (SyntaxVariant == 1)
+    return new PatmosInstPrinter(MAI, MII, MRI, false);
   return 0;
 }
 

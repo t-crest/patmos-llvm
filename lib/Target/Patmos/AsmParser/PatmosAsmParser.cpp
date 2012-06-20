@@ -64,6 +64,9 @@ private:
 
   bool ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
+  /// ParseRegister - This version does not lex the last token so the end loc can be retrieved
+  bool ParseRegister(unsigned &RegNo, bool Required);
+
   bool ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
@@ -71,6 +74,8 @@ private:
   bool ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands, AsmToken::TokenKind Kind);
+
+  bool isPredSrcOperand(StringRef Mnemonic, unsigned OpNo);
 };
 
 /// PatmosOperand - Instances of this class represent a parsed Patmos machine
@@ -336,11 +341,29 @@ ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
 
 bool PatmosAsmParser::
 ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc) {
-  if (getLexer().getKind() == AsmToken::Identifier) {
-    RegNo = MatchRegisterName(getLexer().getTok().getIdentifier());
+  if (ParseRegister(RegNo, false)) {
+    return true;
+  }
+  getLexer().Lex();
+  return false;
+}
+
+bool PatmosAsmParser::
+ParseRegister(unsigned &RegNo, bool Required) {
+  MCAsmLexer &Lexer = getLexer();
+
+  if (Lexer.getKind() == AsmToken::Dollar) {
+    Lexer.Lex();
+  } else {
+    return Required;
+  }
+  if (Lexer.getKind() == AsmToken::Identifier) {
+    RegNo = MatchRegisterName(Lexer.getTok().getIdentifier());
+    // If name does not match after $ prefix, this is always an error
     return (RegNo == 0);
   }
-  return false;
+  // Syntax error: $ and no identifier is always an error
+  return true;
 }
 
 bool PatmosAsmParser::
@@ -420,21 +443,23 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
     if (OpNo == 0) return true;
     return ParsePredicateOperand(Operands);
   }
-  if (Lexer.is(AsmToken::Identifier)) {
-    // Uh, oh.. The only way we know how to parse the operand is by checking the opcode
-    // - If it is a pred-combine instruction, parse second and third op as pred+flag, but not the first
-    // - If it is an direct branch or call, parse it as a label / an expression (it can start with a 'p'!)
-    // - In any other case, parse it as a normal register (of any class)
-    if (OpNo > 0 && Lexer.getTok().getIdentifier()[0] == 'p') {
+  if (Lexer.is(AsmToken::Dollar)) {
+
+    StringRef Mnemonic = ((PatmosOperand*)Operands[0])->getToken();
+    if (isPredSrcOperand(Mnemonic, OpNo)) {
       return ParsePredicateOperand(Operands);
     }
+
     return ParseRegister(Operands);
   }
+  if (Lexer.is(AsmToken::Identifier)) {
+    // Parse it as a label
+    return ParseImmediate(Operands);
+  }
 
-  // Parse as immediate .. do we need to handle labels somehow?
+  // Parse as immediate or some other form of symbolic expression
   return ParseImmediate(Operands);
 }
-
 
 bool PatmosAsmParser::ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   MCAsmLexer &Lexer = getLexer();
@@ -469,6 +494,7 @@ bool PatmosAsmParser::ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
 
   return false;
 }
+
 
 bool PatmosAsmParser::
 ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool &HasPrefix) {
@@ -553,6 +579,21 @@ ParseDirective(AsmToken DirectiveID) {
   return true;
 }
 
+
+bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
+{
+  // only src operands, only combine ops
+  if (OpNo == 0) return false;
+
+  // HACK: some pseudo-operations accept both registers and predicates.
+  if (getLexer().getTok().is(AsmToken::Identifier) &&
+      getLexer().getTok().getIdentifier()[0] != 'p') return false;
+
+  if (Mnemonic == "or"  || Mnemonic == "and" || Mnemonic == "xor" || Mnemonic == "nor") return true;
+  if (Mnemonic == "mov" || Mnemonic == "neg") return true;
+
+  return false;
+}
 
 
 extern "C" void LLVMInitializePatmosAsmLexer();

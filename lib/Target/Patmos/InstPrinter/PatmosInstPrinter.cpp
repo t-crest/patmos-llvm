@@ -50,8 +50,7 @@ void PatmosInstPrinter::printGuard(const MCInst *MI, raw_ostream &O) {
     // We assume that the predicate is the first in operand!
     printPredicateOperand(MI, Desc.getNumDefs(), O, "guard");
   } else {
-    // TODO printing this should somehow be near the code for printing the guard
-    O << "     ";
+    printDefaultGuard(O, true);
   }
   O << " ";
 }
@@ -63,7 +62,7 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     // do not print register R0 in addressing modes
     if ( !(Modifier && strcmp(Modifier, "addrmod") == 0) ||
          (Op.getReg() != Patmos::R0)) {
-      O << getRegisterName(Op.getReg());
+      printRegisterName(Op.getReg(), O);
     }
   } else if (Op.isImm()) {
     if (Modifier && strcmp(Modifier, "addrmod") == 0) {
@@ -97,12 +96,15 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
 
   if (Modifier && strcmp(Modifier, "guard") == 0) {
     if (reg == Patmos::NoRegister || ((reg == Patmos::P0) && !flag)) {
-      O << "     "; // instead of ( p0)
+      printDefaultGuard(O, false);
     } else {
-      O << "(" << ((flag)?"!":" ") << getRegisterName(reg) << ")";
+      O << "(" << ((flag)?"!":" ");
+      printRegisterName(reg, O);
+      O << ")";
     }
   } else {
-    O << ((flag)?"!":" ") << getRegisterName(reg);
+    O << ((flag)?"!":" ");
+    printRegisterName(reg, O);
   }
 }
 
@@ -114,4 +116,20 @@ void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI, unsigned Op
 
   // print the expression as is (a difference bb_label-function_label
   O << *Op.getExpr();
+}
+
+void PatmosInstPrinter::printRegisterName(unsigned RegNo, raw_ostream &O) {
+  if (PrefixRegisters) {
+    O << "$";
+  }
+  O << getRegisterName(RegNo);
+}
+
+void PatmosInstPrinter::printDefaultGuard(raw_ostream &O, bool NoGuard) {
+  if (PrefixRegisters) {
+    O << "      "; // instead of ( $p0)
+  } else {
+    O << "     ";  // instead of ( p0)
+
+  }
 }

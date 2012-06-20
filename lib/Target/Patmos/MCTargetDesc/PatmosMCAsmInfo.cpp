@@ -20,9 +20,16 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT) {
   StackGrowsUp = false;
   PCSymbol=".PC";
   CommentString = "#";
+  CommentColumn = 45;
   LabelSuffix = ":";
   PrivateGlobalPrefix = ".L";
   AlignmentIsInBytes = false; // in words
   MaxInstLength = 8; // for long immediates
   SupportsDebugInformation = true;
+
+  // 0: Default syntax, 1: alternative syntax without register prefix
+  AssemblerDialect = 0;
+  // We either need a register prefix or a global prefix
+  //GlobalPrefix = ".";
+
 }
