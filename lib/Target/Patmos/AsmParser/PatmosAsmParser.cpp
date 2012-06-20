@@ -65,17 +65,22 @@ private:
 
   bool ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
-  /// ParseRegister - This version does not lex the last token so the end loc can be retrieved
+  /// ParseRegister - This version does not lex the last token so the end token can be retrieved
   bool ParseRegister(unsigned &RegNo, bool Required);
 
   bool ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
+  /// ParsePredicateOperand - parse a predicate operand including an optional negate flag. Adds two
+  /// operands.
+  /// \param checkClass - if true, only add the flag operand if the register is a predicate register
   bool ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool checkClass = false);
 
   bool ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
+  /// ParseToken - Check if the Lexer is currently over the given token kind, and add it as operand if so.
   bool ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands, AsmToken::TokenKind Kind);
 
+  /// isPredSrcOperand - Check whether the operand might be a predicate source operand (i.e., has a negate flag)
   bool isPredSrcOperand(StringRef Mnemonic, unsigned OpNo);
 };
 
