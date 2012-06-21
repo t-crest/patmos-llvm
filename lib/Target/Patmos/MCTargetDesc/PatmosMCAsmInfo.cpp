@@ -19,6 +19,7 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT) {
   IsLittleEndian = false;
   StackGrowsUp = false;
   PCSymbol=".PC";
+  SeparatorString = ";;";
   CommentString = "#";
   CommentColumn = 45;
   LabelSuffix = ":";

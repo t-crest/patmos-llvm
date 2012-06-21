@@ -133,12 +133,13 @@ PatmosDisassembler::getInstruction(MCInst &instr,
   if (Result == MCDisassembler::Fail)
     return MCDisassembler::Fail;
 
+  bool isBundled = (Insn >> 31);
+  Insn &= ~(1<<31);
+
   // TODO we could check the opcode for ALUl instruction format to avoid calling decode32 in that case
 
   // Calling the auto-generated decoder function.
   Result = decodePatmosInstruction32(instr, Insn, Address, this, STI);
-
-  bool isBundled = (Insn >> 31);
 
   // Try decoding as 64bit ALUl instruction
   if (Result == MCDisassembler::Fail) {
@@ -159,7 +160,8 @@ PatmosDisassembler::getInstruction(MCInst &instr,
 
   }
 
-  // TODO handle bundled instructions somehow
+  // handle bundled instructions by adding a special operand
+  instr.addOperand(MCOperand::CreateImm(isBundled));
 
   return Result;
 }

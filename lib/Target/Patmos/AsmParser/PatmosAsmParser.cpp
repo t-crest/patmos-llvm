@@ -296,10 +296,21 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   MCInst Inst;
   SMLoc ErrorLoc;
   unsigned ErrorInfo;
+  bool isBundled = false;
+
+  PatmosOperand *Op = (PatmosOperand*)Operands.back();
+  if (Op->isToken() && Op->getToken() == ";") {
+    isBundled = true;
+    delete Op;
+    Operands.pop_back();
+  }
 
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo)) {
   default: break;
   case Match_Success:
+    // Add bundle marker
+    Inst.addOperand(MCOperand::CreateImm(isBundled));
+
     Out.EmitInstruction(Inst);
     return false;
   case Match_MissingFeature:
@@ -557,13 +568,9 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
   while (Lexer.isNot(AsmToken::EndOfStatement)) {
 
     // we have a bundled operation?
-    if (Lexer.is(AsmToken::PipePipe)) {
-
-      // TODO handle bundle marker somehow.. add as last operand??
-
-      // consume bundle marker
-      Lex();
-      return false;
+    if (Lexer.is(AsmToken::Semicolon)) {
+      // handle bundle marker by adding it as last operand
+      return ParseToken(Operands, AsmToken::Semicolon);
     }
 
     if (Lexer.is(AsmToken::Comma)) {

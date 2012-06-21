@@ -121,10 +121,13 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   int Size = Desc.Size;
 
   if ((TSFlags & PatmosII::FormMask) != PatmosII::FrmALUl) {
-    // TODO for other instructions, set bit 31 if they are the first one inside a bundle
+    // for other instructions, set bit 31 if they are the first one inside a bundle
+    bool isBundled = MI.getOperand(MI.getNumOperands()-1).getImm() > 0;
 
+    if (isBundled) {
+      Binary |= (1 << 31);
+    }
   }
-
 
   EmitInstruction(Binary, Size, OS);
 }

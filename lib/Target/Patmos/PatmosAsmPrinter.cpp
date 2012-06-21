@@ -49,6 +49,12 @@ namespace {
 void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   MCInst TmpInst;
   MCInstLowering.Lower(MI, TmpInst);
+
+  // TODO Handle bundles (mark the first instruction after a bundle marker as bundled)
+  bool isBundled = false;
+
+  TmpInst.addOperand(MCOperand::CreateImm(isBundled));
+
   OutStreamer.EmitInstruction(TmpInst);
 }
 
