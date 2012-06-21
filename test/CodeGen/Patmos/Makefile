@@ -62,6 +62,9 @@ all: return.s
 %.dis: %.o $(MCBIN)
 	$(GDB) $(OBJDUMP) -disassemble $<
 
+%.adis: %.as $(MCBIN)
+	$(GDB) $(OBJDUMP) -disassemble $<
+
 Patmos.out: $(TBLGENBIN) ../../../lib/Target/Patmos/*.td
 	$(GDB) $(TBLGEN) -I=../../../include -I=../../../lib/Target/Patmos/ ../../../lib/Target/Patmos/Patmos.td > Patmos.out
 

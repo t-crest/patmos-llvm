@@ -1,7 +1,11 @@
 *.ll
 *.s
 *.o
+*.as
 *.dot
 *.out
 *.bin
 tmp
+llvm-objdump
+llvm-mc
+llc
