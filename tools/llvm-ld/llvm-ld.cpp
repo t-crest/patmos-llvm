@@ -90,6 +90,9 @@ static cl::opt<bool> Native("native",
 static cl::opt<bool>NativeCBE("native-cbe",
   cl::desc("Generate a native binary with the C backend and GCC"));
 
+static cl::opt<bool> NoScript("no-script",
+  cl::desc("Link an executable as library, but do not generate a shell script"));
+
 static cl::list<std::string> PostLinkOpts("post-link-opts",
   cl::value_desc("path"),
   cl::desc("Run one or more optimization programs after linking"));
@@ -556,7 +559,7 @@ int main(int argc, char **argv, char **envp) {
   sys::RemoveFileOnSignal(sys::Path(BitcodeOutputFilename));
 
   // Arrange for the output file to be deleted on any errors.
-  if (!LinkAsLibrary) {
+  if (!LinkAsLibrary && !NoScript) {
     OutputRemover.setFile(OutputFilename);
     sys::RemoveFileOnSignal(sys::Path(OutputFilename));
   }
@@ -705,13 +708,13 @@ int main(int argc, char **argv, char **envp) {
       if (GenerateNative(OutputFilename, CFile.str(),
                          NativeLinkItems, gcc, envp, ErrMsg))
         PrintAndExit(ErrMsg, Composite.get());
-    } else {
+    } else if (!NoScript) {
       EmitShellScript(argv, Composite.get());
     }
 
     // Make the script executable...
     std::string ErrMsg;
-    if (sys::Path(OutputFilename).makeExecutableOnDisk(&ErrMsg))
+    if (!NoScript && sys::Path(OutputFilename).makeExecutableOnDisk(&ErrMsg))
       PrintAndExit(ErrMsg, Composite.get());
 
     // Make the bitcode file readable and directly executable in LLEE as well
