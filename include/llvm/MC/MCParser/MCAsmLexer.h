@@ -39,6 +39,7 @@ public:
     // No-value.
     EndOfStatement,
     Colon,
+    Semicolon,
     Plus, Minus, Tilde,
     Slash,    // '/'
     BackSlash, // '\'
