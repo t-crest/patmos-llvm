@@ -25,13 +25,18 @@ def : Pat<(zext (i1 predsel:$p)), (CLIi predsel:$p, (i32 1))>;
 
 //def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;
 
+def : Pat<(select predsel:$p, RRegs:$new, uimm12:$imm), (CMOV predsel:$p, (LIi uimm12:$imm), RRegs:$new)>;
+def : Pat<(select predsel:$p, RRegs:$new, nuimm12:$imm), (CMOV predsel:$p, (LIin nuimm12:$imm), RRegs:$new)>;
+def : Pat<(select predsel:$p, RRegs:$new, (i32 imm:$imm)), (CMOV predsel:$p, (LIl (i32 imm:$imm)), RRegs:$new)>;
+
 // Arithmetic optimizations
 def : Pat<(add RRegs:$rs, nuimm12:$imm), (SUBi RRegs:$rs, nuimm12:$imm)>;
 
 
 
 // // jump-table.
-// def : Pat<(i32 tjumptable:$dst), (MOV_IMM tjumptable:$dst)>;
+def : Pat<(i32 tjumptable:$dst), (LIl tjumptable:$dst)>;
+def : Pat<(i32 jtpat:$dst), (LIl jtpat:$dst)>;
 
 // global addresses, external symbols, and frame indices
 def : Pat<(gspat:$sym), (LIl gspat:$sym)>;
@@ -80,7 +85,6 @@ def : Pat<(setne (and RRegs:$a, uimm5mask:$b), (i32 0)),
 def : Pat<(seteq (and RRegs:$a, uimm5mask:$b), uimm5mask:$b),
           (BTEST RRegs:$a, (LIi uimm5mask:$b))>;
 
-
 // Predicate Combine patterns
 
 def : Pat<(or  predsel:$ps1, predsel:$ps2), (POR  predsel:$ps1, predsel:$ps2)>;
@@ -90,6 +94,9 @@ def : Pat<(notcc (or predsel:$ps1, predsel:$ps2)),
                                             (PNOR predsel:$ps1, predsel:$ps2)>;
 
 
+def : Pat<(setne  predsel:$a, (i1 -1)), (PNOT predsel:$a)>;
+
+def : Pat<(i1 (trunc RRegs:$a)), (MOVrp RRegs:$a)>;
 
 
 // Load patterns
