@@ -75,7 +75,7 @@ def R25 : PatmosGPR<25, "r25">;
 def R26 : PatmosGPR<26, "r26">;
 def R27 : PatmosGPR<27, "r27">;
 def R28 : PatmosGPR<28, "r28">;
-def R29 : PatmosGPR<29, "r29">;
+def RTR : PatmosGPR<29, "r29">; // reserved temporary register
 def RFP : PatmosGPR<30, "r30">; // frame ptr
 def RSP : PatmosGPR<31, "r31">; // stack ptr
 
@@ -125,7 +125,7 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    // scratch registers (caller saved)
    R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20,
    // preserved registers (callee saved)
-   R21, R22, R23, R24, R25, R26, R27, R28, R29,
+   R21, R22, R23, R24, R25, R26, R27, R28,
    // frame pointer, stack pointer (callee saved)
    RFP, RSP)>;
 

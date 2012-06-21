@@ -32,6 +32,12 @@ private:
   /// StackAlign - Default stack alignment.
   ///
   unsigned StackAlign;
+
+  /// computeLargeFIOffset - Emit an ADDi or ADDl instruction to compute a large 
+  /// FI offset.
+  /// \note The offset and basePtr arguments are possibly updated!
+  void computeLargeFIOffset(int &offset, unsigned &basePtr,
+                            MachineBasicBlock::iterator II) const;
 public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 

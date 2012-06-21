@@ -47,7 +47,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     Patmos::SZ, Patmos::SB, Patmos::SO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
-    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
+    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28,
     // Predicate regs
     Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
     Patmos::P5, Patmos::P6, Patmos::P7,
@@ -58,7 +58,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     Patmos::SZ, Patmos::SB, Patmos::SO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
-    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28, Patmos::R29,
+    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28,
     Patmos::RFP,
     // Predicate regs
     Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
@@ -97,6 +97,7 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
   // stack pointer
   Reserved.set(Patmos::RSP);
+  Reserved.set(Patmos::RTR);
   // Mark frame pointer as reserved if needed.
   if (TFI->hasFP(MF))
     Reserved.set(Patmos::RFP);
@@ -134,6 +135,30 @@ PatmosRegisterInfo::processFunctionBeforeFrameFinalized(MachineFunction &MF)
 }
 
 #endif
+
+
+
+void
+PatmosRegisterInfo::computeLargeFIOffset(int &offset, unsigned &basePtr,
+                                         MachineBasicBlock::iterator II) const {
+  MachineBasicBlock &MBB = *II->getParent();
+  DebugLoc DL            = II->getDebugLoc();
+
+  assert(offset >= 0);
+
+  // get offste
+  unsigned offsetLeft = 127; // -128 for offsets < 0
+  unsigned offsetLarge = offset - offsetLeft;
+  unsigned opcode = isUInt<12>(offsetLarge) ? Patmos::ADDi : Patmos::ADDl;
+
+  // emit instruction
+  AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode), Patmos::RTR))
+    .addReg(basePtr).addImm(offset - offsetLeft);
+
+  // return value
+  basePtr = Patmos::RTR;
+  offset  = offsetLeft;
+}
 
 void
 PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
@@ -206,7 +231,6 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   unsigned opcode = MI.getOpcode();
 
   // ensure that the offset fits the instruction
-  // TODO: expand if needed
   switch (opcode)
   {
     case Patmos::LWC: case Patmos::LWM:
@@ -214,7 +238,12 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       // 9 bit
       assert((Offset & 0x3) == 0);
       Offset = (Offset >> 2) + FrameDisplacement;
-      assert(isInt<7>(Offset));
+
+      // if needed expand computation of large offsets
+      if (!isInt<7>(Offset)) {
+        Offset <<= 2;
+        computeLargeFIOffset(Offset, BasePtr, II);
+      }
       break;
     case Patmos::LHC: case Patmos::LHM:
     case Patmos::LHUC: case Patmos::LHUM:
@@ -222,19 +251,33 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       // 8 bit
       assert((Offset & 0x1) == 0);
       Offset = (Offset >> 1) + FrameDisplacement;
-      assert(isInt<7>(Offset));
+
+      // if needed expand computation of large offsets
+      if (!isInt<7>(Offset)) {
+        Offset <<= 1;
+        computeLargeFIOffset(Offset, BasePtr, II);
+      }
       break;
     case Patmos::LBC: case Patmos::LBM:
     case Patmos::LBUC: case Patmos::LBUM:
     case Patmos::SBC: case Patmos::SBM:
       // 7 bit
       Offset += FrameDisplacement;
-      assert(isInt<7>(Offset));
+
+      // if needed expand computation of large offsets
+      if (!isInt<7>(Offset)) {
+        computeLargeFIOffset(Offset, BasePtr, II);
+      }
       break;
     case Patmos::ADDi:
       // 12 bit
       Offset += FrameDisplacement;
-      assert(isUInt<12>(Offset));
+
+      // rewrite to ADDl if needed
+      if(!isUInt<12>(Offset)) {
+        const MCInstrDesc &newMCID = TII.get(Patmos::ADDl);
+        MI.setDesc(newMCID);
+      }
       break;
     case Patmos::ADDl:
       // all should be fine

@@ -82,6 +82,8 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
   int offsetMin = std::numeric_limits<int>::max();
   int offsetMax = std::numeric_limits<int>::min();
   for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI < FIe; FI++) {
+    if (MFI.isDeadObjectIndex(FI))
+      continue;
 
     // find all spill slots and locations for callee saved registers
     if (MFI.isSpillSlotObjectIndex(FI) || CSIFIs[FI]) {
@@ -107,13 +109,23 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
 
   // check that no other FI is in the min/max offset range of the FIs from above
   for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI < FIe; FI++) {
+    if (MFI.isDeadObjectIndex(FI))
+      continue;
 
     // find all non-variable-sized objects that are not spill slots or callee
     // saved locations
     if (!MFI.isSpillSlotObjectIndex(FI) && !CSIFIs[FI] &&
         MFI.getObjectSize(FI) != 0) {
       int FIOffset = MFI.getObjectOffset(FI);
-      assert(FIOffset  < offsetMin || offsetMax < FIOffset);
+
+      // a slot that cannot be put on the stack cache?
+      if(offsetMin < FIOffset  && FIOffset < offsetMax) {
+        // push min/max boundaries, try to keep as much as possible
+        if (FIOffset - offsetMin < offsetMax - FIOffset)
+          offsetMin = FIOffset + 1;
+        else
+          offsetMax = FIOffset - 1;
+      }
     }
   }
 

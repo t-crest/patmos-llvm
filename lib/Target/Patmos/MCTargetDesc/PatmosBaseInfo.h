@@ -109,7 +109,7 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case R26: return 26;
   case R27: return 27;
   case R28: return 28;
-  case R29: return 29;
+  case RTR: return 29;
   case RFP: return 30;
   case RSP: return 31;
   default:
