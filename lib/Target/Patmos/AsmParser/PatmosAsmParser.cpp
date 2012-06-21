@@ -63,7 +63,7 @@ public:
 private:
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo);
 
-  bool ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+  bool ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool EmitError = true);
 
   /// ParseRegister - This version does not lex the last token so the end token can be retrieved
   bool ParseRegister(unsigned &RegNo, bool Required);
@@ -336,14 +336,14 @@ MatchAndEmitInstruction(SMLoc IDLoc,
 }
 
 bool PatmosAsmParser::
-ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
+ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool EmitError) {
   MCAsmLexer &Lexer = getLexer();
   SMLoc S = Lexer.getLoc();
 
   unsigned RegNo = 0;
   if (ParseRegister(RegNo, true)) {
     // not a register
-    return true;
+    return !EmitError || Error(S, "Not a valid register name");
   }
 
   SMLoc E = Lexer.getLoc();
@@ -392,7 +392,7 @@ ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
 
   // try to match rN +/- Imm, rN, or Imm
 
-  if (ParseRegister(Operands)) {
+  if (ParseRegister(Operands, false)) {
 
     // add default register
     SMLoc EndLoc = Lexer.getLoc();
@@ -411,7 +411,7 @@ ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)  {
       // lex away the plus symbol, leave a minus, fail on everything else
       Lexer.Lex();
     } else if (Lexer.isNot(AsmToken::Minus)) {
-      return true;
+      return Error(Lexer.getLoc(), "invalid separator between register and offset");
     }
   }
 
@@ -441,7 +441,7 @@ ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool check
 
   if (checkClass) {
     PatmosOperand *Op = (PatmosOperand*)Operands.back();
-    if (!Op->isReg()) return true;
+    if (!Op->isReg()) return Error(Lexer.getLoc(), "magic happened: we found a register but the operand is not a register");
 
     // TODO There really should be a nicer way of doing this, but we do not have access to the RegisterInfo stuff here
     if (PatmosInstPrinter::getRegisterName(Op->getReg())[0] != 'p') {
@@ -465,7 +465,9 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
   }
   if (Lexer.is(AsmToken::Exclaim)) {
     // we never allow a negated predicate as first out operand
-    if (OpNo == 0) return true;
+    if (OpNo == 0) {
+      return Error(Lexer.getLoc(), "Destination predicate cannot be negated");
+    }
     return ParsePredicateOperand(Operands);
   }
   if (Lexer.is(AsmToken::Dollar)) {
@@ -511,7 +513,7 @@ bool PatmosAsmParser::ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
   MCAsmLexer &Lexer = getLexer();
 
   if (Lexer.isNot(Kind)) {
-    return true;
+    return Error(Lexer.getLoc(), "unexpected token");
   }
 
   Operands.push_back(PatmosOperand::CreateToken(Lexer.getTok().getString(), Lexer.getLoc()));
@@ -570,12 +572,22 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
     // we have a bundled operation?
     if (Lexer.is(AsmToken::Semicolon)) {
       // handle bundle marker by adding it as last operand
-      return ParseToken(Operands, AsmToken::Semicolon);
+      if (ParseToken(Operands, AsmToken::Semicolon)) {
+        return true;
+      }
+      // Disallow ;; directly after ;
+      // We could also undo the ';' in this case but then the behaviour of \n and # would
+      // make the syntax a bit too complicated to understand.
+      // TODO get the SeparatorString from MCAsmInfo
+      if (Lexer.is(AsmToken::EndOfStatement) && Lexer.getTok().getString() == ";;") {
+        return Error(Lexer.getLoc(), "unexpected bundle separator after bundled instruction separator");
+      }
+      return false;
     }
 
     if (Lexer.is(AsmToken::Comma)) {
       // we do not start with a comma before any operands
-      if (OpNo == 0) return true;
+      if (OpNo == 0) return Error(Lexer.getLoc(), "missing operand before comma");
       Lex();
     } else if (Lexer.is(AsmToken::Equal)) {
       // add it as a token for the matcher
