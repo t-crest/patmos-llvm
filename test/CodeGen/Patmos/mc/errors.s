@@ -5,30 +5,30 @@
 	.type	r1,@function
 r1:                                          # @r1
 # BB#0:
-	       sres	3	   ;    sub	    $r31 = $r31, 20 ;;
+	       sres	0x03	   ;    sub	    $r31 = $r31, 20 ;;
 	       mfs	$r9 = $sz 
-	       sws	[0] = $r9  ;
+	       sws	[0] = $r9  ; ;;
 	       mfs	$r9 = $so  ;
 	       sws	[1] = $r9  ;;	mfs	$r9 = $sb  ;
 	       sws	[2] = $r9
 	       swc	[$r31 + 4] = $r3  ; # some comment
 	       li	$r1 = 4  ;
 	       ;;
-	       swc	[$r31 + 3] = $r1
+	       swc	[$r31 + 3] = $ra
 	       lwc	$r1 = [$r31 + 4]
 	       lbc	$r1 = [$r1 + 1]
-	       add	$r1 = $r1, 4
+	       add	$r1 = $r1, 
 	       swc	[$r31 + 3] = $r1
 	       lwc	$r1 = [$r31 + 4]
-	       cmpeq	$p1 = $r1, $r0
-	( $p1) bc	.LBB0_2-r1
-	       nop	3
+	       cmpeq	!$p1 = $r1, $r0
+	( $r1) bc	.LBB0_2-r1
+	       nop	
 # BB#1:
 	       lwc	$r1 = [$r31 + 4]
 	       swc	[$r31 + 1] = $r1
 	       li	$r1 = .L.str
 	       bc	.LBB0_3-r1
-	       nop	3
+	       nop	, 3
 .LBB0_2:
 	       lwc	$r1 = [$r31 + 3]
 	       sub	$r1 = $r1, 1
