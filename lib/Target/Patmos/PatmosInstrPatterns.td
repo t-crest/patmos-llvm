@@ -121,6 +121,8 @@ defm LH  : LoadTypedPatterns<LHC , imm7s1, sextloadi16>;
 defm LB  : LoadTypedPatterns<LBC , imm7  , sextloadi8>;
 defm LHU : LoadTypedPatterns<LHUC, imm7s1, zextloadi16>;
 defm LBU : LoadTypedPatterns<LBUC, imm7  , zextloadi8>;
+defm LHE : LoadTypedPatterns<LHUC, imm7s1, extloadi16>;
+defm LBE : LoadTypedPatterns<LBUC, imm7  , extloadi8>;
 
 
 

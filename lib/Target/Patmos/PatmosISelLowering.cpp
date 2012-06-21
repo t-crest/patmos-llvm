@@ -69,6 +69,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setMinFunctionAlignment(4);
   setPrefFunctionAlignment(4);
 
+  setLoadExtAction(ISD::EXTLOAD, MVT::i1, Promote);
   setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
 
   //TODO there are a bunch of operations which are not legal for i1 -> promote all
