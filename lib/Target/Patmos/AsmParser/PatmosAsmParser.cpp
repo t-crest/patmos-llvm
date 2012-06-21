@@ -60,6 +60,8 @@ public:
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                                MCStreamer &Out);
 
+  void EatToEndOfStatement();
+
 private:
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo);
 
@@ -82,6 +84,7 @@ private:
 
   /// isPredSrcOperand - Check whether the operand might be a predicate source operand (i.e., has a negate flag)
   bool isPredSrcOperand(StringRef Mnemonic, unsigned OpNo);
+
 };
 
 /// PatmosOperand - Instances of this class represent a parsed Patmos machine
@@ -341,9 +344,13 @@ ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool EmitError) {
   SMLoc S = Lexer.getLoc();
 
   unsigned RegNo = 0;
-  if (ParseRegister(RegNo, true)) {
-    // not a register
-    return !EmitError || Error(S, "Not a valid register name");
+  if (ParseRegister(RegNo, false)) {
+    // syntax error
+    return true;
+  }
+  if (RegNo == 0) {
+    // missing register
+    return !EmitError || Error(S, "Missing register name");
   }
 
   SMLoc E = Lexer.getLoc();
@@ -375,10 +382,10 @@ ParseRegister(unsigned &RegNo, bool Required) {
   if (Lexer.getKind() == AsmToken::Identifier) {
     RegNo = MatchRegisterName(Lexer.getTok().getIdentifier());
     // If name does not match after $ prefix, this is always an error
-    return (RegNo == 0);
+    return (RegNo == 0) && Error(Lexer.getLoc(), "register name not valid");
   }
   // Syntax error: $ and no identifier is always an error
-  return true;
+  return Error(Lexer.getLoc(), "register prefix $ is not followed by a register name");
 }
 
 bool PatmosAsmParser::
@@ -466,7 +473,7 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, unsigned OpNo)  {
   if (Lexer.is(AsmToken::Exclaim)) {
     // we never allow a negated predicate as first out operand
     if (OpNo == 0) {
-      return Error(Lexer.getLoc(), "Destination predicate cannot be negated");
+      return Error(Lexer.getLoc(), "destination predicate cannot be negated");
     }
     return ParsePredicateOperand(Operands);
   }
@@ -587,21 +594,29 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
 
     if (Lexer.is(AsmToken::Comma)) {
       // we do not start with a comma before any operands
-      if (OpNo == 0) return Error(Lexer.getLoc(), "missing operand before comma");
+      if (OpNo == 0) {
+        SMLoc TokLoc = Lexer.getLoc();
+        EatToEndOfStatement();
+        return Error(TokLoc, "comma before first operand");
+      }
       Lex();
     } else if (Lexer.is(AsmToken::Equal)) {
       // add it as a token for the matcher
       // TODO if somebody writes something like 'r1, r2, r3' instead of 'r1 = r2, r3', he will
       //      get a 'register type mismatch' error for 'r3', which is *very* confusing.
       if (ParseToken(Operands, AsmToken::Equal)) {
+        EatToEndOfStatement();
         return true;
       }
     } else if (OpNo > 0) {
       // We need some separation between operands
-      return true;
+      SMLoc TokLoc = Lexer.getLoc();
+      EatToEndOfStatement();
+      return Error(TokLoc, "missing separator between operands or instructions");
     }
 
     if (ParseOperand(Operands, OpNo)) {
+      EatToEndOfStatement();
       return true;
     }
 
@@ -627,6 +642,15 @@ bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
   if (Mnemonic == "mov" || Mnemonic == "neg") return true;
 
   return false;
+}
+
+void PatmosAsmParser::EatToEndOfStatement() {
+  MCAsmLexer &Lexer = getLexer();
+  while (Lexer.isNot(AsmToken::EndOfStatement) &&
+         Lexer.isNot(AsmToken::Semicolon) &&
+         Lexer.isNot(AsmToken::Eof)) {
+    Lexer.Lex();
+  }
 }
 
 
