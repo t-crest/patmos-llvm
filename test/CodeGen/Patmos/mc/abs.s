@@ -42,7 +42,7 @@ r1:                                          # @r1
 	       lws	$r9 = [0]
 	       mts	$sz = $r9
 	       lws	$r9 = [1]
-	       mts	$so = $r9
+	       mts	$so = $r29
 	       lws	$r9 = [2]
 	       mts	$sb = $r9
 	       sfree	3

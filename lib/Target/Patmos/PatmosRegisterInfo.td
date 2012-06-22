@@ -126,6 +126,8 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20,
    // preserved registers (callee saved)
    R21, R22, R23, R24, R25, R26, R27, R28,
+   // temp register
+   RTR,
    // frame pointer, stack pointer (callee saved)
    RFP, RSP)>;
 
