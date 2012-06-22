@@ -554,19 +554,17 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 
 std::pair<unsigned, const TargetRegisterClass*> PatmosTargetLowering::
 getRegForInlineAsmConstraint(const std::string &Constraint,
-                             EVT VT) const {
-
-  if (Constraint[0] == 'r') {
-    const TargetRegisterInfo *RI = TM.getRegisterInfo();
-
-    const TargetRegisterClass *RC = RI->getRegClass(0);
-
-    // If none of the value types for this register class are valid, we
-    // can't use it.  For example, 64-bit reg classes on 32-bit targets.
-    //if (!isLegalRC(RC))
-    //  continue;
-
-    return std::make_pair(0u, RC);
+                             EVT VT) const
+{
+  if (Constraint.size() == 1) {
+    switch (Constraint[0]) {
+    case 'r':
+      if (VT == MVT::i32) {
+        return std::make_pair(0U, Patmos::RRegsRegisterClass);
+      }
+      assert("Unexpected register type");
+      return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
+    }
   }
 
   // Handle '{}'
