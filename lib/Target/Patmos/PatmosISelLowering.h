@@ -111,6 +111,10 @@ namespace llvm {
                                             SelectionDAG &DAG) const;
     */
 
+    virtual std::pair<unsigned, const TargetRegisterClass*>
+      getRegForInlineAsmConstraint(const std::string &Constraint,
+                                   EVT VT) const;
+
     /// LowerDYNAMIC_STACKALLOC - Lower a dynamic stack allocation (aka alloca).
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
 
