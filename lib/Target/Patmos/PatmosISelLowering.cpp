@@ -558,16 +558,30 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
-    case 'r':
+    case 'R':  // r0-r31
+    case 'r':  // general purpose registers
       if (VT == MVT::i32) {
         return std::make_pair(0U, Patmos::RRegsRegisterClass);
       }
       assert("Unexpected register type");
       return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
+    case 'S':
+      if (VT == MVT::i32) {
+        return std::make_pair(0U, Patmos::SRegsRegisterClass);
+      }
+      assert("Unexpected register type");
+      return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
+    case 'P':
+      if (VT == MVT::i1) {
+        return std::make_pair(0U, Patmos::PRegsRegisterClass);
+      }
+      assert("Unexpected register type");
+      return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
+
+    // TODO support for i,n,m,o,X,f,.. (immediates, floats?, memory, labels,..) ??
+
     }
   }
-
-  // TODO support for i,n,m,o,X,f,.. (immediates, floats?, memory, labels,..)
 
   // Handle '{}'
   return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);

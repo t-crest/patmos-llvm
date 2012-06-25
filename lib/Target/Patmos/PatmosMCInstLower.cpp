@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PatmosMCInstLower.h"
+#include "MCTargetDesc/PatmosBaseInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -24,87 +25,92 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/ADT/SmallString.h"
+
 using namespace llvm;
 
-MCSymbol *PatmosMCInstLower::
-GetGlobalAddressSymbol(const MachineOperand &MO) const {
+
+MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsigned Offset) const {
+
+  MCSymbolRefExpr::VariantKind Kind;
+  const MCSymbol *Symbol;
+
+  // TODO support CREL only for MBBs?
+
   switch (MO.getTargetFlags()) {
+  case PatmosII::MO_NO_FLAG:    Kind = MCSymbolRefExpr::VK_None; break;
+  case PatmosII::MO_CREL:       Kind = MCSymbolRefExpr::VK_Patmos_CREL; break;
   default: llvm_unreachable("Unknown target flag on GV operand");
-  case 0: break;
   }
 
-  return Printer.Mang->getSymbol(MO.getGlobal());
-}
+  switch (MO.getType()) {
+  case MachineOperand::MO_MachineBasicBlock:
+    Symbol = MO.getMBB()->getSymbol();
+    // symbols to BBs are always cache relative (?)
+    // TODO set this earlier so we do not need it here, then remove it.
+    Kind = MCSymbolRefExpr::VK_Patmos_CREL;
+    break;
+  case MachineOperand::MO_GlobalAddress:
+    Symbol = Printer.Mang->getSymbol(MO.getGlobal());
+    break;
+  case MachineOperand::MO_BlockAddress:
+    Symbol = Printer.GetBlockAddressSymbol(MO.getBlockAddress());
+    break;
+  case MachineOperand::MO_ExternalSymbol:
+    Symbol = Printer.GetExternalSymbolSymbol(MO.getSymbolName());
+    break;
+  case MachineOperand::MO_JumpTableIndex:
+    Symbol = Printer.GetJTISymbol(MO.getIndex());
+    break;
+  case MachineOperand::MO_ConstantPoolIndex:
+    Symbol = Printer.GetCPISymbol(MO.getIndex());
+    if (MO.getOffset())
+      Offset += MO.getOffset();
+    break;
 
-MCSymbol *PatmosMCInstLower::
-GetExternalSymbolSymbol(const MachineOperand &MO) const {
-  switch (MO.getTargetFlags()) {
-  default: assert(0 && "Unknown target flag on GV operand");
-  case 0: break;
+  default: llvm_unreachable("unknown symbol operand type");
   }
 
-  return Printer.GetExternalSymbolSymbol(MO.getSymbolName());
+  const MCSymbolRefExpr *MCSym = MCSymbolRefExpr::Create(Symbol, Kind, Ctx);
+
+  if (!Offset)
+    return MCOperand::CreateExpr(MCSym);
+
+  // Assume offset is never negative.
+  assert(Offset > 0);
+
+  const MCConstantExpr *OffsetExpr =  MCConstantExpr::Create(Offset, Ctx);
+  const MCBinaryExpr *AddExpr = MCBinaryExpr::CreateAdd(MCSym, OffsetExpr, Ctx);
+  return MCOperand::CreateExpr(AddExpr);
 }
 
-MCSymbol *PatmosMCInstLower::
-GetJumpTableSymbol(const MachineOperand &MO) const {
-  SmallString<256> Name;
-  raw_svector_ostream(Name) << Printer.MAI->getPrivateGlobalPrefix() << "JTI"
-                            << Printer.getFunctionNumber() << '_'
-                            << MO.getIndex();
 
-  switch (MO.getTargetFlags()) {
-  default: llvm_unreachable("Unknown target flag on GV operand");
-  case 0: break;
+MCOperand PatmosMCInstLower::LowerOperand(const MachineOperand &MO, unsigned Offset) const {
+
+  switch (MO.getType()) {
+  default:
+    llvm_unreachable("unknown operand type");
+  case MachineOperand::MO_Register:
+    // Ignore all implicit register operands.
+    if (MO.isImplicit()) break;
+    return MCOperand::CreateReg(MO.getReg());
+  case MachineOperand::MO_Immediate:
+    return MCOperand::CreateImm(MO.getImm() + Offset);
+  case MachineOperand::MO_MachineBasicBlock:
+  case MachineOperand::MO_GlobalAddress:
+  case MachineOperand::MO_ExternalSymbol:
+  case MachineOperand::MO_JumpTableIndex:
+  case MachineOperand::MO_ConstantPoolIndex:
+  case MachineOperand::MO_BlockAddress:
+    return LowerSymbolOperand(MO, Offset);
+  case MachineOperand::MO_Metadata:
+    // TODO handle Metadata somehow??
+  case MachineOperand::MO_RegisterMask:
+    break;
   }
 
-  // Create a symbol for the name.
-  return Ctx.GetOrCreateSymbol(Name.str());
+  return MCOperand();
 }
 
-MCSymbol *PatmosMCInstLower::
-GetConstantPoolIndexSymbol(const MachineOperand &MO) const {
-  SmallString<256> Name;
-  raw_svector_ostream(Name) << Printer.MAI->getPrivateGlobalPrefix() << "CPI"
-                            << Printer.getFunctionNumber() << '_'
-                            << MO.getIndex();
-
-  switch (MO.getTargetFlags()) {
-  default: llvm_unreachable("Unknown target flag on GV operand");
-  case 0: break;
-  }
-
-  // Create a symbol for the name.
-  return Ctx.GetOrCreateSymbol(Name.str());
-}
-
-MCSymbol *PatmosMCInstLower::
-GetBlockAddressSymbol(const MachineOperand &MO) const {
-  switch (MO.getTargetFlags()) {
-  default: assert(0 && "Unknown target flag on GV operand");
-  case 0: break;
-  }
-
-  return Printer.GetBlockAddressSymbol(MO.getBlockAddress());
-}
-
-MCOperand PatmosMCInstLower::
-LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const {
-  // FIXME: We would like an efficient form for this, so we don't have to do a
-  // lot of extra uniquing.
-  const MCExpr *Expr = MCSymbolRefExpr::Create(Sym, Ctx);
-
-  switch (MO.getTargetFlags()) {
-  default: llvm_unreachable("Unknown target flag on GV operand");
-  case 0: break;
-  }
-
-  if (!MO.isJTI() && MO.getOffset())
-    Expr = MCBinaryExpr::CreateAdd(Expr,
-                                   MCConstantExpr::Create(MO.getOffset(), Ctx),
-                                   Ctx);
-  return MCOperand::CreateExpr(Expr);
-}
 
 void PatmosMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   OutMI.setOpcode(MI->getOpcode());
@@ -112,43 +118,10 @@ void PatmosMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI->getOperand(i);
 
-    MCOperand MCOp;
-    switch (MO.getType()) {
-    default:
-      MI->dump();
-      assert(0 && "unknown operand type");
-    case MachineOperand::MO_Register:
-      // Ignore all implicit register operands.
-      if (MO.isImplicit()) continue;
-      MCOp = MCOperand::CreateReg(MO.getReg());
-      break;
-    case MachineOperand::MO_Immediate:
-      MCOp = MCOperand::CreateImm(MO.getImm());
-      break;
-    case MachineOperand::MO_MachineBasicBlock:
-      // basic block targets
-      MCOp = MCOperand::CreateExpr(
-              MCBinaryExpr::CreateSub(
-                    MCSymbolRefExpr::Create(MO.getMBB()->getSymbol(), Ctx),
-                    MCSymbolRefExpr::Create(Printer.CurrentFnSym, Ctx), //CurrentFnSymForSize
-                    Ctx));
-      break;
-    case MachineOperand::MO_GlobalAddress:
-      MCOp = LowerSymbolOperand(MO, GetGlobalAddressSymbol(MO));
-      break;
-    case MachineOperand::MO_ExternalSymbol:
-      MCOp = LowerSymbolOperand(MO, GetExternalSymbolSymbol(MO));
-      break;
-    case MachineOperand::MO_JumpTableIndex:
-      MCOp = LowerSymbolOperand(MO, GetJumpTableSymbol(MO));
-      break;
-    case MachineOperand::MO_ConstantPoolIndex:
-      MCOp = LowerSymbolOperand(MO, GetConstantPoolIndexSymbol(MO));
-      break;
-    case MachineOperand::MO_BlockAddress:
-      MCOp = LowerSymbolOperand(MO, GetBlockAddressSymbol(MO));
+    MCOperand MCOp = LowerOperand(MO);
+    if (MCOp.isValid()) {
+      OutMI.addOperand(MCOp);
     }
-
-    OutMI.addOperand(MCOp);
   }
 }
+

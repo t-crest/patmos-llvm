@@ -61,7 +61,10 @@ void PatmosInstPrinter::printGuard(const MCInst *MI, raw_ostream &O) {
 }
 
 void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                     raw_ostream &O, const char *Modifier) {
+                                     raw_ostream &O, const char *Modifier)
+{
+  // Note: this code is not used to generate inline-assembly. See PatmosAsmPrinter for that.
+
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
     // do not print register R0 in addressing modes

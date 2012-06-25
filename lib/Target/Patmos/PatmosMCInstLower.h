@@ -28,21 +28,19 @@ namespace llvm {
   /// into an MCInst.
 class LLVM_LIBRARY_VISIBILITY PatmosMCInstLower {
   MCContext &Ctx;
-  Mangler &Mang;
 
   AsmPrinter &Printer;
 public:
-  PatmosMCInstLower(MCContext &ctx, Mangler &mang, AsmPrinter &printer)
-    : Ctx(ctx), Mang(mang), Printer(printer) {}
+  PatmosMCInstLower(MCContext &ctx, AsmPrinter &printer)
+    : Ctx(ctx), Printer(printer) {}
+
+  MCContext &getContext() { return Ctx; }
+
   void Lower(const MachineInstr *MI, MCInst &OutMI) const;
 
-  MCOperand LowerSymbolOperand(const MachineOperand &MO, MCSymbol *Sym) const;
+  MCOperand LowerOperand(const MachineOperand &MO, unsigned Offset = 0) const;
 
-  MCSymbol *GetGlobalAddressSymbol(const MachineOperand &MO) const;
-  MCSymbol *GetExternalSymbolSymbol(const MachineOperand &MO) const;
-  MCSymbol *GetJumpTableSymbol(const MachineOperand &MO) const;
-  MCSymbol *GetConstantPoolIndexSymbol(const MachineOperand &MO) const;
-  MCSymbol *GetBlockAddressSymbol(const MachineOperand &MO) const;
+  MCOperand LowerSymbolOperand(const MachineOperand &MO, unsigned Offset = 0) const;
 };
 
 }

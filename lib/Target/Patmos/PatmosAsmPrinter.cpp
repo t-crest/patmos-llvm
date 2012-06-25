@@ -19,6 +19,9 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/MC/MCContext.h"
+#include "InstPrinter/PatmosInstPrinter.h"
+
 using namespace llvm;
 
 namespace {
@@ -27,7 +30,7 @@ namespace {
     PatmosMCInstLower MCInstLowering;
   public:
     PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *Mang, *this) {}
+      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this) {}
 
     virtual const char *getPassName() const {
       return "Patmos Assembly Printer";
@@ -111,16 +114,38 @@ bool PatmosAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                                  unsigned AsmVariant, const char *ExtraCode,
                                  raw_ostream &O)
 {
+  // Does this asm operand have a single letter operand modifier?
+  if (ExtraCode && ExtraCode[0])
+    return true; // Unknown modifier.
 
+  // Print operand for inline-assembler. Basically the same code as in
+  // PatmosInstPrinter::printOperand, but for MachineOperand and for
+  // inline-assembly. No need for pretty formatting of default ops, output is for
+  // AsmParser only.
+
+  // TODO any special handling of predicates (flags) or anything?
+
+  MCInst MCI;
+  MCInstLowering.Lower(MI, MCI);
+
+  PatmosInstPrinter PIP(OutContext.getAsmInfo(), *TM.getInstrInfo(), *TM.getRegisterInfo(), true);
+
+  PIP.printOperand(&MCI, OpNo, O, ExtraCode);
 
   return false;
 }
 
 bool PatmosAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
                                        unsigned AsmVariant,
-                                       const char *ExtraCode, raw_ostream &O) {
-  // Target doesn't support this yet!
-  return true;
+                                       const char *ExtraCode, raw_ostream &O)
+{
+  if (ExtraCode && ExtraCode[0])
+     return true; // Unknown modifier.
+
+  const MachineOperand &MO = MI->getOperand(OpNo);
+  assert(MO.isReg() && "unexpected inline asm memory operand");
+  O << "[$" << PatmosInstPrinter::getRegisterName(MO.getReg()) << "]";
+  return false;
 }
 
 

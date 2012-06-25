@@ -28,6 +28,16 @@ namespace llvm {
 ///
 namespace PatmosII {
 
+  enum TOF {
+    //===------------------------------------------------------------------===//
+    // Mips Specific MachineOperand flags.
+
+    MO_NO_FLAG,
+
+    /// MO_CREL - Represents a cache relative address
+    MO_CREL
+  };
+
   enum {
     //===------------------------------------------------------------------===//
     // Instruction encodings.  These are the standard/most common forms for
