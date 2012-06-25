@@ -87,6 +87,15 @@ static cl::alias Relink("r", cl::aliasopt(LinkAsLibrary),
 static cl::opt<bool> Native("native",
   cl::desc("Generate a native binary instead of a shell script"));
 
+static cl::opt<std::string> NativeGCC("native-gcc",
+  cl::value_desc("path"),
+  cl::init("gcc"),
+  cl::desc("Path to the GCC driver to generate a native binary"));
+
+static cl::opt<bool> NativeKeep("native-keep",
+  cl::desc("Keep intermediate files when generating a native binary"));
+
+
 static cl::opt<bool>NativeCBE("native-cbe",
   cl::desc("Generate a native binary with the C backend and GCC"));
 
@@ -99,6 +108,9 @@ static cl::list<std::string> PostLinkOpts("post-link-opts",
 
 static cl::list<std::string> XLinker("Xlinker", cl::value_desc("option"),
   cl::desc("Pass options to the system linker"));
+
+static cl::list<std::string> Xllc("Xllc", cl::value_desc("option"),
+  cl::desc("Pass options to the code generator"));
 
 // Compatibility options that llvm-ld ignores but are supported for
 // compatibility with LD
@@ -271,9 +283,15 @@ static int GenerateAssembly(const std::string &OutputFilename,
   // We will use GCC to assemble the program so set the assembly syntax to AT&T,
   // regardless of what the target in the bitcode file is.
   args.push_back("-x86-asm-syntax=att");
+  
+  // Add the requested options
+  for (unsigned index = 0; index < Xllc.size(); index++)
+    args.push_back(Xllc[index].c_str());
+
   args.push_back("-o");
   args.push_back(OutputFilename.c_str());
   args.push_back(InputFilename.c_str());
+
   args.push_back(0);
 
   if (Verbose) {
@@ -662,6 +680,9 @@ int main(int argc, char **argv, char **envp) {
       // Mark the output files for removal.
       FileRemover AssemblyFileRemover(AssemblyFile.str());
       sys::RemoveFileOnSignal(AssemblyFile);
+      if (NativeKeep) {
+        AssemblyFileRemover.releaseFile();
+      }
 
       // Determine the locations of the llc and gcc programs.
       sys::Path llc = PrependMainExecutablePath("llc", argv[0],
@@ -669,7 +690,7 @@ int main(int argc, char **argv, char **envp) {
       if (llc.isEmpty())
         PrintAndExit("Failed to find llc", Composite.get());
 
-      sys::Path gcc = sys::Program::FindProgramByName("gcc");
+      sys::Path gcc = sys::Program::FindProgramByName(NativeGCC);
       if (gcc.isEmpty())
         PrintAndExit("Failed to find gcc", Composite.get());
 
