@@ -567,6 +567,8 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
     }
   }
 
+  // TODO support for i,n,m,o,X,f,.. (immediates, floats?, memory, labels,..)
+
   // Handle '{}'
   return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
 }

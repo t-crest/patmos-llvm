@@ -43,6 +43,19 @@ namespace {
     ///
     /// This overrides AsmPrinter's implementation to handle delay slots.
     virtual bool isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB) const;
+
+    //===------------------------------------------------------------------===//
+    // Inline Asm Support
+    //===------------------------------------------------------------------===//
+
+    virtual bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                 unsigned AsmVariant, const char *ExtraCode,
+                                 raw_ostream &OS);
+
+    virtual bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
+                                       unsigned AsmVariant,
+                                       const char *ExtraCode,
+                                       raw_ostream &OS);
   };
 } // end of anonymous namespace
 
@@ -92,6 +105,24 @@ isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB) const {
   while (I != Pred->begin() && !(--I)->isTerminator()) ;
   return I == Pred->end() || !I->isBarrier();
 }
+
+
+bool PatmosAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                 unsigned AsmVariant, const char *ExtraCode,
+                                 raw_ostream &O)
+{
+
+
+  return false;
+}
+
+bool PatmosAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
+                                       unsigned AsmVariant,
+                                       const char *ExtraCode, raw_ostream &O) {
+  // Target doesn't support this yet!
+  return true;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
