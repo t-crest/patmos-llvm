@@ -20,22 +20,30 @@
 namespace llvm {
   namespace Patmos{
     enum RelocationType {
-      // TODO define used relocation types properly
+      /// reloc_patmos_pfl_abs - absolute relocation for branches/calls (PFLb 
+      /// format)
+      reloc_patmos_pflb_abs = 1,
 
-      // reloc_patmos_abs - absolute relocation for branches.
-      reloc_patmos_abs = 1,
+      /// reloc_patmos_pfl_frel - function relative relocation for branches 
+      /// (PFLb format)
+      reloc_patmos_pflb_frel = 2,
 
-      // reloc_patmos_12 - lower 12 bits of the address
-      reloc_patmos_12 = 2,
+      /// reloc_patmos_alui_abs - absolute relocation for ALUi instructions
+      reloc_patmos_alui_abs = 3,
 
-      // reloc_patmos_22 - lower 22 bits of the address
-      reloc_patmos_22 = 3,
+      /// reloc_patmos_alui_frel - function relative relocation for ALUi
+      /// instructions
+      reloc_patmos_alui_frel = 4,
 
-      // reloc_patmos_frel - lower 32 bits of the address, function relative
-      reloc_patmos_frel = 4,
+      /// reloc_patmos_alul_abs - absolute relocation for ALUl instructions
+      reloc_patmos_alul_abs = 5,
 
-      // reloc_patmos_frel22 - lower 22 bits of the address, function relative
-      reloc_patmos_frel22 = 5
+      /// reloc_patmos_alul_frel - function relative relocation for ALUl
+      /// instructions
+      reloc_patmos_alul_frel = 6,
+
+      /// reloc_patmos_mem_abs - absolute relocation for LDT/STT instructions
+      reloc_patmos_mem_abs = 7
     };
   }
 }

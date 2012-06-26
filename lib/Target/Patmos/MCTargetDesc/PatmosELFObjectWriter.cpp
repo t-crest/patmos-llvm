@@ -15,6 +15,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCValue.h"
+#include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <list>
 
@@ -55,19 +56,24 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
                                            int64_t Addend) const {
   // TODO determine the type of the relocation, use Patmos types
 
-  unsigned Type = (unsigned)ELF::R_MIPS_NONE;
   unsigned Kind = (unsigned)Fixup.getKind();
 
   switch (Kind) {
+  case FK_Data_1:
+    return ELF::R_PATMOS_MEM_ABS;
+// TODO: implement real mapping here
+//     ELF::R_PATMOS_ALUI_ABS
+//     ELF::R_PATMOS_ALUI_FREL
   case FK_Data_2:
+    return ELF::R_PATMOS_PFLB_FREL;
+//     ELF::R_PATMOS_PFLB_ABS
   case FK_Data_4:
-
+    return ELF::R_PATMOS_ALUL_ABS;
+//     ELF::R_PATMOS_ALUL_FREL
     break;
   default:
     llvm_unreachable("invalid fixup kind!");
   }
-
-  return Type;
 }
 
 

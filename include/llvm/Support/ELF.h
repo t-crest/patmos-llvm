@@ -329,6 +329,18 @@ enum {
   ELFOSABI_STANDALONE = 255   // Standalone (embedded) application
 };
 
+// Patmos relocations.
+enum {
+  R_PATMOS_NONE      = 0,
+  R_PATMOS_PFLB_ABS  = 1,
+  R_PATMOS_PFLB_FREL = 2,
+  R_PATMOS_ALUI_ABS  = 3,
+  R_PATMOS_ALUI_FREL = 4,
+  R_PATMOS_ALUL_ABS  = 5,
+  R_PATMOS_ALUL_FREL = 6,
+  R_PATMOS_MEM_ABS   = 7
+};
+
 // X86_64 relocations.
 enum {
   R_X86_64_NONE       = 0,

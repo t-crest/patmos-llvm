@@ -33,67 +33,89 @@ PatmosELFWriterInfo::PatmosELFWriterInfo(TargetMachine &TM)
 PatmosELFWriterInfo::~PatmosELFWriterInfo() {}
 
 unsigned PatmosELFWriterInfo::getRelocationType(unsigned MachineRelTy) const {
-  switch (MachineRelTy) {
-  case Patmos::reloc_patmos_frel:
-    return ELF::R_MICROBLAZE_64_PCREL;
-  case Patmos::reloc_patmos_abs:
-    return ELF::R_MICROBLAZE_NONE;
-  default:
-    llvm_unreachable("unknown patmos machine relocation type");
+  switch ((Patmos::RelocationType)MachineRelTy) {
+    case Patmos::reloc_patmos_pflb_abs :
+      return ELF::R_PATMOS_PFLB_ABS;
+    case Patmos::reloc_patmos_pflb_frel:
+      return ELF::R_PATMOS_PFLB_FREL;
+    case Patmos::reloc_patmos_alui_abs :
+      return ELF::R_PATMOS_ALUI_ABS;
+    case Patmos::reloc_patmos_alui_frel:
+      return ELF::R_PATMOS_ALUI_FREL;
+    case Patmos::reloc_patmos_alul_abs :
+      return ELF::R_PATMOS_ALUL_ABS;
+    case Patmos::reloc_patmos_alul_frel:
+      return ELF::R_PATMOS_ALUL_FREL;
+    case Patmos::reloc_patmos_mem_abs  :
+      return ELF::R_PATMOS_MEM_ABS;
   }
+
+  llvm_unreachable("unknown patmos machine relocation type");
 }
 
 long int PatmosELFWriterInfo::getDefaultAddendForRelTy(unsigned RelTy,
-                                                    long int Modifier) const {
+                                                      long int Modifier) const {
   switch (RelTy) {
-  case ELF::R_MICROBLAZE_32_PCREL:
-    return Modifier - 4;
-  case ELF::R_MICROBLAZE_32:
-    return Modifier;
-  default:
-    llvm_unreachable("unknown patmos relocation type");
+    case ELF::R_PATMOS_PFLB_FREL:
+    case ELF::R_PATMOS_ALUI_FREL:
+    case ELF::R_PATMOS_ALUL_FREL:
+      return Modifier - 4;
+    case ELF::R_PATMOS_PFLB_ABS:
+    case ELF::R_PATMOS_ALUI_ABS:
+    case ELF::R_PATMOS_ALUL_ABS:
+    case ELF::R_PATMOS_MEM_ABS:
+      return Modifier;
+    default:
+      llvm_unreachable("unknown patmos relocation type");
   }
 }
 
 unsigned PatmosELFWriterInfo::getRelocationTySize(unsigned RelTy) const {
-  // FIXME: Most of these sizes are guesses based on the name
   switch (RelTy) {
-  case ELF::R_MICROBLAZE_32:
-  case ELF::R_MICROBLAZE_32_PCREL:
-  case ELF::R_MICROBLAZE_32_PCREL_LO:
-  case ELF::R_MICROBLAZE_32_LO:
-  case ELF::R_MICROBLAZE_SRO32:
-  case ELF::R_MICROBLAZE_SRW32:
-  case ELF::R_MICROBLAZE_32_SYM_OP_SYM:
-  case ELF::R_MICROBLAZE_GOTOFF_32:
-    return 32;
+    case ELF::R_PATMOS_PFLB_ABS:
+    case ELF::R_PATMOS_PFLB_FREL:
+      return 22;
+    case ELF::R_PATMOS_ALUI_ABS:
+    case ELF::R_PATMOS_ALUI_FREL:
+      return 12;
+    case ELF::R_PATMOS_ALUL_ABS:
+    case ELF::R_PATMOS_ALUL_FREL:
+      return 32;
+    case ELF::R_PATMOS_MEM_ABS:
+      return 7;
+    default:
+      llvm_unreachable("unknown patmos relocation type");
   }
 
   return 0;
 }
 
 bool PatmosELFWriterInfo::isPCRelativeRel(unsigned RelTy) const {
-  // FIXME: Most of these are guesses based on the name
   switch (RelTy) {
-  case ELF::R_MICROBLAZE_32_PCREL:
-  case ELF::R_MICROBLAZE_64_PCREL:
-  case ELF::R_MICROBLAZE_32_PCREL_LO:
-  case ELF::R_MICROBLAZE_GOTPC_64:
-    return true;
+    case ELF::R_PATMOS_PFLB_FREL:
+    case ELF::R_PATMOS_ALUI_FREL:
+    case ELF::R_PATMOS_ALUL_FREL:
+      return true;
+    case ELF::R_PATMOS_PFLB_ABS:
+    case ELF::R_PATMOS_ALUI_ABS:
+    case ELF::R_PATMOS_ALUL_ABS:
+    case ELF::R_PATMOS_MEM_ABS:
+      return false;
+    default:
+      llvm_unreachable("unknown patmos relocation type");
   }
 
   return false;
 }
 
 unsigned PatmosELFWriterInfo::getAbsoluteLabelMachineRelTy() const {
-  return Patmos::reloc_patmos_abs;
+  return Patmos::reloc_patmos_alul_abs;
 }
 
 long int PatmosELFWriterInfo::computeRelocation(unsigned SymOffset,
                                                 unsigned RelOffset,
                                                 unsigned RelTy) const {
-  assert((RelTy == ELF::R_MICROBLAZE_32_PCREL ||
-          RelTy == ELF::R_MICROBLAZE_64_PCREL) &&
-         "computeRelocation unknown for this relocation type");
+  // TODO: handle most *FREL here
+  assert(false && "computeRelocation unknown for this relocation type");
   return SymOffset - (RelOffset + 4);
 }

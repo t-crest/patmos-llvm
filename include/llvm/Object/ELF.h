@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <limits>
 #include <utility>
+#include "../Support/ELF.h"
 
 namespace llvm {
 namespace object {
@@ -1330,6 +1331,20 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     }
   }
   switch (Header->e_machine) {
+  case ELF::EM_PATMOS:
+    switch (type) {
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_NONE);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_PFLB_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_PFLB_FREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_ALUI_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_ALUI_FREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_ALUL_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_ALUL_FREL);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_MEM_ABS);
+    default:
+      res = "Unknown";
+    }
+    break;
   case ELF::EM_X86_64:
     switch (type) {
       LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_X86_64_NONE);
@@ -1472,6 +1487,22 @@ error_code ELFObjectFile<target_endianness, is64Bits>
   if (error_code ec = getSymbolName(getSection(sec->sh_link), symb, symname))
     return ec;
   switch (Header->e_machine) {
+  case ELF::EM_PATMOS:
+    switch (type) {
+    case ELF::R_PATMOS_NONE:
+    case ELF::R_PATMOS_PFLB_ABS:
+    case ELF::R_PATMOS_PFLB_FREL:
+    case ELF::R_PATMOS_ALUI_ABS:
+    case ELF::R_PATMOS_ALUI_FREL:
+    case ELF::R_PATMOS_ALUL_ABS:
+    case ELF::R_PATMOS_ALUL_FREL:
+    case ELF::R_PATMOS_MEM_ABS:
+      res = symname;
+      break;
+    default:
+      res = "Unknown";
+    }
+    break;
   case ELF::EM_X86_64:
     switch (type) {
     case ELF::R_X86_64_32S:
