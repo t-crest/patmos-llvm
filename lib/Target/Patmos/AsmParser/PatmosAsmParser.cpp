@@ -363,21 +363,25 @@ MatchAndEmitInstruction(SMLoc IDLoc,
 
     if (Format == PatmosII::FrmPFLb || Format == PatmosII::FrmSTC) {
       const MCOperand &MCO = Inst.getOperand(ImmOpNo);
-      assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+      if (!MCO.isExpr()) {
+        assert(MCO.isImm() && "Expected immediate operand for ALUi format");
 
-      if (( ImmSigned && !isInt<22>(MCO.getImm())) ||
-          (!ImmSigned && !isUInt<22>(MCO.getImm()))) {
-        return Error(IDLoc, "Immediate operand is out of range");
+        if (( ImmSigned && !isInt<22>(MCO.getImm())) ||
+            (!ImmSigned && !isUInt<22>(MCO.getImm()))) {
+          return Error(IDLoc, "Immediate operand is out of range");
+        }
       }
     }
 
     if (Format == PatmosII::FrmSTT || Format == PatmosII::FrmLDT) {
       const MCOperand &MCO = Inst.getOperand(ImmOpNo);
-      assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+      if (!MCO.isExpr()) {
+        assert(MCO.isImm() && "Expected immediate operand for ALUi format");
 
-      if (( ImmSigned && !isInt<7>(MCO.getImm())) ||
-          (!ImmSigned && !isUInt<7>(MCO.getImm()))) {
-        return Error(IDLoc, "immediate offset is out of range");
+        if (( ImmSigned && !isInt<7>(MCO.getImm())) ||
+            (!ImmSigned && !isUInt<7>(MCO.getImm()))) {
+          return Error(IDLoc, "immediate offset is out of range");
+        }
       }
     }
 

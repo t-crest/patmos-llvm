@@ -256,6 +256,7 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("dtpoff", VK_DTPOFF)
     .Case("TLVP", VK_TLVP)
     .Case("tlvp", VK_TLVP)
+    .Case("CREL", VK_Patmos_CREL)
     .Case("crel", VK_Patmos_CREL)
     .Default(VK_Invalid);
 }
