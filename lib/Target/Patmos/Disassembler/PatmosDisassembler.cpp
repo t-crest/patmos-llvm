@@ -152,7 +152,8 @@ PatmosDisassembler::getInstruction(MCInst &instr,
       return MCDisassembler::Fail;
     }
 
-    uint64_t Insn64 = ((uint64_t)Insn << 32) | InsnL;
+    // Set bundle-bit for ALUl format, combine instruction opcode and immediate
+    uint64_t Insn64 = (1ULL << 63) | ((uint64_t)Insn << 32) | InsnL;
 
     Result = decodePatmosInstruction64(instr, Insn64, Address, this, STI);
     if (Result == MCDisassembler::Fail)

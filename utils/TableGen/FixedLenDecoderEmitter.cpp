@@ -1508,7 +1508,7 @@ static void emitHelper(llvm::raw_ostream &o, unsigned BitWidth) {
   o.indent(Indentation) << "else\n";
 
   ++Indentation; ++Indentation;
-  o.indent(Indentation) << "fieldMask = (" << WidthStr << ")((1 << numBits) - 1) << startBit;\n";
+  o.indent(Indentation) << "fieldMask = (((" << WidthStr << ")1 << numBits) - 1) << startBit;\n";
   --Indentation; --Indentation;
 
   o << '\n';

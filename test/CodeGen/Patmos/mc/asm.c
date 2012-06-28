@@ -1,6 +1,12 @@
 extern int _test;
 
-void test(int i) {
-    asm("add $r2 = $r1, %0\n\t"
-	"mov $r10 = %1" :  : "r" (i), "{r20}" (_test));
+int test(int i) {
+    int k, l;
+    asm("add $r2 = $r1, %2\n\t"
+	"add $r10 = %2, %3\n\t"
+	"li $r3 = 1234\n\t"
+	"mov %0 = $r31"
+	: "=r" (k)
+	: "r" (l), "0" (i), "{r20}" (_test));
+    return k;
 }
