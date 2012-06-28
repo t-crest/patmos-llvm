@@ -9,7 +9,9 @@
 
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
+#include "MCTargetDesc/PatmosMCAsmInfo.h"
 #include "InstPrinter/PatmosInstPrinter.h"
+#include "PatmosInstrInfo.h"
 #include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
@@ -18,11 +20,16 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCTargetAsmParser.h"
+#include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCInstrDesc.h"
+#include "llvm/MC/MCContext.h"
+#include "MCTargetDesc/PatmosMCAsmInfo.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/ADT/OwningPtr.h"
 
 using namespace llvm;
 
@@ -31,6 +38,7 @@ struct PatmosOperand;
 
 class PatmosAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
+  OwningPtr<MCInstrInfo> MII;
 
   MCAsmParser &getParser() const { return Parser; }
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
@@ -43,7 +51,11 @@ class PatmosAsmParser : public MCTargetAsmParser {
 
 public:
   PatmosAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser)
-    : MCTargetAsmParser(), Parser(parser) {
+    : MCTargetAsmParser(), Parser(parser), MII()
+  {
+    // This is a nasty workaround for LLVM interface limitations
+    const Target &T = static_cast<const PatmosMCAsmInfo*>(&parser.getContext().getAsmInfo())->getTarget();
+    MII.reset(T.createMCInstrInfo());
   }
 
   virtual bool ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
@@ -311,11 +323,67 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo)) {
   default: break;
   case Match_Success:
+  {
     // Add bundle marker
     Inst.addOperand(MCOperand::CreateImm(isBundled));
 
+    // If we have an ALUi immediate instruction and the immediate does not fit 12bit, use ALUl version of instruction
+    const MCInstrDesc &MID = MII->get(Inst.getOpcode());
+    uint64_t Format = MID.TSFlags & PatmosII::FormMask;
+    unsigned ImmOpNo = getPatmosImmediateOpNo( MID.TSFlags );
+    bool ImmSigned = getPatmosImmediateSigned( MID.TSFlags );
+
+    // TODO should we shift the constant? (This must be done in printer too in this case)
+
+    unsigned ALUlOpcode;
+    if (Format == PatmosII::FrmALUi) {
+      const MCOperand &MCO = Inst.getOperand( ImmOpNo );
+
+      if (MCO.isExpr() && !isBundled) {
+        // TODO hack? if we have an expression, use ALUl, but not if this is a bundled op
+        if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
+          Inst.setOpcode(ALUlOpcode);
+        }
+      } else {
+        assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+
+        if (!isUInt<12>(MCO.getImm())) {
+          if (isBundled) {
+            return Error(IDLoc, "immediate operand too large for bundled ALUi instruction");
+          }
+          else if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
+            Inst.setOpcode(ALUlOpcode);
+          }
+          else {
+            return Error(IDLoc, "Immediate operand too large for ALUi format and ALUl is not used for this opcode");
+          }
+        }
+      }
+    }
+
+    if (Format == PatmosII::FrmPFLb || Format == PatmosII::FrmSTC) {
+      const MCOperand &MCO = Inst.getOperand(ImmOpNo);
+      assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+
+      if (( ImmSigned && !isInt<22>(MCO.getImm())) ||
+          (!ImmSigned && !isUInt<22>(MCO.getImm()))) {
+        return Error(IDLoc, "Immediate operand is out of range");
+      }
+    }
+
+    if (Format == PatmosII::FrmSTT || Format == PatmosII::FrmLDT) {
+      const MCOperand &MCO = Inst.getOperand(ImmOpNo);
+      assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+
+      if (( ImmSigned && !isInt<7>(MCO.getImm())) ||
+          (!ImmSigned && !isUInt<7>(MCO.getImm()))) {
+        return Error(IDLoc, "immediate offset is out of range");
+      }
+    }
+
     Out.EmitInstruction(Inst);
     return false;
+  }
   case Match_MissingFeature:
     return Error(IDLoc, "instruction use requires an option to be enabled");
   case Match_MnemonicFail:

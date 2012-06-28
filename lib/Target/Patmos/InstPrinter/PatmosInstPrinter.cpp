@@ -22,6 +22,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
+#include "llvm/Support/Format.h"
 using namespace llvm;
 
 
@@ -80,8 +81,10 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
       else if (Op.getImm() != 0)
         O << ((Op.getImm() < 0) ? " - " : " + ") << std::abs(Op.getImm());
     }
-    else
-      O << Op.getImm();
+    else {
+      // TODO print as hex only for some instructions?
+      O << format("0x%X", Op.getImm());
+    }
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
 

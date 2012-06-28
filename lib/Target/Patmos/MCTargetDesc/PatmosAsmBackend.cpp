@@ -75,10 +75,23 @@ public:
     return createPatmosELFObjectWriter(OS, OSType);
   }
 
+  virtual void processFixupValue(const MCAssembler &Asm,
+                                 const MCAsmLayout &Layout,
+                                 const MCFixup &Fixup, const MCFragment *DF,
+                                 MCValue &Target, uint64_t &Value,
+                                 bool &IsResolved)
+  {
+    // TODO check if we can resolve the fixup, and if so, do so
+
+    // MCFixupKind Kind = Fixup.getKind();
+
+
+  }
+
   /// ApplyFixup - Apply the \arg Value for given \arg Fixup into the provided
   /// data fragment, at the offset specified by the fixup and following the
   /// fixup kind as appropriate.
-  void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
+  virtual void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value) const {
     MCFixupKind Kind = Fixup.getKind();
     Value = adjustFixupValue((unsigned)Kind, Value);
@@ -91,18 +104,7 @@ public:
     // Number of bytes we need to fixup
     unsigned NumBytes = (getFixupKindInfo(Kind).TargetSize + 7) / 8;
     // Used to point to big endian bytes
-    unsigned FullSize;
-
-    // TODO update this for various Patmos specific fixups
-    // Offset + FullSize must point to the LSB of the fixup!
-    switch ((unsigned)Kind) {
-    case Patmos::FK_Patmos_22:
-      FullSize = 2;
-      break;
-    default:
-      FullSize = 4;
-      break;
-    }
+    unsigned FullSize = 4;
 
     // Grab current value, if any, from bits.
     uint64_t CurVal = 0;
@@ -128,12 +130,20 @@ public:
 
     // TODO define Patmos specific fixup infos
     const static MCFixupKindInfo Infos[Patmos::NumTargetFixupKinds] = {
-      // This table *must* be in same the order of fixup_* kinds in
+      // This table *must* be in same the order of FK_* kinds in
       // PatmosFixupKinds.h.
       //
       // name                    offset  bits  flags
-      { "FK_Patmos_22",           0,     16,   0 }
-      /* { "fixup_Patmos_PC16",         0,     16,  MCFixupKindInfo::FKF_IsPCRel }, */
+      { "FK_Patmos_BO_7" ,       25,      7,   0 }, // 0 bit shifted, signed (byte aligned)
+      { "FK_Patmos_SO_7" ,       25,      7,   0 }, // 1 bit shifted, signed (half-word aligned)
+      { "FK_Patmos_WO_7" ,       25,      7,   0 }, // 2 bit shifted, signed (word aligned)
+      { "FK_Patmos_12",          20,     12,   0 }, // ALU immediate, unsigned
+      { "FK_Patmos_22",          10,     22,   0 }, // 2 bit shifted, unsigned, for call
+      { "FK_Patmos_stc_22",      10,     22,   0 }, // 2 bit shifted, unsigned, for stack control
+      { "FK_Patmos_32",          32,     32,   0 }, // ALU immediate, unsigned
+      { "FK_Patmos_crel_12",     20,     12,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, cache relative
+      { "FK_Patmos_crel_22",     10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, cache relative
+      { "FK_Patmos_crel_32",      0,     32,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, cache relative
     };
 
     if (Kind < FirstTargetFixupKind)

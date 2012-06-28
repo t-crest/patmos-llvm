@@ -30,7 +30,7 @@ namespace PatmosII {
 
   enum TOF {
     //===------------------------------------------------------------------===//
-    // Mips Specific MachineOperand flags.
+    // Patmos Specific MachineOperand flags.
 
     MO_NO_FLAG,
 
@@ -66,18 +66,33 @@ namespace PatmosII {
     /// FrmALUp - This format is for instructions of the ALUp format (Pd = Ps1 op Ps2).
     FrmALUp     = 5,
 
-    /// FrmMem - This format is for memory instructions with 7bit offset.
-    FrmMem      = 6,
+    /// FrmLDT - This format is for memory load instructions with 7bit offset.
+    FrmLDT      = 6,
+
+    /// FrmSTT - This format is for memory store instructions with 7bit offset.
+    FrmSTT      = 7,
 
     /// FrmSTC - This form is for instructions of the STC format (stack control, 22bit immediate).
-    FrmSTC      = 7,
+    FrmSTC      = 8,
 
     /// FrmPFLb - This form is for instructions of the PBLb format (flow control, 22bit immediate).
-    FrmPFLb     = 8,
+    FrmPFLb     = 9,
 
     FormMask    = 0x0F
   };
 
+}
+
+inline static unsigned getPatmosImmediateOpNo(uint64_t TSFlags) {
+  return (TSFlags >> 4) & 0x0F;
+}
+
+inline static unsigned getPatmosImmediateShift(uint64_t TSFlags) {
+  return (TSFlags >> 8) & 0x07;
+}
+
+inline static bool getPatmosImmediateSigned(uint64_t TSFlags) {
+  return (TSFlags >> 11) & 0x01;
 }
 
 /// getPatmosRegisterNumbering - Given the enum value for some register,

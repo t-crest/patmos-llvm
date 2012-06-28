@@ -96,6 +96,25 @@ bool HasDefaultPred(const MachineInstr *MI) {
       && (MI->getOperand(1).getImm() == 0);
 }
 
+
+static inline
+bool HasALUlVariant(unsigned Opcode, unsigned &ALUlOpcode) {
+  using namespace Patmos;
+
+  switch (Opcode) {
+  case ADDi:  ALUlOpcode = ADDl;  return true;
+  case SUBi:  ALUlOpcode = SUBl;  return true;
+  case RSUBi: ALUlOpcode = RSUBl; return true;
+  // No need for ALUl versions of SL, SR, SRA: they only use 5bit immediates anyway
+  case ORi:   ALUlOpcode = ORl;   return true;
+  case ANDi:  ALUlOpcode = ANDl;  return true;
+  case LIi:   ALUlOpcode = LIl;   return true;
+  case CLIi:  ALUlOpcode = CLIl;  return true;
+  default: return false;
+  }
+}
+
+
 } // end namespace llvm
 
 #endif // _LLVM_TARGET_PATMOS_INSTRINFO_H_

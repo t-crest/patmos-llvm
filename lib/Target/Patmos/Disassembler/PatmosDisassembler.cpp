@@ -159,6 +159,8 @@ PatmosDisassembler::getInstruction(MCInst &instr,
     if (Result == MCDisassembler::Fail)
       return MCDisassembler::Fail;
 
+    // If we have a 64bit instruction, do not mark instruction as bundled
+    isBundled = false;
   }
 
   // handle bundled instructions by adding a special operand

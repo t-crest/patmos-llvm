@@ -20,9 +20,10 @@ def FALUi   : Format<2>;  // ALU with 12bit immediate
 def FALUl   : Format<3>;  // 64bit long immediate instructions
 def FALUc   : Format<4>;  // Compare of registers
 def FALUp   : Format<5>;  // Combine predicates
-def FMem    : Format<6>;  // Memory ops with 7bit offset
-def FSTC    : Format<7>;  // Stack control with 22bit immediate
-def FPFLb   : Format<8>;  // Program flow control with 22bit immediate
+def FLDT    : Format<6>;  // Memory ops with 7bit offset
+def FSTT    : Format<7>;  // Memory ops with 7bit offset
+def FSTC    : Format<8>;  // Stack control with 22bit immediate
+def FPFLb   : Format<9>;  // Program flow control with 22bit immediate
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -50,9 +51,18 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
   let Itinerary   = itin;
 
   Format  Form = form;
+  // Number of immediate operand, if any
+  field bits<4> ImmOpNo = 0;
+  // Number of bits the immediate value is shifted left
+  field bits<3> ImmShift = 0;
+  // True if immediate is interpreted as signed
+  bit           ImmSigned = 0;
 
   // The layout must match the definitions in PatmosBaseInfo.h
-  let TSFlags{3-0} = Form.Value;
+  let TSFlags{11}   = ImmSigned;
+  let TSFlags{10-8} = ImmShift;
+  let TSFlags{7-4}  = ImmOpNo;
+  let TSFlags{3-0}  = Form.Value;
 
   let DecoderNamespace = "Patmos";
 }
@@ -112,6 +122,9 @@ class ALUi<bits<4> func,
   bits<5> rs1;
   bits<12> imm;
 
+  let ImmOpNo  = 4;
+  let ImmShift = 0;
+
   let Inst{26-25} = 0b00;
   let Inst{24-22} = func{2-0};
   let Inst{21-17} = rd;
@@ -135,6 +148,9 @@ class ALUl<bits<4> func,
   bits<32> imm;
 
   let Size = 8;
+
+  let ImmOpNo  = 4;
+  let ImmShift = 0;
 
   let Inst{63} = 1;
   let Inst{62-59} = p;
@@ -339,7 +355,7 @@ class SPCf<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 //
 class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FMem, IIC_MEM> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FLDT, IIC_MEM> {
 
   let mayLoad = 1;
 
@@ -352,6 +368,8 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
   let Type{0} = ts0;
   let Type{1} = ts1;
   let Type{4-2} = ty;
+
+  let ImmOpNo = 4;
 
   let Inst{26-22} = 0b01010;
   let Inst{21-17} = rd;
@@ -367,7 +385,7 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
 //
 class STT<bits<3> ty, bits<2> td,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FMem, IIC_MEM> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FSTT, IIC_MEM> {
 
 
   let mayStore = 1;
@@ -380,6 +398,8 @@ class STT<bits<3> ty, bits<2> td,
   bits<5> Type;
   let Type{1-0} = td;
   let Type{4-2} = ty;
+
+  let ImmOpNo = 3;
 
   let Inst{26-22} = 0b01011;
   let Inst{21-17} = Type;
@@ -401,6 +421,9 @@ class STC<bits<2> op,
 
   // unbound fields
   bits<22> imm;
+
+  let ImmOpNo  = 2;
+  let ImmShift = 2; 
 
   let Inst{26-24} = 0b011;
   let Inst{23-22} = op;
@@ -430,6 +453,9 @@ class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag>
   let PFLOp = pflop;
 
   bits<22> target;
+
+  let ImmOpNo  = 2;
+  let ImmShift = 2; 
 
   let Inst{24} = 0;
   let Inst{21-0} = target;

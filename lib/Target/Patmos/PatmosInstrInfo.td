@@ -281,10 +281,24 @@ let isTerminator=1, hasDelaySlot=1 in {
   def BC : PFLb<0b01  , (outs), (ins predset:$p, creltarget:$target),
                 "bc", "$target", [(brcond predsel:$p, bb:$target)]>;
 
-  // cache-relative indirect branch
+   // unconditional, cache fill
+  let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
+  def Bu : PFLb<0b10  , (outs), (ins pred:$p, creltarget:$target),
+                  "b", "$target", [(br bb:$target)]>;
+
+  // conditional, cache fill
+  let isBranch=1, isBarrier=0, ImmSigned = 1 in
+  def B : PFLb<0b10  , (outs), (ins predset:$p, creltarget:$target),
+                "b", "$target", [(brcond predsel:$p, bb:$target)]>;
+
+  // cache-relative indirect branches
   let isIndirectBranch=1, isBarrier=1 in
   def BCR : PFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
                   "bcr", "$rs", [(brind RRegs:$rs)]>;
+
+  let isIndirectBranch=1, isBarrier=1 in
+  def BR : PFLi <0b0010, (outs), (ins pred:$p, RRegs:$rs),
+                  "br", "$rs", [(brind RRegs:$rs)]>;
 }
 
 
@@ -300,11 +314,11 @@ let isCall=1, hasDelaySlot=1,
           R17, R18, R19, R20,
           SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
-  def bs : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
+  def BS : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
                     "bs", "$target",
                     [(PatmosCall uimm22:$target)]>;
 
-  def bsr: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
+  def BSR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
                     "bsr", "$rs",
                     [(PatmosCall RRegs:$rs)]>;
 }
@@ -372,6 +386,9 @@ multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommut
 
 
 // Binary Arithmetic instructions
+
+// NOTE: the list of instructions (including pseudos) that have ALUi and ALUl format must be 
+// kept consistent with HasALUlVariant() in PatmosInstrInfo.h
 
 // with short immediates:
 defm ADD    : BinArithILR   <0b0000, "add"   , add, 1>;
@@ -445,9 +462,12 @@ def ZEXT8 : ALUi <0b0111,
 
 
 let rs1 = 0,
+    ImmOpNo = 3,
     isAsCheapAsAMove = 1,
     isMoveImm = 1
 in {
+  // NOTE: this must be kept consistent with HasALUlVariant in PatmosInstrInfo.h
+
   let isReMaterializable = 1 in {
     // li Rd = Immedate ... add Rd = r0 + Immediate (short, positive)
     def LIi  : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, uimm12:$imm),
@@ -632,7 +652,7 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
 
 multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
 {
-  let Defs = [SM], rd = 0 in
+  let Defs = [SM], rd = 0, ImmOpNo = 3 in
   {
     // load from data cache (no pattern to match)
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
@@ -648,18 +668,17 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
   }
 }
 
+let ImmShift = 2, ImmSigned = 1 in defm LW  : LoadTyped<0b000, imm7s2, "lw" >;
+let ImmShift = 1, ImmSigned = 1 in defm LH  : LoadTyped<0b001, imm7s1, "lh" >;
+let ImmShift = 0, ImmSigned = 0 in defm LB  : LoadTyped<0b010, imm7  , "lb" >;
+let ImmShift = 1, ImmSigned = 1 in defm LHU : LoadTyped<0b011, imm7s1, "lhu">;
+let ImmShift = 0, ImmSigned = 0 in defm LBU : LoadTyped<0b100, imm7  , "lbu">;
 
-defm LW  : LoadTyped<0b000, imm7s2, "lw" >;
-defm LH  : LoadTyped<0b001, imm7s1, "lh" >;
-defm LB  : LoadTyped<0b010, imm7  , "lb" >;
-defm LHU : LoadTyped<0b011, imm7s1, "lhu">;
-defm LBU : LoadTyped<0b100, imm7  , "lbu">;
-
-defm DLW  : DecoupledLoadTyped<0b1010, imm7s2, "lw" >;
-defm DLH  : DecoupledLoadTyped<0b1011, imm7s1, "lh" >;
-defm DLB  : DecoupledLoadTyped<0b1100, imm7  , "lb" >;
-defm DLHU : DecoupledLoadTyped<0b1101, imm7s1, "lhu">;
-defm DLBU : DecoupledLoadTyped<0b1110, imm7  , "lbu">;
+let ImmShift = 2, ImmSigned = 1 in defm DLW  : DecoupledLoadTyped<0b1010, imm7s2, "lw" >;
+let ImmShift = 1, ImmSigned = 1 in defm DLH  : DecoupledLoadTyped<0b1011, imm7s1, "lh" >;
+let ImmShift = 0, ImmSigned = 0 in defm DLB  : DecoupledLoadTyped<0b1100, imm7  , "lb" >;
+let ImmShift = 1, ImmSigned = 1 in defm DLHU : DecoupledLoadTyped<0b1101, imm7s1, "lhu">;
+let ImmShift = 0, ImmSigned = 0 in defm DLBU : DecoupledLoadTyped<0b1110, imm7  , "lbu">;
 
 
 
@@ -693,9 +712,9 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
 }
 
 
-defm SW  : StoreTyped<0b000, imm7s2, "sw">;
-defm SH  : StoreTyped<0b001, imm7s1, "sh">;
-defm SB  : StoreTyped<0b010, imm7  , "sb">;
+let ImmShift = 2, ImmSigned = 1 in defm SW  : StoreTyped<0b000, imm7s2, "sw">;
+let ImmShift = 1, ImmSigned = 1 in defm SH  : StoreTyped<0b001, imm7s1, "sh">;
+let ImmShift = 0, ImmSigned = 0 in defm SB  : StoreTyped<0b010, imm7  , "sb">;
 
 
 //===----------------------------------------------------------------------===//

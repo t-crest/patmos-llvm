@@ -15,7 +15,6 @@
 #ifndef _LLVM_TARGET_PATMOS_TARGETMACHINE_H_
 #define _LLVM_TARGET_PATMOS_TARGETMACHINE_H_
 
-#include "PatmosELFWriterInfo.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosISelLowering.h"
 #include "PatmosFrameLowering.h"
@@ -37,7 +36,6 @@ class PatmosTargetMachine : public LLVMTargetMachine {
   PatmosTargetLowering   TLInfo;
   PatmosSelectionDAGInfo TSInfo;
   PatmosFrameLowering    FrameLowering;
-  PatmosELFWriterInfo    ELFWriterInfo;
   InstrItineraryData     InstrItins;
 
 public:
@@ -68,8 +66,6 @@ public:
   }
 
   virtual const InstrItineraryData *getInstrItineraryData() const {  return &InstrItins; }
-
-  virtual const PatmosELFWriterInfo *getELFWriterInfo() const { return &ELFWriterInfo; }
 
   /// createPassConfig - Create a pass configuration object to be used by
   /// addPassToEmitX methods for generating a pipeline of CodeGen passes.

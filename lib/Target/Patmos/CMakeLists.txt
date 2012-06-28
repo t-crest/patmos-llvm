@@ -26,7 +26,6 @@ add_llvm_target(PatmosCodeGen
   PatmosSelectionDAGInfo.cpp
   PatmosAsmPrinter.cpp
   PatmosMCInstLower.cpp
-  PatmosELFWriterInfo.cpp
   PatmosDelaySlotFiller.cpp
   )
 

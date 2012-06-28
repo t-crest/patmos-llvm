@@ -20,6 +20,7 @@
 #include <list>
 
 using namespace llvm;
+using namespace Patmos;
 
 namespace {
 
@@ -59,18 +60,25 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
   unsigned Kind = (unsigned)Fixup.getKind();
 
   switch (Kind) {
-  case FK_Data_1:
+  case FK_Patmos_BO_7:
+  case FK_Patmos_HO_7:
+  case FK_Patmos_WO_7:
+    // TODO different relocation types for different shifts
     return ELF::R_PATMOS_MEM_ABS;
-// TODO: implement real mapping here
-//     ELF::R_PATMOS_ALUI_ABS
-//     ELF::R_PATMOS_ALUI_FREL
-  case FK_Data_2:
+  case FK_Patmos_12:
+    return ELF::R_PATMOS_ALUI_ABS;
+  case FK_Patmos_22:
+  // TODO do not emit STC format relocations?
+  case FK_Patmos_stc_22:
+    return ELF::R_PATMOS_PFLB_ABS;
+  case FK_Patmos_32:
+    return ELF::R_PATMOS_PFLB_ABS;
+  case FK_Patmos_crel_12:
+    return ELF::R_PATMOS_ALUI_FREL;
+  case FK_Patmos_crel_22:
     return ELF::R_PATMOS_PFLB_FREL;
-//     ELF::R_PATMOS_PFLB_ABS
-  case FK_Data_4:
-    return ELF::R_PATMOS_ALUL_ABS;
-//     ELF::R_PATMOS_ALUL_FREL
-    break;
+  case FK_Patmos_crel_32:
+    return ELF::R_PATMOS_ALUL_FREL;
   default:
     llvm_unreachable("invalid fixup kind!");
   }

@@ -82,8 +82,7 @@ public:
   unsigned getImmediateEncoding(const MCInst &MI, const MCOperand &MO,
                            SmallVectorImpl<MCFixup> &Fixups) const;
 
-  void
-  addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
+  void addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
                                           const MCSymbolRefExpr* Expr,
                                           SmallVectorImpl<MCFixup> &Fixups) const;
 
@@ -176,12 +175,27 @@ PatmosMCCodeEmitter::getImmediateEncoding(const MCInst &MI, const MCOperand& MO,
   MCExpr::ExprKind Kind = Expr->getKind();
 
   if (Kind == MCExpr::Binary) {
-    Expr = static_cast<const MCBinaryExpr*>(Expr)->getLHS();
+    const MCBinaryExpr* BinOp = static_cast<const MCBinaryExpr*>(Expr);
+    Expr = BinOp->getLHS();
     Kind = Expr->getKind();
+    if (Kind != MCExpr::SymbolRef || BinOp->getRHS()->getKind() != MCExpr::Constant) {
+      llvm_unreachable("Unsupported expression format. What kind of trickery is this?");
+    }
+
+    // TODO handle LHS? or is this handled by the relocation emitter?
   }
 
-  assert (Kind == MCExpr::SymbolRef);
+  if (Kind == MCExpr::Constant) {
+    // TODO do we need this?? Emit as immediate
+    llvm_unreachable("Constant symbols not yet implemented.");
+  }
 
+  if (Kind != MCExpr::SymbolRef) {
+    // TODO do we need to support Unary, Target or even more
+    llvm_unreachable("Unsupported expression type.");
+  }
+
+  // This adds the whole expression as fixup, not just the symbol part
   addSymbolRefFixups(MI, MO, cast<MCSymbolRefExpr>(Expr), Fixups);
 
   // All of the information is in the fixup.
@@ -193,19 +207,48 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
                                         const MCSymbolRefExpr* Expr,
                                         SmallVectorImpl<MCFixup> &Fixups) const
 {
-
-  // TODO handle fixups properly
-
-  Patmos::Fixups FixupKind = Patmos::Fixups(FK_Data_2);
-  unsigned Offset = 2;
-
-  // TODO handle Expr->getKind() ?
+  using namespace Patmos;
 
   const MCInstrDesc &MID = MCII.get(MI.getOpcode());
 
-  if ((MID.TSFlags & PatmosII::FormMask) == PatmosII::FrmALUl) {
-    FixupKind = Patmos::Fixups(FK_Data_4);
-    Offset = 4;
+  MCSymbolRefExpr::VariantKind Kind = Expr->getKind();
+  bool isCREL = Kind == MCSymbolRefExpr::VK_Patmos_CREL;
+  uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
+
+  Patmos::Fixups FixupKind;
+  unsigned Offset = 0;
+
+  switch (Format) {
+  case PatmosII::FrmLDT:
+  case PatmosII::FrmSTT:
+  {
+    unsigned ImmShift = getPatmosImmediateShift( MID.TSFlags );
+
+    switch (ImmShift) {
+    case 0: FixupKind = FK_Patmos_BO_7; break;
+    case 1: FixupKind = FK_Patmos_HO_7; break;
+    case 2: FixupKind = FK_Patmos_WO_7; break;
+    default:
+      llvm_unreachable("Invalid shift value");
+    }
+
+    break;
+  }
+  case PatmosII::FrmALUi:
+    FixupKind = isCREL ? FK_Patmos_crel_12 : FK_Patmos_12;
+    break;
+  case PatmosII::FrmPFLb:
+    FixupKind = isCREL ? FK_Patmos_crel_22 : FK_Patmos_22;
+    break;
+  case PatmosII::FrmSTC:
+    FixupKind = FK_Patmos_stc_22;
+    break;
+  case PatmosII::FrmALUl:
+    FixupKind = isCREL ? FK_Patmos_crel_32 : FK_Patmos_32;
+    break;
+  default:
+    // TODO proper way to throw an error?
+    llvm_unreachable("Creating symbol fixup for unknown or incorrect instruction format");
   }
 
   Fixups.push_back(MCFixup::Create(Offset, MO.getExpr(), MCFixupKind(FixupKind)));

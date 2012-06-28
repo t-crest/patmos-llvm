@@ -55,8 +55,8 @@ def : Pat<(fipat:$fi) , (ADDi fipat:$fi, 0)>;
 def : Pat<(add fipat:$fi, imm7:$imm) , (ADDi fipat:$fi, imm7:$imm)>;
 def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
 
-def : Pat<(PatmosCall tglobaladdr:$sym), (bs tglobaladdr:$sym)>;
-def : Pat<(PatmosCall texternalsym:$sym), (bs texternalsym:$sym)>;
+def : Pat<(PatmosCall tglobaladdr:$sym), (BS tglobaladdr:$sym)>;
+def : Pat<(PatmosCall texternalsym:$sym), (BS texternalsym:$sym)>;
 
 // NOTE: following works when not expanding MUL to S/UMUL_LOHI
 // multiplication (requiring only low part)

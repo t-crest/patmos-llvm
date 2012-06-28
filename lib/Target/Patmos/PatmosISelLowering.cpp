@@ -551,6 +551,21 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
   return Chain;
 }
 
+PatmosTargetLowering::ConstraintType PatmosTargetLowering::
+getConstraintType(const std::string &Constraint) const
+{
+  // Patmos specific constrainy
+  if (Constraint.size() == 1) {
+    switch (Constraint[0]) {
+      default : break;
+      case 'R':
+      case 'S':
+      case 'P':
+        return C_RegisterClass;
+    }
+  }
+  return TargetLowering::getConstraintType(Constraint);
+}
 
 std::pair<unsigned, const TargetRegisterClass*> PatmosTargetLowering::
 getRegForInlineAsmConstraint(const std::string &Constraint,

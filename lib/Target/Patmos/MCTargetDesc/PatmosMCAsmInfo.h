@@ -20,8 +20,15 @@
 namespace llvm {
   class Target;
 
-  struct PatmosMCAsmInfo : public MCAsmInfo {
-    explicit PatmosMCAsmInfo(const Target &T, StringRef TT);
+  class PatmosMCAsmInfo : public MCAsmInfo {
+    private:
+      const Target &T;
+
+    public:
+      explicit PatmosMCAsmInfo(const Target &T, StringRef TT);
+
+      // This is a nasty workaround to get Target info where we otherwise not have it
+      const Target &getTarget() const { return T; }
   };
 
 } // namespace llvm

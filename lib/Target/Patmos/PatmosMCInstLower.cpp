@@ -34,7 +34,7 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
   MCSymbolRefExpr::VariantKind Kind;
   const MCSymbol *Symbol;
 
-  // TODO support CREL only for MBBs?
+  // TODO support FREL only for MBBs?
 
   switch (MO.getTargetFlags()) {
   case PatmosII::MO_NO_FLAG:    Kind = MCSymbolRefExpr::VK_None; break;
@@ -104,6 +104,7 @@ MCOperand PatmosMCInstLower::LowerOperand(const MachineOperand &MO, unsigned Off
     return LowerSymbolOperand(MO, Offset);
   case MachineOperand::MO_Metadata:
     // TODO handle Metadata somehow??
+    break;
   case MachineOperand::MO_RegisterMask:
     break;
   }

@@ -18,18 +18,43 @@ namespace Patmos {
   // one can have multiple fixup types for a given relocation and thus need
   // to be uniquely named.
   //
-  // This table *must* be in the save order of
+  // This table *must* be in the same order of
   // MCFixupKindInfo Infos[Patmos::NumTargetFixupKinds]
   // in PatmosAsmBackend.cpp.
   //
   enum Fixups {
-    // ALU immediate data fixup resulting in R_PATMOS_12.
-    FK_Patmos_12 = FirstTargetFixupKind,
+    /// Memory offset, 7 bit signed immediate byte offset, resulting in R_PATMOS_MEM_ABS
+    FK_Patmos_BO_7 = FirstTargetFixupKind,
 
-    // Call direct fixup, 2bit immediate, resulting in R_PATMOS_22
+    /// Memory offset, 7 bit signed immediate half-word offset, resulting in R_PATMOS_MEM_ABS
+    FK_Patmos_HO_7,
+
+    /// Memory offset, 7 bit signed immediate word offset, resulting in R_PATMOS_MEM_ABS
+    FK_Patmos_WO_7,
+
+    /// ALU 12 bit immediate data/absolute byte address fixup, unsigned, resulting in R_PATMOS_ALUI_ABS.
+    FK_Patmos_12,
+
+    /// Call direct fixup, 22bit immediate unsigned absolute word address, resulting in R_PATMOS_PFLB_ABS
     FK_Patmos_22,
 
-    // TODO do we need fixups for 7bit memory offset, or 12/22/32bit cache relative branches
+    /// Stack control fixup, 22bit immediate unsigned absolute word size, emitted as immediate
+    FK_Patmos_stc_22,
+
+    /// 32bit ALU immediate data/absolute byte address, resulting in R_PATMOS_ALUL_ABS
+    /// (same as FK_Data_4, but with 4 byte offset)
+    FK_Patmos_32,
+
+    /// Cache relative byte addresses, 12 bit, resulting in R_PATMOS_ALUI_FREL
+    FK_Patmos_crel_12,
+
+    /// Cache relative word addresses, 22 bit, resulting in R_PATMOS_PFLB_FREL
+    FK_Patmos_crel_22,
+
+    /// Cache relative byte addresses, 32 bit, resulting in R_PATMOS_ALUL_FREL
+    FK_Patmos_crel_32,
+
+    /// Note: we do not have cache-relative 7bit fixups, memory offsets are never cache-relative
 
     // Marker
     LastTargetFixupKind,

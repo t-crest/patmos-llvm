@@ -14,7 +14,9 @@
 #include "PatmosMCAsmInfo.h"
 using namespace llvm;
 
-PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT) {
+PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
+ : T(T)
+{
   PointerSize = 4;
   IsLittleEndian = false;
   StackGrowsUp = false;

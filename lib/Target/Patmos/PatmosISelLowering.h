@@ -111,6 +111,9 @@ namespace llvm {
                                             SelectionDAG &DAG) const;
     */
 
+    // Inline asm support
+    ConstraintType getConstraintType(const std::string &Constraint) const;
+
     virtual std::pair<unsigned, const TargetRegisterClass*>
       getRegForInlineAsmConstraint(const std::string &Constraint,
                                    EVT VT) const;
