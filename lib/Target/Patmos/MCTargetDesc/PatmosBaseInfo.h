@@ -34,8 +34,8 @@ namespace PatmosII {
 
     MO_NO_FLAG,
 
-    /// MO_CREL - Represents a cache relative address
-    MO_CREL
+    /// MO_FREL - Represents a cache relative address
+    MO_FREL
   };
 
   enum {

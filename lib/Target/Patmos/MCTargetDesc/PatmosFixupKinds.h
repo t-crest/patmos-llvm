@@ -45,14 +45,14 @@ namespace Patmos {
     /// (same as FK_Data_4, but with 4 byte offset)
     FK_Patmos_32,
 
-    /// Cache relative byte addresses, 12 bit, resulting in R_PATMOS_ALUI_FREL
-    FK_Patmos_crel_12,
+    /// Function relative byte addresses, 12 bit, resulting in R_PATMOS_ALUI_FREL
+    FK_Patmos_frel_12,
 
-    /// Cache relative word addresses, 22 bit, resulting in R_PATMOS_PFLB_FREL
-    FK_Patmos_crel_22,
+    /// Function relative word addresses, 22 bit, resulting in R_PATMOS_PFLB_FREL
+    FK_Patmos_frel_22,
 
-    /// Cache relative byte addresses, 32 bit, resulting in R_PATMOS_ALUL_FREL
-    FK_Patmos_crel_32,
+    /// Function relative byte addresses, 32 bit, resulting in R_PATMOS_ALUL_FREL
+    FK_Patmos_frel_32,
 
     /// Note: we do not have cache-relative 7bit fixups, memory offsets are never cache-relative
 

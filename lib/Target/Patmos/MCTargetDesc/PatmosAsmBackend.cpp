@@ -141,9 +141,9 @@ public:
       { "FK_Patmos_22",          10,     22,   0 }, // 2 bit shifted, unsigned, for call
       { "FK_Patmos_stc_22",      10,     22,   0 }, // 2 bit shifted, unsigned, for stack control
       { "FK_Patmos_32",          32,     32,   0 }, // ALU immediate, unsigned
-      { "FK_Patmos_crel_12",     20,     12,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, cache relative
-      { "FK_Patmos_crel_22",     10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, cache relative
-      { "FK_Patmos_crel_32",      0,     32,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, cache relative
+      { "FK_Patmos_frel_12",     20,     12,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, function relative
+      { "FK_Patmos_frel_22",     10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, function relative
+      { "FK_Patmos_frel_32",      0,     32,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, function relative
     };
 
     if (Kind < FirstTargetFixupKind)

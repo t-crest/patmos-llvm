@@ -73,11 +73,11 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
     return ELF::R_PATMOS_PFLB_ABS;
   case FK_Patmos_32:
     return ELF::R_PATMOS_PFLB_ABS;
-  case FK_Patmos_crel_12:
+  case FK_Patmos_frel_12:
     return ELF::R_PATMOS_ALUI_FREL;
-  case FK_Patmos_crel_22:
+  case FK_Patmos_frel_22:
     return ELF::R_PATMOS_PFLB_FREL;
-  case FK_Patmos_crel_32:
+  case FK_Patmos_frel_32:
     return ELF::R_PATMOS_ALUL_FREL;
   default:
     llvm_unreachable("invalid fixup kind!");

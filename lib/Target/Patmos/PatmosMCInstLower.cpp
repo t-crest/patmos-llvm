@@ -38,7 +38,7 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
 
   switch (MO.getTargetFlags()) {
   case PatmosII::MO_NO_FLAG:    Kind = MCSymbolRefExpr::VK_None; break;
-  case PatmosII::MO_CREL:       Kind = MCSymbolRefExpr::VK_Patmos_CREL; break;
+  case PatmosII::MO_FREL:       Kind = MCSymbolRefExpr::VK_Patmos_FREL; break;
   default: llvm_unreachable("Unknown target flag on GV operand");
   }
 
@@ -47,7 +47,7 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
     Symbol = MO.getMBB()->getSymbol();
     // symbols to BBs are always cache relative (?)
     // TODO set this earlier so we do not need it here, then remove it.
-    Kind = MCSymbolRefExpr::VK_Patmos_CREL;
+    Kind = MCSymbolRefExpr::VK_Patmos_FREL;
     break;
   case MachineOperand::MO_GlobalAddress:
     Symbol = Printer.Mang->getSymbol(MO.getGlobal());
