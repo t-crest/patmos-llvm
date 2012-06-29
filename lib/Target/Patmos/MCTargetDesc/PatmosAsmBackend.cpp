@@ -25,39 +25,22 @@
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
+using namespace Patmos;
 
 // Prepare value for the target space for it
 static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
 
   // Add/subtract and shift
   switch (Kind) {
-  default:
-    return 0;
-  case FK_GPRel_4:
-  case FK_Data_4:
+  // TODO check: do we need to shift the load/store offsets here or is this done earlier in the compiler?
+  case FK_Patmos_HO_7:
+    Value >>= 1;
     break;
-/* TODO handle patmos specific fixups, handle ELF generic fixups if used.
-  case Patmos::fixup_Patmos_PC16:
-    // So far we are only using this type for branches.
-    // For branches we start 1 instruction after the branch
-    // so the displacement will be one instruction size less.
-    Value -= 4;
-    // The displacement is then divided by 4 to give us an 18 bit
-    // address range.
+  case FK_Patmos_WO_7:
+  case FK_Patmos_22:
+  case FK_Patmos_frel_22:
     Value >>= 2;
     break;
-  case Patmos::fixup_Patmos_26:
-    // So far we are only using this type for jumps.
-    // The displacement is then divided by 4 to give us an 28 bit
-    // address range.
-    Value >>= 2;
-    break;
-  case Patmos::fixup_Patmos_HI16:
-  case Patmos::fixup_Patmos_GOT_Local:
-    // Get the higher 16-bits. Also add 1 if bit 15 is 1.
-    Value = ((Value + 0x8000) >> 16) & 0xffff;
-    break;
-*/
   }
 
   return Value;
@@ -86,6 +69,7 @@ public:
     // MCFixupKind Kind = Fixup.getKind();
 
 
+
   }
 
   /// ApplyFixup - Apply the \arg Value for given \arg Fixup into the provided
@@ -94,17 +78,20 @@ public:
   virtual void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value) const {
     MCFixupKind Kind = Fixup.getKind();
-    Value = adjustFixupValue((unsigned)Kind, Value);
+    Value = adjustFixupValue(Kind, Value);
 
     if (!Value)
       return; // Doesn't change encoding.
 
+    unsigned TargetSize = getFixupKindInfo(Kind).TargetSize;
+    unsigned TargetOffset = getFixupKindInfo(Kind).TargetOffset;
+
     // Where do we start in the object
     unsigned Offset = Fixup.getOffset();
     // Number of bytes we need to fixup
-    unsigned NumBytes = (getFixupKindInfo(Kind).TargetSize + 7) / 8;
+    unsigned NumBytes = (TargetSize + 7) / 8;
     // Used to point to big endian bytes
-    unsigned FullSize = 4;
+    unsigned FullSize = (TargetOffset + TargetSize + 7) / 8;
 
     // Grab current value, if any, from bits.
     uint64_t CurVal = 0;
@@ -114,8 +101,10 @@ public:
       CurVal |= (uint64_t)((uint8_t)Data[Offset + Idx]) << (i*8);
     }
 
-    uint64_t Mask = ((uint64_t)(-1) >> (64 - getFixupKindInfo(Kind).TargetSize));
-    CurVal |= Value & Mask;
+    uint64_t Mask = ((uint64_t)(-1) >> (64 - TargetSize));
+    unsigned Shift = FullSize * 8 - (TargetOffset + TargetSize);
+
+    CurVal |= (Value & Mask) << Shift;
 
     // Write out the fixed up bytes back to the code/data bits.
     for (unsigned i = 0; i != NumBytes; ++i) {
@@ -128,7 +117,6 @@ public:
 
   const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const {
 
-    // TODO define Patmos specific fixup infos
     const static MCFixupKindInfo Infos[Patmos::NumTargetFixupKinds] = {
       // This table *must* be in same the order of FK_* kinds in
       // PatmosFixupKinds.h.
