@@ -25,6 +25,8 @@ import gdb
 import itertools
 import re
 
+MAX_ARRAY_SIZE = 1000
+
 # Try to use the new-style pretty-printing if available.
 _use_gdb_pp = True
 try:
@@ -51,6 +53,11 @@ def find_type(orig, name):
             raise ValueError, "Cannot find type %s::%s" % (str(orig), name)
         typ = field.type
 
+# cast the value to its dynamic type, if possible
+def dyn_cast(value):
+    # TODO error handling?
+    return value.cast(value.dynamic_type)
+
 def gdb_eval(command, default):
     try:
 	return gdb.parse_and_eval(command)
@@ -75,15 +82,15 @@ class SmallVectorPrinter:
             return self
 
         def next(self):
-            if self.p == self.end:
+	    global MAX_ARRAY_SIZE
+
+            if self.p == self.end or self.count > MAX_ARRAY_SIZE:
                 raise StopIteration
 	    
-	    elt = self.p.cast(self.elttype.pointer())
-
-            result = ('[%d]' % self.count, elt)
+            result = ('[%d]' % self.count, dyn_cast(self.p.dereference()))
 
             self.count = self.count + 1
-            self.p = elt + 1
+            self.p = self.p + 1
 
             return result
 
@@ -94,7 +101,7 @@ class SmallVectorPrinter:
         self.eltsize = self.elttype.sizeof
 
     def children(self):
-        start = self.val['BeginX']
+        start = self.val['BeginX'].cast(self.elttype.pointer())
         end = self.val['EndX']
         return self._iter(start, end, self.elttype, self.eltsize)
 
@@ -116,40 +123,48 @@ class BucketIterator:
 
     def __init__(self, start, size, numbuckets, empty, tombstone, eltype):
 	self.eltype = eltype
-	self.p = start.cast(eltype)
-	self.size = size
-	self.end = self.p + numbuckets
+	try:
+	    self.p = start.cast(eltype)
+	    self.end = self.p + numbuckets
+	    self.size = size
+	    
+	    self.advancePastEmpty()
+	except:
+	    self.size = 0
 	self.tombstone = tombstone
 	self.empty = empty
 	self.count = 0
-
-	self.advancePastEmpty()
 
     def __iter__(self):
 	return self
 
     def next(self):
-	if self.count >= self.size:
+	global MAX_ARRAY_SIZE
+
+	if self.count >= self.size or self.count > MAX_ARRAY_SIZE:
 	    raise StopIteration
 	
-	el = self.p.cast(self.eltype)
-
-	result = ('[%d]' % self.count, el)
+	result = ('[%d]' % self.count, dyn_cast(self.p))
 
 	self.count = self.count + 1
-	self.p = el + 1
+	self.p = self.p + 1
 
 	self.advancePastEmpty()
 
 	return result
 
     def advancePastEmpty(self):
+	global MAX_ARRAY_SIZE
+
+	cnt = 0;
 	while self.p != self.end:
 	    key = self.getKey()
 	    if key != self.empty and key != self.tombstone:
 		break
-	    b = self.p.cast(self.eltype)
-	    self.p = b + 1
+	    self.p = self.p + 1
+	    cnt = cnt + 1
+	    if cnt > MAX_ARRAY_SIZE:
+		raise StopIteration
 
     def getKey(self):
 	return self.p
@@ -217,7 +232,7 @@ class DenseMapPrinter:
         return '%s of length %d, buckets %d' % (self.typename, long (size), long(buckets))
 
     def display_hint (self):
-        return 'map'
+        return 'array'
 
 
 class StringRefPrinter:
@@ -271,6 +286,21 @@ class InitPrinter:
 	return 'string'
 
 
+
+class StdMapIteratorPrinter:
+
+    def __init__(self, typename, val):
+	self.val = val
+	self.typename = typename
+
+    def to_string(self):
+	
+	return self.typename + ": " + str(self.val['first']) + ", " + str(self.val['second'])
+
+    def display_hint(self):
+	return 'array'
+
+
 ############################################################################
 
 # A "regular expression" printer which conforms to the
@@ -296,7 +326,7 @@ class Printer(object):
         self.subprinters = []
         self.lookup = {}
         self.enabled = True
-        self.compiled_rx = re.compile('^([a-zA-Z0-9_:]+)<.*>( \*)?$')
+        self.compiled_rx = re.compile('^([a-zA-Z0-9_:]+)<.*>([a-zA-Z0-9_:]*)( \*)?$')
 
     def add(self, name, function, pointer = False):
 	name = "llvm::" + name
@@ -337,7 +367,7 @@ class Printer(object):
         if not match:
             return None
 
-        basename = match.group(1)
+        basename = match.group(1)+match.group(2)
         if basename in self.lookup:
             return self.lookup[basename].invoke(val)
 
@@ -346,22 +376,27 @@ class Printer(object):
 
 
 llvm_printer = None
+std_printer = None
 
 def register_llvm_printers (obj):
     "Register LLVM pretty-printers with objfile Obj."
 
     global _use_gdb_pp
     global llvm_printer
+    global std_printer
 
     if _use_gdb_pp:
         gdb.printing.register_pretty_printer(obj, llvm_printer)
+        gdb.printing.register_pretty_printer(obj, std_printer)
     else:
         if obj is None:
             obj = gdb
         obj.pretty_printers.append(llvm_printer)
+        obj.pretty_printers.append(std_printer)
 
 def build_llvm_dictionary ():
     global llvm_printer
+    global std_printer
 
     llvm_printer = Printer("llvm")
 
@@ -409,5 +444,8 @@ def build_llvm_dictionary ():
         # But it often doesn't, so here they are.
         #llvm_printer.add_container('std::', '_List_iterator', StdListIteratorPrinter)
 
+    std_printer = Printer("std")
+
+    std_printer.add('map::const_iterator', StdMapIteratorPrinter)
 
 build_llvm_dictionary ()
