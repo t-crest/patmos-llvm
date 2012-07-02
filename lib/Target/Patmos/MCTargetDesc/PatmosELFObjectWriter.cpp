@@ -30,6 +30,12 @@ namespace {
 
     virtual ~PatmosELFObjectWriter();
 
+    virtual const MCSymbol *ExplicitRelSym(const MCAssembler &Asm,
+                                           const MCValue &Target,
+                                           const MCFragment &F,
+                                           const MCFixup &Fixup,
+                                           bool IsPCRel) const;
+
     virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
                                   bool IsPCRel, bool IsRelocWithSymbol,
                                   int64_t Addend) const;
@@ -43,6 +49,16 @@ PatmosELFObjectWriter::PatmosELFObjectWriter(uint8_t OSABI)
                             /*HasRelocationAddend*/ false) {}
 
 PatmosELFObjectWriter::~PatmosELFObjectWriter() {}
+
+const MCSymbol *PatmosELFObjectWriter::ExplicitRelSym(const MCAssembler &Asm,
+                                                      const MCValue &Target,
+                                                      const MCFragment &F,
+                                                      const MCFixup &Fixup,
+                                                      bool IsPCRel) const {
+
+  const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
+  return &Symbol;
+}
 
 unsigned PatmosELFObjectWriter::getEFlags() const {
 
