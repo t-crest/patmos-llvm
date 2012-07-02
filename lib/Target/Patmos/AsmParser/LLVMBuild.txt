@@ -19,5 +19,5 @@
 type = Library
 name = PatmosAsmParser
 parent = Patmos
-required_libraries = MC MCParser Support PatmosDesc PatmosInfo
+required_libraries = MC MCParser Support PatmosDesc PatmosInfo PatmosCodeGen
 add_to_library_groups = Patmos
