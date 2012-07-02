@@ -57,6 +57,9 @@ const MCSymbol *PatmosELFObjectWriter::ExplicitRelSym(const MCAssembler &Asm,
                                                       bool IsPCRel) const {
 
   const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
+
+  // TODO do not emit symbols for strings or temporary symbols? (return NULL, emits as section symbol + offset)
+
   return &Symbol;
 }
 

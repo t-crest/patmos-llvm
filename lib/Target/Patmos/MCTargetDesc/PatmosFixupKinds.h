@@ -60,6 +60,17 @@ namespace Patmos {
     LastTargetFixupKind,
     NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
   };
+
+  static inline bool isFRELFixupKind(unsigned FixupKind) {
+    switch (FixupKind){
+    case FK_Patmos_frel_12:
+    case FK_Patmos_frel_22:
+    case FK_Patmos_frel_32:
+      return true;
+    }
+    return false;
+  }
+
 } // namespace Patmos
 } // namespace llvm
 

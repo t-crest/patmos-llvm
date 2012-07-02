@@ -21,8 +21,13 @@
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCValue.h"
+#include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCAsmLayout.h"
+#include "llvm/MC/MCELFSymbolFlags.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/ELF.h"
 
 using namespace llvm;
 using namespace Patmos;
@@ -58,6 +63,38 @@ public:
     return createPatmosELFObjectWriter(OS, OSType);
   }
 
+  const MCSymbolData &getFunctionSymbol(const MCAssembler &Asm,
+                                        const MCAsmLayout &Layout, const MCSymbol &Symbol,
+                                        const MCSymbolData &SD, const MCFragment *DF)
+  {
+    const MCSection *Section = &Symbol.getSection();
+    uint64_t Offset = Layout.getFragmentOffset(DF) + SD.getOffset();
+
+    const MCSymbolData *Curr = 0;
+    uint64_t CurrOff = 0;
+
+    // TODO this is slow.. maybe sort the symbol table by section and offset once, then iterate backwards
+    // until first function symbol is found
+
+    for (MCAssembler::const_symbol_iterator it = Asm.symbol_begin(), end = Asm.symbol_end(); it != end; ++it) {
+      const MCSymbolData &SymD = *it;
+      if (!SymD.getSymbol().isInSection()) continue;
+      if (&SymD.getSymbol().getSection() != Section) continue;
+      if ((SymD.getFlags() & ELF_STT_Func) == 0) continue;
+
+      uint64_t SymOff = Layout.getFragmentOffset(SymD.getFragment()) + SymD.getOffset();
+
+      if (SymOff > Offset) continue;
+
+      if (CurrOff <= SymOff) {
+        Curr = &SymD;
+        CurrOff = SymOff;
+      }
+    }
+
+    return *Curr;
+  }
+
   virtual void processFixupValue(const MCAssembler &Asm,
                                  const MCAsmLayout &Layout,
                                  const MCFixup &Fixup, const MCFragment *DF,
@@ -66,9 +103,27 @@ public:
   {
     // TODO check if we can resolve the fixup, and if so, do so
 
-    // MCFixupKind Kind = Fixup.getKind();
+    unsigned Kind = (unsigned)Fixup.getKind();
 
+    // For FRELs, we need to adjust the offset value to the start of the current (sub)function
+    if (isFRELFixupKind(Kind)) {
+      assert(!Target.getSymB() && "FREL fixup kind must not be a relative symbol");
+      const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
+      const MCSymbolData &SDA = Asm.getSymbolData(Symbol);
 
+      const MCSymbolData &SDF = getFunctionSymbol(Asm, Layout, Symbol, SDA, DF);
+
+      uint64_t Offset = Layout.getSymbolOffset(&SDA) - Layout.getSymbolOffset(&SDF);
+
+      const MCSymbolRefExpr *FnSymRef = MCSymbolRefExpr::Create(&SDF.getSymbol(), Asm.getContext());
+
+      Target = MCValue::get(FnSymRef, 0, Offset);
+      Value = Offset;
+
+      return;
+    }
+
+    // TODO in case of FK_Patmos_BO|HO|WO_7, we can (try to) resolve it here, and skip emitting relocations
 
   }
 
@@ -78,6 +133,9 @@ public:
   virtual void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value) const {
     MCFixupKind Kind = Fixup.getKind();
+
+    // Adjust the immediate value according to the format here
+    // this is not done in processFixupValue to avoid keeping track of the current addressing mode in the rest of the code
     Value = adjustFixupValue(Kind, Value);
 
     if (!Value)

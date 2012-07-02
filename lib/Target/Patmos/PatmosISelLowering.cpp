@@ -66,6 +66,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   //setSchedulingPreference(Sched::Latency);
 
+  // TODO get alignment size from method cache size
   setMinFunctionAlignment(4);
   setPrefFunctionAlignment(4);
 

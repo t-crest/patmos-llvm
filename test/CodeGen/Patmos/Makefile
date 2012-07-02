@@ -56,6 +56,10 @@ all: return.s
 %.o: %.ll $(LLCBIN)
 	$(GDB) $(LLC) -O0 -filetype=obj -relocation-model=static -o $@ $<
 
+%.o: %.c
+
+%.o: %.s
+
 %.as: %.s $(MCBIN)
 	$(GDB) $(MC) -filetype=obj -show-inst-operands -assemble -o $@ $<
 
