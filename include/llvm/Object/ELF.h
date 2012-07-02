@@ -1340,7 +1340,9 @@ error_code ELFObjectFile<target_endianness, is64Bits>
       LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_ALUI_FREL);
       LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_ALUL_ABS);
       LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_ALUL_FREL);
-      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_MEM_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_MEMB_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_MEMH_ABS);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_PATMOS_MEMW_ABS);
     default:
       res = "Unknown";
     }
@@ -1496,7 +1498,9 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     case ELF::R_PATMOS_ALUI_FREL:
     case ELF::R_PATMOS_ALUL_ABS:
     case ELF::R_PATMOS_ALUL_FREL:
-    case ELF::R_PATMOS_MEM_ABS:
+    case ELF::R_PATMOS_MEMB_ABS:
+    case ELF::R_PATMOS_MEMH_ABS:
+    case ELF::R_PATMOS_MEMW_ABS:
       res = symname;
       break;
     default:

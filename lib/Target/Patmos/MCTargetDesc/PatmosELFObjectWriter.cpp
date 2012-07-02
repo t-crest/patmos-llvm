@@ -61,10 +61,11 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
 
   switch (Kind) {
   case FK_Patmos_BO_7:
+    return ELF::R_PATMOS_MEMB_ABS;
   case FK_Patmos_HO_7:
+    return ELF::R_PATMOS_MEMH_ABS;
   case FK_Patmos_WO_7:
-    // TODO different relocation types for different shifts
-    return ELF::R_PATMOS_MEM_ABS;
+    return ELF::R_PATMOS_MEMW_ABS;
   case FK_Patmos_12:
     return ELF::R_PATMOS_ALUI_ABS;
   case FK_Patmos_22:
