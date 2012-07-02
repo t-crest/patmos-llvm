@@ -72,7 +72,7 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
   case FK_Patmos_stc_22:
     return ELF::R_PATMOS_PFLB_ABS;
   case FK_Patmos_32:
-    return ELF::R_PATMOS_PFLB_ABS;
+    return ELF::R_PATMOS_ALUL_ABS;
   case FK_Patmos_frel_12:
     return ELF::R_PATMOS_ALUI_FREL;
   case FK_Patmos_frel_22:

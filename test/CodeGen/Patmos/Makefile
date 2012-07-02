@@ -60,10 +60,10 @@ all: return.s
 	$(GDB) $(MC) -filetype=obj -show-inst-operands -assemble -o $@ $<
 
 %.dis: %.o $(MCBIN)
-	$(GDB) $(OBJDUMP) -disassemble $<
+	$(GDB) $(OBJDUMP) -r -s -t -disassemble $<
 
 %.adis: %.as $(MCBIN)
-	$(GDB) $(OBJDUMP) -disassemble $<
+	$(GDB) $(OBJDUMP) -r -s -t -disassemble $<
 
 Patmos.out: $(TBLGENBIN) ../../../lib/Target/Patmos/*.td
 	$(GDB) $(TBLGEN) -I=../../../include -I=../../../lib/Target/Patmos/ ../../../lib/Target/Patmos/Patmos.td > Patmos.out
