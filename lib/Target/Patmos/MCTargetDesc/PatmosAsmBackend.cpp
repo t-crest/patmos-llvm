@@ -95,6 +95,25 @@ public:
     return *Curr;
   }
 
+  void processFRELFixupValue(const MCAssembler &Asm,
+                                 const MCAsmLayout &Layout,
+                                 const MCFixup &Fixup, const MCFragment *DF,
+                                 MCValue &Target, uint64_t &Value)
+  {
+    assert(!Target.getSymB() && "FREL fixup kind must not be a relative symbol");
+    const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
+    const MCSymbolData &SDA = Asm.getSymbolData(Symbol);
+
+    const MCSymbolData &SDF = getFunctionSymbol(Asm, Layout, Symbol, SDA, DF);
+
+    uint64_t Offset = Layout.getSymbolOffset(&SDA) - Layout.getSymbolOffset(&SDF);
+
+    const MCSymbolRefExpr *FnSymRef = MCSymbolRefExpr::Create(&SDF.getSymbol(), Asm.getContext());
+
+    Target = MCValue::get(FnSymRef, 0, Offset);
+    Value = Offset;
+  }
+
   virtual void processFixupValue(const MCAssembler &Asm,
                                  const MCAsmLayout &Layout,
                                  const MCFixup &Fixup, const MCFragment *DF,
@@ -107,19 +126,8 @@ public:
 
     // For FRELs, we need to adjust the offset value to the start of the current (sub)function
     if (isFRELFixupKind(Kind)) {
-      assert(!Target.getSymB() && "FREL fixup kind must not be a relative symbol");
-      const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
-      const MCSymbolData &SDA = Asm.getSymbolData(Symbol);
-
-      const MCSymbolData &SDF = getFunctionSymbol(Asm, Layout, Symbol, SDA, DF);
-
-      uint64_t Offset = Layout.getSymbolOffset(&SDA) - Layout.getSymbolOffset(&SDF);
-
-      const MCSymbolRefExpr *FnSymRef = MCSymbolRefExpr::Create(&SDF.getSymbol(), Asm.getContext());
-
-      Target = MCValue::get(FnSymRef, 0, Offset);
-      Value = Offset;
-
+      // .. however, this is done in the linker, so we emit symbols for all labels instead
+      //processFRELFixupValue(Asm, Layout, Fixup, DF, Target, Value);
       return;
     }
 
