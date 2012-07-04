@@ -340,7 +340,9 @@ enum {
   R_PATMOS_ALUL_FREL = 6,
   R_PATMOS_MEMB_ABS  = 7,
   R_PATMOS_MEMH_ABS  = 8,
-  R_PATMOS_MEMW_ABS  = 9
+  R_PATMOS_MEMW_ABS  = 9,
+  R_PATMOS_ABS_32    = 10,
+  R_PATMOS_FREL_32   = 11
 };
 
 // X86_64 relocations.

@@ -1,0 +1,30 @@
+TODOS AND KNOWN BUGS FOR LLVM-PATMOS 
+====================================
+
+Open Tasks
+----------
+
+o) Documentation
+- List of accepted assembler instructions with formats, including pseudo instructions/instruction aliases
+
+
+
+
+
+Known Bugs 
+----------
+
+o) Parsing of bundled instructions
++ Inline-asm: ';' at the end of inline asm should either produce an error or should be ignored. 
+  Currently inline asm instructions would be bundled with compiler generated instructions, can lead to hard to find bugs.
+
+- Operation separator ; is not handled as instruction separator but as operand: Syntax like '; ;;' is caught as illegal, but 
+  '; \n ;; ' is not (this would put the following operation into the same bundle, assuming the next operation is not part of a bundle).
+
+- Bundled operations are not fully sanity checked: memory or wait operations can be put into the second slot
+
+o) Inline Assembler
+- Passing booleans as operands as predicate registers class ('P') is not supported (requires enabling register allocation support for PRegs class)
+
+
+

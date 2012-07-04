@@ -40,6 +40,9 @@ class PatmosAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
   OwningPtr<MCInstrInfo> MII;
 
+  // keep track of the bundle bit of the last instructions
+  unsigned BundleCounter;
+
   MCAsmParser &getParser() const { return Parser; }
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
 
@@ -51,7 +54,7 @@ class PatmosAsmParser : public MCTargetAsmParser {
 
 public:
   PatmosAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser)
-    : MCTargetAsmParser(), Parser(parser), MII()
+    : MCTargetAsmParser(), Parser(parser), MII(), BundleCounter(0)
   {
     // This is a nasty workaround for LLVM interface limitations
     const Target &T = static_cast<const PatmosMCAsmInfo*>(&parser.getContext().getAsmInfo())->getTarget();
@@ -316,9 +319,17 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   PatmosOperand *Op = (PatmosOperand*)Operands.back();
   if (Op->isToken() && Op->getToken() == ";") {
     isBundled = true;
-    delete Op;
     Operands.pop_back();
+
+    if (isBundled && BundleCounter >= 1) {
+      Error(Op->getStartLoc(), "an instruction can consist of at most two separate operations");
+      delete Op;
+      return true;
+    }
+    delete Op;
   }
+
+  BundleCounter = isBundled ? BundleCounter + 1 : 0;
 
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo)) {
   default: break;
@@ -343,9 +354,11 @@ MatchAndEmitInstruction(SMLoc IDLoc,
         // TODO hack? if we have an expression, use ALUl, but not if this is a bundled op
         if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
           Inst.setOpcode(ALUlOpcode);
+          // ALUl counts as two operations
+          BundleCounter++;
         }
       } else {
-        assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+        assert(MCO.isImm() && "expected immediate operand for ALUi format");
 
         if (!isUInt<12>(MCO.getImm())) {
           if (isBundled) {
@@ -353,22 +366,31 @@ MatchAndEmitInstruction(SMLoc IDLoc,
           }
           else if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
             Inst.setOpcode(ALUlOpcode);
+            // ALUl counts as two operations
+            BundleCounter++;
           }
           else {
-            return Error(IDLoc, "Immediate operand too large for ALUi format and ALUl is not used for this opcode");
+            return Error(IDLoc, "immediate operand too large for ALUi format and ALUl is not used for this opcode");
           }
         }
       }
+      if (BundleCounter > 1) {
+        return Error(IDLoc, "operand size requires ALUl instruction, it cannot be bundled with the previous operation");
+      }
+    }
+    else if (Format == PatmosII::FrmALUl) {
+      // ALUl counts as two operations
+      BundleCounter++;
     }
 
     if (Format == PatmosII::FrmPFLb || Format == PatmosII::FrmSTC) {
       const MCOperand &MCO = Inst.getOperand(ImmOpNo);
       if (!MCO.isExpr()) {
-        assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+        assert(MCO.isImm() && "expected immediate operand for ALUi format");
 
         if (( ImmSigned && !isInt<22>(MCO.getImm())) ||
             (!ImmSigned && !isUInt<22>(MCO.getImm()))) {
-          return Error(IDLoc, "Immediate operand is out of range");
+          return Error(IDLoc, "immediate operand is out of range");
         }
       }
     }
@@ -376,7 +398,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
     if (Format == PatmosII::FrmSTT || Format == PatmosII::FrmLDT) {
       const MCOperand &MCO = Inst.getOperand(ImmOpNo);
       if (!MCO.isExpr()) {
-        assert(MCO.isImm() && "Expected immediate operand for ALUi format");
+        assert(MCO.isImm() && "expected immediate operand for ALUi format");
 
         if (( ImmSigned && !isInt<7>(MCO.getImm())) ||
             (!ImmSigned && !isUInt<7>(MCO.getImm()))) {

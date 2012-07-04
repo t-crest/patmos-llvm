@@ -576,11 +576,11 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
     switch (Constraint[0]) {
     case 'R':  // r0-r31
     case 'r':  // general purpose registers
-      if (VT == MVT::i32) {
+      //if (VT == MVT::i32) {
         return std::make_pair(0U, Patmos::RRegsRegisterClass);
-      }
-      assert("Unexpected register type");
-      return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
+      //}
+      //assert("Unexpected register type");
+      //return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
     case 'S':
       if (VT == MVT::i32) {
         return std::make_pair(0U, Patmos::SRegsRegisterClass);

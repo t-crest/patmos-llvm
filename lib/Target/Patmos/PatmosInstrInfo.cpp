@@ -194,7 +194,7 @@ bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
         continue;
       }
 
-      // TBB is used to indicate the unconditinal destination.
+      // TBB is used to indicate the unconditional destination.
       TBB = getBranchTarget(I);
       continue;
     }

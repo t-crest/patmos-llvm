@@ -79,6 +79,9 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
   unsigned Kind = (unsigned)Fixup.getKind();
 
   switch (Kind) {
+  case FK_Data_4:
+    // TODO emit R_PATMOS_FREL_32 for BB labels? need to set VK_Patmos_FREL somehow for the symbol
+    return ELF::R_PATMOS_ABS_32;
   case FK_Patmos_BO_7:
     return ELF::R_PATMOS_MEMB_ABS;
   case FK_Patmos_HO_7:
