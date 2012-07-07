@@ -16,6 +16,7 @@
 #define _LLVM_TARGET_PATMOS_ISELLOWERING_H_
 
 #include "Patmos.h"
+#include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Target/TargetLowering.h"
 
@@ -54,6 +55,57 @@ namespace llvm {
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
     virtual EVT getSetCCResultType(EVT VT) const;
+
+    /******************************************************************
+     * Jump Tables
+     ******************************************************************/
+
+    /// getJumpTableEncoding - Return the entry encoding for a jump table in the
+    /// current function.  The returned value is a member of the
+    /// MachineJumpTableInfo::JTEntryKind enum.
+    virtual unsigned getJumpTableEncoding() const {
+      return MachineJumpTableInfo::EK_Custom32;
+    }
+
+    virtual const MCExpr *
+    LowerCustomJumpTableEntry(const MachineJumpTableInfo * MJTI,
+                              const MachineBasicBlock * MBB, unsigned uid,
+                              MCContext &OutContext) const;
+
+    /******************************************************************
+     * Addressing and Offsets
+     ******************************************************************/
+
+    /* TODO needed? should return correct values for Patmos here
+    /// isOffsetFoldingLegal - Return true if folding a constant offset
+    /// with the given GlobalAddress is legal.  It is frequently not legal in
+    /// PIC relocation models.
+    virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
+
+    /// getMaximalGlobalOffset - Returns the maximal possible offset which can be
+    /// used for loads / stores from the global.
+    virtual unsigned getMaximalGlobalOffset() const {
+      return 0;
+    }
+    */
+
+    /*
+    virtual bool getPostIndexedAddressParts(SDNode *N, SDNode *Op,
+                                            SDValue &Base,
+                                            SDValue &Offset,
+                                            ISD::MemIndexedMode &AM,
+                                            SelectionDAG &DAG) const;
+    */
+
+    /******************************************************************
+     * Inline asm support
+     ******************************************************************/
+
+    ConstraintType getConstraintType(const std::string &Constraint) const;
+
+    virtual std::pair<unsigned, const TargetRegisterClass*>
+      getRegForInlineAsmConstraint(const std::string &Constraint,
+                                   EVT VT) const;
 
   private:
     const PatmosSubtarget &Subtarget;
@@ -102,21 +154,6 @@ namespace llvm {
                         const SmallVectorImpl<ISD::OutputArg> &Outs,
                         const SmallVectorImpl<SDValue> &OutVals,
                         DebugLoc dl, SelectionDAG &DAG) const;
-
-    /*
-    virtual bool getPostIndexedAddressParts(SDNode *N, SDNode *Op,
-                                            SDValue &Base,
-                                            SDValue &Offset,
-                                            ISD::MemIndexedMode &AM,
-                                            SelectionDAG &DAG) const;
-    */
-
-    // Inline asm support
-    ConstraintType getConstraintType(const std::string &Constraint) const;
-
-    virtual std::pair<unsigned, const TargetRegisterClass*>
-      getRegForInlineAsmConstraint(const std::string &Constraint,
-                                   EVT VT) const;
 
     /// LowerDYNAMIC_STACKALLOC - Lower a dynamic stack allocation (aka alloca).
     SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;

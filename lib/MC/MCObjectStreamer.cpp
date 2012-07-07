@@ -9,7 +9,7 @@
 
 #include "llvm/MC/MCObjectStreamer.h"
 #include "llvm/MC/MCAsmBackend.h"
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCAsmInfo.h"// TODO get alignment size from method cache size
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"

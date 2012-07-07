@@ -42,6 +42,8 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
   default: llvm_unreachable("Unknown target flag on GV operand");
   }
 
+  // Note: jump table entries (refs to BBs) are lowered in PatosISelLowering::LowerCustomJumpTableEntry
+
   switch (MO.getType()) {
   case MachineOperand::MO_MachineBasicBlock:
     Symbol = MO.getMBB()->getSymbol();
@@ -54,6 +56,7 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
     break;
   case MachineOperand::MO_BlockAddress:
     Symbol = Printer.GetBlockAddressSymbol(MO.getBlockAddress());
+    // TODO do we need to emit as FREL??
     break;
   case MachineOperand::MO_ExternalSymbol:
     Symbol = Printer.GetExternalSymbolSymbol(MO.getSymbolName());

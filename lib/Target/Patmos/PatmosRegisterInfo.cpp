@@ -146,7 +146,7 @@ PatmosRegisterInfo::computeLargeFIOffset(int &offset, unsigned &basePtr,
 
   assert(offset >= 0);
 
-  // get offste
+  // get offset
   unsigned offsetLeft = 127; // -128 for offsets < 0
   unsigned offsetLarge = offset - offsetLeft;
   unsigned opcode = isUInt<12>(offsetLarge) ? Patmos::ADDi : Patmos::ADDl;

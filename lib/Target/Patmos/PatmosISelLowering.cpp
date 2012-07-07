@@ -37,6 +37,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/MC/MCExpr.h"
 using namespace llvm;
 
 
@@ -66,9 +67,11 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   //setSchedulingPreference(Sched::Latency);
 
-  // TODO get alignment size from method cache size
-  setMinFunctionAlignment(4);
-  setPrefFunctionAlignment(4);
+  // We only require word alignment for the general .align stuff, we do the
+  // proper alignment with a custom directive which also handles (sub)function-size and uses
+  // the proper cache alignment size
+  setMinFunctionAlignment(2);
+  setPrefFunctionAlignment(2);
 
   setLoadExtAction(ISD::EXTLOAD, MVT::i1, Promote);
   setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
@@ -144,6 +147,19 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
 EVT PatmosTargetLowering::getSetCCResultType(EVT VT) const {
   // All our compare results should be i1
   return MVT::i1;
+}
+
+const MCExpr * PatmosTargetLowering::LowerCustomJumpTableEntry(
+                          const MachineJumpTableInfo * MJTI,
+                          const MachineBasicBlock * MBB, unsigned uid,
+                          MCContext &OutContext) const
+{
+  // Note: see also PatmosMCInstLower::LowerSymbolOperand
+
+  MCSymbolRefExpr::VariantKind Kind;
+  Kind = MCSymbolRefExpr::VK_Patmos_FREL;
+
+  return MCSymbolRefExpr::Create(MBB->getSymbol(), Kind, OutContext);
 }
 
 

@@ -100,6 +100,7 @@ private:
   /// isPredSrcOperand - Check whether the operand might be a predicate source operand (i.e., has a negate flag)
   bool isPredSrcOperand(StringRef Mnemonic, unsigned OpNo);
 
+  bool ParseDirectiveWord(unsigned Size, SMLoc L);
 };
 
 /// PatmosOperand - Instances of this class represent a parsed Patmos machine
@@ -722,9 +723,36 @@ ParseInstruction(StringRef Name, SMLoc NameLoc,
 
 bool PatmosAsmParser::
 ParseDirective(AsmToken DirectiveID) {
+  StringRef IDVal = DirectiveID.getIdentifier();
+  if (IDVal == ".word")
+    return ParseDirectiveWord(4, DirectiveID.getLoc());
   return true;
 }
 
+/// ParseDirectiveWord
+///  ::= .word [ expression (, expression)* ]
+bool PatmosAsmParser::ParseDirectiveWord(unsigned Size, SMLoc L) {
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    for (;;) {
+      const MCExpr *Value;
+      if (getParser().ParseExpression(Value))
+        return true;
+
+      getParser().getStreamer().EmitValue(Value, Size, 0 /*addrspace*/);
+
+      if (getLexer().is(AsmToken::EndOfStatement))
+        break;
+
+      // FIXME: Improve diagnostic.
+      if (getLexer().isNot(AsmToken::Comma))
+        return Error(L, "unexpected token in directive");
+      Parser.Lex();
+    }
+  }
+
+  Parser.Lex();
+  return false;
+}
 
 bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
 {
