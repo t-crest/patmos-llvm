@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the PatmosAsmBackend and PatmosELFObjectWriter classes.
+// This file implements the PatmosAsmBackend class.
 //
 //===----------------------------------------------------------------------===//
 //

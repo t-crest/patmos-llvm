@@ -16,11 +16,6 @@ endif
 LIBLLSYMS=__divdf3,__divsf3,__divdi3,__divsi3,__moddi3,__modsi3,__udivdi3,__udivsi3,__umoddi3,__umodsi3,__ashldi3,__ashrdi3,__lshrdi3,__muldi3,memset,memmove,memcpy
 LIBLLSYMS_SOFTFLOAT=__adddf3,__subdf3,__muldf3,__addsf3,__subsf3,__mulsf3,__eqdf2,__gedf2,__gtdf2,__ledf2,__ltdf2,__nedf2,__unorddf2,__eqsf2,__gesf2,__gtsf2,__lesf2,__ltsf2,__nesf2,__unordsf2,__floatsidf,__floatunsidf,__fixdfsi,__fixunsdfsi,__floatsisf,__floatunssisf,__fixsfsi,__extendsfdf2,__truncdfsf2
 
-LLVM_LD=llvm-ld -b $@ $^ \
-        ${PREFIX}/lib/libllsyms.o ${LLVM_LDFLAGS} \
-	        -L ${PREFIX}/lib -lc -lm -llemberg -lnosys -lll \
-		        -internalize-public-api-list=${LIBLLSYMS},main
-
 
 LLCBIN=$(BUILDDIR)/bin/llc
 MCBIN=$(BUILDDIR)/bin/llvm-mc
@@ -32,7 +27,7 @@ LLC=$(LLCBIN) -march=$(ARCH)
 OBJDUMP=$(BUILDDIR)/bin/llvm-objdump
 LLVM_AS=$(BUILDDIR)/bin/llvm-as
 LLVM_DIS=$(BUILDDIR)/bin/llvm-dis
-LLVM_LD=$(LLVM_LDBIN) -L $(NEWLIBDIR)/lib -internalize-public-api-list=_start,$(LIBLLSYMS) -no-script 
+LLVM_LD=$(LLVM_LDBIN) -Llibll -L $(NEWLIBDIR)/lib -internalize-public-api-list=_start,$(LIBLLSYMS) -no-script 
 MC=$(MCBIN) -arch=$(ARCH)
 TBLGEN=$(TBLGENBIN)
 LD=$(LDBIN)
@@ -79,7 +74,7 @@ all: return.s
 
 %-app.ll: %.ll
 	$(LLVM_AS) $<
-	$(LLVM_LD) -v -b ${@:.ll=.bc} ${<:.ll=.bc} -Llibll -lc -lpatmos -lll  $(NEWLIBDIR)/lib/crt0.o
+	$(LLVM_LD) -v -b ${@:.ll=.bc} ${<:.ll=.bc} libll/libllsyms.o  $(NEWLIBDIR)/lib/crt0.o -lc -lpatmos -lll
 	$(LLVM_DIS) ${@:.ll=.bc}
 
 %: %.o $(LD)
