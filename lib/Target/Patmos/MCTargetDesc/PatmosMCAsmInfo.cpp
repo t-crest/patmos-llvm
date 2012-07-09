@@ -30,6 +30,9 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
   MaxInstLength = 8; // for long immediates
   SupportsDebugInformation = true;
 
+  Data16bitsDirective = "\t.half\t";
+  Data32bitsDirective = "\t.word\t";
+
   // 0: Default syntax, 1: alternative syntax without register prefix
   AssemblerDialect = 0;
   // We either need a register prefix or a global prefix

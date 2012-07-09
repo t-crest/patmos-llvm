@@ -260,6 +260,14 @@ namespace llvm {
       llvm_unreachable("EmitInstruction not implemented");
     }
 
+    /// EmitBasicBlockBegin - Targets can override this to emit stuff at the beginning of
+    /// basic blocks in the function, after the block label.
+    virtual void EmitBasicBlockBegin(const MachineBasicBlock *) {}
+
+    /// EmitBasicBlockEnd - Targets can override this to emit stuff at the end of
+    /// basic blocks in the function.
+    virtual void EmitBasicBlockEnd(const MachineBasicBlock *) {}
+
     virtual void EmitFunctionEntryLabel();
 
     virtual void EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV);

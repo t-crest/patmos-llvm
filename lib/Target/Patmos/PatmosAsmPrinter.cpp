@@ -16,10 +16,12 @@
 #include "PatmosMCInstLower.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/Support/TargetRegistry.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/Support/TargetRegistry.h"
 #include "InstPrinter/PatmosInstPrinter.h"
 
 using namespace llvm;
@@ -28,16 +30,26 @@ namespace {
   class PatmosAsmPrinter : public AsmPrinter {
   private:
     PatmosMCInstLower MCInstLowering;
+
+    // symbol to use for the end of the currently emitted cache block
+    MCSymbol *CurrFRELEnd;
+
   public:
     PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this) {}
+      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrFRELEnd(0) {}
 
     virtual const char *getPassName() const {
       return "Patmos Assembly Printer";
     }
 
+    virtual void EmitFunctionEntryLabel();
+
+    virtual void EmitBasicBlockEnd(const MachineBasicBlock *);
+
+    virtual void EmitFunctionBodyEnd();
+
     // called in the framework for instruction printing
-    void EmitInstruction(const MachineInstr *MI);
+    virtual void EmitInstruction(const MachineInstr *MI);
 
 
     /// isBlockOnlyReachableByFallthough - Return true if the basic block has
@@ -59,8 +71,78 @@ namespace {
                                        unsigned AsmVariant,
                                        const char *ExtraCode,
                                        raw_ostream &OS);
+  private:
+    void EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd);
+
+    bool isFRELStart(const MachineBasicBlock *MBB) const;
   };
+
 } // end of anonymous namespace
+
+
+void PatmosAsmPrinter::EmitFunctionEntryLabel() {
+  // Create a temp label that will be emitted at the end of the first cache block (at the end of the function
+  // if the function has only one cache block)
+  CurrFRELEnd = OutContext.CreateTempSymbol();
+
+  // emit a function/subfunction start directive
+  EmitFRELStart(CurrentFnSymForSize, CurrFRELEnd);
+
+  // Now emit the normal function label
+  AsmPrinter::EmitFunctionEntryLabel();
+}
+
+void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
+  // EmitBasicBlockBegin emits after the label, too late for emitting FREL stuff,
+  // so we do it at the end of the previous block of a cache block start MBB.
+  if (&MBB->getParent()->back() == MBB) return;
+  const MachineBasicBlock *Next = MBB->getNextNode();
+
+  // skip blocks that are in the same cache block..
+  if (!isFRELStart(Next)) return;
+
+  // Next is the start of a new cache block, close the old one and start a new cache block
+  OutStreamer.EmitLabel(CurrFRELEnd);
+
+  // We need an address symbol from the next block
+  assert(!MBB->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
+
+  MCSymbol *SymStart = MBB->getSymbol();
+
+  // create new end symbol
+  CurrFRELEnd = OutContext.CreateTempSymbol();
+
+  // emit a function/subfunction start directive
+  EmitFRELStart(SymStart, CurrFRELEnd);
+}
+
+void PatmosAsmPrinter::EmitFunctionBodyEnd() {
+  // Emit the end symbol of the last cache block
+  OutStreamer.EmitLabel(CurrFRELEnd);
+}
+
+void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd) {
+  // emit .frelstart SymStart, SymEnd-SymStart
+  const MCExpr *SizeExp =
+    MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
+                            MCSymbolRefExpr::Create(SymStart, OutContext),
+                            OutContext);
+
+  // TODO create a new OutStreamer.EmitFRELStart() or something, use it here, or handle alignment in some other way
+
+  // TODO mark SymStart as FREL-Start for the linker
+  //OutStreamer.EmitSymbolAttribute(SymStart, FREL_Start);
+
+  // create .word
+  OutStreamer.EmitValue(SizeExp, 4, 0);
+}
+
+bool PatmosAsmPrinter::isFRELStart(const MachineBasicBlock *MBB) const {
+  // TODO this is just a temporary hack, need to define some custom attribute for marking
+  // blocks as start of a cache block
+  return (MBB->getAlignment() != 0);
+}
+
 
 void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   MCInst TmpInst;
@@ -91,6 +173,11 @@ isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB) const {
   const MachineBasicBlock *Pred = *PI;
 
   if (!Pred->isLayoutSuccessor(MBB))
+    return false;
+
+  // if the block starts a new cache block, do not fall through (we need to insert cache stuff, even
+  // if we only reach this block from a jump from the previous block, and we need the label).
+  if (isFRELStart(MBB))
     return false;
 
   // If the block is completely empty, then it definitely does fall through.

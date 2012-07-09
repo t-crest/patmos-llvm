@@ -659,6 +659,10 @@ void AsmPrinter::EmitFunctionBody() {
        I != E; ++I) {
     // Print a label for the basic block.
     EmitBasicBlockStart(I);
+
+    // virtual call for target-specific stuff
+    EmitBasicBlockBegin(I);
+
     for (MachineBasicBlock::const_iterator II = I->begin(), IE = I->end();
          II != IE; ++II) {
       LastMI = II;
@@ -715,6 +719,9 @@ void AsmPrinter::EmitFunctionBody() {
         DD->endInstruction(II);
       }
     }
+
+    // virtual call for target-specific stuff
+    EmitBasicBlockEnd(I);
   }
 
   // If the last instruction was a prolog label, then we have a situation where

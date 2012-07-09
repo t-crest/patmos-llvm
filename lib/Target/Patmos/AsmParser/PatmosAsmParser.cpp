@@ -726,6 +726,8 @@ ParseDirective(AsmToken DirectiveID) {
   StringRef IDVal = DirectiveID.getIdentifier();
   if (IDVal == ".word")
     return ParseDirectiveWord(4, DirectiveID.getLoc());
+  if (IDVal == ".half" || IDVal == ".hword")
+    return ParseDirectiveWord(2, DirectiveID.getLoc());
   return true;
 }
 
