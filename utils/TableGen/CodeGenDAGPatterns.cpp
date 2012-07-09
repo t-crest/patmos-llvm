@@ -2868,6 +2868,28 @@ static bool ForceArbitraryInstResultType(TreePatternNode *N, TreePattern &TP) {
   return false;
 }
 
+/// PromoteXForms - Recursively promote implicit Xform functions into explicit
+/// Xform pattern nodes.
+static TreePatternNode *PromoteXForms(TreePatternNode *N)
+{
+  // rewrite children first, if needed
+  for (unsigned ii = 0, ee = N->getNumChildren(); ii != ee; ++ii) {
+    TreePatternNode *ChildNode = PromoteXForms(N->getChild(ii));
+    N->setChild(ii, ChildNode);
+  }
+
+  // then rewrite the node, if needed
+  if (Record *Xform = N->getTransformFn()) {
+    N->setTransformFn(0);
+    std::vector<TreePatternNode*> Children;
+    Children.push_back(N);
+    return new TreePatternNode(Xform, Children, N->getNumTypes());
+  }
+  else {
+    return N;
+  }
+}
+
 void CodeGenDAGPatterns::ParsePatterns() {
   std::vector<Record*> Patterns = Records.getAllDerivedDefinitions("Pattern");
 
@@ -2958,13 +2980,7 @@ void CodeGenDAGPatterns::ParsePatterns() {
     std::vector<TreePatternNode*> ResultNodeOperands;
     for (unsigned ii = 0, ee = DstPattern->getNumChildren(); ii != ee; ++ii) {
       TreePatternNode *OpNode = DstPattern->getChild(ii);
-      if (Record *Xform = OpNode->getTransformFn()) {
-        OpNode->setTransformFn(0);
-        std::vector<TreePatternNode*> Children;
-        Children.push_back(OpNode);
-        OpNode = new TreePatternNode(Xform, Children, OpNode->getNumTypes());
-      }
-      ResultNodeOperands.push_back(OpNode);
+      ResultNodeOperands.push_back(PromoteXForms(OpNode));
     }
     DstPattern = Result->getOnlyTree();
     if (!DstPattern->isLeaf())
