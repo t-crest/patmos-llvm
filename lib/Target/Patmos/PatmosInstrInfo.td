@@ -583,9 +583,21 @@ def PNOR: PredCombine <0b1011, "nor">;
 
 // Pseudos:
 //mov uses or opcode (or Pd = Ps | !p0)
-let ps2 = 0b1000 in
-def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
-                "mov", "$pd = $ps1", []>;
+let isAsCheapAsAMove=1, ps2 = 0b1000 in {
+  def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
+                  "mov", "$pd = $ps1", []>;
+
+  // conditional move, like mov with setable predicate
+  // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
+  let Constraints = "$old = $pd", isCodeGenOnly = 1 in
+  def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, PRegs:$old, PRegs:$new),
+                  "mov", "$pd = $new",
+                  [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]> 
+  {
+    bits<4> new;
+    let ps1 = new;
+  }
+}
 
 //not uses nor opcode (nor Pd = Ps ^ p0)
 let ps2 = 0 in

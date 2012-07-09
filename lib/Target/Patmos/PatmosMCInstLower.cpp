@@ -42,7 +42,7 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
   default: llvm_unreachable("Unknown target flag on GV operand");
   }
 
-  // Note: jump table entries (refs to BBs) are lowered in PatosISelLowering::LowerCustomJumpTableEntry
+  // Note: jump table entries (refs to BBs) are lowered in PatmosISelLowering::LowerCustomJumpTableEntry
 
   switch (MO.getType()) {
   case MachineOperand::MO_MachineBasicBlock:
