@@ -682,15 +682,15 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
 
 let ImmShift = 2, ImmSigned = 1 in defm LW  : LoadTyped<0b000, imm7s2, "lw" >;
 let ImmShift = 1, ImmSigned = 1 in defm LH  : LoadTyped<0b001, imm7s1, "lh" >;
-let ImmShift = 0, ImmSigned = 0 in defm LB  : LoadTyped<0b010, imm7  , "lb" >;
+let ImmShift = 0, ImmSigned = 1 in defm LB  : LoadTyped<0b010, imm7  , "lb" >;
 let ImmShift = 1, ImmSigned = 1 in defm LHU : LoadTyped<0b011, imm7s1, "lhu">;
-let ImmShift = 0, ImmSigned = 0 in defm LBU : LoadTyped<0b100, imm7  , "lbu">;
+let ImmShift = 0, ImmSigned = 1 in defm LBU : LoadTyped<0b100, imm7  , "lbu">;
 
 let ImmShift = 2, ImmSigned = 1 in defm DLW  : DecoupledLoadTyped<0b1010, imm7s2, "lw" >;
 let ImmShift = 1, ImmSigned = 1 in defm DLH  : DecoupledLoadTyped<0b1011, imm7s1, "lh" >;
-let ImmShift = 0, ImmSigned = 0 in defm DLB  : DecoupledLoadTyped<0b1100, imm7  , "lb" >;
+let ImmShift = 0, ImmSigned = 1 in defm DLB  : DecoupledLoadTyped<0b1100, imm7  , "lb" >;
 let ImmShift = 1, ImmSigned = 1 in defm DLHU : DecoupledLoadTyped<0b1101, imm7s1, "lhu">;
-let ImmShift = 0, ImmSigned = 0 in defm DLBU : DecoupledLoadTyped<0b1110, imm7  , "lbu">;
+let ImmShift = 0, ImmSigned = 1 in defm DLBU : DecoupledLoadTyped<0b1110, imm7  , "lbu">;
 
 
 
