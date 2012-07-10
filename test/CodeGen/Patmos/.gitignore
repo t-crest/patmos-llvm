@@ -9,3 +9,6 @@ tmp
 llvm-objdump
 llvm-mc
 llc
+clang
+gold
+llvm-ld
