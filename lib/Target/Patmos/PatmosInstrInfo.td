@@ -475,7 +475,7 @@ in {
                     [(set RRegs:$rd, (add R0, uimm12:$imm))]>;
     // li Rd = Immedate ... sub Rd = r0 - Immediate (short, negative)
     def LIin : ALUi<0b0001, (outs RRegs:$rd), (ins pred:$p, nuimm12:$imm),
-                    "li", "$rd = $imm",
+                    "li", "$rd = -$imm",
                     [(set RRegs:$rd, (sub R0, nuimm12:$imm))]>;
     // li Rd = Immedate ... add Rd = r0 + Immediate (long immediate)
     def LIl  : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),

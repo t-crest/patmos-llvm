@@ -178,11 +178,10 @@ PatmosMCCodeEmitter::getImmediateEncoding(const MCInst &MI, const MCOperand& MO,
     const MCBinaryExpr* BinOp = static_cast<const MCBinaryExpr*>(Expr);
     Expr = BinOp->getLHS();
     Kind = Expr->getKind();
-    if (Kind != MCExpr::SymbolRef || BinOp->getRHS()->getKind() != MCExpr::Constant) {
-      llvm_unreachable("Unsupported expression format. What kind of trickery is this?");
-    }
 
-    // TODO handle LHS? or is this handled by the relocation emitter?
+    // TODO handle Symbol - Constant? Handle Symbol - Symbol ?
+
+    llvm_unreachable("Binary expressions are currently not supported.");
   }
 
   if (Kind == MCExpr::Constant) {

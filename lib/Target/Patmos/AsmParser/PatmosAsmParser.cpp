@@ -349,7 +349,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
 
     unsigned ALUlOpcode;
     if (Format == PatmosII::FrmALUi) {
-      const MCOperand &MCO = Inst.getOperand( ImmOpNo );
+      MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
       if (MCO.isExpr() && !isBundled) {
         // TODO hack? if we have an expression, use ALUl, but not if this is a bundled op
@@ -362,7 +362,12 @@ MatchAndEmitInstruction(SMLoc IDLoc,
         assert(MCO.isImm() && "expected immediate operand for ALUi format");
 
         if (!isUInt<12>(MCO.getImm())) {
-          if (isBundled) {
+          if (isUInt<12>(-MCO.getImm()) && Inst.getOpcode() == Patmos::LIi) {
+            // Make this an rsub instead
+            MCO.setImm(-MCO.getImm());
+            Inst.setOpcode(Patmos::LIin);
+          }
+          else if (isBundled) {
             return Error(IDLoc, "immediate operand too large for bundled ALUi instruction");
           }
           else if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {

@@ -6,14 +6,14 @@
 r1:                                          # @r1
 # BB#0:
 	       sres	3	   ;    sub	    $r31 = $r31, 20 ;;
+	       li	$r1 = -3 
 	       mfs	$r9 = $sz 
 	       sws	[0] = $r9  ;
-	       mfs	$r9 = $so  ;
+	       mfs	$r9 = $so  
 	       sws	[1] = $r9  ;;	mfs	$r9 = $sb  ;
 	       sws	[2] = $r9
 	       swc	[$r31 + 4] = $r3  ; # some comment
-	       li	$r1 = 4  ;
-	       ;;
+	       li	$r1 = 4  
 	       swc	[$r31 + 3] = $r1
 	       lwc	$r1 = [$r31 + 4]
 	       lbc	$r1 = [$r1 + 1]
@@ -21,13 +21,13 @@ r1:                                          # @r1
 	       swc	[$r31 + 3] = $r1
 	       lwc	$r1 = [$r31 + 4]
 	       cmpeq	$p1 = $r1, $r0
-	( $p1) bc	.LBB0_2-r1
+	( $p1) bc	.LBB0_2@FREL
 	       nop	3
 # BB#1:
 	       lwc	$r1 = [$r31 + 4]
 	       swc	[$r31 + 1] = $r1
 	       li	$r1 = .L.str
-	       bc	.LBB0_3-r1
+	       bc	.LBB0_3@FREL
 	       nop	3
 .LBB0_2:
 	       lwc	$r1 = [$r31 + 3]
@@ -78,11 +78,11 @@ abs:                                         # @abs
 	       li	$r1 = 1
 	       lwc	$r2 = [$r31 + 2]
 	       cmplt	$p1 = $r2, $r1
-	( $p1) bc	.LBB1_2-abs
+	( $p1) bc	.LBB1_2@FREL
 	       nop	3
 # BB#1:
 	       lwc	$r1 = [$r31 + 2]
-	       bc	.LBB1_3-abs
+	       bc	.LBB1_3@FREL
 	       nop	3
 .LBB1_2:
 	       lwc	$r1 = [$r31 + 2]

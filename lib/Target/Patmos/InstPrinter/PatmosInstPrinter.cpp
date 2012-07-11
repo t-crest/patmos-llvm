@@ -83,7 +83,9 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     }
     else {
       // TODO print as hex only for some instructions?
-      O << format("0x%X", Op.getImm());
+      //O << format("0x%X", Op.getImm());
+      // We have the hex value in the disassembly output anyway, and we do not want to print hex for LIin
+      O << Op.getImm();
     }
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
