@@ -514,6 +514,11 @@ static void PrintSymbolTable(const ObjectFile *o) {
 
       if (Address == UnknownAddressOrSize)
         Address = 0;
+      else if (Section != o->end_sections()) {
+        uint64_t SectionAddr;
+        if (!error(Section->getAddress(SectionAddr)))
+          Address -= SectionAddr;
+      }
       if (Size == UnknownAddressOrSize)
         Size = 0;
       char GlobLoc = ' ';
