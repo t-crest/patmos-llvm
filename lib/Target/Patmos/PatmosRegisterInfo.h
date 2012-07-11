@@ -37,7 +37,8 @@ private:
   /// FI offset.
   /// \note The offset and basePtr arguments are possibly updated!
   void computeLargeFIOffset(int &offset, unsigned &basePtr,
-                            MachineBasicBlock::iterator II) const;
+                            MachineBasicBlock::iterator II,
+                            int shl) const;
 public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 

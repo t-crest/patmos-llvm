@@ -140,20 +140,21 @@ PatmosRegisterInfo::processFunctionBeforeFrameFinalized(MachineFunction &MF)
 
 void
 PatmosRegisterInfo::computeLargeFIOffset(int &offset, unsigned &basePtr,
-                                         MachineBasicBlock::iterator II) const {
+                                         MachineBasicBlock::iterator II,
+                                         int shl) const {
   MachineBasicBlock &MBB = *II->getParent();
   DebugLoc DL            = II->getDebugLoc();
 
   assert(offset >= 0);
 
   // get offset
-  unsigned offsetLeft = 127; // -128 for offsets < 0
+  unsigned offsetLeft = 63; // -64 for offsets < 0
   unsigned offsetLarge = offset - offsetLeft;
   unsigned opcode = isUInt<12>(offsetLarge) ? Patmos::ADDi : Patmos::ADDl;
 
   // emit instruction
   AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode), Patmos::RTR))
-    .addReg(basePtr).addImm(offset - offsetLeft);
+    .addReg(basePtr).addImm((offset - offsetLeft) << shl);
 
   // return value
   basePtr = Patmos::RTR;
@@ -241,8 +242,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
       // if needed expand computation of large offsets
       if (!isInt<7>(Offset)) {
-        Offset <<= 2;
-        computeLargeFIOffset(Offset, BasePtr, II);
+        computeLargeFIOffset(Offset, BasePtr, II, 2);
       }
       break;
     case Patmos::LHC: case Patmos::LHM:
@@ -254,8 +254,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
       // if needed expand computation of large offsets
       if (!isInt<7>(Offset)) {
-        Offset <<= 1;
-        computeLargeFIOffset(Offset, BasePtr, II);
+        computeLargeFIOffset(Offset, BasePtr, II, 1);
       }
       break;
     case Patmos::LBC: case Patmos::LBM:
@@ -266,7 +265,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
       // if needed expand computation of large offsets
       if (!isInt<7>(Offset)) {
-        computeLargeFIOffset(Offset, BasePtr, II);
+        computeLargeFIOffset(Offset, BasePtr, II, 0);
       }
       break;
     case Patmos::ADDi:
