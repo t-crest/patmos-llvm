@@ -13,7 +13,7 @@
 
 // zero in R0 and P0
 def : Pat<(i32 0), (i32 R0)>;
-def : Pat<(i1  0), (i1  P0)>;
+def : Pat<(i1 -1), (i1  P0)>;
 
 // load immediate
 def : Pat<(i32 uimm12:$imm),  (LIi uimm12:$imm)>;
