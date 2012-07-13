@@ -410,6 +410,11 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 
 // Pseudo Instructions using binary arithmetic opcodes
 
+// conditional add: add something only if predicate is set
+let isCodeGenOnly = 1 in
+def CADDi : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
+                 "add", "$rd = $rs1, $imm",
+                 []>;
 
 // Allocate space on the current stack space -- aka alloca
 // FIXME: no opcode, no fields, no nothing in PatmosInst .. must derive from ALUi or something!
@@ -421,7 +426,7 @@ def DYNALLOC : PatmosInst<(outs RRegs:$rd),
 
 
 // move instructions
-let isAsCheapAsAMove=1, imm=0 in {
+let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
   // mov Rd = Rs ... add Rd = Rs + 0
   def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
                  "mov", "$rd = $rs1", []>;
@@ -439,7 +444,7 @@ let isAsCheapAsAMove=1, imm=0 in {
 }
 
 // neg Rd = -Rs ... rsub Rd = 0 - Rs
-let imm = 0 in
+let imm = 0, ImmOpNo = 0 in
 def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
                "neg", "$rd = $rs1",
                [(set RRegs:$rd, (ineg RRegs:$rs1))]>;
@@ -451,9 +456,14 @@ def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
                "not", "$rd = $rs1",
                [(set RRegs:$rd, (not RRegs:$rs1))]>;
 
+// clr Rd ... add Rd = R0 + 0
+let rs1 = 0, imm = 0, ImmOpNo = 0 in
+def CLR : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p),
+                 "clr", "$rd", []>;
+
 
 // zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
-let imm = 0xff in
+let imm = 0xff, ImmOpNo = 0 in
 def ZEXT8 : ALUi <0b0111,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
               "zext8", "$rd = $rs1",

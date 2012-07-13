@@ -348,7 +348,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
     // TODO should we shift the constant? (This must be done in printer too in this case)
 
     unsigned ALUlOpcode;
-    if (Format == PatmosII::FrmALUi) {
+    if (Format == PatmosII::FrmALUi && ImmOpNo > 0) {
       MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
       if (MCO.isExpr() && !isBundled) {

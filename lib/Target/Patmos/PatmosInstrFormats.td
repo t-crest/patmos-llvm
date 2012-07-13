@@ -51,7 +51,7 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
   let Itinerary   = itin;
 
   Format  Form = form;
-  // Number of immediate operand, if any
+  // Number of immediate operand, or 0 if no immediate
   field bits<4> ImmOpNo = 0;
   // Number of bits the immediate value is shifted left
   field bits<3> ImmShift = 0;

@@ -380,7 +380,7 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  getTargetMachine(), RVLocs, *DAG.getContext());
 
-  // Analize return values.
+  // Analyze return values.
   CCInfo.AnalyzeReturn(Outs, RetCC_Patmos);
 
   // If this is the first return lowered for this function, add the regs to the
@@ -579,7 +579,7 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 PatmosTargetLowering::ConstraintType PatmosTargetLowering::
 getConstraintType(const std::string &Constraint) const
 {
-  // Patmos specific constrainy
+  // Patmos specific constrains
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
       default : break;
