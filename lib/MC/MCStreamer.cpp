@@ -643,6 +643,11 @@ void MCStreamer::EmitRegSave(const SmallVectorImpl<unsigned> &RegList, bool) {
   abort();
 }
 
+void MCStreamer::EmitFRELStart(const MCSymbol*, const MCExpr*, unsigned) {
+  errs() << "Not implemented yet\n";
+  abort();
+}
+
 /// EmitRawText - If this file is backed by an assembly streamer, this dumps
 /// the specified string in the output .s file.  This capability is
 /// indicated by the hasRawTextSupport() predicate.

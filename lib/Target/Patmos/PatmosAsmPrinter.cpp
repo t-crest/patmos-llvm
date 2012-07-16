@@ -72,7 +72,7 @@ namespace {
                                        const char *ExtraCode,
                                        raw_ostream &OS);
   private:
-    void EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd);
+    void EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd, unsigned Alignment = 0);
 
     bool isFRELStart(const MachineBasicBlock *MBB) const;
   };
@@ -113,7 +113,7 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   CurrFRELEnd = OutContext.CreateTempSymbol();
 
   // emit a function/subfunction start directive
-  EmitFRELStart(SymStart, CurrFRELEnd);
+  EmitFRELStart(SymStart, CurrFRELEnd, Next->getAlignment());
 }
 
 void PatmosAsmPrinter::EmitFunctionBodyEnd() {
@@ -121,20 +121,33 @@ void PatmosAsmPrinter::EmitFunctionBodyEnd() {
   OutStreamer.EmitLabel(CurrFRELEnd);
 }
 
-void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd) {
+void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd, unsigned Alignment) {
   // emit .frelstart SymStart, SymEnd-SymStart
-  const MCExpr *SizeExp =
+  const MCExpr *SizeExpr =
     MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
 
-  // TODO create a new OutStreamer.EmitFRELStart() or something, use it here, or handle alignment in some other way
+  // TODO get the proper cache alignment size from the Patmos configuration somehow, merge with per-block alignment
+  Alignment = Alignment != 0 ? Alignment : 16;
 
-  // TODO mark SymStart as FREL-Start for the linker
-  //OutStreamer.EmitSymbolAttribute(SymStart, FREL_Start);
+  // TODO should we emit a .type directive for SymStart instead of setting the flag in EmitFREL?
+  // This would need adding a new MCSymbolAttr, and adding proper handling in EmitSymbolAttribute and
+  // in the parser. Similarly, should we emit .size or handle this in EmitFREL as well?
+  // - If we emit .size, we should also emit .type for consistency reasons
+  // - If we emit .type, we need to add the @fblock type to ELF headers, emitters and parser.
+  // - If we emit .size as part of .fstart, we need a separate symbol for function start and cache-start!
+  //   (otherwise, we emit two .size directives for the function label, one with function size, one with the
+  //   size of the first cache block!)
+  // - If we emit .size, we also need to make sure the linker does not interpret it as offset.
+  //
+  // For now, we set the SubFunction flag in EmitFRELStart, and do not set size.
 
-  // create .word
-  OutStreamer.EmitValue(SizeExp, 4, 0);
+  //OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeSubFunction);
+
+  //OutStreamer.EmitELFSize(SymStart, SizeExpr);
+
+  OutStreamer.EmitFRELStart(SymStart, SizeExpr, Alignment);
 }
 
 bool PatmosAsmPrinter::isFRELStart(const MachineBasicBlock *MBB) const {

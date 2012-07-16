@@ -7,8 +7,9 @@ Open Tasks
 o) Documentation
 - List of accepted assembler instructions with formats, including pseudo instructions/instruction aliases
 
-
-
+o) Methodcache alignment support
+- PatmosAsmPrinter::EmitFRELStart: get proper cache block alignment size
+- MCELFStreamer::EmitEFRELStart: emit alignment fragment
 
 
 Known Bugs 

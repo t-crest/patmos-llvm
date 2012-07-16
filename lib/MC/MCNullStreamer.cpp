@@ -94,6 +94,8 @@ namespace {
                                        StringRef FileName) {}
     virtual void EmitInstruction(const MCInst &Inst) {}
 
+    virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment) {}
+
     virtual void FinishImpl() {}
 
     virtual void EmitCFIEndProcImpl(MCDwarfFrameInfo &Frame) {

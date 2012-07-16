@@ -101,6 +101,8 @@ private:
   bool isPredSrcOperand(StringRef Mnemonic, unsigned OpNo);
 
   bool ParseDirectiveWord(unsigned Size, SMLoc L);
+
+  bool ParseDirectiveFStart(SMLoc L);
 };
 
 /// PatmosOperand - Instances of this class represent a parsed Patmos machine
@@ -733,6 +735,8 @@ ParseDirective(AsmToken DirectiveID) {
     return ParseDirectiveWord(4, DirectiveID.getLoc());
   if (IDVal == ".half" || IDVal == ".hword")
     return ParseDirectiveWord(2, DirectiveID.getLoc());
+  if (IDVal == ".fstart")
+    return ParseDirectiveFStart(DirectiveID.getLoc());
   return true;
 }
 
@@ -758,6 +762,56 @@ bool PatmosAsmParser::ParseDirectiveWord(unsigned Size, SMLoc L) {
   }
 
   Parser.Lex();
+  return false;
+}
+
+/// ParseDirectiveFStart
+///  ::= .fstart [ symbol , length, align ]
+bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
+  if (getLexer().is(AsmToken::EndOfStatement)) {
+    return Error(L, "missing arguments to .fstart directive");
+  }
+
+  const MCSymbol *Start;
+  const MCExpr *StartExpr;
+  if (getParser().ParseExpression(StartExpr)) {
+    return true;
+  }
+  if (StartExpr->getKind() == MCExpr::SymbolRef) {
+    const MCSymbolRefExpr *SymRef = dyn_cast<MCSymbolRefExpr>(StartExpr);
+    Start = &SymRef->getSymbol();
+  } else {
+    return Error(L, "first parameter of this directive must be a symbol name");
+  }
+
+  if (getLexer().isNot(AsmToken::Comma))
+    return Error(L, "unexpected token in directive");
+  Parser.Lex();
+
+  const MCExpr *Length;
+  if (getParser().ParseExpression(Length)) {
+    return true;
+  }
+
+  if (getLexer().isNot(AsmToken::Comma))
+    return Error(L, "unexpected token in directive");
+  Parser.Lex();
+
+  int64_t Align;
+  if (getParser().ParseAbsoluteExpression(Align)) {
+    return true;
+  }
+  if (Align < 0) {
+    return Error(L, "alignment value must be a positive value");
+  }
+
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    return Error(L, "unexpected token in directive");
+  }
+  Parser.Lex();
+
+  getParser().getStreamer().EmitFRELStart(Start, Length, (unsigned)Align);
+
   return false;
 }
 

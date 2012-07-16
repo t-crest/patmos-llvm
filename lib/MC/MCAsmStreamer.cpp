@@ -258,6 +258,8 @@ public:
   /// indicated by the hasRawTextSupport() predicate.
   virtual void EmitRawText(StringRef String);
 
+  virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment);
+
   virtual void FinishImpl();
 
   /// @}
@@ -1277,6 +1279,11 @@ void MCAsmStreamer::EmitRegSave(const SmallVectorImpl<unsigned> &RegList,
   EmitEOL();
 }
 
+void MCAsmStreamer::EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment) {
+  OS << "\t.fstart\t" << *Start << ", " << *Size << ", " << Alignment;
+  EmitEOL();
+}
+
 void MCAsmStreamer::EmitInstruction(const MCInst &Inst) {
   assert(getCurrentSection() && "Cannot emit contents before setting section!");
 
@@ -1322,6 +1329,7 @@ void MCAsmStreamer::FinishImpl() {
   if (!UseCFI)
     EmitFrames(false);
 }
+
 MCStreamer *llvm::createAsmStreamer(MCContext &Context,
                                     formatted_raw_ostream &OS,
                                     bool isVerboseAsm, bool useLoc,

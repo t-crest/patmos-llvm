@@ -107,6 +107,8 @@ public:
 
   virtual void EmitFileDirective(StringRef Filename);
 
+  virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment);
+
   virtual void FinishImpl();
 
 private:
@@ -482,6 +484,21 @@ void MCELFStreamer::EmitInstToData(const MCInst &Inst) {
   }
   DF->getContents().append(Code.begin(), Code.end());
 }
+
+void MCELFStreamer::EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment) {
+
+  // Set the SubFunction flag for the start symbol
+  MCSymbolData &SD = getAssembler().getOrCreateSymbolData(*Start);
+  SD.setFlags(SD.getFlags() | ELF_Other_SubFunc);
+
+  // TODO Emit proper alignment, excluding function size word
+
+
+
+  // Emit function size as word
+  EmitValue(Size, 4, 0);
+}
+
 
 void MCELFStreamer::FinishImpl() {
   EmitFrames(true);

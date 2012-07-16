@@ -601,6 +601,9 @@ namespace llvm {
     virtual void EmitRegSave(const SmallVectorImpl<unsigned> &RegList,
                              bool isVector);
 
+    /// Patmos-related methods.
+    virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment);
+
     /// FinishImpl - Streamer specific finalization.
     virtual void FinishImpl() = 0;
     /// Finish - Finish emission of machine code.
