@@ -117,7 +117,12 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
     }
   } else {
     O << ((flag)?"!":" ");
-    printRegisterName(reg, O);
+    if (reg == Patmos::NoRegister) {
+      printRegisterName(Patmos::P0, O);
+    }
+    else {
+      printRegisterName(reg, O);
+    }
   }
 }
 
