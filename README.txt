@@ -28,8 +28,10 @@ From the github.com/t-crest organization, you need to check out the following
 additional repositories:
 
 - patmos-clang as tools/clang for the C frontend
-- patmos-newlib and patmos-compiler-rt into separate directories, for libc and runtime library
+- patmos-newlib and patmos-compiler-rt into separate directories, for libc and 
+  runtime libraries
 - patmos-gold for the linker
 
-See the README files in the various repositories for information on how to build them.
+See the README files in the various repositories for information on how to build 
+them.
 
