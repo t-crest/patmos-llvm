@@ -18,3 +18,18 @@ If you're writing a package for LLVM, see docs/Packaging.html for our
 suggestions.
 
 
+Toolchain
+---------
+
+For more information about the Patmos backend (ELF file format, ..), please refer to
+lib/Target/Patmos/README.txt
+
+From the github.com/t-crest organization, you need to check out the following 
+additional repositories:
+
+- patmos-clang as tools/clang for the C frontend
+- patmos-newlib and patmos-compiler-rt into separate directories, for libc and runtime library
+- patmos-gold for the linker
+
+See the README files in the various repositories for information on how to build them.
+

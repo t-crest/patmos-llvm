@@ -8,12 +8,16 @@ o) Documentation
 - List of accepted assembler instructions with formats, including pseudo instructions/instruction aliases
 
 o) Methodcache alignment support
-- PatmosAsmPrinter::EmitFRELStart: get proper cache block alignment size
-- MCELFStreamer::EmitEFRELStart: emit alignment fragment
++ PatmosAsmPrinter::EmitFRELStart: get proper cache block alignment size (from some config option)
++ MCELFStreamer::EmitEFRELStart: emit alignment fragment
 
 
 Known Bugs 
 ----------
+
+o) Floating-point support
+- Floats are not printed correctly by newlib printf, FP-calculations might be broken too.
+
 
 o) Parsing of bundled instructions
 + Inline-asm: ';' at the end of inline asm should either produce an error or should be ignored. 
@@ -23,6 +27,7 @@ o) Parsing of bundled instructions
   '; \n ;; ' is not (this would put the following operation into the same bundle, assuming the next operation is not part of a bundle).
 
 - Bundled operations are not fully sanity checked: memory or wait operations can be put into the second slot
+
 
 o) Inline Assembler
 - Passing booleans as operands as predicate registers class ('P') is not supported (requires enabling register allocation support for PRegs class)
