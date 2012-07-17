@@ -73,8 +73,12 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setMinFunctionAlignment(2);
   setPrefFunctionAlignment(2);
 
-  setLoadExtAction(ISD::EXTLOAD, MVT::i1, Promote);
+  setOperationAction(ISD::LOAD,   MVT::i1, Custom);
+  setLoadExtAction(ISD::EXTLOAD,  MVT::i1, Promote);
   setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::i1, Promote);
+
+  setOperationAction(ISD::STORE, MVT::i1, Custom);
 
   //TODO there are a bunch of operations which are not legal for i1 -> promote all
   setOperationAction(ISD::SIGN_EXTEND, MVT::i1, Promote);
@@ -142,6 +146,8 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
                                              SelectionDAG &DAG) const {
 
   switch (Op.getOpcode()) {
+    case ISD::LOAD:               return LowerLOAD(Op,DAG);
+    case ISD::STORE:              return LowerSTORE(Op,DAG);
     case ISD::SMUL_LOHI:
     case ISD::UMUL_LOHI:          return LowerMUL_LOHI(Op, DAG);
     // alloca
@@ -175,8 +181,35 @@ const MCExpr * PatmosTargetLowering::LowerCustomJumpTableEntry(
 //                      Custom Lower Operation
 //===----------------------------------------------------------------------===//
 
+SDValue PatmosTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
+  LoadSDNode *load = static_cast<LoadSDNode*>(Op.getNode());
+
+  assert(load->getMemoryVT() == MVT::i1);
+
+  SDValue newLoad = DAG.getLoad(ISD::UNINDEXED, ISD::ZEXTLOAD, MVT::i32,
+                                Op.getDebugLoc(), load->getChain(),
+                                load->getBasePtr(), load->getOffset(), MVT::i8,
+                                load->getMemOperand());
+
+  SDValue newTrunc = DAG.getZExtOrTrunc(newLoad, Op.getDebugLoc(), MVT::i1);
+
+  SDValue Ops[2] = { newTrunc, newLoad.getOperand(0) };
+  return DAG.getMergeValues(Ops, 2, Op.getDebugLoc());
+}
 
 
+SDValue PatmosTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
+  StoreSDNode *store = static_cast<StoreSDNode*>(Op.getNode());
+
+  assert(store->getMemoryVT() == MVT::i1);
+
+  SDValue newVal = DAG.getZExtOrTrunc(store->getValue(), Op.getDebugLoc(),
+                                      MVT::i32);
+
+  return DAG.getTruncStore(store->getChain(), Op.getDebugLoc(), newVal,
+                           store->getBasePtr(), MVT::i1,
+                           store->getMemOperand());
+}
 
 SDValue PatmosTargetLowering::LowerMUL_LOHI(SDValue Op,
                                             SelectionDAG &DAG) const {

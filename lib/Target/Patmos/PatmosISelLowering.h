@@ -164,6 +164,12 @@ namespace llvm {
 
     /// LowerMUL_LOHI - Lower Lo/Hi multiplications.
     SDValue LowerMUL_LOHI(SDValue Op, SelectionDAG &DAG) const;
+
+    /// LowerSTORE - Promote i1 store operations to i8.
+    SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
+
+    /// LowerLOAD - Promote i1 load operations to i8.
+    SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
   };
 } // namespace llvm
 
