@@ -609,8 +609,8 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
   }
 }
 
-//not uses nor opcode (nor Pd = Ps ^ p0)
-let ps2 = 0 in
+//not uses nor opcode (nor Pd = Ps, !p0)
+let ps2 = 0b1000 in
 def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
                 "not", "$pd = $ps1",
                 [(set PRegs:$pd, (not predsel:$ps1))]>;
@@ -621,7 +621,7 @@ def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
                 "set", "$pd",
                 [(set PRegs:$pd, (i1 -1))]>;
 
-//clr uses nor opcode (nor Pd = p0 ^ p0)
+//clr uses xor opcode (xor Pd = p0 ^ p0)
 let ps1 = 0, ps2 = 0 in
 def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
                 "clr", "$pd",
