@@ -96,7 +96,7 @@ def : Pat<(notcc (or predsel:$ps1, predsel:$ps2)),
 
 def : Pat<(setne  predsel:$a, (i1 -1)), (PNOT predsel:$a)>;
 
-def : Pat<(i1 (trunc RRegs:$a)), (MOVrp RRegs:$a)>;
+def : Pat<(i1 (trunc RRegs:$a)), (ISODD RRegs:$a)>;
 
 
 // Load patterns
