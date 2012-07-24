@@ -76,7 +76,7 @@ all: return.s
 
 %-app.ll: %.ll
 	$(LLVM_AS) $<
-	$(LLVM_LD) -v -b ${@:.ll=.bc} ${<:.ll=.bc} $(NEWLIBDIR)/lib/crt0.o -lc -lpatmos libll/libllsyms.o -lll 
+	$(LLVM_LD) -v -b ${@:.ll=.bc} ${<:.ll=.bc} $(NEWLIBDIR)/lib/crt0.o -lc -lpatmos $(NEWLIBDIR)/lib/libllsyms.o -lll
 	$(LLVM_DIS) ${@:.ll=.bc}
 
 %: %.o $(LDBIN)
