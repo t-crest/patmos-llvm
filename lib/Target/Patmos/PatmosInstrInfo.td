@@ -411,7 +411,7 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 // Pseudo Instructions using binary arithmetic opcodes
 
 // conditional add: add something only if predicate is set
-let isCodeGenOnly = 1 in
+let Constraints = "$rs1 = $rd", isCodeGenOnly = 1 in
 def CADDi : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
                  "add", "$rd = $rs1, $imm",
                  []>;
