@@ -150,11 +150,12 @@ PatmosRegisterInfo::computeLargeFIOffset(int &offset, unsigned &basePtr,
   // get offset
   unsigned offsetLeft = 63; // -64 for offsets < 0
   unsigned offsetLarge = offset - offsetLeft;
-  unsigned opcode = isUInt<12>(offsetLarge) ? Patmos::ADDi : Patmos::ADDl;
+  unsigned opcode = isUInt<12>(offsetLarge << shl) ? Patmos::ADDi :
+                                                     Patmos::ADDl;
 
   // emit instruction
   AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode), Patmos::RTR))
-    .addReg(basePtr).addImm((offset - offsetLeft) << shl);
+    .addReg(basePtr).addImm(offsetLarge << shl);
 
   // return value
   basePtr = Patmos::RTR;
