@@ -12,7 +12,8 @@ ifeq ($(GDB),1)
   GDB = gdb --args
 endif
 
-SYMDEFS=--defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x3000000
+SYMDEFS=--defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x3000000 \
+        --defsym __heap_start=end             --defsym __heap_end=0x2000000
 
 ### compiler binaries ###
 
@@ -105,6 +106,9 @@ all: return.s
 
 Patmos.out: $(TBLGENBIN) ../../../lib/Target/Patmos/*.td
 	$(GDB) $(TBLGEN) -I=../../../include -I=../../../lib/Target/Patmos/ ../../../lib/Target/Patmos/Patmos.td > Patmos.out
+
+%.sim: %-app
+	pasim $<
 
 %.clean:
 	rm -f $(addprefix $*,$(CLEAN_SUFFIXES))  $*-app $*-app.bc $*-app.ll
