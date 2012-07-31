@@ -22,6 +22,9 @@ MCBIN=$(BUILDDIR)/bin/llvm-mc
 TBLGENBIN=$(BUILDDIR)/bin/llvm-tblgen
 LLVM_LDBIN=$(BUILDDIR)/bin/llvm-ld
 LDBIN=$(GOLDDIR)/ld-new
+CLANGBIN=$(BUILDDIR)/bin/clang
+OPTBIN=$(BUILDDIR)/bin/opt
+
 
 ### compiler commands ###
 
@@ -39,8 +42,8 @@ MC=$(MCBIN) -arch=$(ARCH)
 TBLGEN=$(TBLGENBIN)
 LD=$(LDBIN) $(SYMDEFS)
 
-CLANG=$(BUILDDIR)/bin/clang
-OPT=$(BUILDDIR)/bin/opt
+CLANG=$(CLANGBIN)
+OPT=$(OPTBIN)
 
 VIEW= \
   -view-dag-combine1-dags \
@@ -59,7 +62,9 @@ DEBUG=--debug
 # to override default BUILDDIR, VIEW, ...
 -include config.mk
 
-
+ifeq ($(ON),0)
+  LLVM_LD += --disable-opt
+endif
 
 CLEAN_SUFFIXES=.s .o .ll .as .out .bc .dis
 
@@ -76,16 +81,16 @@ all: return.s
 	$(CLANG) -ccc-host-triple $(TRIPLE) -O$(ON) -v -o $@ $<
 
 %.s: %.ll $(LLCBIN)
-	$(GDB) $(LLC) -O0 $(DEBUG) $(VIEW) -show-mc-encoding -o $@ $<
+	$(GDB) $(LLC) -O$(ON) $(DEBUG) $(VIEW) -show-mc-encoding -o $@ $<
 	./hex2bin -i $@
 	@echo
 
 %.o: %.ll $(LLCBIN)
-	$(GDB) $(LLC) $(DEBUG) $(VIEW) -filetype=obj -o $@ $<
+	$(GDB) $(LLC) -O$(ON) $(DEBUG) $(VIEW) -filetype=obj -o $@ $<
 
 %-app.ll: %.ll
 	$(LLVM_AS) $<
-	$(LLVM_LD) -v -b ${@:.ll=.bc} ${<:.ll=.bc} $(NEWLIBDIR)/lib/crt0.o -lc -lpatmos $(NEWLIBDIR)/lib/libllsyms.o -lll
+	$(LLVM_LD) -v -b ${@:.ll=.bc} $(NEWLIBDIR)/lib/crt0.o ${<:.ll=.bc} -lc -lpatmos $(NEWLIBDIR)/lib/libllsyms.o -lll
 	$(LLVM_DIS) ${@:.ll=.bc}
 
 %: %.o $(LDBIN)
