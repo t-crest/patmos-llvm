@@ -107,11 +107,15 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 
   for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
     unsigned opc = I->getOpcode();
-    // FIXME: This should eventally be handled in the scheduler.
+    // FIXME: This should eventually be handled in the scheduler.
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
       MachineBasicBlock::iterator J = I;
       AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
           .addImm(3);
+    } else if (I->mayLoad()) {
+      MachineBasicBlock::iterator J = I;
+      AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
+          .addImm(0);
     } else // END_FIXME
     if (I->hasDelaySlot()) {
       MachineBasicBlock::iterator D = MBB.end();
