@@ -1,3 +1,4 @@
+*.dis
 *.ll
 *.s
 *.o
@@ -5,6 +6,8 @@
 *.dot
 *.out
 *.bin
+*-app
+*-app.bc
 tmp
 llvm-objdump
 llvm-mc
