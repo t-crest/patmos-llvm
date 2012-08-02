@@ -27,6 +27,7 @@ protected:
 
   /// assignFIsToStackCache - Assign some FIs to the stack cache.
   /// Currently this is only done for spill slots.
+  /// @return The final size of the shadow stack.
   unsigned assignFIsToStackCache(MachineFunction &MF) const;
 
   /// emitSTC - Emit a stack reserve/free/ensure operation.
@@ -37,6 +38,12 @@ protected:
   void emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                MachineBasicBlock::iterator &MI, unsigned Opcode) const;
 
+  /// patchCallSites - Emit stack ensure operations after every call.
+  /// The size of the stack frame is calculated before by assignFIsToStackCache
+  /// and is retrieved via the PatmosMachineFunctionInfo.
+  /// \see assignFIsToStackCache
+  /// \see PatmosMachineFunctionInfo
+  void patchCallSites(MachineFunction &MF) const;
   public:
   explicit PatmosFrameLowering(const PatmosSubtarget &sti)
     : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 4, 0), STI(sti) {

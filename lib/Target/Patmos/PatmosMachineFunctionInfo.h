@@ -14,6 +14,7 @@
 #ifndef _PATMOS_MACHINEFUNCTIONINFO_H_
 #define _PATMOS_MACHINEFUNCTIONINFO_H_
 
+#include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineFunction.h"
 
 #include <limits>
@@ -28,11 +29,12 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// stack cache.
   unsigned StackCacheReservedBytes;
 
-  /// FistStackCacheOffset - Offset of the first FI assigned to the stack cache.
-  int FirstStackCacheOffset;
+  /// StackReservedSize - Size in bytes that need to be reserved on the shadow 
+  /// stack.
+  unsigned StackReservedBytes;
 
-  /// LastStackCacheOffset - Offset of the last FI assigned to the stack cache.
-  int LastStackCacheOffset;
+  /// StackCacheFIs - Set of FIs assigned to the stack cache.
+  BitVector StackCacheFIs;
 
   /// VarArgsFI - FrameIndex to access parameters of variadic functions.
   int VarArgsFI;
@@ -41,33 +43,7 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   PatmosMachineFunctionInfo() {}
 public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
-    StackCacheReservedBytes(0),
-    FirstStackCacheOffset(std::numeric_limits<int>::max()),
-    LastStackCacheOffset(std::numeric_limits<int>::max()), VarArgsFI(0) {
-  }
-
-  /// getFirstStackCacheOffset - Return the offset of the first FI assigned to 
-  /// the stack cache.
-  int getFirstStackCacheOffset() const {
-    return FirstStackCacheOffset;
-  }
-
-  /// setFirstStackCacheFI - Set the offset of the First FI assigned to the 
-  /// stack cache.
-  void setFirstStackCacheOffset(int newIndex) {
-    FirstStackCacheOffset = newIndex;
-  }
-
-  /// getLastStackCacheOffset - Return the offset of the last FI assigned to the
-  /// stack cache.
-  int getLastStackCacheOffset() const {
-    return LastStackCacheOffset;
-  }
-
-  /// setLastStackCacheFI - Set the offset of the last FI assigned to the stack
-  /// cache.
-  void setLastStackCacheOffset(int newIndex) {
-    LastStackCacheOffset = newIndex;
+    StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0) {
   }
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
@@ -80,6 +56,28 @@ public:
   /// cache.
   void setStackCacheReservedBytes(unsigned newSize) {
     StackCacheReservedBytes = newSize;
+  }
+
+  /// getStackReservedBytes - Get the number of bytes reserved on the shadow 
+  /// stack.
+  unsigned getStackReservedBytes() const {
+    return StackReservedBytes;
+  }
+
+  /// setStackReservedBytes - Set the number of bytes reserved on the shadow 
+  /// stack.
+  void setStackReservedBytes(unsigned newSize) {
+    StackReservedBytes = newSize;
+  }
+
+  /// getStackCacheFIs - Return the set of FIs assigned to the stack cache.
+  const BitVector &getStackCacheFIs() const {
+    return StackCacheFIs;
+  }
+
+  /// setStackCacheFIs - Set the set of FIs assigned to the stack cache.
+  void setStackCacheFIs(const BitVector &fis) {
+    StackCacheFIs = fis;
   }
 
   /// getVarArgsFI - Get the FI used to access parameters of variadic functions.
