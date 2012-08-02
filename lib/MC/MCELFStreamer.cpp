@@ -492,11 +492,10 @@ void MCELFStreamer::EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, uns
   SD.setFlags(SD.getFlags() | ELF_Other_SubFunc);
 
   // TODO Emit proper alignment, excluding function size word
+  MCSectionData *SectData = getCurrentSectionData();
+  MCExprAlignFragment *AF = new MCExprAlignFragment(Alignment, *Size, 4, 0, 1, Alignment + 3, SectData);
 
-
-
-  // Emit function size as word
-  EmitValue(Size, 4, 0);
+  AF->setEmitNops(true);
 }
 
 

@@ -329,6 +329,17 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
     return Size;
   }
 
+  case MCFragment::FT_ExprAlign: {
+    const MCExprAlignFragment &AF = cast<MCExprAlignFragment>(F);
+    unsigned Offset = Layout.getFragmentOffset(&AF);
+    unsigned Size = OffsetToAlignment(Offset, AF.getAlignment());
+    if (Size < AF.getExpressionSize())
+      Size += AF.getAlignment();
+    if (Size > AF.getMaxBytesToEmit())
+      return AF.getExpressionSize();
+    return Size;
+  }
+
   case MCFragment::FT_Org: {
     MCOrgFragment &OF = cast<MCOrgFragment>(F);
     int64_t TargetLocation;
@@ -425,6 +436,61 @@ static void WriteFragmentData(const MCAssembler &Asm, const MCAsmLayout &Layout,
     break;
   }
 
+  case MCFragment::FT_ExprAlign: {
+    MCExprAlignFragment &AF = cast<MCExprAlignFragment>(F);
+    uint64_t PaddingSize = FragmentSize - AF.getExpressionSize();
+    uint64_t Count = PaddingSize / AF.getValueSize();
+
+    assert(AF.getValueSize() && "Invalid virtual align in concrete fragment!");
+
+    // FIXME: This error shouldn't actually occur (the front end should emit
+    // multiple .align directives to enforce the semantics it wants), but is
+    // severe enough that we want to report it. How to handle this?
+    if (Count * AF.getValueSize() != PaddingSize)
+      report_fatal_error("undefined .fstart directive, value size '" +
+                        Twine(AF.getValueSize()) +
+                        "' is not a divisor of padding size '" +
+                        Twine(PaddingSize) + "'");
+
+    // See if we are aligning with nops, and if so do that first to try to fill
+    // the Count bytes.  Then if that did not fill any bytes or there are any
+    // bytes left to fill use the the Value and ValueSize to fill the rest.
+    // If we are aligning with nops, ask that target to emit the right data.
+    if (AF.hasEmitNops()) {
+      if (!Asm.getBackend().writeNopData(Count, OW))
+        report_fatal_error("unable to write nop sequence of " +
+                          Twine(Count) + " bytes");
+    } else {
+      // Otherwise, write out in multiples of the value size.
+      for (uint64_t i = 0; i != Count; ++i) {
+        switch (AF.getValueSize()) {
+        default: llvm_unreachable("Invalid size!");
+        case 1: OW->Write8 (uint8_t (AF.getValue())); break;
+        case 2: OW->Write16(uint16_t(AF.getValue())); break;
+        case 4: OW->Write32(uint32_t(AF.getValue())); break;
+        case 8: OW->Write64(uint64_t(AF.getValue())); break;
+        }
+      }
+    }
+
+    int64_t ExprValue;
+
+    if (!(AF.getExpression().EvaluateAsAbsolute(ExprValue, Layout))) {
+      report_fatal_error("Unable to evaluate expression as absolute value");
+    }
+
+    switch (AF.getExpressionSize()) {
+    default: llvm_unreachable("Invalid size!");
+    case 1: OW->Write8 (ExprValue); break;
+    case 2: OW->Write16(ExprValue); break;
+    case 4: OW->Write32(ExprValue); break;
+    case 8: OW->Write64(ExprValue); break;
+    }
+
+    break;
+  }
+
+
   case MCFragment::FT_Data: {
     MCDataFragment &DF = cast<MCDataFragment>(F);
     assert(FragmentSize == DF.getContents().size() && "Invalid size!");
@@ -509,6 +575,7 @@ void MCAssembler::writeSectionData(const MCSectionData *SD,
         break;
       }
       case MCFragment::FT_Align:
+      case MCFragment::FT_ExprAlign:
         // Check that we aren't trying to write a non-zero value into a virtual
         // section.
         assert((!cast<MCAlignFragment>(it)->getValueSize() ||
@@ -829,6 +896,7 @@ void MCFragment::dump() {
   OS << "<";
   switch (getKind()) {
   case MCFragment::FT_Align: OS << "MCAlignFragment"; break;
+  case MCFragment::FT_ExprAlign: OS << "MCExprAlignFragment"; break;
   case MCFragment::FT_Data:  OS << "MCDataFragment"; break;
   case MCFragment::FT_Fill:  OS << "MCFillFragment"; break;
   case MCFragment::FT_Inst:  OS << "MCInstFragment"; break;
@@ -848,6 +916,17 @@ void MCFragment::dump() {
       OS << " (emit nops)";
     OS << "\n       ";
     OS << " Alignment:" << AF->getAlignment()
+       << " Value:" << AF->getValue() << " ValueSize:" << AF->getValueSize()
+       << " MaxBytesToEmit:" << AF->getMaxBytesToEmit() << ">";
+    break;
+  }
+  case MCFragment::FT_ExprAlign: {
+    const MCExprAlignFragment *AF = cast<MCExprAlignFragment>(this);
+    if (AF->hasEmitNops())
+      OS << " (emit nops)";
+    OS << "\n       ";
+    OS << " Alignment:" << AF->getAlignment()
+       << " Expression:" << AF->getExpression() << " ExpressionSize:" << AF->getExpressionSize()
        << " Value:" << AF->getValue() << " ValueSize:" << AF->getValueSize()
        << " MaxBytesToEmit:" << AF->getMaxBytesToEmit() << ">";
     break;
@@ -968,6 +1047,7 @@ void MCAssembler::dump() {
 void MCDataFragment::anchor() { }
 void MCInstFragment::anchor() { }
 void MCAlignFragment::anchor() { }
+void MCExprAlignFragment::anchor() { }
 void MCFillFragment::anchor() { }
 void MCOrgFragment::anchor() { }
 void MCLEBFragment::anchor() { }

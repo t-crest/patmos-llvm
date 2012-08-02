@@ -418,7 +418,7 @@ def CADDi : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$
 
 // Allocate space on the current stack space -- aka alloca
 // FIXME: no opcode, no fields, no nothing in PatmosInst .. must derive from ALUi or something!
-let Defs = [RSP], Uses = [RSP] in
+let Defs = [RSP], Uses = [RSP], isPseudo = 1 in
 def DYNALLOC : PatmosInst<(outs RRegs:$rd),
                           (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                           "add", "$rd = $rs1, $imm",

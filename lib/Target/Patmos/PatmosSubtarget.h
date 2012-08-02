@@ -25,7 +25,9 @@ namespace llvm {
 class StringRef;
 
 class PatmosSubtarget : public PatmosGenSubtargetInfo {
-  bool ExtendedInsts;
+  bool HasFPU;
+  bool HasMethodCache;
+
   InstrItineraryData InstrItins;
 
 public:
@@ -41,6 +43,11 @@ public:
 
   /// getInstrItins - Return the instruction itineraries based on subtarget.
   const InstrItineraryData &getInstrItineraryData() const { return InstrItins; }
+
+  bool hasFPU() { return HasFPU; }
+
+  bool hasMethodCache() { return HasMethodCache; }
+
 };
 } // End llvm namespace
 

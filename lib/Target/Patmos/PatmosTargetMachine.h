@@ -71,6 +71,17 @@ public:
   /// addPassToEmitX methods for generating a pipeline of CodeGen passes.
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);
 
+  unsigned getMethodCacheBlockSize() {
+    // TODO get from Option flag, or from Subtarget?
+    return 64;
+  }
+
+  /// getMethodCacheBlockAlign - Get the alignment to reach for method cache blocks in bytes.
+  unsigned getFunctionBlockAlign() {
+    // TODO get from Option flag or Subtarget?
+    return Subtarget.hasMethodCache() ? 16 : 4;
+  }
+
 }; // PatmosTargetMachine.
 
 } // end namespace llvm

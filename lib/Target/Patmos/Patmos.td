@@ -52,17 +52,15 @@ def PatmosInstPrinter : AsmWriter {
 // Subtarget Features. 
 //===----------------------------------------------------------------------===//
 
-/*
-def FeatureX           : SubtargetFeature<"ext", "ExtendedInsts", "true",
-                                "Enable Patmos-X extensions">;
 def FeatureFPU         : SubtargetFeature<"fpu", "HasFPU", "true",
                                 "Implements floating point unit">;
-*/
+def FeatureMethodCache : SubtargetFeature<"methodcache", "HasMethodCache", "true",
+                                "Uses a method cache">;
 
 //===----------------------------------------------------------------------===//
 // Patmos supported processors.
 //===----------------------------------------------------------------------===//
-def : Processor<"generic", PatmosGenericItineraries, []>;
+def : Processor<"generic", PatmosGenericItineraries, [FeatureMethodCache]>;
 
 //===----------------------------------------------------------------------===//
 // Target Declaration

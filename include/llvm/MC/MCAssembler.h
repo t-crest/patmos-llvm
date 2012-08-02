@@ -46,6 +46,7 @@ class MCFragment : public ilist_node<MCFragment> {
 public:
   enum FragmentType {
     FT_Align,
+    FT_ExprAlign,
     FT_Data,
     FT_Fill,
     FT_Inst,
@@ -237,6 +238,13 @@ class MCAlignFragment : public MCFragment {
   /// target dependent.
   bool EmitNops : 1;
 
+protected:
+  MCAlignFragment(FragmentType _Kind, unsigned _Alignment, int64_t _Value, unsigned _ValueSize,
+                  unsigned _MaxBytesToEmit, MCSectionData *SD = 0)
+    : MCFragment(_Kind, SD), Alignment(_Alignment),
+      Value(_Value),ValueSize(_ValueSize),
+      MaxBytesToEmit(_MaxBytesToEmit), EmitNops(false) {}
+
 public:
   MCAlignFragment(unsigned _Alignment, int64_t _Value, unsigned _ValueSize,
                   unsigned _MaxBytesToEmit, MCSectionData *SD = 0)
@@ -264,6 +272,36 @@ public:
     return F->getKind() == MCFragment::FT_Align;
   }
   static bool classof(const MCAlignFragment *) { return true; }
+};
+
+class MCExprAlignFragment : public MCAlignFragment {
+  virtual void anchor();
+
+  /// Expr - The expression to emit as value at the end of the alignment fragment
+  const MCExpr &Expr;
+
+  unsigned ExprSize;
+
+public:
+  MCExprAlignFragment(unsigned _Alignment, const MCExpr &_Expr, unsigned _ExprSize,
+                  int64_t _FillValue, unsigned _FillValueSize,
+                  unsigned _MaxBytesToEmit, MCSectionData *SD = 0)
+    : MCAlignFragment(FT_ExprAlign, _Alignment, _FillValue, _FillValueSize, _MaxBytesToEmit, SD),
+      Expr(_Expr), ExprSize(_ExprSize) { }
+
+  /// @name Accessors
+  /// @{
+
+  const MCExpr &getExpression() const { return Expr; }
+
+  unsigned getExpressionSize() const { return ExprSize; }
+
+  /// @}
+
+  static bool classof(const MCFragment *F) {
+    return F->getKind() == MCFragment::FT_ExprAlign;
+  }
+  static bool classof(const MCExprAlignFragment *) { return true; }
 };
 
 class MCFillFragment : public MCFragment {

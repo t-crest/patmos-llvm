@@ -29,6 +29,8 @@ using namespace llvm;
 namespace {
   class PatmosAsmPrinter : public AsmPrinter {
   private:
+    PatmosTargetMachine *PTM;
+
     PatmosMCInstLower MCInstLowering;
 
     // symbol to use for the end of the currently emitted cache block
@@ -36,7 +38,12 @@ namespace {
 
   public:
     PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrFRELEnd(0) {}
+      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrFRELEnd(0)
+    {
+      if (!(PTM = static_cast<PatmosTargetMachine*>(&TM))) {
+        llvm_unreachable("PatmosAsmPrinter must be initialized with a Patmos target configuration.");
+      }
+    }
 
     virtual const char *getPassName() const {
       return "Patmos Assembly Printer";
@@ -128,10 +135,11 @@ void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd, unsig
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
 
-  // TODO get the proper cache alignment size from the Patmos configuration somehow, merge with per-block alignment
-  Alignment = Alignment != 0 ? Alignment : 16;
+  // Get the proper cache alignment size from the Patmos configuration
+  // TODO merge with per-block alignment?
+  Alignment = Alignment != 0 ? Alignment : PTM->getFunctionBlockAlign();
 
-  // TODO should we emit a .type directive for SymStart instead of setting the flag in EmitFREL?
+  // Should we emit a .type directive for SymStart instead of setting the flag in EmitFREL?
   // This would need adding a new MCSymbolAttr, and adding proper handling in EmitSymbolAttribute and
   // in the parser. Similarly, should we emit .size or handle this in EmitFREL as well?
   // - If we emit .size, we should also emit .type for consistency reasons
@@ -142,9 +150,7 @@ void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd, unsig
   // - If we emit .size, we also need to make sure the linker does not interpret it as offset.
   //
   // For now, we set the SubFunction flag in EmitFRELStart, and do not set size.
-
   //OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeSubFunction);
-
   //OutStreamer.EmitELFSize(SymStart, SizeExpr);
 
   OutStreamer.EmitFRELStart(SymStart, SizeExpr, Alignment);

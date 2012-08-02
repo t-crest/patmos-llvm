@@ -602,6 +602,11 @@ namespace llvm {
                              bool isVector);
 
     /// Patmos-related methods.
+
+    /// EmitFRELStart - Emit a function block start block, including the function size and alignment
+    /// \param Start - The start symbol of the function block, should be emitted immediately after this directive.
+    /// \param Size - The size of the block in bytes.
+    /// \param Alignment - The alignment to reach in bytes, should be a power of 2.
     virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment);
 
     /// FinishImpl - Streamer specific finalization.
