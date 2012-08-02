@@ -32,7 +32,7 @@ using namespace llvm;
 STATISTIC(FilledSlots, "Number of delay slots filled");
 
 static cl::opt<bool> DisableDelaySlotFiller(
-  "disable-patmos-delay-filler",
+  "mpatmos-disable-delay-filler",
   cl::init(false),
   cl::desc("Disable the Patmos delay slot filler."),
   cl::Hidden);

@@ -30,19 +30,19 @@ using namespace llvm;
 
 /// EnableStackCache - Command line option to disable the usage of the stack 
 /// cache (enabled by default).
-static cl::opt<bool> DisableStackCache("patmos-disable-stack-cache",
+static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
                             cl::init(false),
                             cl::desc("Disable the use of Patmos' stack cache"));
 
 /// StackCacheBlockSize - Block size of the stack cache in bytes (default: 4, 
 /// i.e., word-sized).
-static cl::opt<unsigned> StackCacheBlockSize("patmos-stack-cache-block-size",
+static cl::opt<unsigned> StackCacheBlockSize("mpatmos-stack-cache-block-size",
                            cl::init(4),
                            cl::desc("Block size of the stack cache in bytes."));
 
 /// StackCacheSize - Total size of the stack cache in bytes (default: 4096, 
 /// i.e., 1K words).
-static cl::opt<unsigned> StackCacheSize("patmos-stack-cache-size",
+static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
                            cl::init(4096),
                            cl::desc("Total size of the stack cache in bytes."));
 
