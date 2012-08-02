@@ -94,7 +94,7 @@ all: return.s
 	$(LLVM_DIS) ${@:.ll=.bc}
 
 %: %.o $(LDBIN)
-	$(LD) -o $@ $<
+	$(LD) -Ttext 0x100 -o $@ $<
 
 %.bin: %.c $(CLANGBIN)
 	$(CLANG) -target $(TRIPLE) -O$(ON) -v -o $@ $<
