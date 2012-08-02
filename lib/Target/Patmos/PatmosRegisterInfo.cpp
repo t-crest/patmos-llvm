@@ -198,23 +198,14 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   //----------------------------------------------------------------------------
   // Stack cache info
 
-  unsigned stackCacheSize   = PMFI.getStackCacheReservedBytes();
-  int firstStackCacheOffset = PMFI.getFirstStackCacheOffset();
-  int lastStackCacheOffset  = PMFI.getLastStackCacheOffset();
-  bool isOnStackCache       = (firstStackCacheOffset <= FrameOffset) &&
-                              (FrameOffset <= lastStackCacheOffset);
+  const BitVector &SCFIs = PMFI.getStackCacheFIs();
+  bool isOnStackCache    = !SCFIs.empty() && FrameIndex >= 0 && SCFIs[FrameIndex];
 
   //----------------------------------------------------------------------------
   // Offset
 
   // get offset
-  int Offset = MFI.getStackSize() + FrameOffset;
-
-  // adjust offset of stack cache accesses and those below
-  if (isOnStackCache)
-    Offset = FrameOffset - firstStackCacheOffset;
-  else if (FrameOffset < firstStackCacheOffset)
-    Offset += stackCacheSize;
+  int Offset = SCFIs.empty() ? MFI.getStackSize() + FrameOffset : FrameOffset;
 
   //----------------------------------------------------------------------------
   // Base register

@@ -30,13 +30,13 @@ STATISTIC(NumAliases  , "Number of aliases internalized");
 STATISTIC(NumFunctions, "Number of functions internalized");
 STATISTIC(NumGlobals  , "Number of global vars internalized");
 
-// APIFile - A file which contains a list of symbols that should not be marked
-// external.
-static cl::opt<std::string>
-APIFile("internalize-public-api-file", cl::value_desc("filename"),
+// APIFile - A list of files each containing a list of symbols that
+// should not be marked external.
+static cl::list<std::string>
+APIFile("internalize-public-api-file", cl::value_desc("filename(s)"),
         cl::desc("A file containing list of symbol names to preserve"));
 
-// APIList - A list of symbols that should not be marked internal.
+// APIList - A list of symbols that should not be marked external.
 static cl::list<std::string>
 APIList("internalize-public-api-list", cl::value_desc("list"),
         cl::desc("A list of symbol names to preserve"),
@@ -70,7 +70,10 @@ InternalizePass::InternalizePass(bool AllButMain)
   : ModulePass(ID), AllButMain(AllButMain){
   initializeInternalizePassPass(*PassRegistry::getPassRegistry());
   if (!APIFile.empty())           // If a filename is specified, use it.
-    LoadFile(APIFile.c_str());
+    for(cl::list<std::string>::iterator itr = APIFile.begin();
+        itr != APIFile.end(); itr++) {
+      LoadFile((*itr).c_str());
+    }
   if (!APIList.empty())           // If a list is specified, use it as well.
     ExternalNames.insert(APIList.begin(), APIList.end());
 }
