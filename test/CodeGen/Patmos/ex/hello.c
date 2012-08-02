@@ -4,7 +4,7 @@ void test(const char *s, int i) {
     int j = i / 3;
     float f = 0.5f;
     float k = f / 2.0f;
-    printf("%s : %d %f\n", s, j, 1.0f);
+    printf("%s : %d %f\n", s, j, k);
 }
 
 int main(int argc, char** argv) {
@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
 	s = "Goodbye";
     }
 
-    test(s, 8);
+    test(s, 8 + argc);
 
     return 0;
 }
