@@ -30,7 +30,9 @@ additional repositories:
 - patmos-clang as tools/clang for the C frontend
 - patmos-newlib and patmos-compiler-rt into separate directories, for libc and 
   runtime libraries
-- patmos-gold for the linker
+- patmos-gold for the linker; clang looks for patmos-gold in the PATH and the clang 
+  install directory. To specify the linker executable to use for clang, set the
+  PATMOS_GOLD environment variable to the linker filename.
 
 See the README files in the various repositories for information on how to build 
 them.
