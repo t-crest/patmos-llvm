@@ -593,8 +593,11 @@ int main(int argc, char **argv, char **envp) {
   TheLinker.addSystemPaths();
 
   // Remove any consecutive duplicates of the same library...
-  Libraries.erase(std::unique(Libraries.begin(), Libraries.end()),
-                  Libraries.end());
+  // TODO this implementation is not correct for two reasons:
+  // 1) Consecutive entries in libraries does not mean their positions are consecutive -> needs checking
+  // 2) Libraries.erase() does erase entries from the Position vector
+  //Libraries.erase(std::unique(Libraries.begin(), Libraries.end()),
+  //                Libraries.end());
 
   if (LinkAsLibrary) {
     std::vector<sys::Path> Files;
