@@ -83,6 +83,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   //TODO there are a bunch of operations which are not legal for i1 -> promote all
   setOperationAction(ISD::SIGN_EXTEND, MVT::i1, Promote);
   setOperationAction(ISD::ZERO_EXTEND, MVT::i1, Promote);
+  setOperationAction(ISD::ANY_EXTEND,  MVT::i1, Promote);
 
   // Expand to S/UMUL_LOHI
   setOperationAction(ISD::MUL,   MVT::i32, Expand);

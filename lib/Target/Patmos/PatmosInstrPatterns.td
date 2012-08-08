@@ -22,6 +22,7 @@ def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 
 // for zext-ing an i1 to i32: conditionally load 1 into an RReg
 def : Pat<(zext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
+def : Pat<(anyext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
 
 //def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;
 
