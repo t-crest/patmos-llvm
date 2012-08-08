@@ -1,4 +1,6 @@
 *.dis
+*.elf
+*.log
 *.ll
 *.s
 *.o

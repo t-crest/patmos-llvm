@@ -1,0 +1,109 @@
+
+
+                             LLVM FOR PATMOS
+
+
+This is LLVM for Patmos, the time predictable processor of the T-CREST project.
+
+--------------------------------------------------------------------------------
+1. Requirements
+
+ - Clang for Patmos
+   https://github.com/t-crest/patmos-clang
+    
+    Required to compile .c files to bitcode files (with the proper data layout 
+    for Patmos).
+
+    You need to checkout patmos-clang as tools/clang subdirectory of this 
+    repository (symlinks will not work!) to build clang as part of the Patmos 
+    toolchain.
+
+    You can (currently) omit this step, if you only need to compile .ll or .bc 
+    files.
+
+ - cmake 2.8 or higher (optional for llvm and clang, required for compiler-rt)
+
+ - graphviz (optional, for debugging)
+
+
+For Debian or Ubuntu, you may need to install the following packages:
+
+    cmake 
+    g++ glibc-dev-i386 
+    texinfo
+    flex bison
+    libelf-dev
+    graphviz
+
+To build the simulator, you also need the following packages (version >= 1.46):
+
+    libboost-dev, libboost-program-options-dev
+
+
+--------------------------------------------------------------------------------
+2. Configure and build
+
+TODO - configure or cmake/cmake-gui
+
+    mkdir ../patmos-llvm-obj
+    cd ../patmos-llvm-obj
+    ../patmos-llvm/configure --disable-optimized --enable-assertions 
+
+
+    --enable-targets=host,patmos
+
+
+--------------------------------------------------------------------------------
+3. Use it
+
+TODO - compile with llc and clang, install gold, newlib and compiler-rt first.
+
+
+
+Have fun!
+
+
+--------------------------------------------------------------------------------
+Appendix - Additional Information
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+A) Patmos Backend Documentation
+
+For more information about the Patmos backend (ELF file format, assembler 
+syntax, ...) please refer to lib/Target/Patmos/README.txt.
+
+
+--------------------------------------------------------------------------------
+B) Toolchain
+
+TODO - describe 
+
+ - pasim - Patmos Simulator
+
+ - compiler-rt, and NewLib for Patmos
+   https://github.com/t-crest/patmos-compiler-rt
+   https://github.com/t-crest/patmos-newlib
+
+  patmos-newlib and patmos-compiler-rt into separate directories, for libc and 
+  runtime libraries
+
+ - patmos-gold for the linker
+   https://github.com/t-crest/patmos-gold
+   
+   clang looks for patmos-gold in the PATH and the clang 
+  install directory. To specify the linker executable to use for clang, set the
+  PATMOS_GOLD environment variable to the linker filename.
+
+
+See the README files in the various repositories for information on how to build 
+them.
+
+TODO - complete list of all compile instructions (?)
+
+
+--------------------------------------------------------------------------------
+C) Eclipse Setup
+
+TODO 
+
