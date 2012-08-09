@@ -74,8 +74,8 @@ namespace {
 }
 
 char RtlibDeclsAdder::ID = 0;
-INITIALIZE_PASS(RtlibDeclsAdder, "rtlibdeclsadder",
-                "Add declarations for rtlib", false, false)
+INITIALIZE_PASS(RtlibDeclsAdder, "add-rtlib-decls",
+                "Add declarations for runtime library functions for the linker", false, false)
 
 ModulePass *
 llvm::createRtlibDeclsAdderPass() { return new RtlibDeclsAdder(); }
