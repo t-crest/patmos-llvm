@@ -18,6 +18,7 @@
 namespace llvm {
 
 class FunctionPass;
+class ModulePass;
 class Pass;
 class GetElementPtrInst;
 class PassInfo;
@@ -362,6 +363,11 @@ extern char &InstructionSimplifierID;
 // LowerExpectIntriniscs - Removes llvm.expect intrinsics and creates
 // "block_weights" metadata.
 FunctionPass *createLowerExpectIntrinsicPass();
+
+//===----------------------------------------------------------------------===//
+//
+// RtlibDeclsAdder - Replace llvm.* intrinsics to libcalls
+ModulePass *createRtlibDeclsAdderPass();
 
 
 } // End llvm namespace

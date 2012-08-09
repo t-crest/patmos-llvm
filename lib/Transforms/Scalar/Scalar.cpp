@@ -65,6 +65,7 @@ void llvm::initializeScalarOpts(PassRegistry &Registry) {
   initializeSimplifyLibCallsPass(Registry);
   initializeSinkingPass(Registry);
   initializeTailCallElimPass(Registry);
+  initializeRtlibDeclsAdderPass(Registry);
 }
 
 void LLVMInitializeScalarOpts(LLVMPassRegistryRef R) {

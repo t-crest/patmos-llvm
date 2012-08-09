@@ -153,6 +153,7 @@ namespace {
       (void) llvm::createMemDepPrinter();
       (void) llvm::createInstructionSimplifierPass();
       (void) llvm::createBBVectorizePass();
+      (void) llvm::createRtlibDeclsAdderPass();
 
       (void)new llvm::IntervalPartition();
       (void)new llvm::FindUsedTypes();
