@@ -1,4 +1,4 @@
-//===-- RtlibDeclsAdder.cpp - Add declarations for rtlib ------------------===//
+//===-- AddRuntimeDependencies.cpp - Add declarations for rtlib ------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,7 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "rtlibdeclsadder"
+#define DEBUG_TYPE "addruntimedeps"
+
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
@@ -19,6 +20,7 @@
 #include "llvm/DerivedTypes.h"
 #include "llvm/Intrinsics.h"
 #include "llvm/Target/TargetData.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InstVisitor.h"
@@ -26,8 +28,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
-using namespace llvm;
 
+using namespace llvm;
 
 STATISTIC(NumDeclsAdded, "Number of declarations added");
 
@@ -36,30 +38,41 @@ STATISTIC(NumIntrinsicsIgnored, "Number of ignored intrinsic calls");
 
 static SmallPtrSet<Value *, 4> DeclsSet;
 
+static cl::opt<std::string>
+FloatABI("float-abi", cl::value_desc("soft|hard"),
+        cl::desc("Enable adding deps to the softfloat runtime library and lowering float operations to rtlib calls"),
+        cl::init("soft"));
+
+static cl::opt<bool>
+LowerCalls("lower-rtlib-calls", cl::init(true),
+        cl::desc("Replace intrinsic calls and some operations with runtime library calls where possible"));
 
 
 namespace {
 
-  class RtlibDeclsAdder : public ModulePass,
-                           public InstVisitor<RtlibDeclsAdder> {
-
+  class AddRuntimeDependencies : public ModulePass,
+                          public InstVisitor<AddRuntimeDependencies>
+  {
   protected:
-    friend class InstVisitor<RtlibDeclsAdder>;
+    friend class InstVisitor<AddRuntimeDependencies>;
     virtual void visitCallInst(CallInst &CI);
 
     const TargetData *TD;
 
     virtual void AddIntrinsicPrototypes(Module &M);
+
     /// Lower an intrinsic call.
     /// Returns true if the intrinsic was handled and lowered.
     virtual bool LowerIntrinsicCall(CallInst *CI);
 
   public:
     static char ID; // Pass identification, replacement for typeid
-    RtlibDeclsAdder() : ModulePass(ID) {
-      initializeRtlibDeclsAdderPass(*PassRegistry::getPassRegistry());
+
+    AddRuntimeDependencies() : ModulePass(ID) {
+      initializeAddRuntimeDependenciesPass(*PassRegistry::getPassRegistry());
     }
-    virtual ~RtlibDeclsAdder() { /*delete IL;*/ }
+
+    virtual ~AddRuntimeDependencies() { /*delete IL;*/ }
 
     virtual bool runOnModule(Module &M);
 
@@ -67,18 +80,45 @@ namespace {
       AU.setPreservesCFG();
       AU.addRequired<TargetData>();
     }
+
     virtual void print(raw_ostream &O, const Module *M) const {}
 
+  };
+
+  class DependencyCreator {
+    bool LowerCalls;
+  public:
+    DependencyCreator() {
+    }
+
+    void setLowerCalls(bool Lower) {
+      LowerCalls = Lower;
+    }
+
+    void registerLibcHandler();
+
+    void registerLibmHandler();
+
+    void registerSoftfloatHandler();
+
+    void registerIntrinsicHandler();
+
+    void registerInstructionHandler();
+
+    bool handleIntrinsicDeclaration(Function &IntrinsicDecl);
+
+  private:
 
   };
+
 }
 
-char RtlibDeclsAdder::ID = 0;
-INITIALIZE_PASS(RtlibDeclsAdder, "add-rtlib-decls",
-                "Add declarations for runtime library functions for the linker", false, false)
+char AddRuntimeDependencies::ID = 0;
+INITIALIZE_PASS(AddRuntimeDependencies, "add-runtime-deps",
+                "Add declarations, calls and dependencies for runtime library functions", false, false)
 
 ModulePass *
-llvm::createRtlibDeclsAdderPass() { return new RtlibDeclsAdder(); }
+llvm::createAddRuntimeDependenciesPass() { return new AddRuntimeDependencies(); }
 
 //-----------------------------------------------------------------------------
 
@@ -87,7 +127,8 @@ llvm::createRtlibDeclsAdderPass() { return new RtlibDeclsAdder(); }
 template <class ArgIt>
 static Constant *EnsureFunctionExists(Module &M, const char *Name,
                                  ArgIt ArgBegin, ArgIt ArgEnd,
-                                 Type *RetTy) {
+                                 Type *RetTy)
+{
   // Insert a correctly-typed definition now.
   std::vector<Type *> ParamTys;
   for (ArgIt I = ArgBegin; I != ArgEnd; ++I)
@@ -98,7 +139,8 @@ static Constant *EnsureFunctionExists(Module &M, const char *Name,
 
 static Constant *EnsureFPIntrinsicsExist(Module &M, Function *Fn,
                                     const char *FName,
-                                    const char *DName, const char *LDName) {
+                                    const char *DName, const char *LDName)
+{
   Constant *F = NULL;
   // Insert definitions for all the floating point types.
   switch((int)Fn->arg_begin()->getType()->getTypeID()) {
@@ -118,7 +160,7 @@ static Constant *EnsureFPIntrinsicsExist(Module &M, Function *Fn,
     break;
   default:
     report_fatal_error("Unhandled floating point type for intrinsic function '"
-                     +Fn->getName()+"'!");
+                       +Fn->getName()+"'!");
   }
   return F;
 }
@@ -131,7 +173,8 @@ static Constant *EnsureFPIntrinsicsExist(Module &M, Function *Fn,
 template <class ArgIt>
 static CallInst *ReplaceCallWith(const char *NewFn, CallInst *CI,
                                  ArgIt ArgBegin, ArgIt ArgEnd,
-                                 Type *RetTy) {
+                                 Type *RetTy)
+{
   // If we haven't already looked up this function, check to see if the
   // program already contains a function with this name.
   Module *M = CI->getParent()->getParent()->getParent();
@@ -176,7 +219,7 @@ static void ReplaceFPIntrinsicWithCall(CallInst *CI, const char *Fname,
 
 //-----------------------------------------------------------------------------
 
-bool RtlibDeclsAdder::runOnModule(Module &M) {
+bool AddRuntimeDependencies::runOnModule(Module &M) {
   TD = &getAnalysis<TargetData>();
   AddIntrinsicPrototypes(M);
   NumDeclsAdded = DeclsSet.size();
@@ -184,7 +227,7 @@ bool RtlibDeclsAdder::runOnModule(Module &M) {
   return true;
 }
 
-void RtlibDeclsAdder::visitCallInst(CallInst &CI) {
+void AddRuntimeDependencies::visitCallInst(CallInst &CI) {
   const Function *Callee = CI.getCalledFunction();
   dbgs() << "Call instruction " << CI << '\n';
   if (Callee && CI.getCalledFunction()->isIntrinsic()) {
@@ -207,7 +250,7 @@ void RtlibDeclsAdder::visitCallInst(CallInst &CI) {
 #  define setjmp_undefined_for_msvc
 #endif
 
-void RtlibDeclsAdder::AddIntrinsicPrototypes(Module &M) {
+void AddRuntimeDependencies::AddIntrinsicPrototypes(Module &M) {
   LLVMContext &Context = M.getContext();
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I) {
     if (I->isDeclaration() && !I->use_empty()) {
@@ -233,7 +276,7 @@ void RtlibDeclsAdder::AddIntrinsicPrototypes(Module &M) {
         F = M.getOrInsertFunction("memset",
           Type::getInt8PtrTy(Context),
           Type::getInt8PtrTy(Context),
-          Type::getInt32Ty(M.getContext()),
+          Type::getInt32Ty(Context),
           TD->getIntPtrType(Context), (Type *)0);
         break;
       // setjmp, longjmp and friends, and trap
@@ -288,7 +331,7 @@ void RtlibDeclsAdder::AddIntrinsicPrototypes(Module &M) {
 
 
 
-bool RtlibDeclsAdder::LowerIntrinsicCall(CallInst *CI) {
+bool AddRuntimeDependencies::LowerIntrinsicCall(CallInst *CI) {
   IRBuilder<> Builder(CI->getParent(), CI);
   LLVMContext &Context = CI->getContext();
 

@@ -29,6 +29,7 @@ void llvm::initializeTransformUtils(PassRegistry &Registry) {
   initializePromotePassPass(Registry);
   initializeUnifyFunctionExitNodesPass(Registry);
   initializeInstSimplifierPass(Registry);
+  initializeAddRuntimeDependenciesPass(Registry);
 }
 
 /// LLVMInitializeTransformUtils - C binding for initializeTransformUtilsPasses.

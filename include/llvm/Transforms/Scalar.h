@@ -366,8 +366,8 @@ FunctionPass *createLowerExpectIntrinsicPass();
 
 //===----------------------------------------------------------------------===//
 //
-// RtlibDeclsAdder - Replace llvm.* intrinsics to libcalls
-ModulePass *createRtlibDeclsAdderPass();
+// AddRuntimeDependencies - Replace llvm.* intrinsics to libcalls
+ModulePass *createAddRuntimeDependenciesPass();
 
 
 } // End llvm namespace

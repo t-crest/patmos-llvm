@@ -1,5 +1,6 @@
 add_llvm_library(LLVMTransformUtils
   AddrModeMatcher.cpp
+  AddRuntimeDependencies.cpp
   BasicBlockUtils.cpp
   BreakCriticalEdges.cpp
   BuildLibCalls.cpp
@@ -21,7 +22,6 @@ add_llvm_library(LLVMTransformUtils
   Mem2Reg.cpp
   ModuleUtils.cpp
   PromoteMemoryToRegister.cpp
-  RtlibDeclsAdder.cpp
   SSAUpdater.cpp
   SimplifyCFG.cpp
   SimplifyIndVar.cpp
