@@ -63,6 +63,9 @@ public:
                             const TargetRegisterInfo *TRI) const;
 
 
+  virtual bool isPredicated(const MachineInstr *MI) const;
+  virtual bool isUnpredicatedTerminator(const MachineInstr *MI) const;
+
   // Branch handling
 
   virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,

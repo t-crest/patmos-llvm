@@ -31,12 +31,12 @@ STATISTIC(NumFunctions, "Number of functions internalized");
 STATISTIC(NumGlobals  , "Number of global vars internalized");
 
 // APIFile - A list of files each containing a list of symbols that
-// should not be marked external.
+// should not be marked internal.
 static cl::list<std::string>
 APIFile("internalize-public-api-file", cl::value_desc("filename(s)"),
         cl::desc("A file containing list of symbol names to preserve"));
 
-// APIList - A list of symbols that should not be marked external.
+// APIList - A list of symbols that should not be marked internal.
 static cl::list<std::string>
 APIList("internalize-public-api-list", cl::value_desc("list"),
         cl::desc("A list of symbol names to preserve"),

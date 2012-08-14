@@ -26,6 +26,7 @@
 #define GET_INSTRINFO_CTOR
 #include "PatmosGenInstrInfo.inc"
 
+
 using namespace llvm;
 
 PatmosInstrInfo::PatmosInstrInfo(PatmosTargetMachine &tm)
@@ -98,24 +99,27 @@ void PatmosInstrInfo::storeRegToStackSlot( MachineBasicBlock &MBB,
                                            const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
-  unsigned Opc = 0;
 
-  if (RC == &Patmos::RRegsRegClass)
-    Opc = Patmos::SWC;
-  else if (RC == &Patmos::SRegsRegClass) {
-    Opc = Patmos::SWC;
-//     assert("Unexpected spill of special register." && false);
-//     abort();
+  if (RC == &Patmos::RRegsRegClass) {
+    AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::SWC)))
+      .addFrameIndex(FrameIndex).addImm(0) // address
+      .addReg(SrcReg, getKillRegState(isKill)); // value to store
   }
   else if (RC == &Patmos::PRegsRegClass) {
-    assert("Unexpected spill of special register." && false);
-    abort();
+    // spilling predicate values is kinda hackish:
+    //   we implement it as a predicated store of a non-zero value
+    //   followed by a predicated (inverted) store of 0
+    //FIXME causes an assertion to fail in
+    BuildMI(MBB, MI, DL, get(Patmos::SWC))
+      .addReg(SrcReg, getKillRegState(isKill)).addImm(0) // predicate
+      .addFrameIndex(FrameIndex).addImm(0) // address
+      .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
+    BuildMI(MBB, MI, DL, get(Patmos::SWC))
+      .addReg(SrcReg, getKillRegState(isKill)).addImm(1) // predicate, inverted
+      .addFrameIndex(FrameIndex).addImm(0) // address
+      .addReg(Patmos::R0); // zero
   }
-
-  assert(Opc && "Register class not handled!");
-  AddDefaultPred(BuildMI(MBB, MI, DL, get(Opc)))
-    .addFrameIndex(FrameIndex).addImm(0) // address
-    .addReg(SrcReg, getKillRegState(isKill)); // value to store
+  else llvm_unreachable("Register class not handled!");
 }
 
 void PatmosInstrInfo::loadRegFromStackSlot( MachineBasicBlock &MBB,
@@ -125,23 +129,18 @@ void PatmosInstrInfo::loadRegFromStackSlot( MachineBasicBlock &MBB,
                                             const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
-  unsigned Opc = 0;
 
-  if (RC == &Patmos::RRegsRegClass)
-    Opc = Patmos::LWC;
-  else if (RC == &Patmos::SRegsRegClass) {
-    Opc = Patmos::LWC;
-//     assert("Unexpected spill of special register." && false);
-//     abort();
+  if (RC == &Patmos::RRegsRegClass) {
+    AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::LWC), DestReg))
+      .addFrameIndex(FrameIdx).addImm(0); // address
   }
   else if (RC == &Patmos::PRegsRegClass) {
-    assert("Unexpected spill of special register." && false);
-    abort();
+    AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::LWC), Patmos::RTR))
+      .addFrameIndex(FrameIdx).addImm(0); // address
+    AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::CMPEQ), DestReg))
+      .addReg(Patmos::RTR).addReg(Patmos::R0); // compare with 0
   }
-
-  assert(Opc && "Register class not handled!");
-  AddDefaultPred(BuildMI(MBB, MI, DL, get(Opc), DestReg))
-    .addFrameIndex(FrameIdx).addImm(0); // address
+  else llvm_unreachable("Register class not handled!");
 }
 
 
@@ -241,6 +240,26 @@ PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
   return Count;
 
 }
+
+
+bool PatmosInstrInfo::isPredicated(const MachineInstr *MI) const
+{
+  int i = MI->findFirstPredOperandIdx();
+  if (i != -1) {
+    unsigned reg  = MI->getOperand(i).getReg();
+    int      flag = MI->getOperand(++i).getImm();
+    return (reg != Patmos::NoRegister) && ((reg != Patmos::P0) || flag);
+  }
+  return false;
+}
+
+
+bool PatmosInstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
+  return !isPredicated(MI) && MI->isTerminator();
+}
+
+
+
 
 unsigned PatmosInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
 {
