@@ -73,6 +73,12 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setMinFunctionAlignment(2);
   setPrefFunctionAlignment(2);
 
+  // Enable using divmod functions
+  setLibcallName(RTLIB::SDIVREM_I32, "__divmodsi4");
+  setLibcallName(RTLIB::UDIVREM_I32, "__udivmodsi4");
+  setLibcallName(RTLIB::SDIVREM_I64, "__divmoddi4");
+  setLibcallName(RTLIB::UDIVREM_I64, "__udivmoddi4");
+
   setOperationAction(ISD::LOAD,   MVT::i1, Custom);
   setLoadExtAction(ISD::EXTLOAD,  MVT::i1, Promote);
   setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);

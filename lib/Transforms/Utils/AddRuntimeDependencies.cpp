@@ -84,14 +84,14 @@ namespace {
     }
 
     /// return the referenced function declaration, if any
-    Constant *processCall(CallInst *CI, CallConfig &Config, CallInst **NewCI);
+    Constant *processInstruction(Instruction *I, CallConfig &Config, CallInst **NewCI);
 
     /// Update llvm.used GlobalVariable with the added declarations
     void updateLLVMUsed();
 
   private:
-    /// Lower the given call. Returns the new call instruction if lowering was performed, else NULL.
-    CallInst *replaceCall(CallInst *CI, CallConfig &Config, Constant *F);
+    /// Lower the given instruction. Returns the new call instruction if lowering was performed, else NULL.
+    CallInst *replaceInstruction(Instruction *I, CallConfig &Config, Constant *F);
 
   };
 
@@ -128,12 +128,17 @@ namespace {
     virtual void print(raw_ostream &O, const Module *M) const {}
 
   protected:
-    virtual void visitCallInst(CallInst &CI);
+    void visitCallInst(CallInst &CI);
+
+    void visitCastInst(CastInst &I);
+    void visitFCmpInst(FCmpInst &I);
+    void visitBinaryOperator(BinaryOperator &I);
+    void visitUnaryInstruction(UnaryInstruction &I);
 
     void visitIntrinsicCall(CallInst *CI);
 
-    const char *getFPFunctionName(CallInst *CI, const char *FName, const char *DName, const char *LName) {
-      switch (CI->getArgOperand(0)->getType()->getTypeID()) {
+    const char *getFPFunctionName(Instruction *I, const char *FName, const char *DName, const char *LName) {
+      switch (I->getOperand(0)->getType()->getTypeID()) {
       case Type::FloatTyID:
         return FName;
       case Type::DoubleTyID:
@@ -142,9 +147,22 @@ namespace {
       case Type::FP128TyID:
       case Type::PPC_FP128TyID:
         return LName;
-      default: llvm_unreachable("Invalid type in intrinsic");
+      default: llvm_unreachable("Invalid type in float instruction.");
+        return 0; // To make eclipse happy..
       }
     }
+
+    const char *getIntFunctionName(Instruction *I, const char *SName, const char *DName) {
+      switch (I->getOperand(0)->getType()->getIntegerBitWidth()) {
+      case 64:
+        return DName;
+      case 32:
+        return SName;
+      default: llvm_unreachable("Invalid type size in integer instruction.");
+        return 0; // To make eclipse happy..
+      }
+    }
+
   };
 
 
@@ -172,9 +190,13 @@ namespace {
      : CallConfig(), FnName(FnName), ArgBegin(ArgBegin), ArgEnd(ArgEnd),
        RetTy(RetTy), AllowLower(AllowLower) { }
 
-    SimpleCallConfig(const char *FnName, CallSite &CS, Type* RetTy)
+    SimpleCallConfig(const char *FnName, CallSite &CS, Type* RetTy, bool AllowLower = true)
      : CallConfig(), FnName(FnName), ArgBegin(CS.arg_begin()), ArgEnd(CS.arg_end()),
-       RetTy(RetTy), AllowLower(true) { }
+       RetTy(RetTy), AllowLower(AllowLower) { }
+
+    SimpleCallConfig(const char *FnName, Instruction &I, bool AllowLower = true)
+     : CallConfig(), FnName(FnName), ArgBegin(I.op_begin()), ArgEnd(I.op_end()),
+       RetTy(I.getOperand(0)->getType()), AllowLower(AllowLower) { }
 
 
     virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
@@ -187,8 +209,31 @@ namespace {
     virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
                                   IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args)
     {
+      if (!AllowLower) return false;
       Args.append(ArgBegin, ArgEnd);
       return true;
+    }
+  };
+
+  class DivModCallConfig: public CallConfig {
+    const char *FnName;
+    Type *ITy;
+  public:
+    DivModCallConfig(const char *FnName, Instruction &I)
+     : CallConfig(), FnName(FnName), ITy(I.getOperand(0)->getType()) { }
+
+    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+      std::vector<Type *> ParamTys;
+      ParamTys.push_back(ITy);
+      ParamTys.push_back(ITy);
+      ParamTys.push_back(ITy->getPointerTo(0));
+      return M.getOrInsertFunction(FnName, FunctionType::get(ITy, ParamTys, false));
+    }
+
+    virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
+                                  IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args)
+    {
+      return false;
     }
   };
 
@@ -279,19 +324,19 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
     case Intrinsic::memcpy:
     {
       MemCallConfig CC("memcpy", CI, false);
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::memmove:
     {
       MemCallConfig CC("memmove", CI, false);
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::memset:
     {
       MemCallConfig CC("memset", CI, true);
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     // The setjmp/longjmp intrinsics should only exist in the code if it was
@@ -301,7 +346,7 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
     case Intrinsic::setjmp:
     {
       SimpleCallConfig CC("setjmp", CS, Type::getInt32Ty(Context));
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
 
       if (V && !CI->getType()->isVoidTy())
         CI->replaceAllUsesWith(V);
@@ -310,7 +355,7 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
     case Intrinsic::longjmp:
     {
       SimpleCallConfig CC("longjmp", CS, Type::getVoidTy(Context));
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::sigsetjmp:
@@ -323,69 +368,74 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
     {
       // Insert the call to abort
       SimpleCallConfig CC("abort", CS.arg_end(), CS.arg_end(), Type::getVoidTy(Context), false);
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
 
     case Intrinsic::sqrt:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "sqrtf", "sqrt", "sqrtl"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::sin:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "sinf", "sin", "sinl"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::cos:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "cosf", "cos", "cosl"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::log:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "logf", "log", "logl"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::log2:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "log2f", "log2", "log2l"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::log10:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "log10f", "log10", "log10l"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::exp:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "expf", "exp", "expl"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::exp2:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "exp2f", "exp2", "exp2l"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
-    // TODO check: case Intrinsic::powi:
     case Intrinsic::pow:
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "powf", "pow", "powl"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
+      break;
+    }
+    case Intrinsic::powi:
+    {
+      SimpleCallConfig CC(getFPFunctionName(CI, "__powisf2", "__powidf2", "__powixf2"), CS, CI->getArgOperand(0)->getType());
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::fma: // fused multiply-add
     {
       SimpleCallConfig CC(getFPFunctionName(CI, "fmaf", "fma", "fmal"), CS, CI->getArgOperand(0)->getType());
-      F = RIC.processCall(CI, CC, &V);
+      F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     // TODO: (u|s)(mul|add|sub)_with_overflow ??
@@ -408,11 +458,132 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
   }
 }
 
+void AddRuntimeDependencies::visitCastInst(CastInst &I) {
+  if (!HandleFloats) return;
+
+}
+
+void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
+  if (!HandleFloats) return;
+
+}
+
+void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
+  Type *OpTy = I.getOperand(0)->getType();
+
+  // TODO configure which instructions will be lowered to a runtime call.. maybe get infos
+  // from backend, including RTLIB names ???
+
+  // TODO this might be too conservative: if one of the arguments is a constant,
+  // it might be lowered to a simpler set of instructions (e.g. shladd instead of div)
+
+  // For now we do not lower div and mod, so that the backend can do some optimizations
+
+  switch (I.getOpcode()) {
+  case Instruction::UDiv:
+  {
+    SimpleCallConfig CC(getIntFunctionName(&I, "__udivsi3", "__udivdi3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    // TODO we do not know if we actually need it, but just in case the selector uses it..
+    DivModCallConfig DM(getIntFunctionName(&I, "__udivmodsi3", "__udivmoddi3"), I);
+    RIC.processInstruction(&I, DM, NULL);
+    return;
+  }
+  case Instruction::SDiv:
+  {
+    SimpleCallConfig CC(getIntFunctionName(&I, "__divsi3", "__divdi3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    // TODO we do not know if we actually need it, but just in case the selector uses it..
+    DivModCallConfig DM(getIntFunctionName(&I, "__divmodsi3", "__divmoddi3"), I);
+    RIC.processInstruction(&I, DM, NULL);
+    return;
+  }
+  case Instruction::URem:
+  {
+    SimpleCallConfig CC(getIntFunctionName(&I, "__umodsi3", "__umoddi3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    return;
+  }
+  case Instruction::SRem:
+  {
+    SimpleCallConfig CC(getIntFunctionName(&I, "__modsi3", "__moddi3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    return;
+  }
+  default: break;
+  }
+
+  if (OpTy->isIntegerTy(64)) {
+    switch (I.getOpcode()) {
+    case Instruction::Shl:
+    {
+      SimpleCallConfig CC("__ashldi3", I);
+      RIC.processInstruction(&I, CC, NULL);
+      return;
+    }
+    case Instruction::LShr:
+    {
+      SimpleCallConfig CC("__lshrdi3", I);
+      RIC.processInstruction(&I, CC, NULL);
+      return;
+    }
+    case Instruction::AShr:
+    {
+      SimpleCallConfig CC("__ashrdi3", I);
+      RIC.processInstruction(&I, CC, NULL);
+      return;
+    }
+    default: return;
+    }
+  }
+
+  if (!HandleFloats) return;
+
+  switch (I.getOpcode()) {
+  case Instruction::FAdd:
+  {
+    SimpleCallConfig CC(getFPFunctionName(&I, "__addsf3", "__adddf3", "__addxf3"), I);
+    RIC.processInstruction(&I, CC, NULL);
+    return;
+  }
+  case Instruction::FSub:
+  {
+    SimpleCallConfig CC(getFPFunctionName(&I, "__subsf3", "__subdf3", "__subxf3"), I);
+    RIC.processInstruction(&I, CC, NULL);
+    return;
+  }
+  case Instruction::FMul:
+  {
+    SimpleCallConfig CC(getFPFunctionName(&I, "__mulsf3", "__muldf3", "__mulxf3"), I);
+    RIC.processInstruction(&I, CC, NULL);
+    return;
+  }
+  case Instruction::FDiv:
+  {
+    SimpleCallConfig CC(getFPFunctionName(&I, "__divsf3", "__divdf3", "__divxf3"), I);
+    RIC.processInstruction(&I, CC, NULL);
+    return;
+  }
+  case Instruction::FRem:
+  {
+    SimpleCallConfig CC(getFPFunctionName(&I, "fmodf", "fmod", "fmodl"), I);
+    RIC.processInstruction(&I, CC, NULL);
+    return;
+  }
+  default: break;
+  }
+}
+
+void AddRuntimeDependencies::visitUnaryInstruction(UnaryInstruction &I) {
+  if (!HandleFloats) return;
+
+
+}
 
 
 //-----------------------------------------------------------------------------
 
-Constant* RuntimeInstructionVisitor::processCall(CallInst *CI, CallConfig &Config, CallInst **NewCI) {
+Constant* RuntimeInstructionVisitor::processInstruction(Instruction *I, CallConfig &Config, CallInst **NewCI) {
 
   Constant *F = Config.getPrototype(*Context, *M, *TD);
   CallInst *Result;
@@ -420,7 +591,7 @@ Constant* RuntimeInstructionVisitor::processCall(CallInst *CI, CallConfig &Confi
   bool lowered;
 
   if (LowerCalls) {
-    Result = replaceCall(CI, Config, F);
+    Result = replaceInstruction(I, Config, F);
     lowered = (Result != NULL);
   } else {
     Result = NULL;
@@ -440,18 +611,18 @@ Constant* RuntimeInstructionVisitor::processCall(CallInst *CI, CallConfig &Confi
   return F;
 }
 
-CallInst *RuntimeInstructionVisitor::replaceCall(CallInst *CI, CallConfig &Config, Constant *F) {
+CallInst *RuntimeInstructionVisitor::replaceInstruction(Instruction *I, CallConfig &Config, Constant *F) {
   SmallVector<Value *, 8> Args;
-  IRBuilder<> Builder(CI->getParent(), CI);
+  IRBuilder<> Builder(I->getParent(), I);
 
   if (!Config.addCallArguments(*Context, *M, *TD, Builder, Args)) {
     return NULL;
   }
 
   CallInst *NewCI = Builder.CreateCall(F, Args);
-  NewCI->setName(CI->getName());
-  if (!CI->use_empty())
-    CI->replaceAllUsesWith(NewCI);
+  NewCI->setName(I->getName());
+  if (!I->use_empty())
+    I->replaceAllUsesWith(NewCI);
 
   return NewCI;
 }
