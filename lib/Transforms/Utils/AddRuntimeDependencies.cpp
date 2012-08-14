@@ -255,7 +255,6 @@ bool AddRuntimeDependencies::runOnModule(Module &M) {
 
 void AddRuntimeDependencies::visitCallInst(CallInst &CI) {
   const Function *Callee = CI.getCalledFunction();
-  dbgs() << "Call instruction " << CI << '\n';
 
   if (Callee && CI.getCalledFunction()->isIntrinsic()) {
     visitIntrinsicCall(&CI);
@@ -272,7 +271,11 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
   CallSite CS(CI);
 
   switch (CI->getCalledFunction()->getIntrinsicID()) {
-
+    // Other intrinsics:
+    // - va_start, va_end, va_copy
+    // - gcroot, gcread, gcwrite
+    // Not needed:
+    // - flt_rounds, cttz, ctlz, ctpop: expanded to instructions
     case Intrinsic::memcpy:
     {
       MemCallConfig CC("memcpy", CI, false);
@@ -372,12 +375,20 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
       F = RIC.processCall(CI, CC, &V);
       break;
     }
+    // TODO check: case Intrinsic::powi:
     case Intrinsic::pow:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "sqrtf", "sqrt", "sqrtl"), CS, CI->getArgOperand(0)->getType());
+      SimpleCallConfig CC(getFPFunctionName(CI, "powf", "pow", "powl"), CS, CI->getArgOperand(0)->getType());
       F = RIC.processCall(CI, CC, &V);
       break;
     }
+    case Intrinsic::fma: // fused multiply-add
+    {
+      SimpleCallConfig CC(getFPFunctionName(CI, "fmaf", "fma", "fmal"), CS, CI->getArgOperand(0)->getType());
+      F = RIC.processCall(CI, CC, &V);
+      break;
+    }
+    // TODO: (u|s)(mul|add|sub)_with_overflow ??
 
     default:
       /* ignore call to intrinsic function */
@@ -474,6 +485,11 @@ void RuntimeInstructionVisitor::updateLLVMUsed() {
 
   PointerType *Int8PtrTy = Type::getInt8PtrTy(*Context, 0);
   ArrayType *ATy = llvm::ArrayType::get(Int8PtrTy, UsedArray.size());
+
+  for (unsigned i = 0, e = UsedArray.size(); i != e; ++i) {
+    UsedArray[i] = ConstantExpr::getBitCast(UsedArray[i], Int8PtrTy);
+  }
+
   Constant* NewInit = ConstantArray::get(ATy, UsedArray);
 
   // Cannot change the type of the variable, so create a new one, replace and erase old one
