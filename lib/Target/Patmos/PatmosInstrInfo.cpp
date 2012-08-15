@@ -253,11 +253,15 @@ bool PatmosInstrInfo::isPredicated(const MachineInstr *MI) const
   return false;
 }
 
-
 bool PatmosInstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
-  return !isPredicated(MI) && MI->isTerminator();
-}
+  if (!MI->isTerminator()) return false;
 
+  // Conditional branch is a special case.
+  if (MI->isBranch() && !MI->isBarrier())
+    return true;
+
+  return !isPredicated(MI);
+}
 
 
 
