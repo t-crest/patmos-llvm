@@ -170,6 +170,32 @@ class BucketIterator:
 	return self.p
 
 
+class IListNodeIterator:
+    "Iterate over a ilist_node pointer list"
+
+    def __init__(self, head, end, eltype):
+	self.p = head
+	self.end = end
+	self.eltype = eltype
+	self.count = 0
+
+    def __iter__(self):
+	return self
+
+    def next(self):
+	global MAX_ARRAY_SIZE
+
+	if self.p == 0 or self.p == self.end or self.count > MAX_ARRAY_SIZE:
+	    raise StopIteration
+	
+	result = ('[%d]' % self.count, dyn_cast(self.p))
+
+	self.count = self.count + 1
+	self.p = self.p['Next']
+
+	return result
+
+
 class SmallPtrSetPrinter:
     "Print a llvm::SmallPtrSet"
 
@@ -233,6 +259,32 @@ class DenseMapPrinter:
 
     def display_hint (self):
         return 'array'
+
+
+class IListPrinter:
+    "Print a llvm::ilist"
+
+    def __init__(self, typename, val):
+	self.typename = typename
+	self.val = val
+        self.eltype = val.type.template_argument(0)
+
+    def children(self):
+	head = self.val['Head']
+	end = self.val['Sentinel']
+	try:
+	    end = end.address
+	except:
+	    end = 0
+	eltype = self.eltype.pointer()
+
+	return IListNodeIterator(head, end, eltype)
+
+    def to_string(self):
+	return '%s' % (self.typename)
+
+    def display_hint(self):
+	return 'array'
 
 
 class StringRefPrinter:
@@ -405,7 +457,7 @@ def build_llvm_dictionary ():
     #llvm_printer.add('TinyPtrVector', TinyPtrVectorPrinter)
     llvm_printer.add('SmallVector', SmallVectorPrinter)
     llvm_printer.add('SmallVectorImpl', SmallVectorPrinter)
-    #llvm_printer.add('ilist', IlistPrinter)
+    llvm_printer.add('ilist', IListPrinter)
     #llvm_printer.add('PackedVector', PackedVectorPrinter)
 
     #llvm_printer.add('SmallSet', SmallSetPrinter)
