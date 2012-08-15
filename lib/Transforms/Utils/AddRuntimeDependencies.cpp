@@ -130,7 +130,13 @@ namespace {
   protected:
     void visitCallInst(CallInst &CI);
 
-    void visitCastInst(CastInst &I);
+    void visitFPTruncInst(FPTruncInst &I);
+    void visitFPExtInst(FPExtInst &I);
+    void visitFPToUIInst(FPToUIInst &I);
+    void visitFPToSIInst(FPToSIInst &I);
+    void visitUIToFPInst(UIToFPInst &I);
+    void visitSIToFPInst(SIToFPInst &I);
+
     void visitFCmpInst(FCmpInst &I);
     void visitBinaryOperator(BinaryOperator &I);
     void visitUnaryInstruction(UnaryInstruction &I);
@@ -138,11 +144,15 @@ namespace {
     void visitIntrinsicCall(CallInst *CI);
 
     const char *getFPFunctionName(Instruction *I, const char *FName, const char *DName, const char *LName) {
-      return getFPFunctionName(I->getOperand(0), FName, DName, LName);
+      return getFPFunctionName(I->getOperand(0)->getType(), FName, DName, LName);
     }
 
     const char *getFPFunctionName(Value *V, const char *FName, const char *DName, const char *LName) {
-      switch (V->getType()->getTypeID()) {
+      return getFPFunctionName(V->getType(), FName, DName, LName);
+    }
+
+    const char *getFPFunctionName(Type *T, const char *FName, const char *DName, const char *LName) {
+      switch (T->getTypeID()) {
       case Type::FloatTyID:
         return FName;
       case Type::DoubleTyID:
@@ -200,7 +210,7 @@ namespace {
 
     SimpleCallConfig(const char *FnName, Instruction &I, bool AllowLower = true)
      : CallConfig(), FnName(FnName), ArgBegin(I.op_begin()), ArgEnd(I.op_end()),
-       RetTy(I.getOperand(0)->getType()), AllowLower(AllowLower) { }
+       RetTy(I.getType()), AllowLower(AllowLower) { }
 
 
     virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
@@ -462,43 +472,141 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
   }
 }
 
-void AddRuntimeDependencies::visitCastInst(CastInst &I) {
+void AddRuntimeDependencies::visitFPTruncInst(FPTruncInst &I) {
   if (!HandleFloats) return;
 
-  // Trunc, FPToUI, FPToSI, UIToFP, SIToFP, FPExt, FPTrunc
+  if (I.getOperand(0)->getType()->isFloatTy() && I.getType()->isDoubleTy()) {
+    SimpleCallConfig CC("__extendsfdf2", I);
+    RIC.processInstruction(&I, CC, NULL);
+  } else {
+    // TODO handle FP80 ?
+    llvm_unreachable("Unsupported floating point types for extend, not yet implemented.");
+  }
+}
 
+void AddRuntimeDependencies::visitFPExtInst(FPExtInst &I) {
+  if (!HandleFloats) return;
+
+  if (I.getOperand(0)->getType()->isDoubleTy() && I.getType()->isFloatTy()) {
+    SimpleCallConfig CC("__truncdfsf2", I);
+    RIC.processInstruction(&I, CC, NULL);
+  } else {
+    // TODO handle FP80 ?
+    llvm_unreachable("Unsupported floating point types for fptrunc, not yet implemented.");
+  }
+}
+
+void AddRuntimeDependencies::visitFPToUIInst(FPToUIInst &I) {
+  if (!HandleFloats) return;
+
+  const char *Name;
+  if (I.getType()->isIntegerTy(64)) {
+    Name = getFPFunctionName(&I, "__fixunsfdi", "__fixundfdi", "__fixunxfdi");
+  }
+  else if (I.getType()->isIntegerTy(32)) {
+    Name = getFPFunctionName(&I, "__fixunsfsi", "__fixundfsi", "__fixunxfsi");
+  }
+  else llvm_unreachable("Integer type for FPToUI not yet supported.");
+
+  SimpleCallConfig CC(Name, I);
+  RIC.processInstruction(&I, CC, NULL);
+}
+
+void AddRuntimeDependencies::visitFPToSIInst(FPToSIInst &I) {
+  if (!HandleFloats) return;
+
+  const char *Name;
+  if (I.getType()->isIntegerTy(64)) {
+    Name = getFPFunctionName(&I, "__fixsfdi", "__fixdfdi", "__fixxfdi");
+  }
+  else if (I.getType()->isIntegerTy(32)) {
+    Name = getFPFunctionName(&I, "__fixsfsi", "__fixdfsi", "__fixxfsi");
+  }
+  else llvm_unreachable("Integer type for FPToSI not yet supported.");
+
+  SimpleCallConfig CC(Name, I);
+  RIC.processInstruction(&I, CC, NULL);
+}
+
+void AddRuntimeDependencies::visitUIToFPInst(UIToFPInst &I) {
+  if (!HandleFloats) return;
+
+  const char *Name;
+  if (I.getOperand(0)->getType()->isIntegerTy(64)) {
+    Name = getFPFunctionName(I.getType(), "__floatunsfdi", "__floatundfdi", "__floatunxfdi");
+  }
+  else if (I.getType()->isIntegerTy(32)) {
+    Name = getFPFunctionName(I.getType(), "__floatunsfsi", "__floatundfsi", "__floatunxfsi");
+  }
+  else llvm_unreachable("Integer type for UIToFP not yet supported.");
+
+  SimpleCallConfig CC(Name, I);
+  RIC.processInstruction(&I, CC, NULL);
+}
+
+void AddRuntimeDependencies::visitSIToFPInst(SIToFPInst &I) {
+  if (!HandleFloats) return;
+
+  const char *Name;
+  if (I.getOperand(0)->getType()->isIntegerTy(64)) {
+    Name = getFPFunctionName(I.getType(), "__floatsfdi", "__floatdfdi", "__floatxfdi");
+  }
+  else if (I.getType()->isIntegerTy(32)) {
+    Name = getFPFunctionName(I.getType(), "__floatsfsi", "__floatdfsi", "__floatxfsi");
+  }
+  else llvm_unreachable("Integer type for SIToFP not yet supported.");
+
+  SimpleCallConfig CC(Name, I);
+  RIC.processInstruction(&I, CC, NULL);
 }
 
 void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   if (!HandleFloats) return;
 
-  bool isDouble = I.getOperand(1)->getType()->isDoubleTy();
-  bool isUnord = false;
-
-  // eq, ne, ge, lt, le, gt
   switch (I.getPredicate()) {
   case CmpInst::FCMP_UEQ:
   case CmpInst::FCMP_OEQ:
   {
+    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__eqsf3", "__eqdf3", "__eqxf3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
     break;
   }
-
   case CmpInst::FCMP_UGE:
   case CmpInst::FCMP_OGE:
-
+  {
+    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__gesf3", "__gedf3", "__gexf3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    break;
+  }
   case CmpInst::FCMP_UGT:
   case CmpInst::FCMP_OGT:
+  {
+    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__gtsf3", "__gtdf3", "__gtxf3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    break;
+  }
   case CmpInst::FCMP_ULE:
   case CmpInst::FCMP_OLE:
+  {
+    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__lesf3", "__ledf3", "__lexf3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    break;
+  }
   case CmpInst::FCMP_ULT:
   case CmpInst::FCMP_OLT:
+  {
+    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__ltsf3", "__ltdf3", "__ltxf3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+    break;
+  }
   case CmpInst::FCMP_UNE:
   case CmpInst::FCMP_ONE:
-  case CmpInst::FCMP_ORD:
-  case CmpInst::FCMP_UNO:
-
-  default:
+  {
+    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__nesf3", "__nedf3", "__nexf3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
     break;
+  }
+  default: break;
   }
 
   // Just to avoid 'no break at end of case in above construct, do this separately ..
@@ -509,17 +617,14 @@ void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   case CmpInst::FCMP_ULE:
   case CmpInst::FCMP_ULT:
   case CmpInst::FCMP_UNE:
+  case CmpInst::FCMP_ORD:
   case CmpInst::FCMP_UNO:
-    isUnord = true;
-    break;
-  default:
-    break;
-  }
-
-  // We may also need the unord function
-  if (isUnord) {
+  {
     SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__unordsf3", "__unorddf3", "__unordxf3"), I, false);
     RIC.processInstruction(&I, CC, NULL);
+    break;
+  }
+  default: break;
   }
 }
 
