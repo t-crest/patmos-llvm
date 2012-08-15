@@ -138,7 +138,11 @@ namespace {
     void visitIntrinsicCall(CallInst *CI);
 
     const char *getFPFunctionName(Instruction *I, const char *FName, const char *DName, const char *LName) {
-      switch (I->getOperand(0)->getType()->getTypeID()) {
+      return getFPFunctionName(I->getOperand(0), FName, DName, LName);
+    }
+
+    const char *getFPFunctionName(Value *V, const char *FName, const char *DName, const char *LName) {
+      switch (V->getType()->getTypeID()) {
       case Type::FloatTyID:
         return FName;
       case Type::DoubleTyID:
@@ -461,11 +465,62 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
 void AddRuntimeDependencies::visitCastInst(CastInst &I) {
   if (!HandleFloats) return;
 
+  // Trunc, FPToUI, FPToSI, UIToFP, SIToFP, FPExt, FPTrunc
+
 }
 
 void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   if (!HandleFloats) return;
 
+  bool isDouble = I.getOperand(1)->getType()->isDoubleTy();
+  bool isUnord = false;
+
+  // eq, ne, ge, lt, le, gt
+  switch (I.getPredicate()) {
+  case CmpInst::FCMP_UEQ:
+  case CmpInst::FCMP_OEQ:
+  {
+    break;
+  }
+
+  case CmpInst::FCMP_UGE:
+  case CmpInst::FCMP_OGE:
+
+  case CmpInst::FCMP_UGT:
+  case CmpInst::FCMP_OGT:
+  case CmpInst::FCMP_ULE:
+  case CmpInst::FCMP_OLE:
+  case CmpInst::FCMP_ULT:
+  case CmpInst::FCMP_OLT:
+  case CmpInst::FCMP_UNE:
+  case CmpInst::FCMP_ONE:
+  case CmpInst::FCMP_ORD:
+  case CmpInst::FCMP_UNO:
+
+  default:
+    break;
+  }
+
+  // Just to avoid 'no break at end of case in above construct, do this separately ..
+  switch (I.getPredicate()) {
+  case CmpInst::FCMP_UEQ:
+  case CmpInst::FCMP_UGE:
+  case CmpInst::FCMP_UGT:
+  case CmpInst::FCMP_ULE:
+  case CmpInst::FCMP_ULT:
+  case CmpInst::FCMP_UNE:
+  case CmpInst::FCMP_UNO:
+    isUnord = true;
+    break;
+  default:
+    break;
+  }
+
+  // We may also need the unord function
+  if (isUnord) {
+    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__unordsf3", "__unorddf3", "__unordxf3"), I, false);
+    RIC.processInstruction(&I, CC, NULL);
+  }
 }
 
 void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
@@ -576,7 +631,6 @@ void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
 
 void AddRuntimeDependencies::visitUnaryInstruction(UnaryInstruction &I) {
   if (!HandleFloats) return;
-
 
 }
 
