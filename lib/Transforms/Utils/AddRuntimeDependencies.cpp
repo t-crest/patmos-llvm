@@ -41,12 +41,12 @@ static SmallPtrSet<Value *, 4> DeclsSet;
 
 static cl::opt<std::string>
 FloatABI("float-abi", cl::value_desc("soft|hard"),
-        cl::desc("Enable adding deps to the softfloat runtime library and lowering float operations to rtlib calls"),
+        cl::desc("Floating point support capabilities"),
         cl::init("soft"));
 
 static cl::opt<bool>
-LowerCalls("lower-rtlib-calls", cl::init(false),
-        cl::desc("Replace intrinsic calls and some operations with runtime library calls where possible"));
+LowerCalls("lower-runtime-calls", cl::init(false),
+        cl::desc("Lower some operations to runtime library calls (requires -add-runtime-deps)"));
 
 
 // VisualStudio defines setjmp as _setjmp
