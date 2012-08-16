@@ -603,11 +603,11 @@ void AddRuntimeDependencies::visitFPToUIInst(FPToUIInst &I) {
   Type *ITy = I.getType();
 
   if (ITy->isIntegerTy(64)) {
-    FPCallConfig CC("__fixunsfdi", "__fixundfdi", "__fixunxfdi", I, TyCache);
+    FPCallConfig CC("__fixunssfdi", "__fixunsdfdi", "__fixunsxfdi", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
   }
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
-    FPCallConfig CC("__fixunsfsi", "__fixundfsi", "__fixunxfsi", I , TyCache);
+    FPCallConfig CC("__fixunssfsi", "__fixunsdfsi", "__fixunsxfsi", I , TyCache);
     RIC.processInstruction(&I, CC, NULL);
   }
   else llvm_unreachable("Target type size for FPToUI not yet supported.");
@@ -636,11 +636,11 @@ void AddRuntimeDependencies::visitUIToFPInst(UIToFPInst &I) {
   Type *ITy = I.getOperand(0)->getType();
 
   if (ITy->isIntegerTy(64)) {
-    FPCallConfig CC("__floatunsidf", "__floatundidf", "__floatunxidf", I, TyCache, true);
+    FPCallConfig CC("__floatundisf", "__floatundidf", "__floatundixf", I, TyCache, true);
     RIC.processInstruction(&I, CC, NULL);
   }
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
-    FPCallConfig CC("__floatunsisf", "__floatundisf", "__floatunxisf", I, TyCache, true);
+    FPCallConfig CC("__floatunsisf", "__floatunsidf", "__floatunsixf", I, TyCache, true);
     RIC.processInstruction(&I, CC, NULL);
   }
   else llvm_unreachable("Source type size for UIToFP not yet supported.");
@@ -653,11 +653,11 @@ void AddRuntimeDependencies::visitSIToFPInst(SIToFPInst &I) {
   Type *ITy = I.getOperand(0)->getType();
 
   if (ITy->isIntegerTy(64)) {
-    FPCallConfig CC("__floatsidf", "__floatdidf", "__floatxidf", I, TyCache, true);
+    FPCallConfig CC("__floatdisf", "__floatdidf", "__floatdixf", I, TyCache, true);
     RIC.processInstruction(&I, CC, NULL);
   }
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
-    FPCallConfig CC("__floatsisf", "__floatdisf", "__floatxisf", I, TyCache, true);
+    FPCallConfig CC("__floatsisf", "__floatsidf", "__floatsixf", I, TyCache, true);
     RIC.processInstruction(&I, CC, NULL);
   }
   else llvm_unreachable("Source type size for SIToFP not yet supported.");
@@ -670,42 +670,42 @@ void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   case CmpInst::FCMP_UEQ:
   case CmpInst::FCMP_OEQ:
   {
-    FPCallConfig CC("__eqsf3", "__eqdf3", "__eqxf3", I, TyCache);
+    FPCallConfig CC("__eqsf2", "__eqdf2", "__eqxf2", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_UGE:
   case CmpInst::FCMP_OGE:
   {
-    FPCallConfig CC("__gesf3", "__gedf3", "__gexf3", I, TyCache);
+    FPCallConfig CC("__gesf2", "__gedf2", "__gexf2", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_UGT:
   case CmpInst::FCMP_OGT:
   {
-    FPCallConfig CC("__gtsf3", "__gtdf3", "__gtxf3", I, TyCache);
+    FPCallConfig CC("__gtsf2", "__gtdf2", "__gtxf2", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_ULE:
   case CmpInst::FCMP_OLE:
   {
-    FPCallConfig CC("__lesf3", "__ledf3", "__lexf3", I, TyCache);
+    FPCallConfig CC("__lesf2", "__ledf2", "__lexf2", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_ULT:
   case CmpInst::FCMP_OLT:
   {
-    FPCallConfig CC("__ltsf3", "__ltdf3", "__ltxf3", I, TyCache);
+    FPCallConfig CC("__ltsf2", "__ltdf2", "__ltxf2", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_UNE:
   case CmpInst::FCMP_ONE:
   {
-    FPCallConfig CC("__nesf3", "__nedf3", "__nexf3", I, TyCache);
+    FPCallConfig CC("__nesf2", "__nedf2", "__nexf2", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
@@ -723,7 +723,7 @@ void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   case CmpInst::FCMP_ORD:
   case CmpInst::FCMP_UNO:
   {
-    FPCallConfig CC("__unordsf3", "__unorddf3", "__unordxf3", I, TyCache);
+    FPCallConfig CC("__unordsf2", "__unorddf2", "__unordxf2", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
