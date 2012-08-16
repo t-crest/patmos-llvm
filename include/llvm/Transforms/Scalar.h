@@ -15,6 +15,8 @@
 #ifndef LLVM_TRANSFORMS_SCALAR_H
 #define LLVM_TRANSFORMS_SCALAR_H
 
+#include <string>
+
 namespace llvm {
 
 class FunctionPass;
@@ -368,6 +370,7 @@ FunctionPass *createLowerExpectIntrinsicPass();
 //
 // AddRuntimeDependencies - Replace llvm.* intrinsics to libcalls
 ModulePass *createAddRuntimeDependenciesPass();
+ModulePass *createAddRuntimeDependenciesPass(bool LowerCalls, std::string FloatABI);
 
 
 } // End llvm namespace

@@ -107,13 +107,16 @@ namespace {
   public:
     static char ID; // Pass identification, replacement for typeid
 
-    AddRuntimeDependencies() : ModulePass(ID) {
+    AddRuntimeDependencies(bool _LowerCalls = LowerCalls,
+                           StringRef _FloatABI = FloatABI)
+    : ModulePass(ID)
+    {
       initializeAddRuntimeDependenciesPass(*PassRegistry::getPassRegistry());
 
-      RIC.setLowerCalls(LowerCalls);
+      RIC.setLowerCalls(_LowerCalls);
 
       // TODO maybe handle floats depending on type of FPU (only some/all float instructions, ..)
-      HandleFloats = (FloatABI != "hard");
+      HandleFloats = (_FloatABI != "hard");
     }
 
     virtual ~AddRuntimeDependencies() { }
@@ -297,7 +300,13 @@ INITIALIZE_PASS(AddRuntimeDependencies, "add-runtime-deps",
                 "Add declarations, calls and dependencies for runtime library functions", false, false)
 
 ModulePass *
-llvm::createAddRuntimeDependenciesPass() { return new AddRuntimeDependencies(); }
+llvm::createAddRuntimeDependenciesPass() {
+  return new AddRuntimeDependencies();
+}
+ModulePass *
+llvm::createAddRuntimeDependenciesPass(bool LowerCalls, std::string FloatABI) {
+  return new AddRuntimeDependencies(LowerCalls, FloatABI);
+}
 
 //-----------------------------------------------------------------------------
 
@@ -475,18 +484,6 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
 void AddRuntimeDependencies::visitFPTruncInst(FPTruncInst &I) {
   if (!HandleFloats) return;
 
-  if (I.getOperand(0)->getType()->isFloatTy() && I.getType()->isDoubleTy()) {
-    SimpleCallConfig CC("__extendsfdf2", I);
-    RIC.processInstruction(&I, CC, NULL);
-  } else {
-    // TODO handle FP80 ?
-    llvm_unreachable("Unsupported floating point types for extend, not yet implemented.");
-  }
-}
-
-void AddRuntimeDependencies::visitFPExtInst(FPExtInst &I) {
-  if (!HandleFloats) return;
-
   if (I.getOperand(0)->getType()->isDoubleTy() && I.getType()->isFloatTy()) {
     SimpleCallConfig CC("__truncdfsf2", I);
     RIC.processInstruction(&I, CC, NULL);
@@ -496,17 +493,31 @@ void AddRuntimeDependencies::visitFPExtInst(FPExtInst &I) {
   }
 }
 
+void AddRuntimeDependencies::visitFPExtInst(FPExtInst &I) {
+  if (!HandleFloats) return;
+
+  if (I.getOperand(0)->getType()->isFloatTy() && I.getType()->isDoubleTy()) {
+    SimpleCallConfig CC("__extendsfdf2", I);
+    RIC.processInstruction(&I, CC, NULL);
+  } else {
+    // TODO handle FP80 ?
+    llvm_unreachable("Unsupported floating point types for extend, not yet implemented.");
+  }
+}
+
 void AddRuntimeDependencies::visitFPToUIInst(FPToUIInst &I) {
   if (!HandleFloats) return;
 
+  Type *ITy = I.getType();
+
   const char *Name;
-  if (I.getType()->isIntegerTy(64)) {
+  if (ITy->isIntegerTy(64)) {
     Name = getFPFunctionName(&I, "__fixunsfdi", "__fixundfdi", "__fixunxfdi");
   }
-  else if (I.getType()->isIntegerTy(32)) {
+  else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
     Name = getFPFunctionName(&I, "__fixunsfsi", "__fixundfsi", "__fixunxfsi");
   }
-  else llvm_unreachable("Integer type for FPToUI not yet supported.");
+  else llvm_unreachable("Target type size for FPToUI not yet supported.");
 
   SimpleCallConfig CC(Name, I);
   RIC.processInstruction(&I, CC, NULL);
@@ -515,14 +526,16 @@ void AddRuntimeDependencies::visitFPToUIInst(FPToUIInst &I) {
 void AddRuntimeDependencies::visitFPToSIInst(FPToSIInst &I) {
   if (!HandleFloats) return;
 
+  Type *ITy = I.getType();
+
   const char *Name;
-  if (I.getType()->isIntegerTy(64)) {
+  if (ITy->isIntegerTy(64)) {
     Name = getFPFunctionName(&I, "__fixsfdi", "__fixdfdi", "__fixxfdi");
   }
-  else if (I.getType()->isIntegerTy(32)) {
+  else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
     Name = getFPFunctionName(&I, "__fixsfsi", "__fixdfsi", "__fixxfsi");
   }
-  else llvm_unreachable("Integer type for FPToSI not yet supported.");
+  else llvm_unreachable("Target type size for FPToSI not yet supported.");
 
   SimpleCallConfig CC(Name, I);
   RIC.processInstruction(&I, CC, NULL);
@@ -531,14 +544,16 @@ void AddRuntimeDependencies::visitFPToSIInst(FPToSIInst &I) {
 void AddRuntimeDependencies::visitUIToFPInst(UIToFPInst &I) {
   if (!HandleFloats) return;
 
+  Type *ITy = I.getOperand(0)->getType();
+
   const char *Name;
-  if (I.getOperand(0)->getType()->isIntegerTy(64)) {
+  if (ITy->isIntegerTy(64)) {
     Name = getFPFunctionName(I.getType(), "__floatunsfdi", "__floatundfdi", "__floatunxfdi");
   }
-  else if (I.getType()->isIntegerTy(32)) {
+  else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
     Name = getFPFunctionName(I.getType(), "__floatunsfsi", "__floatundfsi", "__floatunxfsi");
   }
-  else llvm_unreachable("Integer type for UIToFP not yet supported.");
+  else llvm_unreachable("Source type size for UIToFP not yet supported.");
 
   SimpleCallConfig CC(Name, I);
   RIC.processInstruction(&I, CC, NULL);
@@ -547,14 +562,16 @@ void AddRuntimeDependencies::visitUIToFPInst(UIToFPInst &I) {
 void AddRuntimeDependencies::visitSIToFPInst(SIToFPInst &I) {
   if (!HandleFloats) return;
 
+  Type *ITy = I.getOperand(0)->getType();
+
   const char *Name;
-  if (I.getOperand(0)->getType()->isIntegerTy(64)) {
+  if (ITy->isIntegerTy(64)) {
     Name = getFPFunctionName(I.getType(), "__floatsfdi", "__floatdfdi", "__floatxfdi");
   }
-  else if (I.getType()->isIntegerTy(32)) {
+  else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
     Name = getFPFunctionName(I.getType(), "__floatsfsi", "__floatdfsi", "__floatxfsi");
   }
-  else llvm_unreachable("Integer type for SIToFP not yet supported.");
+  else llvm_unreachable("Source type size for SIToFP not yet supported.");
 
   SimpleCallConfig CC(Name, I);
   RIC.processInstruction(&I, CC, NULL);
@@ -762,7 +779,9 @@ Constant* RuntimeInstructionVisitor::processInstruction(Instruction *I, CallConf
 
   // Update llvm.used here
   if (!lowered && F) {
-    Used.insert(F);
+    if (Used.insert(F)) {
+      dbgs() << "Added to used: " << F->getName() << "\n";
+    }
   } else if (lowered && F) {
     Lowered.insert(F);
   }
@@ -799,16 +818,20 @@ void RuntimeInstructionVisitor::updateLLVMUsed() {
 
   // Read out llvm.used, merge with Used
   ConstantArray *Init = 0;
+  SmallPtrSet<Constant*,8> OldUsed;
   if (LLVMUsed) {
     Init = dyn_cast<ConstantArray>(LLVMUsed->getInitializer());
     if (Init) {
       for (unsigned i = 0, e = Init->getNumOperands(); i != e; ++i) {
         Constant *GV = dyn_cast<Constant>(Init->getOperand(i)->stripPointerCasts());
-        if (GV == 0 || Used.count(GV) == 0) continue;
+        if (GV == 0 || Used.count(GV) != 0) continue;
 
         // TODO skip all values that have been lowered now. This may be unsafe, so make it optional.
 
-        UsedArray.push_back(GV);
+        // Do not add duplicate entries (happens due to appending linkage, llvm-link does not remove dups)
+        if (OldUsed.insert(GV)) {
+          UsedArray.push_back(GV);
+        }
       }
     }
   }
@@ -829,11 +852,14 @@ void RuntimeInstructionVisitor::updateLLVMUsed() {
 
   if (LLVMUsed) {
     if (Init) {
-      Init->replaceAllUsesWith(NewInit);
+      // TODO No idea how to remove the initializer properly ..
+      /*
+      Init->replaceAllUsesWith(ConstantExpr::getBitCast(NewInit, Init->getType()));
       assert(Init->use_empty());
       delete Init;
+      */
     }
-    LLVMUsed->replaceAllUsesWith(NewUsed);
+    LLVMUsed->replaceAllUsesWith(ConstantExpr::getBitCast(NewUsed, LLVMUsed->getType()));
 
     LLVMUsed->eraseFromParent();
   }
