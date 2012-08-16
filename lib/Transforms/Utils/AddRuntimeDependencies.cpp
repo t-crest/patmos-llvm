@@ -77,6 +77,10 @@ namespace {
       LowerCalls = Lower;
     }
 
+    bool doLowerCalls() {
+      return LowerCalls;
+    }
+
     void setTargetData(Module &M, const TargetData *TD) {
       this->M = &M;
       this->Context = &M.getContext();
@@ -96,6 +100,13 @@ namespace {
   };
 
 
+  struct TypeCache {
+    Type *FloatTy;
+    Type *DoubleTy;
+    Type *IntTy;
+  };
+
+
   class AddRuntimeDependencies : public ModulePass,
                           public InstVisitor<AddRuntimeDependencies>
   {
@@ -104,6 +115,8 @@ namespace {
 
     class RuntimeInstructionVisitor RIC;
     bool HandleFloats;
+
+    TypeCache TyCache;
   public:
     static char ID; // Pass identification, replacement for typeid
 
@@ -182,13 +195,17 @@ namespace {
 
   };
 
-
   class CallConfig {
   public:
     CallConfig() {}
     virtual ~CallConfig() {}
 
     virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) = 0;
+
+    /// Called when addCallArguments returns false or lowering is disabled.
+    virtual Constant* getAdditionalPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+      return 0;
+    }
 
     /// return false when the instruction cannot be lowered.
     virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
@@ -291,6 +308,77 @@ namespace {
     }
   };
 
+  class FPCallConfig: public CallConfig {
+    const char *FName, *DName, *LName;
+    Instruction &I;
+    TypeCache &TyCache;
+    bool UseRetTy;
+    bool AllowLower;
+  public:
+    FPCallConfig(const char *FName, const char *DName, const char *LName,
+                 Instruction &I, TypeCache &TyCache, bool UseRetTy = false, bool AllowLower = true)
+     : CallConfig(), FName(FName), DName(DName), LName(LName), I(I), TyCache(TyCache),
+       UseRetTy(UseRetTy), AllowLower(AllowLower) { }
+
+    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+      std::vector<Type *> ParamTys;
+      for (User::const_op_iterator it = I.op_begin(); it != I.op_end(); ++it)
+        ParamTys.push_back((*it)->getType());
+
+      const char *FnName;
+      switch (getFPType()->getTypeID()) {
+      case Type::FloatTyID: FnName = FName; break;
+      case Type::DoubleTyID: FnName = DName; break;
+      case Type::FP128TyID: FnName = LName; break;
+      default:
+        llvm_unreachable("Unsupported floating point type");
+      }
+      return M.getOrInsertFunction(FnName, FunctionType::get(getRetType(), ParamTys, false));
+    }
+
+    virtual Constant* getAdditionalPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+      // If we have some sort of double instruction, add the float variant too, since the backend
+      // sometimes optimizes the types..
+      if (getFPType()->isFloatTy()) {
+        return 0;
+      }
+
+      std::vector<Type *> ParamTys;
+      for (User::const_op_iterator it = I.op_begin(); it != I.op_end(); ++it)
+        ParamTys.push_back(UseRetTy ? (*it)->getType() : TyCache.FloatTy);
+
+      return M.getOrInsertFunction(FName, FunctionType::get(UseRetTy ? TyCache.FloatTy : getRetType(),
+                                                            ParamTys, false));
+    }
+
+    virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
+                                  IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args)
+    {
+      // for compares, we would need to cast correctly and handle unordered stuff, skip it
+      if (!AllowLower || isCompare()) return false;
+      Args.append(I.op_begin(), I.op_end());
+      return true;
+    }
+
+    Type *getFPType() {
+      return UseRetTy ? I.getType() : I.getOperand(0)->getType();
+    }
+
+    bool isCompare() {
+      return I.getType()->isIntegerTy(1);
+    }
+
+    Type *getRetType() {
+      if (UseRetTy) return I.getType();
+      // compare instructions return i32 instead of boolean in runtime-lib
+      if (isCompare()) {
+        return TyCache.IntTy;
+      }
+      return I.getType();
+    }
+  };
+
+
 }
 
 
@@ -312,6 +400,10 @@ llvm::createAddRuntimeDependenciesPass(bool LowerCalls, std::string FloatABI) {
 
 bool AddRuntimeDependencies::runOnModule(Module &M) {
   RIC.setTargetData(M, &getAnalysis<TargetData>());
+
+  TyCache.DoubleTy = Type::getDoubleTy(M.getContext());
+  TyCache.FloatTy = Type::getFloatTy(M.getContext());
+  TyCache.IntTy = Type::getInt32Ty(M.getContext());
 
   visit(M);
 
@@ -397,67 +489,67 @@ void AddRuntimeDependencies::visitIntrinsicCall(CallInst *CI) {
 
     case Intrinsic::sqrt:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "sqrtf", "sqrt", "sqrtl"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("sqrtf", "sqrt", "sqrtl", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::sin:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "sinf", "sin", "sinl"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("sinf", "sin", "sinl", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::cos:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "cosf", "cos", "cosl"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("cosf", "cos", "cosl", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::log:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "logf", "log", "logl"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("logf", "log", "logl", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::log2:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "log2f", "log2", "log2l"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("log2f", "log2", "log2l", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::log10:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "log10f", "log10", "log10l"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("log10f", "log10", "log10l", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::exp:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "expf", "exp", "expl"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("expf", "exp", "expl", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::exp2:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "exp2f", "exp2", "exp2l"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("exp2f", "exp2", "exp2l", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::pow:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "powf", "pow", "powl"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("powf", "pow", "powl", *CI , TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::powi:
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "__powisf2", "__powidf2", "__powixf2"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("__powisf2", "__powidf2", "__powixf2", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
     case Intrinsic::fma: // fused multiply-add
     {
-      SimpleCallConfig CC(getFPFunctionName(CI, "fmaf", "fma", "fmal"), CS, CI->getArgOperand(0)->getType());
+      FPCallConfig CC("fmaf", "fma", "fmal", *CI, TyCache);
       F = RIC.processInstruction(CI, CC, &V);
       break;
     }
@@ -510,17 +602,15 @@ void AddRuntimeDependencies::visitFPToUIInst(FPToUIInst &I) {
 
   Type *ITy = I.getType();
 
-  const char *Name;
   if (ITy->isIntegerTy(64)) {
-    Name = getFPFunctionName(&I, "__fixunsfdi", "__fixundfdi", "__fixunxfdi");
+    FPCallConfig CC("__fixunsfdi", "__fixundfdi", "__fixunxfdi", I, TyCache);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
-    Name = getFPFunctionName(&I, "__fixunsfsi", "__fixundfsi", "__fixunxfsi");
+    FPCallConfig CC("__fixunsfsi", "__fixundfsi", "__fixunxfsi", I , TyCache);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else llvm_unreachable("Target type size for FPToUI not yet supported.");
-
-  SimpleCallConfig CC(Name, I);
-  RIC.processInstruction(&I, CC, NULL);
 }
 
 void AddRuntimeDependencies::visitFPToSIInst(FPToSIInst &I) {
@@ -528,17 +618,16 @@ void AddRuntimeDependencies::visitFPToSIInst(FPToSIInst &I) {
 
   Type *ITy = I.getType();
 
-  const char *Name;
   if (ITy->isIntegerTy(64)) {
-    Name = getFPFunctionName(&I, "__fixsfdi", "__fixdfdi", "__fixxfdi");
+    FPCallConfig CC("__fixsfdi", "__fixdfdi", "__fixxfdi", I, TyCache);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
-    Name = getFPFunctionName(&I, "__fixsfsi", "__fixdfsi", "__fixxfsi");
+    FPCallConfig CC("__fixsfsi", "__fixdfsi", "__fixxfsi", I, TyCache);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else llvm_unreachable("Target type size for FPToSI not yet supported.");
 
-  SimpleCallConfig CC(Name, I);
-  RIC.processInstruction(&I, CC, NULL);
 }
 
 void AddRuntimeDependencies::visitUIToFPInst(UIToFPInst &I) {
@@ -546,17 +635,16 @@ void AddRuntimeDependencies::visitUIToFPInst(UIToFPInst &I) {
 
   Type *ITy = I.getOperand(0)->getType();
 
-  const char *Name;
   if (ITy->isIntegerTy(64)) {
-    Name = getFPFunctionName(I.getType(), "__floatunsfdi", "__floatundfdi", "__floatunxfdi");
+    FPCallConfig CC("__floatunsidf", "__floatundidf", "__floatunxidf", I, TyCache, true);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
-    Name = getFPFunctionName(I.getType(), "__floatunsfsi", "__floatundfsi", "__floatunxfsi");
+    FPCallConfig CC("__floatunsisf", "__floatundisf", "__floatunxisf", I, TyCache, true);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else llvm_unreachable("Source type size for UIToFP not yet supported.");
 
-  SimpleCallConfig CC(Name, I);
-  RIC.processInstruction(&I, CC, NULL);
 }
 
 void AddRuntimeDependencies::visitSIToFPInst(SIToFPInst &I) {
@@ -564,17 +652,15 @@ void AddRuntimeDependencies::visitSIToFPInst(SIToFPInst &I) {
 
   Type *ITy = I.getOperand(0)->getType();
 
-  const char *Name;
   if (ITy->isIntegerTy(64)) {
-    Name = getFPFunctionName(I.getType(), "__floatsfdi", "__floatdfdi", "__floatxfdi");
+    FPCallConfig CC("__floatsidf", "__floatdidf", "__floatxidf", I, TyCache, true);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
-    Name = getFPFunctionName(I.getType(), "__floatsfsi", "__floatdfsi", "__floatxfsi");
+    FPCallConfig CC("__floatsisf", "__floatdisf", "__floatxisf", I, TyCache, true);
+    RIC.processInstruction(&I, CC, NULL);
   }
   else llvm_unreachable("Source type size for SIToFP not yet supported.");
-
-  SimpleCallConfig CC(Name, I);
-  RIC.processInstruction(&I, CC, NULL);
 }
 
 void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
@@ -584,42 +670,42 @@ void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   case CmpInst::FCMP_UEQ:
   case CmpInst::FCMP_OEQ:
   {
-    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__eqsf3", "__eqdf3", "__eqxf3"), I, false);
+    FPCallConfig CC("__eqsf3", "__eqdf3", "__eqxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_UGE:
   case CmpInst::FCMP_OGE:
   {
-    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__gesf3", "__gedf3", "__gexf3"), I, false);
+    FPCallConfig CC("__gesf3", "__gedf3", "__gexf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_UGT:
   case CmpInst::FCMP_OGT:
   {
-    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__gtsf3", "__gtdf3", "__gtxf3"), I, false);
+    FPCallConfig CC("__gtsf3", "__gtdf3", "__gtxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_ULE:
   case CmpInst::FCMP_OLE:
   {
-    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__lesf3", "__ledf3", "__lexf3"), I, false);
+    FPCallConfig CC("__lesf3", "__ledf3", "__lexf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_ULT:
   case CmpInst::FCMP_OLT:
   {
-    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__ltsf3", "__ltdf3", "__ltxf3"), I, false);
+    FPCallConfig CC("__ltsf3", "__ltdf3", "__ltxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
   case CmpInst::FCMP_UNE:
   case CmpInst::FCMP_ONE:
   {
-    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__nesf3", "__nedf3", "__nexf3"), I, false);
+    FPCallConfig CC("__nesf3", "__nedf3", "__nexf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
@@ -637,7 +723,7 @@ void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   case CmpInst::FCMP_ORD:
   case CmpInst::FCMP_UNO:
   {
-    SimpleCallConfig CC(getFPFunctionName(I.getOperand(1), "__unordsf3", "__unorddf3", "__unordxf3"), I, false);
+    FPCallConfig CC("__unordsf3", "__unorddf3", "__unordxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     break;
   }
@@ -719,31 +805,31 @@ void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
   switch (I.getOpcode()) {
   case Instruction::FAdd:
   {
-    SimpleCallConfig CC(getFPFunctionName(&I, "__addsf3", "__adddf3", "__addxf3"), I);
+    FPCallConfig CC("__addsf3", "__adddf3", "__addxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     return;
   }
   case Instruction::FSub:
   {
-    SimpleCallConfig CC(getFPFunctionName(&I, "__subsf3", "__subdf3", "__subxf3"), I);
+    FPCallConfig CC("__subsf3", "__subdf3", "__subxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     return;
   }
   case Instruction::FMul:
   {
-    SimpleCallConfig CC(getFPFunctionName(&I, "__mulsf3", "__muldf3", "__mulxf3"), I);
+    FPCallConfig CC("__mulsf3", "__muldf3", "__mulxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     return;
   }
   case Instruction::FDiv:
   {
-    SimpleCallConfig CC(getFPFunctionName(&I, "__divsf3", "__divdf3", "__divxf3"), I);
+    FPCallConfig CC("__divsf3", "__divdf3", "__divxf3", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     return;
   }
   case Instruction::FRem:
   {
-    SimpleCallConfig CC(getFPFunctionName(&I, "fmodf", "fmod", "fmodl"), I);
+    FPCallConfig CC("fmodf", "fmod", "fmodl", I, TyCache);
     RIC.processInstruction(&I, CC, NULL);
     return;
   }
@@ -752,8 +838,6 @@ void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
 }
 
 void AddRuntimeDependencies::visitUnaryInstruction(UnaryInstruction &I) {
-  if (!HandleFloats) return;
-
 }
 
 
@@ -779,11 +863,17 @@ Constant* RuntimeInstructionVisitor::processInstruction(Instruction *I, CallConf
 
   // Update llvm.used here
   if (!lowered && F) {
-    if (Used.insert(F)) {
-      dbgs() << "Added to used: " << F->getName() << "\n";
-    }
+    Used.insert(F);
   } else if (lowered && F) {
     Lowered.insert(F);
+  }
+
+  if (!lowered) {
+    // TODO allow for more than one additional prototype!
+    F = Config.getAdditionalPrototype(*Context, *M, *TD);
+    if (F != 0) {
+      Used.insert(F);
+    }
   }
 
   return F;
@@ -851,6 +941,8 @@ void RuntimeInstructionVisitor::updateLLVMUsed() {
   NewUsed->setSection("llvm.metadata");
 
   if (LLVMUsed) {
+    NewUsed->takeName(LLVMUsed);
+
     if (Init) {
       // TODO No idea how to remove the initializer properly ..
       /*
@@ -863,6 +955,7 @@ void RuntimeInstructionVisitor::updateLLVMUsed() {
 
     LLVMUsed->eraseFromParent();
   }
+
 
 }
 
