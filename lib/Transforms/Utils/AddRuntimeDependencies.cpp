@@ -666,69 +666,27 @@ void AddRuntimeDependencies::visitSIToFPInst(SIToFPInst &I) {
 void AddRuntimeDependencies::visitFCmpInst(FCmpInst &I) {
   if (!HandleFloats) return;
 
-  switch (I.getPredicate()) {
-  case CmpInst::FCMP_UEQ:
-  case CmpInst::FCMP_OEQ:
-  {
-    FPCallConfig CC("__eqsf2", "__eqdf2", "__eqxf2", I, TyCache);
-    RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  case CmpInst::FCMP_UGE:
-  case CmpInst::FCMP_OGE:
-  {
-    FPCallConfig CC("__gesf2", "__gedf2", "__gexf2", I, TyCache);
-    RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  case CmpInst::FCMP_UGT:
-  case CmpInst::FCMP_OGT:
-  {
-    FPCallConfig CC("__gtsf2", "__gtdf2", "__gtxf2", I, TyCache);
-    RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  case CmpInst::FCMP_ULE:
-  case CmpInst::FCMP_OLE:
-  {
-    FPCallConfig CC("__lesf2", "__ledf2", "__lexf2", I, TyCache);
-    RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  case CmpInst::FCMP_ULT:
-  case CmpInst::FCMP_OLT:
-  {
-    FPCallConfig CC("__ltsf2", "__ltdf2", "__ltxf2", I, TyCache);
-    RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  case CmpInst::FCMP_UNE:
-  case CmpInst::FCMP_ONE:
-  {
-    FPCallConfig CC("__nesf2", "__nedf2", "__nexf2", I, TyCache);
-    RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  default: break;
-  }
+  // To avoid problems with the backend doing optimizations, we just link in all compare ops
+  //switch (I.getPredicate()) {
+  //case CmpInst::FCMP_UEQ:
+  //case CmpInst::FCMP_OEQ:
 
-  // Just to avoid 'no break at end of case in above construct, do this separately ..
-  switch (I.getPredicate()) {
-  case CmpInst::FCMP_UEQ:
-  case CmpInst::FCMP_UGE:
-  case CmpInst::FCMP_UGT:
-  case CmpInst::FCMP_ULE:
-  case CmpInst::FCMP_ULT:
-  case CmpInst::FCMP_UNE:
-  case CmpInst::FCMP_ORD:
-  case CmpInst::FCMP_UNO:
-  {
-    FPCallConfig CC("__unordsf2", "__unorddf2", "__unordxf2", I, TyCache);
-    RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  default: break;
-  }
+  FPCallConfig CC1("__eqsf2", "__eqdf2", "__eqxf2", I, TyCache);
+  RIC.processInstruction(&I, CC1, NULL);
+  FPCallConfig CC2("__gesf2", "__gedf2", "__gexf2", I, TyCache);
+  RIC.processInstruction(&I, CC2, NULL);
+  FPCallConfig CC3("__gtsf2", "__gtdf2", "__gtxf2", I, TyCache);
+  RIC.processInstruction(&I, CC3, NULL);
+  FPCallConfig CC4("__lesf2", "__ledf2", "__lexf2", I, TyCache);
+  RIC.processInstruction(&I, CC4, NULL);
+  FPCallConfig CC5("__ltsf2", "__ltdf2", "__ltxf2", I, TyCache);
+  RIC.processInstruction(&I, CC5, NULL);
+  FPCallConfig CC6("__nesf2", "__nedf2", "__nexf2", I, TyCache);
+  RIC.processInstruction(&I, CC6, NULL);
+
+  // Just add them in any case
+  FPCallConfig CC7("__unordsf2", "__unorddf2", "__unordxf2", I, TyCache, false, false);
+  RIC.processInstruction(&I, CC7, NULL);
 }
 
 void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
@@ -748,7 +706,7 @@ void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
     SimpleCallConfig CC(getIntFunctionName(&I, "__udivsi3", "__udivdi3"), I, false);
     RIC.processInstruction(&I, CC, NULL);
     // TODO we do not know if we actually need it, but just in case the selector uses it..
-    DivModCallConfig DM(getIntFunctionName(&I, "__udivmodsi3", "__udivmoddi3"), I);
+    DivModCallConfig DM(getIntFunctionName(&I, "__udivmodsi4", "__udivmoddi4"), I);
     RIC.processInstruction(&I, DM, NULL);
     return;
   }
@@ -757,7 +715,7 @@ void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
     SimpleCallConfig CC(getIntFunctionName(&I, "__divsi3", "__divdi3"), I, false);
     RIC.processInstruction(&I, CC, NULL);
     // TODO we do not know if we actually need it, but just in case the selector uses it..
-    DivModCallConfig DM(getIntFunctionName(&I, "__divmodsi3", "__divmoddi3"), I);
+    DivModCallConfig DM(getIntFunctionName(&I, "__divmodsi4", "__divmoddi4"), I);
     RIC.processInstruction(&I, DM, NULL);
     return;
   }
@@ -765,12 +723,18 @@ void AddRuntimeDependencies::visitBinaryOperator(BinaryOperator &I) {
   {
     SimpleCallConfig CC(getIntFunctionName(&I, "__umodsi3", "__umoddi3"), I, false);
     RIC.processInstruction(&I, CC, NULL);
+    // TODO we do not know if we actually need it, but just in case the selector uses it..
+    DivModCallConfig DM(getIntFunctionName(&I, "__udivmodsi4", "__udivmoddi4"), I);
+    RIC.processInstruction(&I, DM, NULL);
     return;
   }
   case Instruction::SRem:
   {
     SimpleCallConfig CC(getIntFunctionName(&I, "__modsi3", "__moddi3"), I, false);
     RIC.processInstruction(&I, CC, NULL);
+    // TODO we do not know if we actually need it, but just in case the selector uses it..
+    DivModCallConfig DM(getIntFunctionName(&I, "__divmodsi4", "__divmoddi4"), I);
+    RIC.processInstruction(&I, DM, NULL);
     return;
   }
   default: break;
