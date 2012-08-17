@@ -25,6 +25,8 @@ def : Pat<(zext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
 def : Pat<(sext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
 def : Pat<(anyext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
 
+def : Pat<(sext_inreg RRegs:$r, i1), (SRAi (SLi RRegs:$r, (i32 31)), (i32 31))>;
+
 //def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;
 
 def : Pat<(select predsel:$p, RRegs:$new, uimm12:$imm), (CMOV predsel:$p, (LIi uimm12:$imm), RRegs:$new)>;
