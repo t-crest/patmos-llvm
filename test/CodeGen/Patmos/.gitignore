@@ -1,3 +1,4 @@
+config.mk
 *.dis
 *.elf
 *.log
