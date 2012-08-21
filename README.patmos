@@ -51,12 +51,33 @@ TODO - configure or cmake/cmake-gui
 
 
     --enable-targets=host,patmos
+    --with-binutils-include=`readlink -f ../patmos-gold/include/`
+
+With cmake:
+    
+    mkdir ../patmos-llvm-obj
+    cd ../patmos-llvm-obj
+    cmake ../patmos-llvm -DCMAKE_BUILD_DIR=Debug 
+			 -DLLVM_BINUTILS_INCDIR=`readlink -f ../patmos-gold/include`
+			 -DLLVM_TARGETS_TO_BUILD=Patmos
+
+Install libraries for LTO support:
+    - Go to the directory where your patmos gold, ar and nm with plugin suppport 
+      is located
+    - mkdir -p ../bin && mkdir -p ../lib/bfd-plugins
+    - Copy patmos-llvm-obj/Debug+Asserts/lib/{LLVMgold.so,libLTO.so} to 
+      the lib/bfd-plugins directory
+    - Alternatively, specify -plugin /path/to/LLVMgold.so when you use gold, ar
+      or nm
 
 
 --------------------------------------------------------------------------------
 3. Use it
 
 TODO - compile with llc and clang, install gold, newlib and compiler-rt first.
+
+Options for compiling and linking using the clang driver:
+
 
 
 
@@ -105,5 +126,96 @@ TODO - complete list of all compile instructions (?)
 --------------------------------------------------------------------------------
 C) Eclipse Setup
 
-TODO 
+To setup Eclipse with C++ and GDB support for developing LLVM, follow those steps:
+
+- Install Eclipse version 3.7 (>=3.8 has crappy UI), CDT version 
+  (CDT plugin >= 8.x)
+    - Edit your eclipse.ini to get more heap, ~600-700Mb (-Xmx=700m)
+- Install gdb >= 7.0
+- Create an Eclipse project using cmake:
+    - Use cmake-gui to setup cmake in a separate directory, run Configure
+	mkdir ../patmos-llvm-eclipse
+	cd ../patmos-llvm-eclipse
+	cmake-gui ../patmos-llvm
+    - Select Eclipse as generator type
+    - Do not use clang and clang++ as compilers, use defaults (g++)
+      Otherwise gdb python scripts do not work properly for libstdc++ !
+    - Make sure to set CMAKE_BUILD_TYPE to Debug, enable assertions, ...
+- Setup Eclipse project
+    - Use File->Import->General->Import Existing Project. Do not check Copy Sources.
+    - Setup Resource->Resource Filters in Project settings on project root, 
+	- Exclude */clang/test and */clang/INPUTS project relative paths (recursive)
+	- Do not use 'Location', causes nullpointer exception on file save
+      This avoids bombing the indexer with stresstest files.
+      Make sure Indexer does not run before you create the filters!
+    - Setup project settings:
+        - Setup coding style to new derivative from GNU, edit line-breaks settings
+        - Setup Project Include-path settings: add following paths and defines:
+            - /usr/include
+            - /usr/include/c++/4.6
+            - /usr/include/c++/4.6/x86_64-linux-gnu
+            - /usr/include/x64_64-linux-gnu
+            - GET_REGINFO_MC_DESC, GET_REGINFO_HEADER, GET_REGINFO_TARGET_DESC, 
+	      GET_ASSEMBLER_HEADER, GET_MATCHER_IMPLEMENTATION
+        - Setup indexer to consume up to 100-200Mb
+        - Setup Tabwidth to 8 in Text Editor, C++ Code Style, General Editor!
+        - Setup Texteditor Font to Deja Sans Mono or any other font that has 
+	  same character width for normal and bold text!
+        - Setup dictionary for 'C++ Spell Checker' 
+	  General spell checker dictionary does not remember words.
+    - Setup GDB (Preferences -> C++ -> Debug)
+	- in GDB, set GDB command file to ~/.gdbinit (not loaded automatically 
+	  with GDB DSF launcher!), uncheck stop at startup, enable pretty printers
+	- in Source Lookup Path, remove defaults, add:
+	    - Absolute Paths as first entry (otherwise Eclipse does not find files)
+	    - File System Directory entries for both patmos-llvm and build dir 
+	      (patmos-llvm-eclipse) as absolute paths, check Lookup Subdirectories
+	      (relative paths do not work for GDB DSF, only for the Standard Launcher)
+	    Make sure you removed all Project Path entries (breaks GDB DSF breakpoints)
+- Setup Debug Configurations (Run -> Debug configurations -> New C++ Application)
+    - Select 'GDB (DSF)' as debugging interface (either per project or change workspace 
+      defaults; Standard Launcher does not support pretty printing)
+    - In 'Arguments', set working dir to your test directory (for relative paths in arguments)
+    - In 'Debugger', disable stop on main, set gdbinit file to ~/.gdbinit if necessary
+    - In 'Source', make sure you have the same settings as described above 
+      (Absolute File Path, then absolute paths to llvm checkout and build dir, include subdirs)
+      Remove any Project Relative Path entries
+    
+    - Note: GDB DSF launcher is a bit whimpy when GDB throws errors e.g. in python printers. 
+      You may need to restart Eclipse if your Variable view stays empty during debugging.
+
+    - Note: GDB DSF launcher does not load ~/.gdbinit by default, does not work with relative
+      source paths. Standard Launcher always loads ~/.gdbinit *in addition* to the given
+      GDB command file (do *not* specify ~/.gdbinit), works with project relative paths, may 
+      work better for debugging shared libraries (?), maybe more stable (?), but does not 
+      support pretty printing.
+- Setup GDB pretty printing (change ~/gdb_printers path to your liking)
+    - Follow http://sourceware.org/gdb/wiki/STLSupport to setup pretty printer for STL
+      mkdir ~/gdb_printers
+      cd ~/gdb_printers
+      svn co svn://gcc.gnu.org/svn/gcc/trunk/libstdc++-v3/python
+    - Create a ~/.gdbinit file with the following content (or use any other name and 
+      specify as command file when launching GDB)
+
+    ---- ~/.gdbinit ----
+    python
+    import sys
+    sys.path.insert(0, '/path/to/patmos-llvm/utils/gdb/python')
+    sys.path.insert(1, '/home/user/gdb_printers/python')
+    from libstdcxx.v6.printers import register_libstdcxx_printers
+    register_libstdcxx_printers (None)
+    from llvm.printers import register_llvm_printers
+    register_llvm_printers (None)
+    end
+
+    set print pretty on
+    set print array on
+    set print object on
+    set print static-members on
+    set print vtbl on
+    set print demangle on
+    set demangle-style gnu-v3
+    set print sevenbit-strings off
+    ---- END ----
+
 

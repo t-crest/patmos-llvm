@@ -1,7 +1,8 @@
 python
 import sys
-sys.path.insert(0, '/home/user/gdb_printers/python')
+sys.path.insert(0, '/path/to/patmos-llvm/utils/gdb/python')
 # Uncomment to use libstdc++ pretty printers (you need to check them out from SVN first)
+#sys.path.insert(1, '/home/user/gdb_printers/python')
 #from libstdcxx.v6.printers import register_libstdcxx_printers
 #register_libstdcxx_printers (None)
 from llvm.printers import register_llvm_printers
