@@ -99,6 +99,9 @@ static cl::opt<bool> NativeKeep("native-keep",
 static cl::opt<bool>NativeCBE("native-cbe",
   cl::desc("Generate a native binary with the C backend and GCC"));
 
+static cl::opt<bool>EmitLLVM("emit-llvm",
+  cl::desc("Generate llvm bitcode, abort if any of the input files are not bitcode files"));
+
 static cl::opt<bool> NoScript("no-script",
   cl::desc("Link an executable as library, but do not generate a shell script"));
 
@@ -594,7 +597,8 @@ int main(int argc, char **argv, char **envp) {
 
   // Remove any consecutive duplicates of the same library...
   // TODO this implementation is not correct for two reasons:
-  // 1) Consecutive entries in libraries does not mean their positions are consecutive -> needs checking
+  // 1) Consecutive entries in libraries does not mean their positions are
+  //    consecutive -> needs checking
   // 2) Libraries.erase() does erase entries from the Position vector
   //Libraries.erase(std::unique(Libraries.begin(), Libraries.end()),
   //                Libraries.end());
@@ -623,6 +627,11 @@ int main(int argc, char **argv, char **envp) {
   }
 
   std::auto_ptr<Module> Composite(TheLinker.releaseModule());
+
+  if (EmitLLVM && !NativeLinkItems.empty()) {
+    PrintAndExit("Some llvm-ld input files are not bitcode files",
+                 Composite.get());
+  }
 
   // Optimize the module
   Optimize(Composite.get());

@@ -107,7 +107,8 @@ public:
 
   virtual void EmitFileDirective(StringRef Filename);
 
-  virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment);
+  virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size,
+                             unsigned Alignment);
 
   virtual void FinishImpl();
 
@@ -485,15 +486,21 @@ void MCELFStreamer::EmitInstToData(const MCInst &Inst) {
   DF->getContents().append(Code.begin(), Code.end());
 }
 
-void MCELFStreamer::EmitFRELStart(const MCSymbol *Start, const MCExpr* Size, unsigned Alignment) {
+void MCELFStreamer::EmitFRELStart(const MCSymbol *Start, const MCExpr* Size,
+                                  unsigned Alignment)
+{
 
   // Set the SubFunction flag for the start symbol
   MCSymbolData &SD = getAssembler().getOrCreateSymbolData(*Start);
   SD.setFlags(SD.getFlags() | ELF_Other_SubFunc);
 
-  // TODO Emit proper alignment, excluding function size word
+  // Emit the padding and the size expression as fragment
+  // We may emit at most Alignment + 3 bytes, in case emitting just the
+  // expression will result in being one byte over the alignment. in this case
+  // we need to emit Alignment - 1 bytes of padding + 4 bytes of expression.
   MCSectionData *SectData = getCurrentSectionData();
-  MCExprAlignFragment *AF = new MCExprAlignFragment(Alignment, *Size, 4, 0, 1, Alignment + 3, SectData);
+  MCExprAlignFragment *AF = new MCExprAlignFragment(Alignment, *Size, 4, 0, 1,
+                                                    Alignment + 3, SectData);
 
   AF->setEmitNops(true);
 }
