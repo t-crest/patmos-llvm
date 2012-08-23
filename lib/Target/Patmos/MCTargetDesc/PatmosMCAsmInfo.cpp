@@ -26,7 +26,7 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
   CommentColumn = 45;
   LabelSuffix = ":";
   PrivateGlobalPrefix = ".L";
-  AlignmentIsInBytes = false; // in words
+  AlignmentIsInBytes = true;
   EmitFunctionAlignment = false;
   MaxInstLength = 8; // for long immediates
   SupportsDebugInformation = true;

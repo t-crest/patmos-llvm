@@ -79,7 +79,10 @@ namespace {
                                        const char *ExtraCode,
                                        raw_ostream &OS);
   private:
-    void EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd, unsigned Alignment = 0);
+    /// mark the start of an FREL relocation area.
+    /// Alignment is in bytes.
+    void EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd,
+                       unsigned Alignment = 0);
 
     bool isFRELStart(const MachineBasicBlock *MBB) const;
   };
@@ -92,8 +95,11 @@ void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   // if the function has only one cache block)
   CurrFRELEnd = OutContext.CreateTempSymbol();
 
+  // convert LLVM's log2 function alignment
+  unsigned alignment = std::max(4u, 1u << MF->getAlignment());
+
   // emit a function/subfunction start directive
-  EmitFRELStart(CurrentFnSymForSize, CurrFRELEnd);
+  EmitFRELStart(CurrentFnSymForSize, CurrFRELEnd, alignment);
 
   // Now emit the normal function label
   AsmPrinter::EmitFunctionEntryLabel();
@@ -119,8 +125,11 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   // create new end symbol
   CurrFRELEnd = OutContext.CreateTempSymbol();
 
+  // convert LLVM's log2-block alignment to bytes
+  unsigned alignment = std::max(4u, 1u << Next->getAlignment());
+
   // emit a function/subfunction start directive
-  EmitFRELStart(SymStart, CurrFRELEnd, Next->getAlignment());
+  EmitFRELStart(SymStart, CurrFRELEnd, alignment);
 }
 
 void PatmosAsmPrinter::EmitFunctionBodyEnd() {
@@ -128,16 +137,13 @@ void PatmosAsmPrinter::EmitFunctionBodyEnd() {
   OutStreamer.EmitLabel(CurrFRELEnd);
 }
 
-void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd, unsigned Alignment) {
+void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd,
+                                     unsigned Alignment) {
   // emit .frelstart SymStart, SymEnd-SymStart
   const MCExpr *SizeExpr =
     MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
-
-  // Get the proper cache alignment size from the Patmos configuration
-  // TODO merge with per-block alignment?
-  Alignment = Alignment != 0 ? Alignment : PTM->getFunctionBlockAlign();
 
   // Should we emit a .type directive for SymStart instead of setting the flag in EmitFREL?
   // This would need adding a new MCSymbolAttr, and adding proper handling in EmitSymbolAttribute and

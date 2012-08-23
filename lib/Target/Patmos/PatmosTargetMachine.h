@@ -70,20 +70,6 @@ public:
   /// createPassConfig - Create a pass configuration object to be used by
   /// addPassToEmitX methods for generating a pipeline of CodeGen passes.
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);
-
-  /// getInstrCacheBlockSize - Get the size of a single instruction cache block in bytes
-  /// (e.g., a method cache block or an LRU cache line).
-  unsigned getInstrCacheBlockSize();
-
-  /// getInstrCacheSize - Get the total size of the instruction cache (e.g. the method cache) in bytes.
-  unsigned getInstrCacheSize();
-
-  /// getMethodCacheBlockAlign - Get the alignment to reach for function blocks in bytes.
-  unsigned getFunctionBlockAlign();
-
-  // TODO getters for stack cache size, data cache size, type of data/instruction cache, ..
-
-
 }; // PatmosTargetMachine.
 
 } // end namespace llvm

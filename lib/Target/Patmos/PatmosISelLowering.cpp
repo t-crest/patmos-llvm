@@ -67,9 +67,9 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   //setSchedulingPreference(Sched::Latency);
 
-  // We only require word alignment for the general .align stuff, we do the
-  // proper alignment with a custom directive which also handles (sub)function-size and uses
-  // the proper cache alignment size
+  // We require word alignment at least (in log2 bytes here), if code requires 
+  // an other alignment, e.g., due to the method-cache, it will be handled 
+  // later.
   setMinFunctionAlignment(2);
   setPrefFunctionAlignment(2);
 
