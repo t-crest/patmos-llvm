@@ -642,9 +642,6 @@ void AddRuntimeDependencies::visitUIToFPInst(UIToFPInst &I) {
   else if (ITy->isIntegerTy() && ITy->getIntegerBitWidth() <= 32) {
     FPCallConfig CC("__floatunsisf", "__floatunsidf", "__floatunsixf", I, TyCache, true);
     RIC.processInstruction(&I, CC, NULL);
-    break;
-  }
-  default: break;
   }
   else llvm_unreachable("Source type size for UIToFP not yet supported.");
 
