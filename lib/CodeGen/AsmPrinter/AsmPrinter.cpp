@@ -424,7 +424,9 @@ void AsmPrinter::EmitFunctionHeader() {
   EmitVisibility(CurrentFnSym, F->getVisibility());
 
   EmitLinkage(F->getLinkage(), CurrentFnSym);
-  EmitAlignment(MF->getAlignment(), F);
+
+  if (MAI->getEmitFunctionAlignment())
+    EmitAlignment(MF->getAlignment(), F);
 
   if (MAI->hasDotTypeDotSizeDirective())
     OutStreamer.EmitSymbolAttribute(CurrentFnSym, MCSA_ELF_TypeFunction);

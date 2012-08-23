@@ -233,6 +233,11 @@ namespace llvm {
     /// space created as the result of a alignment directive.
     unsigned TextAlignFillValue;             // Defaults to 0
 
+    /// PrintFunctionAlignment - If this is true (the default) then the 
+    /// asmprinter emits ".align" before functions. This is useful if other
+    /// pseudo directives already imply an alignment (e.g., 
+    bool EmitFunctionAlignment;             // Defaults to true
+
     //===--- Global Variable Emission Directives --------------------------===//
 
     /// GlobalDirective - This is the directive used to declare a global entity.
@@ -509,6 +514,9 @@ namespace llvm {
     }
     unsigned getTextAlignFillValue() const {
       return TextAlignFillValue;
+    }
+    bool getEmitFunctionAlignment() const {
+      return EmitFunctionAlignment;
     }
     const char *getGlobalDirective() const {
       return GlobalDirective;

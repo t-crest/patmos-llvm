@@ -27,6 +27,7 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
   LabelSuffix = ":";
   PrivateGlobalPrefix = ".L";
   AlignmentIsInBytes = false; // in words
+  EmitFunctionAlignment = false;
   MaxInstLength = 8; // for long immediates
   SupportsDebugInformation = true;
 
