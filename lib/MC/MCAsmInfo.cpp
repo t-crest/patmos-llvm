@@ -69,6 +69,7 @@ MCAsmInfo::MCAsmInfo() {
   AlignmentIsInBytes = true;
   TextAlignFillValue = 0;
   EmitFunctionAlignment = true;
+  EmitBasicBlockAlignment = true;
   GPRel64Directive = 0;
   GPRel32Directive = 0;
   GlobalDirective = "\t.globl\t";

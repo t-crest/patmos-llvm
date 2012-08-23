@@ -2086,7 +2086,8 @@ static void EmitBasicBlockLoopComments(const MachineBasicBlock &MBB,
 /// it if appropriate.
 void AsmPrinter::EmitBasicBlockStart(const MachineBasicBlock *MBB) const {
   // Emit an alignment directive for this block, if needed.
-  if (unsigned Align = MBB->getAlignment())
+  unsigned Align = MBB->getAlignment();
+  if (MAI->getEmitBasicBlockAlignment() && Align)
     EmitAlignment(Align);
 
   // If the block has its address taken, emit any labels that were used to

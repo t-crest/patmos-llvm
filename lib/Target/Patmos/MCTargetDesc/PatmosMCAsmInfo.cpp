@@ -28,6 +28,7 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
   PrivateGlobalPrefix = ".L";
   AlignmentIsInBytes = true;
   EmitFunctionAlignment = false;
+  EmitBasicBlockAlignment = false;
   MaxInstLength = 8; // for long immediates
   SupportsDebugInformation = true;
 
