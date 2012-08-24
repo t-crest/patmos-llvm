@@ -18,3 +18,6 @@ set print demangle on
 set demangle-style gnu-v3
 set print sevenbit-strings off
 
+# For x64 Ubuntu, you may need to enable this for debugging gold
+#set env LD_PRELOAD /lib/x86_64-linux-gnu/libpthread.so.0
+
