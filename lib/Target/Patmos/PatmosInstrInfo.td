@@ -105,12 +105,12 @@ def freltarget : Operand<OtherVT> {
 // Transformation Function - shift right by one/two bits
 def shrOne : SDNodeXForm<imm, [{
  return CurDAG->getTargetConstant(
-              N->getZExtValue() >> 1,
+              N->getSExtValue() >> 1,
               MVT::i32 );
 }]>;
 def shrTwo : SDNodeXForm<imm, [{
  return CurDAG->getTargetConstant(
-              N->getZExtValue() >> 2,
+              N->getSExtValue() >> 2,
               MVT::i32 );
 }]>;
 
