@@ -46,9 +46,10 @@ void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
 
 void PatmosInstPrinter::printGuard(const MCInst *MI, raw_ostream &O) {
   // Print the predicate register first.
-  // This is a workaround. The guard cannot be printed before the mnemonic by tablegen,
-  // otherwise we would not be able to generate matcher tables. We therefore skip printing
-  // the guard in the AsmString and print it here as a prefix instead.
+  // This is a workaround. The guard cannot be printed before the mnemonic by
+  // tablegen, otherwise we would not be able to generate matcher tables.
+  // We therefore skip printing the guard in the AsmString and print it here
+  // as a prefix instead.
 
   const MCInstrDesc &Desc = MII.get(MI->getOpcode());
 
@@ -64,7 +65,8 @@ void PatmosInstPrinter::printGuard(const MCInst *MI, raw_ostream &O) {
 void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                      raw_ostream &O, const char *Modifier)
 {
-  // Note: this code is not used to generate inline-assembly. See PatmosAsmPrinter for that.
+  // Note: this code is not used to generate inline-assembly. See
+  // PatmosAsmPrinter for that.
 
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
@@ -84,7 +86,8 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     else {
       // TODO print as hex only for some instructions?
       //O << format("0x%X", Op.getImm());
-      // We have the hex value in the disassembly output anyway, and we do not want to print hex for LIin
+      // We have the hex value in the disassembly output anyway, and we do not
+      // want to print hex for LIin
       O << Op.getImm();
     }
   } else {
@@ -98,7 +101,8 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
-                                              raw_ostream &O, const char *Modifier)
+                                              raw_ostream &O,
+                                              const char *Modifier)
 {
   unsigned reg  = MI->getOperand(OpNo  ).getReg();
   int      flag = MI->getOperand(OpNo+1).getImm();
@@ -126,11 +130,13 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
   }
 }
 
-void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI, unsigned OpNo,
+void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI,
+                                            unsigned OpNo,
                                             raw_ostream &O)
 {
   const MCOperand &Op = MI->getOperand(OpNo);
-  // For disassembly .. should we create a fixup for this in the disassembler, or an expression??
+  // For disassembly .. should we create a fixup for this in the disassembler,
+  // or an expression??
   if (Op.isImm()) {
     // TODO print as hex value;
     O << Op.getImm();
