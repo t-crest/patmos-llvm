@@ -555,6 +555,9 @@ ParsePredicateOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool check
     // TODO There really should be a nicer way of doing this, but we do not have access to the RegisterInfo stuff here
     if (PatmosInstPrinter::getRegisterName(Op->getReg())[0] != 'p') {
       // Not a predicate register, do not emit a flag operand
+      if (flag) {
+        Error(StartLoc, "Negation of registers other than predicates is invalid.");
+      }
       return false;
     }
   }
@@ -822,7 +825,7 @@ bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
 
   // We check if the src op is actually a predicate register later in the parse method
   if (Mnemonic == "or"  || Mnemonic == "and" || Mnemonic == "xor" || Mnemonic == "nor") return true;
-  if (Mnemonic == "mov" || Mnemonic == "neg") return true;
+  if (Mnemonic == "mov" || Mnemonic == "neg" || Mnemonic == "not") return true;
 
   return false;
 }
