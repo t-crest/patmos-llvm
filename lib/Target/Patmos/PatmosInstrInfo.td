@@ -736,7 +736,7 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
 
 let ImmShift = 2, ImmSigned = 1 in defm SW  : StoreTyped<0b000, imm7s2, "sw">;
 let ImmShift = 1, ImmSigned = 1 in defm SH  : StoreTyped<0b001, imm7s1, "sh">;
-let ImmShift = 0, ImmSigned = 0 in defm SB  : StoreTyped<0b010, imm7  , "sb">;
+let ImmShift = 0, ImmSigned = 1 in defm SB  : StoreTyped<0b010, imm7  , "sb">;
 
 
 //===----------------------------------------------------------------------===//
