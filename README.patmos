@@ -28,8 +28,8 @@ This is LLVM for Patmos, the time predictable processor of the T-CREST project.
 
 For Debian or Ubuntu, you may need to install the following packages:
 
-    cmake 
-    g++ glibc-dev-i386 
+    cmake make
+    g++ 
     texinfo
     flex bison
     libelf-dev
@@ -37,7 +37,7 @@ For Debian or Ubuntu, you may need to install the following packages:
 
 To build the simulator, you also need the following packages (version >= 1.46):
 
-    libboost-dev, libboost-program-options-dev
+    libboost-dev libboost-program-options-dev
 
 
 --------------------------------------------------------------------------------
