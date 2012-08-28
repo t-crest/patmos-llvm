@@ -43,23 +43,30 @@ To build the simulator, you also need the following packages (version >= 1.46):
 --------------------------------------------------------------------------------
 2. Configure and build
 
-TODO - configure or cmake/cmake-gui
+LLVM can be compiled either with configure or with CMake. For an automake based
+build, use the follwing commands to build for Patmos and enable building of 
+the gold plugin:
 
-    mkdir ../patmos-llvm-obj
-    cd ../patmos-llvm-obj
-    ../patmos-llvm/configure --disable-optimized --enable-assertions 
-
-
-    --enable-targets=host,patmos
-    --with-binutils-include=`readlink -f ../patmos-gold/include/`
+    mkdir build
+    cd build
+    ../configure --disable-optimized --enable-assertions \
+    --enable-targets=host,patmos \
+    --with-binutils-include=`readlink -f ../../patmos-gold/include/` \
+    --prefix=$INSTALL_DIR
 
 With cmake:
     
-    mkdir ../patmos-llvm-obj
-    cd ../patmos-llvm-obj
-    cmake ../patmos-llvm -DCMAKE_BUILD_DIR=Debug 
-			 -DLLVM_BINUTILS_INCDIR=`readlink -f ../patmos-gold/include`
-			 -DLLVM_TARGETS_TO_BUILD=Patmos
+    mkdir build
+    cd build
+    cmake .. -DCMAKE_BUILD_DIR=Debug 
+	     -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR
+	     -DLLVM_BINUTILS_INCDIR=`readlink -f ../patmos-gold/include`
+	     -DLLVM_TARGETS_TO_BUILD=Patmos
+
+In both cases, LLVM is build using make
+
+    make all
+
 
 Install libraries for LTO support:
     - Go to the directory where your patmos gold, ar and nm with plugin suppport 
@@ -69,6 +76,10 @@ Install libraries for LTO support:
       the lib/bfd-plugins directory
     - Alternatively, specify -plugin /path/to/LLVMgold.so when you use gold, ar
       or nm
+
+
+Alternatively patmos-llvm can be built using the build script in the patmos-misc
+repository at http://github.com/t-crest/patmos-misc.
 
 
 --------------------------------------------------------------------------------
@@ -98,8 +109,6 @@ syntax, ...) please refer to lib/Target/Patmos/README.txt.
 --------------------------------------------------------------------------------
 B) Toolchain
 
-TODO - describe 
-
  - pasim - Patmos Simulator
 
  - compiler-rt, and NewLib for Patmos
@@ -119,8 +128,6 @@ TODO - describe
 
 See the README files in the various repositories for information on how to build 
 them.
-
-TODO - complete list of all compile instructions (?)
 
 
 --------------------------------------------------------------------------------
