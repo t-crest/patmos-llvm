@@ -9,6 +9,29 @@
 //
 // This pass adds declarations for rtlib.
 //
+// TODO:
+// The pass is currently unused, since it does not really work this way.
+// Additional instructions must still be handled, and ideally the instructions
+// must be lowered down to calls, but this needs to handle various special
+// cases that are already handled by the backend (partially constant arguments,
+// ...).
+// The pass might still be useful in the future however, when full program
+// analysis should be performed, including code in the runtime libs.
+//
+// TODO The options stuff is a mess, also the pass registration, but that's
+// the way it is in LLVM obviously.
+//
+// TODO The pass needs to be executed precisely at the right time in the tool
+// chain, i.e., after all optimizations that a) introduce new code that might
+// result in runtime calls, or b) use the semantics of the instructions that
+// are removed by this pass, but before any optimizations that do whole-program
+// analyses. And it needs to be automatically executed by the driver, but not
+// for libraries, as they are linked in and optimized at a later time.
+//
+// TODO floats need to be handled more fine-grained, i.e., distinguish between
+// no floating point support at all, only SP floats, full float hardware but no
+// pow/log/.. functions..
+//
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "addruntimedeps"
@@ -39,15 +62,20 @@ STATISTIC(NumIntrinsicsIgnored, "Number of ignored intrinsic calls");
 static SmallPtrSet<Value *, 4> DeclsSet;
 
 
+/* This pass is currently unused, so we hide the options for now
+ * TODO use the -float-abi option from llc somehow, and there is some sort of
+ * target machine in clang too (!?)
 static cl::opt<std::string>
-FloatABI("float-abi", cl::value_desc("soft|hard"),
-        cl::desc("Floating point support capabilities"),
-        cl::init("soft"));
+FloatABI("-fpatmos-float-abi", cl::value_desc("none|all"),
+        cl::desc("Lower floating point instructions to calls"),
+        cl::init("all"));
 
 static cl::opt<bool>
 LowerCalls("lower-runtime-calls", cl::init(false),
         cl::desc("Lower some operations to runtime library calls (requires -add-runtime-deps)"));
-
+*/
+static std::string FloatABI = "all";
+static bool LowerCalls = true;
 
 // VisualStudio defines setjmp as _setjmp
 #if defined(_MSC_VER) && defined(setjmp) && \
@@ -129,7 +157,7 @@ namespace {
       RIC.setLowerCalls(_LowerCalls);
 
       // TODO maybe handle floats depending on type of FPU (only some/all float instructions, ..)
-      HandleFloats = (_FloatABI != "hard");
+      HandleFloats = (_FloatABI != "none" && _FloatABI != "hard");
     }
 
     virtual ~AddRuntimeDependencies() { }
