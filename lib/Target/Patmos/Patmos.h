@@ -26,6 +26,7 @@ namespace llvm {
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
   FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
+  FunctionPass *createPatmosFunctionSplitterPass(TargetMachine &tm);
 
 } // end namespace llvm;
 

@@ -177,10 +177,16 @@ const MCExpr * PatmosTargetLowering::LowerCustomJumpTableEntry(
 {
   // Note: see also PatmosMCInstLower::LowerSymbolOperand
 
-  MCSymbolRefExpr::VariantKind Kind;
-  Kind = MCSymbolRefExpr::VK_Patmos_FREL;
+  // check if the MBB is the entry to a method-cache-cacheable code region.
+  const MachineFunction *MF = MBB->getParent();
+  const PatmosMachineFunctionInfo *PMFI=
+                                       MF->getInfo<PatmosMachineFunctionInfo>();
 
-  return MCSymbolRefExpr::Create(MBB->getSymbol(), Kind, OutContext);
+  if (PMFI->isMethodCacheRegionEntry(MBB))
+    return MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
+  else 
+    return MCSymbolRefExpr::Create(MBB->getSymbol(),
+                                   MCSymbolRefExpr::VK_Patmos_FREL, OutContext);
 }
 
 

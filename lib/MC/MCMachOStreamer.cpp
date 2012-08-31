@@ -199,6 +199,7 @@ void MCMachOStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
   switch (Attribute) {
   case MCSA_Invalid:
   case MCSA_ELF_TypeFunction:
+  case MCSA_ELF_TypeCode:
   case MCSA_ELF_TypeIndFunction:
   case MCSA_ELF_TypeObject:
   case MCSA_ELF_TypeTLS:

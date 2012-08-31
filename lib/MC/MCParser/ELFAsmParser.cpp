@@ -477,6 +477,7 @@ bool ELFAsmParser::ParseDirectiveType(StringRef, SMLoc) {
     .Case("notype", MCSA_ELF_TypeNoType)
     .Case("gnu_unique_object", MCSA_ELF_TypeGnuUniqueObject)
     .Case("gnu_indirect_function", MCSA_ELF_TypeIndFunction)
+    .Case("code", MCSA_ELF_TypeCode)
     .Default(MCSA_Invalid);
 
   if (Attr == MCSA_Invalid)

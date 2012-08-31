@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 
 #include <limits>
+#include <set>
 
 namespace llvm {
 
@@ -38,6 +39,10 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
 
   /// VarArgsFI - FrameIndex to access parameters of variadic functions.
   int VarArgsFI;
+
+  /// Set of entry blocks to code regions that are potentially cached by the 
+  /// method cache.
+  std::set<const MachineBasicBlock*> MethodCacheRegionEntries;
 
   // do not provide any default constructor.
   PatmosMachineFunctionInfo() {}
@@ -88,6 +93,20 @@ public:
   /// setVarArgsFI - Set the FI used to access parameters of variadic functions.
   void setVarArgsFI(int newFI) {
     VarArgsFI = newFI;
+  }
+
+  /// addMethodCacheRegionEntry - Add the block to the set of method cache 
+  /// region entry blocks.
+  /// \see MethodCacheRegionEntries
+  void addMethodCacheRegionEntry(const MachineBasicBlock *MBB) {
+    MethodCacheRegionEntries.insert(MBB);
+  }
+
+  /// isMethodCacheRegionEntry - Return whether the block is a method cache 
+  /// region entry.
+  /// \see MethodCacheRegionEntries
+  bool isMethodCacheRegionEntry(const MachineBasicBlock *MBB) const {
+    return MethodCacheRegionEntries.find(MBB) != MethodCacheRegionEntries.end();
   }
 };
 

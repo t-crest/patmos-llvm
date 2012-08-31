@@ -52,6 +52,7 @@ namespace {
     /// true if -print-machineinstrs should print out the code after the passes.
     virtual bool addPreEmitPass(){
       PM->add(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
+      PM->add(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
       return true;
     }
   };

@@ -284,6 +284,10 @@ void MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
     MCELF::SetType(SD, ELF::STT_FUNC);
     break;
 
+  case MCSA_ELF_TypeCode:
+    MCELF::SetType(SD, ELF::STT_CODE);
+    break;
+
   case MCSA_ELF_TypeIndFunction:
     MCELF::SetType(SD, ELF::STT_GNU_IFUNC);
     break;
@@ -487,8 +491,7 @@ void MCELFStreamer::EmitInstToData(const MCInst &Inst) {
 }
 
 void MCELFStreamer::EmitFRELStart(const MCSymbol *Start, const MCExpr* Size,
-                                  unsigned Alignment)
-{
+                                  unsigned Alignment) {
 
   // Set the SubFunction flag for the start symbol
   MCSymbolData &SD = getAssembler().getOrCreateSymbolData(*Start);

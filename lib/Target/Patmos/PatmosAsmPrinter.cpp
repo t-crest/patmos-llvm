@@ -15,6 +15,7 @@
 #define DEBUG_TYPE "asm-printer"
 #include "PatmosMCInstLower.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosMachineFunctionInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCInst.h"
@@ -58,6 +59,8 @@ namespace {
     // called in the framework for instruction printing
     virtual void EmitInstruction(const MachineInstr *MI);
 
+    /// EmitDotSize - Emit a .size directive using SymEnd - SymStart.
+    void EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd);
 
     /// isBlockOnlyReachableByFallthough - Return true if the basic block has
     /// exactly one predecessor and the control transfer mechanism between
@@ -120,10 +123,16 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   // We need an address symbol from the next block
   assert(!MBB->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
 
-  MCSymbol *SymStart = MBB->getSymbol();
+  MCSymbol *SymStart = Next->getSymbol();
 
   // create new end symbol
   CurrFRELEnd = OutContext.CreateTempSymbol();
+
+  // mark the symbol as method-cache-cacheable code
+  OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
+
+  // emit a .size directive
+  EmitDotSize(SymStart, CurrFRELEnd);
 
   // convert LLVM's log2-block alignment to bytes
   unsigned alignment = std::max(4u, 1u << Next->getAlignment());
@@ -137,6 +146,15 @@ void PatmosAsmPrinter::EmitFunctionBodyEnd() {
   OutStreamer.EmitLabel(CurrFRELEnd);
 }
 
+void PatmosAsmPrinter::EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd) {
+  const MCExpr *SizeExpr =
+    MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
+                            MCSymbolRefExpr::Create(SymStart, OutContext),
+                            OutContext);
+
+  OutStreamer.EmitELFSize(SymStart, SizeExpr);
+}
+
 void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                                      unsigned Alignment) {
   // emit .frelstart SymStart, SymEnd-SymStart
@@ -145,27 +163,15 @@ void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
 
-  // Should we emit a .type directive for SymStart instead of setting the flag in EmitFREL?
-  // This would need adding a new MCSymbolAttr, and adding proper handling in EmitSymbolAttribute and
-  // in the parser. Similarly, should we emit .size or handle this in EmitFREL as well?
-  // - If we emit .size, we should also emit .type for consistency reasons
-  // - If we emit .type, we need to add the @fblock type to ELF headers, emitters and parser.
-  // - If we emit .size as part of .fstart, we need a separate symbol for function start and cache-start!
-  //   (otherwise, we emit two .size directives for the function label, one with function size, one with the
-  //   size of the first cache block!)
-  // - If we emit .size, we also need to make sure the linker does not interpret it as offset.
-  //
-  // For now, we set the SubFunction flag in EmitFRELStart, and do not set size.
-  //OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeSubFunction);
-  //OutStreamer.EmitELFSize(SymStart, SizeExpr);
-
   OutStreamer.EmitFRELStart(SymStart, SizeExpr, Alignment);
 }
 
 bool PatmosAsmPrinter::isFRELStart(const MachineBasicBlock *MBB) const {
-  // TODO this is just a temporary hack, need to define some custom attribute for marking
-  // blocks as start of a cache block
-  return (MBB->getAlignment() != 0);
+  // query the machineinfo object - the PatmosFunctionSplitter, or some other
+  // pass, has marked all entry blocks already.
+  const PatmosMachineFunctionInfo *PMFI =
+                                       MF->getInfo<PatmosMachineFunctionInfo>();
+  return PMFI->isMethodCacheRegionEntry(MBB);;
 }
 
 
@@ -186,7 +192,7 @@ bool PatmosAsmPrinter::
 isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB) const {
   // If this is a landing pad, it isn't a fall through.  If it has no preds,
   // then nothing falls through to it.
-  if (MBB->isLandingPad() || MBB->pred_empty())
+  if (MBB->isLandingPad() || MBB->pred_empty() || MBB->hasAddressTaken())
     return false;
 
   // If there isn't exactly one predecessor, it can't be a fall through.
@@ -200,8 +206,9 @@ isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB) const {
   if (!Pred->isLayoutSuccessor(MBB))
     return false;
 
-  // if the block starts a new cache block, do not fall through (we need to insert cache stuff, even
-  // if we only reach this block from a jump from the previous block, and we need the label).
+  // if the block starts a new cache block, do not fall through (we need to
+  // insert cache stuff, even if we only reach this block from a jump from the
+  // previous block, and we need the label).
   if (isFRELStart(MBB))
     return false;
 

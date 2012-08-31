@@ -807,6 +807,7 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     Result = Section ? Section->sh_addr : UnknownAddressOrSize;
     return object_error::success;
   case ELF::STT_FUNC:
+  case ELF::STT_CODE:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
     Result = symb->st_value +
@@ -841,6 +842,7 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     Result = Section ? Section->sh_addr : UnknownAddressOrSize;
     return object_error::success;
   case ELF::STT_FUNC:
+  case ELF::STT_CODE:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
     Result = symb->st_value + (Section ? Section->sh_addr : 0);
@@ -946,6 +948,7 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     Result = SymbolRef::ST_File;
     break;
   case ELF::STT_FUNC:
+  case ELF::STT_CODE:
     Result = SymbolRef::ST_Function;
     break;
   case ELF::STT_OBJECT:
@@ -979,7 +982,8 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     Result |= SymbolRef::SF_Absolute;
 
   if (symb->getType() == ELF::STT_FILE ||
-      symb->getType() == ELF::STT_SECTION)
+      symb->getType() == ELF::STT_SECTION ||
+      symb->getType() == ELF::STT_CODE)
     Result |= SymbolRef::SF_FormatSpecific;
 
   if (getSymbolTableIndex(symb) == ELF::SHN_UNDEF)
