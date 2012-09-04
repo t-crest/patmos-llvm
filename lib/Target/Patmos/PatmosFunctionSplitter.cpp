@@ -339,9 +339,9 @@ namespace llvm {
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
-        size =+ i->getDesc().Size; 
+        size += i->getDesc().Size;
       }
-      
+
       // add some bytes in case we need to fix-up the fall-through
       return size + (mayFallThrough(MBB) ? 12 : 0);
     }
