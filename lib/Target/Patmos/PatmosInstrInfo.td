@@ -255,6 +255,20 @@ def ADJCALLSTACKUP   : PseudoInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 }
 
 
+let isCodeGenOnly=1 in {
+let mayStore=1 in
+def PSEUDO_PREG_SPILL  : PseudoInst<(outs),
+                                    (ins RRegs:$ra, i32imm:$imm, PRegs:$ps),
+                                    "#PSEUDO_PREG_SPILL", "", []>;
+
+let mayLoad=1 in
+def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
+                                    (ins RRegs:$ra, i32imm:$imm),
+                                    "#PSEUDO_PREG_RELOAD", "", []>;
+}
+
+
+
 //===----------------------------------------------------------------------===//
 //  Control Flow Instructions...
 //===----------------------------------------------------------------------===//
@@ -332,10 +346,6 @@ def SRES : STC<0b00, (outs), (ins pred:$p, uimm22:$imm), "sres", "$imm",
 def SENS : STC<0b01, (outs), (ins pred:$p, uimm22:$imm), "sens", "$imm",
                []>;
 def SFREE: STC<0b10, (outs), (ins pred:$p, uimm22:$imm), "sfree", "$imm", []>;
-
-//===----------------------------------------------------------------------===//
-// Move Instructions
-//===----------------------------------------------------------------------===//
 
 
 //===----------------------------------------------------------------------===//

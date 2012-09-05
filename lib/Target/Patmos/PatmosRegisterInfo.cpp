@@ -26,6 +26,9 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
+
 #define GET_REGINFO_TARGET_DESC
 #include "PatmosGenRegisterInfo.inc"
 
@@ -162,6 +165,65 @@ PatmosRegisterInfo::computeLargeFIOffset(int &offset, unsigned &basePtr,
   offset  = offsetLeft;
 }
 
+
+
+
+void
+PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
+                                          int offset, unsigned basePtr,
+                                          bool isOnStackCache) const {
+  MachineInstr &PseudoMI = *II;
+  MachineBasicBlock &MBB = *PseudoMI.getParent();
+  DebugLoc DL            = PseudoMI.getDebugLoc();
+
+  switch (PseudoMI.getOpcode())
+  {
+    case Patmos::PSEUDO_PREG_SPILL:
+      {
+        unsigned st_opc = (isOnStackCache) ? Patmos::SWS : Patmos::SWC;
+        MachineOperand SrcRegOpnd = PseudoMI.getOperand(2);
+        // spilling predicate values is sort of hackish:
+        //   we implement it as a predicated store of a non-zero value
+        //   followed by a predicated (inverted) store of 0
+        // marker to aid debugging
+        //AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::WAIT) )); //XXX
+        BuildMI(MBB, II, DL, TII.get(st_opc))
+          .addReg(SrcRegOpnd.getReg()).addImm(0) // predicate
+          .addReg(basePtr, false).addImm(offset) // address
+          .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
+        BuildMI(MBB, II, DL, TII.get(st_opc))
+          .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
+          .addReg(basePtr, false).addImm(offset) // address
+          .addReg(Patmos::R0); // zero
+      }
+      break;
+
+
+    case Patmos::PSEUDO_PREG_RELOAD:
+      {
+        unsigned ld_opc = (isOnStackCache) ? Patmos::LWS : Patmos::LWC;
+        unsigned DestReg = PseudoMI.getOperand(0).getReg();
+
+        // marker to aid debugging
+        //AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::WAIT) )); //XXX
+        AddDefaultPred(BuildMI(MBB, II, DL, TII.get(ld_opc), Patmos::RTR))
+          .addReg(basePtr, false).addImm(offset); // address
+        AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::CMPEQ), DestReg))
+          .addReg(Patmos::RTR).addReg(Patmos::R0); // compare with 0
+      }
+      break;
+
+    default:
+      llvm_unreachable("Unexpected MI in expandPseudoPregInstr()!");
+  }
+
+  DEBUG( dbgs() << "Pseudo PREG instruction expanded: " << PseudoMI );
+
+  // remove the pseudo instruction
+  MBB.erase(&PseudoMI);
+}
+
+
 void
 PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                         int SPAdj, RegScavenger *RS) const {
@@ -175,18 +237,19 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   const MachineFrameInfo &MFI     = *MF.getFrameInfo();
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
+
   //----------------------------------------------------------------------------
   // find position of the FrameIndex object
 
   unsigned i = 0;
   while (!MI.getOperand(i).isFI()) {
     ++i;
-    assert(i < MI.getNumOperands() && "Instr doesn't have FrameIndex operand!");
   }
+  assert(i+1 < MI.getNumOperands() && "Instr doesn't have valid FrameIndex/Offset operands!");
 
+  // TODO: check for correctness of position
   // expect FrameIndex to be on second position for load/store operations
-  // TODO: position in other expressions than load/store!
-  assert(i == 2 || i == 3);
+  //assert(i == 2 || i == 3);
 
   //----------------------------------------------------------------------------
   // Stack Object / Frame Index
@@ -228,6 +291,8 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   {
     case Patmos::LWC: case Patmos::LWM:
     case Patmos::SWC: case Patmos::SWM:
+    case Patmos::PSEUDO_PREG_SPILL:
+    case Patmos::PSEUDO_PREG_RELOAD:
       // 9 bit
       assert((Offset & 0x3) == 0);
       Offset = (Offset >> 2) + FrameDisplacement;
@@ -277,6 +342,13 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     default:
       assert("Unexpected operation with FrameIndex encountered." && false);
       abort();
+  }
+
+  // special handling of pseudo instructions: expand
+  if ( opcode==Patmos::PSEUDO_PREG_SPILL ||
+       opcode==Patmos::PSEUDO_PREG_RELOAD ) {
+      expandPseudoPregInstr(II, Offset, BasePtr, isOnStackCache);
+      return;
   }
 
   // do we need to rewrite the instruction opcode?

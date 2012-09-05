@@ -55,6 +55,18 @@ namespace {
       PM->add(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
       return true;
     }
+
+    /// addPreSched2 - This method may be implemented by targets that want to
+    /// run passes after prolog-epilog insertion and before the second instruction
+    /// scheduling pass.  This should return true if -print-machineinstrs should
+    /// print after these passes.
+    virtual bool addPreSched2() {
+      if (getOptLevel() != CodeGenOpt::None) {
+        addPass(IfConverterID);
+      }
+      return true;
+    }
+
   };
 } // namespace
 

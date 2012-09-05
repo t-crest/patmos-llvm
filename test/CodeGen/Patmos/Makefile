@@ -17,25 +17,26 @@ SYMDEFS=--defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x30000
 
 ### compiler binaries ###
 
-LLCBIN=$(BUILDDIR)/bin/llc
-MCBIN=$(BUILDDIR)/bin/llvm-mc
-TBLGENBIN=$(BUILDDIR)/bin/llvm-tblgen
-LLVM_LDBIN=$(BUILDDIR)/bin/llvm-ld
-LDBIN=$(GOLDDIR)/ld-new
-CLANGBIN=$(BUILDDIR)/bin/clang
-OPTBIN=$(BUILDDIR)/bin/opt
+BINARY_PREFIX=patmos-
+LLCBIN=$(BUILDDIR)/bin/$(BINARY_PREFIX)llc
+MCBIN=$(BUILDDIR)/bin/$(BINARY_PREFIX)llvm-mc
+TBLGENBIN=$(BUILDDIR)/bin/$(BINARY_PREFIX)llvm-tblgen
+LLVM_LDBIN=$(BUILDDIR)/bin/$(BINARY_PREFIX)llvm-ld
+LDBIN=$(GOLDDIR)/$(BINARY_PREFIX)ld-new
+CLANGBIN=$(BUILDDIR)/bin/$(BINARY_PREFIX)clang
+OPTBIN=$(BUILDDIR)/bin/$(BINARY_PREFIX)opt
 
 
 ### compiler commands ###
 
 LLC=$(LLCBIN) -march=$(ARCH)
-OBJDUMP=$(BUILDDIR)/bin/llvm-objdump
-LLVM_AS=$(BUILDDIR)/bin/llvm-as
-LLVM_DIS=$(BUILDDIR)/bin/llvm-dis
+OBJDUMP=$(BUILDDIR)/bin/$(BINARY_PREFIX)llvm-objdump
+LLVM_AS=$(BUILDDIR)/bin/$(BINARY_PREFIX)llvm-as
+LLVM_DIS=$(BUILDDIR)/bin/$(BINARY_PREFIX)llvm-dis
 
-LLVM_LD=$(LLVM_LDBIN) -Llibll -L$(NEWLIBDIR)/lib \
+LLVM_LD=$(LLVM_LDBIN) -lrt -L$(NEWLIBDIR)/lib \
                       -internalize-public-api-list=_start \
-                      -internalize-public-api-file=$(NEWLIBDIR)/lib/libllsyms.lst \
+                      -internalize-public-api-file=$(NEWLIBDIR)/lib/librtsyms.lst \
                       -no-script
 
 MC=$(MCBIN) -arch=$(ARCH)

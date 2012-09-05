@@ -23,6 +23,9 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
 
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
+
 #define GET_INSTRINFO_CTOR
 #include "PatmosGenInstrInfo.inc"
 
@@ -106,18 +109,16 @@ void PatmosInstrInfo::storeRegToStackSlot( MachineBasicBlock &MBB,
       .addReg(SrcReg, getKillRegState(isKill)); // value to store
   }
   else if (RC == &Patmos::PRegsRegClass) {
-    // spilling predicate values is kinda hackish:
-    //   we implement it as a predicated store of a non-zero value
-    //   followed by a predicated (inverted) store of 0
-    //FIXME causes an assertion to fail in
-    BuildMI(MBB, MI, DL, get(Patmos::SWC))
-      .addReg(SrcReg, getKillRegState(isKill)).addImm(0) // predicate
+    // As clients of this function (esp. InlineSpiller, foldMemoryOperands)
+    // assume that the store instruction is the last one emitted, we cannot
+    // simply emit two predicated stores.
+    // We also cannot use RTR as it might be used for large FI offset
+    // computation.
+    // We work around this restriction by using a pseudo-inst that
+    // is expanded in PatmosRegisterInfo::eliminateFrameIndex()
+    BuildMI(MBB, MI, DL, get(Patmos::PSEUDO_PREG_SPILL))
       .addFrameIndex(FrameIndex).addImm(0) // address
-      .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
-    BuildMI(MBB, MI, DL, get(Patmos::SWC))
-      .addReg(SrcReg, getKillRegState(isKill)).addImm(1) // predicate, inverted
-      .addFrameIndex(FrameIndex).addImm(0) // address
-      .addReg(Patmos::R0); // zero
+      .addReg(SrcReg, getKillRegState(isKill)); // predicate register
   }
   else llvm_unreachable("Register class not handled!");
 }
@@ -135,10 +136,11 @@ void PatmosInstrInfo::loadRegFromStackSlot( MachineBasicBlock &MBB,
       .addFrameIndex(FrameIdx).addImm(0); // address
   }
   else if (RC == &Patmos::PRegsRegClass) {
-    AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::LWC), Patmos::RTR))
+    // Clients assume the last instruction inserted to be a load instruction.
+    // Again, we work around this with a pseudo instruction that is expanded
+    // during FrameIndex elimination.
+    BuildMI(MBB, MI, DL, get(Patmos::PSEUDO_PREG_RELOAD), DestReg)
       .addFrameIndex(FrameIdx).addImm(0); // address
-    AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::CMPEQ), DestReg))
-      .addReg(Patmos::RTR).addReg(Patmos::R0); // compare with 0
   }
   else llvm_unreachable("Register class not handled!");
 }
@@ -158,10 +160,20 @@ bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
   // Start from the bottom of the block and work up, examining the
   // terminator instructions.
   MachineBasicBlock::iterator I = MBB.end();
+  bool seen_uncondbr=false, seen_condbr=false;
+  int rcnt=0;
+
   while (I != MBB.begin()) {
     --I;
+    rcnt++;
+    DEBUG( dbgs() << "[AnalyzeBranch] BB#" << MBB.getNumber() << " i" << rcnt
+          << ": " << *I; );
+
     if (I->isDebugValue())
       continue;
+
+    // TODO skip delay slots (if this pass is supposed to eventually
+    // work after delay slot filler)
 
     // Working from the bottom, when we see a non-terminator
     // instruction, we're done.
@@ -177,17 +189,19 @@ bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
     if (I->isUnconditionalBranch()) {
       if (!AllowModify) {
         TBB = getBranchTarget(I);
+        seen_uncondbr = true;
         continue;
       }
       // If the block has any instructions after an uncond branch, delete them.
       while (llvm::next(I) != MBB.end())
         llvm::next(I)->eraseFromParent();
       Cond.clear();
-      FBB = 0;
+      FBB = NULL;
 
       // If it is a fallthrough, eliminate also the unconditional branch
       if (MBB.isLayoutSuccessor(getBranchTarget(I))) {
-        TBB = 0;
+        TBB = NULL;
+        seen_uncondbr = false;
         I->eraseFromParent();
         I = MBB.end();
         continue;
@@ -195,15 +209,45 @@ bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 
       // TBB is used to indicate the unconditional destination.
       TBB = getBranchTarget(I);
+      seen_uncondbr = true;
       continue;
     }
 
-    // TODO Handle conditional branches
-    if (!I->isConditionalBranch())
-      return true; //Unknown Opcode
+    // Handle conditional branches
+    if (I->isConditionalBranch() ) {
+      int i;
+
+      //FIXME
+      return true;
+
+      // we only treat the first conditional branch in a row
+      if (seen_condbr) break;
+      seen_condbr = true;
+      // Get branch condition
+      i = I->findFirstPredOperandIdx();
+      assert(i != -1 );
+      Cond.push_back(I->getOperand(i));   // reg
+      Cond.push_back(I->getOperand(i+1)); // flag
+      // We've processed an unconditional branch before,
+      // the unconditional target goes to FBB now
+      if (seen_uncondbr) FBB = TBB; //FIXME
+      // target of conditional branch goes to TBB
+      TBB = getBranchTarget(I);
+      continue;
+    }
 
     return true;
   }
+
+  DEBUG({
+    std::string msg;
+    if      ( TBB==NULL && FBB==NULL &&  Cond.empty() ) msg = "fallthrough";
+    else if ( TBB!=NULL && FBB==NULL &&  Cond.empty() ) msg = "uncond";
+    else if ( TBB!=NULL && FBB==NULL && !Cond.empty() ) msg = "cond+fallthrough";
+    else if ( TBB!=NULL && FBB!=NULL && !Cond.empty() ) msg = "cond+uncond";
+    dbgs() << "[AnalyzeBranch] BB#" << MBB.getNumber() << "= " << msg << "\n";
+  });
+
   return false;
 }
 
@@ -213,8 +257,8 @@ PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
                               const SmallVectorImpl<MachineOperand> &Cond,
                               DebugLoc DL) const {
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
-  assert((Cond.size() == 1 || Cond.size() == 0) &&
-         "Patmos branch conditions should have one component!");
+  assert((Cond.size() == 2 || Cond.size() == 0) &&
+         "Patmos branch conditions should have two components (reg+imm)!");
 
   if (Cond.empty()) {
     // Unconditional branch?
@@ -284,8 +328,8 @@ unsigned PatmosInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
 
 bool PatmosInstrInfo::ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
   // invert the flag
-  unsigned invflag = Cond[1].getImm();
-  Cond[1].setImm(1-invflag);
+  int64_t invflag = Cond[1].getImm();
+  Cond[1].setImm( (invflag)?0:-1 );
   return false; //success
 }
 

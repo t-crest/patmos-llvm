@@ -39,6 +39,12 @@ private:
   void computeLargeFIOffset(int &offset, unsigned &basePtr,
                             MachineBasicBlock::iterator II,
                             int shl) const;
+
+  /// expandPseudoPregInstr - expand PSEUDO_PREG_SPILL or PSEUDO_PREG_RELOAD
+  /// to a sequence of real machine instructions.
+  void expandPseudoPregInstr(MachineBasicBlock::iterator II,
+                             int offset, unsigned basePtr,
+                             bool isOnStackCache) const;
 public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 

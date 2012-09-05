@@ -98,11 +98,16 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
       continue;
 
     unsigned FIalignment = MFI.getObjectAlignment(FI);
-    unsigned FIsize = MFI.getObjectSize(FI);
+    unsigned FIsize = MFI.getObjectSize(FI); //XXX DP: shouldn't this be int64_t ?
     int FIoffset = MFI.getObjectOffset(FI);
 
-    if (FIsize == ~0U && FIsize == 0)
+    // XXX DP: can this ever happen? Apart from the condition,
+    // FIsize==~0ULL => MFI.isDeadObjectIndex(FI)
+    // and we shouldn't have come here anyways.
+    if (FIsize == ~0U && FIsize == 0) {
+      assert(false && "impossible?!");
       continue;
+    }
 
     // be sure to catch some special stack objects not expected for Patmos
     assert(!MFI.isFixedObjectIndex(FI) && !MFI.isObjectPreAllocated(FI));
