@@ -78,17 +78,17 @@ using namespace llvm;
 static cl::opt<unsigned> MethodCacheBlockSize("mpatmos-method-cache-block-size",
                    cl::init(32),
                    cl::desc("Size of the instruction cache blocks in bytes "
-                           "(defaults to 128 for method cache, 8 otherwise)."));
+                           "(defaults to 32)."));
 
 /// MethodCacheSize - Total size of the method cache in bytes.
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
-                     cl::init(4096),
-                     cl::desc("Total size of the instruction cache in bytes."));
+                     cl::init(2048),
+                     cl::desc("Total size of the instruction cache in bytes "
+                              "(default 2048)"));
 
 /// DisableFunctionSplitter - Option to disable the function splitter.
 static cl::opt<bool> DisableFunctionSplitter(
   "mpatmos-disable-function-splitter",
-  //cl::init(false),
   cl::init(true),
   cl::desc("Disable the Patmos function splitter."),
   cl::Hidden);

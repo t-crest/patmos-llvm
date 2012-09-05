@@ -730,13 +730,13 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
                asmop # "l", "[${ra:addrmod}${imm:addrmod}] = $rs",
                [] >;
 
-  // store to data cache
+  // store to data cache (and to main memory; with data cache allocation?)
   def C  : STT<ty, 0b10, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "c", "[${ra:addrmod}${imm:addrmod}] = $rs",
                [] >;
 
-  // store to stack cache
+  // store to main memory (no data cache allocate)
   def M  : STT<ty, 0b11, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "m", "[${ra:addrmod}${imm:addrmod}] = $rs",

@@ -121,7 +121,7 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   OutStreamer.EmitLabel(CurrFRELEnd);
 
   // We need an address symbol from the next block
-  assert(!MBB->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
+  assert(!Next->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
 
   MCSymbol *SymStart = Next->getSymbol();
 
