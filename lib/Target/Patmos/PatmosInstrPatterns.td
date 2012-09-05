@@ -106,7 +106,8 @@ def : Pat<(i1 (trunc RRegs:$a)), (ISODD RRegs:$a)>;
 
 // Load patterns
 
-
+// inst_C: instruction to use for data cache load
+// inst_M: instruction to use for uncached load
 multiclass LoadTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
 {
   // load register indirect from cache
@@ -128,15 +129,30 @@ multiclass LoadTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
 
   // TODO: more patterns here
 }
-defm LW  : LoadTypedPatterns<LWC , imm7s2, load>;
-defm LH  : LoadTypedPatterns<LHC , imm7s1, sextloadi16>;
-defm LB  : LoadTypedPatterns<LBC , imm7  , sextloadi8>;
-defm LHU : LoadTypedPatterns<LHUC, imm7s1, zextloadi16>;
-defm LBU : LoadTypedPatterns<LBUC, imm7  , zextloadi8>;
-defm LHE : LoadTypedPatterns<LHUC, imm7s1, extloadi16>;
-defm LBE : LoadTypedPatterns<LBUC, imm7  , extloadi8>;
 
+class cached<PatFrag load> : PatFrag<(ops node:$ptr), (load node:$ptr), [{
+		return !cast<MemSDNode>(N)->isVolatile() && !cast<MemSDNode>(N)->isNonTemporal();
+	    }]>;
 
+class uncached<PatFrag load> : PatFrag<(ops node:$ptr), (load node:$ptr), [{
+		return cast<MemSDNode>(N)->isVolatile() || cast<MemSDNode>(N)->isNonTemporal();
+	    }]>;
+
+// feel free to use multiclass if you find out how to make them work ..
+defm LW   : LoadTypedPatterns<LWC , imm7s2, cached<load>>;
+defm LH   : LoadTypedPatterns<LHC , imm7s1, cached<sextloadi16>>;
+defm LB   : LoadTypedPatterns<LBC , imm7  , cached<sextloadi8>>;
+defm LHU  : LoadTypedPatterns<LHUC, imm7s1, cached<zextloadi16>>;
+defm LBU  : LoadTypedPatterns<LBUC, imm7  , cached<zextloadi8>>;
+defm LHE  : LoadTypedPatterns<LHUC, imm7s1, cached<extloadi16>>;
+defm LBE  : LoadTypedPatterns<LBUC, imm7  , cached<extloadi8>>;
+defm LWM  : LoadTypedPatterns<LWM , imm7s2, uncached<load>>;
+defm LHM  : LoadTypedPatterns<LHM , imm7s1, uncached<sextloadi16>>;
+defm LBM  : LoadTypedPatterns<LBM , imm7  , uncached<sextloadi8>>;
+defm LHUM : LoadTypedPatterns<LHUM, imm7s1, uncached<zextloadi16>>;
+defm LBUM : LoadTypedPatterns<LBUM, imm7  , uncached<zextloadi8>>;
+defm LHEM : LoadTypedPatterns<LHUM, imm7s1, uncached<extloadi16>>;
+defm LBEM : LoadTypedPatterns<LBUM, imm7  , uncached<extloadi8>>;
 
 
 // store patterns
@@ -165,6 +181,10 @@ multiclass StoreTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
 
   // TODO: more patterns here
 }
+
+// TODO check if store cache is with write-allocate; in this case emit SWM.. for uncached<..>
+// For now we do not emit SWM..; are they actually supported???
+
 defm SW  : StoreTypedPatterns<SWC, imm7s2, store>;
 defm SH  : StoreTypedPatterns<SHC, imm7s1, truncstorei16>;
 defm SB  : StoreTypedPatterns<SBC, imm7  , truncstorei8>;
