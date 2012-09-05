@@ -88,7 +88,8 @@ static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
 /// DisableFunctionSplitter - Option to disable the function splitter.
 static cl::opt<bool> DisableFunctionSplitter(
   "mpatmos-disable-function-splitter",
-  cl::init(false),
+  //cl::init(false),
+  cl::init(true),
   cl::desc("Disable the Patmos function splitter."),
   cl::Hidden);
 
