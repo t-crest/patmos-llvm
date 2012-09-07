@@ -120,4 +120,4 @@ Patmos.out: $(TBLGENBIN) ../../../lib/Target/Patmos/*.td
 	rm -f $(addprefix $*,$(CLEAN_SUFFIXES))  $*-app $*-app.bc $*-app.ll
 
 clean:
-	rm -f *.s *.o *.ll *.as *.out *.bc ex/*.o ex/*.out ex/*.ll ex/*.bc ex/*.s mc/*.as *-app ex/*-app bc/*-app basic/*-app
+	rm -f *.s *.o *.ll *.as *.out *.bc ex/*.o ex/*.out ex/*.ll ex/*.bc ex/*.s mc/*.as *-app ex/*-app bc/*-app basic/*-app C/*-app C/*.ll C/*.bc C/*.s
