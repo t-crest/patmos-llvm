@@ -48,6 +48,19 @@ public:
 
   bool hasMethodCache() { return HasMethodCache; }
 
+  /////////////////////////////////////////////////////////////////////////////
+  // Patmos specific architecture parameters (cache sizes, types, features,..)
+  // TODO move this into / configure from SubtargetImpl ??
+  // TODO use config-file to read configuration from (in addition to options)
+
+  unsigned getStackCacheSize() const;
+
+  unsigned getStackCacheBlockSize() const;
+
+  unsigned getMethodCacheSize() const;
+
+  unsigned getMethodCacheBlockSize() const;
+
 };
 } // End llvm namespace
 

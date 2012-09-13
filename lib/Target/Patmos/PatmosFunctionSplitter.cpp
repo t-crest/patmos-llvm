@@ -54,6 +54,8 @@
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosSubtarget.h"
+#include "PatmosTargetMachine.h"
 #include "llvm/Function.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -73,18 +75,6 @@
 #include <sstream>
 
 using namespace llvm;
-
-/// MethodCacheBlockSize - Block size of the method cache in bytes.
-static cl::opt<unsigned> MethodCacheBlockSize("mpatmos-method-cache-block-size",
-                   cl::init(32),
-                   cl::desc("Size of the instruction cache blocks in bytes "
-                           "(defaults to 32)."));
-
-/// MethodCacheSize - Total size of the method cache in bytes.
-static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
-                     cl::init(2048),
-                     cl::desc("Total size of the instruction cache in bytes "
-                              "(default 2048)"));
 
 /// DisableFunctionSplitter - Option to disable the function splitter.
 static cl::opt<bool> DisableFunctionSplitter(
@@ -202,8 +192,11 @@ namespace llvm {
     /// The original machine function of the graph.
     MachineFunction *MF;
 
+    /// Target machine information
+    const PatmosSubtarget &STC;
+
     /// Construct a graph from a machine function.
-    agraph(MachineFunction *mf) : MF(mf) {
+    agraph(MachineFunction *mf, const PatmosSubtarget &stc) : MF(mf), STC(stc) {
       Blocks.reserve(mf->size());
 
       // create blocks
@@ -681,7 +674,7 @@ namespace llvm {
       if (block->SCCSize == 0 || region == block) {
         // regular block that is not a loop header or a loop header in its own
         // region
-        if (block->Size + region_size <= MethodCacheSize) {
+        if (block->Size + region_size <= STC.getMethodCacheSize()) {
           // update the region's total size
           region_size += block->Size;
 
@@ -706,7 +699,7 @@ namespace llvm {
       else {
         // loop header of some loop
 
-        if (block->SCCSize + region_size <= MethodCacheSize) {
+        if (block->SCCSize + region_size <= STC.getMethodCacheSize()) {
           // update the region's total size
           region_size += block->Size;
 
@@ -843,7 +836,7 @@ namespace llvm {
         // set alignment of region entries and store region entries with the 
         // Patmos function info
         if (is_region_entry) {
-          MBB->setAlignment(log2(MethodCacheBlockSize));
+          MBB->setAlignment(log2(STC.getMethodCacheBlockSize()));
           PMFI->addMethodCacheRegionEntry(MBB);
         }
 
@@ -958,7 +951,7 @@ namespace llvm {
         rewriteBranches();
 
       // ensure method alignment
-      MF->EnsureAlignment(log2(MethodCacheBlockSize));
+      MF->EnsureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
     void view()
@@ -992,9 +985,16 @@ namespace llvm {
     /// Pass ID
     static char ID;
 
+    TargetMachine &TM;
+    const PatmosSubtarget &STC;
+
   public:
     /// PatmosFunctionSplitter - Create a new instance of the function splitter.
-    PatmosFunctionSplitter(TargetMachine &tm) : MachineFunctionPass(ID) {
+    PatmosFunctionSplitter(TargetMachine &tm) :
+      MachineFunctionPass(ID), TM(tm),
+      STC(tm.getSubtarget<PatmosSubtarget>())
+    {
+      // TODO we could disable this pass if this is not a PatmosTargetMachine
     }
 
     /// getPassName - Return the pass' name.
@@ -1017,9 +1017,9 @@ namespace llvm {
       }
 
       // splitting needed?
-      if (total_size > MethodCacheSize) {
+      if (total_size > STC.getMethodCacheSize()) {
         // construct a copy of the CFG.
-        agraph G(&MF);
+        agraph G(&MF, STC);
         G.transformSCCs();
 
         // compute regions -- i.e., split the function

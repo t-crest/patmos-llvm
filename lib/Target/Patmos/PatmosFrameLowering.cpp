@@ -15,6 +15,8 @@
 #include "PatmosFrameLowering.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosSubtarget.h"
+#include "PatmosTargetMachine.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -34,17 +36,12 @@ static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
                             cl::init(false),
                             cl::desc("Disable the use of Patmos' stack cache"));
 
-/// StackCacheBlockSize - Block size of the stack cache in bytes (default: 4, 
-/// i.e., word-sized).
-static cl::opt<unsigned> StackCacheBlockSize("mpatmos-stack-cache-block-size",
-                           cl::init(4),
-                           cl::desc("Block size of the stack cache in bytes."));
 
-/// StackCacheSize - Total size of the stack cache in bytes (default: 4096, 
-/// i.e., 1K words).
-static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
-                           cl::init(4096),
-                           cl::desc("Total size of the stack cache in bytes."));
+PatmosFrameLowering::PatmosFrameLowering(const PatmosTargetMachine &tm)
+: TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 4, 0), TM(tm),
+  STC(tm.getSubtarget<PatmosSubtarget>())
+{
+}
 
 
 
@@ -142,8 +139,8 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
   }
 
   // align stack frame on stack cache
-  unsigned stackCacheSize = ((SCOffset + StackCacheBlockSize - 1) /
-                             StackCacheBlockSize) * StackCacheBlockSize;
+  unsigned stackCacheSize = ((SCOffset + STC.getStackCacheBlockSize() - 1) /
+                   STC.getStackCacheBlockSize()) * STC.getStackCacheBlockSize();
 
   // align shadow stack and account for call arguments
   unsigned stackSize = (((SSOffset + getStackAlignment() - 1) /
@@ -176,7 +173,7 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
   // align the stack cache size
   unsigned alignedStackCacheSize =
                              std::ceil((float)PMFI.getStackCacheReservedBytes()/
-                                       (float)StackCacheBlockSize);
+                                       (float)STC.getStackCacheBlockSize());
 
   if (alignedStackCacheSize)
   {

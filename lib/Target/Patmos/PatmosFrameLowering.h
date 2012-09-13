@@ -15,15 +15,16 @@
 #define _PATMOS_FRAMEINFO_H_
 
 #include "Patmos.h"
-#include "PatmosSubtarget.h"
 #include "llvm/Target/TargetFrameLowering.h"
 
 namespace llvm {
   class PatmosSubtarget;
+  class PatmosTargetMachine;
 
 class PatmosFrameLowering : public TargetFrameLowering {
 protected:
-  const PatmosSubtarget &STI;
+  const PatmosTargetMachine &TM;
+  const PatmosSubtarget &STC;
 
   /// assignFIsToStackCache - Assign some FIs to the stack cache.
   /// Currently this is only done for spill slots.
@@ -45,9 +46,7 @@ protected:
   /// \see PatmosMachineFunctionInfo
   void patchCallSites(MachineFunction &MF) const;
   public:
-  explicit PatmosFrameLowering(const PatmosSubtarget &sti)
-    : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 4, 0), STI(sti) {
-  }
+  explicit PatmosFrameLowering(const PatmosTargetMachine &tm);
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
