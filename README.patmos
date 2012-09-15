@@ -232,7 +232,7 @@ C) Eclipse Setup
 
 To setup Eclipse with C++ and GDB support for developing LLVM, follow those steps:
 
-- Install Eclipse version 3.7 (>=3.8 has crappy UI), CDT version 
+- Install Eclipse version 3.7 (3.8 has crappy UI), CDT version 
   (CDT plugin >= 8.x)
     - Edit your eclipse.ini to get more heap, ~600-700Mb (-Xmx=700m)
 - Install gdb >= 7.0
