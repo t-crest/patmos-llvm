@@ -638,8 +638,9 @@ namespace llvm {
           ablock *dst = j->second->Dst;
           if (std::find(scc.begin(), scc.end(), dst) == scc.end()) {
             // skip processed blocks
-            if (dst->NumPreds == 0)
+            if (dst->NumPreds == 0) {
               continue;
+            }
 
             // check the successor
             if (dst->Region == NULL || dst->Region == region) {
@@ -701,7 +702,7 @@ namespace llvm {
 
         if (block->SCCSize + region_size <= STC.getMethodCacheSize()) {
           // update the region's total size
-          region_size += block->Size;
+          region_size += block->SCCSize;
 
           // emit all blocks of the SCC and update the ready list
           emitSCC(region, block->SCC, ready, regions, order);
@@ -782,9 +783,14 @@ namespace llvm {
 
 #ifndef NDEBUG
       // ensure that all blocks are assigned to a region
+      int UnassignedBlocks = 0;
       for(ablocks::iterator i(Blocks.begin()), ie(Blocks.end()); i != ie; i++) {
-        assert((*i)->Region != NULL);
+        if ((*i)->Region == NULL) {
+          errs() << "Error: Block without region: " + (*i)->getName() << "\n";
+          UnassignedBlocks++;
+        }
       }
+      assert(UnassignedBlocks == 0);
 #endif
 
       DEBUG(dbgs() << "#Regions: " << num_regions << "\n");
@@ -875,7 +881,7 @@ namespace llvm {
       MachineBasicBlock *sbb = src->MBB;
       MachineBasicBlock *dbb = dst->MBB;
 
-      // nothing todo in case the blocks are in the same region. also skip 
+      // nothing to do in case the blocks are in the same region. also skip
       // artificial loop header.
       if (src->Region == dst->Region || !sbb)
         return;
@@ -908,7 +914,7 @@ namespace llvm {
             case Patmos::BCR:
               rewriteBranch(mi, Patmos::BR, dbb);       break;
 
-            // alredy rewritten branches - skip them
+            // already rewritten branches - skip them
             case Patmos::B:
             case Patmos::Bu:
             case Patmos::BR:
@@ -1008,13 +1014,13 @@ namespace llvm {
       if (DisableFunctionSplitter)
         return false;
 
-      DEBUG(dbgs() << "\nPatmos Function Splitter: "
-                   << MF.getFunction()->getName() << "\n");
-
       unsigned total_size = 0;
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
         total_size += agraph::getBBSize(i);
       }
+
+      DEBUG(dbgs() << "\nPatmos Function Splitter: "
+                   << MF.getFunction()->getName() << ": " << total_size << "\n");
 
       // splitting needed?
       if (total_size > STC.getMethodCacheSize()) {
