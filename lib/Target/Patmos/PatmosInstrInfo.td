@@ -273,46 +273,30 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 //  Control Flow Instructions...
 //===----------------------------------------------------------------------===//
 
+//FIXME return operands?
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
-    Uses = [SB, SO] in {
+    Uses = [RFB, RPC], rs1=31, rs2=30 in {
   def RET  : PFLr<0b0000, (outs), (ins pred:$p),
                   "ret", "", [(PatmosReturn)]>;
 }
 
 
-// isBarrier is cleared later on default predicate
 let isTerminator=1, hasDelaySlot=1 in {
 
-  // cache-relative direct branches
-
-  // unconditional
+  // unconditional branch
   let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
   def BCu : PFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
                   "bc", "$target", [(br bb:$target)]>;
-
-  // conditional
+  // conditional branch
   let isBranch=1, isBarrier=0 in
   def BC : PFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
                 "bc", "$target", [(brcond predsel:$p, bb:$target)]>;
 
-   // unconditional, cache fill
-  let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
-  def Bu : PFLb<0b10  , (outs), (ins pred:$p, freltarget:$target),
-                  "b", "$target", [(br bb:$target)]>;
-
-  // conditional, cache fill
-  let isBranch=1, isBarrier=0, ImmSigned = 1 in
-  def B : PFLb<0b10  , (outs), (ins predset:$p, freltarget:$target),
-                "b", "$target", [(brcond predsel:$p, bb:$target)]>;
-
-  // cache-relative indirect branches
+  // indirect branch
   let isIndirectBranch=1, isBarrier=1 in
   def BCR : PFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
                   "bcr", "$rs", [(brind RRegs:$rs)]>;
 
-  let isIndirectBranch=1, isBarrier=1 in
-  def BR : PFLi <0b0010, (outs), (ins pred:$p, RRegs:$rs),
-                  "br", "$rs", [(brind RRegs:$rs)]>;
 }
 
 
@@ -325,17 +309,36 @@ let isTerminator=1, hasDelaySlot=1 in {
 let isCall=1, hasDelaySlot=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
-          R17, R18, R19, R20,
-          SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
+          R17, R18, R19, R20, RFB, RPC,
+          SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
-  def BS : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
-                    "bs", "$target",
-                    [(PatmosCall uimm22:$target)]>;
+  def CALL : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
+                  "bs", "$target",
+                  [(PatmosCall uimm22:$target)]>;
 
-  def BSR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
-                    "bsr", "$rs",
-                    [(PatmosCall RRegs:$rs)]>;
+  def CALLR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
+                  "call", "$rs",
+                  [(PatmosCall RRegs:$rs)]>;
 }
+
+//// call subfunction (return information is discarded, no spilling etc)
+//let isTerminator=1, hasDelaySlot=1, Defs=[RFB,RPC] in {
+//  // call, unconditional
+//  let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
+//  def CALLSu : PFLb<0b00  , (outs), (ins pred:$p, freltarget:$target),
+//                    "call", "$target", [(br bb:$target)]>;
+//
+//  // call, conditional
+//  let isBranch=1, isBarrier=0, ImmSigned = 1 in
+//  def CALLS  : PFLb<0b00  , (outs), (ins predset:$p, freltarget:$target),
+//                    "call", "$target", [(brcond predsel:$p, bb:$target)]>;
+//
+//  // indirect call
+//  let isIndirectBranch=1, isBarrier=1 in
+//  def CALLSR : PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
+//                    "call", "$rs", [(brind RRegs:$rs)]>;
+//}
+
 
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions...

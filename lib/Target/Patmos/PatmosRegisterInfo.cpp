@@ -47,10 +47,12 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   //const Function* F = MF->getFunction();
   static const uint16_t CalleeSavedRegs[] = {
     // Special regs
-    Patmos::SZ, Patmos::SB, Patmos::SO,
+    Patmos::SZ,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
-    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28,
+    Patmos::R25, Patmos::R26,
+    // return info
+    Patmos::RFB, Patmos::RPC,
     // Predicate regs
     Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
     Patmos::P5, Patmos::P6, Patmos::P7,
@@ -58,11 +60,13 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   };
   static const uint16_t CalleeSavedRegsFP[] = {
     // Special regs
-    Patmos::SZ, Patmos::SB, Patmos::SO,
+    Patmos::SZ,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
-    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28,
+    Patmos::R25, Patmos::R26,
     Patmos::RFP,
+    // return info
+    Patmos::RFB, Patmos::RPC,
     // Predicate regs
     Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
     Patmos::P5, Patmos::P6, Patmos::P7,
@@ -85,8 +89,8 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Patmos::SM);
   Reserved.set(Patmos::SL);
   Reserved.set(Patmos::SH);
-  Reserved.set(Patmos::SB);
-  Reserved.set(Patmos::SO);
+  Reserved.set(Patmos::S4);
+  Reserved.set(Patmos::S5);
   Reserved.set(Patmos::ST);
   Reserved.set(Patmos::S7);
   Reserved.set(Patmos::S8);
@@ -100,7 +104,11 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
   // stack pointer
   Reserved.set(Patmos::RSP);
+  // reserved temp register
   Reserved.set(Patmos::RTR);
+  // return regisers
+  Reserved.set(Patmos::RFB);
+  Reserved.set(Patmos::RPC);
   // Mark frame pointer as reserved if needed.
   if (TFI->hasFP(MF))
     Reserved.set(Patmos::RFP);

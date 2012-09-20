@@ -485,6 +485,13 @@ class PFLr<bits<4>op,
 
   let PFLOp = 0b10;
 
+  // unbound fields
+  bits<5> rs1;
+  bits<5> rs2;
+
+  let Inst{16-12} = rs1;
+  let Inst{11-7}  = rs2;
+
   let Inst{24} = 1;
   let Inst{3-0} = op;
 }

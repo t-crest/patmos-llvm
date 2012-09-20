@@ -908,16 +908,15 @@ namespace llvm {
           switch (mi->getOpcode()) {
             // branches that may need rewriting
             case Patmos::BC:
-              rewriteBranch(mi, Patmos::B, dbb);        break;
-            case Patmos::BCu:
-              rewriteBranch(mi, Patmos::Bu, dbb);       break;
+              rewriteBranch(mi, Patmos::CALL, dbb);        break;
+            case Patmos::BCu: //FIXME?
+              rewriteBranch(mi, Patmos::CALL, dbb);       break;
             case Patmos::BCR:
-              rewriteBranch(mi, Patmos::BR, dbb);       break;
+              rewriteBranch(mi, Patmos::CALLR, dbb);       break;
 
             // already rewritten branches - skip them
-            case Patmos::B:
-            case Patmos::Bu:
-            case Patmos::BR:
+            case Patmos::CALL:
+            case Patmos::CALLR:
               break;
 
             // unexpected ?

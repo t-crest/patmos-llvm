@@ -306,18 +306,18 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
 
   MachineRegisterInfo& MRI = MF.getRegInfo();
 
-  // Mark RFP, SB, and SO as used or unused.
+  // Mark RFP, RFB, and RPC as used or unused.
   if (hasFP(MF))
     MRI.setPhysRegUsed(Patmos::RFP);
 
   // Mark the special registers of the method cache to be used when calls exist.
   if (MF.getFrameInfo()->hasCalls()) {
-    MRI.setPhysRegUsed(Patmos::SB);
-    MRI.setPhysRegUsed(Patmos::SO);
+    MRI.setPhysRegUsed(Patmos::RFB);
+    MRI.setPhysRegUsed(Patmos::RPC);
   }
   else {
-    MRI.setPhysRegUnused(Patmos::SB);
-    MRI.setPhysRegUnused(Patmos::SO);
+    MRI.setPhysRegUnused(Patmos::RFB);
+    MRI.setPhysRegUnused(Patmos::RPC);
   }
 }
 

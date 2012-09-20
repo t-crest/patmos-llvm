@@ -73,11 +73,11 @@ def R23 : PatmosGPR<23, "r23">;
 def R24 : PatmosGPR<24, "r24">;
 def R25 : PatmosGPR<25, "r25">;
 def R26 : PatmosGPR<26, "r26">;
-def R27 : PatmosGPR<27, "r27">;
-def R28 : PatmosGPR<28, "r28">;
-def RTR : PatmosGPR<29, "r29">; // reserved temporary register
-def RFP : PatmosGPR<30, "r30">; // frame ptr
-def RSP : PatmosGPR<31, "r31">; // stack ptr
+def RTR : PatmosGPR<27, "r27">; // reserved temporary register
+def RFP : PatmosGPR<28, "r28">; // frame ptr
+def RSP : PatmosGPR<29, "r29">; // stack ptr
+def RFB : PatmosGPR<30, "r30">; // function base
+def RPC : PatmosGPR<31, "r31">; // program counter (function relative)
 
 def P0  : PatmosPRED<0, "p0">;
 def P1  : PatmosPRED<1, "p1">;
@@ -95,8 +95,8 @@ def SZ  : PatmosSPR< 0,  "sz">;
 def SM  : PatmosSPR< 1,  "sm">;
 def SL  : PatmosSPR< 2,  "sl">;
 def SH  : PatmosSPR< 3,  "sh">;
-def SB  : PatmosSPR< 4,  "sb">;
-def SO  : PatmosSPR< 5,  "so">;
+def S4  : PatmosSPR< 4,  "s4">;
+def S5  : PatmosSPR< 5,  "s5">;
 def ST  : PatmosSPR< 6,  "st">;
 def S7  : PatmosSPR< 7,  "s7">;
 def S8  : PatmosSPR< 8,  "s8">;
@@ -125,14 +125,16 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    // scratch registers (caller saved)
    R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20,
    // preserved registers (callee saved)
-   R21, R22, R23, R24, R25, R26, R27, R28,
+   R21, R22, R23, R24, R25, R26,
    // temp register
    RTR,
    // frame pointer, stack pointer (callee saved)
-   RFP, RSP)>;
+   RFP, RSP,
+   // funcion base pointer, program counter (function relative)
+   RFB, RPC)>;
 
 def SRegs : RegisterClass<"Patmos", [i32], 32,
-  (add SZ, SM, SL, SH, SB, SO, ST, S7,
+  (add SZ, SM, SL, SH, S4, S5, ST, S7,
    S8, S9, S10, S11, S12, S13, S14, S15)>;
 
 let Size = 32 in {

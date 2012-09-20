@@ -108,8 +108,8 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case R1:  case SM:  case P1:  return 1;
   case R2:  case SL:  case P2:  return 2;
   case R3:  case SH:  case P3:  return 3;
-  case R4:  case SB:  case P4:  return 4;
-  case R5:  case SO:  case P5:  return 5;
+  case R4:  case S4:  case P4:  return 4;
+  case R5:  case S5:  case P5:  return 5;
   case R6:  case ST:  case P6:  return 6;
   case R7:  case S7:  case P7:  return 7;
   case R8:  case S8:  return 8;
@@ -132,11 +132,11 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case R24: return 24;
   case R25: return 25;
   case R26: return 26;
-  case R27: return 27;
-  case R28: return 28;
-  case RTR: return 29;
-  case RFP: return 30;
-  case RSP: return 31;
+  case RTR: return 27;
+  case RFP: return 28;
+  case RSP: return 29;
+  case RFB: return 30;
+  case RPC: return 31;
   default:
     llvm_unreachable("Unknown Patmos register!");
   }
