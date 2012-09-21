@@ -110,12 +110,10 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     // FIXME: This should eventually be handled in the scheduler.
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
       MachineBasicBlock::iterator J = I;
-      AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(3);
+      static_cast<const PatmosInstrInfo*>(TII)->InsertNOP(MBB, J, I->getDebugLoc(), 3, true); // force SC NOPs
     } else if (I->mayLoad()) {
       MachineBasicBlock::iterator J = I;
-      AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(0);
+      static_cast<const PatmosInstrInfo*>(TII)->InsertNOP(MBB, J, I->getDebugLoc());
     } else // END_FIXME
     if (I->hasDelaySlot()) {
       MachineBasicBlock::iterator D = MBB.end();
@@ -126,10 +124,7 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 
       if (D == MBB.end()) {
         //FIXME several single NOPs vs. one multicycle nop
-        AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(0);
-        AddDefaultPred(BuildMI(MBB,   J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(0);
+        static_cast<const PatmosInstrInfo*>(TII)->InsertNOP(MBB, J, I->getDebugLoc(), 2, true);
       } else {
         MBB.splice(++J, &MBB, D);
       }
