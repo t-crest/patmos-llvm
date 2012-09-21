@@ -1,3 +1,4 @@
+target triple = "patmos-unknown-elf"
 
 define i32 @jumptable(i32 %param) {
 entry:

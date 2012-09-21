@@ -1,5 +1,4 @@
-
-
+target triple = "patmos-unknown-elf"
 
 ; add var + var
 define i32 @add_rr(i32 %a, i32 %b) nounwind uwtable {

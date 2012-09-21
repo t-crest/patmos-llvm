@@ -1,4 +1,4 @@
-
+target triple = "patmos-unknown-elf"
 
 define i32 @abs_ite(i32 %a) nounwind uwtable {
 entry:
