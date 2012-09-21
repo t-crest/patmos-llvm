@@ -114,12 +114,15 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
   if (Modifier && strcmp(Modifier, "guard") == 0) {
     if (reg == Patmos::NoRegister || ((reg == Patmos::P0) && !flag)) {
       printDefaultGuard(O, false);
+    } else if (MI->getOpcode()==Patmos::NOP) {
+      // no need to print guards for NOP
+      printDefaultGuard(O, false);
     } else {
       O << "(" << ((flag)?"!":" ");
       printRegisterName(reg, O);
       O << ")";
     }
-  } else {
+  } else { // not "guard":
     O << ((flag)?"!":" ");
     if (reg == Patmos::NoRegister) {
       printRegisterName(Patmos::P0, O);

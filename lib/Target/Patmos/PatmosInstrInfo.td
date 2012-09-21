@@ -310,12 +310,10 @@ let isCall=1, hasDelaySlot=1,
           SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def CALL : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
-                  "call", "$target",
-                  []>;
+                  "call", "$target", []>;
 
   def CALLR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
-                  "call", "$rs",
-                  [(PatmosCall RRegs:$rs)]>;
+                  "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
@@ -459,8 +457,7 @@ let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
 }
 
 // nop = (!p0) add r0 = r0 + 0
-let rd=0, rs1 = 0, imm=0, p=0b1000,
-    ImmOpNo = 0 in
+let rd=0, rs1 = 0, imm=0, ImmOpNo = 0 in
 def NOP : ALUi<0b0000, (outs ), (ins pred:$p),
                "nop", "", []>;
 
