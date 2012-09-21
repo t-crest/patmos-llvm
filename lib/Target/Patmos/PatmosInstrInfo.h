@@ -83,6 +83,9 @@ public:
   virtual bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const;
 
 
+  void InsertNOP(MachineBasicBlock &BB, MachineBasicBlock::iterator I, DebugLoc DL,
+                 unsigned NumCycles, bool ForceSCNOP = false) const;
+
   MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
 };
 

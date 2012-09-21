@@ -94,7 +94,11 @@ def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
 // for cache relative branches
 def freltarget : Operand<OtherVT> {
   let PrintMethod = "printCacheRelTargetOperand";
-  //TODO encoder, decoder method
+}
+
+// for pc relative branches
+def pcreltarget : Operand<OtherVT> {
+  let PrintMethod = "printPCRelTargetOperand";
 }
 
 
@@ -313,7 +317,7 @@ let isCall=1, hasDelaySlot=1,
           SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def CALL : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
-                  "bs", "$target",
+                  "call", "$target",
                   [(PatmosCall uimm22:$target)]>;
 
   def CALLR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
@@ -455,6 +459,13 @@ let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
     let rs1 = new;
   }
 }
+
+// nop = (!p0) add r0 = r0 + 0
+let rd=0, rs1 = 0, imm=0, p=0b1000,
+    ImmOpNo = 0 in
+def NOP : ALUi<0b0000, (outs ), (ins pred:$p),
+               "nop", "", []>;
+
 
 // neg Rd = -Rs ... rsub Rd = 0 - Rs
 let imm = 0, ImmOpNo = 0 in
@@ -641,9 +652,9 @@ def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
                 [(set PRegs:$pd, (i1 0))]>;
 
 
-// NOP
+// multi-cycle NOP
 let neverHasSideEffects = 1 in
-def NOP  : SPCn <(outs), (ins pred:$p, i32imm:$imm), "nop", "$imm", []>;
+def MCNOP  : SPCn <(outs), (ins pred:$p, i32imm:$imm), "nop", "$imm", []>;
 
 // Wait
 def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;

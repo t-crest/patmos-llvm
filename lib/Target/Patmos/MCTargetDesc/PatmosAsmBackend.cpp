@@ -263,7 +263,7 @@ public:
     // I do not see how (without creating a new CodeEmitter and everything from Target)
 
     for (uint64_t i = 0; i < Count; i += 4)
-        OW->Write32(0x02400000);
+        OW->Write32(0x40000000);
 
     return true;
   }

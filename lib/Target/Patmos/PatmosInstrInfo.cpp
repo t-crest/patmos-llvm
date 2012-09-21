@@ -326,7 +326,8 @@ unsigned PatmosInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
   return Count;
 }
 
-bool PatmosInstrInfo::ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
+bool PatmosInstrInfo::
+ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
   // invert the flag
   int64_t invflag = Cond[1].getImm();
   Cond[1].setImm( (invflag)?0:-1 );
@@ -334,7 +335,14 @@ bool PatmosInstrInfo::ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Co
 }
 
 
-MachineBasicBlock *PatmosInstrInfo::getBranchTarget(const MachineInstr *MI) const {
+MachineBasicBlock *PatmosInstrInfo::
+getBranchTarget(const MachineInstr *MI) const {
   assert(MI->isBranch() && "Not a branch instruction!");
   return MI->getOperand(2).getMBB();
+}
+
+void PatmosInstrInfo::
+InsertNOP(MachineBasicBlock &BB, MachineBasicBlock::iterator I,
+          DebugLoc DL, unsigned NumCycles, bool ForceSCNOP) const {
+  // TODO
 }

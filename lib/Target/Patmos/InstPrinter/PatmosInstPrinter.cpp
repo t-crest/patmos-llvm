@@ -145,7 +145,6 @@ void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI,
 
   assert(Op.isExpr() && "unknown operand kind in printCacheRelTargetOperand");
 
-  // print the expression as is (a difference bb_label-function_label
   O << *Op.getExpr();
 }
 
