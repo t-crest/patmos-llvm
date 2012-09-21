@@ -44,11 +44,12 @@ namespace {
     /// layout, etc.
     ///
     TargetMachine &TM;
-    const TargetInstrInfo *TII;
+    const PatmosInstrInfo *TII;
 
     static char ID;
     PatmosDelaySlotFiller(TargetMachine &tm)
-      : MachineFunctionPass(ID), TM(tm), TII(tm.getInstrInfo()) { }
+      : MachineFunctionPass(ID), TM(tm),
+        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())) { }
 
     virtual const char *getPassName() const {
       return "Patmos Delay Slot Filler";
@@ -109,11 +110,9 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     unsigned opc = I->getOpcode();
     // FIXME: This should eventually be handled in the scheduler.
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
-      MachineBasicBlock::iterator J = I;
-      static_cast<const PatmosInstrInfo*>(TII)->InsertNOP(MBB, J, I->getDebugLoc(), 3, true); // force SC NOPs
+      TII->InsertNOP(MBB, I, I->getDebugLoc(), 3, true); // force SC NOPs
     } else if (I->mayLoad()) {
-      MachineBasicBlock::iterator J = I;
-      static_cast<const PatmosInstrInfo*>(TII)->InsertNOP(MBB, J, I->getDebugLoc());
+      TII->InsertNOP(MBB, I, I->getDebugLoc());
     } else // END_FIXME
     if (I->hasDelaySlot()) {
       MachineBasicBlock::iterator D = MBB.end();
@@ -123,8 +122,7 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
         D = findDelayInstr(MBB, I);
 
       if (D == MBB.end()) {
-        //FIXME several single NOPs vs. one multicycle nop
-        static_cast<const PatmosInstrInfo*>(TII)->InsertNOP(MBB, J, I->getDebugLoc(), 2, true);
+        TII->InsertNOP(MBB, J, I->getDebugLoc(), 2, true); // force SC NOPs
       } else {
         MBB.splice(++J, &MBB, D);
       }
