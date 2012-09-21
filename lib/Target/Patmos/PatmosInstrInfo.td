@@ -277,13 +277,6 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 //  Control Flow Instructions...
 //===----------------------------------------------------------------------===//
 
-//FIXME return operands?
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
-    Uses = [RFB, RPC], rs1=31, rs2=30 in {
-  def RET  : PFLr<0b0000, (outs), (ins pred:$p),
-                  "ret", "", [(PatmosReturn)]>;
-}
-
 
 let isTerminator=1, hasDelaySlot=1 in {
 
@@ -318,11 +311,16 @@ let isCall=1, hasDelaySlot=1,
 
   def CALL : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
                   "call", "$target",
-                  [(PatmosCall uimm22:$target)]>;
+                  []>;
 
   def CALLR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
                   "call", "$rs",
                   [(PatmosCall RRegs:$rs)]>;
+}
+
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
+  def RET  : PFLr<0b0000, (outs), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
+                  "ret", "$rs1, $rs2", []>;
 }
 
 //// call subfunction (return information is discarded, no spilling etc)
