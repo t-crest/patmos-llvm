@@ -1,4 +1,4 @@
-
+target triple = "patmos-unknown-elf"
 
 define i32 @select_gz(i32 %a, i32 %b, i32 %c) nounwind uwtable {
 entry:

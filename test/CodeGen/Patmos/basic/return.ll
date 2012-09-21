@@ -1,3 +1,5 @@
+target triple = "patmos-unknown-elf"
+
 define void @return_void() nounwind uwtable {
 entry:
   ret void

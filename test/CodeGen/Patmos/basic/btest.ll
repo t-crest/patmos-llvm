@@ -1,3 +1,4 @@
+target triple = "patmos-unknown-elf"
 
 define i32 @btest4(i32 %flags, i32 %b) nounwind uwtable readnone {
 entry:
