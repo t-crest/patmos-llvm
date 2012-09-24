@@ -317,8 +317,8 @@ let isCall=1, hasDelaySlot=1,
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
-  def RET  : PFLr<0b0000, (outs), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
-                  "ret", "$rs1, $rs2", []>;
+  def RET  : PFLr<0b0000, (outs), (ins pred:$p, RRegs:$rsb, RRegs:$rso),
+                  "ret", "$rsb, $rso", []>;
 }
 
 //// call subfunction (return information is discarded, no spilling etc)
