@@ -810,7 +810,7 @@ namespace llvm {
       if (target != layout_successor) {
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::BCu))).addMBB(target);
+                               DebugLoc(), TII.get(Patmos::Bu))).addMBB(target);
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                DebugLoc(), TII.get(Patmos::NOP))).addImm(0);
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
@@ -907,11 +907,11 @@ namespace llvm {
 
           switch (mi->getOpcode()) {
             // branches that may need rewriting
-            case Patmos::BC:
+            case Patmos::B:
               rewriteBranch(mi, Patmos::CALL, dbb);        break;
-            case Patmos::BCu: //FIXME?
+            case Patmos::Bu: //FIXME?
               rewriteBranch(mi, Patmos::CALL, dbb);       break;
-            case Patmos::BCR:
+            case Patmos::BR:
               rewriteBranch(mi, Patmos::CALLR, dbb);       break;
 
             // already rewritten branches - skip them

@@ -103,7 +103,7 @@ SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
 
   // Emit BRC
   SDValue Ops[] = { Pred, PredInvFlag, Target, Chain };
-  return CurDAG->getMachineNode(Patmos::BC, dl, MVT::Other, Ops, 4);
+  return CurDAG->getMachineNode(Patmos::B, dl, MVT::Other, Ops, 4);
 }
 
 

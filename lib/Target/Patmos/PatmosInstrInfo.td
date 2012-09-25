@@ -278,21 +278,22 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 //===----------------------------------------------------------------------===//
 
 
-let isTerminator=1, hasDelaySlot=1 in {
+let isTerminator=1, hasDelaySlot=1,
+    ImmSigned=1 in {
 
   // unconditional branch
   let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
-  def BCu : PFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
-                  "bc", "$target", [(br bb:$target)]>;
+  def Bu : PFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
+                "b", "$target", [(br bb:$target)]>;
   // conditional branch
   let isBranch=1, isBarrier=0 in
-  def BC : PFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
-                "bc", "$target", [(brcond predsel:$p, bb:$target)]>;
+  def B : PFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
+               "b", "$target", [(brcond predsel:$p, bb:$target)]>;
 
   // indirect branch
   let isIndirectBranch=1, isBarrier=1 in
-  def BCR : PFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                  "bcr", "$rs", [(brind RRegs:$rs)]>;
+  def BR : PFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
+                 "br", "$rs", [(brind RRegs:$rs)]>;
 
 }
 
@@ -313,7 +314,7 @@ let isCall=1, hasDelaySlot=1,
                   "call", "$target", []>;
 
   def CALLR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
-                  "call", "$rs", [(PatmosCall RRegs:$rs)]>;
+                  "callr", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {

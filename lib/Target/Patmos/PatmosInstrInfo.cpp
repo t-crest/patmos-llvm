@@ -263,21 +263,21 @@ PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
   if (Cond.empty()) {
     // Unconditional branch?
     assert(TBB && !FBB && "Unconditional branch with multiple successors!");
-    AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BCu)))
+    AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::Bu)))
       .addMBB(TBB);
     return 1;
   }
 
   // Conditional branch.
   unsigned Count = 0;
-  BuildMI(&MBB, DL, get(Patmos::BC))
+  BuildMI(&MBB, DL, get(Patmos::B))
     .addReg(Cond[0].getReg()).addImm(Cond[1].getImm()) // condition as predicate
     .addMBB(TBB);
   ++Count;
 
   if (FBB) {
     // Two-way Conditional branch. Insert the second (unconditional) branch.
-    AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BCu)))
+    AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::Bu)))
       .addMBB(FBB);
     ++Count;
   }
