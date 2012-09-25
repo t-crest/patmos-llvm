@@ -203,7 +203,10 @@ Appendix - Additional Information
 A) Patmos Backend Documentation
 
 For more information about the Patmos backend (ELF file format, assembler 
-syntax, ...) please refer to lib/Target/Patmos/README.txt.
+syntax, ...) please refer to the documentation provided in the patmos-misc 
+repository.
+
+  https://github.com/t-crest/patmos-misc
 
 
 --------------------------------------------------------------------------------
