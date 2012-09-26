@@ -283,16 +283,16 @@ let isTerminator=1, hasDelaySlot=1,
 
   // unconditional branch
   let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
-  def Bu : PFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
+  def Bu : CFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
                 "b", "$target", [(br bb:$target)]>;
   // conditional branch
   let isBranch=1, isBarrier=0 in
-  def B : PFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
+  def B : CFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
                "b", "$target", [(brcond predsel:$p, bb:$target)]>;
 
   // indirect branch
   let isIndirectBranch=1, isBarrier=1 in
-  def BR : PFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
+  def BR : CFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
                  "br", "$rs", [(brind RRegs:$rs)]>;
 
 }
@@ -310,15 +310,15 @@ let isCall=1, hasDelaySlot=1,
           R17, R18, R19, R20, RFB, RPC,
           SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
-  def CALL : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
+  def CALL : CFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
                   "call", "$target", []>;
 
-  def CALLR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
+  def CALLR: CFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
                   "callr", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
-  def RET  : PFLr<0b0000, (outs), (ins pred:$p, RRegs:$rsb, RRegs:$rso),
+  def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rsb, RRegs:$rso),
                   "ret", "$rsb, $rso", []>;
 }
 
@@ -326,17 +326,17 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
 //let isTerminator=1, hasDelaySlot=1, Defs=[RFB,RPC] in {
 //  // call, unconditional
 //  let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
-//  def CALLSu : PFLb<0b00  , (outs), (ins pred:$p, freltarget:$target),
+//  def CALLSu : CFLb<0b00  , (outs), (ins pred:$p, freltarget:$target),
 //                    "call", "$target", [(br bb:$target)]>;
 //
 //  // call, conditional
 //  let isBranch=1, isBarrier=0, ImmSigned = 1 in
-//  def CALLS  : PFLb<0b00  , (outs), (ins predset:$p, freltarget:$target),
+//  def CALLS  : CFLb<0b00  , (outs), (ins predset:$p, freltarget:$target),
 //                    "call", "$target", [(brcond predsel:$p, bb:$target)]>;
 //
 //  // indirect call
 //  let isIndirectBranch=1, isBarrier=1 in
-//  def CALLSR : PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
+//  def CALLSR : CFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
 //                    "call", "$rs", [(brind RRegs:$rs)]>;
 //}
 

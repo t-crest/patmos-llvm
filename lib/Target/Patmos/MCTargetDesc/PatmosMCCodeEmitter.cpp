@@ -236,7 +236,7 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
   case PatmosII::FrmALUi:
     FixupKind = isFREL ? FK_Patmos_frel_12 : FK_Patmos_12;
     break;
-  case PatmosII::FrmPFLb:
+  case PatmosII::FrmCFLb:
     FixupKind = isFREL ? FK_Patmos_frel_22 : FK_Patmos_22;
     break;
   case PatmosII::FrmSTC:

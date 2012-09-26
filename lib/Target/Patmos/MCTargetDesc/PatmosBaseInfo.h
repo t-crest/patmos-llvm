@@ -75,8 +75,8 @@ namespace PatmosII {
     /// FrmSTC - This form is for instructions of the STC format (stack control, 22bit immediate).
     FrmSTC      = 8,
 
-    /// FrmPFLb - This form is for instructions of the PBLb format (flow control, 22bit immediate).
-    FrmPFLb     = 9,
+    /// FrmCFLb - This form is for instructions of the CFLb format (flow control, 22bit immediate).
+    FrmCFLb     = 9,
 
     FormMask    = 0x0F
   };

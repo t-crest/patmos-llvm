@@ -332,8 +332,8 @@ enum {
 // Patmos relocations.
 enum {
   R_PATMOS_NONE      = 0,
-  R_PATMOS_PFLB_ABS  = 1,
-  R_PATMOS_PFLB_FREL = 2,
+  R_PATMOS_CFLB_ABS  = 1,
+  R_PATMOS_CFLB_FREL = 2,
   R_PATMOS_ALUI_ABS  = 3,
   R_PATMOS_ALUI_FREL = 4,
   R_PATMOS_ALUL_ABS  = 5,

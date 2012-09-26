@@ -31,7 +31,7 @@ def IIC_MEM    : InstrItinClass;
 def IIC_SPCn   : InstrItinClass;
 def IIC_SPCw   : InstrItinClass;
 // control flow ops (only in first slot)
-def IIC_PFL    : InstrItinClass;
+def IIC_CFL    : InstrItinClass;
 // pseudos
 def IIC_Pseudo : InstrItinClass;
 

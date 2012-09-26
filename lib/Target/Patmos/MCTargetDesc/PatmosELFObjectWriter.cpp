@@ -100,13 +100,13 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
   case FK_Patmos_22:
   // TODO do not emit STC format relocations?
   case FK_Patmos_stc_22:
-    return ELF::R_PATMOS_PFLB_ABS;
+    return ELF::R_PATMOS_CFLB_ABS;
   case FK_Patmos_32:
     return ELF::R_PATMOS_ALUL_ABS;
   case FK_Patmos_frel_12:
     return ELF::R_PATMOS_ALUI_FREL;
   case FK_Patmos_frel_22:
-    return ELF::R_PATMOS_PFLB_FREL;
+    return ELF::R_PATMOS_CFLB_FREL;
   case FK_Patmos_frel_32:
     return ELF::R_PATMOS_ALUL_FREL;
   default:
