@@ -28,3 +28,10 @@ entry:
   %add = add nsw i32 %a, 4096
   ret i32 %add
 }
+
+; add 2 64bit values
+define i64 @add_64(i64 %a, i64 %b) nounwind uwtable {
+entry:
+  %add = add nsw i64 %a, %b
+  ret i64 %add
+}
