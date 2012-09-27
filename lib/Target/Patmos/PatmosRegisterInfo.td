@@ -76,8 +76,8 @@ def R26 : PatmosGPR<26, "r26">;
 def RTR : PatmosGPR<27, "r27">; // reserved temporary register
 def RFP : PatmosGPR<28, "r28">; // frame ptr
 def RSP : PatmosGPR<29, "r29">; // stack ptr
-def RFB : PatmosGPR<30, "r30">; // function base
-def RPC : PatmosGPR<31, "r31">; // program counter (function relative)
+def RFB : PatmosGPR<30, "r30">; // return info: function base
+def RFO : PatmosGPR<31, "r31">; // return info: function offset
 
 def P0  : PatmosPRED<0, "p0">;
 def P1  : PatmosPRED<1, "p1">;
@@ -88,10 +88,9 @@ def P5  : PatmosPRED<5, "p5">;
 def P6  : PatmosPRED<6, "p6">;
 def P7  : PatmosPRED<7, "p7">;
 
-// SZ (zero) instead of S0 to avoid confusion with SO
 //def PRF : PatmosPRF<"pred", [P0, P1, P2, P3, P4, P5, P6, P7]>;
 //def SZ  : PatmosSPRWithSubRegs< 0,  "sz", [PRF]>;
-def SZ  : PatmosSPR< 0,  "sz">;
+def SZ  : PatmosSPR< 0,  "sz">; // zero
 def SM  : PatmosSPR< 1,  "sm">;
 def SL  : PatmosSPR< 2,  "sl">;
 def SH  : PatmosSPR< 3,  "sh">;
@@ -112,7 +111,7 @@ def S15 : PatmosSPR<15, "s15">;
 
 def Mul : RegisterClass<"Patmos", [i32], 32, (add SL, SH)>;
 
-// Note: the order of the registers must be kept consistant in PatmosBaseInfo.h and
+// Note: the order of the registers must be kept consistent in PatmosBaseInfo.h and
 // in the disassembler.
 
 def RRegs : RegisterClass<"Patmos", [i32], 32,
@@ -131,7 +130,7 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    // frame pointer, stack pointer (callee saved)
    RFP, RSP,
    // funcion base pointer, program counter (function relative)
-   RFB, RPC)>;
+   RFB, RFO)>;
 
 def SRegs : RegisterClass<"Patmos", [i32], 32,
   (add SZ, SM, SL, SH, S4, S5, ST, S7,

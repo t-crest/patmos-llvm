@@ -293,8 +293,7 @@ let isTerminator=1, hasDelaySlot=1,
   // indirect branch
   let isIndirectBranch=1, isBarrier=1 in
   def BR : CFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                 "br", "$rs", [(brind RRegs:$rs)]>;
-
+                 "b", "$rs", [(brind RRegs:$rs)]>;
 }
 
 
@@ -307,48 +306,29 @@ let isTerminator=1, hasDelaySlot=1,
 let isCall=1, hasDelaySlot=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
-          R17, R18, R19, R20, RFB, RPC,
+          R17, R18, R19, R20, RFB, RFO,
           SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def CALL : CFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
                   "call", "$target", []>;
 
   def CALLR: CFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
-                  "callr", "$rs", [(PatmosCall RRegs:$rs)]>;
+                  "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
-  def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rsb, RRegs:$rso),
-                  "ret", "$rsb, $rso", []>;
+  def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
+                  "ret", "$rb, $ro", []>;
 }
 
-//// call subfunction (return information is discarded, no spilling etc)
-//let isTerminator=1, hasDelaySlot=1, Defs=[RFB,RPC] in {
-//  // call, unconditional
-//  let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
-//  def CALLSu : CFLb<0b00  , (outs), (ins pred:$p, freltarget:$target),
-//                    "call", "$target", [(br bb:$target)]>;
-//
-//  // call, conditional
-//  let isBranch=1, isBarrier=0, ImmSigned = 1 in
-//  def CALLS  : CFLb<0b00  , (outs), (ins predset:$p, freltarget:$target),
-//                    "call", "$target", [(brcond predsel:$p, bb:$target)]>;
-//
-//  // indirect call
-//  let isIndirectBranch=1, isBarrier=1 in
-//  def CALLSR : CFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
-//                    "call", "$rs", [(brind RRegs:$rs)]>;
-//}
 
 
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-def SRES : STC<0b00, (outs), (ins pred:$p, uimm22:$imm), "sres", "$imm",
-               []>;
-def SENS : STC<0b01, (outs), (ins pred:$p, uimm22:$imm), "sens", "$imm",
-               []>;
+def SRES : STC<0b00, (outs), (ins pred:$p, uimm22:$imm), "sres",  "$imm", []>;
+def SENS : STC<0b01, (outs), (ins pred:$p, uimm22:$imm), "sens",  "$imm", []>;
 def SFREE: STC<0b10, (outs), (ins pred:$p, uimm22:$imm), "sfree", "$imm", []>;
 
 
