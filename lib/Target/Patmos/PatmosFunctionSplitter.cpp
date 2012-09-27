@@ -655,9 +655,20 @@ namespace llvm {
             }
             else {
               // a region mismatch -> the successor needs to be a region
-              regions.insert(dst);
-              dst->Region = dst;
-              dst->NumPreds = 0;
+              if (!dst->MBB) {
+                // mark all headers of a non-natural loop as new regions
+                for(aedges::const_iterator k(Edges.lower_bound(dst)),
+                    ke(Edges.upper_bound(dst)); k != ke; k++) {
+                  regions.insert(k->second->Dst);
+                  k->second->Dst->Region = k->second->Dst;
+                  k->second->Dst->NumPreds = 0;
+                }
+              }
+              else {
+                regions.insert(dst);
+                dst->Region = dst;
+                dst->NumPreds = 0;
+              }
             }
           }
         }
@@ -758,6 +769,9 @@ namespace llvm {
         ablock *region = selectRegion(regions);
         regions.erase(region);
 
+        // only real basic blocks can be region entries
+        assert(region->MBB);
+
         // initialize ready list
         ready.insert(region);
 
@@ -818,8 +832,8 @@ namespace llvm {
 
 #ifdef PATMOS_TRACE_FIXUP
         DEBUG(dbgs() << "Fixup: " << fallthrough->getName() << "|"
-                     << layout_successor->getName() <<  "-->"
-                     << target->getName() << "\n");
+                     <<(layout_successor ? layout_successor->getName() : "NULL")
+                     <<  "-->" << target->getName() << "\n");
 #endif
       }
     }
@@ -1015,7 +1029,16 @@ namespace llvm {
 
       unsigned total_size = 0;
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
-        total_size += agraph::getBBSize(i);
+        unsigned bb_size = agraph::getBBSize(i);
+
+        if (bb_size > STC.getMethodCacheSize()) {
+          errs() << "Patmos Function Splitter: "
+                    "Basic block too large for methdo cache: "
+                 << bb_size << " > " << STC.getMethodCacheSize() << "\n";
+          abort();
+        }
+
+        total_size += bb_size;
       }
 
       DEBUG(dbgs() << "\nPatmos Function Splitter: "
