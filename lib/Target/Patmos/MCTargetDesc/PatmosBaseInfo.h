@@ -136,7 +136,7 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case RFP: return 28;
   case RSP: return 29;
   case RFB: return 30;
-  case RPC: return 31;
+  case RFO: return 31;
   default:
     llvm_unreachable("Unknown Patmos register!");
   }

@@ -486,11 +486,11 @@ class PFLr<bits<4>op,
   let PFLOp = 0b10;
 
   // unbound fields
-  bits<5> rsb; // function base
-  bits<5> rso; // offset
+  bits<5> rb; // function base
+  bits<5> ro; // function offset
 
-  let Inst{16-12} = rsb;
-  let Inst{11-7}  = rso;
+  let Inst{16-12} = rb;
+  let Inst{11-7}  = ro;
 
   let Inst{24} = 1;
   let Inst{3-0} = op;
