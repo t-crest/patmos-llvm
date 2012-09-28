@@ -374,6 +374,12 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
       .addReg(Patmos::RSP);
   }
 
+  // load the current function base if it needs to be passed to call sites
+  if (MF.getFrameInfo()->hasCalls()) {
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::LIl), Patmos::RFB))
+      .addImm(1234); //FIXME symbol operand: function name
+  }
+
   return true;
 }
 
