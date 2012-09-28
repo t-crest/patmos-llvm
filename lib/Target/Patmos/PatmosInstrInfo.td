@@ -326,14 +326,13 @@ let isCall=1, hasDelaySlot=1,
           SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
   def CALL : CFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
-                  "call", "$target", []>;
+                  "call", "$target", [(PatmosCall uimm22:$target)]>;
 
   def CALLR: CFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
                   "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
-    Uses=[RFB, RFO] in {
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
   def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
                   "ret", "$rb, $ro", []>;
 }
