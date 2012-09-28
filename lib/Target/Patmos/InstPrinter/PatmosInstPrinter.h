@@ -36,7 +36,7 @@ namespace llvm {
                       raw_ostream &O, const char *Modifier = 0);
     void printPredicateOperand(const MCInst *MI, unsigned OpNo,
                                raw_ostream &O, const char *Modifier = 0);
-    void printCacheRelTargetOperand(const MCInst *MI, unsigned OpNo,
+    void printPCRelTargetOperand(const MCInst *MI, unsigned OpNo,
                                     raw_ostream &O);
 
     void printRegisterName(unsigned RegNo, raw_ostream &O);

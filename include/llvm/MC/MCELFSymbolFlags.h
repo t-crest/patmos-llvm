@@ -28,7 +28,7 @@ namespace llvm {
   };
 
   enum SymbolFlags {
-    ELF_STB_Local     = (ELF::STB_LOCAL     << ELF_STB_Shift),
+      ELF_STB_Local     = (ELF::STB_LOCAL     << ELF_STB_Shift),
       ELF_STB_Global    = (ELF::STB_GLOBAL    << ELF_STB_Shift),
       ELF_STB_Weak      = (ELF::STB_WEAK      << ELF_STB_Shift),
       ELF_STB_Loproc    = (ELF::STB_LOPROC    << ELF_STB_Shift),
@@ -50,8 +50,7 @@ namespace llvm {
       ELF_STV_Protected = (ELF::STV_PROTECTED << ELF_STV_Shift),
 
       ELF_Other_Weakref = (1                  << ELF_Other_Shift),
-      ELF_Other_ThumbFunc = (2                << ELF_Other_Shift),
-      ELF_Other_SubFunc = (4                  << ELF_Other_Shift)
+      ELF_Other_ThumbFunc = (2                << ELF_Other_Shift)
   };
 
 } // end namespace llvm

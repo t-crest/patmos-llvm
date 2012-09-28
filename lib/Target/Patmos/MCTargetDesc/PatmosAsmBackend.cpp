@@ -43,7 +43,7 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     break;
   case FK_Patmos_WO_7:
   case FK_Patmos_22:
-  case FK_Patmos_frel_22:
+  case FK_Patmos_pcrel_22:
     Value >>= 2;
     break;
   }
@@ -63,56 +63,6 @@ public:
     return createPatmosELFObjectWriter(OS, OSType);
   }
 
-  const MCSymbolData &getFunctionSymbol(const MCAssembler &Asm,
-                                        const MCAsmLayout &Layout, const MCSymbol &Symbol,
-                                        const MCSymbolData &SD, const MCFragment *DF)
-  {
-    const MCSection *Section = &Symbol.getSection();
-    uint64_t Offset = Layout.getFragmentOffset(DF) + SD.getOffset();
-
-    const MCSymbolData *Curr = 0;
-    uint64_t CurrOff = 0;
-
-    // TODO this is slow.. maybe sort the symbol table by section and offset once, then iterate backwards
-    // until first function symbol is found
-
-    for (MCAssembler::const_symbol_iterator it = Asm.symbol_begin(), end = Asm.symbol_end(); it != end; ++it) {
-      const MCSymbolData &SymD = *it;
-      if (!SymD.getSymbol().isInSection()) continue;
-      if (&SymD.getSymbol().getSection() != Section) continue;
-      if ((SymD.getFlags() & ELF_STT_Func) == 0) continue;
-
-      uint64_t SymOff = Layout.getFragmentOffset(SymD.getFragment()) + SymD.getOffset();
-
-      if (SymOff > Offset) continue;
-
-      if (CurrOff <= SymOff) {
-        Curr = &SymD;
-        CurrOff = SymOff;
-      }
-    }
-
-    return *Curr;
-  }
-
-  void processFRELFixupValue(const MCAssembler &Asm,
-                                 const MCAsmLayout &Layout,
-                                 const MCFixup &Fixup, const MCFragment *DF,
-                                 MCValue &Target, uint64_t &Value)
-  {
-    assert(!Target.getSymB() && "FREL fixup kind must not be a relative symbol");
-    const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
-    const MCSymbolData &SDA = Asm.getSymbolData(Symbol);
-
-    const MCSymbolData &SDF = getFunctionSymbol(Asm, Layout, Symbol, SDA, DF);
-
-    uint64_t Offset = Layout.getSymbolOffset(&SDA) - Layout.getSymbolOffset(&SDF);
-
-    const MCSymbolRefExpr *FnSymRef = MCSymbolRefExpr::Create(&SDF.getSymbol(), Asm.getContext());
-
-    Target = MCValue::get(FnSymRef, 0, Offset);
-    Value = Offset;
-  }
 
   virtual void processFixupValue(const MCAssembler &Asm,
                                  const MCAsmLayout &Layout,
@@ -124,14 +74,15 @@ public:
 
     unsigned Kind = (unsigned)Fixup.getKind();
 
-    // For FRELs, we need to adjust the offset value to the start of the current (sub)function
-    if (isFRELFixupKind(Kind)) {
-      // .. however, this is done in the linker, so we emit symbols for all labels instead
-      //processFRELFixupValue(Asm, Layout, Fixup, DF, Target, Value);
+    // For PCRELs, we need to adjust the offset value to the current instruction
+    if (isPCRELFixupKind(Kind)) {
+      // .. however, this is done in the linker, so we emit symbols for all
+      // labels instead
       return;
     }
 
-    // TODO in case of FK_Patmos_BO|HO|WO_7, we can (try to) resolve it here, and skip emitting relocations
+    // TODO in case of FK_Patmos_BO|HO|WO_7, we can (try to) resolve it here,
+    // and skip emitting relocations
 
   }
 
@@ -143,7 +94,8 @@ public:
     MCFixupKind Kind = Fixup.getKind();
 
     // Adjust the immediate value according to the format here
-    // this is not done in processFixupValue to avoid keeping track of the current addressing mode in the rest of the code
+    // this is not done in processFixupValue to avoid keeping track of the
+    // current addressing mode in the rest of the code
     Value = adjustFixupValue(Kind, Value);
 
     if (!Value)
@@ -195,9 +147,9 @@ public:
       { "FK_Patmos_22",          10,     22,   0 }, // 2 bit shifted, unsigned, for call
       { "FK_Patmos_stc_22",      10,     22,   0 }, // 2 bit shifted, unsigned, for stack control
       { "FK_Patmos_32",          32,     32,   0 }, // ALU immediate, unsigned
-      { "FK_Patmos_frel_12",     20,     12,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, function relative
-      { "FK_Patmos_frel_22",     10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, function relative
-      { "FK_Patmos_frel_32",      0,     32,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, function relative
+      { "FK_Patmos_pcrel_12",    20,     12,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, PC relative
+      { "FK_Patmos_pcrel_22",    10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, PC relative
+      { "FK_Patmos_pcrel_32",     0,     32,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, PC relative
     };
 
     if (Kind < FirstTargetFixupKind)
@@ -260,9 +212,11 @@ public:
       return false;
 
     // We should somehow initialize the NOP instruction code from TableGen, but
-    // I do not see how (without creating a new CodeEmitter and everything from Target)
+    // I do not see how (without creating a new CodeEmitter and everything from
+    // Target)
 
     for (uint64_t i = 0; i < Count; i += 4)
+        // "(!p0) add r0 = r0, r0"
         OW->Write32(0x40000000);
 
     return true;

@@ -91,11 +91,6 @@ def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
   let DecoderMethod = "DecodePredRegisterClass";
 }
 
-// for cache relative branches
-def freltarget : Operand<OtherVT> {
-  let PrintMethod = "printCacheRelTargetOperand";
-}
-
 // for pc relative branches
 def pcreltarget : Operand<OtherVT> {
   let PrintMethod = "printPCRelTargetOperand";
@@ -285,12 +280,12 @@ let isTerminator=1, hasDelaySlot=1,
 
   // unconditional
   let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
-  def BRu : CFLb<0b01, (outs), (ins pred:$p, freltarget:$target),
+  def BRu : CFLb<0b01, (outs), (ins pred:$p, pcreltarget:$target),
                  "br", "$target", [(br bb:$target)]>;
 
   // conditional
   let isBranch=1, isBarrier=0 in
-  def BR  : CFLb<0b01, (outs), (ins predset:$p, freltarget:$target),
+  def BR  : CFLb<0b01, (outs), (ins predset:$p, pcreltarget:$target),
                  "br", "$target", [(brcond predsel:$p, bb:$target)]>;
 
   // indirect
@@ -303,12 +298,12 @@ let isTerminator=1, hasDelaySlot=1,
 
    // unconditional
    let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
-   def BRCFu : CFLb<0b10, (outs), (ins pred:$p, freltarget:$target),
+   def BRCFu : CFLb<0b10, (outs), (ins pred:$p, pcreltarget:$target),
                     "brcf", "$target", []>;
 
    // conditional
    let isBranch=1, isBarrier=0, ImmSigned = 1 in
-   def BRCF  : CFLb<0b10, (outs), (ins predset:$p, freltarget:$target),
+   def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
                     "brcf", "$target", []>;
 
    // indirect

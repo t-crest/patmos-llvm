@@ -23,13 +23,13 @@ namespace Patmos {
   // in PatmosAsmBackend.cpp.
   //
   enum Fixups {
-    /// Memory offset, 7 bit signed immediate byte offset, resulting in R_PATMOS_MEM_ABS
+    /// Memory offset, 7 bit signed immediate byte offset, resulting in R_PATMOS_MEMB_ABS
     FK_Patmos_BO_7 = FirstTargetFixupKind,
 
-    /// Memory offset, 7 bit signed immediate half-word offset, resulting in R_PATMOS_MEM_ABS
+    /// Memory offset, 7 bit signed immediate half-word offset, resulting in R_PATMOS_MEMH_ABS
     FK_Patmos_HO_7,
 
-    /// Memory offset, 7 bit signed immediate word offset, resulting in R_PATMOS_MEM_ABS
+    /// Memory offset, 7 bit signed immediate word offset, resulting in R_PATMOS_MEMW_ABS
     FK_Patmos_WO_7,
 
     /// ALU 12 bit immediate data/absolute byte address fixup, unsigned, resulting in R_PATMOS_ALUI_ABS.
@@ -45,27 +45,26 @@ namespace Patmos {
     /// (same as FK_Data_4, but with 4 byte offset)
     FK_Patmos_32,
 
-    /// Function relative byte addresses, 12 bit, resulting in R_PATMOS_ALUI_FREL
-    FK_Patmos_frel_12,
+    /// Function relative byte addresses, 12 bit, resulting in R_PATMOS_ALUI_PCREL
+    FK_Patmos_pcrel_12,
 
-    /// Function relative word addresses, 22 bit, resulting in R_PATMOS_CFLB_FREL
-    FK_Patmos_frel_22,
+    /// Function relative word addresses, 22 bit, resulting in R_PATMOS_CFLB_PCREL
+    FK_Patmos_pcrel_22,
 
-    /// Function relative byte addresses, 32 bit, resulting in R_PATMOS_ALUL_FREL
-    FK_Patmos_frel_32,
+    /// Function relative byte addresses, 32 bit, resulting in R_PATMOS_ALUL_PCREL
+    FK_Patmos_pcrel_32,
 
-    /// Note: we do not have cache-relative 7bit fixups, memory offsets are never cache-relative
 
     // Marker
     LastTargetFixupKind,
     NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
   };
 
-  static inline bool isFRELFixupKind(unsigned FixupKind) {
+  static inline bool isPCRELFixupKind(unsigned FixupKind) {
     switch (FixupKind){
-    case FK_Patmos_frel_12:
-    case FK_Patmos_frel_22:
-    case FK_Patmos_frel_32:
+    case FK_Patmos_pcrel_12:
+    case FK_Patmos_pcrel_22:
+    case FK_Patmos_pcrel_32:
       return true;
     }
     return false;

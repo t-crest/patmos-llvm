@@ -211,7 +211,7 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
   const MCInstrDesc &MID = MCII.get(MI.getOpcode());
 
   MCSymbolRefExpr::VariantKind Kind = Expr->getKind();
-  bool isFREL = Kind == MCSymbolRefExpr::VK_Patmos_FREL;
+  bool isPCREL = Kind == MCSymbolRefExpr::VK_Patmos_PCREL;
   uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
 
   Patmos::Fixups FixupKind;
@@ -234,16 +234,16 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
     break;
   }
   case PatmosII::FrmALUi:
-    FixupKind = isFREL ? FK_Patmos_frel_12 : FK_Patmos_12;
+    FixupKind = isPCREL ? FK_Patmos_pcrel_12 : FK_Patmos_12;
     break;
   case PatmosII::FrmCFLb:
-    FixupKind = isFREL ? FK_Patmos_frel_22 : FK_Patmos_22;
+    FixupKind = isPCREL ? FK_Patmos_pcrel_22 : FK_Patmos_22;
     break;
   case PatmosII::FrmSTC:
     FixupKind = FK_Patmos_stc_22;
     break;
   case PatmosII::FrmALUl:
-    FixupKind = isFREL ? FK_Patmos_frel_32 : FK_Patmos_32;
+    FixupKind = isPCREL ? FK_Patmos_pcrel_32 : FK_Patmos_32;
     break;
   default:
     // TODO proper way to throw an error?

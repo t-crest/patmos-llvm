@@ -186,7 +186,8 @@ const MCExpr * PatmosTargetLowering::LowerCustomJumpTableEntry(
     return MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
   else 
     return MCSymbolRefExpr::Create(MBB->getSymbol(),
-                                   MCSymbolRefExpr::VK_Patmos_FREL, OutContext);
+                                   MCSymbolRefExpr::VK_Patmos_PCREL,
+                                   OutContext);
 }
 
 

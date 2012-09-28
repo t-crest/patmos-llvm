@@ -34,29 +34,30 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
   MCSymbolRefExpr::VariantKind Kind;
   const MCSymbol *Symbol;
 
-  // TODO support FREL only for MBBs?
+  // TODO support PCREL only for MBBs?
 
   switch (MO.getTargetFlags()) {
   case PatmosII::MO_NO_FLAG:    Kind = MCSymbolRefExpr::VK_None; break;
-  case PatmosII::MO_FREL:       Kind = MCSymbolRefExpr::VK_Patmos_FREL; break;
+  case PatmosII::MO_PCREL:      Kind = MCSymbolRefExpr::VK_Patmos_PCREL; break;
   default: llvm_unreachable("Unknown target flag on GV operand");
   }
 
-  // Note: jump table entries (refs to BBs) are lowered in PatmosISelLowering::LowerCustomJumpTableEntry
+  // Note: jump table entries (refs to BBs) are lowered in
+  // PatmosISelLowering::LowerCustomJumpTableEntry
 
   switch (MO.getType()) {
   case MachineOperand::MO_MachineBasicBlock:
     Symbol = MO.getMBB()->getSymbol();
     // symbols to BBs are always cache relative (?)
     // TODO set this earlier so we do not need it here, then remove it.
-    Kind = MCSymbolRefExpr::VK_Patmos_FREL;
+    Kind = MCSymbolRefExpr::VK_Patmos_PCREL;
     break;
   case MachineOperand::MO_GlobalAddress:
     Symbol = Printer.Mang->getSymbol(MO.getGlobal());
     break;
   case MachineOperand::MO_BlockAddress:
     Symbol = Printer.GetBlockAddressSymbol(MO.getBlockAddress());
-    // TODO do we need to emit as FREL??
+    // TODO do we need to emit as PCREL??
     break;
   case MachineOperand::MO_ExternalSymbol:
     Symbol = Printer.GetExternalSymbolSymbol(MO.getSymbolName());

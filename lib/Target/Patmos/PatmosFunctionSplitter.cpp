@@ -79,7 +79,7 @@ using namespace llvm;
 /// DisableFunctionSplitter - Option to disable the function splitter.
 static cl::opt<bool> DisableFunctionSplitter(
   "mpatmos-disable-function-splitter",
-  cl::init(true),
+  cl::init(false),
   cl::desc("Disable the Patmos function splitter."),
   cl::Hidden);
 

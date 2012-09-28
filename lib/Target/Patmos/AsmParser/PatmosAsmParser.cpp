@@ -813,7 +813,7 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
   }
   Parser.Lex();
 
-  getParser().getStreamer().EmitFRELStart(Start, Length, (unsigned)Align);
+  getParser().getStreamer().EmitFStart(Start, Length, (unsigned)Align);
 
   return false;
 }

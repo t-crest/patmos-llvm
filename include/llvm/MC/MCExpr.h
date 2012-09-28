@@ -196,7 +196,7 @@ public:
     VK_Mips_GOT_PAGE,
     VK_Mips_GOT_OFST,
 
-    VK_Patmos_FREL
+    VK_Patmos_PCREL
   };
 
 private:

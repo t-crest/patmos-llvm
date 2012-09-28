@@ -34,12 +34,12 @@ namespace {
 
     PatmosMCInstLower MCInstLowering;
 
-    // symbol to use for the end of the currently emitted cache block
-    MCSymbol *CurrFRELEnd;
+    // symbol to use for the end of the currently emitted subfunction
+    MCSymbol *CurrCodeEnd;
 
   public:
     PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrFRELEnd(0)
+      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrCodeEnd(0)
     {
       if (!(PTM = static_cast<PatmosTargetMachine*>(&TM))) {
         llvm_unreachable("PatmosAsmPrinter must be initialized with a Patmos target configuration.");
@@ -82,12 +82,12 @@ namespace {
                                        const char *ExtraCode,
                                        raw_ostream &OS);
   private:
-    /// mark the start of an FREL relocation area.
+    /// mark the start of an subfunction relocation area.
     /// Alignment is in bytes.
-    void EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd,
+    void EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                        unsigned Alignment = 0);
 
-    bool isFRELStart(const MachineBasicBlock *MBB) const;
+    bool isFStart(const MachineBasicBlock *MBB) const;
   };
 
 } // end of anonymous namespace
@@ -96,29 +96,29 @@ namespace {
 void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   // Create a temp label that will be emitted at the end of the first cache block (at the end of the function
   // if the function has only one cache block)
-  CurrFRELEnd = OutContext.CreateTempSymbol();
+  CurrCodeEnd = OutContext.CreateTempSymbol();
 
   // convert LLVM's log2 function alignment
   unsigned alignment = std::max(4u, 1u << MF->getAlignment());
 
   // emit a function/subfunction start directive
-  EmitFRELStart(CurrentFnSymForSize, CurrFRELEnd, alignment);
+  EmitFStart(CurrentFnSymForSize, CurrCodeEnd, alignment);
 
   // Now emit the normal function label
   AsmPrinter::EmitFunctionEntryLabel();
 }
 
 void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
-  // EmitBasicBlockBegin emits after the label, too late for emitting FREL stuff,
+  // EmitBasicBlockBegin emits after the label, too late for emitting .fstart,
   // so we do it at the end of the previous block of a cache block start MBB.
   if (&MBB->getParent()->back() == MBB) return;
   const MachineBasicBlock *Next = MBB->getNextNode();
 
   // skip blocks that are in the same cache block..
-  if (!isFRELStart(Next)) return;
+  if (!isFStart(Next)) return;
 
   // Next is the start of a new cache block, close the old one and start a new cache block
-  OutStreamer.EmitLabel(CurrFRELEnd);
+  OutStreamer.EmitLabel(CurrCodeEnd);
 
   // We need an address symbol from the next block
   assert(!Next->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
@@ -126,24 +126,24 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   MCSymbol *SymStart = Next->getSymbol();
 
   // create new end symbol
-  CurrFRELEnd = OutContext.CreateTempSymbol();
+  CurrCodeEnd = OutContext.CreateTempSymbol();
 
   // mark the symbol as method-cache-cacheable code
   OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
 
   // emit a .size directive
-  EmitDotSize(SymStart, CurrFRELEnd);
+  EmitDotSize(SymStart, CurrCodeEnd);
 
   // convert LLVM's log2-block alignment to bytes
   unsigned alignment = std::max(4u, 1u << Next->getAlignment());
 
   // emit a function/subfunction start directive
-  EmitFRELStart(SymStart, CurrFRELEnd, alignment);
+  EmitFStart(SymStart, CurrCodeEnd, alignment);
 }
 
 void PatmosAsmPrinter::EmitFunctionBodyEnd() {
   // Emit the end symbol of the last cache block
-  OutStreamer.EmitLabel(CurrFRELEnd);
+  OutStreamer.EmitLabel(CurrCodeEnd);
 }
 
 void PatmosAsmPrinter::EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd) {
@@ -155,7 +155,7 @@ void PatmosAsmPrinter::EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd) {
   OutStreamer.EmitELFSize(SymStart, SizeExpr);
 }
 
-void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd,
+void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                                      unsigned Alignment) {
   // emit .frelstart SymStart, SymEnd-SymStart
   const MCExpr *SizeExpr =
@@ -163,10 +163,10 @@ void PatmosAsmPrinter::EmitFRELStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
 
-  OutStreamer.EmitFRELStart(SymStart, SizeExpr, Alignment);
+  OutStreamer.EmitFStart(SymStart, SizeExpr, Alignment);
 }
 
-bool PatmosAsmPrinter::isFRELStart(const MachineBasicBlock *MBB) const {
+bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB) const {
   // query the machineinfo object - the PatmosFunctionSplitter, or some other
   // pass, has marked all entry blocks already.
   const PatmosMachineFunctionInfo *PMFI =
@@ -209,7 +209,7 @@ isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB) const {
   // if the block starts a new cache block, do not fall through (we need to
   // insert cache stuff, even if we only reach this block from a jump from the
   // previous block, and we need the label).
-  if (isFRELStart(MBB))
+  if (isFStart(MBB))
     return false;
 
   // If the block is completely empty, then it definitely does fall through.

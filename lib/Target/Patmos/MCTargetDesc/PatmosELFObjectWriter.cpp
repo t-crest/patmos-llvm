@@ -83,8 +83,8 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
   {
     // Handle jump table entries and other BB references in data sections
     const MCSymbolRefExpr *SymRef = Target.getSymA();
-    if (SymRef && SymRef->getKind() == MCSymbolRefExpr::VK_Patmos_FREL) {
-      return ELF::R_PATMOS_FREL_32;
+    if (SymRef && SymRef->getKind() == MCSymbolRefExpr::VK_Patmos_PCREL) {
+      return ELF::R_PATMOS_PCREL_32;
     }
 
     return ELF::R_PATMOS_ABS_32;
@@ -103,12 +103,12 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
     return ELF::R_PATMOS_CFLB_ABS;
   case FK_Patmos_32:
     return ELF::R_PATMOS_ALUL_ABS;
-  case FK_Patmos_frel_12:
-    return ELF::R_PATMOS_ALUI_FREL;
-  case FK_Patmos_frel_22:
-    return ELF::R_PATMOS_CFLB_FREL;
-  case FK_Patmos_frel_32:
-    return ELF::R_PATMOS_ALUL_FREL;
+  case FK_Patmos_pcrel_12:
+    return ELF::R_PATMOS_ALUI_PCREL;
+  case FK_Patmos_pcrel_22:
+    return ELF::R_PATMOS_CFLB_PCREL;
+  case FK_Patmos_pcrel_32:
+    return ELF::R_PATMOS_ALUL_PCREL;
   default:
     llvm_unreachable("invalid fixup kind!");
   }

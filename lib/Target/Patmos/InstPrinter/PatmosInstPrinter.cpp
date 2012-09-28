@@ -133,7 +133,7 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
   }
 }
 
-void PatmosInstPrinter::printCacheRelTargetOperand(const MCInst *MI,
+void PatmosInstPrinter::printPCRelTargetOperand(const MCInst *MI,
                                             unsigned OpNo,
                                             raw_ostream &O)
 {
