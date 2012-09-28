@@ -129,7 +129,7 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    RTR,
    // frame pointer, stack pointer (callee saved)
    RFP, RSP,
-   // funcion base pointer, program counter (function relative)
+   // return info: funcion base pointer, function offset (callee saved)
    RFB, RFO)>;
 
 def SRegs : RegisterClass<"Patmos", [i32], 32,

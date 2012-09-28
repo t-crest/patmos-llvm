@@ -101,9 +101,9 @@ SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
   assert(Target.getOpcode()  == ISD::BasicBlock);
   assert(Pred.getValueType() == MVT::i1);
 
-  // Emit BRC
+  // create branch node
   SDValue Ops[] = { Pred, PredInvFlag, Target, Chain };
-  return CurDAG->getMachineNode(Patmos::B, dl, MVT::Other, Ops, 4);
+  return CurDAG->getMachineNode(Patmos::BR, dl, MVT::Other, Ops, 4);
 }
 
 

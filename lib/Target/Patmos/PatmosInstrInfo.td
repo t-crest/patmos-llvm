@@ -281,19 +281,40 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 let isTerminator=1, hasDelaySlot=1,
     ImmSigned=1 in {
 
-  // unconditional branch
-  let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
-  def Bu : CFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
-                "b", "$target", [(br bb:$target)]>;
-  // conditional branch
-  let isBranch=1, isBarrier=0 in
-  def B : CFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
-               "b", "$target", [(brcond predsel:$p, bb:$target)]>;
+  // local branches
 
-  // indirect branch
+  // unconditional
+  let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
+  def BRu : CFLb<0b01, (outs), (ins pred:$p, freltarget:$target),
+                 "br", "$target", [(br bb:$target)]>;
+
+  // conditional
+  let isBranch=1, isBarrier=0 in
+  def BR  : CFLb<0b01, (outs), (ins predset:$p, freltarget:$target),
+                 "br", "$target", [(brcond predsel:$p, bb:$target)]>;
+
+  // indirect
   let isIndirectBranch=1, isBarrier=1 in
-  def BR : CFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                 "b", "$rs", [(brind RRegs:$rs)]>;
+  def BRR : CFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
+                 "br", "$rs", [(brind RRegs:$rs)]>;
+
+
+   // branches with cache-fill
+
+   // unconditional
+   let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
+   def BRCFu : CFLb<0b10, (outs), (ins pred:$p, freltarget:$target),
+                    "brcf", "$target", []>;
+
+   // conditional
+   let isBranch=1, isBarrier=0, ImmSigned = 1 in
+   def BRCF  : CFLb<0b10, (outs), (ins predset:$p, freltarget:$target),
+                    "brcf", "$target", []>;
+
+   // indirect
+   let isIndirectBranch=1, isBarrier=1 in
+   def BRCFR : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
+                   "brcf", "$rs", []>;
 }
 
 
@@ -316,7 +337,8 @@ let isCall=1, hasDelaySlot=1,
                   "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
+    Uses=[RFB, RFO] in {
   def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
                   "ret", "$rb, $ro", []>;
 }
