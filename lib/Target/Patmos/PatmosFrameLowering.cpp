@@ -376,8 +376,9 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   // load the current function base if it needs to be passed to call sites
   if (MF.getFrameInfo()->hasCalls()) {
+    // load long immediate: current function symbol into RFB
     AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::LIl), Patmos::RFB))
-      .addImm(1234); //FIXME symbol operand: function name
+      .addGlobalAddress(MF.getFunction());
   }
 
   return true;
