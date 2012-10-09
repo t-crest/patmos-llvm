@@ -453,11 +453,11 @@ let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
   }
 }
 
-// neg Rd = -Rs ... rsub Rd = 0 - Rs
-let imm = 0, ImmOpNo = 0 in
-def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
-               "neg", "$rd = $rs1",
-               [(set RRegs:$rd, (ineg RRegs:$rs1))]>;
+// neg Rd = -Rs ... sub Rd = R0 - Rs
+let rs1 = 0 in
+def NEG : ALUr<0b0001, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs2),
+               "neg", "$rd = $rs2",
+               [(set RRegs:$rd, (ineg RRegs:$rs2))]>;
 
 
 // not Rd = ~Rs ... nor Rd = ~(Rs | R0)
