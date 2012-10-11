@@ -33,7 +33,7 @@ void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                   StringRef Annot) {
   printInstruction(MI, O);
 
-  // if we are in a bundle, print the bundle separator ('||')
+  // if we are in a bundle, print the bundle separator (';')
   // We use an additional operand at the end of the op-list for this information
   bool isBundled = MI->getOperand(MI->getNumOperands()-1).getImm() > 0;
 

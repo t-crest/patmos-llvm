@@ -273,18 +273,17 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 //===----------------------------------------------------------------------===//
 
 
-let isTerminator=1, hasDelaySlot=1,
-    ImmSigned=1 in {
+let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
 
   // local branches
 
   // unconditional
-  let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
+  let isBarrier=1, isCodeGenOnly=1 in
   def BRu : CFLb<0b01, (outs), (ins pred:$p, pcreltarget:$target),
                  "br", "$target", [(br bb:$target)]>;
 
   // conditional
-  let isBranch=1, isBarrier=0 in
+  let isBarrier=0 in
   def BR  : CFLb<0b01, (outs), (ins predset:$p, pcreltarget:$target),
                  "br", "$target", [(brcond predsel:$p, bb:$target)]>;
 
@@ -294,21 +293,21 @@ let isTerminator=1, hasDelaySlot=1,
                  "br", "$rs", [(brind RRegs:$rs)]>;
 
 
-   // branches with cache-fill
+  // branches with cache-fill
 
-   // unconditional
-   let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
-   def BRCFu : CFLb<0b10, (outs), (ins pred:$p, pcreltarget:$target),
-                    "brcf", "$target", []>;
+  // unconditional
+  let isBarrier=1, isCodeGenOnly=1 in
+  def BRCFu : CFLb<0b10, (outs), (ins pred:$p, pcreltarget:$target),
+                   "brcf", "$target", []>;
 
-   // conditional
-   let isBranch=1, isBarrier=0, ImmSigned = 1 in
-   def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
-                    "brcf", "$target", []>;
+  // conditional
+  let isBarrier=0 in
+  def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
+                   "brcf", "$target", []>;
 
-   // indirect
-   let isIndirectBranch=1, isBarrier=1 in
-   def BRCFR : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
+  // indirect
+  let isIndirectBranch=1, isBarrier=1 in
+  def BRCFR : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
                    "brcf", "$rs", []>;
 }
 
@@ -459,11 +458,11 @@ def NOP : ALUi<0b0000, (outs ), (ins pred:$p),
                "nop", "", []>;
 
 
-// neg Rd = -Rs ... rsub Rd = 0 - Rs
-let imm = 0, ImmOpNo = 0 in
-def NEG : ALUi<0b0010, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
-               "neg", "$rd = $rs1",
-               [(set RRegs:$rd, (ineg RRegs:$rs1))]>;
+// neg Rd = -Rs ... sub Rd = R0 - Rs
+let rs1 = 0 in
+def NEG : ALUr<0b0001, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs2),
+               "neg", "$rd = $rs2",
+               [(set RRegs:$rd, (ineg RRegs:$rs2))]>;
 
 
 // not Rd = ~Rs ... nor Rd = ~(Rs | R0)
