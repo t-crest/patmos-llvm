@@ -281,22 +281,22 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
 
 
 // isBarrier is cleared later on default predicate
-let isTerminator=1, hasDelaySlot=1 in {
+let isTerminator=1, isBranch=1, hasDelaySlot=1 in {
 
   // cache-relative direct branches
 
   // unconditional
-  let isBranch=1, isBarrier=1, isCodeGenOnly=1 in
+  let isBarrier=1, isCodeGenOnly=1 in
   def BCu : PFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
                   "bc", "$target", [(br bb:$target)]>;
 
   // conditional
-  let isBranch=1, isBarrier=0 in
+  let isBarrier=0 in
   def BC : PFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
                 "bc", "$target", [(brcond predsel:$p, bb:$target)]>;
 
    // unconditional, cache fill
-  let isBranch=1, isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
+  let isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
   def Bu : PFLb<0b10  , (outs), (ins pred:$p, freltarget:$target),
                   "b", "$target", [(br bb:$target)]>;
 

@@ -63,18 +63,67 @@ public:
                             const TargetRegisterInfo *TRI) const;
 
 
+  /// isPredicated - If the instruction has other than default predicate
+  /// operands (p0), return true.
+  /// Return false if the branch instruction has default predicate operands.
   virtual bool isPredicated(const MachineInstr *MI) const;
+
   virtual bool isUnpredicatedTerminator(const MachineInstr *MI) const;
+
+
+  /// fixOpcodeForGuard - If the MCID opcode is for an unconditional
+  /// instruction (e.g. by the isBarrier flag), but the predicate says
+  /// otherwise (and vice versa), rewrite the instruction accordingly.
+  /// Returns true iff the instruction was rewritten.
+  virtual bool fixOpcodeForGuard(MachineInstr *MI) const;
 
   // Branch handling
 
+  /// AnalyzeBranch - Analyze the branching code at the end of MBB, returning
+  /// true if it cannot be understood (e.g. it's a switch dispatch or isn't
+  /// implemented for a target).  Upon success, this returns false and returns
+  /// with the following information in various cases:
+  ///
+  /// 1. If this block ends with no branches (it just falls through to its succ)
+  ///    just return false, leaving TBB/FBB null.
+  /// 2. If this block ends with only an unconditional branch, it sets TBB to be
+  ///    the destination block.
+  /// 3. If this block ends with a conditional branch and it falls through to a
+  ///    successor block, it sets TBB to be the branch destination block and a
+  ///    list of operands that evaluate the condition. These operands can be
+  ///    passed to other TargetInstrInfo methods to create new branches.
+  /// 4. If this block ends with a conditional branch followed by an
+  ///    unconditional branch, it returns the 'true' destination in TBB, the
+  ///    'false' destination in FBB, and a list of operands that evaluate the
+  ///    condition.  These operands can be passed to other TargetInstrInfo
+  ///    methods to create new branches.
+  ///
+  /// Note that RemoveBranch and InsertBranch must be implemented to support
+  /// cases where this method returns success.
+  ///
+  /// If AllowModify is true, then this routine is allowed to modify the basic
+  /// block (e.g. delete instructions after the unconditional branch).
+  ///
   virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                              MachineBasicBlock *&FBB,
                              SmallVectorImpl<MachineOperand> &Cond,
                              bool AllowModify = false) const;
 
+  /// RemoveBranch - Remove the branching code at the end of the specific MBB.
+  /// This is only invoked in cases where AnalyzeBranch returns success. It
+  /// returns the number of instructions that were removed.
   virtual unsigned RemoveBranch(MachineBasicBlock &MBB) const;
 
+  /// InsertBranch - Insert branch code into the end of the specified
+  /// MachineBasicBlock.  The operands to this method are the same as those
+  /// returned by AnalyzeBranch.  This is only invoked in cases where
+  /// AnalyzeBranch returns success. It returns the number of instructions
+  /// inserted.
+  ///
+  /// It is also invoked by tail merging to add unconditional branches in
+  /// cases where AnalyzeBranch doesn't apply because there was no original
+  /// branch to analyze.  At least this much must be implemented, else tail
+  /// merging needs to be disabled.
   virtual unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                                 MachineBasicBlock *FBB,
                                 const SmallVectorImpl<MachineOperand> &Cond,
@@ -84,6 +133,83 @@ public:
 
 
   MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
+
+  // Predication and IfConversion
+
+  /// PredicateInstruction - Convert the instruction into a predicated
+  /// instruction. It returns true if the operation was successful.
+  virtual
+  bool PredicateInstruction(MachineInstr *MI,
+                            const SmallVectorImpl<MachineOperand> &Pred) const;
+
+  /// isProfitableToIfCvt - Return true if it's profitable to predicate
+  /// instructions with accumulated instruction latency of "NumCycles"
+  /// of the specified basic block, where the probability of the instructions
+  /// being executed is given by Probability, and Confidence is a measure
+  /// of our confidence that it will be properly predicted.
+  virtual
+  bool isProfitableToIfCvt(MachineBasicBlock &MBB, unsigned NumCycles,
+                           unsigned ExtraPredCycles,
+                           const BranchProbability &Probability) const {
+
+    const MCInstrDesc &MCID = prior(MBB.end())->getDesc();
+    if (MCID.isReturn() || MCID.isCall())
+      return false;
+    return NumCycles <= 8;
+  }
+
+  /// isProfitableToIfCvt - Second variant of isProfitableToIfCvt, this one
+  /// checks for the case where two basic blocks from true and false path
+  /// of a if-then-else (diamond) are predicated on mutally exclusive
+  /// predicates, where the probability of the true path being taken is given
+  /// by Probability, and Confidence is a measure of our confidence that it
+  /// will be properly predicted.
+  virtual bool
+  isProfitableToIfCvt(MachineBasicBlock &TMBB,
+                      unsigned NumTCycles, unsigned ExtraTCycles,
+                      MachineBasicBlock &FMBB,
+                      unsigned NumFCycles, unsigned ExtraFCycles,
+                      const BranchProbability &Probability) const {
+    const MCInstrDesc &TMCID = prior(TMBB.end())->getDesc();
+    if (TMCID.isReturn() || TMCID.isCall())
+      return false;
+    const MCInstrDesc &FMCID = prior(FMBB.end())->getDesc();
+    if (FMCID.isReturn() || FMCID.isCall())
+      return false;
+    return (NumTCycles + NumFCycles) <= 16;
+  }
+
+  /// isProfitableToDupForIfCvt - Return true if it's profitable for
+  /// if-converter to duplicate instructions of specified accumulated
+  /// instruction latencies in the specified MBB to enable if-conversion.
+  /// The probability of the instructions being executed is given by
+  /// Probability, and Confidence is a measure of our confidence that it
+  /// will be properly predicted.
+  virtual bool
+  isProfitableToDupForIfCvt(MachineBasicBlock &MBB, unsigned NumCycles,
+                            const BranchProbability &Probability) const {
+    const MCInstrDesc &MCID = prior(MBB.end())->getDesc();
+    if (MCID.isReturn() || MCID.isCall())
+      return false;
+    return NumCycles <= 4;
+  }
+
+  /// isProfitableToUnpredicate - Return true if it's profitable to unpredicate
+  /// one side of a 'diamond', i.e. two sides of if-else predicated on mutually
+  /// exclusive predicates.
+  /// e.g.
+  ///   subeq  r0, r1, #1
+  ///   addne  r0, r1, #1
+  /// =>
+  ///   sub    r0, r1, #1
+  ///   addne  r0, r1, #1
+  ///
+  /// This may be profitable is conditional instructions are always executed.
+  virtual bool isProfitableToUnpredicate(MachineBasicBlock &TMBB,
+                                         MachineBasicBlock &FMBB) const {
+    return true;
+  }
+
 };
 
 static inline
@@ -93,11 +219,6 @@ const MachineInstrBuilder &AddDefaultPred(const MachineInstrBuilder &MIB) {
 }
 
 
-static inline
-bool HasDefaultPred(const MachineInstr *MI) {
-  return (MI->getOperand(0).getReg() == Patmos::NoRegister)
-      && (MI->getOperand(1).getImm() == 0);
-}
 
 
 static inline
