@@ -826,9 +826,9 @@ namespace llvm {
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                DebugLoc(), TII.get(Patmos::BRu))).addMBB(target);
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::NOP))).addImm(0);
+                               DebugLoc(), TII.get(Patmos::NOP)));
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::NOP))).addImm(0);
+                               DebugLoc(), TII.get(Patmos::NOP)));
 
 #ifdef PATMOS_TRACE_FIXUP
         DEBUG(dbgs() << "Fixup: " << fallthrough->getName() << "|"
