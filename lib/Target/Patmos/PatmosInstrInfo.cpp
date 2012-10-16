@@ -144,17 +144,66 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
 }
 
 
+void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
+      MachineBasicBlock::iterator MI) const {
+  DebugLoc DL;
+  AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::NOP)).addImm(0));
+}
+
+
+bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
+  using namespace Patmos;
+  unsigned opc = MI->getOpcode();
+  int newopc = -1;
+
+  if (MI->isBranch()) {
+    if (isPredicated(MI)) {
+      // unconditional branch -> conditional branch
+      switch (opc) {
+        case BCu: newopc = BC; break;
+        case Bu:  newopc = B ; break;
+        default:
+          assert(MI->isConditionalBranch());
+          break;
+      }
+    } else { // NOT predicated
+      // conditional branch -> unconditional branch
+      switch (opc) {
+        case BC: newopc = BCu; break;
+        case B:  newopc = Bu ; break;
+        default:
+          assert(MI->isUnconditionalBranch());
+          break;
+      }
+    }
+  }
+  if (newopc != -1) {
+    // we have sth to rewrite
+    MI->setDesc(get(newopc));
+    return true;
+  }
+  return false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Branch handling
 //
 
+
+MachineBasicBlock *PatmosInstrInfo::
+getBranchTarget(const MachineInstr *MI) const {
+  // can handle only direct branches
+  assert(MI->isBranch() && !MI->isIndirectBranch() &&
+         "Not a direct branch instruction!");
+  return MI->getOperand(2).getMBB();
+}
+
 bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                     MachineBasicBlock *&TBB,
                                     MachineBasicBlock *&FBB,
                                     SmallVectorImpl<MachineOperand> &Cond,
-                                    bool AllowModify) const
-{
+                                    bool AllowModify) const {
   // If the client does not want to only simplify the branch,
   // the output arguments must be initialized.
   assert(AllowModify || (TBB==0 && FBB==0 && Cond.size()==0));
@@ -218,6 +267,23 @@ bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
   return false;
 }
 
+
+unsigned PatmosInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
+  MachineBasicBlock::iterator I = MBB.end();
+  unsigned Count = 0;
+  while (I != MBB.begin()) {
+    --I;
+    if (I->isDebugValue())
+      continue;
+    if (!I->isBranch()) break; // Not a branch
+    // Remove the branch.
+    I->eraseFromParent();
+    I = MBB.end();
+    ++Count;
+  }
+  return Count;
+}
+
 unsigned
 PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                               MachineBasicBlock *FBB,
@@ -248,42 +314,21 @@ PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   return 2;
 }
 
-bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const
-{
-  unsigned opc = MI->getOpcode();
-  int newopc = -1;
-
-  if (MI->isBranch()) {
-    if (isPredicated(MI)) {
-      // unconditional branch -> conditional branch
-      switch (opc) {
-        case Patmos::BCu: newopc = Patmos::BC; break;
-        case Patmos::Bu:  newopc = Patmos::B ; break;
-        default:
-          assert(MI->isConditionalBranch());
-          break;
-      }
-    } else { // NOT predicated
-      // conditional branch -> unconditional branch
-      switch (opc) {
-        case Patmos::BC: newopc = Patmos::BCu; break;
-        case Patmos::B:  newopc = Patmos::Bu ; break;
-        default:
-          assert(MI->isUnconditionalBranch());
-          break;
-      }
-    }
-  }
-  if (newopc != -1) {
-    // we have sth to rewrite
-    MI->setDesc(get(newopc));
-    return true;
-  }
-  return false;
+bool PatmosInstrInfo::
+ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
+  // invert the flag
+  int64_t invflag = Cond[1].getImm();
+  Cond[1].setImm( (invflag)?0:-1 );
+  return false; //success
 }
 
-bool PatmosInstrInfo::isPredicated(const MachineInstr *MI) const
-{
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Predication and If-Conversion
+//
+
+bool PatmosInstrInfo::isPredicated(const MachineInstr *MI) const {
   int i = MI->findFirstPredOperandIdx();
   if (i != -1) {
     unsigned preg = MI->getOperand(i).getReg();
@@ -304,42 +349,6 @@ bool PatmosInstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
   return !isPredicated(MI);
 }
 
-
-
-unsigned PatmosInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
-  MachineBasicBlock::iterator I = MBB.end();
-  unsigned Count = 0;
-  while (I != MBB.begin()) {
-    --I;
-    if (I->isDebugValue())
-      continue;
-    if (!I->isBranch()) break; // Not a branch
-    // Remove the branch.
-    I->eraseFromParent();
-    I = MBB.end();
-    ++Count;
-  }
-  return Count;
-}
-
-bool PatmosInstrInfo::
-ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
-  // invert the flag
-  int64_t invflag = Cond[1].getImm();
-  Cond[1].setImm( (invflag)?0:-1 );
-  return false; //success
-}
-
-
-MachineBasicBlock *PatmosInstrInfo::
-getBranchTarget(const MachineInstr *MI) const {
-  // can handle only direct branches
-  assert(MI->isBranch() && !MI->isIndirectBranch() &&
-         "Not a direct branch instruction!");
-  return MI->getOperand(2).getMBB();
-}
-
-
 bool PatmosInstrInfo::
 PredicateInstruction(MachineInstr *MI,
                      const SmallVectorImpl<MachineOperand> &Pred) const {
@@ -347,6 +356,8 @@ PredicateInstruction(MachineInstr *MI,
          "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
 
   if (MI->isPredicable()) {
+    assert(!isPredicated(MI) &&
+           "Cannot predicate an instruction already predicated.");
     // find first predicate operand
     int i = MI->findFirstPredOperandIdx();
     assert(i != -1);
@@ -359,4 +370,43 @@ PredicateInstruction(MachineInstr *MI,
     return true;
   }
   return false;
+}
+
+
+bool PatmosInstrInfo::
+SubsumesPredicate(const SmallVectorImpl<MachineOperand> &Pred1,
+                  const SmallVectorImpl<MachineOperand> &Pred2) const {
+  assert( Pred1.size()==2 && Pred2.size()==2 );
+
+  // True always subsumes all others
+  unsigned preg1 = Pred1[0].getReg();
+  int      flag1 = Pred1[1].getImm();
+  if ((preg1==Patmos::NoRegister || preg1==Patmos::P0) && !flag1)
+    return true;
+
+  // Equal predicates subsume each other
+  if (preg1==Pred2[0].getReg() && flag1==Pred2[1].getImm())
+    return true;
+
+  // False never subsumes anything (except false)
+
+  // safe side
+  return false;
+}
+
+
+bool PatmosInstrInfo::DefinesPredicate(MachineInstr *MI,
+                                       std::vector<MachineOperand> &Pred)
+                                       const {
+  bool flag = false;
+
+  for (unsigned i = 0; i < MI->getNumOperands(); i++) {
+    const MachineOperand &MO = MI->getOperand(i);
+    if ( MO.isReg() && MO.isDef() &&
+        Patmos::PRegsRegClass.contains(MO.getReg())) {
+      Pred.push_back(MO);
+      flag = true;
+    }
+  }
+  return flag;
 }

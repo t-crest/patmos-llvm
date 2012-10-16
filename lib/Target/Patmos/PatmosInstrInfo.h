@@ -62,14 +62,10 @@ public:
                             const TargetRegisterClass *RC,
                             const TargetRegisterInfo *TRI) const;
 
-
-  /// isPredicated - If the instruction has other than default predicate
-  /// operands (p0), return true.
-  /// Return false if the branch instruction has default predicate operands.
-  virtual bool isPredicated(const MachineInstr *MI) const;
-
-  virtual bool isUnpredicatedTerminator(const MachineInstr *MI) const;
-
+  /// insertNoop - Insert a noop into the instruction stream at the specified
+  /// point.
+  virtual void insertNoop(MachineBasicBlock &MBB,
+      MachineBasicBlock::iterator MI) const;
 
   /// fixOpcodeForGuard - If the MCID opcode is for an unconditional
   /// instruction (e.g. by the isBarrier flag), but the predicate says
@@ -77,33 +73,21 @@ public:
   /// Returns true iff the instruction was rewritten.
   virtual bool fixOpcodeForGuard(MachineInstr *MI) const;
 
+
+
+
+  /////////////////////////////////////////////////////////////////////////////
   // Branch handling
+  /////////////////////////////////////////////////////////////////////////////
+
+
+  /// getBranchTarget - Get the target machine basic block for direct branches
+  MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
 
   /// AnalyzeBranch - Analyze the branching code at the end of MBB, returning
   /// true if it cannot be understood (e.g. it's a switch dispatch or isn't
-  /// implemented for a target).  Upon success, this returns false and returns
-  /// with the following information in various cases:
-  ///
-  /// 1. If this block ends with no branches (it just falls through to its succ)
-  ///    just return false, leaving TBB/FBB null.
-  /// 2. If this block ends with only an unconditional branch, it sets TBB to be
-  ///    the destination block.
-  /// 3. If this block ends with a conditional branch and it falls through to a
-  ///    successor block, it sets TBB to be the branch destination block and a
-  ///    list of operands that evaluate the condition. These operands can be
-  ///    passed to other TargetInstrInfo methods to create new branches.
-  /// 4. If this block ends with a conditional branch followed by an
-  ///    unconditional branch, it returns the 'true' destination in TBB, the
-  ///    'false' destination in FBB, and a list of operands that evaluate the
-  ///    condition.  These operands can be passed to other TargetInstrInfo
-  ///    methods to create new branches.
-  ///
-  /// Note that RemoveBranch and InsertBranch must be implemented to support
-  /// cases where this method returns success.
-  ///
-  /// If AllowModify is true, then this routine is allowed to modify the basic
-  /// block (e.g. delete instructions after the unconditional branch).
-  ///
+  /// implemented for a target).
+  /// \see TargetInstrInfo::AnalyzeBranch
   virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                              MachineBasicBlock *&FBB,
                              SmallVectorImpl<MachineOperand> &Cond,
@@ -119,28 +103,60 @@ public:
   /// returned by AnalyzeBranch.  This is only invoked in cases where
   /// AnalyzeBranch returns success. It returns the number of instructions
   /// inserted.
-  ///
-  /// It is also invoked by tail merging to add unconditional branches in
-  /// cases where AnalyzeBranch doesn't apply because there was no original
-  /// branch to analyze.  At least this much must be implemented, else tail
-  /// merging needs to be disabled.
+  /// \see TargetInstrInfo::InsertBranch
   virtual unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
                                 MachineBasicBlock *FBB,
                                 const SmallVectorImpl<MachineOperand> &Cond,
                                 DebugLoc DL) const;
 
-  virtual bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const;
+  /// ReverseBranchCondition - Reverses the branch condition of the specified
+  /// condition list, returning false on success and true if it cannot be
+  /// reversed.
+  virtual bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond)
+                                      const;
 
 
-  MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
 
+
+  /////////////////////////////////////////////////////////////////////////////
   // Predication and IfConversion
+  /////////////////////////////////////////////////////////////////////////////
+
+  /// isPredicated - If the instruction has other than default predicate
+  /// operands (p0), return true.
+  /// Return false if the branch instruction has default predicate operands.
+  virtual bool isPredicated(const MachineInstr *MI) const;
+
+  /// isUnpredicatedTerminator - Returns true if the instruction is a
+  /// terminator instruction that has not been predicated.
+  /// IMPORTANT: returns also true for conditional branches,
+  ///            they are an exception
+  virtual bool isUnpredicatedTerminator(const MachineInstr *MI) const;
+
+
 
   /// PredicateInstruction - Convert the instruction into a predicated
   /// instruction. It returns true if the operation was successful.
   virtual
   bool PredicateInstruction(MachineInstr *MI,
                             const SmallVectorImpl<MachineOperand> &Pred) const;
+
+  /// SubsumesPredicate - Returns true if the first specified predicate
+  /// subsumes the second.
+  /// For Patmos, the default predicate subsumes all others.
+  /// For all other cases, predicate equality is checked.
+  virtual
+  bool SubsumesPredicate(const SmallVectorImpl<MachineOperand> &Pred1,
+                         const SmallVectorImpl<MachineOperand> &Pred2) const;
+
+  /// DefinesPredicate - If the specified instruction defines any predicate
+  /// register, it returns true as well as the defined predicate register.
+  /// NOTE: currently this is the only place where only one operand is put
+  ///       into the Pred vector.
+  virtual bool DefinesPredicate(MachineInstr *MI,
+                                std::vector<MachineOperand> &Pred) const;
+
+
 
   /// isProfitableToIfCvt - Return true if it's profitable to predicate
   /// instructions with accumulated instruction latency of "NumCycles"
@@ -194,31 +210,13 @@ public:
     return NumCycles <= 4;
   }
 
-  /// isProfitableToUnpredicate - Return true if it's profitable to unpredicate
-  /// one side of a 'diamond', i.e. two sides of if-else predicated on mutually
-  /// exclusive predicates.
-  /// e.g.
-  ///   subeq  r0, r1, #1
-  ///   addne  r0, r1, #1
-  /// =>
-  ///   sub    r0, r1, #1
-  ///   addne  r0, r1, #1
-  ///
-  /// This may be profitable is conditional instructions are always executed.
-  virtual bool isProfitableToUnpredicate(MachineBasicBlock &TMBB,
-                                         MachineBasicBlock &FMBB) const {
-    return true;
-  }
-
-};
+}; // PatmosInstrInfo
 
 static inline
 const MachineInstrBuilder &AddDefaultPred(const MachineInstrBuilder &MIB) {
   // predicate: always true
   return MIB.addReg(Patmos::NoRegister).addImm(0);
 }
-
-
 
 
 static inline
