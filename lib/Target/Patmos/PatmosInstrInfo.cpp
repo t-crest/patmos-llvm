@@ -147,7 +147,8 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
 void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
       MachineBasicBlock::iterator MI) const {
   DebugLoc DL;
-  AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::NOP)).addImm(0));
+  BuildMI(MBB, MI, DL, get(Patmos::NOP))
+    .addReg(Patmos::NoRegister).addImm(1);
 }
 
 void PatmosInstrInfo::
