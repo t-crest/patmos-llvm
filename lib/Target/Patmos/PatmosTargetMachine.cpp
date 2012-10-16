@@ -63,7 +63,7 @@ namespace {
     /// print after these passes.
     virtual bool addPreSched2() {
       if (getOptLevel() != CodeGenOpt::None) {
-        //addPass(IfConverterID);
+        addPass(IfConverterID);
       }
       return true;
     }
