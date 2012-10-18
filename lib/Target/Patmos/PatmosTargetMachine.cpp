@@ -85,7 +85,7 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
     // compiler-rt/lib/patmos/*.ll
     // Note: Both ABI and Preferred Alignment must be 32bit for all supported
     // types, backend does not support different stack alignment.
-    DataLayout("E-S32-p:32:32:32-i8:8:8-i16:16:16-i32:32:32-i64:32:32-f64:32:32-s0:32:32-v64:32:32-v128:32:32-n32"),
+    DataLayout("E-S32-p:32:32:32-i8:8:8-i16:16:16-i32:32:32-i64:32:32-f64:32:32-a0:0:32-s0:32:32-v64:32:32-v128:32:32-n32"),
 
     InstrInfo(*this), TLInfo(*this), TSInfo(*this),
     FrameLowering(*this),
