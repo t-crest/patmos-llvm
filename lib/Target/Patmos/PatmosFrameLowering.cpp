@@ -214,7 +214,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   //----------------------------------------------------------------------------
   // Handle the stack cache -- if enabled.
 
-  assert(MFI->getMaxAlignment() == 4 &&
+  assert(MFI->getMaxAlignment() <= 4 &&
               "Stack alignment other than 4 byte is not supported");
 
   // assign some FIs to the stack cache if possible
