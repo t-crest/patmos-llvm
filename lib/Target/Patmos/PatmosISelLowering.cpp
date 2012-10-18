@@ -90,6 +90,12 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::SIGN_EXTEND, MVT::i1, Promote);
   setOperationAction(ISD::ZERO_EXTEND, MVT::i1, Promote);
   setOperationAction(ISD::ANY_EXTEND,  MVT::i1, Promote);
+  setOperationAction(ISD::ADD,         MVT::i1, Promote);
+  setOperationAction(ISD::ADDC,        MVT::i1, Promote);
+  setOperationAction(ISD::ADDE,        MVT::i1, Promote);
+  setOperationAction(ISD::SUB,         MVT::i1, Promote);
+  setOperationAction(ISD::SUBC,        MVT::i1, Promote);
+  setOperationAction(ISD::SUBE,        MVT::i1, Promote);
 
   // Expand to S/UMUL_LOHI
   setOperationAction(ISD::MUL,   MVT::i32, Expand);
