@@ -63,10 +63,9 @@ def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
 def : Pat<(PatmosCall tglobaladdr:$sym), (BS tglobaladdr:$sym)>;
 def : Pat<(PatmosCall texternalsym:$sym), (BS texternalsym:$sym)>;
 
-// NOTE: following works when not expanding MUL to S/UMUL_LOHI
 // multiplication (requiring only low part)
-//def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
-//          (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
+def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
+          (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
 
 
 // Compare patterns
