@@ -452,9 +452,9 @@ let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
   }
 }
 
-// nop = (!p0) add r0 = r0 + 0
+// nop = sub r0 = r0 - 0
 let rd=0, rs1 = 0, imm=0, ImmOpNo = 0 in
-def NOP : ALUi<0b0000, (outs ), (ins pred:$p),
+def NOP : ALUi<0b0001, (outs ), (ins pred:$p),
                "nop", "", []>;
 
 
@@ -642,10 +642,6 @@ def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
                 "clr", "$pd",
                 [(set PRegs:$pd, (i1 0))]>;
 
-
-// multi-cycle NOP
-let neverHasSideEffects = 1 in
-def MCNOP  : SPCn <(outs), (ins pred:$p, i32imm:$imm), "nop", "$imm", []>;
 
 // Wait
 def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;

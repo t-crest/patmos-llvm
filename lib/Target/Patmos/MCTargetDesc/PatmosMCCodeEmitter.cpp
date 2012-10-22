@@ -106,8 +106,10 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   uint64_t Binary = getBinaryCodeForInstr(MI, Fixups);
 
   // Check for unimplemented opcodes.
-  if (!Binary)
-    llvm_unreachable("unimplemented opcode in EncodeInstruction()");
+  if (!Binary) {
+    MI.dump();
+    llvm_unreachable("Unimplemented opcode in EncodeInstruction(). Maybe you tried to emit '(p0) add r0=r0,0' ?");
+  }
 
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
   uint64_t TSFlags = Desc.TSFlags;

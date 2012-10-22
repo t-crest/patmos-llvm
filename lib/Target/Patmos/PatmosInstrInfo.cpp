@@ -148,22 +148,16 @@ void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
       MachineBasicBlock::iterator MI) const {
   DebugLoc DL;
   BuildMI(MBB, MI, DL, get(Patmos::NOP))
-    .addReg(Patmos::NoRegister).addImm(1);
+    .addReg(Patmos::NoRegister).addImm(0);
 }
 
 void PatmosInstrInfo::
 InsertNOP(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
-          DebugLoc DL, unsigned NumCycles, bool ForceSCNOP) const {
+          DebugLoc DL, unsigned NumCycles) const {
   MachineBasicBlock::iterator J = next(I);
-  if (ForceSCNOP || NumCycles<=1) {
-    for(unsigned i=0; i<NumCycles; i++) {
-      BuildMI(MBB, J, DL, get(Patmos::NOP))
-        .addReg(Patmos::NoRegister).addImm(1);
-    }
-  } else {
-    assert(isUInt<4>(NumCycles) && "Multicycle-NOP chains not implemented");
-    AddDefaultPred(BuildMI(MBB, J, DL, get(Patmos::MCNOP)))
-      .addImm(NumCycles);
+  for(unsigned i=0; i<NumCycles; i++) {
+    BuildMI(MBB, J, DL, get(Patmos::NOP))
+      .addReg(Patmos::NoRegister).addImm(0);
   }
 }
 

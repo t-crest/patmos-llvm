@@ -110,7 +110,7 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     unsigned opc = I->getOpcode();
     // FIXME: This should eventually be handled in the scheduler.
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
-      TII->InsertNOP(MBB, I, I->getDebugLoc(), 3, true); // force SC NOPs
+      TII->InsertNOP(MBB, I, I->getDebugLoc(), 3);
     } else if (I->mayLoad()) {
       TII->InsertNOP(MBB, I, I->getDebugLoc());
     } else // END_FIXME
@@ -122,7 +122,7 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
         D = findDelayInstr(MBB, I);
 
       if (D == MBB.end()) {
-        TII->InsertNOP(MBB, J, I->getDebugLoc(), 2, true); // force SC NOPs
+        TII->InsertNOP(MBB, J, I->getDebugLoc(), 2);
       } else {
         MBB.splice(++J, &MBB, D);
       }

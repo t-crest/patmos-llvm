@@ -216,8 +216,8 @@ public:
     // Target)
 
     for (uint64_t i = 0; i < Count; i += 4)
-        // "(!p0) add r0 = r0, r0"
-        OW->Write32(0x40000000);
+        // "(p0) sub r0 = r0, 0"
+        OW->Write32(0x00400000);
 
     return true;
   }

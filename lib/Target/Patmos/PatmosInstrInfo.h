@@ -69,7 +69,7 @@ public:
 
   /// InsertNOP - Insert one or more NOPs
   void InsertNOP(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
-                 DebugLoc DL, unsigned NumCycles = 1, bool ForceSCNOP = false)
+                 DebugLoc DL, unsigned NumCycles = 1)
                  const;
 
   /// fixOpcodeForGuard - If the MCID opcode is for an unconditional
