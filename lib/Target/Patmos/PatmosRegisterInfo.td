@@ -90,7 +90,7 @@ def P7  : PatmosPRED<7, "p7">;
 
 //def PRF : PatmosPRF<"pred", [P0, P1, P2, P3, P4, P5, P6, P7]>;
 //def SZ  : PatmosSPRWithSubRegs< 0,  "sz", [PRF]>;
-def SZ  : PatmosSPR< 0,  "sz">; // zero
+def SZ  : PatmosSPR< 0,  "s0">; // zero
 def SM  : PatmosSPR< 1,  "sm">;
 def SL  : PatmosSPR< 2,  "sl">;
 def SH  : PatmosSPR< 3,  "sh">;

@@ -27,6 +27,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/ADT/OwningPtr.h"
@@ -482,7 +483,19 @@ ParseRegister(unsigned &RegNo, bool Required) {
     return Required;
   }
   if (Lexer.getKind() == AsmToken::Identifier) {
-    RegNo = MatchRegisterName(Lexer.getTok().getIdentifier());
+    StringRef RegName = Lexer.getTok().getIdentifier();
+    RegNo = MatchRegisterName(RegName);
+
+    // Handle alternative register names
+    if (!RegNo) {
+      RegNo = StringSwitch<unsigned>(RegName)
+        .Case("s1", Patmos::SM)
+        .Case("s2", Patmos::SL)
+        .Case("s3", Patmos::SH)
+        .Case("s6", Patmos::ST)
+        .Default(0);
+    }
+
     // If name does not match after $ prefix, this is always an error
     return (RegNo == 0) && Error(Lexer.getLoc(), "register name not valid");
   }
