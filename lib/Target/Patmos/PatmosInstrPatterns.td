@@ -21,6 +21,9 @@ def : Pat<(i32 uimm12:$imm),  (LIi uimm12:$imm)>;
 def : Pat<(i32 nuimm12:$imm), (LIin nuimm12:$imm)>;
 def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 
+
+
+
 // for zext-ing an i1 to i32: conditionally load 1 into an RReg
 def : Pat<(zext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
 def : Pat<(sext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
@@ -28,18 +31,36 @@ def : Pat<(anyext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
 
 def : Pat<(sext_inreg RRegs:$r, i1), (SRAi (SLi RRegs:$r, (i32 31)), (i32 31))>;
 
+
+// i1 promotion workarounds
+def : Pat<(add predsel:$p1, predsel:$p2), (PXOR predsel:$p1, predsel:$p2)>;
+def : Pat<(sub predsel:$p1, predsel:$p2), (PXOR predsel:$p1, predsel:$p2)>;
+
+
+
 //def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;
 
 def : Pat<(select predsel:$p, RRegs:$new, uimm12:$imm), (CMOV predsel:$p, (LIi uimm12:$imm), RRegs:$new)>;
 def : Pat<(select predsel:$p, RRegs:$new, nuimm12:$imm), (CMOV predsel:$p, (LIin nuimm12:$imm), RRegs:$new)>;
 def : Pat<(select predsel:$p, RRegs:$new, (i32 imm:$imm)), (CMOV predsel:$p, (LIl (i32 imm:$imm)), RRegs:$new)>;
 
-// Arithmetic optimizations
+
+
+// Arithmetic optimizations //////////////////////////////////////////////////
+
 def : Pat<(add RRegs:$rs, nuimm12:$imm), (SUBi RRegs:$rs, nuimm12:$imm)>;
 
+// p={0|1} * sth = (p) LI/MOV sth
+def : Pat<(mul (zext (i1 predsel:$p)), uimm12:$imm),
+          (CLIi predsel:$p, uimm12:$imm)>;
+def : Pat<(mul (zext (i1 predsel:$p)), (i32 imm:$imm)),
+          (CLIl predsel:$p, (i32 imm:$imm))>;
+def : Pat<(mul (zext (i1 predsel:$p)), RRegs:$rs),
+          (CMOV predsel:$p, (CLR), RRegs:$rs)>;
 
 
-// // jump-table.
+
+// jump-table.
 def : Pat<(i32 tjumptable:$dst), (LIl tjumptable:$dst)>;
 def : Pat<(i32 jtpat:$dst), (LIl jtpat:$dst)>;
 

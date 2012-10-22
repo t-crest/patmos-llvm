@@ -86,16 +86,12 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   setOperationAction(ISD::STORE, MVT::i1, Custom);
 
-  //TODO there are a bunch of operations which are not legal for i1 -> promote all
   setOperationAction(ISD::SIGN_EXTEND, MVT::i1, Promote);
   setOperationAction(ISD::ZERO_EXTEND, MVT::i1, Promote);
   setOperationAction(ISD::ANY_EXTEND,  MVT::i1, Promote);
-  setOperationAction(ISD::ADD,         MVT::i1, Promote);
-  setOperationAction(ISD::ADDC,        MVT::i1, Promote);
-  setOperationAction(ISD::ADDE,        MVT::i1, Promote);
-  setOperationAction(ISD::SUB,         MVT::i1, Promote);
-  setOperationAction(ISD::SUBC,        MVT::i1, Promote);
-  setOperationAction(ISD::SUBE,        MVT::i1, Promote);
+  // NB: Several operations simply do not get promoted, e.g.,
+  //     arithmetic operations like add, sub, ...
+  //     We try to solve them by isel patterns, e.g. add i1 -> xor i1
 
   // Expand to S/UMUL_LOHI
   setOperationAction(ISD::MULHS, MVT::i32, Expand);
