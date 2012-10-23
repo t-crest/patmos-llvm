@@ -142,10 +142,9 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
   unsigned stackCacheSize = ((SCOffset + STC.getStackCacheBlockSize() - 1) /
                    STC.getStackCacheBlockSize()) * STC.getStackCacheBlockSize();
 
-  // align shadow stack and account for call arguments
-  unsigned stackSize = (((SSOffset + getStackAlignment() - 1) /
-                        getStackAlignment()) * getStackAlignment()) +
-                        maxFrameSize;
+  // align shadow stack. call arguments are already included in SSOffset
+  unsigned stackSize = ((SSOffset + getStackAlignment() - 1) /
+                        getStackAlignment()) * getStackAlignment();
 
   // update offset of fixed objects
   for(unsigned FI = MFI.getObjectIndexBegin(), FIe = 0; FI != FIe; FI++) {
