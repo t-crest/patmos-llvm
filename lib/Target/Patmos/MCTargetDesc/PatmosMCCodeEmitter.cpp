@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 //
 #define DEBUG_TYPE "mccodeemitter"
+#include "PatmosInstrInfo.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
 #include "MCTargetDesc/PatmosFixupKinds.h"
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
@@ -239,10 +240,8 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
     break;
   case PatmosII::FrmCFLb:
     // call immediate is absolute, other CFL immediate instructions are PC-rel
-    switch (MI.getOpcode()) {
-      case Patmos::CALL: FixupKind = FK_Patmos_abs_CFLb; break;
-      default:           FixupKind = FK_Patmos_PCrel; break;
-    }
+    FixupKind = HasPCRELImmediate(MI.getOpcode(), MID) ? FK_Patmos_PCrel :
+                                                         FK_Patmos_abs_CFLb;
     break;
   case PatmosII::FrmSTC:
     FixupKind = FK_Patmos_stc;
