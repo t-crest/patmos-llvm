@@ -31,8 +31,9 @@ typedef StringMap<const MCSectionCOFF*> COFFUniqueMapTy;
 
 
 MCContext::MCContext(const MCAsmInfo &mai, const MCRegisterInfo &mri,
+                     const MCInstrInfo &mii,
                      const MCObjectFileInfo *mofi, const SourceMgr *mgr) :
-  SrcMgr(mgr), MAI(mai), MRI(mri), MOFI(mofi),
+  SrcMgr(mgr), MAI(mai), MRI(mri), MII(mii), MOFI(mofi),
   Allocator(), Symbols(Allocator), UsedNames(Allocator),
   NextUniqueID(0),
   CurrentDwarfLoc(0,0,0,DWARF2_FLAG_IS_STMT,0,0),

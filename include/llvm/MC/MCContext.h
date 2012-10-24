@@ -21,6 +21,7 @@
 
 namespace llvm {
   class MCAsmInfo;
+  class MCInstrInfo;
   class MCExpr;
   class MCSection;
   class MCSymbol;
@@ -53,6 +54,9 @@ namespace llvm {
 
     /// The MCRegisterInfo for this target.
     const MCRegisterInfo &MRI;
+
+    /// The MCInstrInfo for this target.
+    const MCInstrInfo &MII;
 
     /// The MCObjectFileInfo for this target.
     const MCObjectFileInfo *MOFI;
@@ -141,12 +145,15 @@ namespace llvm {
 
   public:
     explicit MCContext(const MCAsmInfo &MAI, const MCRegisterInfo &MRI,
+                       const MCInstrInfo &MII,
                        const MCObjectFileInfo *MOFI, const SourceMgr *Mgr = 0);
     ~MCContext();
 
     const SourceMgr *getSourceManager() const { return SrcMgr; }
 
     const MCAsmInfo &getAsmInfo() const { return MAI; }
+
+    const MCInstrInfo &getInstrInfo() const { return MII; }
 
     const MCRegisterInfo &getRegisterInfo() const { return MRI; }
 
