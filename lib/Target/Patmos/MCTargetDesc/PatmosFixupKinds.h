@@ -42,6 +42,15 @@ namespace Patmos {
     /// (same as FK_Data_4, but with 4 byte offset)
     FK_Patmos_abs_ALUl,
 
+    /// ALU 12 bit immediate FREL byte address fixup, signed, resulting in R_PATMOS_ALUI_FREL.
+    FK_Patmos_frel_ALUi,
+
+    /// 32bit ALU immediate FREL byte address, signed, resulting in R_PATMOS_ALUL_FREL
+    FK_Patmos_frel_ALUl,
+
+    /// 32bit FREL byte address, signed, no offset, resulting in R_PATMOS_FREL_32
+    FK_Patmos_frel_32,
+
     /// Stack control fixup, 22bit immediate unsigned absolute word size, emitted as immediate
     FK_Patmos_stc,
 
@@ -55,6 +64,12 @@ namespace Patmos {
 
   static inline bool isPCRELFixupKind(unsigned FixupKind) {
     return FixupKind == FK_Patmos_PCrel;
+  }
+
+  static inline bool isFRELFixupKind(unsigned FixupKind) {
+    return FixupKind == FK_Patmos_frel_ALUi ||
+           FixupKind == FK_Patmos_frel_ALUl ||
+           FixupKind == FK_Patmos_frel_32;
   }
 
 } // namespace Patmos

@@ -214,6 +214,7 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
   const MCInstrDesc &MID = MCII.get(MI.getOpcode());
 
   MCSymbolRefExpr::VariantKind Kind = Expr->getKind();
+  bool isFREL = Kind == MCSymbolRefExpr::VK_Patmos_FREL;
   uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
 
   Patmos::Fixups FixupKind;
@@ -236,9 +237,12 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
     break;
   }
   case PatmosII::FrmALUi:
-    FixupKind = FK_Patmos_abs_ALUi;
+    FixupKind = isFREL ? FK_Patmos_frel_ALUi : FK_Patmos_abs_ALUi;
     break;
   case PatmosII::FrmCFLb:
+    // CFLb immediates are never FREL, only abs or PCrel
+    assert(!isFREL && "Error: CFLb operand marked as function relative!");
+
     // call immediate is absolute, other CFL immediate instructions are PC-rel
     FixupKind = HasPCRELImmediate(MI.getOpcode(), MID) ? FK_Patmos_PCrel :
                                                          FK_Patmos_abs_CFLb;
@@ -247,7 +251,7 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
     FixupKind = FK_Patmos_stc;
     break;
   case PatmosII::FrmALUl:
-    FixupKind = FK_Patmos_abs_ALUl;
+    FixupKind = isFREL ? FK_Patmos_frel_ALUl : FK_Patmos_abs_ALUl;
     break;
   default:
     // TODO proper way to throw an error?

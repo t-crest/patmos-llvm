@@ -220,6 +220,7 @@ StringRef MCSymbolRefExpr::getVariantKindName(VariantKind Kind) {
   case VK_Mips_GOT_DISP: return "GOT_DISP";
   case VK_Mips_GOT_PAGE: return "GOT_PAGE";
   case VK_Mips_GOT_OFST: return "GOT_OFST";
+  case VK_Patmos_FREL:   return "FREL";
   }
   llvm_unreachable("Invalid variant kind");
 }
@@ -255,6 +256,8 @@ MCSymbolRefExpr::getVariantKindForName(StringRef Name) {
     .Case("dtpoff", VK_DTPOFF)
     .Case("TLVP", VK_TLVP)
     .Case("tlvp", VK_TLVP)
+    .Case("FREL", VK_Patmos_FREL)
+    .Case("frel", VK_Patmos_FREL)
     .Default(VK_Invalid);
 }
 

@@ -80,7 +80,15 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
 
   switch (Kind) {
   case FK_Data_4:
+  {
+    // Handle jump table entries and other BB references in data sections
+    const MCSymbolRefExpr *SymRef = Target.getSymA();
+    if (SymRef && SymRef->getKind() == MCSymbolRefExpr::VK_Patmos_FREL) {
+      return ELF::R_PATMOS_FREL_32;
+    }
+
     return ELF::R_PATMOS_ABS_32;
+  }
   case FK_Patmos_BO_7:
     return ELF::R_PATMOS_MEMB_ABS;
   case FK_Patmos_HO_7:
@@ -93,6 +101,12 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
     return ELF::R_PATMOS_CFLB_ABS;
   case FK_Patmos_abs_ALUl:
     return ELF::R_PATMOS_ALUL_ABS;
+  case FK_Patmos_frel_ALUi:
+    return ELF::R_PATMOS_ALUI_FREL;
+  case FK_Patmos_frel_ALUl:
+    return ELF::R_PATMOS_ALUL_FREL;
+  case FK_Patmos_frel_32:
+    return ELF::R_PATMOS_FREL_32;
   case FK_Patmos_stc:
     // TODO do not emit STC format relocations?
     return ELF::R_PATMOS_CFLB_ABS;
