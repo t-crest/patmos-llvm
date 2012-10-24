@@ -157,7 +157,7 @@ void PatmosAsmPrinter::EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd) {
 
 void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                                      unsigned Alignment) {
-  // emit .frelstart SymStart, SymEnd-SymStart
+  // emit .fstart SymStart, SymEnd-SymStart
   const MCExpr *SizeExpr =
     MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
                             MCSymbolRefExpr::Create(SymStart, OutContext),

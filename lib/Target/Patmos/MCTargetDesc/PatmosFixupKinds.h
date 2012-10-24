@@ -33,27 +33,20 @@ namespace Patmos {
     FK_Patmos_WO_7,
 
     /// ALU 12 bit immediate data/absolute byte address fixup, unsigned, resulting in R_PATMOS_ALUI_ABS.
-    FK_Patmos_12,
+    FK_Patmos_abs_ALUi,
 
     /// Call direct fixup, 22bit immediate unsigned absolute word address, resulting in R_PATMOS_CFLB_ABS
-    FK_Patmos_22,
-
-    /// Stack control fixup, 22bit immediate unsigned absolute word size, emitted as immediate
-    FK_Patmos_stc_22,
+    FK_Patmos_abs_CFLb,
 
     /// 32bit ALU immediate data/absolute byte address, resulting in R_PATMOS_ALUL_ABS
     /// (same as FK_Data_4, but with 4 byte offset)
-    FK_Patmos_32,
+    FK_Patmos_abs_ALUl,
 
-    /// Function relative byte addresses, 12 bit, resulting in R_PATMOS_ALUI_PCREL
-    FK_Patmos_pcrel_12,
+    /// Stack control fixup, 22bit immediate unsigned absolute word size, emitted as immediate
+    FK_Patmos_stc,
 
-    /// Function relative word addresses, 22 bit, resulting in R_PATMOS_CFLB_PCREL
-    FK_Patmos_pcrel_22,
-
-    /// Function relative byte addresses, 32 bit, resulting in R_PATMOS_ALUL_PCREL
-    FK_Patmos_pcrel_32,
-
+    /// Function relative word addresses, 22 bit immediate, resulting in R_PATMOS_CFLB_PCREL
+    FK_Patmos_PCrel,
 
     // Marker
     LastTargetFixupKind,
@@ -61,13 +54,7 @@ namespace Patmos {
   };
 
   static inline bool isPCRELFixupKind(unsigned FixupKind) {
-    switch (FixupKind){
-    case FK_Patmos_pcrel_12:
-    case FK_Patmos_pcrel_22:
-    case FK_Patmos_pcrel_32:
-      return true;
-    }
-    return false;
+    return FixupKind == FK_Patmos_PCrel;
   }
 
 } // namespace Patmos

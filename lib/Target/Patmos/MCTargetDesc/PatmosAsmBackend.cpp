@@ -37,13 +37,14 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
 
   // Add/subtract and shift
   switch (Kind) {
-  // TODO check: do we need to shift the load/store offsets here or is this done earlier in the compiler?
+  // TODO check: do we need to shift the load/store offsets here or is this done
+  // earlier in the compiler?
   case FK_Patmos_HO_7:
     Value >>= 1;
     break;
   case FK_Patmos_WO_7:
-  case FK_Patmos_22:
-  case FK_Patmos_pcrel_22:
+  case FK_Patmos_abs_CFLb:
+  case FK_Patmos_PCrel:
     Value >>= 2;
     break;
   }
@@ -72,7 +73,7 @@ public:
   {
     // TODO check if we can resolve the fixup, and if so, do so
 
-    unsigned Kind = (unsigned)Fixup.getKind();
+    MCFixupKind Kind = Fixup.getKind();
 
     // For PCRELs, we need to adjust the offset value to the current instruction
     if (isPCRELFixupKind(Kind)) {
@@ -143,13 +144,11 @@ public:
       { "FK_Patmos_BO_7" ,       25,      7,   0 }, // 0 bit shifted, signed (byte aligned)
       { "FK_Patmos_SO_7" ,       25,      7,   0 }, // 1 bit shifted, signed (half-word aligned)
       { "FK_Patmos_WO_7" ,       25,      7,   0 }, // 2 bit shifted, signed (word aligned)
-      { "FK_Patmos_12",          20,     12,   0 }, // ALU immediate, unsigned
-      { "FK_Patmos_22",          10,     22,   0 }, // 2 bit shifted, unsigned, for call
-      { "FK_Patmos_stc_22",      10,     22,   0 }, // 2 bit shifted, unsigned, for stack control
-      { "FK_Patmos_32",          32,     32,   0 }, // ALU immediate, unsigned
-      { "FK_Patmos_pcrel_12",    20,     12,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, PC relative
-      { "FK_Patmos_pcrel_22",    10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, PC relative
-      { "FK_Patmos_pcrel_32",     0,     32,   MCFixupKindInfo::FKF_IsPCRel }, // 0 bit shifted, signed, PC relative
+      { "FK_Patmos_abs_ALUi",    20,     12,   0 }, // ALU immediate, unsigned
+      { "FK_Patmos_abs_CFLb",    10,     22,   0 }, // 2 bit shifted, unsigned, for call
+      { "FK_Patmos_abs_ALUl",    32,     32,   0 }, // ALU immediate, unsigned
+      { "FK_Patmos_stc",         10,     22,   0 }, // 2 bit shifted, unsigned, for stack control
+      { "FK_Patmos_PCrel",       10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, PC relative
     };
 
     if (Kind < FirstTargetFixupKind)

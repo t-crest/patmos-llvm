@@ -32,10 +32,8 @@ namespace PatmosII {
     //===------------------------------------------------------------------===//
     // Patmos Specific MachineOperand flags.
 
-    MO_NO_FLAG,
+    MO_NO_FLAG
 
-    /// MO_PCREL - Represents a cache relative address
-    MO_PCREL
   };
 
   enum {

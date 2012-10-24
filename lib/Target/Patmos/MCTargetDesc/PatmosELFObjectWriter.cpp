@@ -80,35 +80,24 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
 
   switch (Kind) {
   case FK_Data_4:
-  {
-    // Handle jump table entries and other BB references in data sections
-    const MCSymbolRefExpr *SymRef = Target.getSymA();
-    if (SymRef && SymRef->getKind() == MCSymbolRefExpr::VK_Patmos_PCREL) {
-      return ELF::R_PATMOS_PCREL_32;
-    }
-
     return ELF::R_PATMOS_ABS_32;
-  }
   case FK_Patmos_BO_7:
     return ELF::R_PATMOS_MEMB_ABS;
   case FK_Patmos_HO_7:
     return ELF::R_PATMOS_MEMH_ABS;
   case FK_Patmos_WO_7:
     return ELF::R_PATMOS_MEMW_ABS;
-  case FK_Patmos_12:
+  case FK_Patmos_abs_ALUi:
     return ELF::R_PATMOS_ALUI_ABS;
-  case FK_Patmos_22:
-  // TODO do not emit STC format relocations?
-  case FK_Patmos_stc_22:
+  case FK_Patmos_abs_CFLb:
     return ELF::R_PATMOS_CFLB_ABS;
-  case FK_Patmos_32:
+  case FK_Patmos_abs_ALUl:
     return ELF::R_PATMOS_ALUL_ABS;
-  case FK_Patmos_pcrel_12:
-    return ELF::R_PATMOS_ALUI_PCREL;
-  case FK_Patmos_pcrel_22:
+  case FK_Patmos_stc:
+    // TODO do not emit STC format relocations?
+    return ELF::R_PATMOS_CFLB_ABS;
+  case FK_Patmos_PCrel:
     return ELF::R_PATMOS_CFLB_PCREL;
-  case FK_Patmos_pcrel_32:
-    return ELF::R_PATMOS_ALUL_PCREL;
   default:
     llvm_unreachable("invalid fixup kind!");
   }
