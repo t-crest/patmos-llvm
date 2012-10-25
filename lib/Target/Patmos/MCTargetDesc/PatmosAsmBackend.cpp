@@ -148,7 +148,7 @@ public:
       { "FK_Patmos_abs_CFLb",    10,     22,   0 }, // 2 bit shifted, unsigned, for call
       { "FK_Patmos_abs_ALUl",    32,     32,   0 }, // ALU immediate, unsigned
       { "FK_Patmos_frel_ALUi",   20,     12,   0 }, // ALU immediate, signed, FREL
-      { "FK_Patmos_frek_ALUl",   32,     32,   0 }, // ALU immediate, signed, FREL
+      { "FK_Patmos_frel_ALUl",   32,     32,   0 }, // ALU immediate, signed, FREL
       { "FK_Patmos_frel_32",     10,     22,   0 }, // Data immediate, signed, FREL
       { "FK_Patmos_stc",         10,     22,   0 }, // 2 bit shifted, unsigned, for stack control
       { "FK_Patmos_PCrel",       10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, PC relative
