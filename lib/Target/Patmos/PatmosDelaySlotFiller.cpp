@@ -20,16 +20,19 @@
 #include "PatmosInstrInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
+//#include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
 STATISTIC(FilledSlots, "Number of delay slots filled");
+STATISTIC(InsertedLoadNOPs, "Number of NOPs inserted after loads");
 
 static cl::opt<bool> DisableDelaySlotFiller(
   "mpatmos-disable-delay-filler",
@@ -62,6 +65,10 @@ namespace {
         Changed |= runOnMachineBasicBlock(*FI);
       return Changed;
     }
+
+  protected:
+    void insertAfterLoad(MachineBasicBlock &MBB,
+                         MachineBasicBlock::iterator I);
 
   private:
     bool isDelayFiller(MachineBasicBlock &MBB,
@@ -113,9 +120,9 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
       AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
           .addImm(3);
     } else if (I->mayLoad()) {
-      MachineBasicBlock::iterator J = I;
-      AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(0);
+      // if the instruction is a load instruction, and the next instruction
+      // reads a register defined by the load, we insert a NOP.
+      insertAfterLoad(MBB, I);
     } else // END_FIXME
     if (I->hasDelaySlot()) {
       MachineBasicBlock::iterator D = MBB.end();
@@ -141,6 +148,47 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
   return Changed;
 }
 
+
+
+
+
+void PatmosDelaySlotFiller::insertAfterLoad(MachineBasicBlock &MBB,
+                                            MachineBasicBlock::iterator I) {
+  MachineBasicBlock::iterator J = I;
+  ++J; // next instruction
+
+
+  if ( J == MBB.end() ) {
+    // after a load instruction there only can be a fallthrough
+    assert(MBB.succ_size() == 1);
+
+    //if (MBB.succ_empty()) // no successor, nothing we need to do
+    //  return;
+
+    MachineBasicBlock *SuccMBB = *MBB.succ_begin();
+    J = SuccMBB->begin();
+  }
+
+  bool insert = false;
+  for (MachineInstr::mop_iterator MO = J->operands_begin();
+      MO != J->operands_end(); ++MO) {
+    if (MO->isReg() && MO->readsReg() &&
+        I->definesRegister(MO->getReg())) {
+      insert = true;
+      break; // stop iterating over operands
+    }
+  }
+
+  if (insert) {
+    // Parent basic block of J could be the successor of MBB
+    AddDefaultPred(BuildMI(*J->getParent(), J, I->getDebugLoc(),
+          TII->get(Patmos::NOP))).addImm(0);
+    // stats and debug output
+    ++InsertedLoadNOPs;
+    DEBUG( dbgs() << "NOP inserted after load: " << *I );
+    DEBUG( dbgs() << "                 before: " << *J );
+  }
+}
 
 
 MachineBasicBlock::iterator
