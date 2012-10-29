@@ -23,52 +23,53 @@ namespace Patmos {
   // in PatmosAsmBackend.cpp.
   //
   enum Fixups {
-    /// Memory offset, 7 bit signed immediate byte offset, resulting in R_PATMOS_MEM_ABS
+    /// Memory offset, 7 bit signed immediate byte offset, resulting in R_PATMOS_MEMB_ABS
     FK_Patmos_BO_7 = FirstTargetFixupKind,
 
-    /// Memory offset, 7 bit signed immediate half-word offset, resulting in R_PATMOS_MEM_ABS
+    /// Memory offset, 7 bit signed immediate half-word offset, resulting in R_PATMOS_MEMH_ABS
     FK_Patmos_HO_7,
 
-    /// Memory offset, 7 bit signed immediate word offset, resulting in R_PATMOS_MEM_ABS
+    /// Memory offset, 7 bit signed immediate word offset, resulting in R_PATMOS_MEMW_ABS
     FK_Patmos_WO_7,
 
     /// ALU 12 bit immediate data/absolute byte address fixup, unsigned, resulting in R_PATMOS_ALUI_ABS.
-    FK_Patmos_12,
+    FK_Patmos_abs_ALUi,
 
-    /// Call direct fixup, 22bit immediate unsigned absolute word address, resulting in R_PATMOS_PFLB_ABS
-    FK_Patmos_22,
-
-    /// Stack control fixup, 22bit immediate unsigned absolute word size, emitted as immediate
-    FK_Patmos_stc_22,
+    /// Call direct fixup, 22bit immediate unsigned absolute word address, resulting in R_PATMOS_CFLB_ABS
+    FK_Patmos_abs_CFLb,
 
     /// 32bit ALU immediate data/absolute byte address, resulting in R_PATMOS_ALUL_ABS
     /// (same as FK_Data_4, but with 4 byte offset)
-    FK_Patmos_32,
+    FK_Patmos_abs_ALUl,
 
-    /// Function relative byte addresses, 12 bit, resulting in R_PATMOS_ALUI_FREL
-    FK_Patmos_frel_12,
+    /// ALU 12 bit immediate FREL byte address fixup, signed, resulting in R_PATMOS_ALUI_FREL.
+    FK_Patmos_frel_ALUi,
 
-    /// Function relative word addresses, 22 bit, resulting in R_PATMOS_PFLB_FREL
-    FK_Patmos_frel_22,
+    /// 32bit ALU immediate FREL byte address, signed, resulting in R_PATMOS_ALUL_FREL
+    FK_Patmos_frel_ALUl,
 
-    /// Function relative byte addresses, 32 bit, resulting in R_PATMOS_ALUL_FREL
+    /// 32bit FREL byte address, signed, no offset, resulting in R_PATMOS_FREL_32
     FK_Patmos_frel_32,
 
-    /// Note: we do not have cache-relative 7bit fixups, memory offsets are never cache-relative
+    /// Stack control fixup, 22bit immediate unsigned absolute word size, emitted as immediate
+    FK_Patmos_stc,
+
+    /// Function relative word addresses, 22 bit immediate, resulting in R_PATMOS_CFLB_PCREL
+    FK_Patmos_PCrel,
 
     // Marker
     LastTargetFixupKind,
     NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
   };
 
+  static inline bool isPCRELFixupKind(unsigned FixupKind) {
+    return FixupKind == FK_Patmos_PCrel;
+  }
+
   static inline bool isFRELFixupKind(unsigned FixupKind) {
-    switch (FixupKind){
-    case FK_Patmos_frel_12:
-    case FK_Patmos_frel_22:
-    case FK_Patmos_frel_32:
-      return true;
-    }
-    return false;
+    return FixupKind == FK_Patmos_frel_ALUi ||
+           FixupKind == FK_Patmos_frel_ALUl ||
+           FixupKind == FK_Patmos_frel_32;
   }
 
 } // namespace Patmos

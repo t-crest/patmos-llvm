@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PatmosMCInstLower.h"
+#include "PatmosInstrInfo.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -21,6 +22,7 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/Target/Mangler.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -34,22 +36,28 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
   MCSymbolRefExpr::VariantKind Kind;
   const MCSymbol *Symbol;
 
-  // TODO support FREL only for MBBs?
-
   switch (MO.getTargetFlags()) {
   case PatmosII::MO_NO_FLAG:    Kind = MCSymbolRefExpr::VK_None; break;
   case PatmosII::MO_FREL:       Kind = MCSymbolRefExpr::VK_Patmos_FREL; break;
   default: llvm_unreachable("Unknown target flag on GV operand");
   }
 
-  // Note: jump table entries (refs to BBs) are lowered in PatmosISelLowering::LowerCustomJumpTableEntry
+  // We need to know if the operand is used in a PC-relative instruction so
+  // that we can set the FREL flag on all other uses of block references.
+  bool isPCrel = false;
+  const MachineInstr* MI = MO.getParent();
+  if (MI) {
+    int opcode = MI->getOpcode();
+    isPCrel = HasPCRELImmediate(opcode, Ctx.getInstrInfo().get(opcode));
+  }
+
+  // Note: jump table entries (refs to BBs) are lowered in
+  // PatmosISelLowering::LowerCustomJumpTableEntry
 
   switch (MO.getType()) {
   case MachineOperand::MO_MachineBasicBlock:
     Symbol = MO.getMBB()->getSymbol();
-    // symbols to BBs are always cache relative (?)
-    // TODO set this earlier so we do not need it here, then remove it.
-    Kind = MCSymbolRefExpr::VK_Patmos_FREL;
+    if (!isPCrel) Kind = MCSymbolRefExpr::VK_Patmos_FREL;
     break;
   case MachineOperand::MO_GlobalAddress:
     Symbol = Printer.Mang->getSymbol(MO.getGlobal());

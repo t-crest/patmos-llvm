@@ -91,10 +91,9 @@ def predset : PredicateOperand<i1, (ops PRegs:$preg, i1imm:$neg), (ops )> {
   let DecoderMethod = "DecodePredRegisterClass";
 }
 
-// for cache relative branches
-def freltarget : Operand<OtherVT> {
-  let PrintMethod = "printCacheRelTargetOperand";
-  //TODO encoder, decoder method
+// for pc relative branches
+def pcreltarget : Operand<OtherVT> {
+  let PrintMethod = "printPCRelTargetOperand";
 }
 
 
@@ -273,46 +272,45 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 //  Control Flow Instructions...
 //===----------------------------------------------------------------------===//
 
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
-    Uses = [SB, SO] in {
-  def RET  : PFLr<0b0000, (outs), (ins pred:$p),
-                  "ret", "", [(PatmosReturn)]>;
-}
 
+let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
 
-// isBarrier is cleared later on default predicate
-let isTerminator=1, isBranch=1, hasDelaySlot=1 in {
+  // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
-  // cache-relative direct branches
+  // local branches
 
   // unconditional
   let isBarrier=1, isCodeGenOnly=1 in
-  def BCu : PFLb<0b01  , (outs), (ins pred:$p, freltarget:$target),
-                  "bc", "$target", [(br bb:$target)]>;
+  def BRu : CFLb<0b01, (outs), (ins pred:$p, pcreltarget:$target),
+                 "br", "$target", [(br bb:$target)]>;
 
   // conditional
   let isBarrier=0 in
-  def BC : PFLb<0b01  , (outs), (ins predset:$p, freltarget:$target),
-                "bc", "$target", [(brcond predsel:$p, bb:$target)]>;
+  def BR  : CFLb<0b01, (outs), (ins predset:$p, pcreltarget:$target),
+                 "br", "$target", [(brcond predsel:$p, bb:$target)]>;
 
-   // unconditional, cache fill
-  let isBarrier=1, ImmSigned = 1, isCodeGenOnly=1 in
-  def Bu : PFLb<0b10  , (outs), (ins pred:$p, freltarget:$target),
-                  "b", "$target", [(br bb:$target)]>;
-
-  // conditional, cache fill
-  let isBranch=1, isBarrier=0, ImmSigned = 1 in
-  def B : PFLb<0b10  , (outs), (ins predset:$p, freltarget:$target),
-                "b", "$target", [(brcond predsel:$p, bb:$target)]>;
-
-  // cache-relative indirect branches
+  // indirect
   let isIndirectBranch=1, isBarrier=1 in
-  def BCR : PFLi <0b0001, (outs), (ins pred:$p, RRegs:$rs),
-                  "bcr", "$rs", [(brind RRegs:$rs)]>;
+  def BRR : CFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
+                 "br", "$rs", [(brind RRegs:$rs)]>;
 
+
+  // branches with cache-fill
+
+  // unconditional
+  let isBarrier=1, isCodeGenOnly=1 in
+  def BRCFu : CFLb<0b10, (outs), (ins pred:$p, pcreltarget:$target),
+                   "brcf", "$target", []>;
+
+  // conditional
+  let isBarrier=0 in
+  def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
+                   "brcf", "$target", []>;
+
+  // indirect
   let isIndirectBranch=1, isBarrier=1 in
-  def BR : PFLi <0b0010, (outs), (ins pred:$p, RRegs:$rs),
-                  "br", "$rs", [(brind RRegs:$rs)]>;
+  def BRCFR : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
+                   "brcf", "$rs", []>;
 }
 
 
@@ -325,26 +323,31 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1 in {
 let isCall=1, hasDelaySlot=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
-          R17, R18, R19, R20,
-          SB, SO, SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
+          R17, R18, R19, R20, RFB, RFO,
+          SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
 
-  def BS : PFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
-                    "bs", "$target",
-                    [(PatmosCall uimm22:$target)]>;
+  // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
-  def BSR: PFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
-                    "bsr", "$rs",
-                    [(PatmosCall RRegs:$rs)]>;
+  def CALL : CFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
+                  "call", "$target", [(PatmosCall uimm22:$target)]>;
+
+  def CALLR: CFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
+                  "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
+
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
+  def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
+                  "ret", "$rb, $ro", []>;
+}
+
+
 
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-def SRES : STC<0b00, (outs), (ins pred:$p, uimm22:$imm), "sres", "$imm",
-               []>;
-def SENS : STC<0b01, (outs), (ins pred:$p, uimm22:$imm), "sens", "$imm",
-               []>;
+def SRES : STC<0b00, (outs), (ins pred:$p, uimm22:$imm), "sres",  "$imm", []>;
+def SENS : STC<0b01, (outs), (ins pred:$p, uimm22:$imm), "sens",  "$imm", []>;
 def SFREE: STC<0b10, (outs), (ins pred:$p, uimm22:$imm), "sfree", "$imm", []>;
 
 
@@ -452,6 +455,12 @@ let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
     let rs1 = new;
   }
 }
+
+// nop = sub r0 = r0 - 0
+let rd=0, rs1 = 0, imm=0, ImmOpNo = 0 in
+def NOP : ALUi<0b0001, (outs ), (ins pred:$p),
+               "nop", "", []>;
+
 
 // neg Rd = -Rs ... sub Rd = R0 - Rs
 let rs1 = 0 in
@@ -637,10 +646,6 @@ def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
                 "clr", "$pd",
                 [(set PRegs:$pd, (i1 0))]>;
 
-
-// NOP
-let neverHasSideEffects = 1 in
-def NOP  : SPCn <(outs), (ins pred:$p, i32imm:$imm), "nop", "$imm", []>;
 
 // Wait
 def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;

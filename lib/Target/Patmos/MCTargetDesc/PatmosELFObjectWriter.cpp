@@ -95,20 +95,23 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
     return ELF::R_PATMOS_MEMH_ABS;
   case FK_Patmos_WO_7:
     return ELF::R_PATMOS_MEMW_ABS;
-  case FK_Patmos_12:
+  case FK_Patmos_abs_ALUi:
     return ELF::R_PATMOS_ALUI_ABS;
-  case FK_Patmos_22:
-  // TODO do not emit STC format relocations?
-  case FK_Patmos_stc_22:
-    return ELF::R_PATMOS_PFLB_ABS;
-  case FK_Patmos_32:
+  case FK_Patmos_abs_CFLb:
+    return ELF::R_PATMOS_CFLB_ABS;
+  case FK_Patmos_abs_ALUl:
     return ELF::R_PATMOS_ALUL_ABS;
-  case FK_Patmos_frel_12:
+  case FK_Patmos_frel_ALUi:
     return ELF::R_PATMOS_ALUI_FREL;
-  case FK_Patmos_frel_22:
-    return ELF::R_PATMOS_PFLB_FREL;
-  case FK_Patmos_frel_32:
+  case FK_Patmos_frel_ALUl:
     return ELF::R_PATMOS_ALUL_FREL;
+  case FK_Patmos_frel_32:
+    return ELF::R_PATMOS_FREL_32;
+  case FK_Patmos_stc:
+    // TODO do not emit STC format relocations?
+    return ELF::R_PATMOS_CFLB_ABS;
+  case FK_Patmos_PCrel:
+    return ELF::R_PATMOS_CFLB_PCREL;
   default:
     llvm_unreachable("invalid fixup kind!");
   }

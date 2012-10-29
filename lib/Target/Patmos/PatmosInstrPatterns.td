@@ -81,8 +81,10 @@ def : Pat<(fipat:$fi) , (ADDi fipat:$fi, 0)>;
 def : Pat<(add fipat:$fi, imm7:$imm) , (ADDi fipat:$fi, imm7:$imm)>;
 def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
 
-def : Pat<(PatmosCall tglobaladdr:$sym), (BS tglobaladdr:$sym)>;
-def : Pat<(PatmosCall texternalsym:$sym), (BS texternalsym:$sym)>;
+def : Pat<(PatmosCall tglobaladdr:$sym), (CALL tglobaladdr:$sym)>;
+def : Pat<(PatmosCall texternalsym:$sym), (CALL texternalsym:$sym)>;
+
+def : Pat<(PatmosReturn ), (RET RFB, RFO)>;
 
 // multiplication (requiring only low part)
 def : Pat<(mul RRegs:$rs1, RRegs:$rs2),

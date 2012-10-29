@@ -13,12 +13,14 @@
 
 #include "Patmos.h"
 #include "PatmosSubtarget.h"
+#include "MCTargetDesc/PatmosBaseInfo.h"
 #include "llvm/MC/EDInstInfo.h"
 #include "llvm/MC/MCDisassembler.h"
 #include "llvm/Support/MemoryObject.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -31,14 +33,17 @@ typedef MCDisassembler::DecodeStatus DecodeStatus;
 
 /// PatmosDisassembler - a disassembler class for Patmos.
 class PatmosDisassembler : public MCDisassembler {
+  MCInstrInfo *MII;
 public:
   /// Constructor     - Initializes the disassembler.
   ///
-  PatmosDisassembler(const MCSubtargetInfo &STI) :
-    MCDisassembler(STI) {
+  PatmosDisassembler(const Target &T, const MCSubtargetInfo &STI) :
+    MCDisassembler(STI), MII(T.createMCInstrInfo()) {
   }
 
   ~PatmosDisassembler() {
+    if (MII) delete MII;
+    MII = 0;
   }
 
   /// getInstruction - See MCDisassembler.
@@ -51,6 +56,11 @@ public:
 
   /// getEDInfo - See MCDisassembler.
   const EDInstInfo *getEDInfo() const;
+
+private:
+
+  /// adjustSignedImm - convert immediates to signed by sign-extend if necessary
+  void adjustSignedImm(MCInst &instr) const;
 
 };
 
@@ -68,12 +78,12 @@ static const unsigned RRegsTable[] = {
     Patmos::R12, Patmos::R13, Patmos::R14, Patmos::R15,
     Patmos::R16, Patmos::R17, Patmos::R18, Patmos::R19,
     Patmos::R20, Patmos::R21, Patmos::R22, Patmos::R23,
-    Patmos::R24, Patmos::R25, Patmos::R26, Patmos::R27,
-    Patmos::R28, Patmos::RTR, Patmos::RFP, Patmos::RSP,
+    Patmos::R24, Patmos::R25, Patmos::R26, Patmos::RTR,
+    Patmos::RFP, Patmos::RSP, Patmos::RFB, Patmos::RFO,
 };
 static const unsigned SRegsTable[] = {
     Patmos::SZ,  Patmos::SM,  Patmos::SL,  Patmos::SH,
-    Patmos::SB,  Patmos::SO,  Patmos::ST,  Patmos::S7,
+    Patmos::S4,  Patmos::S5,  Patmos::ST,  Patmos::S7,
     Patmos::S8,  Patmos::S9,  Patmos::S10, Patmos::S11,
     Patmos::S12, Patmos::S13, Patmos::S14, Patmos::S15,
 };
@@ -94,6 +104,7 @@ static DecodeStatus DecodePredRegisterClass(MCInst &Inst, unsigned RegNo, uint64
                                             const void *Decoder);
 
 #include "PatmosGenDisassemblerTables.inc"
+#include "llvm/MC/MCInstrDesc.h"
 
   /// readInstruction - read four bytes from the MemoryObject
 static DecodeStatus readInstruction32(const MemoryObject &region,
@@ -166,7 +177,32 @@ PatmosDisassembler::getInstruction(MCInst &instr,
   // handle bundled instructions by adding a special operand
   instr.addOperand(MCOperand::CreateImm(isBundled));
 
+  adjustSignedImm(instr);
+
   return Result;
+}
+
+void PatmosDisassembler::adjustSignedImm(MCInst &instr) const {
+
+  const MCInstrDesc &MID = MII->get(instr.getOpcode());
+
+  bool ImmSigned = isPatmosImmediateSigned(MID.TSFlags);
+
+  if (hasPatmosImmediate(MID.TSFlags) && ImmSigned) {
+    unsigned ImmOpNo = getPatmosImmediateOpNo(MID.TSFlags);
+    unsigned ImmSize = getPatmosImmediateSize(MID.TSFlags);
+
+    uint64_t Value = instr.getOperand(ImmOpNo).getImm();
+
+    if (Value & (1 << (ImmSize-1))) {
+
+      // sign bit is set => sign-extend
+      Value |= ~0ULL ^ ((1ULL << ImmSize) - 1);
+
+      instr.getOperand(ImmOpNo).setImm(Value);
+    }
+  }
+
 }
 
 static DecodeStatus DecodeRRegsRegisterClass(MCInst &Inst, unsigned RegNo, uint64_t Address,
@@ -222,7 +258,7 @@ extern Target ThePatmosTarget;
 static MCDisassembler *createPatmosDisassembler(
                        const Target &T,
                        const MCSubtargetInfo &STI) {
-  return new PatmosDisassembler(STI);
+  return new PatmosDisassembler(T, STI);
 }
 
 extern "C" void LLVMInitializePatmosDisassembler() {

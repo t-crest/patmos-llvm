@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "PatmosRegisterInfo.h"
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
+#include "MCTargetDesc/PatmosBaseInfo.h"
 
 #define GET_INSTRINFO_HEADER
 #include "PatmosGenInstrInfo.inc"
@@ -66,6 +67,11 @@ public:
   /// point.
   virtual void insertNoop(MachineBasicBlock &MBB,
       MachineBasicBlock::iterator MI) const;
+
+  /// InsertNOP - Insert one or more NOPs
+  void InsertNOP(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
+                 DebugLoc DL, unsigned NumCycles = 1)
+                 const;
 
   /// fixOpcodeForGuard - If the MCID opcode is for an unconditional
   /// instruction (e.g. by the isBarrier flag), but the predicate says
@@ -234,6 +240,16 @@ bool HasALUlVariant(unsigned Opcode, unsigned &ALUlOpcode) {
   case CLIi:  ALUlOpcode = CLIl;  return true;
   default: return false;
   }
+}
+
+/// HasPCrelImmediate - check if the instruction with the given opcode and
+/// MID has a PC relative immediate (Format == CFLb && Opcode != CALL).
+static inline
+bool HasPCRELImmediate(unsigned Opcode, const MCInstrDesc &MID) {
+  uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
+  // CFLb and Opcode != call => immediate is PCrel
+  if (Format != PatmosII::FrmCFLb) return false;
+  return Opcode != Patmos::CALL;
 }
 
 

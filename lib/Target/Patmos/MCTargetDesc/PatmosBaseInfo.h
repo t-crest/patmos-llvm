@@ -34,7 +34,7 @@ namespace PatmosII {
 
     MO_NO_FLAG,
 
-    /// MO_FREL - Represents a cache relative address
+    /// MO_FREL - Operand represents a cache/function relative address
     MO_FREL
   };
 
@@ -75,8 +75,8 @@ namespace PatmosII {
     /// FrmSTC - This form is for instructions of the STC format (stack control, 22bit immediate).
     FrmSTC      = 8,
 
-    /// FrmPFLb - This form is for instructions of the PBLb format (flow control, 22bit immediate).
-    FrmPFLb     = 9,
+    /// FrmCFLb - This form is for instructions of the CFLb format (flow control, 22bit immediate).
+    FrmCFLb     = 9,
 
     FormMask    = 0x0F
   };
@@ -91,9 +91,27 @@ inline static unsigned getPatmosImmediateShift(uint64_t TSFlags) {
   return (TSFlags >> 8) & 0x07;
 }
 
-inline static bool getPatmosImmediateSigned(uint64_t TSFlags) {
+inline static bool isPatmosImmediateSigned(uint64_t TSFlags) {
   return (TSFlags >> 11) & 0x01;
 }
+
+inline static bool hasPatmosImmediate(uint64_t TSFlags) {
+  // We assume that the first operand is always the predicate register
+  return getPatmosImmediateOpNo(TSFlags) > 0;
+}
+
+inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
+  switch (TSFlags & PatmosII::FormMask) {
+  case PatmosII::FrmLDT:  return 7;
+  case PatmosII::FrmSTT:  return 7;
+  case PatmosII::FrmALUi: return 12;
+  case PatmosII::FrmSTC:  return 22;
+  case PatmosII::FrmCFLb: return 22;
+  case PatmosII::FrmALUl: return 32;
+  }
+  return 0;
+}
+
 
 /// getPatmosRegisterNumbering - Given the enum value for some register,
 /// return the number that it corresponds to (the binary representation).
@@ -108,8 +126,8 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case R1:  case SM:  case P1:  return 1;
   case R2:  case SL:  case P2:  return 2;
   case R3:  case SH:  case P3:  return 3;
-  case R4:  case SB:  case P4:  return 4;
-  case R5:  case SO:  case P5:  return 5;
+  case R4:  case S4:  case P4:  return 4;
+  case R5:  case S5:  case P5:  return 5;
   case R6:  case ST:  case P6:  return 6;
   case R7:  case S7:  case P7:  return 7;
   case R8:  case S8:  return 8;
@@ -132,11 +150,11 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case R24: return 24;
   case R25: return 25;
   case R26: return 26;
-  case R27: return 27;
-  case R28: return 28;
-  case RTR: return 29;
-  case RFP: return 30;
-  case RSP: return 31;
+  case RTR: return 27;
+  case RFP: return 28;
+  case RSP: return 29;
+  case RFB: return 30;
+  case RFO: return 31;
   default:
     llvm_unreachable("Unknown Patmos register!");
   }

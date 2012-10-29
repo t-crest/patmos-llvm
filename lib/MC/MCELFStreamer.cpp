@@ -107,7 +107,7 @@ public:
 
   virtual void EmitFileDirective(StringRef Filename);
 
-  virtual void EmitFRELStart(const MCSymbol *Start, const MCExpr* Size,
+  virtual void EmitFStart(const MCSymbol *Start, const MCExpr* Size,
                              unsigned Alignment);
 
   virtual void FinishImpl();
@@ -490,12 +490,8 @@ void MCELFStreamer::EmitInstToData(const MCInst &Inst) {
   DF->getContents().append(Code.begin(), Code.end());
 }
 
-void MCELFStreamer::EmitFRELStart(const MCSymbol *Start, const MCExpr* Size,
+void MCELFStreamer::EmitFStart(const MCSymbol *Start, const MCExpr* Size,
                                   unsigned Alignment) {
-
-  // Set the SubFunction flag for the start symbol
-  MCSymbolData &SD = getAssembler().getOrCreateSymbolData(*Start);
-  SD.setFlags(SD.getFlags() | ELF_Other_SubFunc);
 
   // Emit the padding and the size expression as fragment
   // We may emit at most Alignment + 3 bytes, in case emitting just the

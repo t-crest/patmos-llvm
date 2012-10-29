@@ -26,6 +26,7 @@
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -39,7 +40,8 @@ using namespace llvm;
 
 LTOModule::LTOModule(llvm::Module *m, llvm::TargetMachine *t)
   : _module(m), _target(t),
-    _context(*_target->getMCAsmInfo(), *_target->getRegisterInfo(), NULL),
+    _context(*_target->getMCAsmInfo(), *_target->getRegisterInfo(),
+             *_target->getInstrInfo(), NULL),
     _mangler(_context, *_target->getTargetData()) {}
 
 /// isBitcodeFile - Returns 'true' if the file (or memory contents) is LLVM

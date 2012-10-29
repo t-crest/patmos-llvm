@@ -185,9 +185,10 @@ const MCExpr * PatmosTargetLowering::LowerCustomJumpTableEntry(
 
   if (PMFI->isMethodCacheRegionEntry(MBB))
     return MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
-  else 
+  else
     return MCSymbolRefExpr::Create(MBB->getSymbol(),
-                                   MCSymbolRefExpr::VK_Patmos_FREL, OutContext);
+                                   MCSymbolRefExpr::VK_Patmos_FREL,
+                                   OutContext);
 }
 
 

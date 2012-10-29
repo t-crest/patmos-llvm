@@ -23,7 +23,7 @@ def FALUp   : Format<5>;  // Combine predicates
 def FLDT    : Format<6>;  // Memory ops with 7bit offset
 def FSTT    : Format<7>;  // Memory ops with 7bit offset
 def FSTC    : Format<8>;  // Stack control with 22bit immediate
-def FPFLb   : Format<9>;  // Program flow control with 22bit immediate
+def FCFLb   : Format<9>;  // Program flow control with 22bit immediate
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -149,8 +149,10 @@ class ALUl<bits<4> func,
 
   let Size = 8;
 
-  let ImmOpNo  = 4;
-  let ImmShift = 0;
+  let ImmOpNo   = 4;
+  let ImmShift  = 0;
+  // For the ALUl format, the immediate is interpreted as signed per default
+  let ImmSigned = 1;
 
   let Inst{63} = 1;
   let Inst{62-59} = p;
@@ -434,23 +436,23 @@ class STC<bits<2> op,
 ///////////////////////////////////////////////////////////////////////////////
 
 
-// PFL - Program Flow
+// CFL - Program Flow
 //
-class PFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format form>
-  : PatmosInst<outs, ins, op, asmstr, pattern, form, IIC_PFL> {
+class CFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format form>
+  : PatmosInst<outs, ins, op, asmstr, pattern, form, IIC_CFL> {
 
-  bits<2> PFLOp;
+  bits<2> CFLOp;
 
   let Inst{26-25} = 0b11;
-  let Inst{23-22} = PFLOp;
+  let Inst{23-22} = CFLOp;
 }
 
-// PFLb - Call / Branch
+// CFLb - Call / Branch
 //
-class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, op, asmstr, pattern, FPFLb> {
+class CFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : CFL<outs, ins, op, asmstr, pattern, FCFLb> {
 
-  let PFLOp = pflop;
+  let CFLOp = pflop;
 
   bits<22> target;
 
@@ -461,13 +463,13 @@ class PFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag>
   let Inst{21-0} = target;
 }
 
-// PFLi - Call / Branch Indirect
+// CFLi - Call / Branch Indirect
 //
-class PFLi<bits<4>op,
+class CFLi<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, asmop, asmstr, pattern, FOther> {
+  : CFL<outs, ins, asmop, asmstr, pattern, FOther> {
 
-  let PFLOp = 0b00;
+  let CFLOp = 0b00;
 
   // unbound register field
   bits<5> rs;
@@ -477,13 +479,20 @@ class PFLi<bits<4>op,
   let Inst{3-0} = op;
 }
 
-// PFLr - Return
+// CFLr - Return
 //
-class PFLr<bits<4>op,
+class CFLr<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PFL<outs, ins, asmop, asmstr, pattern, FOther> {
+  : CFL<outs, ins, asmop, asmstr, pattern, FOther> {
 
-  let PFLOp = 0b10;
+  let CFLOp = 0b10;
+
+  // unbound fields
+  bits<5> rb; // function base
+  bits<5> ro; // function offset
+
+  let Inst{16-12} = rb;
+  let Inst{11-7}  = ro;
 
   let Inst{24} = 1;
   let Inst{3-0} = op;

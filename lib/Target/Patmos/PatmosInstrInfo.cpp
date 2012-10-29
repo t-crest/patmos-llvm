@@ -147,7 +147,18 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
 void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
       MachineBasicBlock::iterator MI) const {
   DebugLoc DL;
-  AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::NOP)).addImm(0));
+  BuildMI(MBB, MI, DL, get(Patmos::NOP))
+    .addReg(Patmos::NoRegister).addImm(0);
+}
+
+void PatmosInstrInfo::
+InsertNOP(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
+          DebugLoc DL, unsigned NumCycles) const {
+  MachineBasicBlock::iterator J = next(I);
+  for(unsigned i=0; i<NumCycles; i++) {
+    BuildMI(MBB, J, DL, get(Patmos::NOP))
+      .addReg(Patmos::NoRegister).addImm(0);
+  }
 }
 
 
@@ -160,8 +171,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
     if (isPredicated(MI)) {
       // unconditional branch -> conditional branch
       switch (opc) {
-        case BCu: newopc = BC; break;
-        case Bu:  newopc = B ; break;
+        case BRu:   newopc = BR;   break;
+        case BRCFu: newopc = BRCF; break;
         default:
           assert(MI->isConditionalBranch());
           break;
@@ -169,8 +180,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
     } else { // NOT predicated
       // conditional branch -> unconditional branch
       switch (opc) {
-        case BC: newopc = BCu; break;
-        case B:  newopc = Bu ; break;
+        case BR:   newopc = BRu;   break;
+        case BRCF: newopc = BRCFu; break;
         default:
           assert(MI->isUnconditionalBranch());
           break;
@@ -296,9 +307,9 @@ PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   if (FBB == 0) {
     // One-way branch.
     if (Cond.empty()) { // Unconditional branch
-      AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BCu))).addMBB(TBB);
+      AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BRu))).addMBB(TBB);
     } else { // Conditional branch.
-      BuildMI(&MBB, DL, get(Patmos::BC))
+      BuildMI(&MBB, DL, get(Patmos::BR))
         .addOperand(Cond[0]).addOperand(Cond[1])
         .addMBB(TBB);
     }
@@ -306,10 +317,10 @@ PatmosInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
   }
 
   // Two-way Conditional branch.
-  BuildMI(&MBB, DL, get(Patmos::BC))
+  BuildMI(&MBB, DL, get(Patmos::BR))
     .addOperand(Cond[0]).addOperand(Cond[1])
     .addMBB(TBB);
-  AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BCu)))
+  AddDefaultPred(BuildMI(&MBB, DL, get(Patmos::BRu)))
     .addMBB(FBB);
   return 2;
 }
@@ -348,6 +359,8 @@ bool PatmosInstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
 
   return !isPredicated(MI);
 }
+
+
 
 bool PatmosInstrInfo::
 PredicateInstruction(MachineInstr *MI,

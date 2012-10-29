@@ -73,11 +73,11 @@ def R23 : PatmosGPR<23, "r23">;
 def R24 : PatmosGPR<24, "r24">;
 def R25 : PatmosGPR<25, "r25">;
 def R26 : PatmosGPR<26, "r26">;
-def R27 : PatmosGPR<27, "r27">;
-def R28 : PatmosGPR<28, "r28">;
-def RTR : PatmosGPR<29, "r29">; // reserved temporary register
-def RFP : PatmosGPR<30, "r30">; // frame ptr
-def RSP : PatmosGPR<31, "r31">; // stack ptr
+def RTR : PatmosGPR<27, "r27">; // reserved temporary register
+def RFP : PatmosGPR<28, "r28">; // frame ptr
+def RSP : PatmosGPR<29, "r29">; // stack ptr
+def RFB : PatmosGPR<30, "r30">; // return info: function base
+def RFO : PatmosGPR<31, "r31">; // return info: function offset
 
 def P0  : PatmosPRED<0, "p0">;
 def P1  : PatmosPRED<1, "p1">;
@@ -88,15 +88,14 @@ def P5  : PatmosPRED<5, "p5">;
 def P6  : PatmosPRED<6, "p6">;
 def P7  : PatmosPRED<7, "p7">;
 
-// SZ (zero) instead of S0 to avoid confusion with SO
 //def PRF : PatmosPRF<"pred", [P0, P1, P2, P3, P4, P5, P6, P7]>;
 //def SZ  : PatmosSPRWithSubRegs< 0,  "sz", [PRF]>;
-def SZ  : PatmosSPR< 0,  "sz">;
+def SZ  : PatmosSPR< 0,  "s0">; // zero
 def SM  : PatmosSPR< 1,  "sm">;
 def SL  : PatmosSPR< 2,  "sl">;
 def SH  : PatmosSPR< 3,  "sh">;
-def SB  : PatmosSPR< 4,  "sb">;
-def SO  : PatmosSPR< 5,  "so">;
+def S4  : PatmosSPR< 4,  "s4">;
+def S5  : PatmosSPR< 5,  "s5">;
 def ST  : PatmosSPR< 6,  "st">;
 def S7  : PatmosSPR< 7,  "s7">;
 def S8  : PatmosSPR< 8,  "s8">;
@@ -112,7 +111,7 @@ def S15 : PatmosSPR<15, "s15">;
 
 def Mul : RegisterClass<"Patmos", [i32], 32, (add SL, SH)>;
 
-// Note: the order of the registers must be kept consistant in PatmosBaseInfo.h and
+// Note: the order of the registers must be kept consistent in PatmosBaseInfo.h and
 // in the disassembler.
 
 def RRegs : RegisterClass<"Patmos", [i32], 32,
@@ -125,14 +124,16 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    // scratch registers (caller saved)
    R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20,
    // preserved registers (callee saved)
-   R21, R22, R23, R24, R25, R26, R27, R28,
+   R21, R22, R23, R24, R25, R26,
    // temp register
    RTR,
    // frame pointer, stack pointer (callee saved)
-   RFP, RSP)>;
+   RFP, RSP,
+   // return info: funcion base pointer, function offset (callee saved)
+   RFB, RFO)>;
 
 def SRegs : RegisterClass<"Patmos", [i32], 32,
-  (add SZ, SM, SL, SH, SB, SO, ST, S7,
+  (add SZ, SM, SL, SH, S4, S5, ST, S7,
    S8, S9, S10, S11, S12, S13, S14, S15)>;
 
 let Size = 32 in {

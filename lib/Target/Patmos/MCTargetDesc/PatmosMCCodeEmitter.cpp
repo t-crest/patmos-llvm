@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 //
 #define DEBUG_TYPE "mccodeemitter"
+#include "PatmosInstrInfo.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
 #include "MCTargetDesc/PatmosFixupKinds.h"
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
@@ -106,8 +107,10 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   uint64_t Binary = getBinaryCodeForInstr(MI, Fixups);
 
   // Check for unimplemented opcodes.
-  if (!Binary)
-    llvm_unreachable("unimplemented opcode in EncodeInstruction()");
+  if (!Binary) {
+    MI.dump();
+    llvm_unreachable("Unimplemented opcode in EncodeInstruction(). Maybe you tried to emit '(p0) add r0=r0,0' ?");
+  }
 
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
   uint64_t TSFlags = Desc.TSFlags;
@@ -234,16 +237,21 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
     break;
   }
   case PatmosII::FrmALUi:
-    FixupKind = isFREL ? FK_Patmos_frel_12 : FK_Patmos_12;
+    FixupKind = isFREL ? FK_Patmos_frel_ALUi : FK_Patmos_abs_ALUi;
     break;
-  case PatmosII::FrmPFLb:
-    FixupKind = isFREL ? FK_Patmos_frel_22 : FK_Patmos_22;
+  case PatmosII::FrmCFLb:
+    // CFLb immediates are never FREL, only abs or PCrel
+    assert(!isFREL && "Error: CFLb operand marked as function relative!");
+
+    // call immediate is absolute, other CFL immediate instructions are PC-rel
+    FixupKind = HasPCRELImmediate(MI.getOpcode(), MID) ? FK_Patmos_PCrel :
+                                                         FK_Patmos_abs_CFLb;
     break;
   case PatmosII::FrmSTC:
-    FixupKind = FK_Patmos_stc_22;
+    FixupKind = FK_Patmos_stc;
     break;
   case PatmosII::FrmALUl:
-    FixupKind = isFREL ? FK_Patmos_frel_32 : FK_Patmos_32;
+    FixupKind = isFREL ? FK_Patmos_frel_ALUl : FK_Patmos_abs_ALUl;
     break;
   default:
     // TODO proper way to throw an error?

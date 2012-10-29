@@ -253,8 +253,9 @@ void MMIAddrLabelMapCallbackPtr::allUsesReplacedWith(Value *V2) {
 
 MachineModuleInfo::MachineModuleInfo(const MCAsmInfo &MAI,
                                      const MCRegisterInfo &MRI,
+                                     const MCInstrInfo &MII,
                                      const MCObjectFileInfo *MOFI)
-  : ImmutablePass(ID), Context(MAI, MRI, MOFI),
+  : ImmutablePass(ID), Context(MAI, MRI, MII, MOFI),
     ObjFileMMI(0), CompactUnwindEncoding(0), CurCallSite(0), CallsEHReturn(0),
     CallsUnwindInit(0), DbgInfoAvailable(false),
     UsesVAFloatArgument(false) {
@@ -267,7 +268,8 @@ MachineModuleInfo::MachineModuleInfo(const MCAsmInfo &MAI,
 
 MachineModuleInfo::MachineModuleInfo()
   : ImmutablePass(ID),
-    Context(*(MCAsmInfo*)0, *(MCRegisterInfo*)0, (MCObjectFileInfo*)0) {
+    Context(*(MCAsmInfo*)0, *(MCRegisterInfo*)0, *(MCInstrInfo*)0,
+            (MCObjectFileInfo*)0) {
   llvm_unreachable("This MachineModuleInfo constructor should never be called, "
                    "MMI should always be explicitly constructed by "
                    "LLVMTargetMachine");

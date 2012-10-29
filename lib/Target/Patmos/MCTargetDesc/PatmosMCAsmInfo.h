@@ -20,6 +20,10 @@
 namespace llvm {
   class Target;
 
+  enum PrintBytesLevel {
+    PrintAsEncoded = 0, PrintCallAsBytes, PrintAllAsBytes
+  };
+
   class PatmosMCAsmInfo : public MCAsmInfo {
     private:
       const Target &T;

@@ -824,11 +824,11 @@ namespace llvm {
       if (target != layout_successor) {
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::BCu))).addMBB(target);
+                               DebugLoc(), TII.get(Patmos::BRu))).addMBB(target);
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::NOP))).addImm(0);
+                               DebugLoc(), TII.get(Patmos::NOP)));
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::NOP))).addImm(0);
+                               DebugLoc(), TII.get(Patmos::NOP)));
 
 #ifdef PATMOS_TRACE_FIXUP
         DEBUG(dbgs() << "Fixup: " << fallthrough->getName() << "|"
@@ -921,17 +921,17 @@ namespace llvm {
 
           switch (mi->getOpcode()) {
             // branches that may need rewriting
-            case Patmos::BC:
-              rewriteBranch(mi, Patmos::B, dbb);        break;
-            case Patmos::BCu:
-              rewriteBranch(mi, Patmos::Bu, dbb);       break;
-            case Patmos::BCR:
-              rewriteBranch(mi, Patmos::BR, dbb);       break;
+            case Patmos::BR:
+              rewriteBranch(mi, Patmos::BRCF, dbb);        break;
+            case Patmos::BRu:
+              rewriteBranch(mi, Patmos::BRCFu, dbb);       break;
+            case Patmos::BRR:
+              rewriteBranch(mi, Patmos::BRCFR, dbb);       break;
 
             // already rewritten branches - skip them
-            case Patmos::B:
-            case Patmos::Bu:
-            case Patmos::BR:
+            case Patmos::BRCF:
+            case Patmos::BRCFu:
+            case Patmos::BRCFR:
               break;
 
             // unexpected ?

@@ -643,8 +643,8 @@ void MCStreamer::EmitRegSave(const SmallVectorImpl<unsigned> &RegList, bool) {
   abort();
 }
 
-void MCStreamer::EmitFRELStart(const MCSymbol*, const MCExpr*, unsigned) {
-  errs() << "Not implemented yet\n";
+void MCStreamer::EmitFStart(const MCSymbol*, const MCExpr*, unsigned) {
+  errs() << "EmitFStart called on an MCStreamer, not supported\n";
   abort();
 }
 

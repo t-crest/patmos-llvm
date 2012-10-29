@@ -313,18 +313,18 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
 
   MachineRegisterInfo& MRI = MF.getRegInfo();
 
-  // Mark RFP, SB, and SO as used or unused.
+  // Mark RFP, RFB, and RFO as used or unused.
   if (hasFP(MF))
     MRI.setPhysRegUsed(Patmos::RFP);
 
   // Mark the special registers of the method cache to be used when calls exist.
   if (MF.getFrameInfo()->hasCalls()) {
-    MRI.setPhysRegUsed(Patmos::SB);
-    MRI.setPhysRegUsed(Patmos::SO);
+    MRI.setPhysRegUsed(Patmos::RFB);
+    MRI.setPhysRegUsed(Patmos::RFO);
   }
   else {
-    MRI.setPhysRegUnused(Patmos::SB);
-    MRI.setPhysRegUnused(Patmos::SO);
+    MRI.setPhysRegUnused(Patmos::RFB);
+    MRI.setPhysRegUnused(Patmos::RFO);
   }
 }
 
@@ -379,6 +379,13 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
     // Set frame pointer: FP = SP
     AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::MOV), Patmos::RFP))
       .addReg(Patmos::RSP);
+  }
+
+  // load the current function base if it needs to be passed to call sites
+  if (MF.getFrameInfo()->hasCalls()) {
+    // load long immediate: current function symbol into RFB
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::LIl), Patmos::RFB))
+      .addGlobalAddress(MF.getFunction());
   }
 
   return true;

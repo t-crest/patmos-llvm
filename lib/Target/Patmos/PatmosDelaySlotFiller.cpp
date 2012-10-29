@@ -47,11 +47,12 @@ namespace {
     /// layout, etc.
     ///
     TargetMachine &TM;
-    const TargetInstrInfo *TII;
+    const PatmosInstrInfo *TII;
 
     static char ID;
     PatmosDelaySlotFiller(TargetMachine &tm)
-      : MachineFunctionPass(ID), TM(tm), TII(tm.getInstrInfo()) { }
+      : MachineFunctionPass(ID), TM(tm),
+        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())) { }
 
     virtual const char *getPassName() const {
       return "Patmos Delay Slot Filler";
@@ -116,9 +117,7 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     unsigned opc = I->getOpcode();
     // FIXME: This should eventually be handled in the scheduler.
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
-      MachineBasicBlock::iterator J = I;
-      AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(3);
+      TII->InsertNOP(MBB, I, I->getDebugLoc(), 3);
     } else if (I->mayLoad()) {
       // if the instruction is a load instruction, and the next instruction
       // reads a register defined by the load, we insert a NOP.
@@ -132,11 +131,7 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
         D = findDelayInstr(MBB, I);
 
       if (D == MBB.end()) {
-        //FIXME several single NOPs vs. one multicycle nop
-        AddDefaultPred(BuildMI(MBB, ++J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(0);
-        AddDefaultPred(BuildMI(MBB,   J, I->getDebugLoc(), TII->get(Patmos::NOP)))
-          .addImm(0);
+        TII->InsertNOP(MBB, J, I->getDebugLoc(), 2);
       } else {
         MBB.splice(++J, &MBB, D);
       }
@@ -181,8 +176,7 @@ void PatmosDelaySlotFiller::insertAfterLoad(MachineBasicBlock &MBB,
 
   if (insert) {
     // Parent basic block of J could be the successor of MBB
-    AddDefaultPred(BuildMI(*J->getParent(), J, I->getDebugLoc(),
-          TII->get(Patmos::NOP))).addImm(0);
+    TII->InsertNOP(*J->getParent(), J, I->getDebugLoc());
     // stats and debug output
     ++InsertedLoadNOPs;
     DEBUG( dbgs() << "NOP inserted after load: " << *I );

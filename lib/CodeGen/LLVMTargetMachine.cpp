@@ -128,6 +128,7 @@ static MCContext *addPassesToGenerateCode(LLVMTargetMachine *TM,
   // all the per-module stuff we're generating, including MCContext.
   MachineModuleInfo *MMI =
     new MachineModuleInfo(*TM->getMCAsmInfo(), *TM->getRegisterInfo(),
+                          *TM->getInstrInfo(),
                           &TM->getTargetLowering()->getObjFileLowering());
   PM.add(MMI);
   MCContext *Context = &MMI->getContext(); // Return the MCContext by-ref.
