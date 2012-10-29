@@ -247,7 +247,8 @@ bool PatmosAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
   MCInst MCI;
   MCInstLowering.Lower(MI, MCI);
 
-  PatmosInstPrinter PIP(OutContext.getAsmInfo(), *TM.getInstrInfo(), *TM.getRegisterInfo(), true);
+  PatmosInstPrinter PIP(OutContext.getAsmInfo(), *TM.getInstrInfo(),
+                        *TM.getRegisterInfo());
 
   PIP.printOperand(&MCI, OpNo, O, ExtraCode);
 

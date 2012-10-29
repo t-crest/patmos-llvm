@@ -14,18 +14,26 @@
 #ifndef _PATMOS_INSTPRINTER_H_
 #define _PATMOS_INSTPRINTER_H_
 
+#include "../MCTargetDesc/PatmosMCAsmInfo.h"
 #include "llvm/MC/MCInstPrinter.h"
 
 namespace llvm {
   class MCOperand;
 
   class PatmosInstPrinter : public MCInstPrinter {
-    bool PrefixRegisters;
+    PrintBytesLevel PrintBytes;
 
   public:
     PatmosInstPrinter(const MCAsmInfo &mai, const MCInstrInfo &mii,
-	                    const MCRegisterInfo &mri, bool PrefixRegisters)
-        : MCInstPrinter(mai, mii, mri), PrefixRegisters(PrefixRegisters) {}
+	                    const MCRegisterInfo &mri)
+        : MCInstPrinter(mai, mii, mri)
+    {
+      switch (mai.getAssemblerDialect()) {
+      case 0: PrintBytes = PrintAsEncoded; break;
+      case 1: PrintBytes = PrintCallAsBytes; break;
+      case 2: PrintBytes = PrintAllAsBytes; break;
+      }
+    }
 
 
     void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot);

@@ -91,7 +91,7 @@ inline static unsigned getPatmosImmediateShift(uint64_t TSFlags) {
   return (TSFlags >> 8) & 0x07;
 }
 
-inline static bool getPatmosImmediateSigned(uint64_t TSFlags) {
+inline static bool isPatmosImmediateSigned(uint64_t TSFlags) {
   return (TSFlags >> 11) & 0x01;
 }
 

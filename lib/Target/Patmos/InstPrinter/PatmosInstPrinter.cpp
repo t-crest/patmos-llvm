@@ -76,19 +76,35 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
       printRegisterName(Op.getReg(), O);
     }
   } else if (Op.isImm()) {
+    int64_t Value = Op.getImm();
+
+    // Print as bytes if requested
+    bool IsShifted = false;
+    if (PrintBytes == PrintAllAsBytes ||
+        (PrintBytes == PrintCallAsBytes && MI->getOpcode() == Patmos::CALL))
+    {
+      const MCInstrDesc &MID = MII.get(MI->getOpcode());
+      unsigned ImmShift = getPatmosImmediateShift( MID.TSFlags );
+      Value <<= ImmShift;
+      IsShifted = true;
+    }
+
     if (Modifier && strcmp(Modifier, "addrmod") == 0) {
       const MCOperand &baseOp = MI->getOperand(OpNo - 1);
       if (baseOp.getReg() == Patmos::R0)
-        O << Op.getImm();
-      else if (Op.getImm() != 0)
-        O << ((Op.getImm() < 0) ? " - " : " + ") << std::abs(Op.getImm());
+        O << Value;
+      else if (Value != 0)
+        O << ((Value < 0) ? " - " : " + ") << std::abs(Value);
     }
     else {
-      // TODO print as hex only for some instructions?
-      //O << format("0x%X", Op.getImm());
+      // Print as hex only for some instructions, and only if it is in bytes
       // We have the hex value in the disassembly output anyway, and we do not
       // want to print hex for LIin
-      O << Op.getImm();
+      if (IsShifted && MI->getOpcode() == Patmos::CALL) {
+        O << format("0x%X", Value);
+      } else {
+        O << Value;
+      }
     }
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
@@ -114,9 +130,6 @@ void PatmosInstPrinter::printPredicateOperand(const MCInst *MI, unsigned OpNo,
   if (Modifier && strcmp(Modifier, "guard") == 0) {
     if (reg == Patmos::NoRegister || ((reg == Patmos::P0) && !flag)) {
       printDefaultGuard(O, false);
-    } else if (MI->getOpcode()==Patmos::NOP) {
-      // no need to print guards for NOP
-      printDefaultGuard(O, false);
     } else {
       O << "(" << ((flag)?"!":" ");
       printRegisterName(reg, O);
@@ -141,8 +154,16 @@ void PatmosInstPrinter::printPCRelTargetOperand(const MCInst *MI,
   // For disassembly .. should we create a fixup for this in the disassembler,
   // or an expression??
   if (Op.isImm()) {
-    // TODO print as hex value;
-    O << Op.getImm();
+
+    // should we print out branch targets in words/.. in all cases?
+    if (PrintBytes == PrintAllAsBytes) {
+      const MCInstrDesc &MID = MII.get(MI->getOpcode());
+      unsigned ImmShift = getPatmosImmediateShift( MID.TSFlags );
+      O << (Op.getImm() << ImmShift);
+    } else {
+      O << Op.getImm();
+    }
+
     return;
   }
 
@@ -152,17 +173,10 @@ void PatmosInstPrinter::printPCRelTargetOperand(const MCInst *MI,
 }
 
 void PatmosInstPrinter::printRegisterName(unsigned RegNo, raw_ostream &O) {
-  if (PrefixRegisters) {
-    O << "$";
-  }
+  O << "$";
   O << getRegisterName(RegNo);
 }
 
 void PatmosInstPrinter::printDefaultGuard(raw_ostream &O, bool NoGuard) {
-  if (PrefixRegisters) {
-    O << "      "; // instead of ( $p0)
-  } else {
-    O << "     ";  // instead of ( p0)
-
-  }
+  O << "      "; // instead of ( $p0)
 }

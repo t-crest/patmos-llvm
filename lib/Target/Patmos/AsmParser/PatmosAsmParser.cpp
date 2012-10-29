@@ -44,6 +44,8 @@ class PatmosAsmParser : public MCTargetAsmParser {
   // keep track of the bundle bit of the last instructions
   unsigned BundleCounter;
 
+  PrintBytesLevel ParseBytes;
+
   MCAsmParser &getParser() const { return Parser; }
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
 
@@ -60,6 +62,12 @@ public:
     // This is a nasty workaround for LLVM interface limitations
     const Target &T = static_cast<const PatmosMCAsmInfo*>(&parser.getContext().getAsmInfo())->getTarget();
     MII.reset(T.createMCInstrInfo());
+
+    switch (parser.getAssemblerDialect()) {
+    case 0: ParseBytes = PrintAsEncoded; break;
+    case 1: ParseBytes = PrintCallAsBytes; break;
+    case 2: ParseBytes = PrintAllAsBytes; break;
+    }
   }
 
   virtual bool ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
@@ -342,20 +350,33 @@ MatchAndEmitInstruction(SMLoc IDLoc,
     // Add bundle marker
     Inst.addOperand(MCOperand::CreateImm(isBundled));
 
-    // If we have an ALUi immediate instruction and the immediate does not fit 12bit, use ALUl version of instruction
+    // If we have an ALUi immediate instruction and the immediate does not fit
+    // 12bit, use ALUl version of instruction
     const MCInstrDesc &MID = MII->get(Inst.getOpcode());
     uint64_t Format = MID.TSFlags & PatmosII::FormMask;
     unsigned ImmOpNo = getPatmosImmediateOpNo( MID.TSFlags );
-    bool ImmSigned = getPatmosImmediateSigned( MID.TSFlags );
+    bool ImmSigned = isPatmosImmediateSigned( MID.TSFlags );
+    bool HasImm = hasPatmosImmediate( MID.TSFlags );
 
-    // TODO should we shift the constant? (This must be done in printer too in this case)
+    if (HasImm) {
+      MCOperand &MCO = Inst.getOperand( ImmOpNo );
+
+      // If we have an immediate, shift the value according to the asm dialect
+      if (MCO.isImm() && (ParseBytes == PrintAllAsBytes ||
+          (ParseBytes == PrintCallAsBytes && Inst.getOpcode() == Patmos::CALL)))
+      {
+        unsigned ImmShift = getPatmosImmediateShift( MID.TSFlags );
+        MCO.setImm(MCO.getImm() / (1 << ImmShift));
+      }
+    }
 
     unsigned ALUlOpcode;
-    if (Format == PatmosII::FrmALUi && ImmOpNo > 0) {
+    if (Format == PatmosII::FrmALUi && HasImm) {
       MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
       if (MCO.isExpr() && !isBundled) {
-        // TODO hack? if we have an expression, use ALUl, but not if this is a bundled op
+        // If we have an expression, use ALUl, but only if this is
+        // not a bundled op
         if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
           Inst.setOpcode(ALUlOpcode);
           // ALUl counts as two operations
@@ -366,7 +387,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
 
         if (!isUInt<12>(MCO.getImm())) {
           if (isUInt<12>(-MCO.getImm()) && Inst.getOpcode() == Patmos::LIi) {
-            // Make this an rsub instead
+            // Make this an sub instead
             MCO.setImm(-MCO.getImm());
             Inst.setOpcode(Patmos::LIin);
           }
@@ -377,6 +398,10 @@ MatchAndEmitInstruction(SMLoc IDLoc,
             Inst.setOpcode(ALUlOpcode);
             // ALUl counts as two operations
             BundleCounter++;
+
+            if (!isInt<32>(MCO.getImm()) || !isInt<32>(MCO.getImm())) {
+              return Error(IDLoc, "immediate operand too large for ALUl format");
+            }
           }
           else {
             return Error(IDLoc, "immediate operand too large for ALUi format and ALUl is not used for this opcode");
@@ -390,6 +415,14 @@ MatchAndEmitInstruction(SMLoc IDLoc,
     else if (Format == PatmosII::FrmALUl) {
       // ALUl counts as two operations
       BundleCounter++;
+
+      MCOperand &MCO = Inst.getOperand( ImmOpNo );
+
+      // No immediates larger than 32bit allowed ..
+      if (MCO.isImm() && (!isInt<32>(MCO.getImm()) || !isInt<32>(MCO.getImm())))
+      {
+        return Error(IDLoc, "immediate operand too large for ALUl format");
+      }
     }
 
     if (Format == PatmosII::FrmCFLb || Format == PatmosII::FrmSTC) {

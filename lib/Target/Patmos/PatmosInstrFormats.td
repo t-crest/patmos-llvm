@@ -149,8 +149,10 @@ class ALUl<bits<4> func,
 
   let Size = 8;
 
-  let ImmOpNo  = 4;
-  let ImmShift = 0;
+  let ImmOpNo   = 4;
+  let ImmShift  = 0;
+  // For the ALUl format, the immediate is interpreted as signed per default
+  let ImmSigned = 1;
 
   let Inst{63} = 1;
   let Inst{62-59} = p;

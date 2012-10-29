@@ -12,7 +12,19 @@
 //===----------------------------------------------------------------------===//
 
 #include "PatmosMCAsmInfo.h"
+#include "llvm/Support/CommandLine.h"
 using namespace llvm;
+
+static cl::opt<PrintBytesLevel> PrintBytes("fpatmos-print-bytes",
+    cl::init(PrintAsEncoded),
+    cl::desc("Print immediates as bytes in assembler"),
+    cl::values(
+      clEnumValN(PrintAsEncoded,   "none",  "Print immediates as stored"),
+      clEnumValN(PrintCallAsBytes, "call",  "Print call immediates in bytes"),
+      clEnumValN(PrintAllAsBytes,  "all",   "Print all immediates in bytes"),
+      clEnumValEnd
+    ));
+
 
 PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
  : T(T)
@@ -35,8 +47,12 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
   Data16bitsDirective = "\t.half\t";
   Data32bitsDirective = "\t.word\t";
 
-  // 0: Default syntax, 1: alternative syntax without register prefix
-  AssemblerDialect = 0;
+  // Assembler dialect:
+  // 0: Default syntax
+  // 1: Print calls as immediates
+  // 2: Print all immediates as bytes
+  AssemblerDialect = PrintBytes;
+
   // We either need a register prefix or a global prefix
   //GlobalPrefix = ".";
 
