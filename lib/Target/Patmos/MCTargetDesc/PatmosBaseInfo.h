@@ -95,6 +95,24 @@ inline static bool getPatmosImmediateSigned(uint64_t TSFlags) {
   return (TSFlags >> 11) & 0x01;
 }
 
+inline static bool hasPatmosImmediate(uint64_t TSFlags) {
+  // We assume that the first operand is always the predicate register
+  return getPatmosImmediateOpNo(TSFlags) > 0;
+}
+
+inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
+  switch (TSFlags & PatmosII::FormMask) {
+  case PatmosII::FrmLDT:  return 7;
+  case PatmosII::FrmSTT:  return 7;
+  case PatmosII::FrmALUi: return 12;
+  case PatmosII::FrmSTC:  return 22;
+  case PatmosII::FrmCFLb: return 22;
+  case PatmosII::FrmALUl: return 32;
+  }
+  return 0;
+}
+
+
 /// getPatmosRegisterNumbering - Given the enum value for some register,
 /// return the number that it corresponds to (the binary representation).
 inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
