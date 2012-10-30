@@ -66,12 +66,11 @@ public:
   /// insertNoop - Insert a noop into the instruction stream at the specified
   /// point.
   virtual void insertNoop(MachineBasicBlock &MBB,
-      MachineBasicBlock::iterator MI) const;
+                          MachineBasicBlock::iterator MI) const;
 
-  /// InsertNOP - Insert one or more NOPs
-  void InsertNOP(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
-                 DebugLoc DL, unsigned NumCycles = 1)
-                 const;
+  virtual DFAPacketizer*
+  CreateTargetScheduleState(const TargetMachine *TM,
+                            const ScheduleDAG *DAG) const;
 
   /// fixOpcodeForGuard - If the MCID opcode is for an unconditional
   /// instruction (e.g. by the isBarrier flag), but the predicate says
@@ -79,7 +78,8 @@ public:
   /// Returns true iff the instruction was rewritten.
   virtual bool fixOpcodeForGuard(MachineInstr *MI) const;
 
-
+  // isStackControl - Return true if the instruction controls the stack cache.
+  virtual bool isStackControl(const MachineInstr *MI) const;
 
 
   /////////////////////////////////////////////////////////////////////////////

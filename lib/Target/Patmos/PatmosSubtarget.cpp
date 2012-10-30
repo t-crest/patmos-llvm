@@ -63,7 +63,6 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
   ParseSubtargetFeatures(CPUName, FS);
 
   InstrItins = getInstrItineraryForCPU(CPUName);
-
   InstrItins.IssueWidth = 1;
 }
 

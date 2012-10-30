@@ -666,25 +666,25 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
   def S  : LDT<ty, 0b0, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
                asmop # "s", "$rd = [${ra:addrmod}${imm:addrmod}]",
-               [] >;
+               [], IIC_LDs>;
 
   // load from local memory
   def L  : LDT<ty, 0b0, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
                asmop # "l", "$rd = [${ra:addrmod}${imm:addrmod}]",
-               [] >;
+               [], IIC_LD>;
 
   // load from data cache
   def C  : LDT<ty, 0b1, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
                asmop # "c", "$rd = [${ra:addrmod}${imm:addrmod}]",
-               [] >;
+               [], IIC_LD>;
 
   // load from main memory
   def M  : LDT<ty, 0b1, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
                asmop # "m", "$rd = [${ra:addrmod}${imm:addrmod}]",
-               [] >;
+               [], IIC_LD>;
 }
 
 multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
@@ -695,13 +695,13 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
                  "d" # asmop # "c", "sm = [${ra:addrmod}${imm:addrmod}]",
-                 [] >;
+                 [], IIC_LD>;
 
     // load from main memory (no pattern to match)
     def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
                  "d" # asmop # "m", "sm = [${ra:addrmod}${imm:addrmod}]",
-                 [] >;
+                 [], IIC_LD>;
   }
 }
 
@@ -727,25 +727,25 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
   def S  : STT<ty, 0b00, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "s", "[${ra:addrmod}${imm:addrmod}] = $rs",
-               [] >;
+               [], IIC_STs>;
 
   // store to local memory
   def L  : STT<ty, 0b01, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "l", "[${ra:addrmod}${imm:addrmod}] = $rs",
-               [] >;
+               [], IIC_ST>;
 
   // store to data cache (and to main memory; with data cache allocation?)
   def C  : STT<ty, 0b10, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "c", "[${ra:addrmod}${imm:addrmod}] = $rs",
-               [] >;
+               [], IIC_ST>;
 
   // store to main memory (no data cache allocate)
   def M  : STT<ty, 0b11, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "m", "[${ra:addrmod}${imm:addrmod}] = $rs",
-               [] >;
+               [], IIC_ST>;
 }
 
 

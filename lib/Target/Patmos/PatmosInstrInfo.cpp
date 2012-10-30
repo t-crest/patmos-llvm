@@ -16,18 +16,19 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/Function.h"
+#include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
-
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
+//#include "llvm/Support/Debug.h"
+//#include "llvm/Support/raw_ostream.h"
 
 #define GET_INSTRINFO_CTOR
 #include "PatmosGenInstrInfo.inc"
+#include "PatmosGenDFAPacketizer.inc"
 
 
 using namespace llvm;
@@ -151,15 +152,14 @@ void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
     .addReg(Patmos::NoRegister).addImm(0);
 }
 
-void PatmosInstrInfo::
-InsertNOP(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
-          DebugLoc DL, unsigned NumCycles) const {
-  MachineBasicBlock::iterator J = next(I);
-  for(unsigned i=0; i<NumCycles; i++) {
-    BuildMI(MBB, J, DL, get(Patmos::NOP))
-      .addReg(Patmos::NoRegister).addImm(0);
-  }
+
+DFAPacketizer *PatmosInstrInfo::
+CreateTargetScheduleState(const TargetMachine *TM,
+                           const ScheduleDAG *DAG) const {
+  const InstrItineraryData *II = TM->getInstrItineraryData();
+  return TM->getSubtarget<PatmosGenSubtargetInfo>().createDFAPacketizer(II);
 }
+
 
 
 bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
@@ -195,6 +195,19 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
   }
   return false;
 }
+
+bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
+  unsigned opc = MI->getOpcode();
+  switch (opc) {
+    case Patmos::SENS:
+    case Patmos::SRES:
+    case Patmos::SFREE:
+      return true;
+    default: return false;
+  }
+}
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 //
