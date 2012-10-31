@@ -71,14 +71,14 @@ public:
                                  MCValue &Target, uint64_t &Value,
                                  bool &IsResolved)
   {
-    // TODO check if we can resolve the fixup, and if so, do so
-
     MCFixupKind Kind = Fixup.getKind();
 
-    // For PCRELs, we need to adjust the offset value to the current instruction
+    // For plain PCRELs in the same section, LLVM resolves them itself
     if (isPCRELFixupKind(Kind)) {
-      // .. however, this is done in the linker, so we emit symbols for all
-      // labels instead
+      // However, we want to have symbols for our MBBs, so we emit symbols
+      // for all labels instead
+      // TODO actually, we only need symbols if it is needed for flow facts
+      IsResolved = false;
       return;
     }
 

@@ -44,7 +44,6 @@ namespace {
 }
 
 PatmosELFObjectWriter::PatmosELFObjectWriter(uint8_t OSABI)
-  // TODO use EM_PATMOS
   : MCELFObjectTargetWriter(false, OSABI, ELF::EM_PATMOS,
                             /*HasRelocationAddend*/ false) {}
 
@@ -58,7 +57,11 @@ const MCSymbol *PatmosELFObjectWriter::ExplicitRelSym(const MCAssembler &Asm,
 
   const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
 
-  // TODO do not emit symbols for strings or temporary symbols? (return NULL, emits as section symbol + offset)
+  // TODO do not emit symbols for strings or temporary symbols? (return NULL,
+  // emits as section symbol + offset)
+
+  // Note: also see PatmosAsmBackend::processFixupValue for Fixup->Relocation
+  // resolution. Also decides which Fixups become Symbols.
 
   return &Symbol;
 }
