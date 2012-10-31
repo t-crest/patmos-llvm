@@ -356,8 +356,9 @@ class SPCf<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 // LDT - Load Typed
 //
 class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
-      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FLDT, IIC_MEM> {
+      dag outs, dag ins, string op, string asmstr,
+      list<dag> pattern, InstrItinClass itin>
+  : PatmosInst<outs, ins, op, asmstr, pattern, FLDT, itin> {
 
   let mayLoad = 1;
 
@@ -386,8 +387,9 @@ class LDT<bits<3> ty, bits<1> ts1, bits<1> ts0,
 // STT - Store Typed
 //
 class STT<bits<3> ty, bits<2> td,
-      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FSTT, IIC_MEM> {
+      dag outs, dag ins, string op, string asmstr,
+      list<dag> pattern, InstrItinClass itin>
+  : PatmosInst<outs, ins, op, asmstr, pattern, FSTT, itin> {
 
 
   let mayStore = 1;
@@ -419,7 +421,7 @@ class STT<bits<3> ty, bits<2> td,
 //
 class STC<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTC, IIC_MEM> {
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTC, IIC_STC> {
 
   // unbound fields
   bits<22> imm;

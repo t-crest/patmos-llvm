@@ -16,18 +16,19 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/Function.h"
+#include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
-
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
+//#include "llvm/Support/Debug.h"
+//#include "llvm/Support/raw_ostream.h"
 
 #define GET_INSTRINFO_CTOR
 #include "PatmosGenInstrInfo.inc"
+#include "PatmosGenDFAPacketizer.inc"
 
 
 using namespace llvm;
@@ -151,15 +152,14 @@ void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
     .addReg(Patmos::NoRegister).addImm(0);
 }
 
-void PatmosInstrInfo::
-InsertNOP(MachineBasicBlock &MBB, MachineBasicBlock::iterator &I,
-          DebugLoc DL, unsigned NumCycles) const {
-  MachineBasicBlock::iterator J = next(I);
-  for(unsigned i=0; i<NumCycles; i++) {
-    BuildMI(MBB, J, DL, get(Patmos::NOP))
-      .addReg(Patmos::NoRegister).addImm(0);
-  }
+
+DFAPacketizer *PatmosInstrInfo::
+CreateTargetScheduleState(const TargetMachine *TM,
+                           const ScheduleDAG *DAG) const {
+  const InstrItineraryData *II = TM->getInstrItineraryData();
+  return TM->getSubtarget<PatmosGenSubtargetInfo>().createDFAPacketizer(II);
 }
+
 
 
 bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
@@ -194,6 +194,45 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
     return true;
   }
   return false;
+}
+
+bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
+  unsigned opc = MI->getOpcode();
+  switch (opc) {
+    case Patmos::SENS:
+    case Patmos::SRES:
+    case Patmos::SFREE:
+      return true;
+    default: return false;
+  }
+}
+
+
+unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
+  assert(MI->mayLoad() || MI->mayStore());
+
+  // FIXME: Maybe there is a better way to get this info directly from
+  //        the instruction definitions in the .td files
+  using namespace Patmos;
+  unsigned opc = MI->getOpcode();
+  switch (opc) {
+    case LWS: case LHS: case LBS: case LHUS: case LBUS:
+    case SWS: case SHS: case SBS:
+      return PatmosII::MEM_S;
+    case LWL: case LHL: case LBL: case LHUL: case LBUL:
+    case SWL: case SHL: case SBL:
+      return PatmosII::MEM_L;
+    case  LWC: case  LHC: case  LBC: case  LHUC: case  LBUC:
+    case DLWC: case DLHC: case DLBC: case DLHUC: case DLBUC:
+    case  SWC: case  SHC: case  SBC:
+      return PatmosII::MEM_C;
+    case  LWM: case  LHM: case  LBM: case  LHUM: case  LBUM:
+    case DLWM: case DLHM: case DLBM: case DLHUM: case DLBUM:
+    case  SWM: case  SHM: case  SBM:
+      return PatmosII::MEM_M;
+    default: llvm_unreachable("Unexpected memory access instruction!");
+  }
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////

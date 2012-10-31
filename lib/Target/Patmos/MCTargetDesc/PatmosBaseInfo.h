@@ -81,6 +81,14 @@ namespace PatmosII {
     FormMask    = 0x0F
   };
 
+  enum  {
+    //===------------------------------------------------------------------===//
+    // Patmos Memory Types.
+    MEM_S = 0, // stack cache
+    MEM_L = 1, // local memory (scratchpad)
+    MEM_C = 2, // data cache
+    MEM_M = 3  // main memory (bypass caches)
+  };
 }
 
 inline static unsigned getPatmosImmediateOpNo(uint64_t TSFlags) {
