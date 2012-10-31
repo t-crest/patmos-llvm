@@ -208,6 +208,32 @@ bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
 }
 
 
+unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
+  assert(MI->mayLoad() || MI->mayStore());
+
+  // FIXME: Maybe there is a better way to get this info directly from
+  //        the instruction definitions in the .td files
+  using namespace Patmos;
+  unsigned opc = MI->getOpcode();
+  switch (opc) {
+    case LWS: case LHS: case LBS: case LHUS: case LBUS:
+    case SWS: case SHS: case SBS:
+      return PatmosII::MEM_S;
+    case LWL: case LHL: case LBL: case LHUL: case LBUL:
+    case SWL: case SHL: case SBL:
+      return PatmosII::MEM_L;
+    case  LWC: case  LHC: case  LBC: case  LHUC: case  LBUC:
+    case DLWC: case DLHC: case DLBC: case DLHUC: case DLBUC:
+    case  SWC: case  SHC: case  SBC:
+      return PatmosII::MEM_C;
+    case  LWM: case  LHM: case  LBM: case  LHUM: case  LBUM:
+    case DLWM: case DLHM: case DLBM: case DLHUM: case DLBUM:
+    case  SWM: case  SHM: case  SBM:
+      return PatmosII::MEM_M;
+    default: llvm_unreachable("Unexpected memory access instruction!");
+  }
+
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //

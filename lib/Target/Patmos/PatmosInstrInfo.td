@@ -297,20 +297,22 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
 
   // branches with cache-fill
 
-  // unconditional
-  let isBarrier=1, isCodeGenOnly=1 in
-  def BRCFu : CFLb<0b10, (outs), (ins pred:$p, pcreltarget:$target),
-                   "brcf", "$target", []>;
+  let neverHasSideEffects = 1 in { // due to lacking pattern
+    // unconditional
+    let isBarrier=1, isCodeGenOnly=1 in
+    def BRCFu : CFLb<0b10, (outs), (ins pred:$p, pcreltarget:$target),
+                     "brcf", "$target", []>;
 
-  // conditional
-  let isBarrier=0 in
-  def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
-                   "brcf", "$target", []>;
+    // conditional
+    let isBarrier=0 in
+    def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
+                     "brcf", "$target", []>;
 
-  // indirect
-  let isIndirectBranch=1, isBarrier=1 in
-  def BRCFR : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
-                   "brcf", "$rs", []>;
+    // indirect
+    let isIndirectBranch=1, isBarrier=1 in
+    def BRCFR : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
+                     "brcf", "$rs", []>;
+  }
 }
 
 
@@ -335,7 +337,8 @@ let isCall=1, hasDelaySlot=1,
                   "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1 in {
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
+    neverHasSideEffects = 1 in { // due to missing pattern
   def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
                   "ret", "$rb, $ro", []>;
 }
@@ -424,7 +427,7 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 // Pseudo Instructions using binary arithmetic opcodes
 
 // conditional add: add something only if predicate is set
-let Constraints = "$rs1 = $rd", isCodeGenOnly = 1 in
+let Constraints = "$rs1 = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in
 def CADDi : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
                  "add", "$rd = $rs1, $imm",
                  []>;
@@ -439,8 +442,9 @@ def DYNALLOC : PatmosInst<(outs RRegs:$rd),
 
 
 // move instructions
-let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
+let isAsCheapAsAMove = 1, imm = 0, ImmOpNo = 0 in {
   // mov Rd = Rs ... add Rd = Rs + 0
+  let neverHasSideEffects = 1 in
   def MOV : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
                  "mov", "$rd = $rs1", []>;
 
@@ -457,7 +461,7 @@ let isAsCheapAsAMove=1, imm=0, ImmOpNo = 0 in {
 }
 
 // nop = sub r0 = r0 - 0
-let rd=0, rs1 = 0, imm=0, ImmOpNo = 0 in
+let rd = 0, rs1 = 0, imm = 0, ImmOpNo = 0, neverHasSideEffects = 1 in
 def NOP : ALUi<0b0001, (outs ), (ins pred:$p),
                "nop", "", []>;
 
@@ -476,7 +480,8 @@ def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
                [(set RRegs:$rd, (not RRegs:$rs1))]>;
 
 // clr Rd ... add Rd = R0 + 0
-let rs1 = 0, imm = 0, ImmOpNo = 0 in
+let rs1 = 0, imm = 0, ImmOpNo = 0,
+    neverHasSideEffects = 1 in
 def CLR : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p),
                  "clr", "$rd", []>;
 
@@ -493,8 +498,7 @@ def ZEXT8 : ALUi <0b0111,
 let rs1 = 0,
     ImmOpNo = 3,
     isAsCheapAsAMove = 1,
-    isMoveImm = 1
-in {
+    isMoveImm = 1 in {
   // NOTE: this must be kept consistent with HasALUlVariant in PatmosInstrInfo.h
 
   let isReMaterializable = 1 in {
@@ -512,7 +516,7 @@ in {
                     [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
   }
   // conditional load immediates
-  let isCodeGenOnly = 1 in {
+  let isCodeGenOnly = 1, neverHasSideEffects = 1 in {
     def CLIi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, uimm12:$imm),
 		     "li", "$rd = $imm", []>;
     def CLIin : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, nuimm12:$imm),
@@ -555,7 +559,7 @@ def ABS    : ALUu <0b0011,
 
 
 // Multiply
-let Defs = [SL,SH], isCommutable=1 in {
+let Defs = [SL,SH], isCommutable = 1 in {
 def MUL  : ALUm <0b0000,
               (outs ), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
               "mul", "$rs1, $rs2",
@@ -569,6 +573,7 @@ def MULU : ALUm <0b0001,
 
 // Compare
 
+let neverHasSideEffects = 1 in
 class Compare<string asmop, bits<4> opcode>
       : ALUc <opcode,
               (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
@@ -597,8 +602,7 @@ def MOVrp : ALUc <0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1),
 
 
 // Predicate Combine
-
-
+let neverHasSideEffects = 1 in
 class PredCombine<bits<4> opcode, string asmop>
       : ALUp <opcode,
               (outs PRegs:$pd), (ins pred:$p, predset:$ps1, predset:$ps2),
@@ -613,6 +617,7 @@ def PNOR: PredCombine <0b1011, "nor">;
 // Pseudos:
 //mov uses or opcode (or Pd = Ps | !p0)
 let isAsCheapAsAMove=1, ps2 = 0b1000 in {
+  let neverHasSideEffects = 1 in
   def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
                   "mov", "$pd = $ps1", []>;
 
@@ -660,6 +665,7 @@ def MFS  : SPCf <(outs RRegs:$rd), (ins pred:$p, SRegs:$ss), "mfs", "$rd = $ss",
 
 // Load typed
 
+let neverHasSideEffects = 1 in // mayLoad is set in format
 multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
 {
   // load from stack cache
@@ -687,6 +693,7 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
                [], IIC_LD>;
 }
 
+let neverHasSideEffects = 1 in // mayLoad is set in format
 multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
 {
   let Defs = [SM], rd = 0, ImmOpNo = 3 in
@@ -721,6 +728,7 @@ let ImmShift = 0, ImmSigned = 1 in defm DLBU : DecoupledLoadTyped<0b1110, imm7  
 
 // Store typed
 
+let neverHasSideEffects = 1 in // mayStore is set in format
 multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
 {
   // store to stack cache

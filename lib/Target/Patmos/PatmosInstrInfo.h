@@ -81,6 +81,11 @@ public:
   // isStackControl - Return true if the instruction controls the stack cache.
   virtual bool isStackControl(const MachineInstr *MI) const;
 
+  // getMemType - Return the type for Patmos' typed memory accesses.
+  // MI must be either a load or a store instruction.
+  virtual unsigned getMemType(const MachineInstr *MI) const;
+
+
 
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling
