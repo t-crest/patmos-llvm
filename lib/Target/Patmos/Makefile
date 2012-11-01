@@ -18,8 +18,8 @@ BUILT_SOURCES = PatmosGenRegisterInfo.inc PatmosGenInstrInfo.inc \
 		PatmosGenDAGISel.inc PatmosGenCallingConv.inc \
 		PatmosGenSubtargetInfo.inc \
 		PatmosGenMCCodeEmitter.inc \
-		PatmosGenEDInfo.inc PatmosGenDisassemblerTables.inc
-		#PatmosGenDFAPacketizer.inc 
+		PatmosGenEDInfo.inc PatmosGenDisassemblerTables.inc \
+		PatmosGenDFAPacketizer.inc
 
 DIRS = InstPrinter TargetInfo MCTargetDesc AsmParser Disassembler
 
