@@ -362,8 +362,9 @@ void DelayHazardInfo::insertDefsUses(MachineInstr *MI) {
     else if (MO.isUse())
       inserted = RegUses.insert(reg);
 
-    if (inserted)
+    if (inserted) {
       DEBUG_TRACE(dbgs() << " " << PrintReg(reg, PDSF.TRI) );
+    }
   }
   DEBUG_TRACE(dbgs() << " ]\n");
 }
