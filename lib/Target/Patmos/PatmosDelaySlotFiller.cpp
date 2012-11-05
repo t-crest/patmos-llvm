@@ -31,6 +31,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Function.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
@@ -91,9 +92,17 @@ namespace {
     bool runOnMachineBasicBlock(MachineBasicBlock &MBB);
     bool runOnMachineFunction(MachineFunction &F) {
       bool Changed = false;
+      DEBUG( dbgs() << "[DelaySlotFiller] "
+                    << F.getFunction()->getName() << "\n" );
       for (MachineFunction::iterator FI = F.begin(), FE = F.end();
            FI != FE; ++FI)
         Changed |= runOnMachineBasicBlock(*FI);
+
+      // insert NOPs after other instructions, if necessary
+      // FIXME: This should eventually be handled in the scheduler.
+      for (MachineFunction::iterator FI = F.begin(), FE = F.end();
+           FI != FE; ++FI)
+        Changed |= insertNOPs(*FI);
       return Changed;
     }
 
@@ -103,6 +112,9 @@ namespace {
     bool hasDefUseDep(const MachineInstr *D, const MachineInstr *U) const;
 
   protected:
+    /// insertNOPs - insert NOPs where necessary to avoid hazards
+    bool insertNOPs(MachineBasicBlock &MBB);
+
     /// insertAfterLoad - Insert a NOP after a load instruction, if the
     /// successor instruction uses the loaded value.
     bool insertAfterLoad(MachineBasicBlock &MBB,
@@ -178,9 +190,12 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
       Changed = true; // pass result
     }
   }
+  return Changed;
+}
 
-  // insert NOPs after other instructions, if necessary
-  // FIXME: This should eventually be handled in the scheduler.
+
+bool PatmosDelaySlotFiller::insertNOPs(MachineBasicBlock &MBB) {
+  bool Changed = false;
   for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
     unsigned opc = I->getOpcode();
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
