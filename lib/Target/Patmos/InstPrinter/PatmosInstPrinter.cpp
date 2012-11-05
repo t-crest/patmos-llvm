@@ -101,7 +101,7 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
       // We have the hex value in the disassembly output anyway, and we do not
       // want to print hex for LIin
       if (IsShifted && MI->getOpcode() == Patmos::CALL) {
-        O << format("0x%X", Value);
+        O << format("0x%x", Value);
       } else {
         O << Value;
       }
