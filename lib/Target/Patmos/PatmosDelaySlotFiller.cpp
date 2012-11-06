@@ -92,7 +92,7 @@ namespace {
     bool runOnMachineBasicBlock(MachineBasicBlock &MBB);
     bool runOnMachineFunction(MachineFunction &F) {
       bool Changed = false;
-      DEBUG( dbgs() << "[DelaySlotFiller] "
+      DEBUG( dbgs() << "\n[DelaySlotFiller] "
                     << F.getFunction()->getName() << "\n" );
       for (MachineFunction::iterator FI = F.begin(), FE = F.end();
            FI != FE; ++FI)
@@ -177,6 +177,8 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
   // this info needs to survive for the whole MBB
   SmallSet<MachineInstr *, 16> FillerInstrs;
 
+  DEBUG( dbgs() << "Filling slots in BB#" << MBB.getNumber()
+                << " (" << MBB.getFullName() << ")\n" );
   // XXX call AnalyzeBranch for this MBB for a last time?
 
   // consider the basic block from top to bottom
@@ -196,6 +198,8 @@ bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 
 bool PatmosDelaySlotFiller::insertNOPs(MachineBasicBlock &MBB) {
   bool Changed = false;
+
+  DEBUG( dbgs() << "Inserting NOPs in " << MBB.getName() << "\n" );
   for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
     unsigned opc = I->getOpcode();
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
@@ -220,7 +224,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
   DelayHazardInfo DI(*this);
 
-  DEBUG( dbgs() << "Filling slots for: " << *I );
+  DEBUG( dbgs() << "For: " << *I );
 
   if (!DisableDelaySlotFiller) {
 
@@ -317,36 +321,23 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
     if (MBB.succ_empty()) // no successor, nothing we need to do
       return false;
 
-    if (MBB.succ_size() == 1) { // fallthrough case
-      MachineInstr *FirstMI = (*MBB.succ_begin())->begin();
+    // check all successors
+    bool inserted = false;
+    for (MachineBasicBlock::succ_iterator SMBB = MBB.succ_begin();
+            SMBB!=MBB.succ_end(); ++SMBB) {
+      MachineInstr *FirstMI = (*SMBB)->begin();
       if (hasDefUseDep(I, FirstMI)) {
-          TII->insertNoop(MBB, next(I)); // insert at the end of MBB
-          // stats and debug output
-          ++InsertedLoadNOPs;
+        TII->insertNoop(**SMBB, FirstMI); // insert before first instruction
+        // stats and debug output
+        ++InsertedLoadNOPs;
+        if (!inserted) {
           DEBUG( dbgs() << "NOP inserted after load: " << *I );
-          DEBUG( dbgs() << "           (end) before: " << *FirstMI );
-          return true;
-      }
-    } else { // more than one successor
-      assert(MBB.succ_size() > 1);
-      // check all successors
-      bool inserted = false;
-      for (MachineBasicBlock::succ_iterator SMBB = MBB.succ_begin();
-              SMBB!=MBB.succ_end(); ++SMBB) {
-        MachineInstr *FirstMI = (*SMBB)->begin();
-        if (hasDefUseDep(I, FirstMI)) {
-          TII->insertNoop(**SMBB, FirstMI); // insert before first instruction
-          // stats and debug output
-          ++InsertedLoadNOPs;
-          if (!inserted) {
-            DEBUG( dbgs() << "NOP inserted after load: " << *I );
-            inserted = true;
-          }
-          DEBUG(   dbgs() << "          (succ) before: " << *FirstMI );
+          inserted = true;
         }
+        DEBUG(   dbgs() << "          (succ) before: " << *FirstMI );
       }
-      return inserted;
     }
+    return inserted;
   }
   return false;
 }
