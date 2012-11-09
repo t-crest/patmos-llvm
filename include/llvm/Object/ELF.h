@@ -845,7 +845,8 @@ error_code ELFObjectFile<target_endianness, is64Bits>
   case ELF::STT_CODE:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
-    Result = symb->st_value + (Section ? Section->sh_addr : 0);
+    Result = symb->st_value + (Section && Header->e_type == ELF::ET_REL ?
+                               Section->sh_addr : 0);
     return object_error::success;
   default:
     Result = UnknownAddressOrSize;
@@ -1152,8 +1153,14 @@ error_code ELFObjectFile<target_endianness, is64Bits>
                           ::sectionContainsSymbol(DataRefImpl Sec,
                                                   DataRefImpl Symb,
                                                   bool &Result) const {
-  // FIXME: Unimplemented.
-  Result = false;
+  const Elf_Sym  *symb = getSymbol(Symb);
+  const Elf_Shdr *sec = getSection(symb);
+  if (!sec) {
+    Result = false;
+  } else {
+    Result = (Sec.p == reinterpret_cast<uintptr_t>(sec));
+  }
+
   return object_error::success;
 }
 
@@ -1265,7 +1272,14 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     }
   }
 
-  Result = offset;
+  if (Header->e_type == ELF::ET_REL) {
+    // for relocatable ELFs offset is relative to section address
+    const Elf_Shdr *ref = getSection(sec->sh_info);
+    Result = offset + ref->sh_addr;
+  } else {
+    Result = offset;
+  }
+
   return object_error::success;
 }
 
@@ -1288,7 +1302,14 @@ error_code ELFObjectFile<target_endianness, is64Bits>
     }
   }
 
-  Result = offset - sec->sh_addr;
+  if (Header->e_type == ELF::ET_REL) {
+    // for relocatable ELFs offset is relative to section address
+    Result = offset;
+  } else {
+    const Elf_Shdr *ref = getSection(sec->sh_info);
+    Result = offset - ref->sh_addr;
+  }
+
   return object_error::success;
 }
 

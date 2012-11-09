@@ -183,6 +183,10 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
     uint64_t SectionAddr;
     if (error(i->getAddress(SectionAddr))) break;
 
+    StringRef name;
+    if (error(i->getName(name))) break;
+    outs() << "Disassembly of section " << name << ':';
+
     // Make a list of all the symbols in this section.
     std::vector<std::pair<uint64_t, StringRef> > Symbols;
     for (symbol_iterator si = Obj->begin_symbols(),
@@ -200,6 +204,9 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
       }
     }
 
+    // Always dump the whole section, even if it does not start with a label
+    Symbols.push_back(std::make_pair(0, name));
+
     // Sort the symbols by address, just in case they didn't come in that way.
     array_pod_sort(Symbols.begin(), Symbols.end());
 
@@ -216,15 +223,6 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
 
     // Sort relocations by address.
     std::sort(Rels.begin(), Rels.end(), RelocAddressLess);
-
-    StringRef name;
-    if (error(i->getName(name))) break;
-    outs() << "Disassembly of section " << name << ':';
-
-    // If the section has no symbols just insert a dummy one and disassemble
-    // the whole section.
-    if (Symbols.empty())
-      Symbols.push_back(std::make_pair(0, name));
 
     // Set up disassembler.
     OwningPtr<const MCAsmInfo> AsmInfo(TheTarget->createMCAsmInfo(TripleName));
@@ -329,7 +327,8 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
           if (error(rel_cur->getHidden(hidden))) goto skip_print_rel;
           if (hidden) goto skip_print_rel;
 
-          if (error(rel_cur->getAddress(addr))) goto skip_print_rel;
+          if (error(rel_cur->getOffset(addr))) goto skip_print_rel;
+
           // Stop when rel_cur's address is past the current instruction.
           if (addr >= Index + Size) break;
           if (error(rel_cur->getTypeName(name))) goto skip_print_rel;
