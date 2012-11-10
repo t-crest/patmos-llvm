@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "PatmosMCInstLower.h"
-#include "PatmosInstrInfo.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -22,7 +21,6 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
-#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/Target/Mangler.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -36,20 +34,7 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
   MCSymbolRefExpr::VariantKind Kind;
   const MCSymbol *Symbol;
 
-  switch (MO.getTargetFlags()) {
-  case PatmosII::MO_NO_FLAG:    Kind = MCSymbolRefExpr::VK_None; break;
-  case PatmosII::MO_FREL:       Kind = MCSymbolRefExpr::VK_Patmos_FREL; break;
-  default: llvm_unreachable("Unknown target flag on GV operand");
-  }
-
-  // We need to know if the operand is used in a PC-relative instruction so
-  // that we can set the FREL flag on all other uses of block references.
-  bool isPCrel = false;
-  const MachineInstr* MI = MO.getParent();
-  if (MI) {
-    int opcode = MI->getOpcode();
-    isPCrel = HasPCRELImmediate(opcode, Ctx.getInstrInfo().get(opcode));
-  }
+  Kind = MCSymbolRefExpr::VK_None;
 
   // Note: jump table entries (refs to BBs) are lowered in
   // PatmosISelLowering::LowerCustomJumpTableEntry
@@ -57,14 +42,12 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
   switch (MO.getType()) {
   case MachineOperand::MO_MachineBasicBlock:
     Symbol = MO.getMBB()->getSymbol();
-    if (!isPCrel) Kind = MCSymbolRefExpr::VK_Patmos_FREL;
     break;
   case MachineOperand::MO_GlobalAddress:
     Symbol = Printer.Mang->getSymbol(MO.getGlobal());
     break;
   case MachineOperand::MO_BlockAddress:
     Symbol = Printer.GetBlockAddressSymbol(MO.getBlockAddress());
-    // TODO do we need to emit as FREL??
     break;
   case MachineOperand::MO_ExternalSymbol:
     Symbol = Printer.GetExternalSymbolSymbol(MO.getSymbolName());

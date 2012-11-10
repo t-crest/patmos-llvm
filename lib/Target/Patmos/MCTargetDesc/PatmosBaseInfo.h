@@ -32,10 +32,8 @@ namespace PatmosII {
     //===------------------------------------------------------------------===//
     // Patmos Specific MachineOperand flags.
 
-    MO_NO_FLAG,
+    MO_NO_FLAG
 
-    /// MO_FREL - Operand represents a cache/function relative address
-    MO_FREL
   };
 
   enum {
