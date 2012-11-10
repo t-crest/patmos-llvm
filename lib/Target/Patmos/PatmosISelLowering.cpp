@@ -178,12 +178,6 @@ const MCExpr * PatmosTargetLowering::LowerCustomJumpTableEntry(
                           MCContext &OutContext) const
 {
   // Note: see also PatmosMCInstLower::LowerSymbolOperand
-
-  // check if the MBB is the entry to a method-cache-cacheable code region.
-  const MachineFunction *MF = MBB->getParent();
-  const PatmosMachineFunctionInfo *PMFI=
-                                       MF->getInfo<PatmosMachineFunctionInfo>();
-
   return MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
 }
 

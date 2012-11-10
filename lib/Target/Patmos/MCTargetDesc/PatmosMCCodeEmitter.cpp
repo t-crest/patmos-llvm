@@ -213,7 +213,6 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
 
   const MCInstrDesc &MID = MCII.get(MI.getOpcode());
 
-  MCSymbolRefExpr::VariantKind Kind = Expr->getKind();
   uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
 
   Patmos::Fixups FixupKind;
