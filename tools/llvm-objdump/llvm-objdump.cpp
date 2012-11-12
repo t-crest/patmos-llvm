@@ -511,12 +511,8 @@ static void PrintSymbolTable(const ObjectFile *o) {
       bool Weak = Flags & SymbolRef::SF_Weak;
       bool Absolute = Flags & SymbolRef::SF_Absolute;
 
-      if (Address == UnknownAddressOrSize)
+      if (Address == UnknownAddressOrSize) {
         Address = 0;
-      else if (Section != o->end_sections()) {
-        uint64_t SectionAddr;
-        if (!error(Section->getAddress(SectionAddr)))
-          Address -= SectionAddr;
       }
       if (Size == UnknownAddressOrSize)
         Size = 0;
