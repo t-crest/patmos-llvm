@@ -98,6 +98,11 @@ void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   // if the function has only one cache block)
   CurrCodeEnd = OutContext.CreateTempSymbol();
 
+  // TODO the alignment of the machinefunction and basic blocks is never set.
+  //      either use the TargetMachine I-cache alignment info as minimum value
+  //      or set alignments in some separate pass (must be after the function
+  //      splitter, or both in function splitter and a separate pass)!
+
   // convert LLVM's log2 function alignment
   unsigned alignment = std::max(4u, 1u << MF->getAlignment());
 
