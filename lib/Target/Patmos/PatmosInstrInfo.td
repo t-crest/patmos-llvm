@@ -33,6 +33,8 @@ def SDT_PatmosDynAlloc     : SDTypeProfile<0, 1, [SDTCisI32<0>]>;
 def SDT_PatmosMul          : SDTypeProfile<0, 2, [SDTCisInt<0>,
                                                   SDTCisSameAs<0, 1>]>;
 
+def SDTBrjt                : SDTypeProfile<0, 2, [SDTCisPtrTy<0>,
+                                                  SDTCisSameAs<0, 1> ]>;
 
 //===----------------------------------------------------------------------===//
 // Patmos Specific Node Definitions.
@@ -61,6 +63,7 @@ def PatmosMulU    : SDNode<"PatmosISD::MULU", SDT_PatmosMul,
 def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
                            [SDNPHasChain]>;
 
+def brjt          : SDNode<"ISD::BR_JT", SDTBrjt,  [SDNPHasChain]>;
 
 //===----------------------------------------------------------------------===//
 // Patmos Operand Definitions.
@@ -199,7 +202,7 @@ def FI_XForm : SDNodeXForm<frameindex, [{ return CurDAG->getTargetFrameIndex(N->
 def fipat : PatLeaf<(i32 frameindex), [{}], FI_XForm>;
 
 def JT_XForm : SDNodeXForm<jumptable, [{ return CurDAG->getTargetJumpTable(N->getIndex(), N->getValueType(0), N->getTargetFlags()); }]>;
-def jtpat : PatLeaf<(i32 jumptable), [{}], JT_XForm>;
+def jtpat : Operand<i32>, PatLeaf<(i32 jumptable), [{}], JT_XForm>;
 
 def GS_XForm : SDNodeXForm<globaladdr, [{ return CurDAG->getTargetGlobalAddress(N->getGlobal(), N->getDebugLoc(), N->getValueType(0), N->getOffset(), N->getTargetFlags()); }]>;
 def gspat : PatLeaf<(i32 globaladdr), [{}], GS_XForm>;
@@ -289,10 +292,27 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
   def BR  : CFLb<0b01, (outs), (ins predset:$p, pcreltarget:$target),
                  "br", "$target", [(brcond predsel:$p, bb:$target)]>;
 
-  // indirect
-  let isIndirectBranch=1, isBarrier=1 in
-  def BRR : CFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
+  // indirect-unconditional
+  let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+  def BRRu: CFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
                  "br", "$rs", [(brind RRegs:$rs)]>;
+
+  // indirect-conditional
+  let isIndirectBranch=1, isBarrier=0, neverHasSideEffects = 1 in
+  def BRR : CFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs),
+                 "br", "$rs", []>;
+
+  // jumptable-unconditional
+  let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1,
+      neverHasSideEffects = 1 in
+  def BRTu: CFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
+                 "br", "$rs", []>;
+
+  // jumptable-conditional
+  let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1,
+      neverHasSideEffects = 1 in
+  def BRT : CFLi<0b0001, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
+                 "br", "$rs", []>;
 
 
   // branches with cache-fill
@@ -308,9 +328,24 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
     def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
                      "brcf", "$target", []>;
 
-    // indirect
-    let isIndirectBranch=1, isBarrier=1 in
+    // indirect-unconditional
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    def BRCFRu: CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
+                     "brcf", "$rs", []>;
+
+    // indirect-conditional
+    let isIndirectBranch=1, isBarrier=0 in
     def BRCFR : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs),
+                     "brcf", "$rs", []>;
+
+    // jumptable-unconditional
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    def BRCFTu: CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
+                     "brcf", "$rs", []>;
+
+    // jumptable-conditional
+    let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1 in
+    def BRCFT : CFLi<0b0010, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
                      "brcf", "$rs", []>;
   }
 }

@@ -136,8 +136,6 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
-  // TODO at some point we want to support jumptables
-  setOperationAction(ISD::BR_JT,     MVT::Other, Expand);
 
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32  , Custom);
 

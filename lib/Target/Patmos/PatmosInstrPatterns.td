@@ -217,3 +217,9 @@ defm SWM : StoreTypedPatterns<SWM, imm7s2, uncachedStore<store>>;
 defm SHM : StoreTypedPatterns<SHM, imm7s1, uncachedStore<truncstorei16>>;
 defm SBM : StoreTypedPatterns<SBM, imm7  , uncachedStore<truncstorei8>>;
 
+
+// Branch via JumpTable
+
+def : Pat<(brjt jtpat:$jtable, RRegs:$index),
+          (BRTu (LWC (SHADD2l RRegs:$index, jtpat:$jtable), 0), jtpat:$jtable)>;
+

@@ -172,7 +172,11 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
       // unconditional branch -> conditional branch
       switch (opc) {
         case BRu:   newopc = BR;   break;
+        case BRRu:  newopc = BRR;  break;
+        case BRTu:  newopc = BRT;  break;
         case BRCFu: newopc = BRCF; break;
+        case BRCFRu:newopc = BRCFR;break;
+        case BRCFTu:newopc = BRCFT;break;
         default:
           assert(MI->isConditionalBranch());
           break;
@@ -181,7 +185,11 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
       // conditional branch -> unconditional branch
       switch (opc) {
         case BR:   newopc = BRu;   break;
+        case BRR:  newopc = BRRu;  break;
+        case BRT:  newopc = BRTu;  break;
         case BRCF: newopc = BRCFu; break;
+        case BRCFR:newopc = BRCFRu;break;
+        case BRCFT:newopc = BRCFTu;break;
         default:
           assert(MI->isUnconditionalBranch());
           break;
