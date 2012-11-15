@@ -899,6 +899,11 @@ namespace llvm {
         fallThrough = mayFallThrough(MBB) ? MBB : NULL;
       }
 
+      // fix-up fall-through blocks
+      if (fallThrough) {
+        fixupFallThrough(fallThrough, NULL);
+      }
+
       // renumber blocks according to the new order
       MF->RenumberBlocks();
     }
