@@ -50,6 +50,7 @@
 #undef PATMOS_TRACE_VISITS
 #undef PATMOS_TRACE_EMIT
 #undef PATMOS_TRACE_FIXUP
+#undef PATMOS_DUMP_ALL_SCC_DOTS
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
@@ -167,7 +168,7 @@ namespace llvm {
     {
       std::stringstream s;
       if (MBB)
-        s << MBB->getName().str();
+        s << MBB->getName().str() << "[" << ID << "]";
       else {
         s << "header" << ID;
       }
@@ -467,6 +468,10 @@ namespace llvm {
       // collect all headers
       ablock_set all_headers;
 
+#ifdef PATMOS_DUMP_ALL_SCC_DOTS
+      unsigned int cnt = 0;
+#endif
+
       bool changed = true;
       while(changed) {
         changed = false;
@@ -478,7 +483,11 @@ namespace llvm {
             i++) {
           ablocks &scc = *i;
 
-          ablock_set headers;
+#ifdef PATMOS_DUMP_ALL_SCC_DOTS
+          write(cnt++);
+#endif
+
+         ablock_set headers;
           aedge_vector entering;
           for(aedges::iterator j(Edges.begin()), je(Edges.end()); j != je;
               j++) {
@@ -977,6 +986,17 @@ namespace llvm {
     void view()
     {
       ViewGraph(*this, "agraph");
+    }
+
+    /// write - dump a DOT file.
+    void write(unsigned int i)
+    {
+      std::stringstream s;
+      s << MF->getFunction()->getName().str() << "-" << i << ".dot";
+      std::string err;
+      raw_fd_ostream f(s.str().c_str(), err);
+      WriteGraph(f, *this);
+      f.close();
     }
 
     /// Free memory.
