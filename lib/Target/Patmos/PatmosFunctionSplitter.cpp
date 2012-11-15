@@ -64,6 +64,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -913,7 +914,24 @@ namespace llvm {
     void rewriteBranch(MachineInstr *BR, unsigned int opcode,
                        MachineBasicBlock *target)
     {
-      if (BR->isIndirectBranch() || BR->getOperand(2).getMBB() == target) {
+      bool rewrite = false;
+
+      if (BR->isIndirectBranch()) {
+        assert(BR->getNumOperands() == 4);
+
+        unsigned index = BR->getOperand(3).getIndex();
+        MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
+        const std::vector<MachineBasicBlock*> &JTBBs(
+                                             MJTI->getJumpTables()[index].MBBs);
+
+        rewrite = std::find(JTBBs.begin(), JTBBs.end(), target) != JTBBs.end();
+      }
+      else {
+        rewrite = BR->getOperand(2).getMBB() == target;
+      }
+
+
+      if (rewrite) {
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         BR->setDesc(TII.get(opcode));
       }
@@ -926,10 +944,9 @@ namespace llvm {
       MachineBasicBlock *sbb = src->MBB;
       MachineBasicBlock *dbb = dst->MBB;
 
-      // nothing to do in case the blocks are in the same region. also skip
-      // artificial loop header.
-      if (src->Region == dst->Region || !sbb)
-        return;
+      // skip artificial loop header.
+      if (!sbb)
+         return;
 
       // destination is an artificial loop header, check all edges that lead 
       // to the real headers of the SCC
@@ -939,8 +956,9 @@ namespace llvm {
           rewriteEdge(src, i->second->Dst);
         }
       }
-      else {
-        // rewrite branch instructions
+      else if (src->Region != dst->Region) {
+        // the two blocks are not in the same region, rewrite the branch ...
+
         for(MachineBasicBlock::instr_iterator j(sbb->instr_begin()),
             je(sbb->instr_end()); j != je; j++)
         {
@@ -958,11 +976,20 @@ namespace llvm {
               rewriteBranch(mi, Patmos::BRCFu, dbb);       break;
             case Patmos::BRR:
               rewriteBranch(mi, Patmos::BRCFR, dbb);       break;
+            case Patmos::BRRu:
+              rewriteBranch(mi, Patmos::BRCFRu, dbb);      break;
+            case Patmos::BRT:
+              rewriteBranch(mi, Patmos::BRCFT, dbb);       break;
+            case Patmos::BRTu:
+              rewriteBranch(mi, Patmos::BRCFTu, dbb);      break;
 
             // already rewritten branches - skip them
             case Patmos::BRCF:
             case Patmos::BRCFu:
             case Patmos::BRCFR:
+            case Patmos::BRCFRu:
+            case Patmos::BRCFT:
+            case Patmos::BRCFTu:
               break;
 
             // unexpected ?
