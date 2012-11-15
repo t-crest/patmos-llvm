@@ -555,8 +555,7 @@ namespace llvm {
           }
 
           // remove all back-edges
-          for(aedges::iterator j(Edges.begin()), je(Edges.end()); j != je;
-              j++) {
+          for(aedges::iterator j(Edges.begin()), je(Edges.end()); j != je;) {
             ablock *src = j->second->Src;
             ablock *dst = j->second->Dst;
             if (std::find(scc.begin(), scc.end(), src) != scc.end() &&
@@ -566,6 +565,9 @@ namespace llvm {
               Edges.erase(j);
               j = Edges.begin();
               changed = true;
+            }
+            else {
+              j++;
             }
           }
 
