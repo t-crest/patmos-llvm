@@ -1032,6 +1032,71 @@ namespace llvm {
       MF->EnsureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
+    /// splitBlockAtEnd - Create a new basic block and insert it as a successor
+    /// after the given machine basic block.
+    static MachineBasicBlock *splitBlockAtEnd(MachineBasicBlock *MBB)
+    {
+      // get current function
+      MachineFunction *MF = MBB->getParent();
+      MachineBasicBlock *newBB = MF->CreateMachineBasicBlock();
+
+      // get all successors of MBB.
+      newBB->transferSuccessors(MBB);
+
+      // insert newBB as successor of MBB
+      MBB->addSuccessor(newBB, 1);
+
+      // ensure that MBB can fall-through to the new block
+      MF->insert(llvm::next(MachineFunction::iterator(MBB)), newBB);
+
+      return newBB;
+    }
+
+    /// splitBlock - Split a basic block into smaller blocks that each fit into
+    /// the method cache.
+    static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize)
+    {
+      // make a new block
+      unsigned int curr_size = mayFallThrough(MBB) ? 12 : 0;
+      unsigned int i_count = 0;
+      bool last_nop = false;
+      for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
+          ie(MBB->instr_rend()); i != ie; i++)
+      {
+        // get instruction size
+        unsigned int i_size = i->getDesc().Size;
+
+        // ensure that NOPs in delay slots remain in place.
+        unsigned int nop_margin = i->getOpcode() != Patmos::NOP || last_nop ?
+                                  0 : 16;
+        last_nop = i->getOpcode() == Patmos::NOP;
+
+        // check block + instruction size
+        if (curr_size + i_size + nop_margin < MCSize)
+        {
+          curr_size += i_size;
+          i_count++;
+        }
+        else
+        {
+          // the current instruction does not fit -- split the block.
+          MachineBasicBlock *newBB = splitBlockAtEnd(MBB);
+
+          // copy instructions over from the original block.
+          while(i_count--)
+          {
+            newBB->insert(newBB->instr_begin(), MBB->back().removeFromParent());
+          }
+
+          // start anew
+          curr_size = 12; // may fall through!
+          i = MBB->instr_rbegin();
+        }
+      }
+
+      return getBBSize(MBB);
+    }
+
     void view()
     {
       ViewGraph(*this, "agraph");
@@ -1101,11 +1166,11 @@ namespace llvm {
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
         unsigned bb_size = agraph::getBBSize(i);
 
+        // in case the block is larger than the method cache, split it and
+        // update its
+        //
         if (bb_size > STC.getMethodCacheSize()) {
-          errs() << "Patmos Function Splitter: "
-                    "Basic block too large for methdo cache: "
-                 << bb_size << " > " << STC.getMethodCacheSize() << "\n";
-          abort();
+          bb_size = agraph::splitBlock(i, STC.getMethodCacheSize());
         }
 
         total_size += bb_size;
