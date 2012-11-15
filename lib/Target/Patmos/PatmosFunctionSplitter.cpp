@@ -483,6 +483,21 @@ namespace llvm {
             i++) {
           ablocks &scc = *i;
 
+          // skip trivial SCCs
+          if (scc.size() == 1) {
+            // check for self-edges
+            ablock *tmp = *scc.begin();
+            bool has_selfedge = false;
+            for(aedges::iterator j(Edges.lower_bound(tmp)),
+                je(Edges.upper_bound(tmp)); j != je && !has_selfedge; j++) {
+              has_selfedge |= (j->second->Src == tmp) &&
+                              (j->second->Dst == tmp);
+            }
+
+            if (!has_selfedge)
+              continue;
+          }
+
 #ifdef PATMOS_DUMP_ALL_SCC_DOTS
           write(cnt++);
 #endif
