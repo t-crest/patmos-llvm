@@ -85,10 +85,10 @@ static cl::opt<bool> DisableFunctionSplitter(
   cl::desc("Disable the Patmos function splitter."),
   cl::Hidden);
 
-static cl::opt<bool> DisableFunctionSplitterBranches(
-  "mpatmos-disable-function-splitter-branches",
+static cl::opt<bool> DisableFunctionSplitterRewrite(
+  "mpatmos-disable-function-splitter-rewrite",
   cl::init(false),
-  cl::desc("Disable the rewriting of branches in the Patmos function splitter."),
+  cl::desc("Disable the rewriting of code in the Patmos function splitter."),
   cl::Hidden);
 
 /// EnableShowCFGs - Option to enable the rendering of annotated CFGs.
@@ -135,6 +135,14 @@ namespace llvm {
     /// non-natural loops or switches.
     MachineBasicBlock * const MBB;
 
+    /// Flag indicating whether the block or the code region it represents
+    /// contains a call instruction.
+    bool HasCall;
+
+    /// Flag indicating whether some block of the SCC represented by the block
+    /// contains a call.
+    bool HasCallinSCC;
+
     /// The size of the basic block.
     unsigned Size;
 
@@ -160,8 +168,11 @@ namespace llvm {
 
     /// Create a block.
     ablock(unsigned id, agraph* g, MachineBasicBlock *mbb = NULL,
-           unsigned size = 0) : ID(id), G(g), MBB(mbb), Size(size), SCCSize(0),
-                                Region(NULL), NumPreds(0)
+           bool hascall = false,  unsigned size = 0) : ID(id), G(g), MBB(mbb),
+                                                      HasCall(hascall),
+                                                      HasCallinSCC(false),
+                                                      Size(size), SCCSize(0),
+                                                      Region(NULL), NumPreds(0)
     {
     }
 
@@ -207,7 +218,7 @@ namespace llvm {
       for(MachineFunction::iterator i(mf->begin()), ie(mf->end());
           i != ie; i++) {
         // make a block
-        ablock *ab = new ablock(id++, this, i, getBBSize(i));
+        ablock *ab = new ablock(id++, this, i, hasCall(i), getBBSize(i));
 
         // store block
         MBBtoA[i] = ab;
@@ -340,6 +351,19 @@ namespace llvm {
 
       // add some bytes in case we need to fix-up the fall-through
       return size + (mayFallThrough(MBB) ? 12 : 0);
+    }
+
+    /// hasCall - Check whether the basic block contains a call instruction.
+    static bool hasCall(MachineBasicBlock *MBB)
+    {
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie; i++)
+      {
+        if (i->isCall())
+          return true;
+      }
+
+      return false;
     }
 
     /// Hold information on a graph node during Tarjan's SCC algorithm.
@@ -503,7 +527,7 @@ namespace llvm {
           write(cnt++);
 #endif
 
-         ablock_set headers;
+          ablock_set headers;
           aedge_vector entering;
           for(aedges::iterator j(Edges.begin()), je(Edges.end()); j != je;
               j++) {
@@ -575,12 +599,15 @@ namespace llvm {
           // compute the combined size of the SCC.
           if (scc.size() > 1) {
             unsigned int scc_size = 0;
+            bool has_call_in_scc = false;
             for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++) {
               assert((*i)->MBB);
               scc_size += getBBSize((*i)->MBB);
+              has_call_in_scc |= (*i)->HasCall;
             }
 
             assert(header && header->SCCSize == 0 && scc_size != 0);
+            header->HasCallinSCC = has_call_in_scc;
             header->SCCSize = scc_size;
             header->SCC = scc;
             all_headers.insert(header);
@@ -714,11 +741,16 @@ namespace llvm {
       DEBUG(dbgs() << "  visit: " << block->getName());
 #endif
       if (block->SCCSize == 0 || region == block) {
+        // do we need to insert fix-up code for calls in the region?
+        unsigned call_fix_up = (block->HasCall && !region->HasCall) ? 8 : 0;
+
         // regular block that is not a loop header or a loop header in its own
         // region
-        if (block->Size + region_size <= STC.getMethodCacheSize()) {
+        if (call_fix_up + block->Size + region_size <=
+                                                     STC.getMethodCacheSize()) {
           // update the region's total size
-          region_size += block->Size;
+          region_size += block->Size + call_fix_up;
+          region->HasCall |= block->HasCall;
 
           // emit the blocks of the SCC and update the ready list
           ablocks tmp;
@@ -741,9 +773,16 @@ namespace llvm {
       else {
         // loop header of some loop
 
-        if (block->SCCSize + region_size <= STC.getMethodCacheSize()) {
+        // do we need to insert fix-up code due to calls in the entire SCC
+        // calls?
+        unsigned call_fix_up = (block->HasCallinSCC && !region->HasCall) ? 8 :
+                                                                           0;
+
+        if (call_fix_up + block->SCCSize + region_size <=
+                                                     STC.getMethodCacheSize()) {
           // update the region's total size
-          region_size += block->SCCSize;
+          region_size += block->SCCSize + call_fix_up;
+          region->HasCall |= block->HasCallinSCC;
 
           // emit all blocks of the SCC and update the ready list
           emitSCC(region, block->SCC, ready, regions, order);
@@ -1004,9 +1043,10 @@ namespace llvm {
       }
     }
 
-    /// rewriteBranches - Rewrite branches crossing from one region to another
-    /// to non-cache variants.
-    void rewriteBranches()
+    /// rewriteCode - Rewrite branches crossing from one region to another
+    /// to non-cache variants, also insert fix-ups on code regions containing
+    /// calls.
+    void rewriteCode()
     {
       // check regular control-flow edges
       for(aedges::iterator i(Edges.begin()), ie(Edges.end()); i != ie;
@@ -1019,6 +1059,23 @@ namespace llvm {
           i++) {
         rewriteEdge(i->second->Src, i->second->Dst);
       }
+
+      // insert fix-up code to handle calls within code regions -- skip the 
+      // function's first block though since this is handled in the function 
+      // epilog already.
+      const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
+      for(ablocks::iterator i(++Blocks.begin()), ie(Blocks.end()); i != ie;
+          i++) {
+        // Only consider region entries that contain a call
+        if ((*i)->Region == (*i) && (*i)->HasCall) {
+          MachineBasicBlock *MBB = (*i)->MBB;
+
+          // load long immediate of the current basic block's address into RFB
+          AddDefaultPred(BuildMI(*MBB, MBB->instr_begin(), DebugLoc(),
+                                 TII.get(Patmos::LIl),
+                                 Patmos::RFB)).addMBB(MBB);
+        }
+      }
     }
 
     /// applyRegions - reorder and align the basic blocks and fix-up branches.
@@ -1028,8 +1085,8 @@ namespace llvm {
       reorderBlocks(order);
 
       // rewrite branches to use the non-cache variants
-      if (!DisableFunctionSplitterBranches)
-        rewriteBranches();
+      if (!DisableFunctionSplitterRewrite)
+        rewriteCode();
 
       // ensure method alignment
       MF->EnsureAlignment(log2(STC.getMethodCacheBlockSize()));
