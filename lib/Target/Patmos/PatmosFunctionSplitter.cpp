@@ -648,6 +648,10 @@ namespace llvm {
         assert((*i)->Region == region || (*i)->Region == NULL);
         (*i)->Region = region;
 
+#ifdef PATMOS_TRACE_EMIT
+        DEBUG(dbgs() << "    emit:" << (*i)->getName() << "\n");
+#endif
+
         // skip artificial loop headers -- as part of a surrounding SCCs
         if (!(*i)->MBB)
           continue;
@@ -656,9 +660,6 @@ namespace llvm {
         // TODO: optimize order for fall-through
         assert(std::find(order.begin(), order.end(), *i) == order.end());
         order.push_back(*i);
-#ifdef PATMOS_TRACE_EMIT
-        DEBUG(dbgs() << "    emit:" << (*i)->getName() << "\n");
-#endif
 
         for(aedges::iterator j(Edges.lower_bound(*i)),
             je(Edges.upper_bound(*i)); j != je; j++) {
@@ -681,8 +682,15 @@ namespace llvm {
               }
             }
             else {
-              // a region mismatch -> the successor needs to be a region
-              if (!dst->MBB) {
+              // a region mismatch -> the successor or the loop header of its 
+              // SCC have to be region entries
+              dst->Region = dst;
+              dst->NumPreds = 0;
+
+              if (dst->MBB) {
+                regions.insert(dst);
+              }
+              else {
                 // mark all headers of a non-natural loop as new regions
                 for(aedges::const_iterator k(Edges.lower_bound(dst)),
                     ke(Edges.upper_bound(dst)); k != ke; k++) {
@@ -690,11 +698,6 @@ namespace llvm {
                   k->second->Dst->Region = k->second->Dst;
                   k->second->Dst->NumPreds = 0;
                 }
-              }
-              else {
-                regions.insert(dst);
-                dst->Region = dst;
-                dst->NumPreds = 0;
               }
             }
           }
