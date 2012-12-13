@@ -41,13 +41,13 @@ static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
 static cl::opt<unsigned> MethodCacheBlockSize("mpatmos-method-cache-block-size",
                    cl::init(32),
                    cl::desc("Size of the instruction cache blocks in bytes "
-                           "(defaults to 32)."));
+                           "(default 32)."));
 
 /// MethodCacheSize - Total size of the method cache in bytes.
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
-                     cl::init(2048),
+                     cl::init(1024),
                      cl::desc("Total size of the instruction cache in bytes "
-                              "(default 2048)"));
+                              "(default 1024)"));
 
 
 
