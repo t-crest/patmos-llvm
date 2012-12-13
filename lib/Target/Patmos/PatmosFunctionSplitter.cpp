@@ -1092,22 +1092,25 @@ namespace llvm {
       MF->EnsureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
-    /// splitBlockAtEnd - Create a new basic block and insert it as a successor
+    /// splitBlockAtStart - Create a new basic block and insert it as a successor
     /// after the given machine basic block.
-    static MachineBasicBlock *splitBlockAtEnd(MachineBasicBlock *MBB)
+    static MachineBasicBlock *splitBlockAtStart(MachineBasicBlock *MBB)
     {
       // get current function
       MachineFunction *MF = MBB->getParent();
       MachineBasicBlock *newBB = MF->CreateMachineBasicBlock();
 
-      // get all successors of MBB.
-      newBB->transferSuccessors(MBB);
+      // transfer predecessors of MBB to newBB
+      while (!MBB->pred_empty()) {
+        MachineBasicBlock *Pred = *MBB->pred_begin();
+        Pred->replaceSuccessor(MBB, newBB);
+      }
 
-      // insert newBB as successor of MBB
-      MBB->addSuccessor(newBB, 1);
+      // insert MBB as successor of newBB
+      newBB->addSuccessor(MBB, 1);
 
       // ensure that MBB can fall-through to the new block
-      MF->insert(llvm::next(MachineFunction::iterator(MBB)), newBB);
+      MF->insert(MachineFunction::iterator(MBB), newBB);
 
       return newBB;
     }
@@ -1117,44 +1120,44 @@ namespace llvm {
     static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize)
     {
       // make a new block
-      unsigned int curr_size = mayFallThrough(MBB) ? 12 : 0;
+      unsigned int curr_size = 12;
       unsigned int i_count = 0;
-      bool last_nop = false;
-      for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
-          ie(MBB->instr_rend()); i != ie; i++)
+      unsigned int total_size = 0;
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie; i++)
       {
         // get instruction size
         unsigned int i_size = i->getDesc().Size;
 
-        // ensure that NOPs in delay slots remain in place.
-        unsigned int nop_margin = i->getOpcode() != Patmos::NOP || last_nop ?
-                                  0 : 16;
-        last_nop = i->getOpcode() == Patmos::NOP;
+        // ensure that delay slots are respected
+        unsigned int delay_slot_margin = i->hasDelaySlot() ? 16 : 0;
 
         // check block + instruction size
-        if (curr_size + i_size + nop_margin < MCSize)
+        if (curr_size + i_size + delay_slot_margin < MCSize)
         {
           curr_size += i_size;
           i_count++;
         }
         else
         {
+          total_size += curr_size;
+
           // the current instruction does not fit -- split the block.
-          MachineBasicBlock *newBB = splitBlockAtEnd(MBB);
+          MachineBasicBlock *newBB = splitBlockAtStart(MBB);
 
           // copy instructions over from the original block.
           while(i_count--)
           {
-            newBB->insert(newBB->instr_begin(), MBB->back().removeFromParent());
+            newBB->push_back(MBB->front().removeFromParent());
           }
 
           // start anew
           curr_size = 12; // may fall through!
-          i = MBB->instr_rbegin();
+          i = MBB->instr_begin();
         }
       }
 
-      return getBBSize(MBB);
+      return total_size + getBBSize(MBB);
     }
 
     void view()
