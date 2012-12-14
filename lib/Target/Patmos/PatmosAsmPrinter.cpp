@@ -16,6 +16,9 @@
 #include "PatmosMCInstLower.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosUtil.h"
+#include "InstPrinter/PatmosInstPrinter.h"
+#include "llvm/Function.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCInst.h"
@@ -23,9 +26,21 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/Support/TargetRegistry.h"
-#include "InstPrinter/PatmosInstPrinter.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace llvm;
+
+/// EnableBasicBlockSymbols - If enabled, symbols for basic blocks are emitted
+/// containing the name of their IR representation, appended by their
+/// MBB number (for uniqueness). Note that this also includes MBBs which are
+/// not necessarily branch/call targets.
+static cl::opt<bool> EnableBasicBlockSymbols(
+  "mpatmos-enable-bb-symbols",
+  cl::init(false),
+  cl::desc("Enable (additional) generation of symbols "
+           "named like the IR basic blocks."),
+  cl::Hidden);
+
 
 namespace {
   class PatmosAsmPrinter : public AsmPrinter {
@@ -52,6 +67,7 @@ namespace {
 
     virtual void EmitFunctionEntryLabel();
 
+    virtual void EmitBasicBlockBegin(const MachineBasicBlock *MBB);
     virtual void EmitBasicBlockEnd(const MachineBasicBlock *);
 
     virtual void EmitFunctionBodyEnd();
@@ -112,6 +128,29 @@ void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   // Now emit the normal function label
   AsmPrinter::EmitFunctionEntryLabel();
 }
+
+
+void PatmosAsmPrinter::EmitBasicBlockBegin(const MachineBasicBlock *MBB) {
+  // If special generation of BB symbols is enabled,
+  // do so for every MBB.
+  if (EnableBasicBlockSymbols) {
+    // create a symbol with the BBs name
+    SmallString<128> bbname;
+    getMBBIRName(MBB, bbname);
+    MCSymbol *bbsym = OutContext.GetOrCreateSymbol(bbname.str());
+    OutStreamer.EmitLabel(bbsym);
+
+    // set basic block size
+    unsigned int bbsize = 0;
+    for(MachineBasicBlock::const_instr_iterator i(MBB->instr_begin()),
+        ie(MBB->instr_end()); i!=ie; ++i)
+    {
+      bbsize += i->getDesc().Size;
+    }
+    OutStreamer.EmitELFSize(bbsym, MCConstantExpr::Create(bbsize, OutContext));
+  }
+}
+
 
 void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   // EmitBasicBlockBegin emits after the label, too late for emitting .fstart,
