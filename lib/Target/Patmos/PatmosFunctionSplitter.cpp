@@ -1092,6 +1092,77 @@ namespace llvm {
       MF->EnsureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
+    /// transferSuccessors - replace uses of OldSucc to uses of NewSucc.
+    ///
+    /// Similar to MachineBasicBlock->ReplaceUsesOfBlockWith, but handles
+    /// delay slots and jump tables properly.
+    static void transferSuccessor(MachineBasicBlock *Pred,
+                                  MachineBasicBlock *OldSucc,
+                                  MachineBasicBlock *NewSucc)
+    {
+      MachineFunction *MF = Pred->getParent();
+
+      Pred->replaceSuccessor(OldSucc, NewSucc);
+
+      // Iterate over all instructions, there can be cond. and uncond. branches
+      for(MachineBasicBlock::instr_iterator j(Pred->instr_begin()),
+          je(Pred->instr_end()); j != je; j++)
+      {
+        MachineInstr *mi = &*j;
+
+        // skip non-terminator instructions and returns
+        if (!mi->isTerminator() || mi->isReturn())
+          continue;
+
+        switch (mi->getOpcode()) {
+          // direct branches that may need rewriting
+          case Patmos::BR:
+          case Patmos::BRu:
+          case Patmos::BRCF:
+          case Patmos::BRCFu:
+          {
+            assert(mi->getOperand(2).isMBB()
+                   && "Illegal branch instruction format");
+            if (mi->getOperand(2).getMBB() == OldSucc) {
+              mi->getOperand(2).setMBB(NewSucc);
+            }
+            break;
+          }
+          // Handle indirect branches with jumptable index
+          case Patmos::BRT:
+          case Patmos::BRTu:
+          case Patmos::BRCFT:
+          case Patmos::BRCFTu:
+          {
+            assert(mi->getNumOperands() == 4);
+
+            unsigned index = mi->getOperand(3).getIndex();
+            MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
+            MJTI->ReplaceMBBInJumpTable(index, OldSucc, NewSucc);
+
+            break;
+          }
+          // handle indirect branches
+          case Patmos::BRR:
+          case Patmos::BRRu:
+          case Patmos::BRCFR:
+          case Patmos::BRCFRu:
+            // TODO not much we can do here.. for now assume that we never
+            // generate that. We could just do ReplaceMBBInJumpTable without
+            // index however..
+            assert(false &&
+                   "Indirect branches without jumptable info is unsupported");
+            break;
+
+          // unexpected ?
+          default:
+            assert(false && "Unsupported terminator");
+            abort();
+        }
+      }
+
+    }
+
     /// splitBlockAtStart - Create a new basic block and insert it as a successor
     /// after the given machine basic block.
     static MachineBasicBlock *splitBlockAtStart(MachineBasicBlock *MBB)
@@ -1103,7 +1174,7 @@ namespace llvm {
       // transfer predecessors of MBB to newBB
       while (!MBB->pred_empty()) {
         MachineBasicBlock *Pred = *MBB->pred_begin();
-        Pred->replaceSuccessor(MBB, newBB);
+        transferSuccessor(Pred, MBB, newBB);
       }
 
       // insert MBB as successor of newBB
