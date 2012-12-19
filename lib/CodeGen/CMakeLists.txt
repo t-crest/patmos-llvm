@@ -101,6 +101,7 @@ add_llvm_library(LLVMCodeGen
   TwoAddressInstructionPass.cpp
   UnreachableBlockElim.cpp
   VirtRegMap.cpp
+  YAMLExportPass.cpp
   )
 
 add_subdirectory(SelectionDAG)
