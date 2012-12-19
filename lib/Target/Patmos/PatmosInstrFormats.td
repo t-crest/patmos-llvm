@@ -24,6 +24,7 @@ def FLDT    : Format<6>;  // Memory ops with 7bit offset
 def FSTT    : Format<7>;  // Memory ops with 7bit offset
 def FSTC    : Format<8>;  // Stack control with 22bit immediate
 def FCFLb   : Format<9>;  // Program flow control with 22bit immediate
+def FCFLi   : Format<10>; // Program flow control indirect
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -469,7 +470,7 @@ class CFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag>
 //
 class CFLi<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFL<outs, ins, asmop, asmstr, pattern, FOther> {
+  : CFL<outs, ins, asmop, asmstr, pattern, FCFLi> {
 
   let CFLOp = 0b00;
 

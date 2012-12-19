@@ -76,6 +76,9 @@ namespace PatmosII {
     /// FrmCFLb - This form is for instructions of the CFLb format (flow control, 22bit immediate).
     FrmCFLb     = 9,
 
+    /// FrmCFLb - This form is for instructions of the CFLi format (flow control, indirect).
+    FrmCFLi     = 10,
+
     FormMask    = 0x0F
   };
 
@@ -104,6 +107,15 @@ inline static bool isPatmosImmediateSigned(uint64_t TSFlags) {
 inline static bool hasPatmosImmediate(uint64_t TSFlags) {
   // We assume that the first operand is always the predicate register
   return getPatmosImmediateOpNo(TSFlags) > 0;
+}
+
+inline static bool isPatmosCFL(unsigned opcode, uint64_t TSFlags) {
+  switch (TSFlags & PatmosII::FormMask) {
+  case PatmosII::FrmCFLb:
+  case PatmosII::FrmCFLi:
+    return true;
+  }
+  return opcode == Patmos::RET;
 }
 
 inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {

@@ -75,6 +75,7 @@
 
 #include <map>
 #include <sstream>
+#include <iostream>
 
 using namespace llvm;
 
@@ -1201,7 +1202,12 @@ namespace llvm {
         unsigned int i_size = i->getDesc().Size;
 
         // ensure that delay slots are respected
-        unsigned int delay_slot_margin = i->hasDelaySlot() ? 16 : 0;
+        unsigned int delay_slot_margin = i->hasDelaySlot() ? 20 : 0;
+
+        assert(!isPatmosCFL(i->getOpcode(), i->getDesc().TSFlags) ||
+               (delay_slot_margin > 0));
+
+        // TODO avoid splitting inside of bundles, check for bundle flags!
 
         // check block + instruction size
         if (curr_size + i_size + delay_slot_margin < MCSize)
@@ -1223,6 +1229,7 @@ namespace llvm {
           }
 
           // start anew
+          i_count = 0;
           curr_size = 12; // may fall through!
           i = MBB->instr_begin();
         }
