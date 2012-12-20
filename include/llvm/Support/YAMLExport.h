@@ -22,10 +22,16 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
 
+/// YAML serialization for LLVM modules (machinecode,bitcode)
+/// produces one or more documents of type llvm::yaml::Doc.
+/// Serializing to a sequence of documents reduces the memory
+/// footprint; during analysis, documents are usually linked intp
+/// a single document.
+
 /// Utility for declaring that a std::vector of a particular *pointer*type
 /// should be considered a YAML sequence. Must only be used in namespace
 /// llvm/yaml.
-#define LLVM_YAML_IS_PSEQUENCE_VECTOR(_type)                                 \
+#define IS_PTR_SEQUENCE_VECTOR(_type)                                        \
     template<>                                                               \
     struct SequenceTraits< std::vector<_type*> > {                           \
       static size_t size(IO &io, std::vector<_type*> &seq) {                 \
@@ -37,7 +43,27 @@
         return *seq[index];                                                  \
       }                                                                      \
     };
+#define IS_PTR_SEQUENCE_VECTOR_1(_type)                                      \
+    template<typename _member_type>                                          \
+    struct SequenceTraits< std::vector<_type<_member_type>*> > {             \
+      static size_t size(IO &io, std::vector<_type<_member_type>*> &seq) {   \
+          return seq.size();                                                 \
+      }                                                                      \
+      static _type<_member_type>& element(IO &io,                            \
+          std::vector<_type<_member_type>*> &seq, size_t index) {            \
+          if ( index >= seq.size() )                                         \
+            seq.resize(index+1);                                             \
+          return *seq[index];                                                \
+      }                                                                      \
+    };
 
+
+/// Utility for deleting owned members of an object
+#define DELETE_MEMBERS(vec) \
+    while(! vec.empty()) { \
+      delete vec.back(); \
+      vec.pop_back(); \
+    } \
 
 namespace llvm {
 namespace yaml {
@@ -63,10 +89,12 @@ struct Name {
         return IntName;
     }
 };
+
 /// Comparing two names
 bool operator==(const Name n1, const Name n2) {
     return n1.NameStr == n2.NameStr;
 }
+
 template<>
 struct ScalarTraits<Name> {
     static void output(const Name &value, void*, llvm::raw_ostream &out) {
@@ -77,10 +105,17 @@ struct ScalarTraits<Name> {
         return StringRef();
     }
 };
-
-} /* namespace yaml */ } /* namespace llvm */
-LLVM_YAML_IS_FLOW_SEQUENCE_VECTOR(llvm::yaml::Name)
-namespace llvm { namespace yaml {
+template <> struct SequenceTraits< std::vector<Name> > {
+    static size_t size(IO &io, std::vector<Name> &seq) {
+        return seq.size();
+      }
+      static Name& element(IO &io, std::vector<Name> &seq, size_t index) {
+        if ( index >= seq.size() )
+          seq.resize(index+1);
+        return seq[index];
+      }
+      static const bool flow = true;
+};
 
 /// Representation Level (source, bitcode, machinecode)
 enum ReprLevel { level_bitcode, level_machinecode };
@@ -90,13 +125,6 @@ struct ScalarEnumerationTraits<ReprLevel> {
         io.enumCase(level, "bitcode", level_bitcode);
         io.enumCase(level, "machinecode", level_machinecode);
     }
-};
-
-/// Qualified reference to a basic block
-struct BlockRef {
-    Name Function;
-    Name Block;
-    BlockRef(Name fun, Name block) : Function(fun), Block(block) {}
 };
 
 /// Instruction Specification (generic)
@@ -117,9 +145,9 @@ struct MappingTraits<Instruction> {
         io.mapOptional("callees", Ins.Callees);
     }
 };
-LLVM_YAML_IS_PSEQUENCE_VECTOR(Instruction)
+IS_PTR_SEQUENCE_VECTOR(Instruction)
 
-/// Instruction Specification (machine code)
+/// Generic MachineInstruction Specification
 enum BranchType { branch_none, branch_unconditional, branch_conditional, branch_any };
 template <>
 struct ScalarEnumerationTraits<BranchType> {
@@ -130,40 +158,34 @@ struct ScalarEnumerationTraits<BranchType> {
         io.enumCase(branchtype, "any", branch_any);
     }
 };
-struct MInstruction : Instruction {
+struct GenericMachineInstruction : Instruction {
     uint64_t Size;
     enum BranchType BranchType;
     Name BranchTarget;
-    MInstruction(uint64_t Index) : Instruction(Index), BranchType(branch_none) {}
+    GenericMachineInstruction(uint64_t Index) : Instruction(Index), BranchType(branch_none) {}
 };
 template <>
-struct MappingTraits<MInstruction> {
-    static void mapping(IO &io, MInstruction& Ins) {
+struct MappingTraits<GenericMachineInstruction> {
+    static void mapping(IO &io, GenericMachineInstruction& Ins) {
         MappingTraits<Instruction>::mapping(io,Ins);
         io.mapOptional("size",          Ins.Size, (uint64_t) 4);
         io.mapOptional("branch-type",   Ins.BranchType, branch_none);
         io.mapOptional("branch-target", Ins.BranchTarget, yaml::Name(""));
     }
 };
-LLVM_YAML_IS_PSEQUENCE_VECTOR(MInstruction)
+IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
 
 /// Basic Block Specification (generic)
 template<typename InstructionT>
-struct BlockT {
+struct Block {
     Name BlockName;
     Name MapsTo;
     std::vector<Name> Successors;
     std::vector<Name> Predecessors;
     std::vector<Name> Loops;
     std::vector<InstructionT*> Instructions;
-    BlockT(uint64_t index) : BlockName(index) {}
-    ~BlockT() {
-        while(! Instructions.empty()) {
-            InstructionT* Ins = Instructions.back();
-            delete Ins;
-            Instructions.pop_back();
-        }
-    }
+    Block(uint64_t index) : BlockName(index) {}
+    ~Block() { DELETE_MEMBERS(Instructions); }
     /// Add an instruction to the block
     /// Block takes ownership of instruction
     InstructionT* addInstruction(InstructionT* Ins) {
@@ -173,64 +195,89 @@ struct BlockT {
 };
 
 template <typename InstructionT>
-struct MappingTraits< BlockT<InstructionT> > {
-    static void mapping(IO &io, BlockT<InstructionT>& Block) {
+struct MappingTraits< Block<InstructionT> > {
+    static void mapping(IO &io, Block<InstructionT>& Block) {
         io.mapRequired("name",         Block.BlockName);
         io.mapRequired("successors",   Block.Successors);
         io.mapRequired("predecessors", Block.Predecessors);
         io.mapOptional("loops",        Block.Loops);
-        io.mapOptional("mapsto",       Block.MapsTo);
+        io.mapOptional("mapsto",       Block.MapsTo, Name(""));
         io.mapOptional("instructions", Block.Instructions);
     }
 };
-template<typename InstructionT>
-struct SequenceTraits< std::vector<BlockT<InstructionT>*> > {
-    static size_t size(IO &io, std::vector<BlockT<InstructionT>*> &seq) {
-        return seq.size();
-    }
-    static BlockT<InstructionT>& element(IO &io, std::vector<BlockT<InstructionT>*> &seq, size_t index) {
-        if ( index >= seq.size() )
-          seq.resize(index+1);
-        return *seq[index];
-    }
-};
-typedef BlockT<Instruction>   Block;
-typedef BlockT<MInstruction> MBlock;
+IS_PTR_SEQUENCE_VECTOR_1(Block)
 
 /// basic functions
 template <typename BlockT>
-struct FunctionT {
+struct Function {
     Name FunctionName;
     ReprLevel Level;
     Name MapsTo;
     StringRef Hash;
     std::vector<BlockT*> Blocks;
-    FunctionT(StringRef name) : FunctionName(name) {}
-    FunctionT(uint64_t name) : FunctionName(name) {}
-    ~FunctionT() {
-        while(! Blocks.empty()) {
-            BlockT* Block = Blocks.back();
-            delete Block;
-            Blocks.pop_back();
-        }
-    }
+    Function(StringRef name) : FunctionName(name) {}
+    Function(uint64_t name) : FunctionName(name) {}
+    ~Function() { DELETE_MEMBERS(Blocks); }
     BlockT* addBlock(BlockT *B) {
         Blocks.push_back(B);
         return B;
     }
 };
 template <typename BlockT>
-struct MappingTraits< FunctionT<BlockT> > {
-    static void mapping(IO &io, FunctionT<BlockT>& fn) {
-        io.mapRequired("function",    fn.FunctionName);
+struct MappingTraits< Function<BlockT> > {
+    static void mapping(IO &io, Function<BlockT>& fn) {
+        io.mapRequired("name",    fn.FunctionName);
         io.mapRequired("level",   fn.Level);
-        io.mapOptional("mapsto",  fn.MapsTo);
+        io.mapOptional("mapsto",  fn.MapsTo, Name(""));
         io.mapOptional("hash",    fn.Hash);
         io.mapRequired("blocks",  fn.Blocks);
     }
 };
-typedef FunctionT<Block>   Function;
-typedef FunctionT<MBlock> MFunction;
+IS_PTR_SEQUENCE_VECTOR_1(Function)
+
+typedef Block<Instruction> BitcodeBlock;
+typedef Function<BitcodeBlock> BitcodeFunction;
+
+/// Each document defines a version of the format, and either the
+/// generic architecture, or a specialized one. Architecture specific
+/// properties are defined in the architecture description.
+struct GenericArchitecture {
+    static const std::string ArchName;
+    typedef GenericMachineInstruction MachineInstruction;
+    typedef Block<MachineInstruction> MachineBlock;
+    typedef Function<MachineBlock> MachineFunction;
+};
+const std::string GenericArchitecture::ArchName = "generic";
+
+template <typename Arch> struct Doc {
+    StringRef FormatVersion;
+    StringRef Architecture;
+    std::vector<BitcodeFunction*> BitcodeFunctions;
+    std::vector<typename Arch::MachineFunction*> MachineFunctions;
+    Doc(StringRef version) : FormatVersion(version), Architecture(Arch::ArchName) {}
+    ~Doc() {
+        DELETE_MEMBERS(BitcodeFunctions);
+        DELETE_MEMBERS(MachineFunctions);
+    }
+    /// Add a function, which is owned by the document afterwards
+    void addFunction(BitcodeFunction *F) {
+        BitcodeFunctions.push_back(F);
+    }
+    /// Add a machine function, which is owned by the document afterwards
+    void addMachineFunction(typename Arch::MachineFunction* MF) {
+        MachineFunctions.push_back(MF);
+    }
+};
+template <typename Arch>
+struct MappingTraits< Doc<Arch> > {
+    static void mapping(IO &io, Doc<Arch>& doc) {
+        io.mapRequired("format",   doc.FormatVersion);
+        io.mapRequired("arch",     doc.Architecture);
+        io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
+        io.mapOptional("machine-functions",doc.MachineFunctions);
+    }
+};
+
 
 } // end namespace yaml
 } // end namespace llvm
