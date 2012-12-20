@@ -1,0 +1,48 @@
+#!/usr/bin/env ruby
+#
+# Merges a stream of YAML documents into one document (if version
+# and architecture are compatible)
+#
+# TODO: port to python or C++ (to reduce number of languages)
+
+require 'yaml'
+require 'ostruct'
+require 'optparse'
+
+# Standard option parser
+options = OpenStruct.new
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: #{$0} -o merged.pml file.pml"
+  opts.on("-o", "--output FILE", "Output File") { |f| options.output = f }
+  opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
+end.parse!
+if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
+
+# input/output
+input   = if ARGV.first
+            File.read(ARGV[0])
+          else
+            $stdin.read
+          end
+outfile = if ! options.output || options.output == "-"
+            $stdout
+          else
+            File.open(options.output,"w")
+          end
+
+# merge
+doc = {}
+data = YAML::load_stream(input)
+data.each do |dat|
+  dat.each do |k,v|
+    if(v.kind_of? Array)
+      (doc[k]||=[]).concat(v)
+    elsif(! doc[k])
+      doc[k] = dat[k]
+    elsif(doc[k] != dat[k])
+      raise Exception.new("psk-merge: mismatch in non-list attribute #{k}: #{doc[k]} and #{dat[k]}")
+    end
+  end
+end
+outfile.puts YAML::dump(doc)
+outfile.close
