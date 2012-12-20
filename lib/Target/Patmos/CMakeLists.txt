@@ -28,6 +28,8 @@ add_llvm_target(PatmosCodeGen
   PatmosMCInstLower.cpp
   PatmosDelaySlotFiller.cpp
   PatmosFunctionSplitter.cpp
+  PatmosCallGraphBuilder.cpp
+  PatmosPreserveFunction.cpp
   )
 
 add_subdirectory(AsmParser)

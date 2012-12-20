@@ -107,6 +107,10 @@ class MachineModuleInfo : public ImmutablePass {
   /// want.
   MachineModuleInfoImpl *ObjFileMMI;
 
+  /// MachineFunctions - Cached machine functions of MachineFunctionAnalysis 
+  /// passes.
+  DenseMap<const Function*, MachineFunction*> MachineFunctions;
+
   /// FrameMoves - List of moves done by a function's prolog.  Used to construct
   /// frame maps by debug and exception handling consumers.
   std::vector<MachineMove> FrameMoves;
@@ -397,6 +401,35 @@ public:
   }
 
   VariableDbgInfoMapTy &getVariableDbgInfo() { return VariableDbgInfo; }
+
+  /// getMachineFunction - Return the MachineFunction associated with the given
+  /// function. If no MachineFunction exists, NULL is returned.
+  MachineFunction *getMachineFunction(const Function *F) {
+    DenseMap<const Function*, MachineFunction*>::iterator tmp(
+                                                      MachineFunctions.find(F));
+    if (tmp == MachineFunctions.end())
+      return NULL;
+    else
+      return tmp->second;
+  }
+
+  /// putMachineFunction - Store a MachineFunction and associate it with the 
+  /// given function.
+  void putMachineFunction(MachineFunction *MF, const Function *F) {
+    // check for collisions
+    MachineFunction *tmpMF = getMachineFunction(F);
+    assert(tmpMF == MF || tmpMF == NULL);
+
+    // store the MachineFunction
+    MachineFunctions[F] = MF;
+  }
+
+
+  /// removeMachineFunction - Remove the MachineFunction associated with the 
+  /// given function.
+  void removeMachineFunction(const Function *F) {
+    MachineFunctions.erase(F);
+  }
 
 }; // End class MachineModuleInfo
 

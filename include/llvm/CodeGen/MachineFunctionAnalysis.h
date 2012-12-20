@@ -27,11 +27,16 @@ struct MachineFunctionAnalysis : public FunctionPass {
 private:
   const TargetMachine &TM;
   MachineFunction *MF;
+  bool PreserveMF;
   unsigned NextFnNum;
 public:
   static char ID;
   explicit MachineFunctionAnalysis(const TargetMachine &tm);
   ~MachineFunctionAnalysis();
+
+  /// preserveMF - Indicate that the MachineFunction should be preserved even
+  /// after this MachineFunctionAnalysis instance has been freed.
+  void preserveMF() { PreserveMF = true; }
 
   MachineFunction &getMF() const { return *MF; }
   
