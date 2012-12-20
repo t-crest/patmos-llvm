@@ -20,7 +20,7 @@ using namespace llvm;
 char MachineFunctionAnalysis::ID = 0;
 
 MachineFunctionAnalysis::MachineFunctionAnalysis(const TargetMachine &tm) :
-  FunctionPass(ID), TM(tm), MF(0) {
+  FunctionPass(ID), TM(tm), MF(0), PreserveMF(false) {
   initializeMachineModuleInfoPass(*PassRegistry::getPassRegistry());
 }
 
@@ -45,13 +45,30 @@ bool MachineFunctionAnalysis::doInitialization(Module &M) {
 
 bool MachineFunctionAnalysis::runOnFunction(Function &F) {
   assert(!MF && "MachineFunctionAnalysis already initialized!");
-  MF = new MachineFunction(&F, TM, NextFnNum++,
-                           getAnalysis<MachineModuleInfo>(),
-                           getAnalysisIfAvailable<GCModuleInfo>());
+
+  // check whether a MachineFunction exists for F.
+  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
+  MF = MMI.getMachineFunction(&F);
+
+  // no MachineFunction available? create one ...
+  if (!MF) {
+    MF = new MachineFunction(&F, TM, NextFnNum++, MMI,
+                             getAnalysisIfAvailable<GCModuleInfo>());
+  }
+
   return false;
 }
 
 void MachineFunctionAnalysis::releaseMemory() {
-  delete MF;
+  // if needed preserve the MachineFunction, otherwise free its entirely
+  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
+  if (PreserveMF && MF) {
+    MMI.putMachineFunction(MF, MF->getFunction());
+  }
+  else if (MF) {
+    MMI.removeMachineFunction(MF->getFunction());
+    delete MF;
+  }
+
   MF = 0;
 }

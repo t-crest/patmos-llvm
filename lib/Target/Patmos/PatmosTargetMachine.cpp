@@ -15,6 +15,7 @@
 #include "PatmosTargetMachine.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/MachineFunctionAnalysis.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
@@ -29,6 +30,14 @@ extern "C" void LLVMInitializePatmosTarget() {
 }
 
 namespace {
+  /// EnableCallGraph - Option to enable the construction of a machine-level 
+  /// call graph.
+  static cl::opt<bool> EnableCallGraph(
+    "mpatmos-enable-call-graph",
+    cl::init(false),
+    cl::desc("Enable the Patmos call graph construction."),
+    cl::Hidden);
+
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
   public:
@@ -43,6 +52,20 @@ namespace {
       return *getPatmosTargetMachine().getSubtargetImpl();
     }
 
+    /// addModulePass - Add a machine-level module pass to the pass manager and
+    /// ensure that the MachineFunctionAnalysis is preserved/rebuilt.
+    void addModulePass(ModulePass *MP)
+    {
+      // ensure that MachineFunctionAnalysis is preserved across the module pass
+      PM->add(createPatmosPreserveFunctionPass());
+
+      // add the module pass
+      PM->add(MP);
+
+      // rebuild the MachineFunctionAnalysis
+      PM->add(new MachineFunctionAnalysis(getPatmosTargetMachine()));
+    }
+
     virtual bool addInstSelector() {
       PM->add(createPatmosISelDag(getPatmosTargetMachine()));
       return false;
@@ -54,6 +77,10 @@ namespace {
     virtual bool addPreEmitPass(){
       PM->add(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
       PM->add(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+
+      if (EnableCallGraph) {
+        addModulePass(createPatmosCallGraphBuilder());
+      }
       return true;
     }
 

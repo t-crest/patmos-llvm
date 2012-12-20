@@ -22,12 +22,15 @@
 namespace llvm {
   class PatmosTargetMachine;
   class FunctionPass;
+  class ModulePass;
   class formatted_raw_ostream;
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
   FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
   FunctionPass *createPatmosFunctionSplitterPass(TargetMachine &tm);
 
+  FunctionPass *createPatmosPreserveFunctionPass();
+  ModulePass *createPatmosCallGraphBuilder();
 } // end namespace llvm;
 
 #endif // _LLVM_TARGET_PATMOS_H_
