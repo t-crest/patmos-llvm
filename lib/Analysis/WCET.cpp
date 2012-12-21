@@ -173,7 +173,9 @@ void copyEdges(T_tree *t, graph_t &g) {
          EE = GDN::child_end(*I); II != EE; ++II) {
       int srcidx = g.map[I->getBlock()];
       node_t *dst = g.Nodes[g.map[(*II)->getBlock()]];
-      g.Succs[srcidx].push_back(dst);
+      adj_t &succs = g.Succs[srcidx];
+      if (std::find(succs.begin(), succs.end(), dst) == succs.end())
+        succs.push_back(dst);
     }
   }
 }
