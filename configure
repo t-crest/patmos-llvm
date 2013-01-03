@@ -5422,11 +5422,7 @@ if test "$enableval" = host-only ; then
   enableval=host
 fi
 case "$enableval" in
-<<<<<<< HEAD
-  all) TARGETS_TO_BUILD="X86 Sparc PowerPC ARM Mips CellSPU XCore MSP430 CppBackend MBlaze NVPTX Hexagon" ;;
-=======
-  all) TARGETS_TO_BUILD="X86 Sparc PowerPC ARM Mips CellSPU XCore MSP430 Patmos CppBackend MBlaze PTX Hexagon" ;;
->>>>>>> b34c23f... updated build scripts to 3.1, some fixes for 3.1
+  all) TARGETS_TO_BUILD="X86 Sparc PowerPC ARM Mips CellSPU XCore MSP430 Patmos CppBackend MBlaze NVPTX Hexagon" ;;
   *)for a_target in `echo $enableval|sed -e 's/,/ /g' ` ; do
       case "$a_target" in
         x86)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
