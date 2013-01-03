@@ -23,62 +23,16 @@ kUseCloseFDs = not kIsWindows
 # Use temporary files to replace /dev/null on Windows.
 kAvoidDevNull = kIsWindows
 
-# Negate if win32file is not found.
-kHaveWin32File = kIsWindows
-
-def RemoveForce(f):
-    try:
-        os.remove(f)
-    except OSError:
-        pass
-
-def WinWaitReleased(f):
-    global kHaveWin32File
-    if not kHaveWin32File:
-        return
-    try:
-        import time
-        import win32file, pywintypes
-        retry_cnt = 256
-        while True:
-            try:
-                h = win32file.CreateFile(
-                    f,
-                    win32file.GENERIC_READ,
-                    0, # Exclusive
-                    None,
-                    win32file.OPEN_EXISTING,
-                    win32file.FILE_ATTRIBUTE_NORMAL,
-                    None)
-                h.close()
-                return
-            except WindowsError, (winerror, strerror):
-                retry_cnt = retry_cnt - 1
-                if retry_cnt <= 0:
-                    raise
-                elif winerror == 32: # ERROR_SHARING_VIOLATION
-                    pass
-                else:
-                    raise
-            except pywintypes.error, e:
-                retry_cnt = retry_cnt - 1
-                if retry_cnt <= 0:
-                    raise
-                elif e[0]== 32: # ERROR_SHARING_VIOLATION
-                    pass
-                else:
-                    raise
-            time.sleep(0.01)
-    except ImportError, e:
-        kHaveWin32File = False
-        return
-
 def executeCommand(command, cwd=None, env=None):
+    # Close extra file handles on UNIX (on Windows this cannot be done while
+    # also redirecting input).
+    close_fds = not kIsWindows
+
     p = subprocess.Popen(command, cwd=cwd,
                          stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE,
-                         env=env)
+                         env=env, close_fds=close_fds)
     out,err = p.communicate()
     exitCode = p.wait()
 
@@ -165,7 +119,6 @@ def executeShCmd(cmd, cfg, cwd, results):
             else:
                 if r[2] is None:
                     if kAvoidDevNull and r[0] == '/dev/null':
-                        r[0] = None
                         r[2] = tempfile.TemporaryFile(mode=r[1])
                     else:
                         r[2] = open(r[0], r[1])
@@ -174,7 +127,7 @@ def executeShCmd(cmd, cfg, cwd, results):
                     # FIXME: Actually, this is probably an instance of PR6753.
                     if r[1] == 'a':
                         r[2].seek(0, 2)
-                    opened_files.append(r)
+                    opened_files.append(r[2])
                 result = r[2]
             final_redirects.append(result)
 
@@ -236,7 +189,7 @@ def executeShCmd(cmd, cfg, cwd, results):
     # on Win32, for example). Since we have already spawned the subprocess, our
     # handles have already been transferred so we do not need them anymore.
     for f in opened_files:
-        f[2].close()
+        f.close()
 
     # FIXME: There is probably still deadlock potential here. Yawn.
     procData = [None] * len(procs)
@@ -275,15 +228,12 @@ def executeShCmd(cmd, cfg, cwd, results):
         else:
             exitCode = res
 
-    # Make sure opened_files is released by other (child) processes.
-    if kIsWindows:
-        for f in opened_files:
-            if f[0] is not None:
-                WinWaitReleased(f[0])
-
     # Remove any named temporary files we created.
     for f in named_temp_files:
-        RemoveForce(f)
+        try:
+            os.remove(f)
+        except OSError:
+            pass
 
     if cmd.negate:
         exitCode = not exitCode
@@ -420,27 +370,27 @@ def executeScript(test, litConfig, tmpBase, commands, cwd):
 
     return executeCommand(command, cwd=cwd, env=test.config.environment)
 
-def isExpectedFail(xfails, xtargets, target_triple):
-    # Check if any xfail matches this target.
+def isExpectedFail(test, xfails):
+    # Check if any of the xfails match an available feature or the target.
     for item in xfails:
-        if item == '*' or item in target_triple:
-            break
-    else:
-        return False
+        # If this is the wildcard, it always fails.
+        if item == '*':
+            return True
 
-    # If so, see if it is expected to pass on this target.
-    #
-    # FIXME: Rename XTARGET to something that makes sense, like XPASS.
-    for item in xtargets:
-        if item == '*' or item in target_triple:
-            return False
+        # If this is an exact match for one of the features, it fails.
+        if item in test.config.available_features:
+            return True
 
-    return True
+        # If this is a part of the target triple, it fails.
+        if item in test.suite.config.target_triple:
+            return True
+
+    return False
 
 def parseIntegratedTestScript(test, normalize_slashes=False,
                               extra_substitutions=[]):
     """parseIntegratedTestScript - Scan an LLVM/Clang style integrated test
-    script and extract the lines to 'RUN' as well as 'XFAIL' and 'XTARGET'
+    script and extract the lines to 'RUN' as well as 'XFAIL' and 'REQUIRES'
     information. The RUN lines also will have variable substitution performed.
     """
 
@@ -481,7 +431,6 @@ def parseIntegratedTestScript(test, normalize_slashes=False,
     # Collect the test lines from the script.
     script = []
     xfails = []
-    xtargets = []
     requires = []
     for ln in open(sourcepath):
         if 'RUN:' in ln:
@@ -500,9 +449,6 @@ def parseIntegratedTestScript(test, normalize_slashes=False,
         elif 'XFAIL:' in ln:
             items = ln[ln.index('XFAIL:') + 6:].split(',')
             xfails.extend([s.strip() for s in items])
-        elif 'XTARGET:' in ln:
-            items = ln[ln.index('XTARGET:') + 8:].split(',')
-            xtargets.extend([s.strip() for s in items])
         elif 'REQUIRES:' in ln:
             items = ln[ln.index('REQUIRES:') + 9:].split(',')
             requires.extend([s.strip() for s in items])
@@ -541,7 +487,7 @@ def parseIntegratedTestScript(test, normalize_slashes=False,
         return (Test.UNSUPPORTED,
                 "Test requires the following features: %s" % msg)
 
-    isXFail = isExpectedFail(xfails, xtargets, test.suite.config.target_triple)
+    isXFail = isExpectedFail(test, xfails)
     return script,isXFail,tmpBase,execdir
 
 def formatTestOutput(status, out, err, exitCode, failDueToStderr, script):

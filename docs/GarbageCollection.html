@@ -4,7 +4,7 @@
 <head>
   <meta http-equiv="Content-Type" Content="text/html; charset=UTF-8" >
   <title>Accurate Garbage Collection with LLVM</title>
-  <link rel="stylesheet" href="llvm.css" type="text/css">
+  <link rel="stylesheet" href="_static/llvm.css" type="text/css">
   <style type="text/css">
     .rowhead { text-align: left; background: inherit; }
     .indent { padding-left: 1em; }
@@ -475,7 +475,7 @@ Entry:
    ;; Tell LLVM that the stack space is a stack root.
    ;; Java has type-tags on objects, so we pass null as metadata.
    %tmp = bitcast %Object** %X to i8**
-   call void @llvm.gcroot(i8** %X, i8* null)
+   call void @llvm.gcroot(i8** %tmp, i8* null)
    ...
 
    ;; "CodeBlock" is the block corresponding to the start
@@ -1253,7 +1253,7 @@ methods. Here's a realistic example:</p>
 >#include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/Function.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetAsmInfo.h"
 
 void MyGCPrinter::beginAssembly(std::ostream &amp;OS, AsmPrinter &amp;AP,
@@ -1266,7 +1266,7 @@ void MyGCPrinter::finishAssembly(std::ostream &amp;OS, AsmPrinter &amp;AP,
   // Set up for emitting addresses.
   const char *AddressDirective;
   int AddressAlignLog;
-  if (AP.TM.getTargetData()->getPointerSize() == sizeof(int32_t)) {
+  if (AP.TM.getDataLayout()->getPointerSize() == sizeof(int32_t)) {
     AddressDirective = TAI.getData32bitsDirective();
     AddressAlignLog = 2;
   } else {

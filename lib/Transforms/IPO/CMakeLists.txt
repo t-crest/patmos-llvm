@@ -1,5 +1,6 @@
 add_llvm_library(LLVMipo
   ArgumentPromotion.cpp
+  BarrierNoopPass.cpp
   ConstantMerge.cpp
   DeadArgumentElimination.cpp
   ExtractGV.cpp
@@ -20,3 +21,5 @@ add_llvm_library(LLVMipo
   StripDeadPrototypes.cpp
   StripSymbols.cpp
   )
+
+add_dependencies(LLVMipo intrinsics_gen)
