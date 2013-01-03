@@ -1090,7 +1090,7 @@ namespace llvm {
         rewriteCode();
 
       // ensure method alignment
-      MF->EnsureAlignment(log2(STC.getMethodCacheBlockSize()));
+      MF->ensureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
     /// transferSuccessors - replace uses of OldSucc to uses of NewSucc.
@@ -1280,13 +1280,12 @@ namespace llvm {
     /// Pass ID
     static char ID;
 
-    TargetMachine &TM;
     const PatmosSubtarget &STC;
 
   public:
     /// PatmosFunctionSplitter - Create a new instance of the function splitter.
     PatmosFunctionSplitter(TargetMachine &tm) :
-      MachineFunctionPass(ID), TM(tm),
+      MachineFunctionPass(ID), 
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
       // TODO we could disable this pass if this is not a PatmosTargetMachine

@@ -1,4 +1,4 @@
-; RUN: llc -march=arm < %s | FileCheck %s
+; RUN: llc -march=arm -mcpu=cortex-a8 < %s | FileCheck %s
 
 ; 171 = 0x000000ab
 define i64 @f1(i64 %a) {
@@ -35,4 +35,16 @@ entry:
   %cmp = icmp ugt i32 %sub, 0
   %sel = select i1 %cmp, i32 1, i32 %sub
   ret i32 %sel
+}
+
+; rdar://11726136
+define i32 @f5(i32 %x) {
+entry:
+; CHECK: f5
+; CHECK: movw r1, #65535
+; CHECK-NOT: movt
+; CHECK-NOT: add
+; CHECK: sub r0, r0, r1
+  %sub = add i32 %x, -65535
+  ret i32 %sub
 }

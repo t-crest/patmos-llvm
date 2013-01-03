@@ -221,6 +221,30 @@ TEST(StringRefTest, Split2) {
   EXPECT_TRUE(parts == expected);
 }
 
+TEST(StringRefTest, Trim) {
+  StringRef Str0("hello");
+  StringRef Str1(" hello ");
+  StringRef Str2("  hello  ");
+
+  EXPECT_EQ(StringRef("hello"), Str0.rtrim());
+  EXPECT_EQ(StringRef(" hello"), Str1.rtrim());
+  EXPECT_EQ(StringRef("  hello"), Str2.rtrim());
+  EXPECT_EQ(StringRef("hello"), Str0.ltrim());
+  EXPECT_EQ(StringRef("hello "), Str1.ltrim());
+  EXPECT_EQ(StringRef("hello  "), Str2.ltrim());
+  EXPECT_EQ(StringRef("hello"), Str0.trim());
+  EXPECT_EQ(StringRef("hello"), Str1.trim());
+  EXPECT_EQ(StringRef("hello"), Str2.trim());
+
+  EXPECT_EQ(StringRef("ello"), Str0.trim("hhhhhhhhhhh"));
+
+  EXPECT_EQ(StringRef(""), StringRef("").trim());
+  EXPECT_EQ(StringRef(""), StringRef(" ").trim());
+  EXPECT_EQ(StringRef("\0", 1), StringRef(" \0 ", 3).trim());
+  EXPECT_EQ(StringRef("\0\0", 2), StringRef("\0\0", 2).trim());
+  EXPECT_EQ(StringRef("x"), StringRef("\0\0x\0\0", 5).trim(StringRef("\0", 1)));
+}
+
 TEST(StringRefTest, StartsWith) {
   StringRef Str("hello");
   EXPECT_TRUE(Str.startswith("he"));
@@ -267,6 +291,10 @@ TEST(StringRefTest, Find) {
   EXPECT_EQ(1U, Str.find_first_not_of('h'));
   EXPECT_EQ(4U, Str.find_first_not_of("hel"));
   EXPECT_EQ(StringRef::npos, Str.find_first_not_of("hello"));
+
+  EXPECT_EQ(3U, Str.find_last_not_of('o'));
+  EXPECT_EQ(1U, Str.find_last_not_of("lo"));
+  EXPECT_EQ(StringRef::npos, Str.find_last_not_of("helo"));
 }
 
 TEST(StringRefTest, Count) {
@@ -427,5 +455,28 @@ TEST(StringRefTest, getAsInteger) {
     }
   }
 }
+
+
+static const char* BadStrings[] = {
+    "18446744073709551617"  // value just over max
+  , "123456789012345678901" // value way too large
+  , "4t23v"                 // illegal decimal characters
+  , "0x123W56"              // illegal hex characters
+  , "0b2"                   // illegal bin characters
+  , "08"                    // illegal oct characters
+  , "0o8"                   // illegal oct characters
+  , "-123"                  // negative unsigned value
+};
+
+
+TEST(StringRefTest, getAsUnsignedIntegerBadStrings) {
+  unsigned long long U64;
+  for (size_t i = 0; i < array_lengthof(BadStrings); ++i) {
+    bool IsBadNumber = StringRef(BadStrings[i]).getAsInteger(0, U64);
+    ASSERT_TRUE(IsBadNumber);
+  }
+}
+
+
 
 } // end anonymous namespace

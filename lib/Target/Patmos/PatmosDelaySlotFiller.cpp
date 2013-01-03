@@ -445,6 +445,7 @@ bool DelayHazardInfo::isRegInSet(const SmallSet<unsigned, 32> &RegSet,
   if (RegSet.count(reg))
     return true;
   // check Aliased Registers
+  /*
   for (const uint16_t *Alias = PDSF.TRI->getAliasSet(reg);
        *Alias; ++ Alias)
     if (RegSet.count(*Alias)) {
@@ -452,6 +453,7 @@ bool DelayHazardInfo::isRegInSet(const SmallSet<unsigned, 32> &RegSet,
                   << PrintReg(*Alias, PDSF.TRI) << "\n");
       return true;
     }
+  */
 
   return false;
 }

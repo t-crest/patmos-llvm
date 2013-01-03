@@ -30,7 +30,6 @@ class PatmosTargetMachine;
 
 class PatmosInstrInfo : public PatmosGenInstrInfo {
   const PatmosRegisterInfo RI;
-  PatmosTargetMachine &TM;
 public:
   explicit PatmosInstrInfo(PatmosTargetMachine &TM);
 

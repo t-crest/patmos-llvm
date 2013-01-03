@@ -38,8 +38,9 @@ class PatmosMCCodeEmitter : public MCCodeEmitter {
   MCContext &Ctx;
 
 public:
-  PatmosMCCodeEmitter(const MCInstrInfo &mcii, const MCSubtargetInfo &sti,
-                    MCContext &ctx) :
+  PatmosMCCodeEmitter(const MCInstrInfo &mcii, const MCRegisterInfo &MRI, 
+	              const MCSubtargetInfo &sti,
+                      MCContext &ctx) :
             MCII(mcii), STI(sti) , Ctx(ctx) {}
 
   ~PatmosMCCodeEmitter() {}
@@ -91,10 +92,11 @@ public:
 }  // namespace
 
 MCCodeEmitter *llvm::createPatmosMCCodeEmitter(const MCInstrInfo &MCII,
+					       const MCRegisterInfo &MRI,
                                                const MCSubtargetInfo &STI,
                                                MCContext &Ctx)
 {
-  return new PatmosMCCodeEmitter(MCII, STI, Ctx);
+  return new PatmosMCCodeEmitter(MCII, MRI, STI, Ctx);
 }
 
 
