@@ -8,13 +8,12 @@ require 'yaml'
 # Standard option parser
 options = OpenStruct.new
 parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{$0} cfrg.yml"
+  opts.banner = "Usage: #{$0} file.pml"
   opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
 end.parse!
-if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
-infile = ARGV.first ? File.new(ARGV.first) : $<
+if ARGV.length > 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
 
-data = YAML::load(infile.read)
+data = YAML::load(ARGV.first ? File.new(ARGV.first) : $<)
 
 # small helpers to specify equations
 def equation(lhs,rhs)

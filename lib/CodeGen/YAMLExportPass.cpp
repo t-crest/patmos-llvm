@@ -159,7 +159,7 @@ struct YAMLExportPass : public MachineFunctionPass {
                   }
                 }
                 if(! I->hasCallees()) {
-                  errs() << "[mc2yml] Warning: no known callee for MC instruction\n";
+                  errs() << "[mc2yml] Warning: no known callee for MC instruction in " << MF.getFunction()->getName() <<  "\n";
                   I->addCallee(StringRef("__any__"));
                 }
               }
@@ -303,40 +303,64 @@ public:
     RG->getEntryNode()->setSrcBlock(yaml::FlowGraphTrait<const BasicBlock>::getName(&BF->getEntryBlock()));
     RG->getEntryNode()->setDstBlock(yaml::FlowGraphTrait<MachineBasicBlock>::getName(&MF.front()));
 
-    /// Event Maps
-    EventMap<const BasicBlock*>::type  IEventMap;
-    EventMap<MachineBasicBlock*>::type MEventMap;
-    buildEventMaps(MF, IEventMap, MEventMap);
+    // unmatched events, used as tabu list, and for error reporting
+    std::set< StringRef > TabuEvents;
+    std::set< StringRef > UnmatchedEvents;
 
-    /// Known and visited relation nodes
-    std::map< ProgressID , yaml::RelationNode*> RMap;
-    std::set< yaml::RelationNode* > RVisited;
-    std::vector< std::pair< ProgressID, yaml::RelationNode*> > RTodo;
+    // As the LLVM mapping is not always good enough, we might have had unmatched events
+    // In this case, we use the list of unmatched machinecode events as Tabu List, and
+    // retry (with a retry limit)
+    unsigned TriesLeft = 3;
 
-    /// We first queue the entry node
-    RTodo.push_back( std::make_pair( std::make_pair(&BF->getEntryBlock(), &MF.front()),
-                                     RG->getEntryNode()) );
-    /// while there is an unprocessed progress node (n -> IBB,MBB)
-    while(! RTodo.empty() ) {
-      std::pair < ProgressID, yaml::RelationNode* > Item = RTodo.back();
-      RTodo.pop_back();
-      yaml::RelationNode *RN = Item.second;
-      if(RVisited.count(RN) > 0) continue;
-      const BasicBlock *IBB = Item.first.first;
-      MachineBasicBlock *MBB = Item.first.second;
-      EventQueueMap<const BasicBlock*> IEvents;
-      EventQueueMap<MachineBasicBlock*> MEvents;
+    while(TriesLeft-- > 0) {
+      UnmatchedEvents.clear();
+      /// Event Maps
+      EventMap<const BasicBlock*>::type  IEventMap;
+      EventMap<MachineBasicBlock*>::type MEventMap;
 
-      /// Expand both at the bitcode and machine level (starting with IBB and MBB, resp.),
-      /// which results in new src/dst nodes being created, and two bitcode and machinecode-level maps from events
-      /// to a list of (bitcode/machine block, list of RG predecessor blocks) pairs
-      expandProgressNode(RG, RN, yaml::rnt_src, IBB, IEventMap, IEvents);
-      expandProgressNode(RG, RN, yaml::rnt_dst, MBB, MEventMap, MEvents);
+      /// Known and visited relation nodes
+      std::map< ProgressID , yaml::RelationNode*> RMap;
+      std::set< yaml::RelationNode* > RVisited;
+      std::vector< std::pair< ProgressID, yaml::RelationNode*> > RTodo;
 
-      /// For each event and corresponding bitcode list IList and machinecode MList, create a progress
-      /// node (iblock,mblock) for every pair ((iblock,ipreds),(mblock,mpreds)) \in (IList x MList) and add
-      /// edges from all ipreds and mpreds to that progress node
-      addProgressNodes(RG, IEvents, MEvents, RMap, RTodo);
+      /// Build event maps using RUnmatched as tabu list
+      buildEventMaps(MF, IEventMap, MEventMap, TabuEvents);
+
+      /// We first queue the entry node
+      RTodo.push_back( std::make_pair( std::make_pair(&BF->getEntryBlock(), &MF.front()),
+                                       RG->getEntryNode()) );
+
+      /// while there is an unprocessed progress node (n -> IBB,MBB)
+      while(! RTodo.empty() ) {
+        std::pair < ProgressID, yaml::RelationNode* > Item = RTodo.back();
+        RTodo.pop_back();
+        yaml::RelationNode *RN = Item.second;
+        if(RVisited.count(RN) > 0) continue;
+        const BasicBlock *IBB = Item.first.first;
+        MachineBasicBlock *MBB = Item.first.second;
+        EventQueueMap<const BasicBlock*> IEvents;
+        EventQueueMap<MachineBasicBlock*> MEvents;
+
+        /// Expand both at the bitcode and machine level (starting with IBB and MBB, resp.),
+        /// which results in new src/dst nodes being created, and two bitcode and machinecode-level maps from events
+        /// to a list of (bitcode/machine block, list of RG predecessor blocks) pairs
+        expandProgressNode(RG, RN, yaml::rnt_src, IBB, IEventMap, IEvents);
+        expandProgressNode(RG, RN, yaml::rnt_dst, MBB, MEventMap, MEvents);
+
+        /// For each event and corresponding bitcode list IList and machinecode MList, create a progress
+        /// node (iblock,mblock) for every pair ((iblock,ipreds),(mblock,mpreds)) \in (IList x MList) and add
+        /// edges from all ipreds and mpreds to that progress node
+        addProgressNodes(RG, IEvents, MEvents, RMap, RTodo, UnmatchedEvents);
+      }
+      if(UnmatchedEvents.empty()) { // No unmatched events this time
+        break;
+      } else if(TabuEvents.empty()) {
+        errs() << "[mc2yml] Warning: inconsistent initial mapping for " << MF.getFunction()->getName() << " (retrying)\n";
+      }
+      TabuEvents.insert(UnmatchedEvents.begin(), UnmatchedEvents.end());
+    }
+    if(! UnmatchedEvents.empty()) {
+      errs() << "[mc2yml] Error: failed to find a correct event mapping for " << MF.getFunction()->getName() << "\n";
     }
     doc.addRelationGraph(RG);
   }
@@ -347,14 +371,17 @@ private:
   /// (1) if all forward-CFG predecessors of (MBB originating from BB) map to no or a different IR block,
   ///     MBB generates a BB event.
   /// (2) if there is a MBB generating a event BB, the basic block BB also generates this event
-  void buildEventMaps(MachineFunction &MF,   std::map<const BasicBlock*,StringRef> &BitcodeEventMap,
-                      std::map<MachineBasicBlock*,StringRef> &MachineEventMap) {
+  void buildEventMaps(MachineFunction &MF,
+                      std::map<const BasicBlock*,StringRef> &BitcodeEventMap,
+                      std::map<MachineBasicBlock*,StringRef> &MachineEventMap,
+                      std::set<StringRef> &TabuList) {
     BitcodeEventMap.clear();
     MachineEventMap.clear();
     for (MachineFunction::iterator BlockI = MF.begin(), BlockE = MF.end(); BlockI != BlockE; ++BlockI) {
       /// Check predecessors, ignoring backedges, unmapped nodes and nodes mapped to the entry node
       if(! BlockI->getBasicBlock()) continue;
       if(BlockI->getBasicBlock() == BlockI->getBasicBlock()->getParent()->begin()) continue;
+      if(TabuList.count(BlockI->getBasicBlock()->getName()) > 0) continue;
       bool IsSubNode = false;
       for (MachineBasicBlock::const_pred_iterator PredI = BlockI->pred_begin(), PredE = BlockI->pred_end(); PredI!=PredE; ++PredI) {
         if(isBackEdge(*PredI,BlockI))
@@ -431,13 +458,14 @@ private:
                         EventQueueMap<const BasicBlock*> &BitcodeEvents,
                         EventQueueMap<MachineBasicBlock*> &MachineEvents,
                         std::map< ProgressID , yaml::RelationNode*>& RMap,
-                        std::vector< std::pair< ProgressID, yaml::RelationNode*> >& RTodo) {
+                        std::vector< std::pair< ProgressID, yaml::RelationNode*> >& RTodo,
+                        std::set< StringRef > &UnmatchedEvents) {
     for(EventQueueMap<MachineBasicBlock*>::iterator I = MachineEvents.begin(), E = MachineEvents.end();I!=E;++I) {
       const StringRef& Event = I->first;
       EventQueue<MachineBasicBlock*>* MQueue = I->second;
       EventQueue<const BasicBlock*>* IQueue = BitcodeEvents.remove(Event);
       if(IQueue == 0) {
-        errs() << "[mc2yml] Inconsistent event mapping for relation graph: unmapped machinecode events\n";
+        UnmatchedEvents.insert(Event);
         continue;
       }
       for(EventQueue<MachineBasicBlock*>::iterator MQI = MQueue->begin(), MQE = MQueue->end(); MQI!=MQE;++MQI) {
@@ -474,10 +502,10 @@ private:
           PE = MachineEvents.getExitPredecessors().end(); PI!=PE; ++PI)
       (*PI)->addSuccessor(RN,true);
     if( BitcodeEvents.begin() != BitcodeEvents.end() ) {
-      errs() << "[mc2yml] Inconsistent relation graph: unmapped bitcode events\n";
+      UnmatchedEvents.insert("__bitcode__"); // record inconsistency, no action for tabu list
     }
     if( BitcodeEvents.hasExitPredecessors() != MachineEvents.hasExitPredecessors() ) {
-      errs() << "[mc2yml] Inconsistent relation graph: unmatched exit event\n";
+      UnmatchedEvents.insert("__exit__"); // record inconsistency, no action for tabu list
     }
   }
 
