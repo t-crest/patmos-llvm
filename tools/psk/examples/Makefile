@@ -8,13 +8,13 @@ LLC=$(BINDIR)/llc -march=patmos
 LD=patmos-ld
 
 %.ll: %.c
-	$(CLANG) -O1 -o $@ -emit-llvm -S $^
+	$(CLANG) $(CLANG_FLAGS) -o $@ -emit-llvm -S $^
 %.elf: %.ll
-	$(CLANG) -o $@ --save-temps $<
+	$(CLANG) $(CLANG_FLAGS) -o $@ --save-temps $<
 %.elf.bc: %.elf
 	-touch $@
 %.yml: %.elf.bc
-	$(LLC) --serialize=$@ -o /dev/null $<
+	$(LLC) $(LLC_FLAGS) --serialize=$@ -o /dev/null $<
 %.pml: %.yml
 	$(LEVEL)/tools/psk/psk-merge -o $@ $^
 %.alf: %.ll

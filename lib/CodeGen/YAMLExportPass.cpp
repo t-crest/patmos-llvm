@@ -296,12 +296,6 @@ public:
   void serializeRelationGraph(MachineFunction &MF, YAMLDoc &doc) {
     Function *BF = const_cast<Function*>(MF.getFunction());
     if(! BF) return;
-    /// Create Graph
-    yaml::RelationScope *DstScope = new yaml::RelationScope(yaml::Name(MF.getFunctionNumber()), yaml::level_machinecode);
-    yaml::RelationScope *SrcScope = new yaml::RelationScope(yaml::Name(BF->getName()), yaml::level_bitcode);
-    yaml::RelationGraph *RG = new yaml::RelationGraph(SrcScope,DstScope);
-    RG->getEntryNode()->setSrcBlock(yaml::FlowGraphTrait<const BasicBlock>::getName(&BF->getEntryBlock()));
-    RG->getEntryNode()->setDstBlock(yaml::FlowGraphTrait<MachineBasicBlock>::getName(&MF.front()));
 
     // unmatched events, used as tabu list, and for error reporting
     std::set< StringRef > TabuEvents;
@@ -311,9 +305,18 @@ public:
     // In this case, we use the list of unmatched machinecode events as Tabu List, and
     // retry (with a retry limit)
     unsigned TriesLeft = 3;
-
+    yaml::RelationGraph *RG = 0;
     while(TriesLeft-- > 0) {
+      if(RG) delete RG; // also deletes scopes and nodes
+
+      /// Create Graph
+      yaml::RelationScope *DstScope = new yaml::RelationScope(yaml::Name(MF.getFunctionNumber()), yaml::level_machinecode);
+      yaml::RelationScope *SrcScope = new yaml::RelationScope(yaml::Name(BF->getName()), yaml::level_bitcode);
+      RG = new yaml::RelationGraph(SrcScope,DstScope);
+      RG->getEntryNode()->setSrcBlock(yaml::FlowGraphTrait<const BasicBlock>::getName(&BF->getEntryBlock()));
+      RG->getEntryNode()->setDstBlock(yaml::FlowGraphTrait<MachineBasicBlock>::getName(&MF.front()));
       UnmatchedEvents.clear();
+
       /// Event Maps
       EventMap<const BasicBlock*>::type  IEventMap;
       EventMap<MachineBasicBlock*>::type MEventMap;
@@ -360,7 +363,11 @@ public:
       TabuEvents.insert(UnmatchedEvents.begin(), UnmatchedEvents.end());
     }
     if(! UnmatchedEvents.empty()) {
-      errs() << "[mc2yml] Error: failed to find a correct event mapping for " << MF.getFunction()->getName() << "\n";
+      errs() << "[mc2yml] Error: failed to find a correct event mapping for " << MF.getFunction()->getName() << ": ";
+      for(std::set< StringRef >::iterator I=UnmatchedEvents.begin(),E=UnmatchedEvents.end();I!=E;++I) {
+        errs() << *I << ",";
+      }
+      errs() << "\n";
     }
     doc.addRelationGraph(RG);
   }
@@ -502,10 +509,19 @@ private:
           PE = MachineEvents.getExitPredecessors().end(); PI!=PE; ++PI)
       (*PI)->addSuccessor(RN,true);
     if( BitcodeEvents.begin() != BitcodeEvents.end() ) {
-      UnmatchedEvents.insert("__bitcode__"); // record inconsistency, no action for tabu list
+      // unmatched events (bitcode side)
+      for(EventQueueMap<const BasicBlock*>::iterator I = BitcodeEvents.begin(), E = BitcodeEvents.end();I!=E;++I) {
+        UnmatchedEvents.insert(I->first);
+      }
     }
     if( BitcodeEvents.hasExitPredecessors() != MachineEvents.hasExitPredecessors() ) {
       UnmatchedEvents.insert("__exit__"); // record inconsistency, no action for tabu list
+      for(std::vector<yaml::RelationNode*>::iterator PI = BitcodeEvents.getExitPredecessors().begin(),
+            PE = BitcodeEvents.getExitPredecessors().end(); PI!=PE; ++PI)
+        ; // errs() << "Exit Predecessors (only src) " << (*PI)->NodeName.getName() << "\n";
+      for(std::vector<yaml::RelationNode*>::iterator PI = MachineEvents.getExitPredecessors().begin(),
+            PE = MachineEvents.getExitPredecessors().end(); PI!=PE; ++PI)
+        ; // errs() << "Exit Predecessors (only dst) " << (*PI)->NodeName.getName() << "\n";
     }
   }
 

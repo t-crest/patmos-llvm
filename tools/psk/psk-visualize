@@ -57,7 +57,7 @@ class RelationGraphVisualizer < Visualizer
     name = "#{rg['src'].inspect}/#{rg['dst'].inspect}"
     rg['nodes'].each do |node|
       bid = node['name']
-      label = "#{node['type']}"
+      label = "#{bid} #{node['type']}"
       label << " #{node['src-block']}" if node['src-block']
       label << " #{node['dst-block']}" if node['dst-block']
       nodes[bid] = g.add_nodes(bid.to_s, :label => label)
