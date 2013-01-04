@@ -136,6 +136,9 @@ struct Instruction {
     void addCallee(const StringRef function) {
         Callees.push_back(yaml::Name(function));
     }
+    bool hasCallees() {
+        return ! Callees.empty();
+    }
 };
 template <>
 struct MappingTraits<Instruction> {
@@ -184,6 +187,7 @@ struct Block {
     std::vector<Name> Predecessors;
     std::vector<Name> Loops;
     std::vector<InstructionT*> Instructions;
+    Block(StringRef name): BlockName(name) {}
     Block(uint64_t index) : BlockName(index) {}
     ~Block() { DELETE_MEMBERS(Instructions); }
     /// Add an instruction to the block
@@ -238,6 +242,107 @@ IS_PTR_SEQUENCE_VECTOR_1(Function)
 typedef Block<Instruction> BitcodeBlock;
 typedef Function<BitcodeBlock> BitcodeFunction;
 
+/// Relation Node Type
+enum RelationNodeType { rnt_entry, rnt_exit, rnt_progress, rnt_src, rnt_dst };
+template <>
+struct ScalarEnumerationTraits<RelationNodeType> {
+    static void enumeration(IO &io, RelationNodeType& rnty) {
+        io.enumCase(rnty, "entry", rnt_entry);
+        io.enumCase(rnty, "exit", rnt_exit);
+        io.enumCase(rnty, "progress", rnt_progress);
+        io.enumCase(rnty, "src", rnt_src);
+        io.enumCase(rnty, "dst", rnt_dst);
+    }
+};
+
+/// Relation Graph Nodes
+struct RelationNode {
+    Name NodeName;
+    RelationNodeType NodeType;
+    Name SrcBlock;
+    Name DstBlock;
+    std::vector<Name> SrcSuccessors;
+    std::vector<Name> DstSuccessors;
+    RelationNode(Name name, RelationNodeType type) : NodeName(name), NodeType(type) {}
+    void addSuccessor(RelationNode *RN, bool IsSrcNode) {
+        if(IsSrcNode)
+            SrcSuccessors.push_back(RN->NodeName);
+        else
+            DstSuccessors.push_back(RN->NodeName);
+    }
+    void setBlock(Name N, bool IsSrcBlock) {
+        if(IsSrcBlock) setSrcBlock(N);
+        else setDstBlock(N);
+    }
+    void setSrcBlock(Name N) { SrcBlock = N; }
+    void setDstBlock(Name N) { DstBlock = N; }
+};
+
+template <>
+struct MappingTraits< RelationNode > {
+    static void mapping(IO &io, RelationNode &node) {
+        io.mapRequired("name",           node.NodeName);
+        io.mapRequired("type",           node.NodeType);
+        io.mapOptional("src-block",      node.SrcBlock, Name(""));
+        io.mapOptional("dst-block",      node.DstBlock, Name(""));
+        io.mapOptional("src-successors", node.SrcSuccessors, std::vector<Name>());
+        io.mapOptional("dst-successors", node.DstSuccessors, std::vector<Name>());
+    }
+};
+IS_PTR_SEQUENCE_VECTOR(RelationNode)
+
+/// Relation Graph Scope
+struct RelationScope {
+    Name Function; // XXX: should be a scope, really
+    ReprLevel Level;
+    RelationScope(Name f, ReprLevel level) : Function(f), Level(level) {}
+};
+template <>
+struct MappingTraits< RelationScope > {
+    static void mapping(IO &io, RelationScope &scope) {
+        io.mapRequired("function", scope.Function);
+        io.mapRequired("level",scope.Level);
+    }
+};
+
+/// Relation Graphs
+struct RelationGraph {
+    static const int EntryIndex = 0;
+    static const int ExitIndex  = 1;
+    int NextIndex;
+    RelationScope *SrcScope;
+    RelationScope *DstScope;
+    std::vector<RelationNode*> RelationNodes;
+    RelationGraph(RelationScope *src, RelationScope *dst) : SrcScope(src), DstScope(dst) {
+        RelationNodes.push_back(new RelationNode(yaml::Name(EntryIndex),rnt_entry));
+        RelationNodes.push_back(new RelationNode(yaml::Name(ExitIndex),rnt_exit));
+        NextIndex = 2;
+    }
+    ~RelationGraph() {
+        delete SrcScope;
+        delete DstScope;
+        DELETE_MEMBERS(RelationNodes);
+    }
+    RelationNode *getEntryNode() { return RelationNodes[EntryIndex]; }
+    RelationNode *getExitNode()  { return RelationNodes[ExitIndex]; }
+    /// add a relation node (owned by graph)
+    RelationNode* addNode(RelationNodeType ty) {
+        RelationNode *N = new RelationNode(yaml::Name(NextIndex++),ty);
+        RelationNodes.push_back(N);
+        return N;
+    }
+};
+template <>
+struct MappingTraits< RelationGraph > {
+    static void mapping(IO &io, RelationGraph &RG) {
+        io.mapRequired("src",   *RG.SrcScope);
+        io.mapRequired("dst",   *RG.DstScope);
+        io.mapRequired("nodes", RG.RelationNodes);
+    }
+};
+IS_PTR_SEQUENCE_VECTOR(RelationGraph)
+
+
 /// Each document defines a version of the format, and either the
 /// generic architecture, or a specialized one. Architecture specific
 /// properties are defined in the architecture description.
@@ -254,10 +359,12 @@ template <typename Arch> struct Doc {
     StringRef Architecture;
     std::vector<BitcodeFunction*> BitcodeFunctions;
     std::vector<typename Arch::MachineFunction*> MachineFunctions;
+    std::vector<RelationGraph*> RelationGraphs;
     Doc(StringRef version) : FormatVersion(version), Architecture(Arch::ArchName) {}
     ~Doc() {
         DELETE_MEMBERS(BitcodeFunctions);
         DELETE_MEMBERS(MachineFunctions);
+        DELETE_MEMBERS(RelationGraphs);
     }
     /// Add a function, which is owned by the document afterwards
     void addFunction(BitcodeFunction *F) {
@@ -267,6 +374,10 @@ template <typename Arch> struct Doc {
     void addMachineFunction(typename Arch::MachineFunction* MF) {
         MachineFunctions.push_back(MF);
     }
+    /// Add a relation graph, which is owned by the document afterwards
+    void addRelationGraph(RelationGraph* RG) {
+        RelationGraphs.push_back(RG);
+    }
 };
 template <typename Arch>
 struct MappingTraits< Doc<Arch> > {
@@ -275,6 +386,7 @@ struct MappingTraits< Doc<Arch> > {
         io.mapRequired("arch",     doc.Architecture);
         io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
         io.mapOptional("machine-functions",doc.MachineFunctions);
+        io.mapOptional("relation-graphs",doc.RelationGraphs);
     }
 };
 

@@ -5,34 +5,33 @@
 #
 # TODO: port to python or C++ (to reduce number of languages)
 
-require 'yaml'
 require 'ostruct'
 require 'optparse'
+require 'yaml'
 
 # Standard option parser
 options = OpenStruct.new
 parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{$0} -o merged.pml file.pml"
+  opts.banner = "Usage: #{$0} -o merged.pml [file.pml...]"
   opts.on("-o", "--output FILE", "Output File") { |f| options.output = f }
   opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
 end.parse!
-if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
 
 # input/output
-input   = if ARGV.first
-            File.read(ARGV[0])
-          else
-            $stdin.read
+infiles = if ARGV[0].nil?
+          then [ $< ]
+          else ARGV.map { |arg| File.new(arg) }
           end
 outfile = if ! options.output || options.output == "-"
-            $stdout
-          else
-            File.open(options.output,"w")
+          then $>
+          else File.new(options.output,"w")
           end
 
 # merge
-doc = {}
-data = YAML::load_stream(input)
+doc,data = {},[]
+infiles.each do |f|
+  data.concat(YAML::load_stream(f.read))
+end
 data.each do |dat|
   dat.each do |k,v|
     if(v.kind_of? Array)
