@@ -30,12 +30,12 @@ extern "C" void LLVMInitializePatmosTarget() {
 }
 
 namespace {
-  /// EnableCallGraph - Option to enable the construction of a machine-level 
-  /// call graph.
-  static cl::opt<bool> EnableCallGraph(
-    "mpatmos-enable-call-graph",
+  /// EnableStackCacheAnalysis - Option to enable the analysis of Patmos' stack
+  /// cache usage.
+  static cl::opt<bool> EnableStackCacheAnalysis(
+    "mpatmos-enable-stack-cache-analysis",
     cl::init(false),
-    cl::desc("Enable the Patmos call graph construction."),
+    cl::desc("Enable the Patmos stack cache analysis."),
     cl::Hidden);
 
   /// Patmos Code Generator Pass Configuration Options.
@@ -78,8 +78,8 @@ namespace {
       PM->add(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
       PM->add(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
-      if (EnableCallGraph) {
-        addModulePass(createPatmosCallGraphBuilder());
+      if (EnableStackCacheAnalysis) {
+        addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
       return true;
     }
