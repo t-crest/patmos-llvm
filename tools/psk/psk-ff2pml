@@ -249,7 +249,8 @@ parser = OptionParser.new do |opts|
   opts.on("-i", "--input FILE", "Extend this PML file") { |f| options.input = f }
   opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
 end.parse!
-if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
+if options.replace && options.input then $stderr.puts "Options --input and --replace conflict. Try --help"; exit 1; end
+if ARGV.length > 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
 
 # input/output
 infile   = if ARGV.first

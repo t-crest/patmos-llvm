@@ -1,0 +1,131 @@
+#!/usr/bin/env ruby
+#
+# Small demo printing CFRG equations
+require 'ostruct'
+require 'optparse'
+require 'yaml'
+
+# Standard option parser
+options = OpenStruct.new
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: #{$0} file.pml"
+  opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
+end.parse!
+if ARGV.length > 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
+
+data = YAML::load(ARGV.first ? File.new(ARGV.first) : $<)
+
+# small helpers to specify equations
+class LinearCombination
+  attr_reader :lc
+  def initialize(terms=[])
+    @lc = Hash.new(0)
+    terms.each { |t| add_term(t) }
+  end
+  def add_term(t)
+    if t.kind_of?(Array)
+      @lc[t[0]] += t[1]
+    else
+      @lc[t] += 1
+    end
+    self
+  end
+  def add_lc(lc)
+    lc.lc.each { |k,v| @lc[k] += v }
+    self
+  end
+  def negate
+    LinearCombination.new(@lc.map {|k,v| [k,-v] })
+  end
+  def normalize!
+    @lc.delete_if { |k,v| v == 0 }
+  end
+  def partition
+    lcs = [LinearCombination.new, LinearCombination.new]
+    @lc.each do |k,v|
+      lcs[(yield [k,v]) ? 0 : 1].add_term([k,v])
+    end
+    lcs
+  end
+  def to_cmp_str(cmpop)
+    lhs,rhs = partition { |k,v| v >= 0 }
+    "#{lhs.to_s} #{cmpop} #{rhs.negate.to_s}"
+  end
+  def to_s
+    normalize!
+    @lc.map { |k,v|
+      k.inspect
+      if k && (v==1) then k.to_s
+      elsif ! k then v.to_s
+      else "#{v} #{k}"
+      end
+    }.join(" + ")
+  end
+end
+def equation(lhs,rhs)
+  lhs.add_lc(rhs.negate).to_cmp_str(" = ")
+end
+def lab(node,ty)
+  label = node["#{ty}-block"]
+  label = "exit" if node['type'] == 'exit'
+  label
+end
+
+# For all relation graphs
+data['relation-graphs'].each do |rg|
+  puts ">>> Src: #{rg['src'].inspect}"
+  puts "<<< Dst: #{rg['dst'].inspect}"
+  # first, add predecessors information
+  nodes = rg['nodes']
+  nodes.each do |n1|
+    (n1['src-successors']||=[]).each do |n2|
+      (nodes[n2]['src-predecessors'] ||= []) << n1['name']
+    end
+    (n1['dst-successors']||=[]).each do |n2|
+      (nodes[n2]['dst-predecessors'] ||= []) << n1['name']
+    end
+  end
+
+  # (1) for src nodes, inSCR = outSRC
+  # (2) for dst nodes, inDST = outDST
+  # (3) for progress nodes, (1),(2),inSRC=inDST,outSRC=outDST
+  # (4) for entry nodes, outSRC = outDST = 1
+  # (5) for exit nodes, inSRC = inDST = 1
+  $nodes,$constraints=nodes,[]
+  def eq(lhs,rhs); $constraints.push(equation(lhs,rhs)); end
+  def ins(node,ty) ; LinearCombination.new(node["#{ty}-predecessors"].map { |n| "#{lab($nodes[n],ty)}->#{lab(node,ty)}" }) ; end
+  def out(node,ty) ; LinearCombination.new(node["#{ty}-successors"].map { |n| "#{lab(node,ty)}->#{lab($nodes[n],ty)}" }) ; end
+  def scope(scope) ; LinearCombination.new(["f(#{scope['function']})"]) ; end
+  nodes.each do |node|
+    if node['type'] == 'entry'
+      eq(out(node,'src'),scope(rg['src']))
+      eq(out(node,'dst'),scope(rg['dst']))
+      eq(out(node,'src'),out(node,'dst'))
+    elsif node['type'] == 'exit'
+      eq(ins(node,'src'),scope(rg['src']))
+      eq(ins(node,'dst'),scope(rg['dst']))
+    else
+      eq(ins(node,'src'),out(node,'src')) if node['type'] != 'dst'
+      eq(ins(node,'dst'),out(node,'dst')) if node['type'] != 'src'
+      eq(ins(node,'src'),ins(node,'dst')) if node['type'] == 'progress'
+      eq(out(node,'src'),out(node,'dst')) if node['type'] == 'progress'
+    end
+  end
+  if(data['flowfacts'])
+    cfun = rg['src']['function']
+    data['flowfacts'].each do |ff|
+      next unless ff['scope'] == cfun
+      lc = LinearCombination.new
+      ff['lhs'].each do |t|
+        pp = t['program-point']
+        k = (pp['function']==cfun) ? pp['block'] : "#{pp['function']}::#{pp['block']}"
+        lc.add_term([k,t['factor']])
+      end
+      lc.add_term([nil,-ff['rhs']])
+      $constraints.push(lc.to_cmp_str(if ff['op'] == "less-equal" then "<=" else "=" end))
+    end
+  end
+  $constraints.uniq.each do |eq|
+    puts "  #{eq}"
+  end
+end
