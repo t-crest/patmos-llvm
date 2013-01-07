@@ -82,6 +82,16 @@ InternalizePass::InternalizePass(const std::vector<const char *>&exportList)
         itr != exportList.end(); itr++) {
     ExternalNames.insert(*itr);
   }
+  // This constructor is called for LTO optimization (in llvm-ld).
+  // Still needs to honor additional internalize options to prevent it from
+  // removing runtime functions or the startup function
+  if (!APIFile.empty())           // If a filename is specified, use it.
+    for(cl::list<std::string>::iterator itr = APIFile.begin();
+        itr != APIFile.end(); itr++) {
+      LoadFile((*itr).c_str());
+    }
+  if (!APIList.empty())           // If a list is specified, use it as well.
+    ExternalNames.insert(APIList.begin(), APIList.end());
 }
 
 void InternalizePass::LoadFile(const char *Filename) {
