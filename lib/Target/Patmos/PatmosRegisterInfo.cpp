@@ -104,6 +104,8 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
   // stack pointer
   Reserved.set(Patmos::RSP);
+  // frame pointer
+  Reserved.set(Patmos::RFP);
   // reserved temp register
   Reserved.set(Patmos::RTR);
   // return regisers
