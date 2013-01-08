@@ -1,0 +1,99 @@
+#!/usr/bin/env ruby
+#
+SYNOPSIS=<<EOF
+Generate flow facts reflecting frequencies from machine-code
+execution traces generated with 'pasim --debug'
+EOF
+
+require File.join(File.dirname(__FILE__),"utils.rb")
+include PMLUtils
+
+class Trace
+  def initialize(io)
+    @io = io
+  end
+  def each
+    while item = next_item
+      yield item
+    end
+  end
+  def next_item
+    while (line = @io.gets)
+      case line
+      when /Cyc\s*:\s*(\d+)/
+        time_stamp = $1.to_i
+      when /<([^>]+)>$/
+        case label=$1
+        when /\A(.*?):(\S+)(?: \+ (0x#{HEX}+))?$/
+          return [$1, $2, offset($3), label]
+        when /\A(\S+)(?: \+ (0x#{HEX}+))?$/
+          return [$1, nil, offset($2), label]
+        else
+          raise Exception.new("Bad trace format: #{label}")
+        end
+      end
+    end
+    nil
+  end
+  def offset(v,base=16)
+    return nil unless v
+    Integer(v,base)
+  end
+end
+
+# Standard option parser
+options = OpenStruct.new
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: #{$0} OPTIONS program.trace\n#{SYNOPSIS}"
+  opts.on("-i", "--pml FILE", "Input PML File") { |f| options.input = f }
+  opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f }
+  opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
+end.parse!
+
+die "Wrong number of arguments. Try --help" unless ARGV.length<=1
+die "Option --pml is mandatory. Try --help" unless options.input
+
+trace = (ARGV[0].nil?) ? $< : File.open(ARGV.first)
+pml = File.open(options.input) { |fh| PML.new(fh) }
+start,last_offset = false, 0
+freqs,ifreqs = Hash.new(0), Hash.new(0)
+Trace.new(trace).each do |fname,bb,offset,label|
+
+  start = true if fname == 'main'
+  next unless start
+  (start = false; next) if fname == "_start"
+
+  offset = 0 unless offset
+
+  if mf = pml.mf_mapping_to(fname)
+    if bb
+      mfp,_ = parse_mbb_label(bb)
+      warn "Inconsistent label #{label}" unless mfp==mf['name']
+    else
+      bb = get_mbb_label(mf['name'],0)
+    end
+  elsif ! bb && parse_mbb_label(fname)
+    bb = fname
+  else
+    warn "Failed to resolve #{fname} #{bb} #{offset} #{label}"
+  end
+
+  if offset == 0
+    freqs[bb]+=1
+  end
+  ifreqs[[bb,offset]]+=1
+  last_offset = offset
+#  puts [bb,offset,label].inspect
+
+end
+freqs.sort.each { |bb,freq|
+  puts "#{pml.mf(parse_mbb_label(bb)[0])['mapsto']} #{bb}: #{freq}"
+}
+
+# First, simple approximation: collect frequencies
+#outfile = if ! options.output || options.output == "-"
+#          then $>
+#          else File.new(options.output,"w")
+#          end
+#outfile.puts YAML::dump(doc)
+#outfile.close
