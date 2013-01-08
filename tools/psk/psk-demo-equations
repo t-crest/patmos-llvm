@@ -6,6 +6,7 @@
 require 'ostruct'
 require 'optparse'
 require 'yaml'
+require 'set'
 
 # Standard option parser
 options = OpenStruct.new
@@ -97,13 +98,42 @@ class NodeLabeller
     "#{ty}::#{function[ty]}()"
   end
 end
+
 # Save CFGS
 functions = { 'src' => {}, 'dst' => {} }
+dstfunmap = {}
 data['bitcode-functions'].each { |f| functions['src'][f['name']] = f }
-data['machine-functions'].each { |f| functions['dst'][f['name']] = f }
+data['machine-functions'].each { |f|
+  functions['dst'][f['name']] = f
+  dstfunmap[f['mapsto']] = f
+}
+
+# Collect called functions
+called = Set.new
+queue = [dstfunmap['main']]
+begin
+  while f = queue.pop
+    next if called.include?(f['name'])
+    called.add(f['name'])
+    next unless f['blocks']
+    f['blocks'].each do |b|
+      b['instructions'].each do |i|
+        raise Exception.new if (i['callees']||[]).include?("__any__")
+        queue = queue + (i['callees']||[]).map { |n| dstfunmap[n] or raise Exception.new }
+      end
+    end
+  end
+rescue Exception
+  data['machine-functions'].each { |f2|
+    next if %{_start abort _exit}.include?(f2['mapsto'])
+    called.add(f2['name'])
+  }
+end
+puts "Called Functions: #{called.inspect}"
 
 # For all relation graphs
 data['relation-graphs'].each do |rg|
+  next unless called.include?(rg['dst']['function'])
   constraints = ConstraintSystem.new
   puts "<<< #{rg['src'].inspect}"
   puts ">>> #{rg['dst'].inspect}"
