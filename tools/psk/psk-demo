@@ -16,47 +16,44 @@ CMD_ALF_LLC="alf-llc"
 
 ($stderr.puts "patmos-llvm-ld not in PATH";exit 1) if `which patmos-llvm-ld`.empty?
 
-CLANG="%<bin>s -Xllc --serialize=%<pml>s -o %<of>s %<if>s" # cannot use CLANG inside build dir (missing libs)
-LLC="%<bin>s -march=patmos --serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
-BC2ALF="%<bin>s -march=alf -alf-standalone -alf-memory-areas=0x0000-0xffff -o=%<of>s %<if>s"
-ALF2FF="%<bin>s -i=%<if>s func=main -ae ffg=ub vola=t pu -f co o=%<of>s"
-PMLMERGE="%<bin>s -o %<of>s %<ifs>s"
-FF2PML="%<bin>s -o %<of>s %<if>s"
+# local build commands
+LLC="%<bin>s -march=patmos --mpatmos-serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
+# patmos commands
 PATMOS_PATH=File.join(File.dirname(`which patmos-llvm-ld`),"..")
+PATMOS_CLANG="%<bin>s -Xllc --serialize=%<pml>s -o %<of>s %<if>s" # cannot use CLANG inside build dir (missing libs)
 PATMOS_LLVM_LD="%<patmos>s/bin/patmos-llvm-ld -emit-llvm -L%<patmos>s/patmos-unknown-elf/lib/ -b %<of>s %<patmos>s/patmos-unknown-elf/lib/crt0.o %<if>s -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/libcsyms.lst %<patmos>s/patmos-unknown-elf/lib/libcsyms.o -lc -lpatmos -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsfsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsfsyms.o -lrtsf -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsyms.o -lrt -internalize-public-api-list=_start,main -no-script"
 PATMOS_LD="%<patmos>s/bin/patmos-ld -o %<of>s -nostdlib -static --defsym _uart_status_base=0xF0000000 --defsym _uart_data_base=0xF0000004 --defsym _shadow_stack_base=0x4000000 --defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x3000000 --defsym __heap_end=0x2000000 --defsym __heap_start=end %<if>s"
+# psk tools
+MERGE="%<psk>s/psk-merge -o %<of>s %<ifs>s"
+FF2PML="%<psk>s/psk-ff2pml -o %<of>s %<if>s"
+EXTRACT_SYMBOLS="%<psk>s/psk-extract-symbols -i %<if>s -o %<of>s %<elf>s"
+DEMO_EQUATIONS="%<psk>s/psk-demo-equations %<if>s"
 
-
-
-DEMOEQS="%<bin>s %<if>s"
+# external tools
+BC2ALF="%<bin>s -march=alf -alf-standalone -alf-memory-areas=0x0000-0xffff -o=%<of>s %<if>s"
+ALF2FF="%<bin>s -i=%<if>s func=main -ae ffg=ub vola=t pu -f co o=%<of>s"
 class Demo
   attr_accessor :outdir, :logfile
   attr_writer :level, :builddir, :binprefix
+  # external commands
   attr_accessor :cmd_sweet, :cmd_alf_llc
-  attr_accessor :bc2alf, :alf2ff, :pmlmerge, :ff2pml
-  attr_accessor :llc, :patmos_llvm_ld, :patmos_ld, :demoeqs
   def initialize
     @step = 1
     @outdir,@logfile=".","log"
     @level,@builddir,@binprefix=LEVEL,BUILDDIR,""
     @cmd_sweet,@cmd_alf_llc = CMD_SWEET, CMD_ALF_LLC
-    @bc2alf,@alf2ff,@pmlmerge,@ff2pml = BC2ALF, ALF2FF, PMLMERGE, FF2PML
-    @llc, @patmos_llvm_ld, @patmos_ld, @demoeqs = LLC, PATMOS_LLVM_LD, PATMOS_LD, DEMOEQS
   end
-  def run_patmos(cmdname, arghash)
+  def run_patmos(cmd, arghash)
     arghash[:patmos] = PATMOS_PATH
-    run(self.send(cmdname), arghash)
+    run(cmd, arghash)
   end
-  def run_build(cmdname, bin, arghash)
+  def run_build(cmd, bin, arghash)
     arghash[:bin] = File.join(File.dirname(__FILE__),@level,@builddir,"bin","#{@binprefix}#{bin}")
-    run(self.send(cmdname), arghash)
+    run(cmd, arghash)
   end
-  def run_psk(cmdname, bin, arghash)
-    arghash[:bin] = File.join(File.dirname(__FILE__),"psk-#{bin}")
-    run(self.send(cmdname), arghash)
-  end
-  def run_custom(cmdname, arghash)
-    run(self.send(cmdname),arghash)
+  def run_psk(cmd, arghash)
+    arghash[:psk] = File.join(File.dirname(__FILE__))
+    run(cmd, arghash)
   end
 
   # output
@@ -85,7 +82,10 @@ class Demo
   end
 end
 
-
+def die(msg)
+  $stderr.puts msg
+  exit 1
+end
 # Standard option parser
 demo = Demo.new
 parser = OptionParser.new do |opts|
@@ -95,8 +95,9 @@ parser = OptionParser.new do |opts|
   opts.on("", "--sweet-command CMD", "path to SWEET executable") { |cmd| demo.cmd_sweet=cmd }
   opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
 end.parse!
-if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
+die "Wrong number of arguments. Try --help" unless ARGV.length==1
 bc,mod=ARGV[0],ARGV[0].sub(/\..*$/,'')
+die "File #{bc} does not exist" unless File.exist?(bc)
 file = Proc.new { |suffix| File.join(demo.outdir, "#{File.basename(mod)}.#{suffix}") }
 demo.logfile = file.call("log")
 system("echo PSK-DEMO > #{demo.logfile}")
@@ -109,23 +110,32 @@ demo.info("(optimized) bitcode file *without* libc stuff (because of abort, exit
 demo.sep
 
 demo.step("Link application with patmos-newlib (bitcode level)")
-demo.run_patmos(:patmos_llvm_ld, :if=>bc, :of=> file.call("elf.bc"))
+demo.run_patmos(PATMOS_LLVM_LD, :if=>bc, :of=> file.call("elf.bc"))
 
 demo.step("Run backend, and export LLVM-internal information to YML")
-demo.run_build(:llc, "llc", :if => file.call("elf.bc"), :pml => file.call("elf.pml"), :of=>file.call("elf.o"))
+demo.run_build(LLC, "llc", :if => file.call("elf.bc"), :pml => file.call("elf.pml"), :of=>file.call("elf.o"))
+
+demo.step("Merge PML streams to one YAML document")
+demo.run_psk(MERGE, :ifs => file.call("elf.pml"), :of=>file.call("elf.pml"))
 
 demo.step("Link ELF binary")
-demo.run_patmos(:patmos_ld, :if=>file.call("elf.o"), :of=>file.call(".elf"))
+demo.run_patmos(PATMOS_LD, :if=>file.call("elf.o"), :of=>file.call(".elf"))
+
+demo.step("Extract addresses from ELF binary")
+demo.run_psk(EXTRACT_SYMBOLS, :if => file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"))
+
+#demo.step("Generate trace using pasim")
+#demo.run_patmos(PASIM, :if=>file.call("elf"))
 
 demo.step("Generate Flow Fact file using Abstract Execution")
-demo.run_custom(:bc2alf, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
-demo.run_custom(:alf2ff, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))
+demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
+demo.run(ALF2FF, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))
 
 demo.step("Add Flow Facts to PML file")
-demo.run_psk(:ff2pml, "ff2pml", :if => file.call("ff"), :of => file.call("ff.pml"))
+demo.run_psk(FF2PML, :if => file.call("ff"), :of => file.call("ff.pml"))
 
 demo.step("Merge bc.pml documents and ff.pml into one YAML document")
-demo.run_psk(:pmlmerge, "merge", :ifs => "#{file.call("elf.pml")} #{file.call("ff.pml")}", :of => file.call("pml"))
+demo.run_psk(MERGE, :ifs => "#{file.call("elf.pml")} #{file.call("ff.pml")}", :of => file.call("pml"))
 
 demo.step("Display control-flow relation graph equations and flow fact inequalities")
-demo.run_psk(:demoeqs, "demo-equations", :if => "#{file.call("pml")}", :noredirect=>true)
+demo.run_psk(DEMO_EQUATIONS, :if => "#{file.call("pml")}", :noredirect=>true)

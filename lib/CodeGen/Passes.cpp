@@ -80,9 +80,9 @@ static cl::opt<bool> PrintGCInfo("print-gc", cl::Hidden,
 static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
     cl::desc("Verify generated machine code"),
     cl::init(getenv("LLVM_VERIFY_MACHINEINSTRS")!=NULL));
-static cl::opt<std::string> SerializeMachineCode("serialize",
-  cl::desc("Export specification of generated machine code to FILE"),
-  cl::init(""));
+//static cl::opt<std::string> SerializeMachineCode("serialize",
+//  cl::desc("Export specification of generated machine code to FILE"),
+//  cl::init(""));
 
 /// Allow standard passes to be disabled by command line options. This supports
 /// simple binary flags that either suppress the pass or do nothing.
@@ -418,8 +418,8 @@ void TargetPassConfig::addMachinePasses() {
     printAndVerify("After PreEmit passes");
 
   // Serialize machine code
-  if (! SerializeMachineCode.empty())
-      PM->add(createYAMLExportPass(SerializeMachineCode, TM));
+  // if (! SerializeMachineCode.empty())
+  //    PM->add(createPMLExportPass(SerializeMachineCode, TM));
 }
 
 /// Add passes that optimize machine instructions in SSA form.

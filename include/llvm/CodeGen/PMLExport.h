@@ -1,4 +1,4 @@
-//===- lib/Support/YAMLExport.h -----------------------------------------===//
+//===- lib/Support/PMLExport.h -----------------------------------------===//
 //
 //               YAML definitions for exporting LLVM datastructures
 //
@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_YAML_EXPORT_H_
-#define LLVM_YAML_EXPORT_H_
+#ifndef LLVM_PML_EXPORT_H_
+#define LLVM_PML_EXPORT_H_
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
@@ -171,7 +171,7 @@ template <>
 struct MappingTraits<GenericMachineInstruction> {
     static void mapping(IO &io, GenericMachineInstruction& Ins) {
         MappingTraits<Instruction>::mapping(io,Ins);
-        io.mapOptional("size",          Ins.Size, (uint64_t) 4);
+        io.mapOptional("size",          Ins.Size);
         io.mapOptional("branch-type",   Ins.BranchType, branch_none);
         io.mapOptional("branch-target", Ins.BranchTarget, yaml::Name(""));
     }

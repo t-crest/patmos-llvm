@@ -1,0 +1,74 @@
+#!/usr/bin/env ruby
+#
+# Merges a stream of YAML documents into one document (if version
+# and architecture are compatible)
+#
+# TODO: use Daniel's implementation ;) (in python)
+require 'ostruct'
+require 'optparse'
+require 'yaml'
+
+HEX=/[0-9A-Fa-f]/
+def objdump_extract(line)
+  return nil unless line =~ /\A(#{HEX}{8}).{9}(\S+)\s+(#{HEX}+)\s+(\S+)\Z/
+  OpenStruct.new({ :address => Integer($1,16), :section => $2,
+                   :value => Integer($3,16), :label => $4 })
+end
+
+def extract_addresses(opts)
+  text_symbols = {}
+  IO.popen("patmos-objdump -t '#{opts.elf}'") do |io|
+    io.each_line do |line|
+      if record = objdump_extract(line)
+        next unless opts.text.include?(record.section)
+        text_symbols[record.label]=record.address
+      end
+    end
+  end
+  text_symbols
+end
+
+def add_addresses(pml, syms)
+  pml['machine-functions'].each do |mf|
+    addr = syms[mf['mapsto']]
+    # TODO: we should use .LBB[name]_0
+    next unless addr
+    mf['blocks'].each do |mbb|
+      label = ".LBB#{mf['name']}_#{mbb['name']}"
+      descr = "#{mf['mapsto']}: #{label}"
+      if syms[label] and mf['mapsto'] != "_start" # workaround bug
+        $stderr.puts("[#{$0}] Incorrect address estimation in #{descr}") if addr != syms[label]
+        addr = syms[label]
+      end
+      mbb['address'] = addr
+      (mbb['instructions']||[]).each do |ins|
+        ins['address'] = addr
+        addr += ins['size'] || 4
+      end
+    end
+  end
+end
+
+if __FILE__ == $0
+  # Standard option parser
+  options = OpenStruct.new
+  options.text = [".text"]
+  parser = OptionParser.new do |opts|
+    opts.banner = "Usage: #{$0} OPTIONS FILE.elf\n" +
+      "  Extracts symbols from the given ELF, and adds them to the PML description"
+    opts.on("-i", "--input FILE.pml", "Input PML file") { |f| options.input = f }
+    opts.on("-o", "--output FILE.pml", "Output PML File") { |f| options.output = f }
+    opts.on("", "--text-sections SECTIONS", "CS list of code sections") { |s| options.text = s.split(/\s*,\s*/) }
+    opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
+  end.parse!
+  ($stderr.puts ("Wrong number of positional arguments. Try --help"); exit 1) unless ARGV.length == 1
+  ($stderr.puts ("Option --input is mandatory. Try --help"); exit 1) unless options.input
+
+  # input/output
+  options.elf = ARGV.first
+  pml = File.open(options.input) { |fh| YAML::load(fh) }
+  syms = extract_addresses(options)
+  add_addresses(pml, syms)
+  out = options.output.nil? ? $> : File.open(options.output,"w")
+  out.write(YAML::dump(pml))
+end

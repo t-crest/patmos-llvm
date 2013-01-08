@@ -18,10 +18,10 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/YAMLExport.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -57,9 +57,9 @@ template <> struct FlowGraphTrait<MachineBasicBlock> {
 
 namespace {
 
-/// YAMLExportPass - This is a pass to export a machine function to
+/// PMLExportPass - This is a pass to export a machine function to
 /// YAML (using the PML schema define at (TODO: cite report))
-struct YAMLExportPass : public MachineFunctionPass {
+struct PMLExportPass : public MachineFunctionPass {
 
   static char ID;
 
@@ -71,7 +71,7 @@ struct YAMLExportPass : public MachineFunctionPass {
   // Information for the current function
   MachineLoopInfo *LI;
 
-  YAMLExportPass(std::string& filename, TargetMachine *tm)
+  PMLExportPass(std::string& filename, TargetMachine *tm)
       : MachineFunctionPass(ID), TM(tm), OutFileName(filename) {}
 
   const char *getPassName() const { return "YAML/PML Export"; }
@@ -81,6 +81,7 @@ struct YAMLExportPass : public MachineFunctionPass {
     AU.addRequired<MachineLoopInfo>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
+
   virtual bool doInitialization(Module &M) {
 
       std::string ErrorInfo;
@@ -105,21 +106,25 @@ struct YAMLExportPass : public MachineFunctionPass {
      return false;
   }
 
-  typedef yaml::Doc<yaml::GenericArchitecture> YAMLDoc;
-
-  bool runOnMachineFunction(MachineFunction &MF) {
-     // In this first implementation, we provide generic
-     // MachineFunction and Function serialization
-     YAMLDoc YDoc("pml-0.1");
-     LI = &getAnalysis<MachineLoopInfo>();
-     serializeMachineFunction(MF, YDoc);
-     serializeFunction(MF.getFunction(), YDoc);
-     serializeRelationGraph(MF, YDoc);
-     *Output << YDoc;
-     return false;
+  /// Serialize machine function, bitcode functions and relation
+  /// graph for generic architecture
+  virtual bool runOnMachineFunction(MachineFunction &MF) {
+    LI = &getAnalysis<MachineLoopInfo>();
+    yaml::Doc<yaml::GenericArchitecture> YDoc("pml-0.1");
+    serialize(MF, YDoc);
+    return false;
   }
 
-  void serializeMachineFunction(MachineFunction &MF, YAMLDoc& doc) {
+  template <typename ArchTrait>
+  void serialize(MachineFunction &MF, yaml::Doc<ArchTrait>& YDoc) {
+    serializeMachineFunction(MF, YDoc);
+    serializeFunction(MF.getFunction(), YDoc);
+    serializeRelationGraph(MF, YDoc);
+    *Output << YDoc;
+  }
+
+  template <typename ArchTrait>
+  void serializeMachineFunction(MachineFunction &MF, yaml::Doc<ArchTrait>& doc) {
         yaml::GenericArchitecture::MachineFunction *F = new yaml::GenericArchitecture::MachineFunction(MF.getFunctionNumber());
         F->MapsTo = yaml::Name(MF.getFunction()->getName());
         F->Level  = yaml::level_machinecode;
@@ -151,6 +156,8 @@ struct YAMLExportPass : public MachineFunctionPass {
 
               // FIXME: this is still the hackish implementation from the OTAP prototype
               if(Ins->getDesc().isCall()) {
+                // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
+                // read call (patmos specific: operand[2] of call)
                 for(MachineInstr::const_mop_iterator Op = Ins->operands_begin(), E = Ins->operands_end(); Op != E; ++Op) {
                   if(Op->isGlobal()) {
                     I->addCallee(Op->getGlobal()->getName());
@@ -185,7 +192,8 @@ struct YAMLExportPass : public MachineFunctionPass {
       doc.addMachineFunction(F);
   }
 
-  void serializeFunction(const Function *const_function, YAMLDoc &doc) {
+  template<typename T>
+  void serializeFunction(const Function *const_function, yaml::Doc<T> &doc) {
     Function *BF = const_cast<Function*>(const_function);
     yaml::BitcodeFunction *F = new yaml::BitcodeFunction(BF->getName());
 
@@ -293,7 +301,8 @@ private:
 
 public:
   /// Build the Control-Flow Relation Graph connection machine code and bitcode
-  void serializeRelationGraph(MachineFunction &MF, YAMLDoc &doc) {
+  template<typename T>
+  void serializeRelationGraph(MachineFunction &MF, yaml::Doc<T> &doc) {
     Function *BF = const_cast<Function*>(MF.getFunction());
     if(! BF) return;
 
@@ -538,14 +547,14 @@ private:
   }
 };
 
-char YAMLExportPass::ID = 0;
+char PMLExportPass::ID = 0;
 } // end namespace <anonymous>
 
 namespace llvm {
 
-/// Returns a newly-created YAML export pass.
-MachineFunctionPass *createYAMLExportPass(std::string& FileName, TargetMachine *TM) {
-    return new YAMLExportPass(FileName,TM);
+/// Returns a newly-created PML export pass.
+MachineFunctionPass *createPMLExportPass(std::string& FileName, TargetMachine *TM) {
+    return new PMLExportPass(FileName,TM);
 }
 
 } // end namespace llvm
