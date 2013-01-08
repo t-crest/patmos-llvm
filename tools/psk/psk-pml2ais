@@ -1,0 +1,76 @@
+#!/usr/bin/env ruby
+#
+# Extract flow information from PML file and export as AbsInt AIS file.
+#
+# TODO: port to python or C++ (to reduce number of languages)
+
+require 'ostruct'
+require 'optparse'
+require 'yaml'
+
+# TODO move to some PSK/PML library
+# TODO create label depending on architecture?
+def get_mbb_label(funcname, blockname)
+    ".LBB" + funcname + "_" + blockname
+end
+
+class AISExporter
+    attr_reader :outfile
+    def initialize(outfile)
+	@outfile = outfile
+    end
+    def gen_header(data)
+	# TODO get compiler type depending on YAML arch type
+	@outfile.puts "#compiler"
+	@outfile.puts "compiler \"patmos-llvm\";"
+	@outfile.puts ""
+
+	#@outfile.puts "#clock rate"
+	#@outfile.puts "clock exactly 24 MHz;"
+	#@outfile.puts ""
+
+	# TODO any additional header stuff to generate (context, entry, ...)?
+    end
+    def export_function(func)
+	
+	
+
+	#@outfile.puts "instruction #{instr} branches to #{targets};"
+
+    end
+end
+
+# Standard option parser
+options = OpenStruct.new
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: #{$0} -o file.ais file.pml"
+  opts.on("-o", "--output FILE", "Output File") { |f| options.output = f }
+  opts.on("-g", "--header", "Generate AIS header") { |f| options.header = f }
+  opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
+end.parse!
+if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
+
+# input/output
+outfile = if ! options.output || options.output == "-"
+          then $>
+          else File.new(options.output,"w")
+          end
+
+# TODO move this into a common PML library load function
+stream = YAML::load_stream((ARGV.first and ARGV.first != "-") ? File.new(ARGV.first) : $<)
+if stream.length != 1 then 
+  $stderr.puts "Multiple streams not supported, use psk-merge first."
+  exit 1
+end
+data = stream[0]
+
+# export
+ais = AISExporter.new(outfile)
+ais.gen_header(data) if options.header
+
+data['machine-functions'].each do |func|
+  ais.export_function(func)
+end
+
+outfile.close
+
