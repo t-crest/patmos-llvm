@@ -8,10 +8,16 @@ require 'ostruct'
 require 'optparse'
 require 'yaml'
 
+class String
+  def dquote
+    '"' + self + '"'
+  end
+end
+
 # TODO move to some PSK/PML library
 # TODO create label depending on architecture?
 def get_mbb_label(funcname, blockname)
-    ".LBB" + funcname + "_" + blockname
+  ".LBB#{funcname}_#{blockname}"
 end
 
 class AISExporter
@@ -32,11 +38,20 @@ class AISExporter
 	# TODO any additional header stuff to generate (context, entry, ...)?
     end
     def export_function(func)
-	
-	
-
-	#@outfile.puts "instruction #{instr} branches to #{targets};"
-
+      func['blocks'].each do |mbb|
+        branches = 0
+        mbb['instructions'].each do |ins|
+          branches += 1 if ins['branch-type'] && ins['branch-type'] != "none"
+          if ins['branch-type'] == 'any'
+            label = get_mbb_label(func['name'],mbb['name'])
+            instr = "#{label.dquote} + #{branches} branches"
+            targets = mbb['successors'].uniq.map { |succ_name|
+              get_mbb_label(func['name'],succ_name).dquote
+            }.join(", ")
+            @outfile.puts "instruction #{instr} branches to #{targets};"
+          end
+        end
+      end
     end
 end
 
@@ -50,12 +65,6 @@ parser = OptionParser.new do |opts|
 end.parse!
 if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
 
-# input/output
-outfile = if ! options.output || options.output == "-"
-          then $>
-          else File.new(options.output,"w")
-          end
-
 # TODO move this into a common PML library load function
 stream = YAML::load_stream((ARGV.first and ARGV.first != "-") ? File.new(ARGV.first) : $<)
 if stream.length != 1 then 
@@ -65,12 +74,15 @@ end
 data = stream[0]
 
 # export
+outfile = if ! options.output || options.output == "-"
+          then $>
+          else File.new(options.output,"w")
+          end
 ais = AISExporter.new(outfile)
 ais.gen_header(data) if options.header
 
 data['machine-functions'].each do |func|
   ais.export_function(func)
 end
-
 outfile.close
 

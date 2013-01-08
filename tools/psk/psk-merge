@@ -22,10 +22,6 @@ infiles = if ARGV[0].nil?
           then [ $< ]
           else ARGV.map { |arg| File.new(arg) }
           end
-outfile = if ! options.output || options.output == "-"
-          then $>
-          else File.new(options.output,"w")
-          end
 
 # merge
 doc,data = {},[]
@@ -43,5 +39,9 @@ data.each do |dat|
     end
   end
 end
+outfile = if ! options.output || options.output == "-"
+          then $>
+          else File.new(options.output,"w")
+          end
 outfile.puts YAML::dump(doc)
 outfile.close
