@@ -164,7 +164,7 @@ struct ScalarEnumerationTraits<BranchType> {
 struct GenericMachineInstruction : Instruction {
     uint64_t Size;
     enum BranchType BranchType;
-    Name BranchTarget;
+    std::vector<Name> BranchTargets;
     GenericMachineInstruction(uint64_t Index) : Instruction(Index), BranchType(branch_none) {}
 };
 template <>
@@ -173,7 +173,7 @@ struct MappingTraits<GenericMachineInstruction> {
         MappingTraits<Instruction>::mapping(io,Ins);
         io.mapOptional("size",          Ins.Size);
         io.mapOptional("branch-type",   Ins.BranchType, branch_none);
-        io.mapOptional("branch-target", Ins.BranchTarget, yaml::Name(""));
+        io.mapOptional("branch-targets", Ins.BranchTargets, std::vector<Name>());
     }
 };
 IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)

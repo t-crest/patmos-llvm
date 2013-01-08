@@ -174,11 +174,11 @@ struct PMLExportPass : public MachineFunctionPass {
               if(Ins->getDesc().isBranch()) {
                   if(Ins->getDesc().isConditionalBranch()) {
                       I->BranchType = yaml::branch_conditional;
-                      if(HasBranchInfo && TrueSucc) I->BranchTarget = TrueSucc->getNumber();
+                      if(HasBranchInfo && TrueSucc) I->BranchTargets.push_back(yaml::Name(TrueSucc->getNumber()));
                   } else if(Ins->getDesc().isUnconditionalBranch()) {
                       I->BranchType = yaml::branch_unconditional;
                       MachineBasicBlock *USucc = Conditions.empty() ? TrueSucc : FalseSucc;
-                      if(HasBranchInfo && USucc) I->BranchTarget = USucc->getNumber();
+                      if(HasBranchInfo && USucc) I->BranchTargets.push_back(yaml::Name(USucc->getNumber()));
                   } else {
                       I->BranchType = yaml::branch_any;
                   }
