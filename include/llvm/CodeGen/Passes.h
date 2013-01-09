@@ -249,7 +249,7 @@ namespace llvm {
   /// PMLExport pass - this pass exports the internal LLVM information (machinecode)
   /// to the given stream in PML format
   MachineFunctionPass *
-  createPMLExportPass(std::string& FileName, TargetMachine *TM);
+  createPMLExportPass(std::string& FileName, TargetMachine &TM);
 
   /// MachineLoopInfo - This pass is a loop analysis pass.
   extern char &MachineLoopInfoID;
