@@ -167,6 +167,11 @@ bool AsmPrinter::doInitialization(Module &M) {
 
   Mang = new Mangler(OutContext, *TM.getTargetData());
 
+  // If we want to generate labels for all basic blocks, we must
+  // turn temporary labels off.
+  if (ForceBlockLabels)
+    OutContext.setAllowTemporaryLabels(false);
+
   // Allow the target to emit any magic that it wants at the start of the file.
   EmitStartOfAsmFile(M);
 
