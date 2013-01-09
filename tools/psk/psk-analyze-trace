@@ -9,8 +9,8 @@ require File.join(File.dirname(__FILE__),"utils.rb")
 include PMLUtils
 
 class Trace
-  def initialize(io)
-    @io = io
+  def initialize(io,pml)
+    @io,@pml = io,pml
   end
   def each
     while item = next_item
@@ -18,6 +18,11 @@ class Trace
     end
   end
   def next_item
+    fname,bb,offset,label = parse_next_item
+    return nil unless label
+    improve_trace_entry(fname,bb,offset,label)
+  end
+  def parse_next_item
     while (line = @io.gets)
       case line
       when /Cyc\s*:\s*(\d+)/
@@ -35,9 +40,95 @@ class Trace
     end
     nil
   end
+  # this is for dev-time only, as it is rather performance
+  # intensive thing to do for every trace entry
+  def improve_trace_entry(fname,bb,offset,label)
+    offset = 0 unless offset
+    mf = @pml.mf_mapping_to(fname)
+    if mf && bb
+      mfp,_ = parse_mbb_label(bb)
+      warn "Inconsistent label #{label}" unless mfp==mf['name']
+    elsif mf
+      bb = get_mbb_label(mf['name'],0)
+    elsif ! bb && parse_mbb_label(fname)
+      bb = fname
+    elsif ! bb
+     warn "Failed to resolve #{fname} (label=#{label})"
+    end
+    if bb
+      mfname,bbname = parse_mbb_label(bb)
+      blocks = @pml.mf(mfname)['blocks']
+      while blocks[bbname+1]
+        mbb = blocks[bbname]
+        addrs  = [0,-1].map { |ix| mbb['instructions'][ix]['address'] }
+        diff = addrs[1] - addrs[0]
+        break if(offset <= diff)
+        warn_once("Missing MBB in ELF symbol table for MF#{mfname}","#{@pml.mf(mfname)['mapsto']}::#{bbname}::#{offset}")
+        bbname += 1
+        offset -= blocks[bbname]['address'] - addrs[0]
+      end
+      bb = get_mbb_label(mfname,bbname)
+    end
+    [fname,bb,offset,label]
+  end
   def offset(v,base=16)
     return nil unless v
     Integer(v,base)
+  end
+end
+class TraceAnalyzer
+  attr_reader :watched,:pml
+  def initialize(pml)
+    @pml = pml
+    @watched = []
+    @watchpoints = {}
+    @results = {}
+  end
+  def watch_function(mf)
+    retpoints = mf['blocks'].reject { |mbb|
+      mbb['successors'] && ! mbb['successors'].empty?
+    }. map { |mbb| get_mbb_label(mf['name'],mbb['name']) }
+    watcher = OpenStruct.new(:name => mf['name'], :mf=>mf, :results => [], :retpoints => retpoints)
+    @watched.push(watcher)
+    (@watchpoints[get_mbb_label(mf['name'],0)]||=[]).push(watcher)
+  end
+  def analyze(trace)
+    stoppoints = {}
+    active = {}
+    recents = LastBuffer.new(5)
+    trace.each do |fname,bb,offset,label|
+      if recents.last && bb != recents.last[0]
+        (stoppoints[recents.last[0]]||[]).each do |w|
+          puts "Stop recording"
+          stop_recording(active,w)
+        end
+      end
+      if offset == 0
+        (@watchpoints[bb] || []).each do |w|
+          puts "Start recording"
+          start_recording(active,w,stoppoints)
+        end
+      end
+      record(active,bb,offset)
+      recents.add([bb,offset])
+    end
+  end
+  def start_recording(active,w,stoppoints)
+    active[w.name] = OpenStruct.new(:watcher=>w,:ifreq=>Hash.new(0),:bfreq=>Hash.new(0))
+    w.retpoints.each do |rbb|
+      (stoppoints[rbb]||=[]).push(w)
+    end
+  end
+  def record(active,bb,offset)
+    active.values.each do |rec|
+      rec.ifreq[[bb,offset]]+=1
+      rec.bfreq[bb]+=1 if offset == 0
+    end
+  end
+  def stop_recording(active,w)
+    rec = active[w.name]
+    rec.watcher.results.push(OpenStruct.new(:ifreq=>rec.ifreq,:bfreq=>rec.bfreq))
+    active.delete(w.name)
   end
 end
 
@@ -53,44 +144,21 @@ end.parse!
 die "Wrong number of arguments. Try --help" unless ARGV.length<=1
 die "Option --pml is mandatory. Try --help" unless options.input
 
-trace = (ARGV[0].nil?) ? $< : File.open(ARGV.first)
+tracedata = (ARGV[0].nil?) ? $< : File.open(ARGV.first)
 pml = File.open(options.input) { |fh| PML.new(fh) }
-start,last_offset = false, 0
-freqs,ifreqs = Hash.new(0), Hash.new(0)
-Trace.new(trace).each do |fname,bb,offset,label|
-
-  start = true if fname == 'main'
-  next unless start
-  (start = false; next) if fname == "_start"
-
-  offset = 0 unless offset
-
-  if mf = pml.mf_mapping_to(fname)
-    if bb
-      mfp,_ = parse_mbb_label(bb)
-      warn "Inconsistent label #{label}" unless mfp==mf['name']
-    else
-      bb = get_mbb_label(mf['name'],0)
+ta = TraceAnalyzer.new(pml)
+ta.watch_function(pml.mf_mapping_to('main'))
+ta.analyze(Trace.new(tracedata,pml))
+ta.watched.each do |w|
+  puts "=== Frequencies of watchscope #{w.name}/#{w.mf['mapsto']} ==="
+  w.results.each do |result|
+    puts "---"
+    result.bfreq.sort.each do |bb,freq|
+      puts "#{pml.mf(parse_mbb_label(bb)[0])['mapsto']} #{bb}: #{freq}"
     end
-  elsif ! bb && parse_mbb_label(fname)
-    bb = fname
-  else
-    warn "Failed to resolve #{fname} #{bb} #{offset} #{label}"
   end
-
-  if offset == 0
-    freqs[bb]+=1
-  end
-  ifreqs[[bb,offset]]+=1
-  last_offset = offset
-#  puts [bb,offset,label].inspect
-
 end
-freqs.sort.each { |bb,freq|
-  puts "#{pml.mf(parse_mbb_label(bb)[0])['mapsto']} #{bb}: #{freq}"
-}
 
-# First, simple approximation: collect frequencies
 #outfile = if ! options.output || options.output == "-"
 #          then $>
 #          else File.new(options.output,"w")

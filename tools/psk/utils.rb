@@ -12,6 +12,12 @@ module PMLUtils
     $stderr.puts msg
     exit 1
   end
+  def warn_once(msg,detail)
+    $warn_once ||= {}
+    return if $warn_once[msg]
+    warn(msg+": "+detail)
+    $warn_once[msg]=true
+  end
   def warn(msg)
     $stderr.puts "[#{$0}] WARNING #{msg}"
   end
@@ -55,5 +61,27 @@ class PML
   end
   def mf_mapping_to(bitcode_name)
     @dstfunmap[bitcode_name]
+  end
+end
+
+# simple buffer keeping track of the last n values
+# last value is accessed with buffer.last, n-th last
+# with buffer[-n]
+class LastBuffer
+  def initialize(k=5,init=[])
+    @k, @p = k, 0
+    @buf = [nil] * k
+    init.each { |v| add(v) }
+  end
+  def add(v)
+    @buf[@p] = v
+    @p = (@p+1) % @k
+  end
+  def last
+    self[-1]
+  end
+  def [](rix)
+    raise Exception.new("LastBuffer: index error") if rix >= 0 || rix < -@k
+    @buf[(@p+@k+rix)%@k]
   end
 end

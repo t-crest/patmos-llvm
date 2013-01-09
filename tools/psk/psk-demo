@@ -17,7 +17,7 @@ CMD_ALF_LLC="alf-llc"
 ($stderr.puts "patmos-llvm-ld not in PATH";exit 1) if `which patmos-llvm-ld`.empty?
 
 # local build commands
-LLC="%<bin>s -march=patmos --mpatmos-serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
+LLC="%<bin>s -march=patmos -mpatmos-serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
 # patmos commands
 PATMOS_PATH=File.join(File.dirname(`which patmos-llvm-ld`),"..")
 PATMOS_CLANG="%<bin>s -Xllc --serialize=%<pml>s -o %<of>s %<if>s" # cannot use CLANG inside build dir (missing libs)
@@ -108,8 +108,8 @@ system("echo PSK-DEMO > #{demo.logfile}")
 demo.info("================")
 demo.info("   PSK Demo     ")
 demo.info("================")
-demo.info("Currently, it is necessary to pass the built ELF file, and the")
-demo.info("(optimized) bitcode file *without* libc stuff (because of abort, exit, etc.)")
+demo.info("Takes an optimized bitcode file (not yet linked with libc)")
+demo.info("and performs various tasks using the PSK tool chain")
 demo.sep
 
 demo.step("Link application with patmos-newlib (bitcode level)")
@@ -122,7 +122,7 @@ demo.step("Merge PML streams to one YAML document")
 demo.run_psk(MERGE, :ifs => file.call("elf.pml"), :of=>file.call("elf.pml"))
 
 demo.step("Link ELF binary")
-demo.run_patmos(PATMOS_LD, :if=>file.call("elf.o"), :of=>file.call(".elf"))
+demo.run_patmos(PATMOS_LD, :if=>file.call("elf.o"), :of=>file.call("elf"))
 
 demo.step("Extract addresses from ELF binary")
 demo.run_psk(EXTRACT_SYMBOLS, :if => file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"))
