@@ -94,9 +94,6 @@ class FunctionRef
   def [](k)
     @mf[k]
   end
-  def name
-    @mf['name']
-  end
   def to_s
     "#{@mf['mapsto']}/#{name}"
   end
@@ -104,9 +101,11 @@ class FunctionRef
     return false unless other.kind_of?(FunctionRef)
     name == other.name
   end
+  def name ; @mf['name'] ; end
   def hash; @hash ; end
   def eql?(other); self == other ; end
 end
+
 # Smart reference to a PML machine basic block
 class BlockRef
   attr_reader :bid,:fref
@@ -125,15 +124,16 @@ class BlockRef
     return false unless other.kind_of?(BlockRef)
     bid == other.bid
   end
+  def name ; self['name'] ; end
   def hash; @hash ; end
   def eql?(other); self == other ; end
 end
 # Smart reference to a PML instruction
 class InsRef
-  attr_reader :bref, :iid
+  attr_reader :data, :bref, :iid
   def initialize(mf,mbb,ins)
     @bref = BlockRef.new(mf,mbb)
-    @ins = ins
+    @data = ins
     @iid = "#{@bref.bid}_#{ins['index']}"
     @hash = @iid.hash
   end
@@ -141,7 +141,7 @@ class InsRef
     bref.fref
   end
   def [](k)
-    @ins[k]
+    @data[k]
   end
   def to_s
     "#{fref['mapsto']}/#{iid}"

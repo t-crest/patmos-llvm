@@ -28,7 +28,7 @@ PATMOS_LD="%<patmos>s/bin/patmos-ld -o %<of>s -nostdlib -static --defsym _uart_s
 MERGE="%<psk>s/psk-merge -o %<of>s %<ifs>s"
 FF2PML="%<psk>s/psk-ff2pml -o %<of>s %<if>s"
 EXTRACT_SYMBOLS="%<psk>s/psk-extract-symbols -i %<if>s -o %<of>s %<elf>s"
-ANALYZE_TRACE="%<psk>s/psk-analyze-trace -i %<if>s %<elf>s"
+ANALYZE_TRACE="%<psk>s/psk-analyze-trace -i %<if>s -o %<of>s %<elf>s"
 DEMO_EQUATIONS="%<psk>s/psk-demo-equations %<if>s"
 
 # external tools
@@ -129,8 +129,14 @@ demo.step("Extract addresses from ELF binary")
 demo.run_psk(EXTRACT_SYMBOLS, :if => file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"))
 
 demo.step("Analyze trace generated using pasim")
-demo.run_psk(ANALYZE_TRACE, :if=> file.call("elf.pml"), :elf => file.call("elf"), :noredirect => true)
 #demo.run_patmos(PATMOS_PASIM, :if=>file.call("elf"), :tracefile=>file.call("trace"), :noredirect => true)
+demo.run_psk(ANALYZE_TRACE, :if=> file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"),
+             :noredirect => true)
+
+if `which sweet`.strip.empty?
+  demo.info("'which sweet' returned an empty string. Skipping rest of demo")
+  exit 0
+end
 
 demo.step("Generate Flow Fact file using Abstract Execution")
 demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))

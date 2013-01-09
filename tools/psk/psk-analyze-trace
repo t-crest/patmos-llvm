@@ -2,7 +2,8 @@
 #
 SYNOPSIS=<<EOF
 Generate flow facts reflecting frequencies from machine-code
-execution traces generated with 'pasim --debug'
+execution traces generated with 'pasim --debug'.
+Also adds observed receivers to indirect call's callee field
 EOF
 
 require File.join(File.dirname(__FILE__),"utils.rb")
@@ -107,22 +108,20 @@ class TraceMonitor
 end
 
 class GlobalRecorder
-  attr_reader :calltarget
-  attr_reader :freqs
+  attr_reader :results
   def initialize(start_mf)
-    @freqs = FrequencyRecord.new
-    @calltargets = {}
     @start = start_mf['name']
+    @results = FrequencyRecord.new
   end
   def function(callee,callsite,cycles)
-    freqs.start(cycles) if callee['name']==@start
-    freqs.call(callsite,callee)
+    results.start(cycles) if callee['name']==@start
+    results.call(callsite,callee)
   end
   def block(mbb, _)
-    freqs.increment(mbb)
+    results.increment(mbb)
   end
   def ret(rsite,csite,cycles)
-    freqs.stop(cycles) if(rsite.fref['name']==@start)
+    results.stop(cycles) if(rsite.fref['name']==@start)
   end
 end
 
@@ -142,15 +141,25 @@ die "Option --pml is mandatory. Try --help" unless options.input
 
 pml = File.open(options.input) { |fh| PML.new(fh) }
 tm = TraceMonitor.new(elf,pml)
-global = GlobalRecorder.new(pml.mf_mapping_to('main'))
+globalscope = pml.mf_mapping_to('main')
+global = GlobalRecorder.new(globalscope)
 tm.subscribe(global)
 tm.run
 puts "Global Frequencies"
-global.freqs.dump
-
-#outfile = if ! options.output || options.output == "-"
-#          then $>
-#          else File.new(options.output,"w")
-#          end
-#outfile.puts YAML::dump(doc)
-#outfile.close
+global.results.dump
+data = pml.data
+data['flowfacts'] ||= []
+global.results.freqs.each do |block,freq|
+  flowfact = { 'level' => 'machinecode', 'origin' => 'trace' }
+  flowfact['scope'] = globalscope['name']
+  pp = { 'function' => block.fref.name, 'block' => block.name }
+  flowfact['lhs'] = { 'factor' => 1, 'program-point' => pp }
+  flowfact['op'] = 'less-equal'
+  flowfact['rhs'] = freq.max
+  data['flowfacts'].push(flowfact)
+end
+global.results.calltargets.each do |cs,receiverset|
+  next unless cs['callees'].include?("__any__")
+  cs.data['callees'] = (cs['callees'] + receiverset.map { |fref| fref.name }).uniq
+end
+pml.dump_to_file(options.output)

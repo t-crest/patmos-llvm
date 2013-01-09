@@ -143,6 +143,7 @@ class FlowFact
     raise Exception.new("call strings not yet supported") unless @callstring.empty?
     ff = {}
     ff["level"] = "bitcode"
+    ff['origin'] = "sweet"
     ff["scope"] = @scope.f
     ff["lhs"]   = @constraint.vector.map { |pnt,factor|
       { "factor" => factor, "program-point" => pp_to_pml(pnt)  }
