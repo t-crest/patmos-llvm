@@ -86,9 +86,10 @@ namespace {
       if (EnableStackCacheAnalysis) {
         addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
+
       if (! SerializeMachineCode.empty())
           PM->add(createPMLExportPass(SerializeMachineCode, &getPatmosTargetMachine()));
-      //PM->add(createPatmosExportPass(getPatmosTargetMachine()));
+        //PM->add(createPatmosExportPass(getPatmosTargetMachine()));
       return true;
     }
 

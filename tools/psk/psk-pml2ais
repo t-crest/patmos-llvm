@@ -25,6 +25,8 @@ class AISExporter
     def initialize(outfile)
 	@outfile = outfile
     end
+
+    # Generate a global AIS header
     def gen_header(data)
 	# TODO get compiler type depending on YAML arch type
 	@outfile.puts "#compiler"
@@ -37,6 +39,8 @@ class AISExporter
 
 	# TODO any additional header stuff to generate (context, entry, ...)?
     end
+
+    # Export flow facts from a machine-function entry
     def export_function(func)
       func['blocks'].each do |mbb|
         branches = 0
@@ -45,7 +49,8 @@ class AISExporter
           if ins['branch-type'] == 'any'
             label = get_mbb_label(func['name'],mbb['name'])
             instr = "#{label.dquote} + #{branches} branches"
-            targets = mbb['successors'].uniq.map { |succ_name|
+	    successors = ins['branch-targets'] ? ins['branch-targets'] : mbb['successors']
+            targets = successors.uniq.map { |succ_name|
               get_mbb_label(func['name'],succ_name).dquote
             }.join(", ")
             @outfile.puts "instruction #{instr} branches to #{targets};"
@@ -53,6 +58,7 @@ class AISExporter
         end
       end
     end
+
 end
 
 # Standard option parser
