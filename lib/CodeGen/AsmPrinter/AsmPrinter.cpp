@@ -56,7 +56,7 @@ static const char *EHTimerName = "DWARF Exception Writer";
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
 static cl::opt<bool>
-ForceBlockLabels("force-block-labels",
+ForceBlockLabels("mforce-block-labels",
                  cl::desc("Emit labels for all basic blocks."));
 
 char AsmPrinter::ID = 0;
