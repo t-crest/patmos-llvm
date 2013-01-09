@@ -59,6 +59,7 @@ namespace {
       if (!(PTM = static_cast<PatmosTargetMachine*>(&TM))) {
         llvm_unreachable("PatmosAsmPrinter must be initialized with a Patmos target configuration.");
       }
+      PTM->setMCSaveTempLabels(true);
     }
 
     virtual const char *getPassName() const {
