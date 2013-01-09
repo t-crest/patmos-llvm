@@ -5,9 +5,8 @@ require 'ostruct'
 require 'optparse'
 require 'yaml'
 
-HEX=/[0-9A-Fa-f]/
-
 module PMLUtils
+  RE_HEX=/[0-9A-Fa-f]/
   def die(msg)
     $stderr.puts msg
     exit 1
@@ -21,8 +20,10 @@ module PMLUtils
   def warn(msg)
     $stderr.puts "[#{$0}] WARNING #{msg}"
   end
-  def get_mbb_label(funcname, blockname)
-    ".LBB#{funcname}_#{blockname}"
+  def get_mbb_label(func, block)
+    func  = func['name'] unless func.kind_of?(String)
+    block = block['name'] unless block.kind_of?(String)
+    ".LBB#{func}_#{block}"
   end
   def parse_mbb_label(label)
     label =~ /\A\.LBB(\d+)_(\d+)$/
@@ -43,6 +44,18 @@ class PML
   end
   def to_s
     @data.to_s
+  end
+  def dump_to_file(filename)
+    if filename.nil?
+      dump($>)
+    else
+      File.open(filename, "w") do |fh|
+        dump(fh)
+      end
+    end
+  end
+  def dump(io)
+    io.write(YAML::dump(data))
   end
   def bf(name)
     @functions['src'][name]
@@ -83,5 +96,14 @@ class LastBuffer
   def [](rix)
     raise Exception.new("LastBuffer: index error") if rix >= 0 || rix < -@k
     @buf[(@p+@k+rix)%@k]
+  end
+end
+
+# Development helpers
+class Hash
+  def dump(io=$>)
+    self.each do |k,v|
+      puts "#{k.ljust(24)} #{v}"
+    end
   end
 end

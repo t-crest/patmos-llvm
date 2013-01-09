@@ -1,64 +1,79 @@
 #!/usr/bin/env ruby
 #
-# Merges a stream of YAML documents into one document (if version
-# and architecture are compatible)
-#
-# TODO: use Daniel's implementation ;) (in python)
-require 'ostruct'
-require 'optparse'
-require 'yaml'
+SYNOPSIS=<<EOF
+Extract Symbols from ELF file.
+EOF
 
-HEX=/[0-9A-Fa-f]/
-def objdump_extract(line)
-  return nil unless line =~ /\A(#{HEX}{8}).{9}(\S+)\s+(#{HEX}+)\s+(\S+)\Z/
-  OpenStruct.new({ :address => Integer($1,16), :section => $2,
-                   :value => Integer($3,16), :label => $4 })
-end
+require File.join(File.dirname(__FILE__),"utils.rb")
+include PMLUtils
 
-def extract_addresses(opts)
-  text_symbols = {}
-  IO.popen("patmos-objdump -t '#{opts.elf}'") do |io|
-    io.each_line do |line|
-      if record = objdump_extract(line)
-        next unless opts.text.include?(record.section)
-        text_symbols[record.label]=record.address
+# Class to extract symbol addresses from an ELF file
+class ExtractSymbols
+  def initialize(pml)
+    @pml,@text_symbols = pml,{}
+  end
+  def analyze(elf,options)
+    IO.popen("patmos-objdump -t '#{elf}'") do |io|
+      io.each_line do |line|
+        if record = objdump_extract(line)
+          next unless options.text_sections.include?(record.section)
+          @text_symbols[record.label]=record.address
+        end
       end
     end
   end
-  text_symbols
-end
+  def update_pml
+    @pml['machine-functions'].each do |mf|
+      addr = @text_symbols[get_mbb_label(mf,'0')] || @text_symbols[mf['mapsto']]
+      mf_descr = "#{mf['name']}/#{mf['mapsto']}"
 
-def add_addresses(pml, syms)
-  pml['machine-functions'].each do |mf|
-    addr = syms[mf['mapsto']]
-    # TODO: we should use .LBB[name]_0
-    next unless addr
-    mf['blocks'].each do |mbb|
-      label = ".LBB#{mf['name']}_#{mbb['name']}"
-      descr = "#{mf['mapsto']}: #{label}"
-      if syms[label] and mf['mapsto'] != "_start" # workaround bug
-        $stderr.puts("[#{$0}] Incorrect address estimation in #{descr}") if addr != syms[label]
-        addr = syms[label]
-      end
-      mbb['address'] = addr
-      (mbb['instructions']||[]).each do |ins|
-        ins['address'] = addr
-        addr += ins['size'] || 4
+      (warn("No symbol for machine function #{mf_descr}");next) unless addr
+
+      mf['blocks'].each do |mbb|
+        label = get_mbb_label(mf, mbb)
+        if block_addr = @text_symbols[label]
+          # Do not emit warning, as it is not possible to estimate block addresses due
+          # to subfunctions
+          # warn_once("Incorrect address estimation in #{descr}",
+          #           "Estimated #{addr}, not #{block_addr}") if addr != @csyms[label]
+          addr = block_addr
+        end
+        mbb['address'] = addr
+        (mbb['instructions']||[]).each do |ins|
+          ins['address'] = addr
+          addr += ins['size']
+        end
       end
     end
+    @pml
+  end
+  private
+  RE_PATMOS_LABEL = %r{
+    (?<address> #{RE_HEX}{8} )
+    . {9}
+    (?<section> \S+ ) \s+
+    (?<value> #{RE_HEX}+ ) \s+
+    (?<label> \S+ )
+  }x
+  def objdump_extract(line)
+    return nil unless ks = /\A#{RE_PATMOS_LABEL}$/.match(line)
+    record = {}
+    [:section,:label].each { |key| record[key] = ks[key] }
+    [:address,:value].each { |key| record[key] = Integer(ks[key],16) }
+    OpenStruct.new(record)
   end
 end
 
 if __FILE__ == $0
   # Standard option parser
   options = OpenStruct.new
-  options.text = [".text"]
+  options.text_sections = [".text"]
   parser = OptionParser.new do |opts|
     opts.banner = "Usage: #{$0} OPTIONS FILE.elf\n" +
       "  Extracts symbols from the given ELF, and adds them to the PML description"
     opts.on("-i", "--input FILE.pml", "Input PML file") { |f| options.input = f }
     opts.on("-o", "--output FILE.pml", "Output PML File") { |f| options.output = f }
-    opts.on("", "--text-sections SECTIONS", "CS list of code sections") { |s| options.text = s.split(/\s*,\s*/) }
+    opts.on("", "--text-sections SECTIONS", "CS list of code sections") { |s| options.text_sections = s.split(/\s*,\s*/) }
     opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
   end.parse!
   ($stderr.puts ("Wrong number of positional arguments. Try --help"); exit 1) unless ARGV.length == 1
@@ -66,9 +81,8 @@ if __FILE__ == $0
 
   # input/output
   options.elf = ARGV.first
-  pml = File.open(options.input) { |fh| YAML::load(fh) }
-  syms = extract_addresses(options)
-  add_addresses(pml, syms)
-  out = options.output.nil? ? $> : File.open(options.output,"w")
-  out.write(YAML::dump(pml))
+  pml = File.open(options.input) { |fh| PML.new(fh) }
+  extract = ExtractSymbols.new(pml)
+  extract.analyze(options.elf,options)
+  extract.update_pml.dump_to_file(options.output)
 end
