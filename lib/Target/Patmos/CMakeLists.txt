@@ -31,6 +31,7 @@ add_llvm_target(PatmosCodeGen
   PatmosCallGraphBuilder.cpp
   PatmosStackCacheAnalysis.cpp
   PatmosPreserveFunction.cpp
+  PatmosExport.cpp
   )
 
 add_subdirectory(AsmParser)

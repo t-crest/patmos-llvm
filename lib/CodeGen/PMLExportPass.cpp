@@ -31,30 +31,12 @@ using namespace llvm;
 namespace llvm
 {
 
-void
-PMLExport::initialize(std::string filename)
+void PMLExport::initialize(yaml::Output* Output)
 {
-  std::string ErrorInfo;
-  OutFile = new tool_output_file(filename.c_str(), ErrorInfo, 0);
-  if (!ErrorInfo.empty()) {
-    delete OutFile;
-    errs() << "[mc2yml] Opening Export File failed: " << filename << "\n";
-    errs() << "[mc2yml] Reason: " << ErrorInfo;
-    OutFile = 0;
-  }
-  else {
-    Output = new yaml::Output(OutFile->os());
-  }
 }
 
-void
-PMLExport::finalize()
+void PMLExport::finalize(yaml::Output* Output)
 {
-  if (OutFile) {
-    OutFile->keep();
-    delete Output;
-    delete OutFile;
-  }
 }
 
 void PMLExport::buildEventMaps(MachineFunction &MF,
@@ -208,53 +190,101 @@ bool PMLExport::isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target)
 }
 
 
+
+void PMLExportManager::initialize()
+{
+  std::string ErrorInfo;
+  OutFile = new tool_output_file(OutFileName.c_str(), ErrorInfo, 0);
+  if (!ErrorInfo.empty()) {
+    delete OutFile;
+    errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
+    errs() << "[mc2yml] Reason: " << ErrorInfo;
+    OutFile = 0;
+  }
+  else {
+    Output = new yaml::Output(OutFile->os());
+  }
+
+  for (std::vector<PMLExport*>::iterator it = Exporter.begin(),
+       end = Exporter.end(); it != end; it++) {
+    (*it)->initialize(Output);
+  }
+}
+
+void PMLExportManager::finalize()
+{
+  for (std::vector<PMLExport*>::iterator it = Exporter.begin(),
+       end = Exporter.end(); it != end; it++) {
+    (*it)->finalize(Output);
+  }
+
+  if (OutFile) {
+    OutFile->keep();
+    delete Output;
+    delete OutFile;
+  }
+}
+
+} // end namespace llvm
+
+namespace {
+
 /// PMLExportPass - This is a pass to export a machine function to
 /// YAML (using the PML schema define at (TODO: cite report))
+class PMLExportPass : public MachineFunctionPass {
 
-PMLExportPass::~PMLExportPass()
-{
-  if (PE) delete PE;
-}
+  static char ID;
 
-void
-PMLExportPass::getAnalysisUsage(AnalysisUsage &AU) const
-{
-  AU.setPreservesAll();
-  AU.addRequired<MachineLoopInfo>();
-  MachineFunctionPass::getAnalysisUsage(AU);
-}
+  PMLExportManager PEM;
 
-bool
-PMLExportPass::doInitialization(Module &M)
-{
-  PE->initialize(OutFileName);
-  return false;
-}
+public:
+  PMLExportPass(std::string& filename, TargetMachine *tm)
+    : MachineFunctionPass(ID), PEM(filename, tm)
+  {
+    PEM.addDefaultExporter();
+  }
 
-bool
-PMLExportPass::doFinalization(Module &M)
-{
-  PE->finalize();
-  return false;
-}
+  virtual const char *getPassName() const { return "YAML/PML Export"; }
 
-bool
-PMLExportPass::runOnMachineFunction(MachineFunction &MF)
-{
-  MachineLoopInfo *LI = &getAnalysis<MachineLoopInfo>();
-  yaml::Doc<yaml::GenericArchitecture> YDoc("pml-0.1");
-  PE->serialize(MF, LI, YDoc);
-  return false;
-}
+  virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    AU.setPreservesAll();
+    AU.addRequired<MachineLoopInfo>();
+    MachineFunctionPass::getAnalysisUsage(AU);
+  }
+
+  virtual bool doInitialization(Module &M) {
+    PEM.initialize();
+    return false;
+  }
+
+  virtual bool doFinalization(Module &M) {
+    PEM.finalize();
+    return false;
+  }
+
+  /// Serialize machine function, bitcode functions and relation
+  /// graph for generic architecture
+  virtual bool runOnMachineFunction(MachineFunction &MF) {
+    MachineLoopInfo *LI = &getAnalysis<MachineLoopInfo>();
+    yaml::Doc<yaml::GenericArchitecture> YDoc("pml-0.1");
+    PEM.serialize(MF, LI, YDoc);
+    PEM.writeDoc(YDoc);
+    return false;
+  }
+
+};
 
 char PMLExportPass::ID = 0;
 
+} // end namespace <anonymous>
+
+namespace llvm {
 
 /// Returns a newly-created PML export pass.
 MachineFunctionPass *
-createPMLExportPass(std::string& FileName, TargetMachine *TM)
+createPMLExportPass(std::string& FileName, TargetMachine &TM)
 {
-  return new PMLExportPass(FileName, TM);
+  return new PMLExportPass(FileName, &TM);
 }
 
 } // end namespace llvm

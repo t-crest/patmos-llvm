@@ -18,11 +18,11 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/CFG.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
@@ -436,19 +436,19 @@ namespace llvm {
   class PMLExport {
 
     TargetMachine *TM;
-    tool_output_file *OutFile;
-    yaml::Output *Output;
 
     // Information for the current function
     MachineLoopInfo *LI;
 
   public:
     PMLExport(TargetMachine *tm)
-      : TM(tm), OutFile(0), Output(0), LI(0) {}
+      : TM(tm), LI(0) {}
 
-    void initialize(std::string filename);
 
-    void finalize();
+    void initialize(yaml::Output *Output);
+
+    void finalize(yaml::Output *Output);
+
 
     template <typename ArchTrait>
     void serialize(MachineFunction &MF, MachineLoopInfo* LI,
@@ -458,7 +458,6 @@ namespace llvm {
       serializeMachineFunction(MF, YDoc);
       serializeFunction(MF.getFunction(), YDoc);
       serializeRelationGraph(MF, YDoc);
-      *Output << YDoc;
     }
 
     template<typename ArchTrait>
@@ -845,43 +844,57 @@ namespace llvm {
 
   };
 
-  /// PMLExportPass - This is a pass to export a machine function to
-  /// YAML (using the PML schema define at (TODO: cite report))
-  class PMLExportPass : public MachineFunctionPass {
-
-    static char ID;
+  /// PMLExportManager - Handle creation of YAML output, stream
+  /// writing, initialization of PML-exporter, ..
+  class PMLExportManager {
 
     TargetMachine *TM;
+
     std::string OutFileName;
+    tool_output_file *OutFile;
+    yaml::Output *Output;
 
-    PMLExport *PE;
-
-  protected:
-    PMLExportPass(char id, std::string& filename, TargetMachine *tm,
-                  PMLExport *PE)
-      : MachineFunctionPass(id), TM(tm), OutFileName(filename), PE(PE)
-    {}
+    std::vector<PMLExport*> Exporter;
 
   public:
-    PMLExportPass(std::string& filename, TargetMachine *tm)
-      : MachineFunctionPass(ID), TM(tm), OutFileName(filename),
-        PE(new PMLExport(TM))
+
+    PMLExportManager(std::string& filename, TargetMachine *TM)
+     : TM(TM), OutFileName(filename), OutFile(0), Output(0)
     {}
 
-    virtual ~PMLExportPass();
+    ~PMLExportManager() {
+      while (!Exporter.empty()) {
+        delete Exporter.back();
+        Exporter.pop_back();
+      }
+    }
 
-    virtual const char *getPassName() const { return "YAML/PML Export"; }
+    void addExporter(PMLExport* PE) { Exporter.push_back(PE); }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+    void addDefaultExporter() {
+      Exporter.push_back(new PMLExport(TM));
+    }
 
-    virtual bool doInitialization(Module &M);
+    void initialize();
 
-    virtual bool doFinalization(Module &M);
+    void finalize();
 
-    /// Serialize machine function, bitcode functions and relation
-    /// graph for generic architecture
-    virtual bool runOnMachineFunction(MachineFunction &MF);
+    template <typename ArchTrait>
+    void serialize(MachineFunction &MF, MachineLoopInfo* LI,
+                   yaml::Doc<ArchTrait>& YDoc)
+    {
+      for (std::vector<PMLExport*>::iterator it = Exporter.begin(),
+           end = Exporter.end(); it != end; it++) {
+        (*it)->serialize(MF, LI, YDoc);
+      }
+    }
+
+    template <typename ArchTrait>
+    void writeDoc(yaml::Doc<ArchTrait>& YDoc) {
+      *Output << YDoc;
+    }
   };
+
 
 } // end namespace llvm
 
