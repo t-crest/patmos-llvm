@@ -8,156 +8,145 @@ EOF
 require File.join(File.dirname(__FILE__),"utils.rb")
 include PMLUtils
 
-class Trace
-  def initialize(io,pml)
-    @io,@pml = io,pml
+# Class to (lazily) read pasim simulator trace
+class SimulatorTrace
+  def initialize(elf)
+    @io = IO.popen("pasim -q --debug 0 --debug-fmt trace -b #{elf} 2>&1 1>/dev/null")
+  end
+  def close
+    @io.close
   end
   def each
-    while item = next_item
-      yield item
-    end
+    while item=next_item ; yield item ; end
   end
   def next_item
-    fname,bb,offset,label = parse_next_item
-    return nil unless label
-    improve_trace_entry(fname,bb,offset,label)
-  end
-  def parse_next_item
-    while (line = @io.gets)
-      case line
-      when /Cyc\s*:\s*(\d+)/
-        time_stamp = $1.to_i
-      when /<([^>]+)>$/
-        case label=$1
-        when /\A(.*?):(\S+)(?: \+ (0x#{HEX}+))?$/
-          return [$1, $2, offset($3), label]
-        when /\A(\S+)(?: \+ (0x#{HEX}+))?$/
-          return [$1, nil, offset($2), label]
-        else
-          raise Exception.new("Bad trace format: #{label}")
-        end
-      end
-    end
-    nil
-  end
-  # this is for dev-time only, as it is rather performance
-  # intensive thing to do for every trace entry
-  def improve_trace_entry(fname,bb,offset,label)
-    offset = 0 unless offset
-    mf = @pml.mf_mapping_to(fname)
-    if mf && bb
-      mfp,_ = parse_mbb_label(bb)
-      warn "Inconsistent label #{label}" unless mfp==mf['name']
-    elsif mf
-      bb = get_mbb_label(mf['name'],0)
-    elsif ! bb && parse_mbb_label(fname)
-      bb = fname
-    elsif ! bb
-     warn "Failed to resolve #{fname} (label=#{label})"
-    end
-    if bb
-      mfname,bbname = parse_mbb_label(bb)
-      blocks = @pml.mf(mfname)['blocks']
-      while blocks[bbname+1]
-        mbb = blocks[bbname]
-        addrs  = [0,-1].map { |ix| mbb['instructions'][ix]['address'] }
-        diff = addrs[1] - addrs[0]
-        break if(offset <= diff)
-        warn_once("Missing MBB in ELF symbol table for MF#{mfname}","#{@pml.mf(mfname)['mapsto']}::#{bbname}::#{offset}")
-        bbname += 1
-        offset -= blocks[bbname]['address'] - addrs[0]
-      end
-      bb = get_mbb_label(mfname,bbname)
-    end
-    [fname,bb,offset,label]
-  end
-  def offset(v,base=16)
-    return nil unless v
-    Integer(v,base)
+    return nil unless line = @io.gets
+    pc,cyc = line.split
+    [ Integer(pc,16), Integer(cyc,10) ]
   end
 end
-class TraceAnalyzer
-  attr_reader :watched,:pml
-  def initialize(pml)
+
+class YieldObserver
+  def method_missing(msg,*args)
+    yield([msg]+args)
+  end
+end
+
+# Class to monitor trace and generate events
+class TraceMonitor
+  def initialize(elf,pml,program_start = "main")
     @pml = pml
-    @watched = []
-    @watchpoints = {}
-    @results = {}
+    @trace = SimulatorTrace.new(elf)
+    @start = @pml.mf_mapping_to(program_start)['blocks'].first['address']
+    @observers = []
+    build_watchpoints
   end
-  def watch_function(mf)
-    retpoints = mf['blocks'].reject { |mbb|
-      mbb['successors'] && ! mbb['successors'].empty?
-    }. map { |mbb| get_mbb_label(mf['name'],mbb['name']) }
-    watcher = OpenStruct.new(:name => mf['name'], :mf=>mf, :results => [], :retpoints => retpoints)
-    @watched.push(watcher)
-    (@watchpoints[get_mbb_label(mf['name'],0)]||=[]).push(watcher)
+  def subscribe(obj)
+    @observers.push(obj)
   end
-  def analyze(trace)
-    stoppoints = {}
-    active = {}
-    recents = LastBuffer.new(5)
-    trace.each do |fname,bb,offset,label|
-      if recents.last && bb != recents.last[0]
-        (stoppoints[recents.last[0]]||[]).each do |w|
-          puts "Stop recording"
-          stop_recording(active,w)
+  def run
+    callstack = []
+    @trace.each do |pc,cycles|
+      @started = true if pc == @start
+      next unless @started
+      if f = @fpoints[pc]
+        publish(:function, f, callstack[-1],cycles)
+      end
+      if b = @bpoints[pc]
+        publish(:block, b, cycles)
+      end
+      if c = @cpoints[pc]
+        callstack.push(c)
+      end
+      if r = @rpoints[pc]
+        if callstack.empty?
+          publish(:ret, r, nil, cycles)
+          return
+        end
+        c = callstack.pop
+        publish(:ret, r, c, cycles)
+      end
+    end
+  end
+  def publish(msg,*args)
+    @observers.each do |obs|
+      obs.send(msg,*args)
+    end
+  end
+  private
+  def build_watchpoints
+    @fpoints, @bpoints, @cpoints, @rpoints = {}, {}, {}, {}
+    @pml['machine-functions'].each do |mf|
+      addr = mf['blocks'].first['address']
+      add_watch(@fpoints,addr,FunctionRef.new(mf))
+      mf['blocks'].each do |mbb|
+        block = BlockRef.new(mf,mbb)
+        add_watch(@bpoints,mbb['address'],block)
+        if (mbb['successors']||[]).empty?
+          rins = InsRef.new(mf,mbb,mbb['instructions'].last)
+          add_watch(@rpoints,rins['address'],rins)
+        end
+        mbb['instructions'].each do |ins|
+          instruction = InsRef.new(mf,mbb,ins)
+          unless (ins['callees']||[]).empty?
+            add_watch(@cpoints,ins['address'],instruction)
+          end
         end
       end
-      if offset == 0
-        (@watchpoints[bb] || []).each do |w|
-          puts "Start recording"
-          start_recording(active,w,stoppoints)
-        end
-      end
-      record(active,bb,offset)
-      recents.add([bb,offset])
     end
   end
-  def start_recording(active,w,stoppoints)
-    active[w.name] = OpenStruct.new(:watcher=>w,:ifreq=>Hash.new(0),:bfreq=>Hash.new(0))
-    w.retpoints.each do |rbb|
-      (stoppoints[rbb]||=[]).push(w)
+  def add_watch(dict,addr,data)
+    if ! addr
+      warn ("No address for #{data.inspect[0..60]}")
+    elsif dict[addr]
+      die ("Duplicate function at address #{addr.inspect}")
+    else
+      dict[addr] = data
     end
-  end
-  def record(active,bb,offset)
-    active.values.each do |rec|
-      rec.ifreq[[bb,offset]]+=1
-      rec.bfreq[bb]+=1 if offset == 0
-    end
-  end
-  def stop_recording(active,w)
-    rec = active[w.name]
-    rec.watcher.results.push(OpenStruct.new(:ifreq=>rec.ifreq,:bfreq=>rec.bfreq))
-    active.delete(w.name)
   end
 end
+
+class GlobalRecorder
+  attr_reader :calltarget
+  attr_reader :freqs
+  def initialize(start_mf)
+    @freqs = FrequencyRecord.new
+    @calltargets = {}
+    @start = start_mf['name']
+  end
+  def function(callee,callsite,cycles)
+    freqs.start(cycles) if callee['name']==@start
+    freqs.call(callsite,callee)
+  end
+  def block(mbb, _)
+    freqs.increment(mbb)
+  end
+  def ret(rsite,csite,cycles)
+    freqs.stop(cycles) if(rsite.fref['name']==@start)
+  end
+end
+
 
 # Standard option parser
 options = OpenStruct.new
 parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{$0} OPTIONS program.trace\n#{SYNOPSIS}"
+  opts.banner = "Usage: #{$0} OPTIONS program.elf\n#{SYNOPSIS}"
   opts.on("-i", "--pml FILE", "Input PML File") { |f| options.input = f }
   opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f }
   opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
 end.parse!
 
-die "Wrong number of arguments. Try --help" unless ARGV.length<=1
+elf = ARGV[0]
+die "Wrong number of arguments. Try --help" unless ARGV.length==1
 die "Option --pml is mandatory. Try --help" unless options.input
 
-tracedata = (ARGV[0].nil?) ? $< : File.open(ARGV.first)
 pml = File.open(options.input) { |fh| PML.new(fh) }
-ta = TraceAnalyzer.new(pml)
-ta.watch_function(pml.mf_mapping_to('main'))
-ta.analyze(Trace.new(tracedata,pml))
-ta.watched.each do |w|
-  puts "=== Frequencies of watchscope #{w.name}/#{w.mf['mapsto']} ==="
-  w.results.each do |result|
-    puts "---"
-    result.bfreq.sort.each do |bb,freq|
-      puts "#{pml.mf(parse_mbb_label(bb)[0])['mapsto']} #{bb}: #{freq}"
-    end
-  end
-end
+tm = TraceMonitor.new(elf,pml)
+global = GlobalRecorder.new(pml.mf_mapping_to('main'))
+tm.subscribe(global)
+tm.run
+puts "Global Frequencies"
+global.freqs.dump
 
 #outfile = if ! options.output || options.output == "-"
 #          then $>

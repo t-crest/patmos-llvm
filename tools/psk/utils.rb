@@ -4,6 +4,7 @@
 require 'ostruct'
 require 'optparse'
 require 'yaml'
+require 'set'
 
 module PMLUtils
   RE_HEX=/[0-9A-Fa-f]/
@@ -11,10 +12,11 @@ module PMLUtils
     $stderr.puts msg
     exit 1
   end
-  def warn_once(msg,detail)
+  def warn_once(msg,detail=nil)
     $warn_once ||= {}
     return if $warn_once[msg]
-    warn(msg+": "+detail)
+    detail = ": #{detail}" if detail
+    warn(msg+detail.to_s)
     $warn_once[msg]=true
   end
   def warn(msg)
@@ -28,6 +30,12 @@ module PMLUtils
   def parse_mbb_label(label)
     label =~ /\A\.LBB(\d+)_(\d+)$/
     [$1.to_i, $2.to_i] if $1
+  end
+  def merge_ranges(r1,r2=nil)
+    die "merge_ranges: first argument is nil" unless r1
+    r1=Range.new(r1,r1) unless r1.kind_of?(Range)
+    return r1 unless r2
+    [r1.min,r2.min].min .. [r1.max,r2.max].max
   end
 end
 
@@ -77,25 +85,122 @@ class PML
   end
 end
 
-# simple buffer keeping track of the last n values
-# last value is accessed with buffer.last, n-th last
-# with buffer[-n]
-class LastBuffer
-  def initialize(k=5,init=[])
-    @k, @p = k, 0
-    @buf = [nil] * k
-    init.each { |v| add(v) }
+# Smart Reference to a PML function
+class FunctionRef
+  def initialize(mf)
+    @mf = mf
+    @hash = name.hash
   end
-  def add(v)
-    @buf[@p] = v
-    @p = (@p+1) % @k
+  def [](k)
+    @mf[k]
   end
-  def last
-    self[-1]
+  def name
+    @mf['name']
   end
-  def [](rix)
-    raise Exception.new("LastBuffer: index error") if rix >= 0 || rix < -@k
-    @buf[(@p+@k+rix)%@k]
+  def to_s
+    "#{@mf['mapsto']}/#{name}"
+  end
+  def ==(other)
+    return false unless other.kind_of?(FunctionRef)
+    name == other.name
+  end
+  def hash; @hash ; end
+  def eql?(other); self == other ; end
+end
+# Smart reference to a PML machine basic block
+class BlockRef
+  attr_reader :bid,:fref
+  def initialize(mf,mbb)
+    @fref,@mbb = FunctionRef.new(mf), mbb
+    @bid = get_mbb_label(mf,mbb)
+    @hash = @bid.hash
+  end
+  def [](k)
+    @mbb[k]
+  end
+  def to_s
+    "#{fref['mapsto']}/#{bid}"
+  end
+  def ==(other)
+    return false unless other.kind_of?(BlockRef)
+    bid == other.bid
+  end
+  def hash; @hash ; end
+  def eql?(other); self == other ; end
+end
+# Smart reference to a PML instruction
+class InsRef
+  attr_reader :bref, :iid
+  def initialize(mf,mbb,ins)
+    @bref = BlockRef.new(mf,mbb)
+    @ins = ins
+    @iid = "#{@bref.bid}_#{ins['index']}"
+    @hash = @iid.hash
+  end
+  def fref
+    bref.fref
+  end
+  def [](k)
+    @ins[k]
+  end
+  def to_s
+    "#{fref['mapsto']}/#{iid}"
+  end
+  def ==(other)
+    return false unless other.kind_of?(BlockRef)
+    iid == other.iid
+  end
+  def hash; @hash ; end
+  def eql?(other); self == other ; end
+end
+
+class FrequencyRecord
+  attr_reader :cycles, :freqs, :calltargets
+  def initialize
+    @calltargets = {}
+  end
+  def start(cycles)
+    @cycles_start = cycles
+    @current_record = Hash.new(0)
+  end
+  def increment(bb)
+    @current_record[bb] += 1 if @current_record
+  end
+  def call(callsite,callee)
+    (@calltargets[callsite]||=Set.new).add(callee) if @current_record && callsite
+  end
+  def stop(cycles)
+    die "Recorder: stop without start" unless @current_record
+    @cycles = merge_ranges(cycles - @cycles_start, @cycles)
+    unless @freqs
+      @freqs = {}
+      @current_record.each do |bref,count|
+        @freqs[bref] = count .. count
+      end
+    else
+      @current_record.each do |bref,count|
+        if ! @freqs.include?(bref)
+          @freqs[bref] = 0 .. count
+        else
+          @freqs[bref] = merge_ranges(count, @freqs[bref])
+        end
+      end
+      @freqs.each do |bref,count|
+        @freqs[bref] = merge_ranges(count, 0..0) unless @current_record.include?(bref)
+      end
+    end
+  end
+  def dump(io=$>)
+    (io.puts "No records";return) unless @freqs
+    io.puts "Cycles: #{cycles}"
+    io.puts "---"
+    @freqs.each do |bref,freq|
+      io.puts "#{bref.to_s.ljust(15)} \\in #{freq}"
+    end
+    io.puts "---"
+    @calltargets.each do |site,recv|
+      io.puts "#{site} calls #{recv.to_a.join(", ")}"
+    end
   end
 end
 

@@ -17,7 +17,7 @@ CMD_ALF_LLC="alf-llc"
 ($stderr.puts "patmos-llvm-ld not in PATH";exit 1) if `which patmos-llvm-ld`.empty?
 
 # local build commands
-LLC="%<bin>s -march=patmos -mpatmos-serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
+LLC="%<bin>s -march=patmos -mforce-block-labels -mpatmos-serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
 # patmos commands
 PATMOS_PATH=File.join(File.dirname(`which patmos-llvm-ld`),"..")
 PATMOS_CLANG="%<bin>s -Xllc --serialize=%<pml>s -o %<of>s %<if>s" # cannot use CLANG inside build dir (missing libs)
@@ -28,6 +28,7 @@ PATMOS_LD="%<patmos>s/bin/patmos-ld -o %<of>s -nostdlib -static --defsym _uart_s
 MERGE="%<psk>s/psk-merge -o %<of>s %<ifs>s"
 FF2PML="%<psk>s/psk-ff2pml -o %<of>s %<if>s"
 EXTRACT_SYMBOLS="%<psk>s/psk-extract-symbols -i %<if>s -o %<of>s %<elf>s"
+ANALYZE_TRACE="%<psk>s/psk-analyze-trace -i %<if>s %<elf>s"
 DEMO_EQUATIONS="%<psk>s/psk-demo-equations %<if>s"
 
 # external tools
@@ -127,8 +128,9 @@ demo.run_patmos(PATMOS_LD, :if=>file.call("elf.o"), :of=>file.call("elf"))
 demo.step("Extract addresses from ELF binary")
 demo.run_psk(EXTRACT_SYMBOLS, :if => file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"))
 
-demo.step("Generate trace using pasim")
-demo.run_patmos(PATMOS_PASIM, :if=>file.call("elf"), :tracefile=>file.call("trace"), :noredirect => true)
+demo.step("Analyze trace generated using pasim")
+demo.run_psk(ANALYZE_TRACE, :if=> file.call("elf.pml"), :elf => file.call("elf"), :noredirect => true)
+#demo.run_patmos(PATMOS_PASIM, :if=>file.call("elf"), :tracefile=>file.call("trace"), :noredirect => true)
 
 demo.step("Generate Flow Fact file using Abstract Execution")
 demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
