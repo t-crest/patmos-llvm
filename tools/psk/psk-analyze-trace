@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 #
-SYNOPSIS=<<EOF
+SYNOPSIS=<<EOF if __FILE__ == $0
 Generate flow facts reflecting frequencies from machine-code
 execution traces generated with 'pasim --debug'.
 Also adds observed receivers to indirect call's callee field
@@ -12,24 +12,17 @@ include PMLUtils
 # Class to (lazily) read pasim simulator trace
 class SimulatorTrace
   def initialize(elf)
-    @io = IO.popen("pasim -q --debug 0 --debug-fmt trace -b #{elf} 2>&1 1>/dev/null")
-  end
-  def close
-    @io.close
+    @elf = elf
   end
   def each
-    while item=next_item ; yield item ; end
+    IO.popen("pasim -q --debug 0 --debug-fmt trace -b #{@elf} 2>&1 1>/dev/null") do |io|
+      while item=parse(io.gets) ; yield item ; end
+    end
   end
-  def next_item
-    return nil unless line = @io.gets
-    pc,cyc = line.split
-    [ Integer(pc,16), Integer(cyc,10) ]
-  end
-end
-
-class YieldObserver
-  def method_missing(msg,*args)
-    yield([msg]+args)
+  def parse(line)
+    return nil unless line
+    pc, cyc = line.split(' ',2)
+    [ Integer("0x#{pc}"), Integer(cyc) ]
   end
 end
 
@@ -110,56 +103,56 @@ end
 class GlobalRecorder
   attr_reader :results
   def initialize(start_mf)
-    @start = start_mf['name']
+    @start_name = start_mf['name']
     @results = FrequencyRecord.new
   end
   def function(callee,callsite,cycles)
-    results.start(cycles) if callee['name']==@start
+    results.start(cycles) if callee['name']==@start_name
     results.call(callsite,callee)
   end
   def block(mbb, _)
     results.increment(mbb)
   end
   def ret(rsite,csite,cycles)
-    results.stop(cycles) if(rsite.fref['name']==@start)
+    results.stop(cycles) if(rsite.fref['name']==@start_name)
   end
 end
 
+class AnalyzeTraceTool
+  def AnalyzeTraceTool.run(elf,pml)
+    tm = TraceMonitor.new(elf,pml)
+    globalscope = pml.mf_mapping_to('main')
+    global = GlobalRecorder.new(globalscope)
+    tm.subscribe(global)
+    tm.run
 
-# Standard option parser
-options = OpenStruct.new
-parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{$0} OPTIONS program.elf\n#{SYNOPSIS}"
-  opts.on("-i", "--pml FILE", "Input PML File") { |f| options.input = f }
-  opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f }
-  opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
-end.parse!
+    puts "Global Frequencies"
+    global.results.dump
 
-elf = ARGV[0]
-die "Wrong number of arguments. Try --help" unless ARGV.length==1
-die "Option --pml is mandatory. Try --help" unless options.input
+    data = pml.data
+    data['flowfacts'] ||= []
+    global.results.freqs.each do |block,freq|
+      flowfact = { 'level' => 'machinecode', 'origin' => 'trace' }
+      flowfact['scope'] = globalscope['name']
+      pp = { 'function' => block.fref.name, 'block' => block.name }
+      flowfact['lhs'] = [{ 'factor' => 1, 'program-point' => pp }]
+      flowfact['op'] = 'less-equal'
+      flowfact['rhs'] = freq.max
+      data['flowfacts'].push(flowfact)
+    end
 
-pml = File.open(options.input) { |fh| PML.new(fh) }
-tm = TraceMonitor.new(elf,pml)
-globalscope = pml.mf_mapping_to('main')
-global = GlobalRecorder.new(globalscope)
-tm.subscribe(global)
-tm.run
-puts "Global Frequencies"
-global.results.dump
-data = pml.data
-data['flowfacts'] ||= []
-global.results.freqs.each do |block,freq|
-  flowfact = { 'level' => 'machinecode', 'origin' => 'trace' }
-  flowfact['scope'] = globalscope['name']
-  pp = { 'function' => block.fref.name, 'block' => block.name }
-  flowfact['lhs'] = { 'factor' => 1, 'program-point' => pp }
-  flowfact['op'] = 'less-equal'
-  flowfact['rhs'] = freq.max
-  data['flowfacts'].push(flowfact)
+    global.results.calltargets.each do |cs,receiverset|
+      next unless cs['callees'].include?("__any__")
+      cs.data['callees'] = (cs['callees'] + receiverset.map { |fref| fref.name }).uniq
+    end
+    pml
+  end
+  def AnalyzeTraceTool.main
+    options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) { }
+    AnalyzeTraceTool.run(args.first, pml).dump_to_file(options.output)
+  end
 end
-global.results.calltargets.each do |cs,receiverset|
-  next unless cs['callees'].include?("__any__")
-  cs.data['callees'] = (cs['callees'] + receiverset.map { |fref| fref.name }).uniq
+
+if __FILE__ == $0
+   AnalyzeTraceTool.main
 end
-pml.dump_to_file(options.output)

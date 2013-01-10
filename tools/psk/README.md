@@ -4,7 +4,12 @@ PSK (Patmos Swiss Knife)
 This directory contains tools for manipulating, generating and transforming
 PML files.
 
-Open Questions:
+Requirements
+------------
+$ aptitude install ruby1.9.1-full
+
+Open Questions
+--------------
 * Do we want to stick with PSK/PML terminology?
 
 Benchmark Analysis Demo

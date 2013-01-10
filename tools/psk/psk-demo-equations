@@ -189,6 +189,7 @@ ffs.each do |scope,facts|
   facts.each do |ff|
     lc = LinearCombination.new
     ff['lhs'].each do |t|
+      puts t.inspect
       pp = t['program-point']
       ty = (ff['level']=='bitcode') ? 'src' : 'dst'
       k = "#{pp['function']}::#{pp['block']}"

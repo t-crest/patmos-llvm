@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 #
-SYNOPSIS=<<EOF
-Extract Symbols from ELF file.
+SYNOPSIS=<<EOF if __FILE__ == $0
+Extract Symbol Addresses from ELF file.
 EOF
 
 require File.join(File.dirname(__FILE__),"utils.rb")
@@ -13,7 +13,7 @@ class ExtractSymbols
     @pml,@text_symbols = pml,{}
   end
   def analyze(elf,options)
-    IO.popen("patmos-objdump -t '#{elf}'") do |io|
+    r = IO.popen("#{options.objdump} -t '#{elf}'") do |io|
       io.each_line do |line|
         if record = objdump_extract(line)
           next unless options.text_sections.include?(record.section)
@@ -21,6 +21,7 @@ class ExtractSymbols
         end
       end
     end
+    die "The command #{options.objdump} exited with status #{$?.exitstatus}" unless $?.success?
   end
   def update_pml
     @pml['machine-functions'].each do |mf|
@@ -32,10 +33,8 @@ class ExtractSymbols
       mf['blocks'].each do |mbb|
         label = get_mbb_label(mf, mbb)
         if block_addr = @text_symbols[label]
-          # Do not emit warning, as it is not possible to estimate block addresses due
-          # to subfunctions
-          # warn_once("Incorrect address estimation in #{descr}",
-          #           "Estimated #{addr}, not #{block_addr}") if addr != @csyms[label]
+          # Migh be different from current addr, as subfunctions require the emmiter
+          # to insert additional text between blocks
           addr = block_addr
         end
         mbb['address'] = addr
@@ -49,40 +48,36 @@ class ExtractSymbols
   end
   private
   RE_PATMOS_LABEL = %r{
-    (?<address> #{RE_HEX}{8} )
-    . {9}
-    (?<section> \S+ ) \s+
-    (?<value> #{RE_HEX}+ ) \s+
-    (?<label> \S+ )
+    ( #{RE_HEX}{8} ) # address
+    . {9}            # .ignore
+    ( \S+ ) \s+      # section
+    ( #{RE_HEX}+ ) \s+ # value
+    ( \S+ ) # label
   }x
   def objdump_extract(line)
-    return nil unless ks = /\A#{RE_PATMOS_LABEL}$/.match(line)
-    record = {}
-    [:section,:label].each { |key| record[key] = ks[key] }
-    [:address,:value].each { |key| record[key] = Integer(ks[key],16) }
-    OpenStruct.new(record)
+    return nil unless line =~ /\A#{RE_PATMOS_LABEL}$/
+    OpenStruct.new(:address => Integer("0x#{$1}"), :section => $2, :value => 3, :label => $4)
+  end
+end
+
+class ExtractSymbolsTool
+  def ExtractSymbolsTool.run(elf, pml, options)
+    options.objdump = "patmos-objdump" unless options.objdump
+    options.text_sections = [".text"] unless options.text_sections
+    extract = ExtractSymbols.new(pml)
+    extract.analyze(elf, options)
+    extract.update_pml
+    pml
+  end
+  def ExtractSymbolsTool.main
+    options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |opts,options|
+      opts.on("", "--objdump-command FILE", "path to 'patmos-objdump'")   { |f| options.objdump = f }
+      opts.on("", "--text-sections SECTIONS", "CS list of code sections") { |s| options.text_sections = s.split(/\s*,\s*/) }
+    end
+    ExtractSymbolsTool.run(args.first, pml, options).dump_to_file(options.output)
   end
 end
 
 if __FILE__ == $0
-  # Standard option parser
-  options = OpenStruct.new
-  options.text_sections = [".text"]
-  parser = OptionParser.new do |opts|
-    opts.banner = "Usage: #{$0} OPTIONS FILE.elf\n" +
-      "  Extracts symbols from the given ELF, and adds them to the PML description"
-    opts.on("-i", "--input FILE.pml", "Input PML file") { |f| options.input = f }
-    opts.on("-o", "--output FILE.pml", "Output PML File") { |f| options.output = f }
-    opts.on("", "--text-sections SECTIONS", "CS list of code sections") { |s| options.text_sections = s.split(/\s*,\s*/) }
-    opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
-  end.parse!
-  ($stderr.puts ("Wrong number of positional arguments. Try --help"); exit 1) unless ARGV.length == 1
-  ($stderr.puts ("Option --input is mandatory. Try --help"); exit 1) unless options.input
-
-  # input/output
-  options.elf = ARGV.first
-  pml = File.open(options.input) { |fh| PML.new(fh) }
-  extract = ExtractSymbols.new(pml)
-  extract.analyze(options.elf,options)
-  extract.update_pml.dump_to_file(options.output)
+   ExtractSymbolsTool.main
 end

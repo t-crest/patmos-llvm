@@ -9,27 +9,33 @@ require 'ostruct'
 require 'optparse'
 
 # Default Settings
+CMD_SWEET="sweet" # set to nil to disable analysis with SWEET
+CMD_ALF_LLC="alf-llc"
+PATMOS_LLVM_LD_BIN="patmos-llvm-ld"
+PATMOS_LD_BIN="patmos-ld"
 LEVEL="../.."
 BUILDDIR="build"
-CMD_SWEET="sweet"
-CMD_ALF_LLC="alf-llc"
 
-($stderr.puts "patmos-llvm-ld not in PATH";exit 1) if `which patmos-llvm-ld`.empty?
+($stderr.puts "Neccessary tool #{PATMOS_LLVM_LD_BIN} not found using 'which'";exit 1) if `which patmos-llvm-ld`.empty?
+PATMOS_PATH=File.join(File.dirname(`which patmos-ld`),"..")
 
 # local build commands
 LLC="%<bin>s -march=patmos -mforce-block-labels -mpatmos-serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
+
+# cannot use CLANG inside build dir (missing libs)
+PATMOS_CLANG="%<patmos>s/bin/patmos-clang -Xllc --serialize=%<pml>s -o %<of>s %<if>s" 
+
 # patmos commands
-PATMOS_PATH=File.join(File.dirname(`which patmos-llvm-ld`),"..")
-PATMOS_CLANG="%<bin>s -Xllc --serialize=%<pml>s -o %<of>s %<if>s" # cannot use CLANG inside build dir (missing libs)
 PATMOS_PASIM="%<patmos>s/bin/pasim -q --debug 1 -b %<if>s 2>%<tracefile>s"
-PATMOS_LLVM_LD="%<patmos>s/bin/patmos-llvm-ld -emit-llvm -L%<patmos>s/patmos-unknown-elf/lib/ -b %<of>s %<patmos>s/patmos-unknown-elf/lib/crt0.o %<if>s -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/libcsyms.lst %<patmos>s/patmos-unknown-elf/lib/libcsyms.o -lc -lpatmos -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsfsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsfsyms.o -lrtsf -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsyms.o -lrt -internalize-public-api-list=_start,main -no-script"
-PATMOS_LD="%<patmos>s/bin/patmos-ld -o %<of>s -nostdlib -static --defsym _uart_status_base=0xF0000000 --defsym _uart_data_base=0xF0000004 --defsym _shadow_stack_base=0x4000000 --defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x3000000 --defsym __heap_end=0x2000000 --defsym __heap_start=end %<if>s"
+PATMOS_LLVM_LD="%<patmos>s/bin/#{PATMOS_LLVM_LD_BIN} -emit-llvm -L%<patmos>s/patmos-unknown-elf/lib/ -b %<of>s %<patmos>s/patmos-unknown-elf/lib/crt0.o %<if>s -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/libcsyms.lst %<patmos>s/patmos-unknown-elf/lib/libcsyms.o -lc -lpatmos -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsfsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsfsyms.o -lrtsf -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsyms.o -lrt -internalize-public-api-list=_start,main -no-script"
+PATMOS_LD="%<patmos>s/bin/#{PATMOS_LD_BIN} -o %<of>s -nostdlib -static --defsym _uart_status_base=0xF0000000 --defsym _uart_data_base=0xF0000004 --defsym _shadow_stack_base=0x4000000 --defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x3000000 --defsym __heap_end=0x2000000 --defsym __heap_start=end %<if>s"
 # psk tools
 MERGE="%<psk>s/psk-merge -o %<of>s %<ifs>s"
 FF2PML="%<psk>s/psk-ff2pml -o %<of>s %<if>s"
 EXTRACT_SYMBOLS="%<psk>s/psk-extract-symbols -i %<if>s -o %<of>s %<elf>s"
 ANALYZE_TRACE="%<psk>s/psk-analyze-trace -i %<if>s -o %<of>s %<elf>s"
 DEMO_EQUATIONS="%<psk>s/psk-demo-equations %<if>s"
+PML2AIS="%<psk>s/psk-pml2ais --header -o %<of>s %<if>s"
 
 # external tools
 BC2ALF="%<bin>s -march=alf -alf-standalone -alf-memory-areas=0x0000-0xffff -o=%<of>s %<if>s"
@@ -133,11 +139,7 @@ demo.step("Analyze trace generated using pasim")
 demo.run_psk(ANALYZE_TRACE, :if=> file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"),
              :noredirect => true)
 
-if `which sweet`.strip.empty?
-  demo.info("'which sweet' returned an empty string. Skipping rest of demo")
-  exit 0
-end
-
+if CMD_SWEET
 demo.step("Generate Flow Fact file using Abstract Execution")
 demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
 demo.run(ALF2FF, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))
@@ -146,7 +148,11 @@ demo.step("Add Flow Facts to PML file")
 demo.run_psk(FF2PML, :if => file.call("ff"), :of => file.call("ff.pml"))
 
 demo.step("Merge elf.pml and ff.pml into one YAML document")
-demo.run_psk(MERGE, :ifs => "#{file.call("elf.pml")} #{file.call("ff.pml")}", :of => file.call("pml"))
+demo.run_psk(MERGE, :ifs => "#{file.call("elf.pml")} #{file.call("ff.pml")}", :of => file.call("elf.pml"))
+end
 
 demo.step("Display control-flow relation graph equations and flow fact inequalities")
-demo.run_psk(DEMO_EQUATIONS, :if => "#{file.call("pml")}") #,:noredirect => true)
+demo.run_psk(DEMO_EQUATIONS, :if => "#{file.call("elf.pml")}") #,:noredirect => true)
+
+demo.step("Export information to aiT's ais format")
+demo.run_psk(PML2AIS, :if => file.call("elf.pml"), :of => file.call("ais"))

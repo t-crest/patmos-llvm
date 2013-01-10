@@ -12,6 +12,9 @@ module PMLUtils
     $stderr.puts msg
     exit 1
   end
+  def warn(msg)
+    $stderr.puts "[#{$0}] WARNING #{msg}"
+  end
   def warn_once(msg,detail=nil)
     $warn_once ||= {}
     return if $warn_once[msg]
@@ -19,18 +22,49 @@ module PMLUtils
     warn(msg+detail.to_s)
     $warn_once[msg]=true
   end
-  def warn(msg)
-    $stderr.puts "[#{$0}] WARNING #{msg}"
+
+  def optparse(arg_range, arg_descr, synopsis, opts)
+    options = OpenStruct.new
+    do_input  = opts[:type] == :io || opts[:type] == :input
+    do_output = opts[:type] == :io || opts[:type] == :output
+    parser = OptionParser.new do |opts|
+      opts.banner = "Usage: #{$0} OPTIONS #{arg_descr}\n#{synopsis}"
+      opts.on("-i", "--input FILE", "Input PML File") { |f| options.input = f } if do_input
+      opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f } if do_output
+      yield [opts,options] if block_given?
+      opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
+    end.parse!
+    arg_range_ok = if ! arg_range
+                     true
+                   elsif arg_range.kind_of?(Integer)
+                     ARGV.length == arg_range
+                   else
+                     arg_range.cover?(ARGV.length)
+                   end
+    die "Wrong number of positional arguments. Try --help" unless arg_range_ok
+    if do_input
+      die "Option --input is mandatory. Try --help" unless options.input
+      [options, ARGV, PML.from_file(options.input) ]
+    else
+      [options, ARGV]
+    end
   end
+
+  def dquote(str)
+    '"' + str + '"'
+  end
+
+  # TODO create label depending on architecture?
   def get_mbb_label(func, block)
-    func  = func['name'] unless func.kind_of?(String)
-    block = block['name'] unless block.kind_of?(String)
+    func  = func['name'] if func.kind_of?(Hash)
+    block = block['name'] if func.kind_of?(Hash)
     ".LBB#{func}_#{block}"
   end
   def parse_mbb_label(label)
     label =~ /\A\.LBB(\d+)_(\d+)$/
     [$1.to_i, $2.to_i] if $1
   end
+
   def merge_ranges(r1,r2=nil)
     die "merge_ranges: first argument is nil" unless r1
     r1=Range.new(r1,r1) unless r1.kind_of?(Range)
@@ -43,8 +77,21 @@ end
 # files
 class PML
   attr_reader :data, :functions
-  def initialize(io)
-    @data = YAML::load(io)
+  def initialize(data_or_io)
+    stream = if data_or_io.kind_of?(Array)
+               data_or_io
+             elsif data_or_io.kind_of?(IO)
+               stream = YAML::load_stream(data_or_io)
+               stream = stream.documents if stream.respond_to?(:documents) # ruby 1.8 compat
+               stream
+             elsif
+               [data_or_io]
+             end
+    if stream.length == 1
+      @data = stream[0]
+    else
+      @data = PML.merge_stream(stream)
+    end
     build_information
   end
   def [](key)
@@ -82,6 +129,24 @@ class PML
   end
   def mf_mapping_to(bitcode_name)
     @dstfunmap[bitcode_name]
+  end
+  def PML.from_file(filename)
+    File.open(filename) { |fh| PML.new(fh) }
+  end
+  def PML.merge_stream(stream)
+    merged_doc = {}
+    stream.each do |doc|
+      doc.each do |k,v|
+        if(v.kind_of? Array)
+          (merged_doc[k]||=[]).concat(v)
+        elsif(! merged_doc[k])
+          merged_doc[k] = doc[k]
+        elsif(merged_doc[k] != doc[k])
+          raise Exception.new("psk-merge: mismatch in non-list attribute #{k}: #{merged_doc[k]} and #{doc[k]}")
+        end
+      end
+    end
+    merged_doc
   end
 end
 
@@ -200,6 +265,15 @@ class FrequencyRecord
     io.puts "---"
     @calltargets.each do |site,recv|
       io.puts "#{site} calls #{recv.to_a.join(", ")}"
+    end
+  end
+end
+
+# 1.8 compat
+if RUBY_VERSION =~ /^1\.8\.?/
+  class Range
+    def cover?(v)
+      v >= min && v <= max
     end
   end
 end
