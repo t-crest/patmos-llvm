@@ -56,8 +56,8 @@ module PMLUtils
 
   # TODO create label depending on architecture?
   def get_mbb_label(func, block)
-    func  = func['name'] if func.kind_of?(Hash)
-    block = block['name'] if func.kind_of?(Hash)
+    func  = func['name']  if func.kind_of?(Hash)
+    block = block['name'] if block.kind_of?(Hash)
     ".LBB#{func}_#{block}"
   end
   def parse_mbb_label(label)
@@ -123,6 +123,7 @@ class PML
     @dstfunmap = {}
     @data['bitcode-functions'].each { |f| @functions['src'][f['name']] = f }
     @data['machine-functions'].each { |f|
+      die "Duplicate machine function #{f['name']}" if @functions['dst'][f['name']]
       @functions['dst'][f['name']] = f
       @dstfunmap[f['mapsto']] = f
     }

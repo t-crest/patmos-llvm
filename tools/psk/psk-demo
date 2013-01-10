@@ -9,7 +9,7 @@ require 'ostruct'
 require 'optparse'
 
 # Default Settings
-CMD_SWEET="sweet" # set to nil to disable analysis with SWEET
+CMD_SWEET=nil #""sweet" # set to nil to disable analysis with SWEET
 CMD_ALF_LLC="alf-llc"
 PATMOS_LLVM_LD_BIN="patmos-llvm-ld"
 PATMOS_LD_BIN="patmos-ld"

@@ -93,7 +93,7 @@ class TraceMonitor
     if ! addr
       warn ("No address for #{data.inspect[0..60]}")
     elsif dict[addr]
-      die ("Duplicate function at address #{addr.inspect}")
+      raise Exception.new("Duplicate watchpoint at address #{addr.inspect}")
     else
       dict[addr] = data
     end
