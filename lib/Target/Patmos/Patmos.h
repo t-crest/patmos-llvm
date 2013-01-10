@@ -29,6 +29,7 @@ namespace llvm {
   void initializePatmosCallGraphBuilderPass(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
+  FunctionPass *createPatmosSPConvPass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
   FunctionPass *createPatmosFunctionSplitterPass(TargetMachine &tm);
 
