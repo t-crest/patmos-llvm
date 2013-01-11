@@ -1,47 +1,31 @@
 #!/usr/bin/env ruby
 #
-# Merges a stream of YAML documents into one document (if version
-# and architecture are compatible)
-#
-# TODO: port to python or C++ (to reduce number of languages)
+SYNOPSIS=<<EOF if __FILE__ == $0
+Merges a stream of YAML documents into one document (if version
+and architecture are compatible)
+EOF
 
-require 'ostruct'
-require 'optparse'
-require 'yaml'
+require File.join(File.dirname(__FILE__),"utils.rb")
+include PMLUtils
 
-# Standard option parser
-options = OpenStruct.new
-parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{$0} -o merged.pml [file.pml...]"
-  opts.on("-o", "--output FILE", "Output File") { |f| options.output = f }
-  opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
-end.parse!
-
-# input/output
-infiles = if ARGV[0].nil?
-          then [ $< ]
-          else ARGV.map { |arg| File.new(arg) }
-          end
-
-# merge
-doc,data = {},[]
-infiles.each do |f|
-  data.concat(YAML::load_stream(f.read))
-end
-data.each do |dat|
-  dat.each do |k,v|
-    if(v.kind_of? Array)
-      (doc[k]||=[]).concat(v)
-    elsif(! doc[k])
-      doc[k] = dat[k]
-    elsif(doc[k] != dat[k])
-      raise Exception.new("psk-merge: mismatch in non-list attribute #{k}: #{doc[k]} and #{dat[k]}")
+class MergeTool
+  def MergeTool.run(files)
+    stream = []
+    files.each do |f|
+      data = if f.kind_of?(String) 
+               File.open(f) { |fh| YAML::load_stream(fh) }        
+             else
+               YAML::load_stream(f)
+             end
+      data = data.documents if data.respond_to?(:documents) # ruby 1.8 compat
+      stream.concat(data)
     end
+    PML.new(stream)
+  end
+  def MergeTool.main
+    options, args = PML::optparse(nil, "[file.pml..]", SYNOPSIS, :type => :output)
+    MergeTool.run(args).dump_to_file(options.output)
   end
 end
-outfile = if ! options.output || options.output == "-"
-          then $>
-          else File.new(options.output,"w")
-          end
-outfile.puts YAML::dump(doc)
-outfile.close
+
+MergeTool.main if __FILE__ == $0
