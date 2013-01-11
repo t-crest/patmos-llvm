@@ -2,30 +2,39 @@
 #
 # ruby-runner
 
-LIBDIR=`pwd`/lib # adapt for installation
+# Set library path (adapt for installation)
+LIBDIR= #(LIBDIR)
 
-# detect ruby
-RUBY19=ruby
-RUBY_VERSION=`${RUBY19} -e 'puts RUBY_VERSION'`
-if [ -z "${RUBY_VERSION}" ] ; then
+# Detect ruby
+RUBY19s="ruby1.9 ruby1.9.1 ruby1.9.2 ruby1.9.3"
+RUBY_VERSION=`ruby -e 'puts RUBY_VERSION'`
+
+if [[ "${RUBY_VERSION}" =~ ^1.8 ]] ; then
+    RUBY=ruby
+    RUBY18=ruby
+elif [[ "${RUBY_VERSION}" =~ ^1.9 ]] ; then
+    RUBY=ruby
+    RUBY19=ruby
+elif [ ! -z "${RUBY_VERSION}" ] ; then
+    RUBY=ruby
+fi
+if [ -z "${RUBY19}" ] ; then
+    for r19 in ${RUBY19s} ; do
+	if [ ! -z "`which ${r19}`" ] ; then
+	    RUBY=${r19}
+	    RUBY19=${r19}
+	    break
+	fi
+    done
+fi
+if [ -z "${RUBY}" ] ; then
   echo "ruby not found. Please install ruby (e.g., sudo aptitude install ruby1.9.1)" >&2
   exit 1
-fi
-if [[ "${RUBY_VERSION}" =~ ^1.8 ]] ; then
-    RUBY18=ruby
-    if [[ `ruby1.9 -e 'puts RUBY_VERSION'` =~ ^1.9 ]] ; then
-	RUBY19=ruby1.9
-    else
-	unset RUBY19
-    fi
-elif [[ `ruby1.8 -e 'puts RUBY_VERSION'` =~ ^1.8 ]] ; then
-    RUBY18=ruby1.8
-fi
-if [ ! -z "${RUBY19}" ] ; then
-    RUBY="${RUBY19}"
-elif [ ! -z "${RUBY18}" ] ; then
-    echo "No ruby1.9 found. Falling back to ruby 1.8"
-    RUBY="${RUBY18}"
+elif [ -z "${RUBY19}" ] ; then
+  echo "ruby1.9 not found. Falling back to unsupported ruby version `${RUBY} -v`"
 fi
 
+# Run
+if [ -z "${LIBDIR}" ] ; then LIBDIR=$(dirname $0)/lib ;  fi
+echo ${LIBDIR}
 ${RUBY} -I ${LIBDIR} ${LIBDIR}/$0.rb "${@}"
