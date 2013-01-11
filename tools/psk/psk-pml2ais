@@ -20,6 +20,31 @@ def get_mbb_label(funcname, blockname)
   ".LBB#{funcname}_#{blockname}"
 end
 
+class APXExporter
+    attr_reader :outfile
+    def initialize(outfile)
+	@outfile = outfile
+    end
+
+    def export_project(binary, aisfile, results, report, entry)
+	# There is probably a better way to do this .. e.g., use a template file.
+	@outfile.puts '<!DOCTYPE APX>'
+	@outfile.puts '<project xmlns="http://www.absint.com/apx" target="patmos" version="12.10i">'
+	@outfile.puts ' <files>'
+	@outfile.puts "  <executables>#{binary}</executables>"
+	@outfile.puts "  <ais>#{aisfile}</ais>" if aisfile
+	@outfile.puts "  <xml_results>#{results}</xml_results>" if results
+	@outfile.puts "  <report>#{report}</report>" if report
+	@outfile.puts ' </files>'
+	@outfile.puts ' <analyses>'
+	@outfile.puts '  <analysis enabled="true" type="wcet_analysis" id="aiT">'
+	@outfile.puts "   <analysis_start>#{entry}</analysis_start>"
+	@outfile.puts '  </analysis>'
+	@outfile.puts ' </analyses>'
+	@outfile.puts '</project>'
+    end
+end
+
 class AISExporter
     attr_reader :outfile
     def initialize(outfile)
@@ -29,9 +54,9 @@ class AISExporter
     # Generate a global AIS header
     def gen_header(data)
 	# TODO get compiler type depending on YAML arch type
-	@outfile.puts "#compiler"
-	@outfile.puts "compiler \"patmos-llvm\";"
-	@outfile.puts ""
+	@outfile.puts '#compiler'
+	@outfile.puts 'compiler "patmos-llvm";'
+	@outfile.puts ''
 
 	#@outfile.puts "#clock rate"
 	#@outfile.puts "clock exactly 24 MHz;"
@@ -66,8 +91,13 @@ end
 options = OpenStruct.new
 parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{$0} -o file.ais file.pml"
-  opts.on("-o", "--output FILE", "Output File") { |f| options.output = f }
+  opts.on("-o", "--output FILE", "Output AIS filename") { |f| options.output = f }
   opts.on("-g", "--header", "Generate AIS header") { |f| options.header = f }
+  opts.on("-a", "--apx FILE", "Generate APX file") { |f| options.apx = f }
+  opts.on("-b", "--binary FILE", "ELF filename to use for project file") { |f| options.binary = f }
+  opts.on("-e", "--entry FUNCTION", "Name of the function to analyse") { |f| options.entry = f }
+  opts.on("-r", "--report FILE", "Filename of the report log file") { |f| options.report = f }
+  opts.on("-x", "--results FILE", "Filename of the results xml file") { |f| options.results = f }
   opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
 end.parse!
 if ARGV.length != 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
@@ -79,6 +109,11 @@ if stream.length != 1 then
   exit 1
 end
 data = stream[0]
+
+if options.apx and !options.binary then
+  $stderr.puts "Exporting an APX file requires setting a binary filename"
+  exit 1
+end
 
 # export
 outfile = if ! options.output || options.output == "-"
@@ -93,3 +128,14 @@ data['machine-functions'].each do |func|
 end
 outfile.close
 
+# generate APX file
+# TODO make it possible to generate an APX file without actually generating an ais file!
+if options.apx 
+  apxfile = options.apx == "-" ? $> : File.new(options.apx, "w")
+  apx = APXExporter.new(apxfile)
+
+  entry = options.entry ? options.entry : "main"
+  apx.export_project(options.binary, options.output, options.results, options.report, entry)
+  
+  apxfile.close
+end
