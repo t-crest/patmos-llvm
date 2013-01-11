@@ -22,7 +22,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
-//#include "llvm/CodeGen/PMLExport.h"
+#include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -36,7 +36,7 @@
 using namespace llvm;
 
 // TODO should we make this a generic option of PMLExport?
-static cl::opt<bool> DisableFunctionSplitter(
+static cl::opt<bool> SkipSerializeInstructions (
   "mpatmos-serialize-skip-instructions",
   cl::init(false),
   cl::desc("Only export interesting instructions, such as branches."),
