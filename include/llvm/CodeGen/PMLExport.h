@@ -157,13 +157,15 @@ struct MappingTraits<Instruction> {
 IS_PTR_SEQUENCE_VECTOR(Instruction)
 
 /// Generic MachineInstruction Specification
-enum BranchType { branch_none, branch_unconditional, branch_conditional, branch_any };
+enum BranchType { branch_none, branch_unconditional, branch_conditional,
+                  branch_indirect, branch_any };
 template <>
 struct ScalarEnumerationTraits<BranchType> {
     static void enumeration(IO &io, BranchType& branchtype) {
         io.enumCase(branchtype, "", branch_none);
         io.enumCase(branchtype, "unconditional", branch_unconditional);
         io.enumCase(branchtype, "conditional", branch_conditional);
+        io.enumCase(branchtype, "indirect", branch_indirect);
         io.enumCase(branchtype, "any", branch_any);
     }
 };
@@ -577,6 +579,9 @@ namespace llvm {
     virtual void serializeFunction(const Function &F,
                            yaml::Doc<yaml::GenericArchitecture>& doc);
 
+    virtual bool doExportInstruction(const Instruction* Instr) { return true; }
+
+    virtual void exportInstruction(yaml::Instruction* I, const Instruction* II);
   };
 
   class PMLMachineFunctionExport : public PMLGenericExport {
@@ -586,6 +591,26 @@ namespace llvm {
 
     virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
                            yaml::Doc<yaml::GenericArchitecture>& doc);
+
+    virtual bool doExportInstruction(const MachineInstr *Instr) { return true; }
+
+    virtual void exportInstruction(MachineFunction &MF,
+                                   yaml::GenericMachineInstruction *I,
+                                   const MachineInstr *Instr,
+                                   SmallVector<MachineOperand, 4> &Conditions,
+                                   bool HasBranchInfo,
+                                   MachineBasicBlock *TrueSucc,
+                                   MachineBasicBlock *FalseSucc);
+    virtual void exportCallInstruction(MachineFunction &MF,
+                                   yaml::GenericMachineInstruction *I,
+                                   const MachineInstr *Instr);
+    virtual void exportBranchInstruction(MachineFunction &MF,
+                                   yaml::GenericMachineInstruction *I,
+                                   const MachineInstr *Instr,
+                                   SmallVector<MachineOperand, 4> &Conditions,
+                                   bool HasBranchInfo,
+                                   MachineBasicBlock *TrueSucc,
+                                   MachineBasicBlock *FalseSucc);
 
   };
 

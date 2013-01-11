@@ -44,9 +44,10 @@ class AISExporter
     def export_function(func)
       func['blocks'].each do |mbb|
         branches = 0
+	next unless mbb['instructions']
         mbb['instructions'].each do |ins|
           branches += 1 if ins['branch-type'] && ins['branch-type'] != "none"
-          if ins['branch-type'] == 'any'
+          if ins['branch-type'] == 'indirect'
             label = get_mbb_label(func['name'],mbb['name'])
             instr = "#{label.dquote} + #{branches} branches"
 	    successors = ins['branch-targets'] ? ins['branch-targets'] : mbb['successors']

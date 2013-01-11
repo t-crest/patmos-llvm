@@ -90,6 +90,7 @@ void PMLFunctionExport::serializeFunction(const Function &Fn,
   for (Function::const_iterator BI = Fn.begin(), BE = Fn.end(); BI != BE;
       ++BI) {
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
+
     /// B->MapsTo = (maybe C-source debug info?)
     for (const_pred_iterator PI = pred_begin(&*BI), PE = pred_end(&*BI); PI != PE;
         ++PI) {
@@ -99,26 +100,37 @@ void PMLFunctionExport::serializeFunction(const Function &Fn,
         ++SI) {
       B->Successors.push_back(yaml::Name((*SI)->getName()));
     }
+
     unsigned Index = 0;
     for (BasicBlock::const_iterator II = BI->begin(), IE = BI->end(); II != IE;
-        ++II) {
+        ++II)
+    {
+      if (!doExportInstruction(II)) { Index++; continue; }
+
       yaml::Instruction *I = B->addInstruction(
           new yaml::Instruction(Index++));
       I->Opcode = II->getOpcode();
-      if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
-        if (const Function *F = CI->getCalledFunction()) {
-          I->addCallee(F->getName());
-        }
-        else {
-          // TODO: we still have no information about indirect calls
-          I->addCallee(StringRef("__any__"));
-        }
-      }
+
+      exportInstruction(I, II);
     }
   }
   // TODO: we do not compute a hash yet
   F->Hash = StringRef("0");
   doc.addFunction(F);
+}
+
+void PMLFunctionExport::exportInstruction(yaml::Instruction* I,
+                                          const Instruction *II)
+{
+  if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
+    if (const Function *F = CI->getCalledFunction()) {
+      I->addCallee(F->getName());
+    }
+    else {
+      // TODO: we still have no information about indirect calls
+      I->addCallee(StringRef("__any__"));
+    }
+  }
 }
 
 void PMLMachineFunctionExport::serialize(MachineFunction &MF,
@@ -157,55 +169,20 @@ void PMLMachineFunctionExport::serialize(MachineFunction &MF,
     const TargetInstrInfo *TII = getTargetMachine()->getInstrInfo();
     bool HasBranchInfo = !TII->AnalyzeBranch(*BB, TrueSucc, FalseSucc,
         Conditions, false);
+
     unsigned Index = 0;
     for (MachineBasicBlock::iterator Ins = BB->begin(), E = BB->end();
-        Ins != E; ++Ins) {
+        Ins != E; ++Ins)
+    {
+      if (!doExportInstruction(Ins)) { Index++; continue; }
+
       yaml::GenericMachineInstruction *I = B->addInstruction(
           new yaml::GenericMachineInstruction(Index++));
       I->Size = Ins->getDesc().getSize();
       I->Opcode = Ins->getOpcode();
 
-      // FIXME: this is still the hackish implementation from the OTAP prototype
-      if (Ins->getDesc().isCall()) {
-        // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
-        // read call (patmos specific: operand[2] of call)
-        for (MachineInstr::const_mop_iterator Op = Ins->operands_begin(),
-            E = Ins->operands_end(); Op != E; ++Op) {
-          if (Op->isGlobal()) {
-            I->addCallee(Op->getGlobal()->getName());
-          }
-          else if (Op->isSymbol()) {
-            I->addCallee(StringRef(Op->getSymbolName()));
-          }
-        }
-        if (!I->hasCallees()) {
-          errs()
-              << "[mc2yml] Warning: no known callee for MC instruction in "
-              << MF.getFunction()->getName() << "\n";
-          I->addCallee(StringRef("__any__"));
-        }
-      }
-
-      if (Ins->getDesc().isBranch()) {
-        if (Ins->getDesc().isConditionalBranch()) {
-          I->BranchType = yaml::branch_conditional;
-          if (HasBranchInfo && TrueSucc)
-            I->BranchTargets.push_back(yaml::Name(TrueSucc->getNumber()));
-        }
-        else if (Ins->getDesc().isUnconditionalBranch()) {
-          I->BranchType = yaml::branch_unconditional;
-          MachineBasicBlock *USucc =
-              Conditions.empty() ? TrueSucc : FalseSucc;
-          if (HasBranchInfo && USucc)
-            I->BranchTargets.push_back(yaml::Name(USucc->getNumber()));
-        }
-        else {
-          I->BranchType = yaml::branch_any;
-        }
-      }
-      else {
-        I->BranchType = yaml::branch_none;
-      }
+      exportInstruction(MF, I, Ins, Conditions, HasBranchInfo,
+                        TrueSucc, FalseSucc);
     }
   }
 
@@ -214,6 +191,75 @@ void PMLMachineFunctionExport::serialize(MachineFunction &MF,
   doc.addMachineFunction(F);
 }
 
+void PMLMachineFunctionExport::exportInstruction(MachineFunction &MF,
+                                 yaml::GenericMachineInstruction *I,
+                                 const MachineInstr *Ins,
+                                 SmallVector<MachineOperand, 4> &Conditions,
+                                 bool HasBranchInfo,
+                                 MachineBasicBlock *TrueSucc,
+                                 MachineBasicBlock *FalseSucc)
+{
+  if (Ins->getDesc().isCall()) {
+    exportCallInstruction(MF, I, Ins);
+  }
+
+  if (Ins->getDesc().isBranch()) {
+    exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
+                            TrueSucc, FalseSucc);
+  }
+  else {
+    I->BranchType = yaml::branch_none;
+  }
+}
+
+void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
+                                 yaml::GenericMachineInstruction *I,
+                                 const MachineInstr *Ins)
+{
+  for (MachineInstr::const_mop_iterator Op = Ins->operands_begin(),
+      E = Ins->operands_end(); Op != E; ++Op) {
+    if (Op->isGlobal()) {
+      I->addCallee(Op->getGlobal()->getName());
+    }
+    else if (Op->isSymbol()) {
+      I->addCallee(StringRef(Op->getSymbolName()));
+    }
+  }
+  if (!I->hasCallees()) {
+    errs()
+        << "[mc2yml] Warning: no known callee for MC instruction in "
+        << MF.getFunction()->getName() << "\n";
+    I->addCallee(StringRef("__any__"));
+  }
+}
+
+void PMLMachineFunctionExport::exportBranchInstruction(MachineFunction &MF,
+                                 yaml::GenericMachineInstruction *I,
+                                 const MachineInstr *Ins,
+                                 SmallVector<MachineOperand, 4> &Conditions,
+                                 bool HasBranchInfo,
+                                 MachineBasicBlock *TrueSucc,
+                                 MachineBasicBlock *FalseSucc)
+{
+  if (Ins->getDesc().isConditionalBranch()) {
+    I->BranchType = yaml::branch_conditional;
+    if (HasBranchInfo && TrueSucc)
+      I->BranchTargets.push_back(yaml::Name(TrueSucc->getNumber()));
+  }
+  else if (Ins->getDesc().isUnconditionalBranch()) {
+    I->BranchType = yaml::branch_unconditional;
+    MachineBasicBlock *USucc =
+        Conditions.empty() ? TrueSucc : FalseSucc;
+    if (HasBranchInfo && USucc)
+      I->BranchTargets.push_back(yaml::Name(USucc->getNumber()));
+  }
+  else if (Ins->getDesc().isIndirectBranch()) {
+    I->BranchType = yaml::branch_indirect;
+  }
+  else {
+    I->BranchType = yaml::branch_any;
+  }
+}
 
 // TODO maybe move RelationGraph utility stuff into its own (internal) class.
 

@@ -88,7 +88,7 @@ namespace {
       }
 
       if (! SerializeMachineCode.empty())
-          PM->add(createPMLExportPass(SerializeMachineCode,
+          PM->add(createPatmosExportPass(SerializeMachineCode,
                                          getPatmosTargetMachine()));
 
       return true;

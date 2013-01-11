@@ -44,69 +44,84 @@ static cl::opt<bool> SkipSerializeInstructions (
 
 namespace llvm {
 
-  /*
-  class PatmosExport : public PMLExport {
-
+  class PatmosFunctionExport : public PMLFunctionExport {
   public:
-    PatmosExport(TargetMachine *tm) : PMLExport(tm) {}
+    PatmosFunctionExport(PatmosTargetMachine *tm) : PMLFunctionExport(tm) {}
+
+    virtual bool doExportInstruction(const Instruction* Instr) {
+      if (SkipSerializeInstructions) {
+        if (!dyn_cast<const CallInst>(Instr)) return false;
+      }
+      return true;
+    }
 
   };
 
-
-  // TODO check if we can just subtype PMLExportPass here
-  class PatmosExportPass : public MachineFunctionPass {
-
-    static char ID;
-
-    PMLExportManager PEM;
-
+  class PatmosMachineFunctionExport : public PMLMachineFunctionExport {
   public:
-    PatmosExportPass(std::string& filename, PatmosTargetMachine *tm)
-      : MachineFunctionPass(ID), PEM(filename, tm)
+    PatmosMachineFunctionExport(PatmosTargetMachine *tm)
+      : PMLMachineFunctionExport(tm) {}
+
+    virtual bool doExportInstruction(const MachineInstr *Ins) {
+      if (SkipSerializeInstructions) {
+        if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch())
+          return false;
+      }
+      return true;
+    }
+
+    // TODO read call? (patmos specific: operand[2] of call)
+
+    virtual void exportBranchInstruction(MachineFunction &MF,
+                                   yaml::GenericMachineInstruction *I,
+                                   const MachineInstr *Instr,
+                                   SmallVector<MachineOperand, 4> &Conditions,
+                                   bool HasBranchInfo,
+                                   MachineBasicBlock *TrueSucc,
+                                   MachineBasicBlock *FalseSucc)
     {
-      PEM.addDefaultExporter();
-    }
+      PMLMachineFunctionExport::exportBranchInstruction(MF, I, Instr,
+                              Conditions, HasBranchInfo, TrueSucc, FalseSucc);
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.setPreservesAll();
-      AU.addRequired<MachineLoopInfo>();
-      MachineFunctionPass::getAnalysisUsage(AU);
-    }
+      // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
+      switch (Instr->getOpcode()) {
+      case Patmos::BRT:
+      case Patmos::BRTu:
+      case Patmos::BRCFT:
+      case Patmos::BRCFTu:
+        assert(Instr->getNumOperands() == 4);
 
-    virtual bool doInitialization(Module &M) {
-      PEM.initialize();
-      return false;
-    }
+        unsigned index = Instr->getOperand(3).getIndex();
+        MachineJumpTableInfo *MJTI = MF.getJumpTableInfo();
 
-    virtual bool doFinalization(Module &M) {
-      PEM.finalize();
-      return false;
-    }
+        typedef const std::vector<MachineBasicBlock*> JTEntries;
+        JTEntries &JTBBs(MJTI->getJumpTables()[index].MBBs);
 
-    virtual const char *getPassName() const { return "Patmos YAML/PML Export"; }
-
-    /// Serialize machine function, bitcode functions and relation
-    /// graph for generic architecture
-    virtual bool runOnMachineFunction(MachineFunction &MF)
-    {
-      MachineLoopInfo *LI = &getAnalysis<MachineLoopInfo>();
-      yaml::Doc<yaml::GenericArchitecture> YDoc("pml-0.1");
-      PEM.serialize(MF, LI, YDoc);
-      PEM.writeDoc(YDoc);
-      return false;
+        for (JTEntries::const_iterator it = JTBBs.begin(), ie = JTBBs.end();
+             it != ie; ++it)
+        {
+          I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
+        }
+        break;
+      }
     }
   };
-
-  char PatmosExportPass::ID = 0;
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass
   FunctionPass *createPatmosExportPass(std::string& filename,
                                        PatmosTargetMachine &tm)
   {
-    return new PatmosExportPass(filename, &tm);
+    PMLExportPass *PEP = new PMLExportPass(filename, &tm, false);
+
+    // Add our own export passes
+    PEP->addExporter( new PatmosMachineFunctionExport(&tm) );
+    // TODO this casting is nasty, can we do something about it??
+    PEP->addExporter( (PMLBitcodeExport*)new PatmosFunctionExport(&tm) );
+    PEP->addExporter( new PMLRelationGraphExport(&tm) );
+
+    return PEP;
   }
-  */
 
 } // end namespace llvm
 
