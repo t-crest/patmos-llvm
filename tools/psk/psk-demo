@@ -35,7 +35,7 @@ FF2PML="%<psk>s/psk-ff2pml -o %<of>s %<if>s"
 EXTRACT_SYMBOLS="%<psk>s/psk-extract-symbols -i %<if>s -o %<of>s %<elf>s"
 ANALYZE_TRACE="%<psk>s/psk-analyze-trace -i %<if>s -o %<of>s %<elf>s"
 DEMO_EQUATIONS="%<psk>s/psk-demo-equations %<if>s"
-PML2AIS="%<psk>s/psk-pml2ais --header -o %<of>s %<if>s"
+PML2AIS="%<psk>s/psk-pml2ais --header -o %<ais>s -a %<apx>s -b %<elf>s -e main -r %<report>s -x %<result>s %<if>s"
 
 # external tools
 BC2ALF="%<bin>s -march=alf -alf-standalone -alf-memory-areas=0x0000-0xffff -o=%<of>s %<if>s"
@@ -155,4 +155,6 @@ demo.step("Display control-flow relation graph equations and flow fact inequalit
 demo.run_psk(DEMO_EQUATIONS, :if => "#{file.call("elf.pml")}") #,:noredirect => true)
 
 demo.step("Export information to aiT's ais format")
-demo.run_psk(PML2AIS, :if => file.call("elf.pml"), :of => file.call("ais"))
+demo.run_psk(PML2AIS, :if => file.call("elf.pml"), :ais => file.call("ais"),
+             :apx => file.call("apx"), :elf => file.call("elf"),
+             :report => file.call("report"), :result => file.call("xml"))
