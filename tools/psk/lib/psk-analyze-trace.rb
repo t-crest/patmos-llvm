@@ -197,7 +197,7 @@ class LoopRecorder
 end
 
 class AnalyzeTraceTool
-  def AnalyzeTraceTool.run(elf,pml)
+  def AnalyzeTraceTool.run(elf,pml,options)
     tm = TraceMonitor.new(elf,pml)
     #tm.subscribe(VerboseRecorder.new)
     globalscope = pml.mf_mapping_to('main')
@@ -207,33 +207,46 @@ class AnalyzeTraceTool
     tm.subscribe(loops)
     tm.run
 
-    puts "Global Frequencies"
-    global.results.dump
-    puts "Loop Bounds"
-    loops.results.values.each { |r| r.dump }
+    if options.verbose
+      puts "Global Frequencies"
+      global.results.dump
+      puts "Loop Bounds"
+      loops.results.values.each { |r| r.dump }
+    end
     data = pml.data
     data['flowfacts'] ||= []
-    ffinit = { 'level' => 'machinecode', 'origin' => 'trace', 'op' => 'less-equal' }
+    ffinit = { 'level' => 'machinecode', 'origin' => 'trace'}
     global.results.freqs.each do |block,freq|
       flowfact = FlowFact.new(ffinit)
       flowfact['scope'] = FlowFact.function(globalscope)
+      flowfact['op'] = 'less-equal'
       flowfact['rhs'] = freq.max
       flowfact['classification'] = 'block-global'
       flowfact.add_term(FlowFact.block(block))
+      data['flowfacts'].push(flowfact.data)
+    end
+    global.results.calltargets.each do |cs,receiverset|
+      next unless cs['callees'].include?('__any__')
+      flowfact = FlowFact.new(ffinit)
+      flowfact['scope'] = FlowFact.function(globalscope)
+      flowfact['op'] = 'equal'
+      flowfact['rhs'] = 0
+      flowfact['classification'] = 'calltargets-global'
+      flowfact.add_term(FlowFact.instruction(cs), -1)
+      receiverset.each do |fref| 
+        flowfact.add_term(FlowFact.function(fref), 1)
+      end
       data['flowfacts'].push(flowfact.data)
     end
     loops.results.values.each do |loopbound|
       loop,freq = loopbound.freqs.to_a[0]
       flowfact = FlowFact.new(ffinit)
       flowfact['scope'] = FlowFact.loop(loop)
+      flowfact['op'] = 'less-equal'
       flowfact['rhs'] = freq.max
       flowfact['classification'] = 'loop-local'
       flowfact.add_term(FlowFact.block(loop))
       data['flowfacts'].push(flowfact.data)
-    end
-    global.results.calltargets.each do |cs,receiverset|
-      next unless cs['callees'].include?("__any__")
-      cs.data['callees'] = (cs['callees'] + receiverset.map { |fref| fref.name }).uniq
     end
     pml
   end
@@ -247,5 +260,5 @@ Also adds observed receivers to indirect calls callee field.
 EOF
 
   options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) { }
-  AnalyzeTraceTool.run(args.first, pml).dump_to_file(options.output)
+  AnalyzeTraceTool.run(args.first, pml, options).dump_to_file(options.output)
 end

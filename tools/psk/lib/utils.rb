@@ -31,6 +31,7 @@ module PMLUtils
       opts.banner = "Usage: #{File.basename($0)} OPTIONS #{arg_descr}\n#{synopsis}"
       opts.on("-i", "--input FILE", "Input PML File") { |f| options.input = f } if do_input
       opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f } if do_output
+      opts.on("", "--verbose", "verbose output") { options.verbose = true }
       yield [opts,options] if block_given?
       opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
     end.parse!
@@ -220,6 +221,8 @@ class InsRef
   end
   def hash; @hash ; end
   def eql?(other); self == other ; end
+  def name ; @data['index']; end
+  def address ; @data['address']; end
 end
 
 # Flow Fact utility class
@@ -233,7 +236,7 @@ class FlowFact
     @data[k] = v
   end
   def add_term(pp,factor=1)
-    @data['lhs'].push({ 'factor' => 1, 'program-point' => pp })
+    @data['lhs'].push({ 'factor' => factor, 'program-point' => pp })
   end
   def FlowFact.function(f)
     { 'function' => f['name'] }
@@ -243,6 +246,9 @@ class FlowFact
   end
   def FlowFact.loop(blockref)
     { 'function' => blockref.fref.name, 'loop' => blockref.name }
+  end
+  def FlowFact.instruction(insref)
+    { 'instruction' => insref.name }.merge(FlowFact.block(insref.bref))
   end
 end
 

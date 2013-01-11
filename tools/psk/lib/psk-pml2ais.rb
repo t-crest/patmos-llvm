@@ -42,17 +42,40 @@ class AISExporter
       end
     end
 
+    # export indirect calls
+    def export_calltargets(ff)
+      caller_candidate = ff['lhs'].select { |term|
+        term['factor'] == -1 && term['program-point']['instruction']
+      }
+      die("Bad calltarget flowfact: #{ff.inspect}") unless caller_candidate.length == 1
+      caller = caller_candidate.first['program-point']
+      fun = @pml.mf(caller['function'])
+      block = fun['blocks'][caller['block']]
+      ins = block['instructions'][caller['instruction']]
+      raise Exception.new("Inconsistent instruction index") unless ins && ins['index'] == caller['instruction']
+      location = "#{dquote(get_mbb_label(fun,block))} + #{ins['address'] - block['address']} bytes"
+      targets = ff['lhs'].map { |term|
+        next if term == caller_candidate.first
+        die("Bad calltarget flowfact: #{ff.inspect}") unless term['factor'] == 1
+        called_fun = @pml.mf(term['program-point']['function'])
+        dquote(get_mbb_label(called_fun, "0"))
+      }.compact
+      @outfile.puts "instruction #{location} calls #{targets.join(", ")} ;"
+    end
+
     # export loop bounds
     def export_loopbound(ff)
       fun  = @pml.mf(ff['scope']['function'])
       loop = fun['blocks'][ff['scope']['loop']]
       loopname = dquote(get_mbb_label(fun,loop))
-      @outfile.puts "loop #{loopname} loop max #{ff['rhs']} ;"
+      @outfile.puts "loop #{loopname} max #{ff['rhs']} ;"
     end
 
     # export linear-constraint flow facts
     def export_flowfact(ff)
-      if(ff['classification'] == 'loop-local')
+      if(ff['classification'] == 'calltargets-global')
+        export_calltargets(ff)
+      elsif(ff['classification'] == 'loop-local')
         export_loopbound(ff)
       else
         die ("General purpose flow-fact generation not yet implemented")
@@ -68,7 +91,7 @@ class AisExportTool
               else File.new(of,"w")
               end
     # export
-    options.ffs_types = ['loop-local'] unless options.ffs_types
+    options.ffs_types = ['loop-local','calltargets-global'] unless options.ffs_types
     options.ffs_srcs = 'all' unless options.ffs_srcs
     ais = AISExporter.new(pml, outfile)
     ais.gen_header(pml.data) if options.header
@@ -86,7 +109,7 @@ class AisExportTool
   end
   def AisExportTool.add_options(opts,options)
     opts.on("-o", "--output FILE.ais", "AIS file to generate") { |f| options.output = f }
-    opts.on("",   "--flow-facts TYPE,..", "Flow facts to export (=loop-local)") { |ty|
+    opts.on("",   "--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global)") { |ty|
       options.ffs_types = ty.split(/\s*,\s*/)
     }
     opts.on("",   "--flow-facts-from ORIGIN,..", "Elegible Flow Fact Sources (=all)") { |srcs|
