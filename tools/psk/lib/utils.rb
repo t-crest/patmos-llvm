@@ -28,7 +28,7 @@ module PMLUtils
     do_input  = opts[:type] == :io || opts[:type] == :input
     do_output = opts[:type] == :io || opts[:type] == :output
     parser = OptionParser.new do |opts|
-      opts.banner = "Usage: #{$0} OPTIONS #{arg_descr}\n#{synopsis}"
+      opts.banner = "Usage: #{File.basename($0)} OPTIONS #{arg_descr}\n#{synopsis}"
       opts.on("-i", "--input FILE", "Input PML File") { |f| options.input = f } if do_input
       opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f } if do_output
       yield [opts,options] if block_given?

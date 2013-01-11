@@ -2,7 +2,8 @@
 #
 # ruby-runner
 
-RUBY_LIB=`pwd` # adapt for installation
+LIBDIR=`pwd`/lib # adapt for installation
+
 # detect ruby
 RUBY19=ruby
 RUBY_VERSION=`${RUBY19} -e 'puts RUBY_VERSION'`
@@ -27,4 +28,4 @@ elif [ ! -z "${RUBY18}" ] ; then
     RUBY="${RUBY18}"
 fi
 
-${RUBY} -I ${RUBY_LIB} $0.rb "${@}"
+${RUBY} -I ${LIBDIR} ${LIBDIR}/$0.rb "${@}"
