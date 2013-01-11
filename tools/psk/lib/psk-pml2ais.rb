@@ -3,9 +3,10 @@ include PMLUtils
 
 class AISExporter
     attr_reader :outfile
-    def initialize(pml,outfile)
+    def initialize(pml,outfile,options)
       @pml = pml
       @outfile = outfile
+      @options = options
     end
 
     # Generate a global AIS header
@@ -50,7 +51,8 @@ class AISExporter
       die("Bad calltarget flowfact: #{ff.inspect}") unless caller_candidate.length == 1
       caller = caller_candidate.first['program-point']
       fun = @pml.mf(caller['function'])
-      block = fun['blocks'][caller['block']]
+      # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
+      block = fun['blocks'].find { |b| b['name'] == caller['block'] }
       ins = block['instructions'][caller['instruction']]
       raise Exception.new("Inconsistent instruction index") unless ins && ins['index'] == caller['instruction']
       location = "#{dquote(get_mbb_label(fun,block))} + #{ins['address'] - block['address']} bytes"
@@ -66,8 +68,14 @@ class AISExporter
     # export loop bounds
     def export_loopbound(ff)
       fun  = @pml.mf(ff['scope']['function'])
-      loop = fun['blocks'][ff['scope']['loop']]
+      # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
+      loop = fun['blocks'].find { |b| 
+        b['name'] == ff['scope']['loop']
+      }
+
       loopname = dquote(get_mbb_label(fun,loop))
+      $stderr.puts "Exporting Loop Bound at #{get_mbb_label(fun,loop)} /"+
+        "#{sprintf("0x%x",loop['address'])}" if @options[:verbose]
       @outfile.puts "loop #{loopname} max #{ff['rhs']} ;"
     end
 
@@ -93,7 +101,7 @@ class AisExportTool
     # export
     options.ffs_types = ['loop-local','calltargets-global'] unless options.ffs_types
     options.ffs_srcs = 'all' unless options.ffs_srcs
-    ais = AISExporter.new(pml, outfile)
+    ais = AISExporter.new(pml, outfile, :verbose => options.verbose)
     ais.gen_header(pml.data) if options.header
 
     pml['machine-functions'].each do |func|

@@ -7,7 +7,7 @@ begin
   require 'rubygems'
   require 'graphviz'
 rescue => detail
-  $stderr.puts("you need to 'gem install graphviz' in order to run this program")
+  $stderr.puts("you need to 'gem install ruby-graphviz' in order to run this program")
   raise detail
 end
 require 'ostruct'

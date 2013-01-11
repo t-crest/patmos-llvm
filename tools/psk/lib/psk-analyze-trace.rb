@@ -57,7 +57,7 @@ class TraceMonitor
         while (b['loops']||[]).length < loopstack.length
           publish(:loopexit, loopstack.pop, cycles)
         end
-        if b['loops'] && b['loops'][-1] == b['name']
+        if b['loops'] && b['loops'].first == b['name']
           if b['loops'].length == loopstack.length
             publish(:loopcont, b, cycles)
           else
@@ -199,7 +199,7 @@ end
 class AnalyzeTraceTool
   def AnalyzeTraceTool.run(elf,pml,options)
     tm = TraceMonitor.new(elf,pml)
-    #tm.subscribe(VerboseRecorder.new)
+    tm.subscribe(VerboseRecorder.new) if options.debug
     globalscope = pml.mf_mapping_to('main')
     global = GlobalRecorder.new(globalscope)
     loops  = LoopRecorder.new(globalscope)
