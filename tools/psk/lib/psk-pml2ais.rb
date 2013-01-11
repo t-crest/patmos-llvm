@@ -3,8 +3,9 @@ include PMLUtils
 
 class AISExporter
     attr_reader :outfile
-    def initialize(outfile)
-	@outfile = outfile
+    def initialize(pml,outfile)
+      @pml = pml
+      @outfile = outfile
     end
 
     # Generate a global AIS header
@@ -21,8 +22,8 @@ class AISExporter
 	# TODO any additional header stuff to generate (context, entry, ...)?
     end
 
-    # Export flow facts from a machine-function entry
-    def export_function(func)
+    # Export jumptables for a function
+    def export_jumptables(func)
       func['blocks'].each do |mbb|
         branches = 0
         next unless mbb['instructions']
@@ -41,6 +42,23 @@ class AISExporter
       end
     end
 
+    # export loop bounds
+    def export_loopbound(ff)
+      fun  = @pml.mf(ff['scope']['function'])
+      loop = fun['blocks'][ff['scope']['loop']]
+      loopname = dquote(get_mbb_label(fun,loop))
+      @outfile.puts "loop #{loopname} loop max #{ff['rhs']} ;"
+    end
+
+    # export linear-constraint flow facts
+    def export_flowfact(ff)
+      if(ff['classification'] == 'loop-local')
+        export_loopbound(ff)
+      else
+        die ("General purpose flow-fact generation not yet implemented")
+      end
+    end
+
 end
 
 class AisExportTool
@@ -50,16 +68,30 @@ class AisExportTool
               else File.new(of,"w")
               end
     # export
-    ais = AISExporter.new(outfile)
+    options.ffs_types = ['loop-local'] unless options.ffs_types
+    options.ffs_srcs = 'all' unless options.ffs_srcs
+    ais = AISExporter.new(pml, outfile)
     ais.gen_header(pml.data) if options.header
 
     pml['machine-functions'].each do |func|
-      ais.export_function(func)
+      ais.export_jumptables(func)
+    end
+    (pml['flowfacts']||[]).each do |fact|
+      next unless fact['level'] == 'machinecode'
+      next unless options.ffs_srcs=='all' || options.ffs_srcs.include?(fact['origin'])
+      next unless options.ffs_types.include?(fact['classification'])
+      ais.export_flowfact(fact)
     end
     outfile.close
   end
   def AisExportTool.add_options(opts,options)
     opts.on("-o", "--output FILE.ais", "AIS file to generate") { |f| options.output = f }
+    opts.on("",   "--flow-facts TYPE,..", "Flow facts to export (=loop-local)") { |ty|
+      options.ffs_types = ty.split(/\s*,\s*/)
+    }
+    opts.on("",   "--flow-facts-from ORIGIN,..", "Elegible Flow Fact Sources (=all)") { |srcs|
+      options.ffs_srcs = srcs.split(/\s*,\s*/)
+    }
     opts.on("-g", "--header", "Generate AIS header") { |f| options.header = f }
   end
 end

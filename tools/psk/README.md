@@ -24,10 +24,16 @@ Trace Analysis
 --------------
 
 Events:
- - CALL(f,callsite.top)     if pc == f.blocks.first.address
- - BB(bb)                   if pc == bb.address
+ - CALL(f,callsite.top)             if pc == f.blocks.first.address
+ - BB(bb)                           if pc == bb.address
+ - RETURN(returnsite,callsites.top) if pc == bb.instructions[-1-DELAY_SLOTS].address
+                                       && bb.successors.empty?
+ - LOOPEXIT(loopstack.pop)          while loop_nest_level[pc] < loopstack.size
+ - LOOPENTER(loop)                  if pc == loop.header and loopstack.size == loop.depth - 1
+ - LOOPCONT(loop)                   if pc == loop.header and loopstack.size == loop.depth
+Internal Actions:
  - callsites.push(callsite) if pc == callsite.address
- - RETURN(returnsite,callsites.pop) if blocks.last == return_block
+ - callsite.pop             if pc == (callsite + (DELAY_SLOTS + 1) instructions).address
 
 Recorders:
  - Scope frequency of 'bb' relative to function entry of 'f'
@@ -42,3 +48,8 @@ Recorders:
  start:    LOOPENTER(L)
  increment:LOOPCONT(L)
  record:   LOOPEXIT(L)
+
+Loop Bound Translation Notes
+----------------------------
+"exit test at end" => loop header bound
+"exit test at beginning" => loop backedge bound = loop header bound - 1

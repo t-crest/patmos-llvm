@@ -143,7 +143,7 @@ demo.step("Analyze trace generated using pasim")
 demo.run_psk(ANALYZE_TRACE, :if=> file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"),
              :noredirect => true)
 
-if CMD_SWEET
+unless `which #{demo.cmd_sweet}`.empty?
 demo.step("Generate Flow Fact file using Abstract Execution")
 demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
 demo.run(ALF2FF, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))
@@ -163,9 +163,10 @@ demo.run_psk(PML2AIS, :if => file.call("elf.pml"), :ais => file.call("ais"),
              :apx => file.call("apx"), :elf => file.call("elf"),
              :report => file.call("report"), :result => file.call("xml"))
 
+unless `which #{demo.cmd_ait}`.empty?
 demo.step("Run aiT")
 demo.run(AIT, :bin => demo.cmd_ait, :apx => file.call("apx"))
 
 demo.info("aiT results: (report is in #{file.call("report")})")
 system("cat",file.call("xml"))
-
+end

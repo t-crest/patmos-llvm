@@ -20,37 +20,67 @@ end
 
 # Class to monitor trace and generate events
 class TraceMonitor
+  DELAY_SLOTS = 2
   def initialize(elf,pml,program_start = "main")
     @pml = pml
     @trace = SimulatorTrace.new(elf)
     @start = @pml.mf_mapping_to(program_start)['blocks'].first['address']
     @observers = []
+    # whether an instruction is a watch point
+    @wp = {}
+    # function entry watch points
+    @wp_fun_entry = {}
+    # basic block watch points
+    @wp_block_start = {}
+    # call instruction watch points
+    @wp_call_instr = {}
+    # instructions which the callee returns to
+    @wp_callreturn_instr = {}
+    # return instruction watch points
+    @wp_return_instr = {}
     build_watchpoints
   end
   def subscribe(obj)
     @observers.push(obj)
   end
   def run
-    callstack = []
+    callstack, loopstack = [], []
     @trace.each do |pc,cycles|
       @started = true if pc == @start
       next unless @started
-      if f = @fpoints[pc]
-        publish(:function, f, callstack[-1],cycles)
+      next unless @wp[pc]
+      if f = @wp_fun_entry[pc]
+        loopstack = []
+        publish(:function, f, callstack[-1], cycles)
       end
-      if b = @bpoints[pc]
+      if b = @wp_block_start[pc]
+        while (b['loops']||[]).length < loopstack.length
+          publish(:loopexit, loopstack.pop, cycles)
+        end
+        if b['loops'] && b['loops'][-1] == b['name']
+          if b['loops'].length == loopstack.length
+            publish(:loopcont, b, cycles)
+          else
+            loopstack.push b
+            publish(:loopenter, b, cycles)
+          end
+        end
         publish(:block, b, cycles)
       end
-      if c = @cpoints[pc]
+      if c  = @wp_call_instr[pc]
+        callstack.push(loopstack)
         callstack.push(c)
       end
-      if r = @rpoints[pc]
+      if cr = @wp_callreturn_instr[pc]
+        callstack.pop
+        loopstack = callstack.pop
+      end
+      if r = @wp_return_instr[pc]
         if callstack.empty?
           publish(:ret, r, nil, cycles)
           return
         end
-        c = callstack.pop
-        publish(:ret, r, c, cycles)
+        publish(:ret, r, callstack[-1], cycles)
       end
     end
   end
@@ -61,22 +91,41 @@ class TraceMonitor
   end
   private
   def build_watchpoints
-    @fpoints, @bpoints, @cpoints, @rpoints = {}, {}, {}, {}
+    # generate watchpoints for all relevant machine functions
     @pml['machine-functions'].each do |mf|
-      addr = mf['blocks'].first['address']
-      add_watch(@fpoints,addr,FunctionRef.new(mf))
+      fun = FunctionRef.new(mf)
+      # address of function
+      addr = fun.address
+      # generate function entry event at first instruction
+      add_watch(@wp_fun_entry,addr,FunctionRef.new(mf))
+
+      abs_instr_index = 0
+      call_return_instr = {}
+      # for all basic blocks
       mf['blocks'].each do |mbb|
         block = BlockRef.new(mf,mbb)
-        add_watch(@bpoints,mbb['address'],block)
-        if (mbb['successors']||[]).empty?
-          rins = InsRef.new(mf,mbb,mbb['instructions'].last)
-          add_watch(@rpoints,rins['address'],rins)
+
+        # generate basic block event at first instruction
+        add_watch(@wp_block_start, block.address, block)
+
+        # generate return event at return instruction
+        # FIXME: does not work for predicated return instructions now,
+        # it would be helpful if return instructions where dedicated
+        if (block['successors']||[]).empty?
+          rins = InsRef.new(mf,mbb,mbb['instructions'][-1-DELAY_SLOTS])
+          add_watch(@wp_return_instr,rins['address'],rins)
         end
+
         mbb['instructions'].each do |ins|
           instruction = InsRef.new(mf,mbb,ins)
-          unless (ins['callees']||[]).empty?
-            add_watch(@cpoints,ins['address'],instruction)
+          if call_return_instr[abs_instr_index]
+            add_watch(@wp_callreturn_instr,ins['address'],instruction)
           end
+          if ! (ins['callees']||[]).empty?
+            add_watch(@wp_call_instr,ins['address'],instruction)
+            call_return_instr[abs_instr_index+1+DELAY_SLOTS]=true
+          end
+          abs_instr_index += 1
         end
       end
     end
@@ -87,8 +136,18 @@ class TraceMonitor
     elsif dict[addr]
       raise Exception.new("Duplicate watchpoint at address #{addr.inspect}")
     else
+      @wp[addr] = true
       dict[addr] = data
     end
+  end
+end
+
+class VerboseRecorder
+  def initialize(out=$>)
+    @out = out
+  end
+  def method_missing(event, *args)
+    @out.puts("EVENT #{event.to_s.ljust(15)} #{args.join(" ")}")
   end
 end
 
@@ -108,31 +167,70 @@ class GlobalRecorder
   def ret(rsite,csite,cycles)
     results.stop(cycles) if(rsite.fref['name']==@start_name)
   end
+  def method_missing(event,*args) ; end
+end
+class LoopRecorder
+  attr_reader :results
+  def initialize(start_mf)
+    @start_name = start_mf['name']
+    @started = false
+    @results = {}
+  end
+  def function(callee,callsite,cycles)
+    @started = true if callee['name']==@start_name
+  end
+  def ret(rsite,csite,cycles)
+    @started = false if rsite.fref['name']==@start_name
+  end
+  def loopenter(bb, cycles)
+    results[bb] = FrequencyRecord.new unless results[bb]
+    results[bb].start(cycles)
+    results[bb].increment(bb)
+  end
+  def loopcont(bb, _)
+    results[bb].increment(bb)
+  end
+  def loopexit(bb, cycles)
+    results[bb].stop(cycles)
+  end
+  def method_missing(event,*args) ; end
 end
 
 class AnalyzeTraceTool
   def AnalyzeTraceTool.run(elf,pml)
     tm = TraceMonitor.new(elf,pml)
+    #tm.subscribe(VerboseRecorder.new)
     globalscope = pml.mf_mapping_to('main')
     global = GlobalRecorder.new(globalscope)
+    loops  = LoopRecorder.new(globalscope)
     tm.subscribe(global)
+    tm.subscribe(loops)
     tm.run
 
     puts "Global Frequencies"
     global.results.dump
-
+    puts "Loop Bounds"
+    loops.results.values.each { |r| r.dump }
     data = pml.data
     data['flowfacts'] ||= []
+    ffinit = { 'level' => 'machinecode', 'origin' => 'trace', 'op' => 'less-equal' }
     global.results.freqs.each do |block,freq|
-      flowfact = { 'level' => 'machinecode', 'origin' => 'trace' }
-      flowfact['scope'] = globalscope['name']
-      pp = { 'function' => block.fref.name, 'block' => block.name }
-      flowfact['lhs'] = [{ 'factor' => 1, 'program-point' => pp }]
-      flowfact['op'] = 'less-equal'
+      flowfact = FlowFact.new(ffinit)
+      flowfact['scope'] = FlowFact.function(globalscope)
       flowfact['rhs'] = freq.max
-      data['flowfacts'].push(flowfact)
+      flowfact['classification'] = 'block-global'
+      flowfact.add_term(FlowFact.block(block))
+      data['flowfacts'].push(flowfact.data)
     end
-
+    loops.results.values.each do |loopbound|
+      loop,freq = loopbound.freqs.to_a[0]
+      flowfact = FlowFact.new(ffinit)
+      flowfact['scope'] = FlowFact.loop(loop)
+      flowfact['rhs'] = freq.max
+      flowfact['classification'] = 'loop-local'
+      flowfact.add_term(FlowFact.block(loop))
+      data['flowfacts'].push(flowfact.data)
+    end
     global.results.calltargets.each do |cs,receiverset|
       next unless cs['callees'].include?("__any__")
       cs.data['callees'] = (cs['callees'] + receiverset.map { |fref| fref.name }).uniq

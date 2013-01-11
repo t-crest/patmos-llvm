@@ -167,9 +167,10 @@ class FunctionRef
     return false unless other.kind_of?(FunctionRef)
     name == other.name
   end
-  def name ; @mf['name'] ; end
   def hash; @hash ; end
   def eql?(other); self == other ; end
+  def name ; @mf['name'] ; end
+  def address ; @mf['blocks'].first['address']; end
 end
 
 # Smart reference to a PML machine basic block
@@ -190,9 +191,10 @@ class BlockRef
     return false unless other.kind_of?(BlockRef)
     bid == other.bid
   end
-  def name ; self['name'] ; end
   def hash; @hash ; end
   def eql?(other); self == other ; end
+  def name ; self['name'] ; end
+  def address ; self['address']; end
 end
 # Smart reference to a PML instruction
 class InsRef
@@ -220,6 +222,31 @@ class InsRef
   def eql?(other); self == other ; end
 end
 
+# Flow Fact utility class
+class FlowFact
+  attr_reader :data
+  def initialize(initdata)
+    @data = initdata.dup
+    @data['lhs'] ||= []
+  end
+  def []=(k,v)
+    @data[k] = v
+  end
+  def add_term(pp,factor=1)
+    @data['lhs'].push({ 'factor' => 1, 'program-point' => pp })
+  end
+  def FlowFact.function(f)
+    { 'function' => f['name'] }
+  end
+  def FlowFact.block(blockref)
+    { 'function' => blockref.fref.name, 'block' => blockref.name }
+  end
+  def FlowFact.loop(blockref)
+    { 'function' => blockref.fref.name, 'loop' => blockref.name }
+  end
+end
+
+# Utility class to record frequencies when analyzing traces
 class FrequencyRecord
   attr_reader :cycles, :freqs, :calltargets
   def initialize
