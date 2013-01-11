@@ -1,17 +1,1 @@
-#!/usr/bin/env ruby
-#
-SYNOPSIS=<<EOF
-Extract Symbol Addresses from ELF file.
-EOF
-
-$:.unshift File.dirname(__FILE__)
-require 'psk-extract-symbols'
-
-if __FILE__ == $0
-  options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |o|
-    ExtractSymbolsTool.add_options(*o)
-  end
-  ExtractSymbolsTool.run(args.first, pml, options).dump_to_file(options.output)
-end
-
-
+ruby-runner

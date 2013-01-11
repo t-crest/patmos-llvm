@@ -64,7 +64,6 @@ class AisExportTool
   end
 end
 
-
 class APXExporter
     attr_reader :outfile
     def initialize(outfile)
@@ -115,3 +114,18 @@ class ApxExportTool
   end
 end
 
+if __FILE__ == $0
+SYNOPSIS=<<EOF if __FILE__ == $0
+Extract flow information from PML file and export as AbsInt AIS file.
+EOF
+  options, args = PML::optparse(1..1, "file.pml", SYNOPSIS, :type => :none) do |o|
+    AisExportTool.add_options(*o)
+    ApxExportTool.add_options(*o)
+  end
+  AisExportTool.run(PML.from_file(args.first), options.output, options)
+
+  # TODO make this available as separate psk-tool too to generate only the APX file!?
+  if options.apx
+    ApxExportTool.run(options.output, options)
+  end
+end
