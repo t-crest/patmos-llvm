@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+# ruby-runner
+
+RUBY_LIB=`pwd` # adapt for installation
+# detect ruby
+RUBY19=ruby
+RUBY_VERSION=`${RUBY19} -e 'puts RUBY_VERSION'`
+if [ -z "${RUBY_VERSION}" ] ; then
+  echo "ruby not found. Please install ruby (e.g., sudo aptitude install ruby1.9.1)" >&2
+  exit 1
+fi
+if [[ "${RUBY_VERSION}" =~ ^1.8 ]] ; then
+    RUBY18=ruby
+    if [[ `ruby1.9 -e 'puts RUBY_VERSION'` =~ ^1.9 ]] ; then
+	RUBY19=ruby1.9
+    else
+	unset RUBY19
+    fi
+elif [[ `ruby1.8 -e 'puts RUBY_VERSION'` =~ ^1.8 ]] ; then
+    RUBY18=ruby1.8
+fi
+if [ ! -z "${RUBY19}" ] ; then
+    RUBY="${RUBY19}"
+elif [ ! -z "${RUBY18}" ] ; then
+    echo "No ruby1.9 found. Falling back to ruby 1.8"
+    RUBY="${RUBY18}"
+fi
+
+${RUBY} -I ${RUBY_LIB} $0.rb "${@}"

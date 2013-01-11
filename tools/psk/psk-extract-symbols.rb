@@ -1,3 +1,9 @@
+#
+# PSK - Toolchain: extract-symbols
+#
+# Tool to extract addresses from a patmos ELF file
+#
+
 require File.join(File.dirname(__FILE__),"utils.rb")
 include PMLUtils
 
@@ -67,4 +73,15 @@ class ExtractSymbolsTool
     extract.update_pml
     pml
   end
+end
+
+if __FILE__ == $0
+  SYNOPSIS=<<EOF
+Extract Symbol Addresses from ELF file.
+EOF
+
+  options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |o|
+    ExtractSymbolsTool.add_options(*o)
+  end
+  ExtractSymbolsTool.run(args.first, pml, options).dump_to_file(options.output)
 end

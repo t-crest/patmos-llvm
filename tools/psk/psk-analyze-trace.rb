@@ -140,3 +140,14 @@ class AnalyzeTraceTool
     pml
   end
 end
+
+if __FILE__ == $0
+SYNOPSIS=<<EOF
+Generate flow facts reflecting frequencies from machine-code
+execution traces generated with 'pasim --debug'.
+Also adds observed receivers to indirect calls callee field.
+EOF
+
+  options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) { }
+  AnalyzeTraceTool.run(args.first, pml).dump_to_file(options.output)
+end
