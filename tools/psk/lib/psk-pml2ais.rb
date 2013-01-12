@@ -1,5 +1,10 @@
-require File.join(File.dirname(__FILE__),"utils.rb")
-include PMLUtils
+#
+# PSK toolset
+#
+# AIS exporter
+#
+require 'utils'
+include PML
 
 class AISExporter
     attr_reader :outfile
@@ -23,21 +28,25 @@ class AISExporter
 	# TODO any additional header stuff to generate (context, entry, ...)?
     end
 
+    def gen_fact(ais_instr, descr)
+      @outfile.puts(ais_instr+" # "+descr)
+      $stderr.puts(ais_instr) if @options.verbose
+    end
+
     # Export jumptables for a function
     def export_jumptables(func)
-      func['blocks'].each do |mbb|
+      func.blocks.each do |mbb|
         branches = 0
-        next unless mbb['instructions']
-        mbb['instructions'].each do |ins|
+        mbb.instructions.each do |ins|
           branches += 1 if ins['branch-type'] && ins['branch-type'] != "none"
           if ins['branch-type'] == 'indirect'
-            label = get_mbb_label(func['name'],mbb['name'])
+            label = ins.block.label
 	    instr = "#{dquote(label)} + #{branches} branches"
             successors = ins['branch-targets'] ? ins['branch-targets'] : mbb['successors']
             targets = successors.uniq.map { |succ_name|
-              dquote(get_mbb_label(func['name'],succ_name))
+              dquote(Block.get_label(ins.function.name,succ_name))
             }.join(", ")
-            @outfile.puts "instruction #{instr} branches to #{targets};"
+            gen_fact("instruction #{instr} branches to #{targets};","jumptable (source: llvm)")
           end
         end
       end
@@ -50,51 +59,54 @@ class AISExporter
       }
       die("Bad calltarget flowfact: #{ff.inspect}") unless caller_candidate.length == 1
       caller = caller_candidate.first['program-point']
-      fun = @pml.mf(caller['function'])
+      fun = @pml.machine_functions.get(caller['function'])
+
       # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
-      block = fun['blocks'].find { |b| b['name'] == caller['block'] }
-      ins = block['instructions'][caller['instruction']]
-      raise Exception.new("Inconsistent instruction index") unless ins && ins['index'] == caller['instruction']
-      location = "#{dquote(get_mbb_label(fun,block))} + #{ins['address'] - block['address']} bytes"
+      block = fun.blocks.get(caller['block'])
+      ins = block.instructions[caller['instruction']]
+      unless ins && ins.index == caller['instruction']
+        raise Exception.new("Inconsistent instruction index")
+      end 
+
+      location = "#{dquote(block.label)} + #{ins.address - block.address} bytes"
       targets = ff['lhs'].map { |term|
         next if term == caller_candidate.first
         die("Bad calltarget flowfact: #{ff.inspect}") unless term['factor'] == 1
-        called_fun = @pml.mf(term['program-point']['function'])
-        dquote(get_mbb_label(called_fun, "0"))
+        called_fun = @pml.machine_functions.get(term['program-point']['function'])
+        dquote(called_fun.blocks.first.label)
       }.compact
-
-      @outfile.print "instruction #{location} calls #{targets.join(", ")} ;"
-      @outfile.puts " # global indirect call targets (source: #{ff['origin']})"
+      gen_fact("instruction #{location} calls #{targets.join(", ")} ;",
+               "global indirect call targets (source: #{ff['origin']})")
     end
 
     # export loop bounds
     def export_loopbound(ff)
-      # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
-      fun  = @pml.mf(ff['scope']['function'])
-      loop = fun['blocks'].find { |b| 
-        b['name'] == ff['scope']['loop']
-      }
+      fun  = @pml.machine_functions.get(ff['scope']['function'])
+      loop = fun.blocks.get(ff['scope']['loop'])
 
-      loopname = dquote(get_mbb_label(fun,loop))
-      $stderr.puts "Exporting Loop Bound at #{get_mbb_label(fun,loop)}" if @options[:verbose]
+      loopname = dquote(loop.label)
 
-      # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' of the loop
-      # But apparently this is not how loop bounds are interpreted in aiT (=> ask absint guys)
-      @outfile.print "loop #{loopname} max #{ff['rhs']} ;" # end ;"      
-      @outfile.puts " # local loop header bound (source: #{ff['origin']})"
+      # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' 
+      # of the loop. But apparently this is not how loop bounds are interpreted in
+      # aiT (=> ask absint guys)
+      gen_fact("loop #{loopname} max #{ff['rhs']} ;", # end ;"
+               "local loop header bound (source: #{ff['origin']})")
     end
 
     # export global infeasibles
     def export_infeasible(ff)
       pp = ff['lhs'].first['program-point']
+
       # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
-      fun  = FunctionRef.new(@pml.mf(pp['function']))
-      block = BlockRef.new(fun, fun['blocks'].find { |b| b['name'] == pp['block'] } )
-      insname = dquote(block.bid)
+      fun  = @pml.machine_functions.get(pp['function'])
+      block = fun.blocks.get(pp['block'])
+
+      insname = dquote(block.label)
+
       # XXX: Hack: only export infeasible calls (minimum neccessary to calculate WCET)
-      if block['instructions'].any? { |i| (i['callees']||[]).length > 0 }
-        @outfile.print "instruction #{insname} is never executed ;"
-        @outfile.puts " # globally infeasible call (source: #{ff['origin']})"
+      if block.calls?
+        gen_fact("instruction #{insname} is never executed ;",
+                 "globally infeasible call (source: #{ff['origin']})")
       end
     end
 
@@ -122,13 +134,13 @@ class AisExportTool
     # export
     options.ffs_types = ['loop-local','calltargets-global','infeasible-global'] unless options.ffs_types
     options.ffs_srcs = 'all' unless options.ffs_srcs
-    ais = AISExporter.new(pml, outfile, :verbose => options.verbose)
+    ais = AISExporter.new(pml, outfile, options)
     ais.gen_header(pml.data) if options.header
 
-    pml['machine-functions'].each do |func|
+    pml.machine_functions.each do |func|
       ais.export_jumptables(func)
     end
-    (pml['flowfacts']||[]).each do |fact|
+    pml.flowfacts.each do |fact|
       next unless fact['level'] == 'machinecode'
       next unless options.ffs_srcs=='all' || options.ffs_srcs.include?(fact['origin'])
       next unless options.ffs_types.include?(fact['classification'])
@@ -206,7 +218,7 @@ EOF
     AisExportTool.add_options(*o)
     ApxExportTool.add_options(*o)
   end
-  AisExportTool.run(PML.from_file(args.first), options.output, options)
+  AisExportTool.run(PMLDoc.from_file(args.first), options.output, options)
 
   # TODO make this available as separate psk-tool too to generate only the APX file!?
   if options.apx

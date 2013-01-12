@@ -1,12 +1,7 @@
 #!/usr/bin/env ruby
 #
-SYNOPSIS=<<EOF if __FILE__ == $0
-Generates .ais file for the analysis of a benchmark
-EOF
-
-$:.unshift File.dirname(__FILE__)
 require 'utils.rb'
-include PMLUtils
+include PML
 
 require 'psk-analyze-trace'
 require 'psk-extract-symbols'
@@ -18,12 +13,21 @@ class BenchTool
     AnalyzeTraceTool.run(elf,pml)
     AisExportTool.run(pml,options.output,options)
   end
+  def BenchTool.add_options(opts,options)
+    ExtractSymbolsTool.add_options(opts,options)
+    AnalyzeTraceTool.add_options(opts,options)
+    AisExportTool.add_options(opts,options)
+  end
   def BenchTool.main
-    options, args = PML::optparse(2, "program.elf program.elf.pml", SYNOPSIS, :type => :none) do |opts,options|
-      opts.on("-o", "--output FILE.pais", "AIS file to generate") { |f| options.output = f }
-    end
-    BenchTool.run(args[0], PML.from_file(args[1]), options)
   end
 end
 
-BenchTool.main if __FILE__ == $0
+if __FILE__ == $0
+SYNOPSIS=<<EOF if __FILE__ == $0
+Generates .ais file for the analysis of a benchmark
+EOF
+  options, args = PML::optparse(2, "program.elf program.elf.pml", SYNOPSIS, :type => :none) do |opts,options|
+    BenchTool.add_options(opts,options)
+  end
+  BenchTool.run(args[0], PMLDoc.from_file(args[1]), options)
+end

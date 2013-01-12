@@ -4,8 +4,8 @@
 # Tool to extract addresses from a patmos ELF file
 #
 
-require File.join(File.dirname(__FILE__),"utils.rb")
-include PMLUtils
+require "utils.rb"
+include PML
 
 # Class to extract symbol addresses from an ELF file
 class ExtractSymbols
@@ -23,24 +23,23 @@ class ExtractSymbols
     end
     die "The command #{options.objdump} exited with status #{$?.exitstatus}" unless $?.success?
   end
-  def update_pml
-    @pml['machine-functions'].each do |mf|
-      addr = @text_symbols[get_mbb_label(mf,'0')] || @text_symbols[mf['mapsto']]
-      mf_descr = "#{mf['name']}/#{mf['mapsto']}"
+  def update_pml 
+    @pml.machine_functions.each do |function|
+      addr = @text_symbols[Block.get_label(function['name'],0)] || @text_symbols[function['mapsto']]
+      function_descr = "#{function['name']}/#{function['mapsto']}"
 
-      (warn("No symbol for machine function #{mf_descr}");next) unless addr
+      (warn("No symbol for machine function #{function_descr}");next) unless addr
 
-      mf['blocks'].each do |mbb|
-        label = get_mbb_label(mf, mbb)
-        if block_addr = @text_symbols[label]
+      function.blocks.each do |block|
+        if block_addr = @text_symbols[block.label]
           # Migh be different from current addr, as subfunctions require the emmiter
           # to insert additional text between blocks
           addr = block_addr
         end
-        mbb['address'] = addr
-        (mbb['instructions']||[]).each do |ins|
-          ins['address'] = addr
-          addr += ins['size']
+        block.address = addr
+        block.instructions.each do |instruction|
+          instruction.address = addr
+          addr += instruction['size']
         end
       end
     end
@@ -80,8 +79,8 @@ if __FILE__ == $0
 Extract Symbol Addresses from ELF file.
 EOF
 
-  options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |o|
+  options, args = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |o|
     ExtractSymbolsTool.add_options(*o)
   end
-  ExtractSymbolsTool.run(args.first, pml, options).dump_to_file(options.output)
+  ExtractSymbolsTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
 end

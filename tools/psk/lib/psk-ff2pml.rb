@@ -2,7 +2,7 @@
 #
 # Converts SWEET .ff files to PML format
 #
-# TODO: port to python or C++ (to reduce number of languages)
+# TODO: use PSK-style (options, tool class)
 # TODO: support a larger variety of flow facts (call strings, loop contexts)
 
 require 'yaml'

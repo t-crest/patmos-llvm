@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 #
-# This is debugging only; ok to remove from repo if ruby is eliminated
-# from the set of source languages
+# This is debugging only; ok to remove from repo at some point
+#
 
 begin
   require 'rubygems'

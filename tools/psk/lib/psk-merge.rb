@@ -1,7 +1,13 @@
-#!/usr/bin/env ruby
 #
-require File.join(File.dirname(__FILE__),"utils.rb")
-include PMLUtils
+# PSK toolset
+#
+# Merge a list of PML files into one
+#
+# The real work is done in the PML library,
+# this is just a simple wrapper
+#
+require 'utils.rb'
+include PML
 
 class MergeTool
   def MergeTool.run(files)
@@ -15,7 +21,7 @@ class MergeTool
       data = data.documents if data.respond_to?(:documents) # ruby 1.8 compat
       stream.concat(data)
     end
-    PML.new(stream)
+    PMLDoc.new(stream)
   end
 end
 

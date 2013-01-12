@@ -1,5 +1,20 @@
-require File.join(File.dirname(__FILE__),"utils.rb")
-include PMLUtils
+#
+# PSK Toolchain
+#
+# Generate trace using pasim and extract flow facts (underapproximations)
+#
+# A word on performance; Currently we have (buildbot, adpcm -O0):
+#  pasim >/dev/null .. 18s
+#  read from pasim  .. 1m39
+#  read and parse   .. 1m52
+#  psk-analyze-trace .. 2m
+# So there is probably not a lot to optimize in the ruby logic.
+#
+# Nevertheless, for this tool it might be worth to think of a faster solution;
+# it seems as if the pipe communication the cuprit.
+
+require 'utils'
+include PML
 
 # Class to (lazily) read pasim simulator trace
 class SimulatorTrace
@@ -25,12 +40,10 @@ class TraceMonitor
   def initialize(elf,pml,pasim,program_start = "main")
     @pml = pml
     @trace = SimulatorTrace.new(elf,pasim)
-    @start = @pml.mf_mapping_to(program_start)['blocks'].first['address']
+    @start = @pml.machine_functions.originated_from(program_start).blocks.first['address']
     @observers = []
     # whether an instruction is a watch point
     @wp = {}
-    # function entry watch points
-    @wp_fun_entry = {}
     # basic block watch points
     @wp_block_start = {}
     # call instruction watch points
@@ -50,25 +63,29 @@ class TraceMonitor
       @started = true if pc == @start
       next unless @started
       next unless @wp[pc]
-      if f = @wp_fun_entry[pc]
-        loopstack = []
-        publish(:function, f, callstack[-1], cycles)
-      end
       if b = @wp_block_start[pc]
-        while (b['loops']||[]).length < loopstack.length
+        # function entry
+        if b.address == b.function.address
+          loopstack = []
+          publish(:function, b.function, callstack[-1], cycles) 
+        end
+        # loop exit
+        while b.loopnest < loopstack.length
           publish(:loopexit, loopstack.pop, cycles)
         end
+        # loop header
         if b.loopheader?
           if loopstack[-1] && loopstack[-1].name != b.name
             publish(:loopexit, loopstack.pop, cycles)
           end
-          if b['loops'].length == loopstack.length
+          if b.loopnest == loopstack.length
             publish(:loopcont, b, cycles)
           else
             loopstack.push b
             publish(:loopenter, b, cycles)
           end
         end
+        # basic block
         publish(:block, b, cycles)
       end
       if c  = @wp_call_instr[pc]
@@ -96,37 +113,32 @@ class TraceMonitor
   private
   def build_watchpoints
     # generate watchpoints for all relevant machine functions
-    @pml['machine-functions'].each do |mf|
-      fun = FunctionRef.new(mf)
+    @pml.machine_functions.each do |fun|
       # address of function
       addr = fun.address
-      # generate function entry event at first instruction
-      add_watch(@wp_fun_entry,addr,fun)
-
       abs_instr_index = 0
       call_return_instr = {}
+
       # for all basic blocks
-      fun['blocks'].each do |mbb|
-        block = BlockRef.new(fun, mbb)
+      fun.blocks.each do |block|
 
         # generate basic block event at first instruction
         add_watch(@wp_block_start, block.address, block)
 
         # generate return event at return instruction
         # FIXME: does not work for predicated return instructions now,
-        # it would be helpful if return instructions where dedicated
+        # it would be helpful if return instructions where marked in PML
         if (block['successors']||[]).empty?
-          rins = InsRef.new(block, block['instructions'][-1-DELAY_SLOTS])
-          add_watch(@wp_return_instr,rins['address'],rins)
+          return_ins = block.instructions[-1-DELAY_SLOTS]
+          add_watch(@wp_return_instr,return_ins['address'],return_ins)
         end
 
-        block['instructions'].each do |ins|
-          instruction = InsRef.new(block, ins)
+        block.instructions.each do |instruction|
           if call_return_instr[abs_instr_index]
-            add_watch(@wp_callreturn_instr,ins['address'],instruction)
+            add_watch(@wp_callreturn_instr,instruction['address'],instruction)
           end
-          if ! (ins['callees']||[]).empty?
-            add_watch(@wp_call_instr,ins['address'],instruction)
+          if ! (instruction['callees']||[]).empty?
+            add_watch(@wp_call_instr,instruction['address'],instruction)
             call_return_instr[abs_instr_index+1+DELAY_SLOTS]=true
           end
           abs_instr_index += 1
@@ -158,7 +170,7 @@ end
 class GlobalRecorder
   attr_reader :results
   def initialize(start_mf)
-    @start_name = start_mf['name']
+    @start_name = start_mf.name
     @results = FrequencyRecord.new
   end
   def function(callee,callsite,cycles)
@@ -169,14 +181,14 @@ class GlobalRecorder
     results.increment(mbb)
   end
   def ret(rsite,csite,cycles)
-    results.stop(cycles) if(rsite.fref['name']==@start_name)
+    results.stop(cycles) if(rsite.function.name==@start_name)
   end
   def method_missing(event,*args) ; end
 end
 class LoopRecorder
   attr_reader :results
   def initialize(start_mf)
-    @start_name = start_mf['name']
+    @start_name = start_mf.name
     @started = false
     @results = {}
   end
@@ -184,7 +196,7 @@ class LoopRecorder
     @started = true if callee['name']==@start_name
   end
   def ret(rsite,csite,cycles)
-    @started = false if rsite.fref['name']==@start_name
+    @started = false if rsite.function.name==@start_name
   end
   def loopenter(bb, cycles)
     results[bb] = FrequencyRecord.new unless results[bb]
@@ -253,6 +265,10 @@ end
 class AnalyzeTraceTool
   def AnalyzeTraceTool.add_options(opts,options)
     options.pasim = "pasim"
+    options.analysis_entry = "main"
+    opts.on("-f", "--analysis-entry FUNCTUON", "analysis entry function (bitcode name)") { |f| 
+      options.analysis_entry = f
+    }
     opts.on("", "--pasim-command FILE", "path to pasim (=pasim)") { |f| options.pasim = f }
   end
 
@@ -262,7 +278,7 @@ class AnalyzeTraceTool
   def AnalyzeTraceTool.run(elf,pml,options)
     tm = TraceMonitor.new(elf,pml,options.pasim)
     tm.subscribe(VerboseRecorder.new) if options.debug
-    mainscope = pml.mf_mapping_to('main')
+    mainscope = pml.machine_functions.originated_from(options.analysis_entry)
     global = GlobalRecorder.new(mainscope)
     loops  = LoopRecorder.new(mainscope)
     tm.subscribe(global)
@@ -292,14 +308,13 @@ class AnalyzeTraceTool
     executed_blocks = {}
     infeasible_blocks = Set.new
     global.results.freqs.each do |block,freq|
-      bset = (executed_blocks[block.fref] ||= Set.new)
+      bset = (executed_blocks[block.function] ||= Set.new)
       bset.add(block)
     end
-    executed_blocks.each do |fref, covered|
-      fref['blocks'].each do |mbb|
-        bref = BlockRef.new(fref,mbb) # XXX: ugly
-        unless covered.include?(bref)
-          infeasible_blocks.add(bref)
+    executed_blocks.each do |function, covered|
+      function.blocks.each do |block|
+        unless covered.include?(block)
+          infeasible_blocks.add(block)
         end
       end
     end
@@ -314,8 +329,8 @@ class AnalyzeTraceTool
       next unless cs['callees'].include?('__any__')
       data['flowfacts'].push(FlowFact.calltargets(globalscope, cs, receiverset, fact_context, "calltargets-global").data)
     end
-    infeasible_blocks.each do |bref|
-      data['flowfacts'].push(FlowFact.infeasible(globalscope, bref, fact_context, "infeasible-global").data)
+    infeasible_blocks.each do |block|
+      data['flowfacts'].push(FlowFact.infeasible(globalscope, block, fact_context, "infeasible-global").data)
     end
 
     # Export Loops
@@ -323,11 +338,11 @@ class AnalyzeTraceTool
       loop,freq = loopbound.freqs.to_a[0]
       data['flowfacts'].push(FlowFact.loop_bound(loop, freq, fact_context, "loop-local").data)
     end
-    executed_blocks.each do |fref,bset|
-      fref.loops.each do |bref|
-        unless bset.include?(bref)
-          warn "Loop #{bref} not executed by trace"
-          data['flowfacts'].push(FlowFact.loop_bound(bref, 0..0, fact_context, "loop-local").data)
+    executed_blocks.each do |function,bset|
+      function.loops.each do |block|
+        unless bset.include?(block)
+          warn "Loop #{block} not executed by trace"
+          data['flowfacts'].push(FlowFact.loop_bound(block, 0..0, fact_context, "loop-local").data)
         end
       end
     end
@@ -343,8 +358,8 @@ execution traces generated with 'pasim --debug'.
 Also adds observed receivers to indirect calls callee field.
 EOF
 
-  options, args, pml = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |opts,options|
+  options, args = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |opts,options|
     AnalyzeTraceTool.add_options(opts,options)
   end
-  AnalyzeTraceTool.run(args.first, pml, options).dump_to_file(options.output)
+  AnalyzeTraceTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
 end
