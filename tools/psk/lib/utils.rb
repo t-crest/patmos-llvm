@@ -62,6 +62,7 @@ module PMLUtils
     block = block['name'] if block.kind_of?(Hash)
     ".LBB#{func}_#{block}"
   end
+
   def parse_mbb_label(label)
     label =~ /\A\.LBB(\d+)_(\d+)$/
     [$1.to_i, $2.to_i] if $1
@@ -75,10 +76,11 @@ module PMLUtils
   end
 end
 
-# class providing convenient additional program information derived from PML
-# files
+# class providing convenient accessors and additional program information derived
+# from PML files
 class PML
   attr_reader :data, :functions
+
   def initialize(data_or_io)
     stream = if data_or_io.kind_of?(Array)
                data_or_io
@@ -96,12 +98,15 @@ class PML
     end
     build_information
   end
+
   def [](key)
     @data[key]
   end
+
   def to_s
     @data.to_s
   end
+
   def dump_to_file(filename)
     if filename.nil?
       dump($>)
@@ -111,15 +116,19 @@ class PML
       end
     end
   end
+
   def dump(io)
     io.write(YAML::dump(data))
   end
+
   def bf(name)
     @functions['src'][name]
   end
+
   def mf(name)
     @functions['dst'][name]
   end
+
   def build_information
     @functions = { 'src' => {}, 'dst' => {} }
     @dstfunmap = {}
@@ -130,12 +139,15 @@ class PML
       @dstfunmap[f['mapsto']] = f
     }
   end
+
   def mf_mapping_to(bitcode_name)
     @dstfunmap[bitcode_name]
   end
+
   def PML.from_file(filename)
     File.open(filename) { |fh| PML.new(fh) }
   end
+
   def PML.merge_stream(stream)
     merged_doc = {}
     stream.each do |doc|
@@ -155,15 +167,23 @@ end
 
 # Smart Reference to a PML function
 class FunctionRef
+  attr_reader :data, :loops
   def initialize(mf)
-    @mf = mf
+    @data = mf
     @hash = name.hash
+    @loops = []
+    @data['blocks'].each do |block|
+      bref = BlockRef.new(self, block) # XXX: ugly
+      if(bref.loopheader?)
+        @loops.push(bref)
+      end
+    end
   end
   def [](k)
-    @mf[k]
+    @data[k]
   end
   def to_s
-    "#{@mf['mapsto']}/#{name}"
+    "#{@data['mapsto']}/#{name}"
   end
   def ==(other)
     return false unless other.kind_of?(FunctionRef)
@@ -171,20 +191,23 @@ class FunctionRef
   end
   def hash; @hash ; end
   def eql?(other); self == other ; end
-  def name ; @mf['name'] ; end
-  def address ; @mf['blocks'].first['address']; end
+  def name ; @data['name'] ; end
+  def address ; @data['blocks'].first['address']; end
 end
 
 # Smart reference to a PML machine basic block
 class BlockRef
-  attr_reader :bid,:fref
-  def initialize(mf,mbb)
-    @fref,@mbb = FunctionRef.new(mf), mbb
-    @bid = get_mbb_label(mf,mbb)
+  attr_reader :data,:bid,:fref
+  def initialize(fref,mbb)
+    @fref,@data = fref, mbb
+    @bid = get_mbb_label(fref.name, @data['name'])
     @hash = @bid.hash
   end
+  def loopheader?
+    @data['loops'] && @data['loops'].first == @data['name']
+  end
   def [](k)
-    @mbb[k]
+    @data[k]
   end
   def to_s
     "#{fref['mapsto']}/#{bid}"
@@ -201,8 +224,8 @@ end
 # Smart reference to a PML instruction
 class InsRef
   attr_reader :data, :bref, :iid
-  def initialize(mf,mbb,ins)
-    @bref = BlockRef.new(mf,mbb)
+  def initialize(bref,ins)
+    @bref = bref
     @data = ins
     @iid = "#{@bref.bid}_#{ins['index']}"
     @hash = @iid.hash
@@ -238,6 +261,45 @@ class FlowFact
   end
   def add_term(pp,factor=1)
     @data['lhs'].push({ 'factor' => factor, 'program-point' => pp })
+    self
+  end
+  def FlowFact.block_frequency(scope, block, freq, fact_context, classification)
+    flowfact = FlowFact.new(fact_context)
+    flowfact['scope'] = scope
+    flowfact['op'] = 'less-equal'
+    flowfact['rhs'] = freq.max
+    flowfact['classification'] = 'block-global'
+    flowfact.add_term(FlowFact.block(block))
+  end
+  def FlowFact.calltargets(scope, cs, receiverset, fact_context, classification)
+    flowfact = FlowFact.new(fact_context)
+    flowfact['scope'] = scope
+    flowfact['op'] = 'equal'
+    flowfact['rhs'] = 0
+    flowfact['classification'] = classification
+    flowfact.add_term(FlowFact.instruction(cs), -1)
+    receiverset.each do |fref| 
+      flowfact.add_term(FlowFact.function(fref), 1)
+    end
+    flowfact
+  end
+  def FlowFact.loop_bound(loop, freq, fact_context, classification)
+    flowfact = FlowFact.new(fact_context)
+    flowfact['scope'] = FlowFact.loop(loop)
+    flowfact['op'] = 'less-equal'
+    flowfact['rhs'] = freq.max
+    flowfact['classification'] = classification
+    flowfact.add_term(FlowFact.block(loop))
+    flowfact
+  end
+  def FlowFact.infeasible(scope, block, fact_context, classification) 
+    flowfact = FlowFact.new(fact_context)
+    flowfact['scope'] = scope
+    flowfact['op'] = 'equal'
+    flowfact['rhs'] = 0
+    flowfact['classification'] = classification
+    flowfact.add_term(FlowFact.block(block))
+    flowfact
   end
   def FlowFact.function(f)
     { 'function' => f['name'] }
@@ -250,57 +312,6 @@ class FlowFact
   end
   def FlowFact.instruction(insref)
     { 'instruction' => insref.name }.merge(FlowFact.block(insref.bref))
-  end
-end
-
-# Utility class to record frequencies when analyzing traces
-class FrequencyRecord
-  attr_reader :cycles, :freqs, :calltargets
-  def initialize
-    @calltargets = {}
-  end
-  def start(cycles)
-    @cycles_start = cycles
-    @current_record = Hash.new(0)
-  end
-  def increment(bb)
-    @current_record[bb] += 1 if @current_record
-  end
-  def call(callsite,callee)
-    (@calltargets[callsite]||=Set.new).add(callee) if @current_record && callsite
-  end
-  def stop(cycles)
-    die "Recorder: stop without start" unless @current_record
-    @cycles = merge_ranges(cycles - @cycles_start, @cycles)
-    unless @freqs
-      @freqs = {}
-      @current_record.each do |bref,count|
-        @freqs[bref] = count .. count
-      end
-    else
-      @current_record.each do |bref,count|
-        if ! @freqs.include?(bref)
-          @freqs[bref] = 0 .. count
-        else
-          @freqs[bref] = merge_ranges(count, @freqs[bref])
-        end
-      end
-      @freqs.each do |bref,count|
-        @freqs[bref] = merge_ranges(count, 0..0) unless @current_record.include?(bref)
-      end
-    end
-  end
-  def dump(io=$>)
-    (io.puts "No records";return) unless @freqs
-    io.puts "Cycles: #{cycles}"
-    io.puts "---"
-    @freqs.each do |bref,freq|
-      io.puts "#{bref.to_s.ljust(15)} \\in #{freq}"
-    end
-    io.puts "---"
-    @calltargets.each do |site,recv|
-      io.puts "#{site} calls #{recv.to_a.join(", ")}"
-    end
   end
 end
 

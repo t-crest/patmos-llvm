@@ -20,20 +20,33 @@ Benchmark Analysis Demo
 (3) export trace flow facts (if necessary) and jumptables to .ais format
 (4) run aiT
 
+Known Problems:
+mrtc/fac -O0:      Recursing bound missing (=> recursion not supported?)
+mrtc/fft1 -O0:     aiT reports that an infeasible problem, even if no annotations are
+	           given [=> aiT bug?]
+mrtc/lms -O0:      aiT reports infeasability [=> aiT bug?]:
+	           Loop 'main.L1': dead end in first iteration in all contexts
+mrtc/bsort100 -O0: According to the trace, the backedge to LBB1_6 is never taken.
+               	   But aiT complains the problem is infeasible, unless a loop bound
+	       	   of at least '2' is specified for LBB1_6 [=> investigate in GUI whether
+		   aiT's loop reconstruction matches LLVM's].
+mrtc/whet -O0:     Needs math libraries (cos,sin) [=> TODO]
+
 Trace Analysis
 --------------
 
 Events:
  - CALL(f,callsite.top)             if pc == f.blocks.first.address
  - BB(bb)                           if pc == bb.address
- - RETURN(returnsite,callsites.top) if pc == bb.instructions[-1-DELAY_SLOTS].address
+ - RETURN(returnsite,callsites.pop) if pc == bb.instructions[-1-DELAY_SLOTS].address
                                        && bb.successors.empty?
  - LOOPEXIT(loopstack.pop)          while loop_nest_level[pc] < loopstack.size
  - LOOPENTER(loop)                  if pc == loop.header and loopstack.size == loop.depth - 1
  - LOOPCONT(loop)                   if pc == loop.header and loopstack.size == loop.depth
 Internal Actions:
  - callsites.push(callsite) if pc == callsite.address
- - callsite.pop             if pc == (callsite + (DELAY_SLOTS + 1) instructions).address
+
+TODO: deal with predicated call/returns, prove correct
 
 Recorders:
  - Scope frequency of 'bb' relative to function entry of 'f'
@@ -51,5 +64,6 @@ Recorders:
 
 Loop Bound Translation Notes
 ----------------------------
+Is this correct ??
 "exit test at end" => loop header bound
 "exit test at beginning" => loop backedge bound = loop header bound - 1

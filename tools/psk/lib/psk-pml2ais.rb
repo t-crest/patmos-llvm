@@ -62,21 +62,40 @@ class AISExporter
         called_fun = @pml.mf(term['program-point']['function'])
         dquote(get_mbb_label(called_fun, "0"))
       }.compact
-      @outfile.puts "instruction #{location} calls #{targets.join(", ")} ;"
+
+      @outfile.print "instruction #{location} calls #{targets.join(", ")} ;"
+      @outfile.puts " # global indirect call targets (source: #{ff['origin']})"
     end
 
     # export loop bounds
     def export_loopbound(ff)
-      fun  = @pml.mf(ff['scope']['function'])
       # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
+      fun  = @pml.mf(ff['scope']['function'])
       loop = fun['blocks'].find { |b| 
         b['name'] == ff['scope']['loop']
       }
 
       loopname = dquote(get_mbb_label(fun,loop))
-      $stderr.puts "Exporting Loop Bound at #{get_mbb_label(fun,loop)} /"+
-        "#{sprintf("0x%x",loop['address'])}" if @options[:verbose]
-      @outfile.puts "loop #{loopname} max #{ff['rhs']} ;"
+      $stderr.puts "Exporting Loop Bound at #{get_mbb_label(fun,loop)}" if @options[:verbose]
+
+      # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' of the loop
+      # But apparently this is not how loop bounds are interpreted in aiT (=> ask absint guys)
+      @outfile.print "loop #{loopname} max #{ff['rhs']} ;" # end ;"      
+      @outfile.puts " # local loop header bound (source: #{ff['origin']})"
+    end
+
+    # export global infeasibles
+    def export_infeasible(ff)
+      pp = ff['lhs'].first['program-point']
+      # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
+      fun  = FunctionRef.new(@pml.mf(pp['function']))
+      block = BlockRef.new(fun, fun['blocks'].find { |b| b['name'] == pp['block'] } )
+      insname = dquote(block.bid)
+      # XXX: Hack: only export infeasible calls (minimum neccessary to calculate WCET)
+      if block['instructions'].any? { |i| (i['callees']||[]).length > 0 }
+        @outfile.print "instruction #{insname} is never executed ;"
+        @outfile.puts " # globally infeasible call (source: #{ff['origin']})"
+      end
     end
 
     # export linear-constraint flow facts
@@ -85,6 +104,8 @@ class AISExporter
         export_calltargets(ff)
       elsif(ff['classification'] == 'loop-local')
         export_loopbound(ff)
+      elsif(ff['classification'] == 'infeasible-global')
+        export_infeasible(ff)
       else
         die ("General purpose flow-fact generation not yet implemented")
       end
@@ -99,7 +120,7 @@ class AisExportTool
               else File.new(of,"w")
               end
     # export
-    options.ffs_types = ['loop-local','calltargets-global'] unless options.ffs_types
+    options.ffs_types = ['loop-local','calltargets-global','infeasible-global'] unless options.ffs_types
     options.ffs_srcs = 'all' unless options.ffs_srcs
     ais = AISExporter.new(pml, outfile, :verbose => options.verbose)
     ais.gen_header(pml.data) if options.header
@@ -117,7 +138,7 @@ class AisExportTool
   end
   def AisExportTool.add_options(opts,options)
     opts.on("-o", "--output FILE.ais", "AIS file to generate") { |f| options.output = f }
-    opts.on("",   "--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global)") { |ty|
+    opts.on("",   "--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global,infeasible-global)") { |ty|
       options.ffs_types = ty.split(/\s*,\s*/)
     }
     opts.on("",   "--flow-facts-from ORIGIN,..", "Elegible Flow Fact Sources (=all)") { |srcs|
