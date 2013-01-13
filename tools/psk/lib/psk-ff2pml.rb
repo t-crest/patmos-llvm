@@ -12,9 +12,10 @@ begin
   require 'rubygems'
   require 'rsec'
   include Rsec::Helpers
-rescue => details
-  $stderr.puts "Failed to load library rsec (gem install rsec, 1.9 only)"
-  raise details
+rescue Exception => details
+  warn "Failed to load library rsec"
+  info "  ==> gem1.9.1 install rsec"
+  die "Failed to load required ruby libraries"
 end
 
 # Edge between basic blocks
@@ -213,7 +214,7 @@ class SWEETFlowFactParser
   end
 end
 
-class FfToPml
+class SweetFlowFactImport
   def initialize(fact_context)
     @fact_context = fact_context
   end
@@ -248,10 +249,10 @@ class FfToPml
   end
 end
 
-class FfToPmlTool
-  def FfToPmlTool.run(ff_file,pml,options)
+class SweetFlowFactImportTool
+  def SweetFlowFactImportTool.run(ff_file,pml,options)
     parser = SWEETFlowFactParser.new.parser
-    converter = FfToPml.new('level' => 'bitcode', 'origin' => 'SWEET')
+    converter = SweetFlowFactImport.new('level' => 'bitcode', 'origin' => 'SWEET')
     ffs = []
     added, skipped, reasons, set = 0,0, Hash.new(0), {}
     File.readlines(ff_file).map do |s|
@@ -263,7 +264,7 @@ class FfToPmlTool
           skipped+=1
         else
           set[ff_pml] = true
-          pml.add_flowfact(ff_pml)
+          pml.flowfacts.add(ff_pml)
           added += 1
         end
       rescue Exception=>detail
@@ -280,7 +281,7 @@ class FfToPmlTool
     end
     pml
   end
-  def FfToPml.add_options(opts,options)
+  def SweetFlowFactImport.add_options(opts,options)
   end
 end
 
@@ -289,7 +290,7 @@ SYNOPSIS=<<EOF if __FILE__ == $0
 Translate SWEET flow facts (format FF) to pml flow facts.
 EOF
   options, args = PML::optparse(1, "file.ff", SYNOPSIS, :type => :io) do |opts,options|
-    FfToPml.add_options(opts,options)
+    SweetFlowFactImport.add_options(opts,options)
   end
-  FfToPmlTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  SweetFlowFactImportTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
 end

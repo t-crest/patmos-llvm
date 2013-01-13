@@ -18,15 +18,33 @@ module PML
     [r1.min,r2.min].min .. [r1.max,r2.max].max
   end
 
-  class Adapter
+  class Proxy
     attr_reader :data
     def to_yaml
       @data.to_yaml
     end
   end
 
-  # Smart Adapter for read-only lists
-  class ListAdapter
+  # Proxy for read-only lists
+  class ListProxy
+    attr_reader :list
+    def to_s
+      list.to_s
+    end
+    # we could define delegators for all accessors and tests
+    def first
+      @list.first
+    end
+    def each
+      @list.each { |v| yield v }
+    end
+    def length
+      @list.length
+    end
+  end
+
+  # Smart Proxy for functions, blocks and instructions
+  class ProgramPointList < ListProxy
     attr_reader :list
     def initialize(list)
       @list = list
@@ -36,9 +54,6 @@ module PML
       v = @named[key]
       raise Exception.new("#{self.class}.get: No such object: #{key} for #{self}") unless v
       v
-    end
-    def to_s
-      list.to_s
     end
     def by_address(address)
       v = @address[address]
@@ -54,13 +69,6 @@ module PML
       else
         @revmap[src]
       end
-    end
-    # we could use a delegator for the next 2 methods
-    def first
-      @list.first
-    end
-    def each
-      @list.each { |v| yield v }
     end
     private
     def build_lookup
@@ -85,8 +93,8 @@ module PML
     end
   end
 
-  # Smart adapter for lists where the name is the index in the list
-  class IndexedListAdapter < ListAdapter
+  # Proxy for lists where the name is the index in the list
+  class IndexedList < ProgramPointList
     def initialize(list)
       super(list)
     end
@@ -97,7 +105,7 @@ module PML
   
   # class providing convenient accessors and additional program information derived
   # from PML files
-  class PMLDoc < Adapter
+  class PMLDoc < Proxy
     attr_reader :bitcode_functions,:machine_functions,:flowfacts
 
     def initialize(data_or_io)
@@ -115,16 +123,10 @@ module PML
       else
         @data = PMLDoc.merge_stream(stream)
       end
-      @bitcode_functions = ListAdapter.new(@data['bitcode-functions'].map { |f| Function.new(f) })
-      @machine_functions = ListAdapter.new(@data['machine-functions'].map { |f| Function.new(f) })
-    end
-    # FIXME: use list adapter and add_flowfact
-    def flowfacts
+      @bitcode_functions = ProgramPointList.new(@data['bitcode-functions'].map { |f| Function.new(f) })
+      @machine_functions = ProgramPointList.new(@data['machine-functions'].map { |f| Function.new(f) })
       @data['flowfacts'] ||= []
-    end
-    def add_flowfact(flowfact)
-      @data['flowfacts'] ||= []
-      @data['flowfacts'].push(flowfact.data)
+      @flowfacts = FlowFactList.new(@data['flowfacts'])
     end
     def add_timing(timing_entry)
       @data['timing'] ||= []
@@ -167,9 +169,9 @@ module PML
       merged_doc
     end
   end
-
+  
   # Qualified name for functions
-  class FunctionRef < Adapter
+  class FunctionRef < Proxy
     attr_reader :qname
     def initialize(name)
       @qname = name
@@ -178,7 +180,7 @@ module PML
   end
 
   # Qualified name for blocks
-  class BlockRef < Adapter
+  class BlockRef < Proxy
     attr_reader :qname
     def initialize(fname,bname)
       @qname = Block.get_label(fname, bname)
@@ -187,7 +189,7 @@ module PML
   end
 
   # Qualified name for instructions
-  class InstructionRef < Adapter
+  class InstructionRef < Proxy
     attr_reader :qname
     def initialize(fname,bname,index)
       @qname = "#{Block.get_label(fname,bname)}_#{index}"
@@ -196,7 +198,7 @@ module PML
   end
 
   # References to Program Points (functions, blocks, instructions)
-  class ProgramPointAdapter < Adapter
+  class ProgramPointProxy < Proxy
     attr_reader :name, :qname, :ref
     def address
       @data['address']
@@ -217,7 +219,7 @@ module PML
   end
 
   #  PML function wrapper
-  class Function < ProgramPointAdapter
+  class Function < ProgramPointProxy
     attr_reader :blocks, :loops
     def initialize(mf)
       @data = mf
@@ -225,7 +227,7 @@ module PML
       @ref = FunctionRef.new(name)
       @hash = name.hash
       @loops = []
-      @blocks = ListAdapter.new(@data['blocks'].map { |mbb| Block.new(self, mbb) })
+      @blocks = ProgramPointList.new(@data['blocks'].map { |mbb| Block.new(self, mbb) })
       blocks.each do |block|
         if(block.loopheader?)
           @loops.push(block)
@@ -244,10 +246,34 @@ module PML
     def address
       @data['address'] || blocks.first.address
     end
+    def label
+      @data['label'] || blocks.first.label
+    end
+
+    # map from called function to list of callsites
+    # XXX ugly: expects a block which resolves callees
+    # returns nil if there are unresolved indirect calls
+    def callgraph_successors
+      return @cg_succs if @cg_succs
+      @cg_succs = {}
+      blocks.each do |block|
+        block.callsites.each do |cs|
+          if cs['callees'].include?("__any__")
+            return (@cg_succs = nil)
+          end
+         cs['callees'].each do |c|
+            f = yield c
+            (@cg_succs[f]||=[]).push(cs)
+          end
+        end
+      end
+      @cg_succs
+    end
+  # end of class Function
   end
 
   # Class representing PML Basic Blocks
-  class Block < ProgramPointAdapter
+  class Block < ProgramPointProxy
     attr_reader :function,:instructions,:loopnest
     def initialize(function,mbb)
       @data = mbb
@@ -257,7 +283,7 @@ module PML
       @hash = qname.hash
       @is_loopheader = @data['loops'] && @data['loops'].first == self.name
       @loopnest = (@data['loops']||[]).length
-      @instructions = IndexedListAdapter.new(@data['instructions'].map { |ins| 
+      @instructions = IndexedList.new(@data['instructions'].map { |ins| 
                                                Instruction.new(self, ins) 
                                              })
     end
@@ -273,8 +299,11 @@ module PML
     end
     def hash; @hash ; end
     def loopheader? ; @is_loopheader ; end
+    def callsites
+      instructions.list.select { |i| (i['callees']||[]).length > 0 }
+    end
     def calls?
-      instructions.list.any? { |i| (i['callees']||[]).length > 0 }
+      ! callsites.empty?
     end
     def loopref
       { 'function' => function.name, 'loop' => name }
@@ -290,9 +319,9 @@ module PML
       ".LBB#{fname}_#{bname}"
     end
   end
-
-  # Smart reference to a PML instruction
-  class Instruction < ProgramPointAdapter
+  
+  # Proxy for PML instructions
+  class Instruction < ProgramPointProxy
     attr_reader :data, :block
     def initialize(block,ins)
       @block = block
@@ -314,10 +343,38 @@ module PML
     def index ; @data['index']; end
   end
 
-  # Flow Fact utility class
-  class FlowFact < Adapter
+  # List of flowfacts (modifiable)
+  class FlowFactList < ListProxy
     def initialize(data)
       @data = data
+      @list = data.map { |ff| FlowFact.new(ff) }
+      build_index
+    end
+    def add(ff)
+      @list.push(ff)
+      @data.push(ff.data)
+      add_index(ff)
+    end
+    private
+    def build_index
+      @by_class = {}
+      @list.each { |ff| add_index(ff) }
+    end
+    def add_index(ff)
+      (@by_class[ff.classification]||=[]).push(ff)
+    end
+  end
+
+  # Flow Fact utility class
+  class FlowFact < Proxy
+    def initialize(data)
+      @data = data
+    end
+    def classification
+      @data['classification']
+    end
+    def [](k)
+      @data[k]
     end
     def []=(k,v)
       @data[k] = v
@@ -327,12 +384,13 @@ module PML
       @data['lhs'].push({ 'factor' => factor, 'program-point' => ppref.data })
       self
     end
+    # Flow fact builders
     def FlowFact.block_frequency(scope, block, freq, fact_context, classification)
       flowfact = FlowFact.new(fact_context.dup)
       flowfact['scope'] = scope.data
       flowfact['op'] = 'less-equal'
       flowfact['rhs'] = freq.max
-      flowfact['classification'] = 'block-global'
+      flowfact['classification'] = classification # block-* or infeasible-*
       flowfact.add_term(block.ref)
     end
     def FlowFact.calltargets(scope, cs, receiverset, fact_context, classification)
@@ -340,7 +398,7 @@ module PML
       flowfact['scope'] = scope.data
       flowfact['op'] = 'equal'
       flowfact['rhs'] = 0
-      flowfact['classification'] = classification
+      flowfact['classification'] = classification # calltargets-*
       flowfact.add_term(cs.ref, -1)
       receiverset.each do |function| 
         flowfact.add_term(function.ref, 1)
@@ -356,19 +414,39 @@ module PML
       flowfact.add_term(loop.ref)
       flowfact
     end
-    def FlowFact.infeasible(scope, block, fact_context, classification) 
-      flowfact = FlowFact.new(fact_context.dup)
-      flowfact['scope'] = scope.data
-      flowfact['op'] = 'equal'
-      flowfact['rhs'] = 0
-      flowfact['classification'] = classification
-      flowfact.add_term(block.ref)
-      flowfact
+
+    # Dynamic classification and simplification of special purpose flowfacts
+
+    # return [scope,block,freq] if this flow fact constraints the frequency
+    # of a single block (nil otherwise)
+    def get_block_frequency_bound
+      return nil unless @data['lhs'].length == 1
+      term = @data['lhs'].first
+      return nil unless term['factor'] == 1
+      [@data['scope'], term['program-point'], @data['rhs']]
+    end
+
+    # return [scope,cs,targets] if this is a calltarget-* flowfact
+    def get_calltargets
+      callsite_candidate = @data['lhs'].select { |term|
+        term['factor'].abs == 1 && term['program-point']['instruction']
+      }
+      return nil unless callsite_candidate.length == 1
+      callsite = callsite_candidate.first['program-point']
+      opposite_factor = callsite_candidate.first['factor']
+      targets = []
+      @data['lhs'].each { |term|
+        next if term == callsite_candidate.first
+        return nil unless term['factor'] == -opposite_factor
+        return nil if term['program-point'].keys != ['function']
+        targets.push(term['program-point']['function'])
+      }
+      [@data['scope'], callsite, targets]
     end
   end
 
   # timing entries are used to record WCET analysis results or measurement results
-  class TimingEntry < Adapter
+  class TimingEntry < Proxy
     def initialize(scope, cycles, context)
       @data = context.dup
       @data['scope'] ||= scope.data
@@ -378,4 +456,5 @@ module PML
       @data.to_s
     end
   end
+# end of module PML
 end

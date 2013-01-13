@@ -11,6 +11,14 @@ $ aptitude install ruby1.9.1-full
 Open Questions
 --------------
 * Do we want to stick with PSK/PML terminology?
+  PML is ok, but we try to find a better name for PSK
+
+TODO
+----
+* Export Labels from LLVM
+* Currently, the LLVM machine blocks do not seem to be in order, why?
+  This makes it impossible to infer missing labels, but otherwise
+  is no problem.
 
 Benchmark Analysis Demo
 -----------------------
@@ -41,6 +49,7 @@ mrtc/whet -O0:      Needs math libraries (cos,sin) [=> TODO]
 * trace analsis takes > 60s
 mrtc/adpcm -O0:     120s
 mrtc/st -O0:        ...
+
 
 Trace Analysis
 --------------

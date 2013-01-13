@@ -54,28 +54,19 @@ class AISExporter
 
     # export indirect calls
     def export_calltargets(ff)
-      caller_candidate = ff['lhs'].select { |term|
-        term['factor'] == -1 && term['program-point']['instruction']
-      }
-      die("Bad calltarget flowfact: #{ff.inspect}") unless caller_candidate.length == 1
-      caller = caller_candidate.first['program-point']
-      fun = @pml.machine_functions.get(caller['function'])
-
-      # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
-      block = fun.blocks.get(caller['block'])
-      ins = block.instructions[caller['instruction']]
-      unless ins && ins.index == caller['instruction']
-        raise Exception.new("Inconsistent instruction index")
+      scope, callsite, targets = ff.get_calltargets
+      die("Bad calltarget flowfact: #{ff.inspect}") unless scope
+      fun = @pml.machine_functions.get(callsite['function'])
+      block = fun.blocks.get(callsite['block'])
+      ins = block.instructions[callsite['instruction']]
+      unless ins && ins.index == callsite['instruction']
+        internal_error "Inconsistent instruction index"
       end 
-
       location = "#{dquote(block.label)} + #{ins.address - block.address} bytes"
-      targets = ff['lhs'].map { |term|
-        next if term == caller_candidate.first
-        die("Bad calltarget flowfact: #{ff.inspect}") unless term['factor'] == 1
-        called_fun = @pml.machine_functions.get(term['program-point']['function'])
-        dquote(called_fun.blocks.first.label)
-      }.compact
-      gen_fact("instruction #{location} calls #{targets.join(", ")} ;",
+      called = targets.map { |f|
+        dquote(@pml.machine_functions.get(f).label)
+      }.join(", ")
+      gen_fact("instruction #{location} calls #{called} ;",
                "global indirect call targets (source: #{ff['origin']})")
     end
 
@@ -83,7 +74,6 @@ class AISExporter
     def export_loopbound(ff)
       fun  = @pml.machine_functions.get(ff['scope']['function'])
       loop = fun.blocks.get(ff['scope']['loop'])
-
       loopname = dquote(loop.label)
 
       # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' 
@@ -95,12 +85,9 @@ class AISExporter
 
     # export global infeasibles
     def export_infeasible(ff)
-      pp = ff['lhs'].first['program-point']
-
-      # XXX: the patmos export should deliver blocks in index order, but it doesn't ??
+      scope, pp, zero = ff.get_block_frequency_bound
       fun  = @pml.machine_functions.get(pp['function'])
       block = fun.blocks.get(pp['block'])
-
       insname = dquote(block.label)
 
       # XXX: Hack: only export infeasible calls (minimum neccessary to calculate WCET)

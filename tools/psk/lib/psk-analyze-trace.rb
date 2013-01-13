@@ -315,26 +315,26 @@ class AnalyzeTraceTool
 
     # Export global block frequencies, call targets and infeasible blocks
     global.results.freqs.each do |block,freq|
-      pml.add_flowfact(FlowFact.block_frequency(globalscope, block, freq, fact_context, "block-global"))
+      pml.flowfacts.add(FlowFact.block_frequency(globalscope, block, freq, fact_context, "block-global"))
     end
     global.results.calltargets.each do |cs,receiverset|
       next unless cs['callees'].include?('__any__')
-      pml.add_flowfact(FlowFact.calltargets(globalscope, cs, receiverset, fact_context, "calltargets-global"))
+      pml.flowfacts.add(FlowFact.calltargets(globalscope, cs, receiverset, fact_context, "calltargets-global"))
     end
     infeasible_blocks.each do |block|
-      pml.add_flowfact(FlowFact.infeasible(globalscope, block, fact_context, "infeasible-global"))
+      pml.flowfacts.add(FlowFact.block_frequency(globalscope, block, 0..0, fact_context, "infeasible-global"))
     end
 
     # Export Loops
     loops.results.values.each do |loopbound|
       loop,freq = loopbound.freqs.to_a[0]
-      pml.add_flowfact(FlowFact.loop_bound(loop, freq, fact_context, "loop-local"))
+      pml.flowfacts.add(FlowFact.loop_bound(loop, freq, fact_context, "loop-local"))
     end
     executed_blocks.each do |function,bset|
       function.loops.each do |block|
         unless bset.include?(block)
           warn "Loop #{block} not executed by trace"
-          pml.add_flowfact(FlowFact.loop_bound(block, 0..0, fact_context, "loop-local"))
+          pml.flowfacts.add(FlowFact.loop_bound(block, 0..0, fact_context, "loop-local"))
         end
       end
     end

@@ -14,8 +14,9 @@ module PML
     raise Exception.new("[#{$0}] INTERNAL ERROR: #{msg}")
   end
   def die(msg)
-    $stderr.puts msg
-    raise Exception.new("psk fatal error")
+    $stderr.puts "[#{$0}] FATAL: #{msg}"
+    puts Thread.current.backtrace
+    exit 1
   end
   def die_usage(msg)
     $stderr.puts "#{$0}: #{msg}. Try --help."
@@ -31,7 +32,9 @@ module PML
     warn(msg+detail.to_s)
     $warn_once[msg]=true
   end
-
+  def info(msg)
+    $stderr.puts "[#{$0}] INFO #{msg}"
+  end
   def optparse(arg_range, arg_descr, synopsis, opts)
     options = OpenStruct.new
     do_input  = opts[:type] == :io || opts[:type] == :input
@@ -63,6 +66,21 @@ module PML
 
   def dquote(str)
     '"' + str + '"'
+  end
+
+  def reachable_set(entry)
+    reachable = Set.new
+    todo = [entry]
+    while !todo.empty?
+      item = todo.pop
+      next if reachable.include?(item)
+      reachable.add(item)
+      successors = yield item
+      successors.each do |succ|
+        todo.push(succ)
+      end
+    end
+    reachable
   end
 end
 
