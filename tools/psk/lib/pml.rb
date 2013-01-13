@@ -34,8 +34,11 @@ module PML
     end
     def get(key)
       v = @named[key]
-      raise Exception.new("No such object: #{key}") unless v
+      raise Exception.new("#{self.class}.get: No such object: #{key} for #{self}") unless v
       v
+    end
+    def to_s
+      list.to_s
     end
     def by_address(address)
       v = @address[address]
@@ -82,6 +85,7 @@ module PML
     end
   end
 
+  # Smart adapter for lists where the name is the index in the list
   class IndexedListAdapter < ListAdapter
     def initialize(list)
       super(list)
@@ -90,6 +94,7 @@ module PML
       @list[index]
     end
   end
+  
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc < Adapter
@@ -113,10 +118,17 @@ module PML
       @bitcode_functions = ListAdapter.new(@data['bitcode-functions'].map { |f| Function.new(f) })
       @machine_functions = ListAdapter.new(@data['machine-functions'].map { |f| Function.new(f) })
     end
-
+    # FIXME: use list adapter and add_flowfact
     def flowfacts
       @data['flowfacts'] ||= []
-      @data['flowfacts']
+    end
+    def add_flowfact(flowfact)
+      @data['flowfacts'] ||= []
+      @data['flowfacts'].push(flowfact.data)
+    end
+    def add_timing(timing_entry)
+      @data['timing'] ||= []
+      @data['timing'].push(timing_entry.data)      
     end
     def to_s
       "PMLDoc{bitcode-functions: |#{bitcode_functions.length}|, machine-functions: |#{machine_functions.length}"+
@@ -156,24 +168,61 @@ module PML
     end
   end
 
+  # Qualified name for functions
+  class FunctionRef < Adapter
+    attr_reader :qname
+    def initialize(name)
+      @qname = name
+      @data = { 'function' => name }
+    end
+  end
+
+  # Qualified name for blocks
+  class BlockRef < Adapter
+    attr_reader :qname
+    def initialize(fname,bname)
+      @qname = Block.get_label(fname, bname)
+      @data = { 'function' => fname, 'block' => bname }
+    end
+  end
+
+  # Qualified name for instructions
+  class InstructionRef < Adapter
+    attr_reader :qname
+    def initialize(fname,bname,index)
+      @qname = "#{Block.get_label(fname,bname)}_#{index}"
+      @data = { 'function' => fname, 'block' => bname, 'instruction' => index }
+    end
+  end
+
   # References to Program Points (functions, blocks, instructions)
   class ProgramPointAdapter < Adapter
-    attr_reader :name, :qname
+    attr_reader :name, :qname, :ref
     def address
       @data['address']
+    end
+    def qname
+      ref.qname
     end
     def address=(value)
       @data['address']=value
     end
+    def ==(other)
+      qname == other.qname
+    end
+    def <=>(other)
+      qname <=> other.qname
+    end
+    def eql?(other); self == other ; end
   end
 
-  # Smart Reference to a PML function
+  #  PML function wrapper
   class Function < ProgramPointAdapter
     attr_reader :blocks, :loops
     def initialize(mf)
       @data = mf
       @name = @data['name']
-      @qname = @name
+      @ref = FunctionRef.new(name)
       @hash = name.hash
       @loops = []
       @blocks = ListAdapter.new(@data['blocks'].map { |mbb| Block.new(self, mbb) })
@@ -184,33 +233,28 @@ module PML
       end
     end
     def [](k)
-      die "Function: do not access blocks directly" if k=='blocks'
-      die "Function: do not access loops directly" if  k=='loops'
+      internal_error "Function: do not access blocks directly" if k=='blocks'
+      internal_error "Function: do not access loops directly" if  k=='loops'
       @data[k]
     end
+    def hash; @hash ; end
     def to_s
       "#{@data['mapsto']}/#{name}"
     end
-    def ==(other)
-      return false unless other.kind_of?(Function)
-      name == other.name
-    end
-    def hash; @hash ; end
-    def eql?(other); self == other ; end
     def address
-      blocks.first.address
+      @data['address'] || blocks.first.address
     end
   end
 
-  # Smart reference to a PML machine basic block
+  # Class representing PML Basic Blocks
   class Block < ProgramPointAdapter
     attr_reader :function,:instructions,:loopnest
     def initialize(function,mbb)
       @data = mbb
       @function = function
       @name = @data['name']
-      @qname = label
-      @hash = @qname.hash
+      @ref = BlockRef.new(function.name, name)
+      @hash = qname.hash
       @is_loopheader = @data['loops'] && @data['loops'].first == self.name
       @loopnest = (@data['loops']||[]).length
       @instructions = IndexedListAdapter.new(@data['instructions'].map { |ins| 
@@ -218,25 +262,26 @@ module PML
                                              })
     end
     def [](k)
-      die "Block: do not access instructions directly" if k=='instructions'
+      internal_error "Block: do not access instructions directly" if k=='instructions'
       @data[k]
     end
     def to_s
       "#{function['mapsto']}/#{qname}"
     end
-    def ==(other)
-      return false unless other.kind_of?(Block)
-      qname == other.qname
+    def loopname
+      { 'function' => function.name, 'loop' => name }
     end
     def hash; @hash ; end
-    def eql?(other); self == other ; end
     def loopheader? ; @is_loopheader ; end
     def calls?
       instructions.list.any? { |i| (i['callees']||[]).length > 0 }
     end
+    def loopref
+      { 'function' => function.name, 'loop' => name }
+    end
     # LLVM specific (arch specific?)
     def label
-      Block.get_label(function['name'],name)
+      qname
     end
     def Block.get_label(fname,bname)
       die "Bad arguments to get_label:#{fname.class}_#{bname.class}" unless [fname,bname].all?{ |s|
@@ -253,7 +298,7 @@ module PML
       @block = block
       @data = ins
       @name = index
-      @qname = "#{@block.qname}_#{ins['index']}"
+      @ref  = InstructionRef.new(function.name,block.name,name)
       @hash = @qname.hash
     end
     def function
@@ -265,78 +310,72 @@ module PML
     def to_s
       "#{function['mapsto']}/#{qname}"
     end
-    def ==(other)
-      return false unless other.kind_of?(Block)
-      qname == other.qname
-    end
     def hash; @hash ; end
-    def eql?(other); self == other ; end
     def index ; @data['index']; end
   end
 
   # Flow Fact utility class
-  class FlowFact
-    attr_reader :data
-    def initialize(initdata)
-      @data = initdata.dup
-      @data['lhs'] ||= []
+  class FlowFact < Adapter
+    def initialize(data)
+      @data = data
     end
     def []=(k,v)
       @data[k] = v
     end
-    def add_term(pp,factor=1)
-      @data['lhs'].push({ 'factor' => factor, 'program-point' => pp })
+    def add_term(ppref,factor=1)
+      @data['lhs'] ||= []
+      @data['lhs'].push({ 'factor' => factor, 'program-point' => ppref.data })
       self
     end
     def FlowFact.block_frequency(scope, block, freq, fact_context, classification)
-      flowfact = FlowFact.new(fact_context)
-      flowfact['scope'] = scope
+      flowfact = FlowFact.new(fact_context.dup)
+      flowfact['scope'] = scope.data
       flowfact['op'] = 'less-equal'
       flowfact['rhs'] = freq.max
       flowfact['classification'] = 'block-global'
-      flowfact.add_term(FlowFact.block(block))
+      flowfact.add_term(block.ref)
     end
     def FlowFact.calltargets(scope, cs, receiverset, fact_context, classification)
-      flowfact = FlowFact.new(fact_context)
-      flowfact['scope'] = scope
+      flowfact = FlowFact.new(fact_context.dup)
+      flowfact['scope'] = scope.data
       flowfact['op'] = 'equal'
       flowfact['rhs'] = 0
       flowfact['classification'] = classification
-      flowfact.add_term(FlowFact.instruction(cs), -1)
+      flowfact.add_term(cs.ref, -1)
       receiverset.each do |function| 
-        flowfact.add_term(FlowFact.function(function), 1)
+        flowfact.add_term(function.ref, 1)
       end
       flowfact
     end
     def FlowFact.loop_bound(loop, freq, fact_context, classification)
-      flowfact = FlowFact.new(fact_context)
-      flowfact['scope'] = FlowFact.loop(loop)
+      flowfact = FlowFact.new(fact_context.dup)
+      flowfact['scope'] = loop.loopref
       flowfact['op'] = 'less-equal'
       flowfact['rhs'] = freq.max
       flowfact['classification'] = classification
-      flowfact.add_term(FlowFact.block(loop))
+      flowfact.add_term(loop.ref)
       flowfact
     end
     def FlowFact.infeasible(scope, block, fact_context, classification) 
-      flowfact = FlowFact.new(fact_context)
-      flowfact['scope'] = scope
+      flowfact = FlowFact.new(fact_context.dup)
+      flowfact['scope'] = scope.data
       flowfact['op'] = 'equal'
       flowfact['rhs'] = 0
       flowfact['classification'] = classification
-      flowfact.add_term(FlowFact.block(block))
+      flowfact.add_term(block.ref)
       flowfact
     end
-    def FlowFact.function(fref)
-      { 'function' => fref.name }
+  end
+
+  # timing entries are used to record WCET analysis results or measurement results
+  class TimingEntry < Adapter
+    def initialize(scope, cycles, context)
+      @data = context.dup
+      @data['scope'] ||= scope.data
+      @data['cycles'] = cycles
     end
-    def FlowFact.block(blockref)
-      { 'function' => blockref.function.name, 'block' => blockref.name }
-    end
-    def FlowFact.loop(blockref)
-      { 'function' => blockref.function.name, 'loop' => blockref.name }
-    end
-    def FlowFact.instruction(insref)
-      { 'instruction' => insref.name }.merge(FlowFact.block(insref.block))
+    def to_s
+      @data.to_s
     end
   end
 end

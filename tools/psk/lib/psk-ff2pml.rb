@@ -1,19 +1,19 @@
 #!/usr/bin/env ruby
 #
+# PSK tool set
+#
 # Converts SWEET .ff files to PML format
 #
-# TODO: use PSK-style (options, tool class)
 # TODO: support a larger variety of flow facts (call strings, loop contexts)
 
-require 'yaml'
-require 'ostruct'
-require 'optparse'
+require 'utils'
+include PML
 begin
   require 'rubygems'
   require 'rsec'
   include Rsec::Helpers
 rescue => details
-  $stderr.puts "Failed to load library rsec (gem install rsec)"
+  $stderr.puts "Failed to load library rsec (gem install rsec, 1.9 only)"
   raise details
 end
 
@@ -137,35 +137,6 @@ class FlowFact
   def initialize(type, cs,scope,quant,constraint)
     @type, @callstring, @scope, @quantifier, @constraint = type, cs, scope, quant, constraint
   end
-  def to_pml
-    raise Exception.new("loop scopes not yet supported") if @quantifier != :total
-    raise Exception.new("loop scopes not yet supported") if @scope.stmt
-    raise Exception.new("call strings not yet supported") unless @callstring.empty?
-    ff = {}
-    ff["level"] = "bitcode"
-    ff['origin'] = "sweet"
-    ff["scope"] = @scope.f
-    ff["lhs"]   = @constraint.vector.map { |pnt,factor|
-      { "factor" => factor, "program-point" => pp_to_pml(pnt)  }
-    }
-    ff["op"]    =
-      case @constraint.op
-      when "<="; "less-equal"
-      when "=" ; "equal"
-      else     ; raise Exception.new("Bad constraint op: #{@constraint.op}")
-      end
-    ff["rhs"]   = @constraint.rhs
-    ff
-  end
-  def pp_to_pml(pp)
-    raise Exception.new("edge program points not yet supported") if pp.kind_of?(Edge)
-    llvm,internal = pp.split(":::")
-    fun,block,ins = llvm.split("::")
-    # For upper bounds, we could ignore the internal structure of the block
-    raise Exception.new("translation internal program points not supported") if internal
-    raise Exception.new("instruction program points not supported") if ins
-    { "function" => fun, "block" => block }
-  end
 end
 
 
@@ -242,60 +213,83 @@ class SWEETFlowFactParser
   end
 end
 
-# Standard option parser
-options = OpenStruct.new
-parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{$0} [-i facts.pml] -o facts.pml facts.ff"
-  opts.on("-o", "--output FILE", "Output File") { |f| options.output = f }
-  opts.on("-i", "--input FILE", "Extend this PML file") { |f| options.input = f }
-  opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
-end.parse!
-if options.replace && options.input then $stderr.puts "Options --input and --replace conflict. Try --help"; exit 1; end
-if ARGV.length > 1 then $stderr.puts "Wrong number of arguments. Try --help" ; exit 1 ; end
-
-# input/output
-infile   = if ARGV.first
-            File.open(ARGV[0])
-          else
-            $stdin
-          end
-data = if(options.input)
-         YAML::load(File.read(options.input))
-       else
-         {}
-       end
-outfile = if ! options.output || options.output == "-"
-            $stdout
-          else
-            File.open(options.output,"w")
-          end
-
-# parse
-parser = SWEETFlowFactParser.new.parser
-ffs = []
-added, skipped, reasons, set = 0,0, Hash.new(0), {}
-File.readlines(infile).map do |s|
-  ff = parser.parse!(s)
-  begin
-    ff_pml = ff.to_pml
-    if set[ff_pml]
-      reasons["duplicate"] += 1
-      skipped+=1
-    else
-      set[ff_pml] = true
-      ffs.push(ff_pml)
-      added += 1
-    end
-  rescue Exception=>detail
-    reasons[detail.to_s] += 1
-    skipped += 1
+class FfToPml
+  def initialize(fact_context)
+    @fact_context = fact_context
+  end
+  def to_pml(ffsrc)
+    raise Exception.new("loop scopes not yet supported") if ffsrc.quantifier != :total
+    raise Exception.new("loop scopes not yet supported") if ffsrc.scope.stmt
+    raise Exception.new("call strings not yet supported") unless ffsrc.callstring.empty?
+    ff = FlowFact.new(@fact_context)
+    ff["level"] = "bitcode"
+    ff['origin'] = "sweet"
+    ff['scope'] = ffsrc.scope.f
+    ffsrc.constraint.vector.each { |pnt,factor|
+      flowfact.add_term(pp_to_pml(pnt), factor)
+    }
+    ff["op"]    =
+      case ffsrc.constraint.op
+      when "<="; "less-equal"
+      when "=" ; "equal"
+      else     ; raise Exception.new("Bad constraint op: #{ffsrc.constraint.op}")
+      end
+    ff["rhs"]   = ffsrc.constraint.rhs
+    ff
+  end
+  def pp_to_pml(pp)
+    raise Exception.new("edge program points not yet supported") if pp.kind_of?(Edge)
+    llvm,internal = pp.split(":::")
+    fun,block,ins = llvm.split("::")
+    # For upper bounds, we could ignore the internal structure of the block
+    raise Exception.new("translation internal program points not supported") if internal
+    raise Exception.new("instruction program points not supported") if ins
+    BlockRef.new(fun,block)
   end
 end
-data["flowfacts"] ||= []
-data["flowfacts"].concat(ffs)
-outfile.puts YAML::dump(data)
-$stderr.puts "Parsed #{skipped+added} flow facts, added #{added}"
-$stderr.puts "Reasons for skipping flow facts: "
-reasons.each do |k,count|
-  $stderr.puts "  #{k} (#{count})"
+
+class FfToPmlTool
+  def FfToPmlTool.run(ff_file,pml,options)
+    parser = SWEETFlowFactParser.new.parser
+    converter = FfToPml.new('level' => 'bitcode', 'origin' => 'SWEET')
+    ffs = []
+    added, skipped, reasons, set = 0,0, Hash.new(0), {}
+    File.readlines(ff_file).map do |s|
+      begin
+        ff = parser.parse!(s)        
+        ff_pml = converter.to_pml(ff)
+        if set[ff_pml]
+          reasons["duplicate"] += 1
+          skipped+=1
+        else
+          set[ff_pml] = true
+          pml.add_flowfact(ff_pml)
+          added += 1
+        end
+      rescue Exception=>detail
+        reasons[detail.to_s] += 1
+        skipped += 1
+      end
+    end
+    if options.verbose
+      $dbgs.puts "Parsed #{skipped+added} flow facts, added #{added}"
+      $dbgs.puts "Reasons for skipping flow facts: "
+      reasons.each do |k,count|
+        $dbgs.puts "  #{k} (#{count})"
+      end
+    end
+    pml
+  end
+  def FfToPml.add_options(opts,options)
+  end
+end
+
+if __FILE__ == $0
+SYNOPSIS=<<EOF if __FILE__ == $0
+Translate SWEET flow facts (format FF) to pml flow facts.
+EOF
+  options, args = PML::optparse(1, "file.ff", SYNOPSIS, :type => :io) do |opts,options|
+    FfToPml.add_options(opts,options)
+  end
+  FfToPmlTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
 end

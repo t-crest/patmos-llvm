@@ -34,12 +34,13 @@ PATMOS_PASIM="%<patmos>s/bin/pasim -q --debug 1 -b %<if>s 2>%<tracefile>s"
 PATMOS_LLVM_LD="%<patmos>s/bin/#{PATMOS_LLVM_LD_BIN} -emit-llvm -L%<patmos>s/patmos-unknown-elf/lib/ -b %<of>s %<patmos>s/patmos-unknown-elf/lib/crt0.o %<if>s -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/libcsyms.lst %<patmos>s/patmos-unknown-elf/lib/libcsyms.o -lc -lpatmos -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsfsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsfsyms.o -lrtsf -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsyms.o -lrt -internalize-public-api-list=_start,main -no-script"
 PATMOS_LD="%<patmos>s/bin/#{PATMOS_LD_BIN} -o %<of>s -nostdlib -static --defsym _uart_status_base=0xF0000000 --defsym _uart_data_base=0xF0000004 --defsym _shadow_stack_base=0x4000000 --defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x3000000 --defsym __heap_end=0x2000000 --defsym __heap_start=end %<if>s"
 # psk tools
-MERGE="%<psk>s/psk-merge -o %<of>s %<ifs>s"
-FF2PML="%<psk>s/psk-ff2pml -o %<of>s %<if>s"
-EXTRACT_SYMBOLS="%<psk>s/psk-extract-symbols -i %<if>s -o %<of>s %<elf>s"
-ANALYZE_TRACE="%<psk>s/psk-analyze-trace -i %<if>s -o %<of>s %<elf>s"
-DEMO_EQUATIONS="%<psk>s/psk-demo-equations %<if>s"
-PML2AIS="%<psk>s/psk-pml2ais --header -o %<ais>s -a %<apx>s -b %<elf>s -e main -r %<report>s -x %<result>s %<if>s"
+MERGE="%<psk>s/psk merge -o %<of>s %<ifs>s"
+FF2PML="%<psk>s/psk ff2pml -i %<if>s -o %<of>s %<ff>s"
+EXTRACT_SYMBOLS="%<psk>s/psk extract-symbols -i %<if>s -o %<of>s %<elf>s"
+ANALYZE_TRACE="%<psk>s/psk analyze-trace -i %<if>s -o %<of>s %<elf>s"
+DEMO_EQUATIONS="%<psk>s/psk demo-equations %<if>s"
+PML2AIS="%<psk>s/psk pml2ais --header --ais %<ais>s -a %<apx>s -b %<elf>s -e main -r %<report>s -x %<result>s %<if>s"
+AIT2PML="%<psk>s/psk ait2pml -i %<if>s -o %<of>s -x %<xml>s"
 
 # external tools
 BC2ALF="%<bin>s -march=alf -alf-standalone -alf-memory-areas=0x0000-0xffff -o=%<of>s %<if>s"
@@ -73,6 +74,7 @@ class Demo
   # running
   def run(cmdstring,arghash)
     cmd = cmdstring % arghash
+    cmd = cmd + " --verbose" if arghash[:verbose]
     system("echo '***' #{cmd} >>#{@logfile}")
     cmdstring = cmd
     cmdstring = "#{cmdstring} >>#{@logfile} 2>&1" unless arghash[:noredirect]
@@ -131,7 +133,7 @@ die "File #{bc} does not exist" unless File.exist?(bc)
 outdir = File.expand_path demo.outdir
 file = Proc.new { |suffix| File.join(outdir, "#{File.basename(mod)}.#{suffix}") }
 demo.logfile = file.call("log")
-
+pml = file.call("elf.pml")
 system("echo PSK-DEMO > #{demo.logfile}")
 
 demo.info("================")
@@ -146,52 +148,61 @@ demo.step("Link application with patmos-newlib (bitcode level)") do
 end
 
 demo.step("Run backend, and export LLVM-internal information to YML") do
-  demo.run_build(LLC, "llc", :if => file.call("elf.bc"), :pml => file.call("elf.pml"), :of=>file.call("elf.o"))
+  demo.run_build(LLC, "llc", :if => file.call("elf.bc"), :pml => pml, :of=>file.call("elf.o"))
 end
 
 demo.step("Link ELF binary") do
   demo.run_patmos(PATMOS_LD, :if=>file.call("elf.o"), :of=>file.call("elf"))
 end
 
+demo.step("Merge Stream of PML documents (optional)") do
+  demo.run_psk(MERGE, :ifs => "#{pml}", :of => pml)
+end
+
 demo.step("Extract addresses from ELF binary") do
-  demo.run_psk(EXTRACT_SYMBOLS, :if => file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"))
+  demo.run_psk(EXTRACT_SYMBOLS, :if => pml, :of => pml, :elf => file.call("elf"))
 end
 
 demo.step("Analyze trace generated using pasim") do
-  demo.run_psk(ANALYZE_TRACE, :if=> file.call("elf.pml"), :of => file.call("elf.pml"), :elf => file.call("elf"),
+  demo.run_psk(ANALYZE_TRACE, :if=> pml, :of => pml, :elf => file.call("elf"),
                :noredirect => true)
 end
 
 unless `which #{demo.cmd_sweet}`.empty?
 
-  demo.step("Generate Flow Fact file using Abstract Execution") do
+  demo.step("Generate SWEET Flow Facts") do
     demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
     demo.run(ALF2FF, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))
   end
-  demo.step("Add Flow Facts to PML file") do
-    demo.run_psk(FF2PML, :if => file.call("ff"), :of => file.call("ff.pml"))
-  end
-  demo.step("Merge elf.pml and ff.pml into one YAML document") do
-    demo.run_psk(MERGE, :ifs => "#{file.call("elf.pml")} #{file.call("ff.pml")}", :of => file.call("elf.pml"))
+  demo.step("Add SWEET Flow Facts to PML file") do
+    demo.run_psk(FF2PML, :if => pml, :of => pml, :ff => file.call("ff"))
   end
 end
 
 demo.step("Display control-flow relation graph equations and flow fact inequalities") do
-  demo.run_psk(DEMO_EQUATIONS, :if => "#{file.call("elf.pml")}") #,:noredirect => true)
+  demo.run_psk(DEMO_EQUATIONS, :if => pml) #,:noredirect => true)
 end
 
 demo.step("Export information to aiT's ais format") do
-  demo.run_psk(PML2AIS, :if => file.call("elf.pml"), :ais => file.call("ais"),
+  demo.run_psk(PML2AIS, :if => pml, :ais => file.call("ais"),
                :apx => file.call("apx"), :elf => file.call("elf"),
                :report => file.call("report"), :result => file.call("xml"))
 end
 
 unless `which #{demo.cmd_ait}`.empty?
 
-demo.step("Run aiT") do
+  demo.step("Run aiT") do
     demo.run(AIT, :bin => demo.cmd_ait, :apx => file.call("apx"))
     demo.info("aiT results: (report is in #{file.call("report")})")
-    system("cat",file.call("xml"))
-end
+  end
+  demo.step("Import aiT results") do
+    demo.run_psk(AIT2PML, :if => pml, :of => pml, :xml => file.call("xml"))
+  end
 
 end
+
+demo.step("Display Results") do
+  require 'yaml'
+  YAML::load(File.read(pml))["timing"].each { |t| puts YAML::dump(t) }
+end
+

@@ -62,7 +62,7 @@ end
 class ExtractSymbolsTool
   def ExtractSymbolsTool.add_options(opts,options)
       opts.on("", "--objdump-command FILE", "path to 'patmos-objdump'")   { |f| options.objdump = f }
-      opts.on("", "--text-sections SECTIONS", "CS list of code sections") { |s| options.text_sections = s.split(/\s*,\s*/) }
+      opts.on("", "--text-sections SECTION,..", "list of code sections") { |s| options.text_sections = s.split(/\s*,\s*/) }
   end
   def ExtractSymbolsTool.run(elf, pml, options)
     options.objdump = "patmos-objdump" unless options.objdump

@@ -15,7 +15,7 @@ class AISExporter
     end
 
     # Generate a global AIS header
-    def gen_header(data)
+    def gen_header
 	# TODO get compiler type depending on YAML arch type
 	@outfile.puts '#compiler'
 	@outfile.puts 'compiler "patmos-llvm";'
@@ -135,7 +135,7 @@ class AisExportTool
     options.ffs_types = ['loop-local','calltargets-global','infeasible-global'] unless options.ffs_types
     options.ffs_srcs = 'all' unless options.ffs_srcs
     ais = AISExporter.new(pml, outfile, options)
-    ais.gen_header(pml.data) if options.header
+    ais.gen_header if options.header
 
     pml.machine_functions.each do |func|
       ais.export_jumptables(func)
@@ -149,8 +149,8 @@ class AisExportTool
     outfile.close
   end
   def AisExportTool.add_options(opts,options)
-    opts.on("-o", "--output FILE.ais", "AIS file to generate") { |f| options.output = f }
-    opts.on("",   "--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global,infeasible-global)") { |ty|
+    opts.on("", "--ais FILE", "AIS file to generate") { |f| options.ais = f }
+    opts.on("", "--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global,infeasible-global)") { |ty|
       options.ffs_types = ty.split(/\s*,\s*/)
     }
     opts.on("",   "--flow-facts-from ORIGIN,..", "Elegible Flow Fact Sources (=all)") { |srcs|
@@ -171,10 +171,10 @@ class APXExporter
 	@outfile.puts '<!DOCTYPE APX>'
 	@outfile.puts '<project xmlns="http://www.absint.com/apx" target="patmos" version="12.10i">'
 	@outfile.puts ' <files>'
-	@outfile.puts "  <executables>#{binary}</executables>"
-	@outfile.puts "  <ais>#{aisfile}</ais>" if aisfile
-	@outfile.puts "  <xml_results>#{results}</xml_results>" if results
-	@outfile.puts "  <report>#{report}</report>" if report
+	@outfile.puts "  <executables>#{File.expand_path binary}</executables>"
+	@outfile.puts "  <ais>#{File.expand_path aisfile}</ais>" if aisfile
+	@outfile.puts "  <xml_results>#{File.expand_path results}</xml_results>" if results
+	@outfile.puts "  <report>#{File.expand_path report}</report>" if report
 	@outfile.puts ' </files>'
 	@outfile.puts ' <analyses>'
 	@outfile.puts '  <analysis enabled="true" type="wcet_analysis" id="aiT">'
@@ -186,12 +186,12 @@ class APXExporter
 end
 
 class ApxExportTool
-  def ApxExportTool.run(aisfile, options)
+  def ApxExportTool.run(pml, options)
     apxfile = options.apx == "-" ? $> : File.new(options.apx, "w")
     apx = APXExporter.new(apxfile)
 
     entry = options.entry ? options.entry : "main"
-    apx.export_project(options.binary, options.output, options.results, options.report, entry)
+    apx.export_project(options.binary, options.ais, options.ait_results, options.report, entry)
     
     apxfile.close
   end
@@ -200,7 +200,7 @@ class ApxExportTool
     opts.on("-b", "--binary FILE", "ELF filename to use for project file") { |f| options.binary = f }
     opts.on("-e", "--entry FUNCTION", "Name of the function to analyse") { |f| options.entry = f }
     opts.on("-r", "--report FILE", "Filename of the report log file") { |f| options.report = f }
-    opts.on("-x", "--results FILE", "Filename of the results xml file") { |f| options.results = f }
+    opts.on("-x", "--results FILE", "Filename of the results xml file") { |f| options.ait_results = f }
   end
   def ApxExportTool.check_options(options)
     if options.apx and !options.binary then
@@ -218,10 +218,11 @@ EOF
     AisExportTool.add_options(*o)
     ApxExportTool.add_options(*o)
   end
-  AisExportTool.run(PMLDoc.from_file(args.first), options.output, options)
+  pml = PMLDoc.from_file(args.first)
+  AisExportTool.run(pml, options.ais, options)
 
   # TODO make this available as separate psk-tool too to generate only the APX file!?
   if options.apx
-    ApxExportTool.run(options.output, options)
+    ApxExportTool.run(pml, options)
   end
 end

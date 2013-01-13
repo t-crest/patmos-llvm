@@ -6,28 +6,33 @@ include PML
 require 'psk-analyze-trace'
 require 'psk-extract-symbols'
 require 'psk-pml2ais'
-
+require 'psk-ait2pml'
 class BenchTool
-  def BenchTool.run(elf,pml,options)
-    ExtractSymbolsTool.run(elf,pml,options)
-    AnalyzeTraceTool.run(elf,pml)
-    AisExportTool.run(pml,options.output,options)
+  TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool,
+           AisExportTool,ApxExportTool,AitAnalyzeTool,AitImportTool]
+
+  def BenchTool.run(pml,options)
+    ExtractSymbolsTool.run(options.binary,pml,options)
+    AnalyzeTraceTool.run(options.binary,pml,options)
+    AisExportTool.run(pml,options.ais,options)
+    ApxExportTool.run(pml,options)
+    AitAnalyzeTool.run(options)
+    AitImportTool.run(pml,options)
+    pml.data['timing'].each do |t|
+      puts YAML::dump(t)
+    end
   end
   def BenchTool.add_options(opts,options)
-    ExtractSymbolsTool.add_options(opts,options)
-    AnalyzeTraceTool.add_options(opts,options)
-    AisExportTool.add_options(opts,options)
-  end
-  def BenchTool.main
+    TOOLS.each { |toolclass| toolclass.add_options(opts,options) }
   end
 end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
-Generates .ais file for the analysis of a benchmark
+PSK benchmark run: extract symbols, analyze trace, run aiT"
 EOF
-  options, args = PML::optparse(2, "program.elf program.elf.pml", SYNOPSIS, :type => :none) do |opts,options|
+  options, args = PML::optparse(1, "program.elf.pml", SYNOPSIS, :type => :none) do |opts,options|
     BenchTool.add_options(opts,options)
   end
-  BenchTool.run(args[0], PMLDoc.from_file(args[1]), options)
+  BenchTool.run(PMLDoc.from_file(args[0]), options)
 end

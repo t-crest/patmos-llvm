@@ -7,10 +7,19 @@ require 'yaml'
 require 'set'
 require 'pml'
 
+$dbgs = $stderr
+
 module PML
+  def internal_error(msg)
+    raise Exception.new("[#{$0}] INTERNAL ERROR: #{msg}")
+  end
   def die(msg)
     $stderr.puts msg
     raise Exception.new("psk fatal error")
+  end
+  def die_usage(msg)
+    $stderr.puts "#{$0}: #{msg}. Try --help."
+    exit 1
   end
   def warn(msg)
     $stderr.puts "[#{$0}] WARNING #{msg}"
@@ -43,9 +52,9 @@ module PML
                    else
                      arg_range.cover?(ARGV.length)
                    end
-    die "Wrong number of positional arguments. Try --help" unless arg_range_ok
+    die_usage "Wrong number of positional arguments" unless arg_range_ok
     if do_input
-      die "Option --input is mandatory. Try --help" unless options.input
+      die_usage "Option --input is mandatory" unless options.input
       [options, ARGV]
     else
       [options, ARGV]

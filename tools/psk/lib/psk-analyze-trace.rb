@@ -75,7 +75,7 @@ class TraceMonitor
         end
         # loop header
         if b.loopheader?
-          if loopstack[-1] && loopstack[-1].name != b.name
+          if b.loopnest == loopstack.length && loopstack[-1].name != b.name
             publish(:loopexit, loopstack.pop, cycles)
           end
           if b.loopnest == loopstack.length
@@ -253,8 +253,8 @@ class FrequencyRecord
     (io.puts "No records";return) unless @freqs
     io.puts "---"
     io.puts "cycles: #{cycles}"
-    @freqs.each do |bref,freq|
-      io.puts "  #{bref.to_s.ljust(15)} \\in #{freq}"
+    @freqs.keys.sort.each do |bref|
+      io.puts "  #{bref.to_s.ljust(15)} \\in #{@freqs[bref]}"
     end
     @calltargets.each do |site,recv|
       io.puts "  #{site} calls #{recv.to_a.join(", ")}"
@@ -278,31 +278,12 @@ class AnalyzeTraceTool
   def AnalyzeTraceTool.run(elf,pml,options)
     tm = TraceMonitor.new(elf,pml,options.pasim)
     tm.subscribe(VerboseRecorder.new) if options.debug
-    mainscope = pml.machine_functions.originated_from(options.analysis_entry)
-    global = GlobalRecorder.new(mainscope)
-    loops  = LoopRecorder.new(mainscope)
+    entry = pml.machine_functions.originated_from(options.analysis_entry)
+    global = GlobalRecorder.new(entry)
+    loops  = LoopRecorder.new(entry)
     tm.subscribe(global)
     tm.subscribe(loops)
     tm.run
-
-    if options.verbose
-      puts "Global Frequencies"
-      global.results.dump
-      puts "Loop Bounds"
-      loops.results.values.each { |r| r.dump }
-    end
-
-    data = pml.data
-    data['flowfacts'] ||= []
-    data['exectimes'] ||= []
-
-    fact_context = { 'level' => 'machinecode', 'origin' => 'trace'}
-    globalscope = FlowFact.function(mainscope)
-
-    measured_time = { 'scope' => globalscope }.merge(fact_context)
-    measured_time['cycles'] = global.results.cycles
-    data['exectimes'].push(measured_time)
-    $stderr.puts "Measured: #{measured_time}"
 
     # Collect executed and infeasible blocks
     executed_blocks = {}
@@ -318,31 +299,42 @@ class AnalyzeTraceTool
         end
       end
     end
-    $stderr.puts "Executed Functions: #{executed_blocks.keys.join(", ")}" if options.verbose
+
+    if options.verbose
+      $dbgs.puts "Global Frequencies"
+      global.results.dump($dbgs)
+      puts "Loop Bounds"
+      loops.results.values.each { |r| r.dump($dbgs) }
+      $dbgs.puts "Executed Functions: #{executed_blocks.keys.join(", ")}"
+    end
+
+    fact_context = { 'level' => 'machinecode', 'origin' => 'trace'}
+    globalscope = entry.ref
+
+    pml.add_timing(TimingEntry.new(globalscope,global.results.cycles.max,fact_context))
 
     # Export global block frequencies, call targets and infeasible blocks
     global.results.freqs.each do |block,freq|
-      flowfact = FlowFact.new(fact_context)
-      data['flowfacts'].push(FlowFact.block_frequency(globalscope, block, freq, fact_context, "block-global").data)
+      pml.add_flowfact(FlowFact.block_frequency(globalscope, block, freq, fact_context, "block-global"))
     end
     global.results.calltargets.each do |cs,receiverset|
       next unless cs['callees'].include?('__any__')
-      data['flowfacts'].push(FlowFact.calltargets(globalscope, cs, receiverset, fact_context, "calltargets-global").data)
+      pml.add_flowfact(FlowFact.calltargets(globalscope, cs, receiverset, fact_context, "calltargets-global"))
     end
     infeasible_blocks.each do |block|
-      data['flowfacts'].push(FlowFact.infeasible(globalscope, block, fact_context, "infeasible-global").data)
+      pml.add_flowfact(FlowFact.infeasible(globalscope, block, fact_context, "infeasible-global"))
     end
 
     # Export Loops
     loops.results.values.each do |loopbound|
       loop,freq = loopbound.freqs.to_a[0]
-      data['flowfacts'].push(FlowFact.loop_bound(loop, freq, fact_context, "loop-local").data)
+      pml.add_flowfact(FlowFact.loop_bound(loop, freq, fact_context, "loop-local"))
     end
     executed_blocks.each do |function,bset|
       function.loops.each do |block|
         unless bset.include?(block)
           warn "Loop #{block} not executed by trace"
-          data['flowfacts'].push(FlowFact.loop_bound(block, 0..0, fact_context, "loop-local").data)
+          pml.add_flowfact(FlowFact.loop_bound(block, 0..0, fact_context, "loop-local"))
         end
       end
     end
