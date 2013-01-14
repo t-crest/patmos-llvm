@@ -219,7 +219,7 @@ module PML
     private
     def lookup(dict,key,name)
       v = dict[key]
-      raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}'") unless v
+      raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}") unless v
       v
     end
     def add_lookup(dict,key,val,name,opts={})
@@ -509,8 +509,10 @@ module PML
     def FlowFact.from_pml(pml, data)
       mod = if data['level'] == 'bitcode' 
               pml.bitcode_functions
-            else
+            elsif data['level'] == 'machinecode'
               pml.machine_functions
+            else
+              raise Exception.new("Unsupported representation level: #{data['level']}")
             end
       scope = Reference.from_pml(mod,data['scope'])
       lhs = TermList.new(data['lhs'].map { |t| Term.from_pml(mod,t) })
@@ -518,6 +520,7 @@ module PML
     end
     def add_attribute(k,v)
       assert("Bad attribute #{k}") { ATTRIBUTES.include?(k) }
+      @data[k] = v
       @attributes[k] = v
     end
     def add_attributes(attrs,moreattrs={})

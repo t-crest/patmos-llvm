@@ -252,27 +252,27 @@ class UnsupportedFlowFactException < Exception
 end
 
 class SweetFlowFactImport
-  def initialize(pml, fact_context)
-    @pml = pml
+  def initialize(functions, fact_context)
+    @functions = functions
     @fact_context = fact_context
   end
   def to_pml(ffsrc)
     raise UnsupportedFlowFactException.new("loop scopes not yet supported") if ffsrc.quantifier != :total
     raise UnsupportedFlowFactException.new("loop scopes not yet supported") if ffsrc.scope.stmt
     raise UnsupportedFlowFactException.new("call strings not yet supported") unless ffsrc.callstring.empty?
-    ff = @fact_context.dup
-    ff['scope'] = { 'function' => ffsrc.scope.f }
-    ff['lhs'] = ffsrc.constraint.vector.map { |pnt,factor|
-      { 'program-point' => pp_to_pml(pnt), 'factor' => factor }
+    scope = @functions.by_name(ffsrc.scope.f)
+    terms = ffsrc.constraint.vector.map { |pp,factor|
+      Term.new(pp_to_pml(pp).ref, factor)
     }
-    ff["op"]    =
+    op =
       case ffsrc.constraint.op
       when "<="; "less-equal"
       when "=" ; "equal"
       else     ; raise Exception.new("Bad constraint op: #{ffsrc.constraint.op}")
       end
-    ff["rhs"]   = ffsrc.constraint.rhs
-    FlowFact.from_pml(@pml, ff)
+    flowfact = FlowFact.new(scope.ref, TermList.new(terms), op, ffsrc.constraint.rhs)
+    flowfact.add_attributes(@fact_context)
+    flowfact
   end
   def pp_to_pml(pp)
     raise UnsupportedFlowFactException.new("edge program points not yet supported") if pp.kind_of?(SWEET::Edge)
@@ -281,14 +281,14 @@ class SweetFlowFactImport
     # For upper bounds, we could ignore the internal structure of the block
     raise UnsupportedFlowFactException.new("translation internal program points not supported") if internal
     raise UnsupportedFlowFactException.new("instruction program points not supported") if ins
-    { 'function' => fun, 'block' => block }
+    @functions.by_name(fun).blocks.by_name(block)
   end
 end
 
 class SweetImportTool
   def SweetImportTool.run(ff_file,pml,options)
     parser = SWEET::FlowFactParser.new.parser
-    converter = SweetFlowFactImport.new(pml, 'level' => 'bitcode', 'origin' => 'SWEET')
+    converter = SweetFlowFactImport.new(pml.bitcode_functions, 'level' => 'bitcode', 'origin' => 'SWEET')
     ffs = []
     added, skipped, reasons, set = 0,0, Hash.new(0), {}
     File.readlines(ff_file).map do |s|
@@ -327,7 +327,7 @@ SYNOPSIS=<<EOF if __FILE__ == $0
 Translate SWEET flow facts (format FF) to pml flow facts.
 EOF
   options, args = PML::optparse(1, "file.ff", SYNOPSIS, :type => :io) do |opts,options|
-    SweetFlowFactImport.add_options(opts,options)
+    SweetImportTool.add_options(opts,options)
   end
   SweetImportTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
 end
