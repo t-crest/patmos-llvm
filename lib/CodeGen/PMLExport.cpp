@@ -705,7 +705,7 @@ bool PMLExportPass::doInitialization(Module &M) {
   // TODO with the current implementation, we actually do not need to
   // keep the Output as field, we only use it in finalization.
   std::string ErrorInfo;
-  OutFile = new tool_output_file(OutFileName.c_str(), ErrorInfo, 0);
+  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
   if (!ErrorInfo.empty()) {
     delete OutFile;
     errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";

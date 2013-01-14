@@ -78,14 +78,20 @@ namespace llvm {
       case Patmos::BR:
       case Patmos::BRu:
       case Patmos::BRCF:
-      case Patmos::BRCFu:
+      case Patmos::BRCFu: {
         // TODO handle normal branches, return single branch target
+        const MachineOperand &MO(Instr->getOperand(2));
+
+        if (MO.isMBB()) {
+          targets.push_back( MO.getMBB() );
+        }
 
         break;
+      }
       case Patmos::BRT:
       case Patmos::BRTu:
       case Patmos::BRCFT:
-      case Patmos::BRCFTu:
+      case Patmos::BRCFTu: {
         assert(Instr->getNumOperands() == 4);
 
         unsigned index = Instr->getOperand(3).getIndex();
@@ -95,6 +101,7 @@ namespace llvm {
         JTEntries &JTBBs(MJTI->getJumpTables()[index].MBBs);
 
         return JTBBs;
+      }
       }
 
       return targets;
