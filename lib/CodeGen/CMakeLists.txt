@@ -55,6 +55,7 @@ add_llvm_library(LLVMCodeGen
   MachineModuleInfo.cpp
   MachineModuleInfoImpls.cpp
   MachinePassRegistry.cpp
+  MachinePostDominators.cpp
   MachineRegisterInfo.cpp
   MachineSSAUpdater.cpp
   MachineScheduler.cpp
