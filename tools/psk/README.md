@@ -37,10 +37,6 @@ mrtc/fft1 -O0:      aiT reports that an infeasible problem, even if no annotatio
 	            given [=> aiT bug?]
 mrtc/lms -O0:       aiT reports infeasability [=> aiT bug?]:
 	            Loop 'main.L1': dead end in first iteration in all contexts
-mrtc/bsort100 -O0:  According to the trace, the backedge to LBB1_6 is never taken.
-               	    But aiT complains the problem is infeasible, unless a loop bound
-	       	    of at least '2' is specified for LBB1_6 [=> investigate in GUI whether
-		    aiT's loop reconstruction matches LLVM's].
 
 * patmos tool chain problems
 mrtc/fac -O0:       Recursing bound missing (=> recursion not supported?)

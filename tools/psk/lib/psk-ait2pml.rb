@@ -14,7 +14,7 @@ include REXML
 class AitAnalyzeTool
   def AitAnalyzeTool.add_options(opts,options)
     opts.on("-a", "--apx FILE", "APX file for a3 (required)") { |f| options.apx = f }
-    opts.on("","--a3-command COMMAND", "path to a3patmos executable (=a3patmos)") { |cmd|
+    opts.on("--a3-command COMMAND", "path to a3patmos executable (=a3patmos)") { |cmd|
       options.a3 = cmd
     }
   end
@@ -28,9 +28,7 @@ end
 
 class AitImportTool
   def AitImportTool.add_options(opts,options)
-    opts.on("-f", "--analysis-entry FUNCTUON", "analysis entry function (=main)") { |f| 
-      options.analysis_entry = f
-    }
+    opts.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse") { |f| options.analysis_entry = f }
     opts.on("-x", "--results FILE", "Filename of the results xml file") { |f| options.ait_results = f }
   end
            
@@ -38,7 +36,7 @@ class AitImportTool
     doc = Document.new(File.read(options.ait_results))
     options.analysis_entry ||= "main"
     cycles = doc.elements["results/result[1]/cycles"].text.to_i
-    scope = pml.machine_functions.originated_from(options.analysis_entry).ref
+    scope = pml.machine_functions.by_label(options.analysis_entry).ref
     entry = TimingEntry.new(scope, cycles, 'level' => 'machinecode', 'origin' => 'aiT')
     pml.add_timing(entry)
     pml

@@ -55,43 +55,31 @@ class AISExporter
     # export indirect calls
     def export_calltargets(ff)
       scope, callsite, targets = ff.get_calltargets
-      die("Bad calltarget flowfact: #{ff.inspect}") unless scope
-      fun = @pml.machine_functions.get(callsite['function'])
-      block = fun.blocks.get(callsite['block'])
-      ins = block.instructions[callsite['instruction']]
-      unless ins && ins.index == callsite['instruction']
-        internal_error "Inconsistent instruction index"
-      end 
-      location = "#{dquote(block.label)} + #{ins.address - block.address} bytes"
-      called = targets.map { |f|
-        dquote(@pml.machine_functions.get(f).label)
-      }.join(", ")
+      assert("Bad calltarget flowfact: #{ff.inspect}") { scope }
+      block = callsite.block
+      location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
+      called = targets.map { |f| dquote(f.label) }.join(", ")
       gen_fact("instruction #{location} calls #{called} ;",
                "global indirect call targets (source: #{ff['origin']})")
     end
 
     # export loop bounds
     def export_loopbound(ff)
-      fun  = @pml.machine_functions.get(ff['scope']['function'])
-      loop = fun.blocks.get(ff['scope']['loop'])
-      loopname = dquote(loop.label)
-
       # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' 
       # of the loop. But apparently this is not how loop bounds are interpreted in
       # aiT (=> ask absint guys)
-      gen_fact("loop #{loopname} max #{ff['rhs']} ;", # end ;"
+      loopname = dquote(ff.scope.loopblock.label)
+      gen_fact("loop #{loopname} max #{ff.rhs} ;", # end ;"
                "local loop header bound (source: #{ff['origin']})")
     end
 
     # export global infeasibles
     def export_infeasible(ff)
       scope, pp, zero = ff.get_block_frequency_bound
-      fun  = @pml.machine_functions.get(pp['function'])
-      block = fun.blocks.get(pp['block'])
-      insname = dquote(block.label)
+      insname = dquote(pp.block.label)
 
       # XXX: Hack: only export infeasible calls (minimum neccessary to calculate WCET)
-      if block.calls?
+      if pp.block.calls?
         gen_fact("instruction #{insname} is never executed ;",
                  "globally infeasible call (source: #{ff['origin']})")
       end
@@ -99,11 +87,11 @@ class AISExporter
 
     # export linear-constraint flow facts
     def export_flowfact(ff)
-      if(ff['classification'] == 'calltargets-global')
+      if(ff.classification == 'calltargets-global')
         export_calltargets(ff)
-      elsif(ff['classification'] == 'loop-local')
+      elsif(ff.classification == 'loop-local')
         export_loopbound(ff)
-      elsif(ff['classification'] == 'infeasible-global')
+      elsif(ff.classification == 'infeasible-global')
         export_infeasible(ff)
       else
         die ("General purpose flow-fact generation not yet implemented")
@@ -130,17 +118,17 @@ class AisExportTool
     pml.flowfacts.each do |fact|
       next unless fact['level'] == 'machinecode'
       next unless options.ffs_srcs=='all' || options.ffs_srcs.include?(fact['origin'])
-      next unless options.ffs_types.include?(fact['classification'])
+      next unless options.ffs_types.include?(fact.classification)
       ais.export_flowfact(fact)
     end
     outfile.close
   end
   def AisExportTool.add_options(opts,options)
-    opts.on("", "--ais FILE", "AIS file to generate") { |f| options.ais = f }
-    opts.on("", "--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global,infeasible-global)") { |ty|
+    opts.on("--ais FILE", "AIS file to generate") { |f| options.ais = f }
+    opts.on("--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global,infeasible-global)") { |ty|
       options.ffs_types = ty.split(/\s*,\s*/)
     }
-    opts.on("",   "--flow-facts-from ORIGIN,..", "Elegible Flow Fact Sources (=all)") { |srcs|
+    opts.on("--flow-facts-from ORIGIN,..", "Elegible Flow Fact Sources (=all)") { |srcs|
       options.ffs_srcs = srcs.split(/\s*,\s*/)
     }
     opts.on("-g", "--header", "Generate AIS header") { |f| options.header = f }
@@ -175,17 +163,16 @@ end
 class ApxExportTool
   def ApxExportTool.run(pml, options)
     apxfile = options.apx == "-" ? $> : File.new(options.apx, "w")
-    apx = APXExporter.new(apxfile)
+    entry = options.analysis_entry || "main"
 
-    entry = options.entry ? options.entry : "main"
-    apx.export_project(options.binary, options.ais, options.ait_results, options.report, entry)
-    
+    apx = APXExporter.new(apxfile)
+    apx.export_project(options.binary, options.ais, options.ait_results, options.report, entry)    
     apxfile.close
   end
   def ApxExportTool.add_options(opts,options)
     opts.on("-a", "--apx FILE", "Generate APX file") { |f| options.apx = f }
     opts.on("-b", "--binary FILE", "ELF filename to use for project file") { |f| options.binary = f }
-    opts.on("-e", "--entry FUNCTION", "Name of the function to analyse") { |f| options.entry = f }
+    opts.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse") { |f| options.analysis_entry = f }
     opts.on("-r", "--report FILE", "Filename of the report log file") { |f| options.report = f }
     opts.on("-x", "--results FILE", "Filename of the results xml file") { |f| options.ait_results = f }
   end

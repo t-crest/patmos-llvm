@@ -40,7 +40,7 @@ class TraceMonitor
   def initialize(elf,pml,pasim,program_start = "main")
     @pml = pml
     @trace = SimulatorTrace.new(elf,pasim)
-    @start = @pml.machine_functions.originated_from(program_start).blocks.first['address']
+    @start = @pml.machine_functions.by_label(program_start).blocks.first['address']
     @observers = []
     # whether an instruction is a watch point
     @wp = {}
@@ -150,7 +150,7 @@ class TraceMonitor
     if ! addr
       warn ("No address for #{data.inspect[0..60]}")
     elsif dict[addr]
-      raise Exception.new("Duplicate watchpoint at address #{addr.inspect}")
+      raise Exception.new("Duplicate watchpoint at address #{addr.inspect}: #{data} / #{dict[addr]}")
     else
       @wp[addr] = true
       dict[addr] = data
@@ -264,21 +264,25 @@ end
 
 class AnalyzeTraceTool
   def AnalyzeTraceTool.add_options(opts,options)
-    options.pasim = "pasim"
-    options.analysis_entry = "main"
-    opts.on("-f", "--analysis-entry FUNCTUON", "analysis entry function (bitcode name)") { |f| 
-      options.analysis_entry = f
-    }
-    opts.on("", "--pasim-command FILE", "path to pasim (=pasim)") { |f| options.pasim = f }
+
+# TODO: analysis entry != trace entry (think: running N tests invoking measure vs. frequencies relative to measure)
+#    opts.on("--trace-entry FUNCTION", "Name of the program entry to be traced") { |f| options.trace_entry = f }
+
+    opts.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse") { |f| options.analysis_entry = f }
+    opts.on("--pasim-command FILE", "path to pasim (=pasim)") { |f| options.pasim = f }
   end
 
   # elf ... patmos ELF
   # pml ... PML for the prgoam
   # options.pasim ... path to pasim executable
   def AnalyzeTraceTool.run(elf,pml,options)
+    options.pasim = "pasim"           unless options.pasim
+    options.trace_entry = "main"      unless options.trace_entry
+    options.analysis_entry = "main"   unless options.analysis_entry
+
     tm = TraceMonitor.new(elf,pml,options.pasim)
     tm.subscribe(VerboseRecorder.new) if options.debug
-    entry = pml.machine_functions.originated_from(options.analysis_entry)
+    entry  = pml.machine_functions.by_label(options.analysis_entry)
     global = GlobalRecorder.new(entry)
     loops  = LoopRecorder.new(entry)
     tm.subscribe(global)
@@ -328,13 +332,13 @@ class AnalyzeTraceTool
     # Export Loops
     loops.results.values.each do |loopbound|
       loop,freq = loopbound.freqs.to_a[0]
-      pml.flowfacts.add(FlowFact.loop_bound(loop, freq, fact_context, "loop-local"))
+      pml.flowfacts.add(FlowFact.block_frequency(loop.loopref, loop, freq, fact_context, "loop-local"))
     end
     executed_blocks.each do |function,bset|
       function.loops.each do |block|
         unless bset.include?(block)
           warn "Loop #{block} not executed by trace"
-          pml.flowfacts.add(FlowFact.loop_bound(block, 0..0, fact_context, "loop-local"))
+          pml.flowfacts.add(FlowFact.block_frequency(block.loopref, block, 0..0, fact_context, "loop-local"))
         end
       end
     end

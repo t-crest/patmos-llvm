@@ -1,28 +1,60 @@
 #
+# PSK tool set
+# pml.rb
+#
 # PML data format classes
+#
 # Provide smart accessors, caching, etc.
+#
 module PML
 
-  # TODO create label depending on architecture?
   RE_HEX=/[0-9A-Fa-f]/
 
+  def assert(msg)
+    unless yield
+      pnt = Thread.current.backtrace[1]
+      $stderr.puts ("#{$0}: Assertion failed in #{pnt}: #{msg}")
+      puts "    "+Thread.current.backtrace.join("\n    ")
+      exit 1
+    end
+  end
+
+  # TODO: refactor label stuff
   def parse_mbb_label(label)
     label =~ /\A\.LBB(\d+)_(\d+)$/
     [$1.to_i, $2.to_i] if $1
   end
 
+  def dquote(str)
+    '"' + str + '"'
+  end
+
   def merge_ranges(r1,r2=nil)
-    die "merge_ranges: first argument is nil" unless r1
+    assert("first argument is nil") { r1 }
     r1=Range.new(r1,r1) unless r1.kind_of?(Range)
     return r1 unless r2
     [r1.min,r2.min].min .. [r1.max,r2.max].max
   end
 
-  class Proxy
-    attr_reader :data
-    def to_yaml
-      @data.to_yaml
+  def reachable_set(entry)
+    reachable = Set.new
+    todo = [entry]
+    while !todo.empty?
+      item = todo.pop
+      next if reachable.include?(item)
+      reachable.add(item)
+      successors = yield item
+      successors.each do |succ|
+        todo.push(succ)
+      end
     end
+    reachable
+  end
+
+  # Proxy for YAML data
+  class Proxy
+    # The PML data corresponding to the object
+    attr_reader :data
   end
 
   # Proxy for read-only lists
@@ -31,10 +63,7 @@ module PML
     def to_s
       list.to_s
     end
-    # we could define delegators for all accessors and tests
-    def first
-      @list.first
-    end
+    # XXX: derive delegators for all permitted read-only operations
     def each
       @list.each { |v| yield v }
     end
@@ -42,66 +71,7 @@ module PML
       @list.length
     end
   end
-
-  # Smart Proxy for functions, blocks and instructions
-  class ProgramPointList < ListProxy
-    attr_reader :list
-    def initialize(list)
-      @list = list
-      build_lookup
-    end
-    def get(key)
-      v = @named[key]
-      raise Exception.new("#{self.class}.get: No such object: #{key} for #{self}") unless v
-      v
-    end
-    def by_address(address)
-      v = @address[address]
-      raise Exception.new("No object with such address:  #{address}") unless v
-      v
-    end
-    def originated_from(src)
-      build_rev_map unless @revmap
-      if @dups[src]
-        raise Exception.new("More than one machine function map to #{src}")
-      elsif ! @revmap[src]
-        raise Exception.new("No object originated from #{src}")
-      else
-        @revmap[src]
-      end
-    end
-    private
-    def build_lookup
-      @named,@address = {}, {}
-      @list.each do |v|
-        @named[v.name] = v
-        @address[v.address] = v
-      end
-    end
-    def build_rev_map
-      @revmap = {}
-      @dups = {}
-      @list.each do |v|
-        if src = v['mapsto']
-          if @revmap[src]
-            @dups[src] = true
-          elsif ! @dups[src]
-            @revmap[src] = v
-          end
-        end
-      end
-    end
-  end
-
-  # Proxy for lists where the name is the index in the list
-  class IndexedList < ProgramPointList
-    def initialize(list)
-      super(list)
-    end
-    def [](index)
-      @list[index]
-    end
-  end
+  
   
   # class providing convenient accessors and additional program information derived
   # from PML files
@@ -123,10 +93,10 @@ module PML
       else
         @data = PMLDoc.merge_stream(stream)
       end
-      @bitcode_functions = ProgramPointList.new(@data['bitcode-functions'].map { |f| Function.new(f) })
-      @machine_functions = ProgramPointList.new(@data['machine-functions'].map { |f| Function.new(f) })
+      @bitcode_functions = FunctionList.new(@data['bitcode-functions'])
+      @machine_functions = FunctionList.new(@data['machine-functions'])
       @data['flowfacts'] ||= []
-      @flowfacts = FlowFactList.new(@data['flowfacts'])
+      @flowfacts = FlowFactList.from_pml(self, @data['flowfacts'])
     end
     def add_timing(timing_entry)
       @data['timing'] ||= []
@@ -170,41 +140,157 @@ module PML
     end
   end
   
-  # Qualified name for functions
-  class FunctionRef < Proxy
+  class Reference < Proxy
     attr_reader :qname
-    def initialize(name)
-      @qname = name
-      @data = { 'function' => name }
+    def Reference.from_pml(functions, data)
+      assert("PML Reference: no function attribute") { data['function'] }
+      function = functions.by_name(data['function'])
+      if block = data['block']
+        block = function.blocks.by_name(block)
+        if index = data['instruction']
+          ins = block.instructions[index]
+          return InstructionRef.new(ins,data)
+        else
+          return BlockRef.new(block,data)
+        end
+      elsif loop = data['loop']
+        loop = function.blocks.by_name(loop)
+        return LoopRef.new(loop, data)
+      else
+        return FunctionRef.new(function,data)
+      end
+    end
+  end
+
+  # Qualified name for functions
+  class FunctionRef < Reference
+    attr_reader :function, :qname
+    def initialize(function, data=nil)
+      @function = function
+      @qname = function.qname
+      @data = data || { 'function' => function.name }
     end
   end
 
   # Qualified name for blocks
-  class BlockRef < Proxy
-    attr_reader :qname
-    def initialize(fname,bname)
-      @qname = Block.get_label(fname, bname)
-      @data = { 'function' => fname, 'block' => bname }
+  class BlockRef < Reference
+    attr_reader :block, :qname
+    def initialize(block, data = nil)
+      @block = block
+      @qname = block.qname
+      @data = data || { 'function' => block.function.name, 'block' => block.name }
+    end
+  end
+
+  # Qualified name for loops
+  class LoopRef < Reference
+    attr_reader :loopblock, :qname
+    def initialize(block, data = nil)
+      @loopblock = block
+      @qname = block.qname
+      @data = data || { 'function' => loopblock.function.name, 'loop' => loopblock.name }
     end
   end
 
   # Qualified name for instructions
-  class InstructionRef < Proxy
-    attr_reader :qname
-    def initialize(fname,bname,index)
-      @qname = "#{Block.get_label(fname,bname)}_#{index}"
-      @data = { 'function' => fname, 'block' => bname, 'instruction' => index }
+  class InstructionRef < Reference
+    attr_reader :instruction, :qname
+    def initialize(instruction, data = nil)
+      @instruction = instruction
+      @qname = instruction.qname
+      @data = data || { 'function' => instruction.function.name,
+        'block' => instruction.block.name, 'instruction' => instruction.name }
+    end
+    def block
+      instruction.block
     end
   end
 
+  # Lists of functions, blocks and instructions
+  class ProgramPointList < ListProxy
+    attr_reader :list
+    def initialize(list)
+      @list = list
+      build_lookup
+    end
+    def by_name(key)
+      lookup(@named,key,"name")
+    end
+    private
+    def lookup(dict,key,name)
+      v = dict[key]
+      raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}'") unless v
+      v
+    end
+    def add_lookup(dict,key,val,name,opts={})
+      return if ! key && opts[:ignore_if_missing]
+      raise Exception.new("#{self.class}#by_#{name}: Duplicate object with key #{key}: #{val} and #{dict[key]}") if dict[key]
+      dict[key] = val
+    end
+    def build_lookup
+      @named = {}
+      @list.each do |v|
+        add_lookup(@named,v.name,v,"name")
+      end
+    end
+  end
+
+  # List of functions in the program
+  class FunctionList < ProgramPointList
+    def initialize(data)
+      super(data.map { |f| Function.new(f) })
+      @data = data
+    end
+    def [](name)
+      by_name(name)
+    end
+    def by_address(addr)
+      lookup(@address, addr, "address")
+    end
+    def by_label(label)
+      lookup(@labelled, label, "label")
+    end
+    def build_lookup
+      super()
+      @address = {}
+      @labelled = {}
+      @list.each do |v|
+        add_lookup(@labelled,v.label,v,"label",:ignore_if_missing => true)
+        add_lookup(@address,v.address,v,"address",:ignore_if_missing => true)
+      end
+    end
+  end
+
+  # List of PML basic blocks in a function
+  class BlockList < ProgramPointList
+    def initialize(function, data)
+      super(data.map { |b| Block.new(function, b) })
+      @data = data
+    end
+    def first
+      @list.first
+    end
+    def [](name)
+      by_name[name]
+    end
+  end
+
+  # List of PML instructions in a block
+  class InstructionList < ProgramPointList
+    def initialize(block, data)
+      super(data.map { |i| Instruction.new(block, i) })
+      @data = data
+    end
+    def [](index)
+      @list[index]
+    end
+  end
+  
   # References to Program Points (functions, blocks, instructions)
   class ProgramPointProxy < Proxy
-    attr_reader :name, :qname, :ref
+    attr_reader :name, :qname
     def address
       @data['address']
-    end
-    def qname
-      ref.qname
     end
     def address=(value)
       @data['address']=value
@@ -224,15 +310,18 @@ module PML
     def initialize(mf)
       @data = mf
       @name = @data['name']
-      @ref = FunctionRef.new(name)
+      @qname = name
       @hash = name.hash
       @loops = []
-      @blocks = ProgramPointList.new(@data['blocks'].map { |mbb| Block.new(self, mbb) })
+      @blocks = BlockList.new(self, @data['blocks'])
       blocks.each do |block|
         if(block.loopheader?)
           @loops.push(block)
         end
       end
+    end
+    def ref
+      FunctionRef.new(self)
     end
     def [](k)
       internal_error "Function: do not access blocks directly" if k=='blocks'
@@ -247,7 +336,7 @@ module PML
       @data['address'] || blocks.first.address
     end
     def label
-      @data['label'] || blocks.first.label
+      @data['label'] || @data['mapsto'] || blocks.first.label
     end
 
     # map from called function to list of callsites
@@ -272,6 +361,7 @@ module PML
   # end of class Function
   end
 
+
   # Class representing PML Basic Blocks
   class Block < ProgramPointProxy
     attr_reader :function,:instructions,:loopnest
@@ -279,17 +369,18 @@ module PML
       @data = mbb
       @function = function
       @name = @data['name']
-      @ref = BlockRef.new(function.name, name)
+      @qname = label
       @hash = qname.hash
       @is_loopheader = @data['loops'] && @data['loops'].first == self.name
       @loopnest = (@data['loops']||[]).length
-      @instructions = IndexedList.new(@data['instructions'].map { |ins| 
-                                               Instruction.new(self, ins) 
-                                             })
+      @instructions = InstructionList.new(self, @data['instructions'])
     end
     def [](k)
       internal_error "Block: do not access instructions directly" if k=='instructions'
       @data[k]
+    end
+    def ref
+      BlockRef.new(self)
     end
     def to_s
       "#{function['mapsto']}/#{qname}"
@@ -306,20 +397,18 @@ module PML
       ! callsites.empty?
     end
     def loopref
-      { 'function' => function.name, 'loop' => name }
+      assert("Block#loopref: not a loop header") { self.loopheader? }
+      LoopRef.new(self)
     end
     # LLVM specific (arch specific?)
     def label
-      qname
+      Block.get_label(function.name, name)
     end
     def Block.get_label(fname,bname)
-      die "Bad arguments to get_label:#{fname.class}_#{bname.class}" unless [fname,bname].all?{ |s|
-        s.kind_of?(String) || s.kind_of?(Integer)
-      }
       ".LBB#{fname}_#{bname}"
     end
   end
-  
+
   # Proxy for PML instructions
   class Instruction < ProgramPointProxy
     attr_reader :data, :block
@@ -327,8 +416,11 @@ module PML
       @block = block
       @data = ins
       @name = index
-      @ref  = InstructionRef.new(function.name,block.name,name)
+      @qname = "#{block.label}+#{@name}"
       @hash = @qname.hash
+    end
+    def ref
+      InstructionRef.new(self)
     end
     def function
       block.function
@@ -345,10 +437,14 @@ module PML
 
   # List of flowfacts (modifiable)
   class FlowFactList < ListProxy
-    def initialize(data)
-      @data = data
-      @list = data.map { |ff| FlowFact.new(ff) }
+    def initialize(list, data = nil)
+      assert("list is nil") { list }
+      @list = list
+      @data = data ? data : list.map { |ff| ff.to_pml }
       build_index
+    end
+    def FlowFactList.from_pml(pml, data)
+      FlowFactList.new(data.map { |d| FlowFact.from_pml(pml,d) }, data)
     end
     def add(ff)
       @list.push(ff)
@@ -365,53 +461,96 @@ module PML
     end
   end
 
+  # List of Terms
+  class TermList < ListProxy
+    def initialize(list,data=nil)
+      @list = list
+      @data = data ? data : to_pml
+    end
+    def to_pml
+      list.map { |t| t.to_pml }
+    end
+  end
+
+  # Term (ProgramPoint, Factor)
+  class Term < Proxy
+    attr_reader :ppref, :factor
+    def initialize(ppref,factor)
+      @ppref,@factor = ppref,factor
+      @data = data ? data : to_pml
+    end
+    def to_pml
+      { 'factor' => factor, 'program-point' => ppref.data }
+    end
+    def Term.from_pml(mod,data)
+      Term.new(Reference.from_pml(mod,data['program-point']), data['factor'])
+    end
+  end
+
   # Flow Fact utility class
   class FlowFact < Proxy
-    def initialize(data)
-      @data = data
+    ATTRIBUTES = %w{classification level origin}
+    attr_reader :scope, :lhs, :op, :rhs
+    def initialize(scope, lhs, op, rhs, data = nil)
+      assert("scope not a reference") { scope.kind_of?(Reference) }
+      assert("lhs not a list proxy") { lhs.kind_of?(ListProxy) }
+      @scope, @lhs, @op, @rhs = scope, lhs, op, rhs
+      @attributes = {}
+      if data
+        @data = data
+        @data.each do |k,v|
+          add_attribute(k,v) if ATTRIBUTES.include?(k)
+        end
+      else
+        @data = to_pml
+      end
+    end
+    def FlowFact.from_pml(pml, data)
+      mod = if data['level'] == 'bitcode' 
+              pml.bitcode_functions
+            else
+              pml.machine_functions
+            end
+      scope = Reference.from_pml(mod,data['scope'])
+      lhs = TermList.new(data['lhs'].map { |t| Term.from_pml(mod,t) })
+      ff = FlowFact.new(scope, lhs, data['op'], data['rhs'], data)
+    end
+    def add_attribute(k,v)
+      assert("Bad attribute #{k}") { ATTRIBUTES.include?(k) }
+      @attributes[k] = v
+    end
+    def add_attributes(attrs,moreattrs={})
+      attrs.merge(moreattrs).each { |k,v| add_attribute(k,v) }
     end
     def classification
-      @data['classification']
+      @attributes['classification']
     end
     def [](k)
-      @data[k]
+      @attributes[k]
     end
-    def []=(k,v)
-      @data[k] = v
+    def to_pml
+      { 'scope' => scope.data,
+        'lhs' => lhs.to_pml,
+        'op' => op,
+        'rhs' => rhs,
+      }.merge(@attributes)
     end
-    def add_term(ppref,factor=1)
-      @data['lhs'] ||= []
-      @data['lhs'].push({ 'factor' => factor, 'program-point' => ppref.data })
-      self
-    end
+
     # Flow fact builders
-    def FlowFact.block_frequency(scope, block, freq, fact_context, classification)
-      flowfact = FlowFact.new(fact_context.dup)
-      flowfact['scope'] = scope.data
-      flowfact['op'] = 'less-equal'
-      flowfact['rhs'] = freq.max
-      flowfact['classification'] = classification # block-* or infeasible-*
-      flowfact.add_term(block.ref)
-    end
-    def FlowFact.calltargets(scope, cs, receiverset, fact_context, classification)
-      flowfact = FlowFact.new(fact_context.dup)
-      flowfact['scope'] = scope.data
-      flowfact['op'] = 'equal'
-      flowfact['rhs'] = 0
-      flowfact['classification'] = classification # calltargets-*
-      flowfact.add_term(cs.ref, -1)
-      receiverset.each do |function| 
-        flowfact.add_term(function.ref, 1)
-      end
+    def FlowFact.block_frequency(scoperef, block, freq, fact_context, classification)
+      terms = [ Term.new(block.ref, 1) ]
+      flowfact = FlowFact.new(scoperef, TermList.new(terms),'less-eqal',freq.max)
+      flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact
     end
-    def FlowFact.loop_bound(loop, freq, fact_context, classification)
-      flowfact = FlowFact.new(fact_context.dup)
-      flowfact['scope'] = loop.loopref
-      flowfact['op'] = 'less-equal'
-      flowfact['rhs'] = freq.max
-      flowfact['classification'] = classification
-      flowfact.add_term(loop.ref)
+
+    def FlowFact.calltargets(scoperef, cs, receiverset, fact_context, classification)
+      terms = [ Term.new(cs.ref, -1) ]
+      receiverset.each do |function| 
+        terms.push(Term.new(function.ref, 1))
+      end      
+      flowfact = FlowFact.new(scoperef,TermList.new(terms),'equal',0)
+      flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact
     end
 
@@ -420,28 +559,28 @@ module PML
     # return [scope,block,freq] if this flow fact constraints the frequency
     # of a single block (nil otherwise)
     def get_block_frequency_bound
-      return nil unless @data['lhs'].length == 1
-      term = @data['lhs'].first
-      return nil unless term['factor'] == 1
-      [@data['scope'], term['program-point'], @data['rhs']]
+      return nil unless lhs.list.length == 1
+      term = lhs.list.first
+      return nil unless term.factor == 1
+      [scope, term.ppref, rhs]
     end
 
     # return [scope,cs,targets] if this is a calltarget-* flowfact
     def get_calltargets
-      callsite_candidate = @data['lhs'].select { |term|
-        term['factor'].abs == 1 && term['program-point']['instruction']
+      callsite_candidate = lhs.list.select { |term|
+        term.factor.abs == 1 && term.ppref.kind_of?(InstructionRef)
       }
       return nil unless callsite_candidate.length == 1
-      callsite = callsite_candidate.first['program-point']
-      opposite_factor = callsite_candidate.first['factor']
+      callsite = callsite_candidate.first.ppref
+      opposite_factor = callsite_candidate.first.factor
       targets = []
-      @data['lhs'].each { |term|
+      lhs.each { |term|
         next if term == callsite_candidate.first
-        return nil unless term['factor'] == -opposite_factor
-        return nil if term['program-point'].keys != ['function']
-        targets.push(term['program-point']['function'])
+        return nil unless term.factor == -opposite_factor
+        return nil unless term.ppref.kind_of?(FunctionRef)
+        targets.push(term.ppref.function)
       }
-      [@data['scope'], callsite, targets]
+      [scope, callsite, targets]
     end
   end
 

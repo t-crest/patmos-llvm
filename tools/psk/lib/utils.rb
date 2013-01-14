@@ -43,8 +43,8 @@ module PML
       opts.banner = "Usage: #{File.basename($0)} OPTIONS #{arg_descr}\n#{synopsis}"
       opts.on("-i", "--input FILE", "Input PML File") { |f| options.input = f } if do_input
       opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f } if do_output
-      opts.on("", "--verbose", "verbose output") { options.verbose = true }
-      opts.on("", "--debug", "debug output") { options.debug = true }
+      opts.on("--verbose", "verbose output") { options.verbose = true }
+      opts.on("--debug", "debug output") { options.debug = true }
       yield [opts,options] if block_given?
       opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
     end.parse!
@@ -62,25 +62,6 @@ module PML
     else
       [options, ARGV]
     end
-  end
-
-  def dquote(str)
-    '"' + str + '"'
-  end
-
-  def reachable_set(entry)
-    reachable = Set.new
-    todo = [entry]
-    while !todo.empty?
-      item = todo.pop
-      next if reachable.include?(item)
-      reachable.add(item)
-      successors = yield item
-      successors.each do |succ|
-        todo.push(succ)
-      end
-    end
-    reachable
   end
 end
 
