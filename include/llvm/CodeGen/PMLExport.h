@@ -76,83 +76,83 @@ namespace yaml {
 
 /// A string representing an identifier (string,index,address)
 struct Name {
-    // String representation
-    std::string NameStr;
-    // Empty Name
-    Name() : NameStr("") {}
-    /// Name from string
-    Name(const StringRef& name) : NameStr(name.str()) {}
-    /// Name from unsigned integer
-    Name(uint64_t name) : NameStr(utostr(name)) {}
-    /// get name as string
-    StringRef getName() const {
-        return StringRef(NameStr);
-    }
-    /// get name as unsigned integer
-    uint64_t getNameAsInteger(unsigned Radix = 10) const {
-        uint64_t IntName;
-        getName().getAsInteger(Radix, IntName);
-        return IntName;
-    }
+  // String representation
+  std::string NameStr;
+  // Empty Name
+  Name() : NameStr("") {}
+  /// Name from string
+  Name(const StringRef& name) : NameStr(name.str()) {}
+  /// Name from unsigned integer
+  Name(uint64_t name) : NameStr(utostr(name)) {}
+  /// get name as string
+  StringRef getName() const {
+    return StringRef(NameStr);
+  }
+  /// get name as unsigned integer
+  uint64_t getNameAsInteger(unsigned Radix = 10) const {
+    uint64_t IntName;
+    getName().getAsInteger(Radix, IntName);
+    return IntName;
+  }
 };
 
 /// Comparing two names
 bool operator==(const Name n1, const Name n2) {
-    return n1.NameStr == n2.NameStr;
+  return n1.NameStr == n2.NameStr;
 }
 
 template<>
 struct ScalarTraits<Name> {
-    static void output(const Name &value, void*, llvm::raw_ostream &out) {
-        out << value.getName();
-    }
-    static StringRef input(StringRef scalar, void*, Name &value) {
-        value.NameStr = scalar.str();
-        return StringRef();
-    }
+  static void output(const Name &value, void*, llvm::raw_ostream &out) {
+    out << value.getName();
+  }
+  static StringRef input(StringRef scalar, void*, Name &value) {
+    value.NameStr = scalar.str();
+    return StringRef();
+  }
 };
 template <> struct SequenceTraits< std::vector<Name> > {
-    static size_t size(IO &io, std::vector<Name> &seq) {
-        return seq.size();
-      }
-      static Name& element(IO &io, std::vector<Name> &seq, size_t index) {
-        if ( index >= seq.size() )
-          seq.resize(index+1);
-        return seq[index];
-      }
-      static const bool flow = true;
+  static size_t size(IO &io, std::vector<Name> &seq) {
+    return seq.size();
+  }
+  static Name& element(IO &io, std::vector<Name> &seq, size_t index) {
+    if ( index >= seq.size() )
+      seq.resize(index+1);
+    return seq[index];
+  }
+  static const bool flow = true;
 };
 
 /// Representation Level (source, bitcode, machinecode)
 enum ReprLevel { level_bitcode, level_machinecode };
 template <>
 struct ScalarEnumerationTraits<ReprLevel> {
-    static void enumeration(IO &io, ReprLevel& level) {
-        io.enumCase(level, "bitcode", level_bitcode);
-        io.enumCase(level, "machinecode", level_machinecode);
-    }
+  static void enumeration(IO &io, ReprLevel& level) {
+    io.enumCase(level, "bitcode", level_bitcode);
+    io.enumCase(level, "machinecode", level_machinecode);
+  }
 };
 
 /// Instruction Specification (generic)
 struct Instruction {
-    uint64_t Index;
-    int64_t Opcode;
-    std::vector<Name> Callees;
-    Instruction(uint64_t index) : Index(index), Opcode(0) {}
-    void addCallee(const StringRef function) {
-        Callees.push_back(yaml::Name(function));
-    }
-    bool hasCallees() {
-        return ! Callees.empty();
-    }
+  uint64_t Index;
+  int64_t Opcode;
+  std::vector<Name> Callees;
+  Instruction(uint64_t index) : Index(index), Opcode(0) {}
+  void addCallee(const StringRef function) {
+    Callees.push_back(yaml::Name(function));
+  }
+  bool hasCallees() {
+    return ! Callees.empty();
+  }
 };
 template <>
 struct MappingTraits<Instruction> {
-    static void mapping(IO &io, Instruction& Ins) {
-        io.mapRequired("index",   Ins.Index);
-        io.mapOptional("opcode",  Ins.Opcode, (int64_t) -1);
-        io.mapOptional("callees", Ins.Callees);
-    }
+  static void mapping(IO &io, Instruction& Ins) {
+    io.mapRequired("index",   Ins.Index);
+    io.mapOptional("opcode",  Ins.Opcode, (int64_t) -1);
+    io.mapOptional("callees", Ins.Callees);
+  }
 };
 IS_PTR_SEQUENCE_VECTOR(Instruction)
 
@@ -161,90 +161,90 @@ enum BranchType { branch_none, branch_unconditional, branch_conditional,
                   branch_indirect, branch_any };
 template <>
 struct ScalarEnumerationTraits<BranchType> {
-    static void enumeration(IO &io, BranchType& branchtype) {
-        io.enumCase(branchtype, "", branch_none);
-        io.enumCase(branchtype, "unconditional", branch_unconditional);
-        io.enumCase(branchtype, "conditional", branch_conditional);
-        io.enumCase(branchtype, "indirect", branch_indirect);
-        io.enumCase(branchtype, "any", branch_any);
-    }
+  static void enumeration(IO &io, BranchType& branchtype) {
+    io.enumCase(branchtype, "", branch_none);
+    io.enumCase(branchtype, "unconditional", branch_unconditional);
+    io.enumCase(branchtype, "conditional", branch_conditional);
+    io.enumCase(branchtype, "indirect", branch_indirect);
+    io.enumCase(branchtype, "any", branch_any);
+  }
 };
 struct GenericMachineInstruction : Instruction {
-    uint64_t Size;
-    enum BranchType BranchType;
-    std::vector<Name> BranchTargets;
-    GenericMachineInstruction(uint64_t Index) :
-      Instruction(Index), Size(0), BranchType(branch_none) {}
+  uint64_t Size;
+  enum BranchType BranchType;
+  std::vector<Name> BranchTargets;
+  GenericMachineInstruction(uint64_t Index) :
+    Instruction(Index), Size(0), BranchType(branch_none) {}
 };
 template <>
 struct MappingTraits<GenericMachineInstruction> {
-    static void mapping(IO &io, GenericMachineInstruction& Ins) {
-        MappingTraits<Instruction>::mapping(io,Ins);
-        io.mapOptional("size",          Ins.Size);
-        io.mapOptional("branch-type",   Ins.BranchType, branch_none);
-        io.mapOptional("branch-targets",Ins.BranchTargets, std::vector<Name>());
-    }
+  static void mapping(IO &io, GenericMachineInstruction& Ins) {
+    MappingTraits<Instruction>::mapping(io,Ins);
+    io.mapOptional("size",          Ins.Size);
+    io.mapOptional("branch-type",   Ins.BranchType, branch_none);
+    io.mapOptional("branch-targets",Ins.BranchTargets, std::vector<Name>());
+  }
 };
 IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
 
 /// Basic Block Specification (generic)
 template<typename InstructionT>
 struct Block {
-    Name BlockName;
-    Name MapsTo;
-    std::vector<Name> Successors;
-    std::vector<Name> Predecessors;
-    std::vector<Name> Loops;
-    std::vector<InstructionT*> Instructions;
-    Block(StringRef name): BlockName(name) {}
-    Block(uint64_t index) : BlockName(index) {}
-    ~Block() { DELETE_MEMBERS(Instructions); }
-    /// Add an instruction to the block
-    /// Block takes ownership of instruction
-    InstructionT* addInstruction(InstructionT* Ins) {
-        Instructions.push_back(Ins);
-        return Ins;
-    }
+  Name BlockName;
+  Name MapsTo;
+  std::vector<Name> Successors;
+  std::vector<Name> Predecessors;
+  std::vector<Name> Loops;
+  std::vector<InstructionT*> Instructions;
+  Block(StringRef name): BlockName(name) {}
+  Block(uint64_t index) : BlockName(index) {}
+  ~Block() { DELETE_MEMBERS(Instructions); }
+  /// Add an instruction to the block
+  /// Block takes ownership of instruction
+  InstructionT* addInstruction(InstructionT* Ins) {
+    Instructions.push_back(Ins);
+    return Ins;
+  }
 };
 
 template <typename InstructionT>
 struct MappingTraits< Block<InstructionT> > {
-    static void mapping(IO &io, Block<InstructionT>& Block) {
-        io.mapRequired("name",         Block.BlockName);
-        io.mapRequired("successors",   Block.Successors);
-        io.mapRequired("predecessors", Block.Predecessors);
-        io.mapOptional("loops",        Block.Loops);
-        io.mapOptional("mapsto",       Block.MapsTo, Name(""));
-        io.mapOptional("instructions", Block.Instructions);
-    }
+  static void mapping(IO &io, Block<InstructionT>& Block) {
+    io.mapRequired("name",         Block.BlockName);
+    io.mapRequired("successors",   Block.Successors);
+    io.mapRequired("predecessors", Block.Predecessors);
+    io.mapOptional("loops",        Block.Loops);
+    io.mapOptional("mapsto",       Block.MapsTo, Name(""));
+    io.mapOptional("instructions", Block.Instructions);
+  }
 };
 IS_PTR_SEQUENCE_VECTOR_1(Block)
 
 /// basic functions
 template <typename BlockT>
 struct Function {
-    Name FunctionName;
-    ReprLevel Level;
-    Name MapsTo;
-    StringRef Hash;
-    std::vector<BlockT*> Blocks;
-    Function(StringRef name) : FunctionName(name) {}
-    Function(uint64_t name) : FunctionName(name) {}
-    ~Function() { DELETE_MEMBERS(Blocks); }
-    BlockT* addBlock(BlockT *B) {
-        Blocks.push_back(B);
-        return B;
-    }
+  Name FunctionName;
+  ReprLevel Level;
+  Name MapsTo;
+  StringRef Hash;
+  std::vector<BlockT*> Blocks;
+  Function(StringRef name) : FunctionName(name) {}
+  Function(uint64_t name) : FunctionName(name) {}
+  ~Function() { DELETE_MEMBERS(Blocks); }
+  BlockT* addBlock(BlockT *B) {
+    Blocks.push_back(B);
+    return B;
+  }
 };
 template <typename BlockT>
 struct MappingTraits< Function<BlockT> > {
-    static void mapping(IO &io, Function<BlockT>& fn) {
-        io.mapRequired("name",    fn.FunctionName);
-        io.mapRequired("level",   fn.Level);
-        io.mapOptional("mapsto",  fn.MapsTo, Name(""));
-        io.mapOptional("hash",    fn.Hash);
-        io.mapRequired("blocks",  fn.Blocks);
-    }
+  static void mapping(IO &io, Function<BlockT>& fn) {
+    io.mapRequired("name",    fn.FunctionName);
+    io.mapRequired("level",   fn.Level);
+    io.mapOptional("mapsto",  fn.MapsTo, Name(""));
+    io.mapOptional("hash",    fn.Hash);
+    io.mapRequired("blocks",  fn.Blocks);
+  }
 };
 IS_PTR_SEQUENCE_VECTOR_1(Function)
 
@@ -255,100 +255,102 @@ typedef Function<BitcodeBlock> BitcodeFunction;
 enum RelationNodeType { rnt_entry, rnt_exit, rnt_progress, rnt_src, rnt_dst };
 template <>
 struct ScalarEnumerationTraits<RelationNodeType> {
-    static void enumeration(IO &io, RelationNodeType& rnty) {
-        io.enumCase(rnty, "entry", rnt_entry);
-        io.enumCase(rnty, "exit", rnt_exit);
-        io.enumCase(rnty, "progress", rnt_progress);
-        io.enumCase(rnty, "src", rnt_src);
-        io.enumCase(rnty, "dst", rnt_dst);
-    }
+  static void enumeration(IO &io, RelationNodeType& rnty) {
+    io.enumCase(rnty, "entry", rnt_entry);
+    io.enumCase(rnty, "exit", rnt_exit);
+    io.enumCase(rnty, "progress", rnt_progress);
+    io.enumCase(rnty, "src", rnt_src);
+    io.enumCase(rnty, "dst", rnt_dst);
+  }
 };
 
 /// Relation Graph Nodes
 struct RelationNode {
-    Name NodeName;
-    RelationNodeType NodeType;
-    Name SrcBlock;
-    Name DstBlock;
-    std::vector<Name> SrcSuccessors;
-    std::vector<Name> DstSuccessors;
-    RelationNode(Name name, RelationNodeType type)
-      : NodeName(name), NodeType(type) {}
-    void addSuccessor(RelationNode *RN, bool IsSrcNode) {
-        if(IsSrcNode)
-            SrcSuccessors.push_back(RN->NodeName);
-        else
-            DstSuccessors.push_back(RN->NodeName);
-    }
-    void setBlock(Name N, bool IsSrcBlock) {
-        if(IsSrcBlock) setSrcBlock(N);
-        else setDstBlock(N);
-    }
-    void setSrcBlock(Name N) { SrcBlock = N; }
-    void setDstBlock(Name N) { DstBlock = N; }
+  Name NodeName;
+  RelationNodeType NodeType;
+  Name SrcBlock;
+  Name DstBlock;
+  std::vector<Name> SrcSuccessors;
+  std::vector<Name> DstSuccessors;
+  RelationNode(Name name, RelationNodeType type)
+    : NodeName(name), NodeType(type) {}
+  void addSuccessor(RelationNode *RN, bool IsSrcNode) {
+    if(IsSrcNode)
+      SrcSuccessors.push_back(RN->NodeName);
+    else
+      DstSuccessors.push_back(RN->NodeName);
+  }
+  void setBlock(Name N, bool IsSrcBlock) {
+    if(IsSrcBlock) setSrcBlock(N);
+    else setDstBlock(N);
+  }
+  void setSrcBlock(Name N) { SrcBlock = N; }
+  void setDstBlock(Name N) { DstBlock = N; }
 };
 
 template <>
 struct MappingTraits< RelationNode > {
-    static void mapping(IO &io, RelationNode &node) {
-        io.mapRequired("name",           node.NodeName);
-        io.mapRequired("type",           node.NodeType);
-        io.mapOptional("src-block",      node.SrcBlock, Name(""));
-        io.mapOptional("dst-block",      node.DstBlock, Name(""));
-        io.mapOptional("src-successors", node.SrcSuccessors, std::vector<Name>());
-        io.mapOptional("dst-successors", node.DstSuccessors, std::vector<Name>());
-    }
+  static void mapping(IO &io, RelationNode &node) {
+    io.mapRequired("name",           node.NodeName);
+    io.mapRequired("type",           node.NodeType);
+    io.mapOptional("src-block",      node.SrcBlock, Name(""));
+    io.mapOptional("dst-block",      node.DstBlock, Name(""));
+    io.mapOptional("src-successors", node.SrcSuccessors, std::vector<Name>());
+    io.mapOptional("dst-successors", node.DstSuccessors, std::vector<Name>());
+  }
 };
 IS_PTR_SEQUENCE_VECTOR(RelationNode)
 
 /// Relation Graph Scope
 struct RelationScope {
-    Name Function; // XXX: should be a scope, really
-    ReprLevel Level;
-    RelationScope(Name f, ReprLevel level) : Function(f), Level(level) {}
+  Name Function; // XXX: should be a scope, really
+  ReprLevel Level;
+  RelationScope(Name f, ReprLevel level) : Function(f), Level(level) {}
 };
 template <>
 struct MappingTraits< RelationScope > {
-    static void mapping(IO &io, RelationScope &scope) {
-        io.mapRequired("function", scope.Function);
-        io.mapRequired("level",scope.Level);
-    }
+  static void mapping(IO &io, RelationScope &scope) {
+    io.mapRequired("function", scope.Function);
+    io.mapRequired("level",scope.Level);
+  }
 };
 
 /// Relation Graphs
 struct RelationGraph {
-    static const int EntryIndex = 0;
-    static const int ExitIndex  = 1;
-    int NextIndex;
-    RelationScope *SrcScope;
-    RelationScope *DstScope;
-    std::vector<RelationNode*> RelationNodes;
-    RelationGraph(RelationScope *src, RelationScope *dst) : SrcScope(src), DstScope(dst) {
-        RelationNodes.push_back(new RelationNode(yaml::Name(EntryIndex),rnt_entry));
-        RelationNodes.push_back(new RelationNode(yaml::Name(ExitIndex),rnt_exit));
-        NextIndex = 2;
-    }
-    ~RelationGraph() {
-        delete SrcScope;
-        delete DstScope;
-        DELETE_MEMBERS(RelationNodes);
-    }
-    RelationNode *getEntryNode() { return RelationNodes[EntryIndex]; }
-    RelationNode *getExitNode()  { return RelationNodes[ExitIndex]; }
-    /// add a relation node (owned by graph)
-    RelationNode* addNode(RelationNodeType ty) {
-        RelationNode *N = new RelationNode(yaml::Name(NextIndex++),ty);
-        RelationNodes.push_back(N);
-        return N;
-    }
+  static const int EntryIndex = 0;
+  static const int ExitIndex  = 1;
+  int NextIndex;
+  RelationScope *SrcScope;
+  RelationScope *DstScope;
+  std::vector<RelationNode*> RelationNodes;
+  RelationGraph(RelationScope *src, RelationScope *dst)
+    : SrcScope(src), DstScope(dst)
+  {
+    RelationNodes.push_back(new RelationNode(yaml::Name(EntryIndex),rnt_entry));
+    RelationNodes.push_back(new RelationNode(yaml::Name(ExitIndex),rnt_exit));
+    NextIndex = 2;
+  }
+  ~RelationGraph() {
+    delete SrcScope;
+    delete DstScope;
+    DELETE_MEMBERS(RelationNodes);
+  }
+  RelationNode *getEntryNode() { return RelationNodes[EntryIndex]; }
+  RelationNode *getExitNode()  { return RelationNodes[ExitIndex]; }
+  /// add a relation node (owned by graph)
+  RelationNode* addNode(RelationNodeType ty) {
+    RelationNode *N = new RelationNode(yaml::Name(NextIndex++),ty);
+    RelationNodes.push_back(N);
+    return N;
+  }
 };
 template <>
 struct MappingTraits< RelationGraph > {
-    static void mapping(IO &io, RelationGraph &RG) {
-        io.mapRequired("src",   *RG.SrcScope);
-        io.mapRequired("dst",   *RG.DstScope);
-        io.mapRequired("nodes", RG.RelationNodes);
-    }
+  static void mapping(IO &io, RelationGraph &RG) {
+    io.mapRequired("src",   *RG.SrcScope);
+    io.mapRequired("dst",   *RG.DstScope);
+    io.mapRequired("nodes", RG.RelationNodes);
+  }
 };
 IS_PTR_SEQUENCE_VECTOR(RelationGraph)
 
@@ -357,49 +359,49 @@ IS_PTR_SEQUENCE_VECTOR(RelationGraph)
 /// generic architecture, or a specialized one. Architecture specific
 /// properties are defined in the architecture description.
 struct GenericFormat {
-    typedef GenericMachineInstruction MachineInstruction;
-    typedef Block<MachineInstruction> MachineBlock;
-    typedef Function<MachineBlock> MachineFunction;
+  typedef GenericMachineInstruction MachineInstruction;
+  typedef Block<MachineInstruction> MachineBlock;
+  typedef Function<MachineBlock> MachineFunction;
 };
 
 
 struct Doc {
-    StringRef FormatVersion;
-    StringRef TargetTriple;
-    std::vector<BitcodeFunction*> BitcodeFunctions;
-    std::vector<GenericFormat::MachineFunction*> MachineFunctions;
-    std::vector<RelationGraph*> RelationGraphs;
+  StringRef FormatVersion;
+  StringRef TargetTriple;
+  std::vector<BitcodeFunction*> BitcodeFunctions;
+  std::vector<GenericFormat::MachineFunction*> MachineFunctions;
+  std::vector<RelationGraph*> RelationGraphs;
 
-    Doc(StringRef TargetTriple)
-      : FormatVersion("pml-0.1"),
-        TargetTriple(TargetTriple) {}
-    ~Doc() {
-        DELETE_MEMBERS(BitcodeFunctions);
-        DELETE_MEMBERS(MachineFunctions);
-        DELETE_MEMBERS(RelationGraphs);
-    }
-    /// Add a function, which is owned by the document afterwards
-    void addFunction(BitcodeFunction *F) {
-        BitcodeFunctions.push_back(F);
-    }
-    /// Add a machine function, which is owned by the document afterwards
-    void addMachineFunction(GenericFormat::MachineFunction* MF) {
-        MachineFunctions.push_back(MF);
-    }
-    /// Add a relation graph, which is owned by the document afterwards
-    void addRelationGraph(RelationGraph* RG) {
-        RelationGraphs.push_back(RG);
-    }
+  Doc(StringRef TargetTriple)
+    : FormatVersion("pml-0.1"),
+      TargetTriple(TargetTriple) {}
+  ~Doc() {
+    DELETE_MEMBERS(BitcodeFunctions);
+    DELETE_MEMBERS(MachineFunctions);
+    DELETE_MEMBERS(RelationGraphs);
+  }
+  /// Add a function, which is owned by the document afterwards
+  void addFunction(BitcodeFunction *F) {
+    BitcodeFunctions.push_back(F);
+  }
+  /// Add a machine function, which is owned by the document afterwards
+  void addMachineFunction(GenericFormat::MachineFunction* MF) {
+    MachineFunctions.push_back(MF);
+  }
+  /// Add a relation graph, which is owned by the document afterwards
+  void addRelationGraph(RelationGraph* RG) {
+    RelationGraphs.push_back(RG);
+  }
 };
 template <>
 struct MappingTraits< Doc > {
-    static void mapping(IO &io, Doc& doc) {
-        io.mapRequired("format",   doc.FormatVersion);
-        io.mapRequired("triple",   doc.TargetTriple);
-        io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
-        io.mapOptional("machine-functions",doc.MachineFunctions);
-        io.mapOptional("relation-graphs",doc.RelationGraphs);
-    }
+  static void mapping(IO &io, Doc& doc) {
+    io.mapRequired("format",   doc.FormatVersion);
+    io.mapRequired("triple",   doc.TargetTriple);
+    io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
+    io.mapOptional("machine-functions",doc.MachineFunctions);
+    io.mapOptional("relation-graphs",doc.RelationGraphs);
+  }
 };
 
 
@@ -457,6 +459,21 @@ namespace llvm {
     virtual void writeOutput(yaml::Output *Output);
   };
 
+  /// Provides information about machine instructions, can be overloaded for
+  /// specific targets.
+  class PMLInstrInfo {
+  public:
+    virtual ~PMLInstrInfo() {}
+
+    /// getCallee - get the names of the possible called functions.
+    virtual std::vector<StringRef> getCallee(MachineFunction &Caller,
+                                             const MachineInstr *Instr);
+
+    virtual const std::vector<MachineBasicBlock*> getJumpTargets(
+                                MachineFunction &MF,
+                                const MachineInstr *Instr);
+  };
+
   // --------------- Standard exporters --------------------- //
 
   // TODO we could factor out the code to generate the object to export and
@@ -483,9 +500,15 @@ namespace llvm {
     yaml::Doc YDoc;
 
     TargetMachine &TM;
+    PMLInstrInfo *PII;
+
   public:
-    PMLMachineFunctionExport(TargetMachine &TM)
-      : YDoc(TM.getTargetTriple()), TM(TM) {}
+    PMLMachineFunctionExport(TargetMachine &TM, PMLInstrInfo *pii = 0)
+      : YDoc(TM.getTargetTriple()), TM(TM)
+    {
+      // TODO needs to be deleted properly!
+      PII = pii ? pii : new PMLInstrInfo();
+    }
 
     virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
 
@@ -533,20 +556,24 @@ namespace llvm {
   private:
 
     /// Generate (heuristic) MachineBlock->EventName and IR-Block->EventName maps
-    /// (1) if all forward-CFG predecessors of (MBB originating from BB) map to no or a different IR block,
-    ///     MBB generates a BB event.
-    /// (2) if there is a MBB generating a event BB, the basic block BB also generates this event
+    /// (1) if all forward-CFG predecessors of (MBB originating from BB) map to
+    ///     no or a different IR block, MBB generates a BB event.
+    /// (2) if there is a MBB generating a event BB, the basic block BB also
+    ///     generates this event
     void buildEventMaps(MachineFunction &MF,
                         std::map<const BasicBlock*,StringRef> &BitcodeEventMap,
                         std::map<MachineBasicBlock*,StringRef> &MachineEventMap,
                         std::set<StringRef> &TabuList);
 
-    /// Check whether Source -> Target is a backedge
+    /// Check whether Source -> Target is a back-edge
     bool isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target);
   };
 
+
+
+  // ---------------------- Export Passes ------------------------- //
+
   // TODO Define FunctionPass that runs only BitcodeExporter
-  // TODO Optionally export all functions in module in ExportPass at init?
 
   /// PMLExportPass - This is a pass to export a machine function to
   /// YAML (using the PML schema define at (TODO: cite report))
@@ -563,17 +590,13 @@ namespace llvm {
     tool_output_file *OutFile;
     yaml::Output *Output;
 
-    PMLExportPass(char &id, std::string& filename, TargetMachine *tm)
-      : MachineFunctionPass(id), TM(tm), OutFileName(filename),
-        OutFile(0), Output(0)
-        {}
-
   public:
     PMLExportPass(std::string& filename, TargetMachine *tm,
                   bool AddDefaultExporter = true)
       : MachineFunctionPass(ID), TM(tm), OutFileName(filename),
        OutFile(0), Output(0)
     {
+      // TODO optionally provide custom PMLInstrInfo here
       if (AddDefaultExporter) addDefaultExporter();
     }
 

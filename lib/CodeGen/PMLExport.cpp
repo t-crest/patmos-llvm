@@ -83,7 +83,29 @@ void PMLBitcodeExportAdapter::writeOutput(yaml::Output *Output) {
   Exporter->writeOutput(Output);
 }
 
+std::vector<StringRef> PMLInstrInfo::getCallee(MachineFunction &Caller,
+                                               const MachineInstr *Ins)
+{
+  std::vector<StringRef> Callees;
+  for (MachineInstr::const_mop_iterator Op = Ins->operands_begin(),
+      E = Ins->operands_end(); Op != E; ++Op) {
+    if (Op->isGlobal()) {
+      Callees.push_back( Op->getGlobal()->getName() );
+    }
+    else if (Op->isSymbol()) {
+      Callees.push_back( Op->getSymbolName() );
+    }
+  }
+  return Callees;
+}
 
+const std::vector<MachineBasicBlock*> PMLInstrInfo::getJumpTargets(
+                                      MachineFunction &MF,
+                                      const MachineInstr *Instr)
+{
+  std::vector<MachineBasicBlock*> targets;
+  return targets;
+}
 
 void PMLFunctionExport::serialize(const Function &Fn)
 {
@@ -219,15 +241,13 @@ void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
                                  yaml::GenericMachineInstruction *I,
                                  const MachineInstr *Ins)
 {
-  for (MachineInstr::const_mop_iterator Op = Ins->operands_begin(),
-      E = Ins->operands_end(); Op != E; ++Op) {
-    if (Op->isGlobal()) {
-      I->addCallee(Op->getGlobal()->getName());
-    }
-    else if (Op->isSymbol()) {
-      I->addCallee(StringRef(Op->getSymbolName()));
-    }
+  std::vector<StringRef> Callees = PII->getCallee(MF, Ins);
+
+  for (std::vector<StringRef>::iterator it = Callees.begin(),ie = Callees.end();
+       it != ie; ++it) {
+    I->addCallee(*it);
   }
+
   if (!I->hasCallees()) {
     errs()
         << "[mc2yml] Warning: no known callee for MC instruction in "
@@ -258,6 +278,14 @@ void PMLMachineFunctionExport::exportBranchInstruction(MachineFunction &MF,
   }
   else if (Ins->getDesc().isIndirectBranch()) {
     I->BranchType = yaml::branch_indirect;
+
+    typedef const std::vector<MachineBasicBlock*> JTVector;
+    JTVector targets = PII->getJumpTargets(MF, Ins);
+
+    for (JTVector::const_iterator it = targets.begin(),ie=targets.end();
+          it != ie; ++it) {
+      I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
+    }
   }
   else {
     I->BranchType = yaml::branch_any;
