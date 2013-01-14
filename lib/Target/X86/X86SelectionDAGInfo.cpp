@@ -68,7 +68,7 @@ X86SelectionDAGInfo::EmitTargetCodeForMemset(SelectionDAG &DAG, DebugLoc dl,
                         0, CallingConv::C, /*isTailCall=*/false,
                         /*doesNotRet=*/false, /*isReturnValueUsed=*/false,
                         DAG.getExternalSymbol(bzeroEntry, IntPtr), Args,
-                        DAG, dl);
+                        DAG, dl, MachinePointerInfo());
       return CallResult.second;
     }
 

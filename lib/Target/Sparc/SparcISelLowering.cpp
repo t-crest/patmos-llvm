@@ -352,7 +352,8 @@ SparcTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                const SmallVectorImpl<SDValue> &OutVals,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
                                DebugLoc dl, SelectionDAG &DAG,
-                               SmallVectorImpl<SDValue> &InVals) const {
+                               SmallVectorImpl<SDValue> &InVals,
+                               MachinePointerInfo MPI) const {
   // Sparc target does not yet support tail call optimization.
   isTailCall = false;
 

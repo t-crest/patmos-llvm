@@ -12,14 +12,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "Patmos.h"
-#include "llvm/Pass.h"
+#include "llvm/DerivedTypes.h"
 #include "llvm/Function.h"
+#include "llvm/Pass.h"
+#include "llvm/Type.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/GraphWriter.h"
 
 #include <vector>
-#include <iostream>
+#include <map>
 
 using namespace llvm;
 
@@ -44,6 +48,10 @@ namespace llvm {
     /// The MachineFunction represented by this call graph node, or NULL.
     MachineFunction *MF;
 
+    /// Type of the MachineFunction represented by this call graph node, if MF
+    /// is NULL.
+    Type *T;
+
     /// The node's call sites.
     MCGSites Sites;
 
@@ -54,12 +62,21 @@ namespace llvm {
     bool IsDead;
   public:
     /// Construct a new call graph node.
-    explicit MCGNode(MachineFunction *mf) : MF(mf), IsDead(true) {}
+    explicit MCGNode(MachineFunction *mf) : MF(mf), T(NULL), IsDead(true) {}
+
+    /// Construct a new call graph node.
+    explicit MCGNode(Type *t) : MF(NULL), T(t), IsDead(true) {}
 
     /// getMF - Return the node's MachineFunction.
     MachineFunction *getMF() const
     {
       return MF;
+    }
+
+    /// getType - Return the node's Function type.
+    Type *getType() const
+    {
+      return T;
     }
 
     /// getSites - Get the call sites of the call node.
@@ -93,7 +110,7 @@ namespace llvm {
       return Sites.empty();
     }
 
-    /// isUnknown - Check whether the node represents the <UNKNOWN> node.
+    /// isUnknown - Check whether the node represents an UNKNOWN node.
     bool isUnknown() const
     {
       return MF == NULL;
@@ -110,15 +127,27 @@ namespace llvm {
   class MCGSite
   {
   private:
+    /// The parent call graph node of this call site.
+    MCGNode *Caller;
+
     /// The call instruction of the call site.
     MachineInstr *MI;
 
     /// The call graph node referenced by this call site.
-    MCGNode *MCGN;
+    MCGNode *Callee;
 
   public:
     /// Construct a new call site.
-    MCGSite(MachineInstr *mi, MCGNode *mcgn) : MI(mi), MCGN(mcgn) {}
+    MCGSite(MCGNode *caller, MachineInstr *mi, MCGNode *callee) :
+        Caller(caller), MI(mi), Callee(callee)
+    {
+    }
+
+    /// getCaller - Return the parent call graph node of the call site.
+    MCGNode *getCaller() const
+    {
+      return Caller;
+    }
 
     /// getMI - Return the call site's call instruction.
     MachineInstr *getMI() const
@@ -126,10 +155,10 @@ namespace llvm {
       return MI;
     }
 
-    /// getMCGN - Return the call site's call graph node.
-    MCGNode *getMCGN() const
+    /// getCallee - Return the call site's call graph node.
+    MCGNode *getCallee() const
     {
-      return MCGN;
+      return Callee;
     }
 
     /// dump - print the call site to the debug stream.
@@ -141,12 +170,20 @@ namespace llvm {
   {
     friend class GraphTraits<MCallGraph>;
     friend class DOTGraphTraits<MCallGraph>;
+    friend class PatmosCallGraphBuilder;
   private:
     /// The graph's nodes.
     MCGNodes Nodes;
 
     /// The graph's call sites.
     MCGSites Sites;
+
+    typedef std::map<std::pair<Type *, Type *>, int> equivalent_types_t;
+    equivalent_types_t EQ;
+
+    /// areTypesIsomorphic - check whether two types are isomorphic.
+    /// This is taken from LinkModules.cpp.
+    int areTypesIsomorphic(Type *DstTy, Type *SrcTy);
   public:
     /// getNodes - Return the graph's nodes.
     const MCGNodes &getNodes() const
@@ -172,23 +209,17 @@ namespace llvm {
       return Sites;
     }
 
-    /// getParentMCGNode - Return the parent call graph node of a MachineInstr.
-    MCGNode *getParentMCGNode(MachineInstr *MI)
-    {
-      MachineFunction *MF = MI ? MI->getParent()->getParent() : NULL;
-      return makeMCGNode(MF);
-    }
-
     /// makeMCGNode - Return a call graph node for the MachineFunction. The node
     /// is either newly constructed, or, if one exists, a node from the nodes
     /// set associated with the MachineFunction is returned.
     MCGNode *makeMCGNode(MachineFunction *MF);
 
-    /// getUnknownNode - Get a pseudo call graph node for unknown call targets.
-    MCGNode *getUnknownNode();
+    /// getUnknownNode - Get a pseudo call graph node for unknown call targets
+    /// of the given type.
+    MCGNode *getUnknownNode(Type *t);
 
     /// makeMCGSite - Return a call site.
-    MCGSite *makeMCGSite(MachineInstr *MI, MCGNode *MCGN);
+    MCGSite *makeMCGSite(MCGNode *Caller, MachineInstr *MI, MCGNode *Callee);
 
     /// dump - print all call sites of the call graph to the debug stream.
     void dump() const;
@@ -257,18 +288,10 @@ namespace llvm {
     /// name.
     MCGNode *getMCGNode(Module &M, const char *name);
 
-    /// getParentMCGNode - Return the parent call graph node of a MachineInstr.
-    MCGNode *getParentMCGNode(MachineInstr *MI)
-    {
-      return MCG.getParentMCGNode(MI);
-    }
-
-    /// markLive_ - Mark the node and all its callees as live. The UNKNOWN node
-    /// is treated special.
+    /// markLive_ - Mark the node and all its callees as live.
     void markLive_(MCGNode *N);
 
-    /// markLive - Mark the node and all its callees as live. The UNKNOWN node
-    /// is treated special.
+    /// markLive - Mark the node and all its callees as live.
     void markLive(MCGNode *N);
 
     /// runOnModule - Construct a simple machine-level call graph from the given
@@ -315,7 +338,7 @@ namespace llvm {
       }
 
       NodeType *operator*() {
-        return (*I)->getMCGN();
+        return (*I)->getCallee();
       }
     };
 
@@ -359,8 +382,12 @@ namespace llvm {
     }
 
     std::string getNodeLabel(const MCGNode *N, const MCallGraph &G) {
-      if (N->isUnknown())
-        return "<UNKNOWN>";
+      if (N->isUnknown()) {
+        std::string tmp;
+        raw_string_ostream s(tmp);
+        s << "<UNKNOWN-" << *N->getType() << ">";
+        return s.str();
+      }
       else
         return N->getMF()->getFunction()->getName();
     }

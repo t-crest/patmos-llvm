@@ -287,7 +287,8 @@ PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                 const SmallVectorImpl<SDValue> &OutVals,
                                 const SmallVectorImpl<ISD::InputArg> &Ins,
                                 DebugLoc dl, SelectionDAG &DAG,
-                                SmallVectorImpl<SDValue> &InVals) const {
+                                SmallVectorImpl<SDValue> &InVals,
+                                MachinePointerInfo MPI) const {
   // Patmos target does not yet support tail call optimization.
   isTailCall = false;
 
@@ -297,7 +298,7 @@ PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
   case CallingConv::Fast:
   case CallingConv::C:
     return LowerCCCCallTo(Chain, Callee, CallConv, isVarArg, isTailCall,
-                          Outs, OutVals, Ins, dl, DAG, InVals);
+                          Outs, OutVals, Ins, dl, DAG, InVals, MPI);
   }
 }
 
@@ -466,7 +467,8 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
                                      const SmallVectorImpl<SDValue> &OutVals,
                                      const SmallVectorImpl<ISD::InputArg> &Ins,
                                      DebugLoc dl, SelectionDAG &DAG,
-                                     SmallVectorImpl<SDValue> &InVals) const {
+                                     SmallVectorImpl<SDValue> &InVals,
+                                     MachinePointerInfo MPI) const {
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
@@ -564,7 +566,16 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
   if (InFlag.getNode())
     Ops.push_back(InFlag);
 
-  Chain = DAG.getNode(PatmosISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
+
+  // attach machine-level aliasing information
+  MachineMemOperand *MMO = DAG.getMachineFunction().getMachineMemOperand(MPI, 0,
+                                                                         4, 0);
+
+  Chain = DAG.getMemIntrinsicNode(PatmosISD::CALL, dl,
+                                  NodeTys, &Ops[0], Ops.size(),
+                                  MVT::i32, MMO);
+
+//   Chain = DAG.getNode(PatmosISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
   InFlag = Chain.getValue(1);
 
   // Create the CALLSEQ_END node.

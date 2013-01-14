@@ -1059,7 +1059,7 @@ SDValue DAGTypeLegalizer::MakeLibCall(RTLIB::Libcall LC, EVT RetVT,
                     false, 0, TLI.getLibcallCallingConv(LC),
                     /*isTailCall=*/false,
                     /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
-                    Callee, Args, DAG, dl);
+                    Callee, Args, DAG, dl, MachinePointerInfo());
   return CallInfo.first;
 }
 
@@ -1090,7 +1090,8 @@ DAGTypeLegalizer::ExpandChainLibCall(RTLIB::Libcall LC,
     TLI.LowerCallTo(InChain, RetTy, isSigned, !isSigned, false, false,
                     0, TLI.getLibcallCallingConv(LC), /*isTailCall=*/false,
                     /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
-                    Callee, Args, DAG, Node->getDebugLoc());
+                    Callee, Args, DAG, Node->getDebugLoc(),
+                    MachinePointerInfo());
 
   return CallInfo;
 }
