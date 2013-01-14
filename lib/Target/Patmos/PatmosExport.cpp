@@ -44,9 +44,73 @@ static cl::opt<bool> SkipSerializeInstructions (
 
 namespace llvm {
 
+  class PatmosPMLInstrInfo : public PMLInstrInfo {
+    virtual std::vector<StringRef> getCallee(MachineFunction &Caller,
+                                             const MachineInstr *Instr)
+    {
+      std::vector<StringRef> Callees;
+
+      assert(Instr->isCall());
+
+      // read call (patmos specific: operand[2] of call)
+      const MachineOperand &MO(Instr->getOperand(2));
+
+      if (MO.isGlobal()) {
+        // is the global value a function?
+        Callees.push_back(MO.getGlobal()->getName());
+      }
+      else if (MO.isSymbol()) {
+        // find the function in the current module
+        Callees.push_back(MO.getSymbolName());
+      }
+
+      return Callees;
+    }
+
+    virtual const std::vector<MachineBasicBlock*> getBranchTargets(
+                                    MachineFunction &MF,
+                                    const MachineInstr *Instr)
+    {
+      std::vector<MachineBasicBlock*> targets;
+
+      // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
+      switch (Instr->getOpcode()) {
+      case Patmos::BR:
+      case Patmos::BRu:
+      case Patmos::BRCF:
+      case Patmos::BRCFu: {
+        // TODO handle normal branches, return single branch target
+        const MachineOperand &MO(Instr->getOperand(2));
+
+        if (MO.isMBB()) {
+          targets.push_back( MO.getMBB() );
+        }
+
+        break;
+      }
+      case Patmos::BRT:
+      case Patmos::BRTu:
+      case Patmos::BRCFT:
+      case Patmos::BRCFTu: {
+        assert(Instr->getNumOperands() == 4);
+
+        unsigned index = Instr->getOperand(3).getIndex();
+        MachineJumpTableInfo *MJTI = MF.getJumpTableInfo();
+
+        typedef const std::vector<MachineBasicBlock*> JTEntries;
+        JTEntries &JTBBs(MJTI->getJumpTables()[index].MBBs);
+
+        return JTBBs;
+      }
+      }
+
+      return targets;
+    }
+  };
+
   class PatmosFunctionExport : public PMLFunctionExport {
   public:
-    PatmosFunctionExport(PatmosTargetMachine *tm) : PMLFunctionExport(tm) {}
+    PatmosFunctionExport(PatmosTargetMachine &tm) : PMLFunctionExport(tm) {}
 
     virtual bool doExportInstruction(const Instruction* Instr) {
       if (SkipSerializeInstructions) {
@@ -59,8 +123,8 @@ namespace llvm {
 
   class PatmosMachineFunctionExport : public PMLMachineFunctionExport {
   public:
-    PatmosMachineFunctionExport(PatmosTargetMachine *tm)
-      : PMLMachineFunctionExport(tm) {}
+    PatmosMachineFunctionExport(PatmosTargetMachine &tm)
+      : PMLMachineFunctionExport(tm, new PatmosPMLInstrInfo()) {}
 
     virtual bool doExportInstruction(const MachineInstr *Ins) {
       if (SkipSerializeInstructions) {
@@ -69,43 +133,8 @@ namespace llvm {
       }
       return true;
     }
-
-    // TODO read call? (patmos specific: operand[2] of call)
-
-    virtual void exportBranchInstruction(MachineFunction &MF,
-                                   yaml::GenericMachineInstruction *I,
-                                   const MachineInstr *Instr,
-                                   SmallVector<MachineOperand, 4> &Conditions,
-                                   bool HasBranchInfo,
-                                   MachineBasicBlock *TrueSucc,
-                                   MachineBasicBlock *FalseSucc)
-    {
-      PMLMachineFunctionExport::exportBranchInstruction(MF, I, Instr,
-                              Conditions, HasBranchInfo, TrueSucc, FalseSucc);
-
-      // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
-      switch (Instr->getOpcode()) {
-      case Patmos::BRT:
-      case Patmos::BRTu:
-      case Patmos::BRCFT:
-      case Patmos::BRCFTu:
-        assert(Instr->getNumOperands() == 4);
-
-        unsigned index = Instr->getOperand(3).getIndex();
-        MachineJumpTableInfo *MJTI = MF.getJumpTableInfo();
-
-        typedef const std::vector<MachineBasicBlock*> JTEntries;
-        JTEntries &JTBBs(MJTI->getJumpTables()[index].MBBs);
-
-        for (JTEntries::const_iterator it = JTBBs.begin(), ie = JTBBs.end();
-             it != ie; ++it)
-        {
-          I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
-        }
-        break;
-      }
-    }
   };
+
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass
@@ -115,10 +144,10 @@ namespace llvm {
     PMLExportPass *PEP = new PMLExportPass(filename, &tm, false);
 
     // Add our own export passes
-    PEP->addExporter( new PatmosMachineFunctionExport(&tm) );
-    // TODO this casting is nasty, can we do something about it??
-    PEP->addExporter( (PMLBitcodeExport*)new PatmosFunctionExport(&tm) );
-    PEP->addExporter( new PMLRelationGraphExport(&tm) );
+    PEP->addExporter( new PatmosMachineFunctionExport(tm) );
+    PEP->addExporter( new PMLBitcodeExportAdapter(
+                          new PatmosFunctionExport(tm) ));
+    PEP->addExporter( new PMLRelationGraphExport(tm) );
 
     return PEP;
   }

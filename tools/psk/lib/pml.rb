@@ -373,6 +373,7 @@ module PML
       @hash = qname.hash
       @is_loopheader = @data['loops'] && @data['loops'].first == self.name
       @loopnest = (@data['loops']||[]).length
+      die("No instructions in #{@name}") unless @data['instructions']
       @instructions = InstructionList.new(self, @data['instructions'])
     end
     def [](k)
