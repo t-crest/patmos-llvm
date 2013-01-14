@@ -45,7 +45,7 @@ def PatmosReturn  : SDNode<"PatmosISD::RET_FLAG", SDTNone,
 
 def PatmosCall    : SDNode<"PatmosISD::CALL",SDT_PatmosCall,
                            [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
-                            SDNPVariadic]>;
+                            SDNPVariadic, SDNPMemOperand]>;
 
 def PatmosCallseqStart
                   : SDNode<"ISD::CALLSEQ_START", SDT_PatmosCallSeqStart,

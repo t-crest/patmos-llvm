@@ -1637,7 +1637,7 @@ LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const
                   false, false, false, false, 0, CallingConv::C,
                   /*isTailCall=*/false, /*doesNotRet=*/false,
                   /*isReturnValueUsed=*/true,
-                  TlsGetAddr, Args, DAG, dl);
+                  TlsGetAddr, Args, DAG, dl, MachinePointerInfo());
 
     SDValue Ret = CallResult.first;
 
@@ -2341,7 +2341,8 @@ MipsTargetLowering::LowerCall(SDValue InChain, SDValue Callee,
                               const SmallVectorImpl<SDValue> &OutVals,
                               const SmallVectorImpl<ISD::InputArg> &Ins,
                               DebugLoc dl, SelectionDAG &DAG,
-                              SmallVectorImpl<SDValue> &InVals) const {
+                              SmallVectorImpl<SDValue> &InVals,
+                              MachinePointerInfo MPI) const {
   // MIPs target does not yet support tail call optimization.
   isTailCall = false;
 

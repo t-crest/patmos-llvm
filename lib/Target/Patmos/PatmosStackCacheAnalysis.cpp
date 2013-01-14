@@ -73,18 +73,20 @@ namespace llvm {
       MCGNodeUInt::const_iterator nodeUse(MaxStackUse.find(Node));
 
       // handle those nodes in an SCC of the call graph, i.e., recursion
-      if (nodeUse == MaxStackUse.end())
+      if (Node->isDead())
+        return 0;
+      else if (nodeUse == MaxStackUse.end())
         return UNLIMITED;
       else
         return nodeUse->second;
     }
 
     /// getStackUse - Determine the stack cache usage of the call graph node. 
-    /// Returns UNLIMITED for the unknown node.
+    /// Returns 0 for the unknown node.
     unsigned int getStackUse(MCGNode *Node)
     {
       if (Node->isUnknown())
-        return UNLIMITED;
+        return 0;
       else {
         MachineFunction *MF = Node->getMF();
         PatmosMachineFunctionInfo *PMFI =
@@ -99,14 +101,13 @@ namespace llvm {
 
     /// computeMaxUsage - Visit all children and find the maximal amount of 
     /// space allocated by any of them (and their children).
-    void computeMaxUsage(MCGNode *Node, PatmosCallGraphBuilder &PCGB,
-                        MCGNodeUInt &succCount, MCGNodes &WL)
+    void computeMaxUsage(MCGNode *Node, MCGNodeUInt &succCount, MCGNodes &WL)
     {
       // get the stack usage of the call graph node and all its children
       unsigned int maxChildUse = 0;
       unsigned int nodeUse = getStackUse(Node);
-      if (Node->isUnknown()) {
-        maxChildUse = UNLIMITED;
+      if (Node->isDead()) {
+        maxChildUse = 0;
       }
       else {
         // check all called functions
@@ -114,7 +115,8 @@ namespace llvm {
         for(MCGSites::const_iterator i(callSites.begin()), ie(callSites.end());
             i != ie; i++) {
           // get the child's stack usage
-          maxChildUse = std::max(maxChildUse, getMaxStackUsage((*i)->getMCGN()));
+          maxChildUse = std::max(maxChildUse,
+                                 getMaxStackUsage((*i)->getCallee()));
         }
       }
 
@@ -126,7 +128,7 @@ namespace llvm {
       const MCGSites &callingSites(Node->getCallingSites());
       for(MCGSites::const_iterator i(callingSites.begin()),
           ie(callingSites.end()); i != ie; i++) {
-        MCGNode *Caller = PCGB.getParentMCGNode((*i)->getMI());
+        MCGNode *Caller = (*i)->getCaller();
         if (--succCount[Caller] == 0) {
           WL.push_back(Caller);
         }
@@ -153,7 +155,7 @@ namespace llvm {
           lastSite = Node->findSite(i);
           assert(lastSite);
 
-          childUse = getMaxStackUsage(lastSite->getMCGN());
+          childUse = getMaxStackUsage(lastSite->getCallee());
           i++;
         }
         else if (i->getOpcode() == Patmos::SENS) {
@@ -230,7 +232,7 @@ namespace llvm {
         WL.pop_back();
 
         // compute its stack usage
-        computeMaxUsage(tmp, PCGB, succCount, WL);
+        computeMaxUsage(tmp, succCount, WL);
       }
 
       DEBUG(

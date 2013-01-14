@@ -23,6 +23,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -82,7 +83,8 @@ namespace {
                             0, TLI.getLibcallCallingConv(LC),
                             /*isTailCall=*/false,
                             /*doesNotRet=*/false, /*isReturnValueUsed=*/true,
-                            Callee, Args, DAG, Op.getDebugLoc());
+                            Callee, Args, DAG, Op.getDebugLoc(),
+                            MachinePointerInfo());
 
     return CallInfo.first;
   }
@@ -1270,7 +1272,8 @@ SPUTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                              const SmallVectorImpl<SDValue> &OutVals,
                              const SmallVectorImpl<ISD::InputArg> &Ins,
                              DebugLoc dl, SelectionDAG &DAG,
-                             SmallVectorImpl<SDValue> &InVals) const {
+                             SmallVectorImpl<SDValue> &InVals,
+                             MachinePointerInfo MPI) const {
   // CellSPU target does not yet support tail call optimization.
   isTailCall = false;
 

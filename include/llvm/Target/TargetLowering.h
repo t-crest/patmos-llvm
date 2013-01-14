@@ -1223,7 +1223,8 @@ public:
               CallingConv::ID CallConv, bool isTailCall,
               bool doesNotRet, bool isReturnValueUsed,
               SDValue Callee, ArgListTy &Args,
-              SelectionDAG &DAG, DebugLoc dl) const;
+              SelectionDAG &DAG, DebugLoc dl,
+              MachinePointerInfo MPI) const;
 
   /// LowerCall - This hook must be implemented to lower calls into the
   /// the specified DAG. The outgoing arguments to the call are described
@@ -1239,7 +1240,8 @@ public:
               const SmallVectorImpl<SDValue> &/*OutVals*/,
               const SmallVectorImpl<ISD::InputArg> &/*Ins*/,
               DebugLoc /*dl*/, SelectionDAG &/*DAG*/,
-              SmallVectorImpl<SDValue> &/*InVals*/) const {
+              SmallVectorImpl<SDValue> &/*InVals*/,
+              MachinePointerInfo/*MPI*/) const {
     llvm_unreachable("Not Implemented");
   }
 

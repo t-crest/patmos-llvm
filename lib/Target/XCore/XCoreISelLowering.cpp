@@ -30,6 +30,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/ValueTypes.h"
@@ -490,7 +491,7 @@ LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
                     false, false, 0, CallingConv::C, /*isTailCall=*/false,
                     /*doesNotRet=*/false, /*isReturnValueUsed=*/true,
                     DAG.getExternalSymbol("__misaligned_load", getPointerTy()),
-                    Args, DAG, DL);
+                    Args, DAG, DL, MachinePointerInfo());
 
   SDValue Ops[] =
     { CallResult.first, CallResult.second };
@@ -552,7 +553,7 @@ LowerSTORE(SDValue Op, SelectionDAG &DAG) const
                     false, false, 0, CallingConv::C, /*isTailCall=*/false,
                     /*doesNotRet=*/false, /*isReturnValueUsed=*/true,
                     DAG.getExternalSymbol("__misaligned_store", getPointerTy()),
-                    Args, DAG, dl);
+                    Args, DAG, dl, MachinePointerInfo());
 
   return CallResult.second;
 }
@@ -880,7 +881,8 @@ XCoreTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                const SmallVectorImpl<SDValue> &OutVals,
                                const SmallVectorImpl<ISD::InputArg> &Ins,
                                DebugLoc dl, SelectionDAG &DAG,
-                               SmallVectorImpl<SDValue> &InVals) const {
+                               SmallVectorImpl<SDValue> &InVals,
+                               MachinePointerInfo MPI) const {
   // XCore target does not yet support tail call optimization.
   isTailCall = false;
 

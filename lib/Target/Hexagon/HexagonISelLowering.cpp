@@ -377,7 +377,8 @@ HexagonTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                                  const SmallVectorImpl<SDValue> &OutVals,
                                  const SmallVectorImpl<ISD::InputArg> &Ins,
                                  DebugLoc dl, SelectionDAG &DAG,
-                                 SmallVectorImpl<SDValue> &InVals) const {
+                                 SmallVectorImpl<SDValue> &InVals,
+                                 MachinePointerInfo MPI) const {
 
   bool IsStructRet    = (Outs.empty()) ? false : Outs[0].Flags.isSRet();
 

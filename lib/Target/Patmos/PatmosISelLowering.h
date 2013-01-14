@@ -28,15 +28,15 @@ namespace llvm {
       /// Return with a flag operand. Operand 0 is the chain operand.
       RET_FLAG,
 
-      /// CALL - These operations represent an abstract call
-      /// instruction, which includes a bunch of information.
-      CALL,
-
       /// DYNALLOC - Dynamic Stack Allocation.
       DYNALLOC,
 
       /// multiplication
-      MUL, MULU
+      MUL, MULU,
+
+      /// CALL - These operations represent an abstract call
+      /// instruction, which includes a bunch of information.
+      CALL = ISD::FIRST_TARGET_MEMORY_OPCODE
     };
   } // end namespace PatmosISD
 
@@ -119,7 +119,8 @@ namespace llvm {
                            const SmallVectorImpl<SDValue> &OutVals,
                            const SmallVectorImpl<ISD::InputArg> &Ins,
                            DebugLoc dl, SelectionDAG &DAG,
-                           SmallVectorImpl<SDValue> &InVals) const;
+                           SmallVectorImpl<SDValue> &InVals,
+                           MachinePointerInfo MPI) const;
 
     SDValue LowerCCCArguments(SDValue Chain,
                               CallingConv::ID CallConv,
@@ -141,7 +142,8 @@ namespace llvm {
                       const SmallVectorImpl<SDValue> &OutVals,
                       const SmallVectorImpl<ISD::InputArg> &Ins,
                       DebugLoc dl, SelectionDAG &DAG,
-                      SmallVectorImpl<SDValue> &InVals) const;
+                      SmallVectorImpl<SDValue> &InVals,
+                      MachinePointerInfo MPI) const;
 
     virtual SDValue LowerFormalArguments(SDValue Chain,
                                  CallingConv::ID CallConv, bool isVarArg,

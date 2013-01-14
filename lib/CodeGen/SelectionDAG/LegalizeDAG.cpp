@@ -1799,7 +1799,8 @@ SDValue SelectionDAGLegalize::ExpandLibCall(RTLIB::Libcall LC, SDNode *Node,
     TLI.LowerCallTo(InChain, RetTy, isSigned, !isSigned, false, false,
                     0, TLI.getLibcallCallingConv(LC), isTailCall,
                     /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
-                    Callee, Args, DAG, Node->getDebugLoc());
+                    Callee, Args, DAG, Node->getDebugLoc(),
+                    MachinePointerInfo());
 
   if (!CallInfo.second.getNode())
     // It's a tailcall, return the chain (which is the DAG root).
@@ -1832,7 +1833,7 @@ SDValue SelectionDAGLegalize::ExpandLibCall(RTLIB::Libcall LC, EVT RetVT,
   TLI.LowerCallTo(DAG.getEntryNode(), RetTy, isSigned, !isSigned, false,
                   false, 0, TLI.getLibcallCallingConv(LC), /*isTailCall=*/false,
                   /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
-                  Callee, Args, DAG, dl);
+                  Callee, Args, DAG, dl, MachinePointerInfo());
 
   return CallInfo.first;
 }
@@ -1864,7 +1865,8 @@ SelectionDAGLegalize::ExpandChainLibCall(RTLIB::Libcall LC,
     TLI.LowerCallTo(InChain, RetTy, isSigned, !isSigned, false, false,
                     0, TLI.getLibcallCallingConv(LC), /*isTailCall=*/false,
                     /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
-                    Callee, Args, DAG, Node->getDebugLoc());
+                    Callee, Args, DAG, Node->getDebugLoc(),
+                    MachinePointerInfo());
 
   return CallInfo;
 }
@@ -1996,7 +1998,7 @@ SelectionDAGLegalize::ExpandDivRemLibCall(SDNode *Node,
     TLI.LowerCallTo(InChain, RetTy, isSigned, !isSigned, false, false,
                     0, TLI.getLibcallCallingConv(LC), /*isTailCall=*/false,
                     /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
-                    Callee, Args, DAG, dl);
+                    Callee, Args, DAG, dl, MachinePointerInfo());
 
   // Remainder is loaded back from the stack frame.
   SDValue Rem = DAG.getLoad(RetVT, dl, CallInfo.second, FIPtr,
@@ -2577,7 +2579,7 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
                       /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
                       DAG.getExternalSymbol("__sync_synchronize",
                                             TLI.getPointerTy()),
-                      Args, DAG, dl);
+                      Args, DAG, dl, MachinePointerInfo());
     Results.push_back(CallResult.second);
     break;
   }
@@ -2653,7 +2655,7 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
                       /*isTailCall=*/false,
                       /*doesNotReturn=*/false, /*isReturnValueUsed=*/true,
                       DAG.getExternalSymbol("abort", TLI.getPointerTy()),
-                      Args, DAG, dl);
+                      Args, DAG, dl, MachinePointerInfo());
     Results.push_back(CallResult.second);
     break;
   }

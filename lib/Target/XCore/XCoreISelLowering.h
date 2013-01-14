@@ -180,7 +180,8 @@ namespace llvm {
                 const SmallVectorImpl<SDValue> &OutVals,
                 const SmallVectorImpl<ISD::InputArg> &Ins,
                 DebugLoc dl, SelectionDAG &DAG,
-                SmallVectorImpl<SDValue> &InVals) const;
+                SmallVectorImpl<SDValue> &InVals,
+                MachinePointerInfo MPI) const;
 
     virtual SDValue
       LowerReturn(SDValue Chain,

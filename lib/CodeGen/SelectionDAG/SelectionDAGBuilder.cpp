@@ -5083,7 +5083,7 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
                  /*isTailCall=*/false,
                  /*doesNotRet=*/false, /*isReturnValueUsed=*/true,
                  DAG.getExternalSymbol(TrapFuncName.data(), TLI.getPointerTy()),
-                 Args, DAG, getCurDebugLoc());
+                 Args, DAG, getCurDebugLoc(), MachinePointerInfo());
     DAG.setRoot(Result.second);
     return 0;
   }
@@ -5145,7 +5145,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
 void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
                                       bool isTailCall,
                                       MachineBasicBlock *LandingPad) {
-  PointerType *PT = cast<PointerType>(CS.getCalledValue()->getType());
+  const Value *CalledValue = CS.getCalledValue();
+  PointerType *PT = cast<PointerType>(CalledValue->getType());
   FunctionType *FTy = cast<FunctionType>(PT->getElementType());
   Type *RetTy = FTy->getReturnType();
   MachineModuleInfo &MMI = DAG.getMachineFunction().getMMI();
@@ -5247,6 +5248,8 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
   if (isTailCall && TM.Options.EnableFastISel)
     isTailCall = false;
 
+  MachinePointerInfo MPI(CalledValue);
+
   std::pair<SDValue,SDValue> Result =
     TLI.LowerCallTo(getRoot(), RetTy,
                     CS.paramHasAttr(0, Attribute::SExt),
@@ -5256,7 +5259,7 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
                     isTailCall,
                     CS.doesNotReturn(),
                     !CS.getInstruction()->use_empty(),
-                    Callee, Args, DAG, getCurDebugLoc());
+                    Callee, Args, DAG, getCurDebugLoc(), MPI);
   assert((isTailCall || Result.second.getNode()) &&
          "Non-null chain expected with non-tail call!");
   assert((Result.second.getNode() || !Result.first.getNode()) &&
@@ -6376,7 +6379,7 @@ TargetLowering::LowerCallTo(SDValue Chain, Type *RetTy,
                             bool doesNotRet, bool isReturnValueUsed,
                             SDValue Callee,
                             ArgListTy &Args, SelectionDAG &DAG,
-                            DebugLoc dl) const {
+                            DebugLoc dl, MachinePointerInfo MPI) const {
   // Handle all of the outgoing arguments.
   SmallVector<ISD::OutputArg, 32> Outs;
   SmallVector<SDValue, 32> OutVals;
@@ -6471,7 +6474,7 @@ TargetLowering::LowerCallTo(SDValue Chain, Type *RetTy,
 
   SmallVector<SDValue, 4> InVals;
   Chain = LowerCall(Chain, Callee, CallConv, isVarArg, doesNotRet, isTailCall,
-                    Outs, OutVals, Ins, dl, DAG, InVals);
+                    Outs, OutVals, Ins, dl, DAG, InVals, MPI);
 
   // Verify that the target's LowerCall behaved as expected.
   assert(Chain.getNode() && Chain.getValueType() == MVT::Other &&
