@@ -356,25 +356,22 @@ IS_PTR_SEQUENCE_VECTOR(RelationGraph)
 /// Each document defines a version of the format, and either the
 /// generic architecture, or a specialized one. Architecture specific
 /// properties are defined in the architecture description.
-struct GenericArchitecture {
-    static const std::string Version;
-    static const std::string ArchName;
+struct GenericFormat {
     typedef GenericMachineInstruction MachineInstruction;
     typedef Block<MachineInstruction> MachineBlock;
     typedef Function<MachineBlock> MachineFunction;
 };
 
 
-template <typename Arch> struct Doc {
+struct Doc {
     StringRef FormatVersion;
-    StringRef Architecture;
     StringRef TargetTriple;
     std::vector<BitcodeFunction*> BitcodeFunctions;
-    std::vector<typename Arch::MachineFunction*> MachineFunctions;
+    std::vector<GenericFormat::MachineFunction*> MachineFunctions;
     std::vector<RelationGraph*> RelationGraphs;
 
     Doc(StringRef TargetTriple)
-      : FormatVersion(Arch::Version), Architecture(Arch::ArchName),
+      : FormatVersion("pml-0.1"),
         TargetTriple(TargetTriple) {}
     ~Doc() {
         DELETE_MEMBERS(BitcodeFunctions);
@@ -386,7 +383,7 @@ template <typename Arch> struct Doc {
         BitcodeFunctions.push_back(F);
     }
     /// Add a machine function, which is owned by the document afterwards
-    void addMachineFunction(typename Arch::MachineFunction* MF) {
+    void addMachineFunction(GenericFormat::MachineFunction* MF) {
         MachineFunctions.push_back(MF);
     }
     /// Add a relation graph, which is owned by the document afterwards
@@ -394,12 +391,10 @@ template <typename Arch> struct Doc {
         RelationGraphs.push_back(RG);
     }
 };
-template <typename Arch>
-struct MappingTraits< Doc<Arch> > {
-    static void mapping(IO &io, Doc<Arch>& doc) {
+template <>
+struct MappingTraits< Doc > {
+    static void mapping(IO &io, Doc& doc) {
         io.mapRequired("format",   doc.FormatVersion);
-        // TODO this is actually more like a format-extension name
-        io.mapRequired("arch",     doc.Architecture);
         io.mapRequired("triple",   doc.TargetTriple);
         io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
         io.mapOptional("machine-functions",doc.MachineFunctions);
@@ -416,181 +411,87 @@ namespace llvm {
   /// Base class for all exporters
   class PMLExport {
   public:
-    PMLExport(TargetMachine *tm) {}
+    PMLExport() {}
 
     virtual ~PMLExport() {}
 
-    virtual void initialize(Module &M, yaml::Output *Output) { };
+    virtual void initialize(Module &M) {}
 
-    virtual void finalize(Module &M, yaml::Output *Output) {};
+    virtual void finalize(Module &M) {}
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Output *Output) =0;
+    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI) =0;
+
+    virtual void writeOutput(yaml::Output *Output) =0;
   };
 
   /// Base class for exporters that work on modules and functions
-  /// On machine functions, this exports the corresponding function if available
-  class PMLBitcodeExport : public PMLExport {
+  class PMLBitcodeExport {
   public:
-    PMLBitcodeExport(TargetMachine* tm) : PMLExport(tm) {}
+    PMLBitcodeExport() {}
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Output *Output);
+    virtual ~PMLBitcodeExport() {}
 
-    virtual void serializeFunction(const Function &F, yaml::Output *Output) =0;
+    virtual void initialize(Module &M) {}
 
-  protected:
-    const Function* getFunctionForMF(MachineFunction &MF) const;
+    virtual void finalize(Module &M) {}
+
+    virtual void serialize(const Function &F) =0;
+
+    virtual void writeOutput(yaml::Output *Output) =0;
   };
 
-  /// Base class for exporters that use the GenericArchitecture
-  template <typename ArchTrait>
-  class PMLArchExport : public PMLExport {
-    TargetMachine *TM;
-
+  class PMLBitcodeExportAdapter : public PMLExport {
+    PMLBitcodeExport *Exporter;
   public:
-    PMLArchExport(TargetMachine *tm) : PMLExport(tm), TM(tm) {}
+    PMLBitcodeExportAdapter(PMLBitcodeExport *E)
+      : PMLExport(), Exporter(E) { assert(Exporter); }
 
-    TargetMachine* getTargetMachine() { return TM; }
+    virtual ~PMLBitcodeExportAdapter() { if (Exporter) delete Exporter; }
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Output *Output)
-    {
-      yaml::Doc<ArchTrait> YDoc(TM->getTargetTriple());
-      serialize(MF, LI, YDoc);
-      *Output << YDoc;
-    }
+    virtual void initialize(Module &M);
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Doc<ArchTrait>& doc) =0;
+    virtual void finalize(Module &M);
+
+    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
+
+    virtual void writeOutput(yaml::Output *Output);
   };
-
-  template <typename ArchTrait>
-  class PMLBitcodeArchExport : public PMLArchExport<ArchTrait>,
-                                      PMLBitcodeExport
-  {
-    TargetMachine *TM;
-
-  public:
-    PMLBitcodeArchExport(TargetMachine *tm)
-      : PMLArchExport<ArchTrait>(tm), PMLBitcodeExport(tm), TM(tm) {}
-
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Output *Output) {
-      if (const Function *F = getFunctionForMF(MF)) {
-        serializeFunction(*F, Output);
-      }
-    }
-
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Doc<ArchTrait>& doc) {
-      if (const Function *F = getFunctionForMF(MF)) {
-        serializeFunction(*F, doc);
-      }
-    }
-
-    virtual void serializeModule(Module &M, yaml::Output *Output)
-    {
-      yaml::Doc<ArchTrait> YDoc(TM->getTargetTriple());
-      for (Module::iterator it=M.begin(),ie=M.end(); it != ie; ++it) {
-        serializeFunction(*it, YDoc);
-      }
-      *Output << YDoc;
-    }
-
-    virtual void serializeFunction(const Function &F, yaml::Output *Output)
-    {
-      yaml::Doc<ArchTrait> YDoc(TM->getTargetTriple());
-      serializeFunction(F, YDoc);
-      *Output << YDoc;
-    }
-
-    virtual void serializeFunction(const Function &F,
-                                   yaml::Doc<ArchTrait>& doc) =0;
-  };
-
-  /// Execute several exports using the same architecture on one document.
-  template <typename ArchTrait>
-  class PMLExportProxy : public PMLArchExport<ArchTrait> {
-    typedef std::vector<PMLArchExport<ArchTrait>*> ExporterList;
-    ExporterList Exporters;
-  public:
-    PMLExportProxy(TargetMachine *tm) : PMLArchExport<ArchTrait>(tm) {}
-
-    virtual ~PMLExportProxy() { DELETE_MEMBERS(Exporters); }
-
-    void addExporter(PMLArchExport<ArchTrait>* exporter) {
-      Exporters.push_back(exporter);
-    }
-
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Doc<ArchTrait>& doc)
-    {
-      for (typename ExporterList::iterator it=Exporters.begin(),
-           end=Exporters.end(); it != end; ++it)
-      {
-        (*it)->serialize(MF, LI, doc);
-      }
-    }
-  };
-
-  template <typename ArchTrait>
-  class PMLBitcodeExportProxy : public PMLBitcodeArchExport<ArchTrait> {
-    typedef std::vector<PMLArchExport<ArchTrait>*> ExporterList;
-    ExporterList Exporters;
-  public:
-    PMLBitcodeExportProxy(TargetMachine *tm)
-      : PMLBitcodeArchExport<ArchTrait>(tm) {}
-
-    virtual ~PMLBitcodeExportProxy() { DELETE_MEMBERS(Exporters); }
-
-    void addExporter(PMLBitcodeArchExport<ArchTrait>* exporter) {
-      Exporters.push_back(exporter);
-    }
-
-    virtual void serialize(const Function &F, yaml::Doc<ArchTrait>& doc)
-    {
-      for (typename ExporterList::iterator it=Exporters.begin(),
-           end=Exporters.end(); it != end; ++it)
-      {
-        (*it)->serializeFunction(F, doc);
-      }
-    }
-  };
-
-  typedef PMLArchExport <yaml::GenericArchitecture> PMLGenericExport;
-  typedef PMLExportProxy<yaml::GenericArchitecture> PMLGenericExportProxy;
-  typedef PMLBitcodeArchExport <yaml::GenericArchitecture>
-                                                   PMLGenericBitcodeExport;
-  typedef PMLBitcodeExportProxy<yaml::GenericArchitecture>
-                                                   PMLGenericBitcodeExportProxy;
-
 
   // --------------- Standard exporters --------------------- //
 
-  // TODO if needed, we could factor out most of the code in serialize and
-  // split the Doc template related stuff into a separate class to make
-  // it reusable for different architectures
+  // TODO we could factor out the code to generate the object to export and
+  // do the Doc related stuff separately, if needed for efficiency reasons, or
+  // to update existing yaml-docs.
 
-  class PMLFunctionExport : public PMLGenericBitcodeExport {
+  class PMLFunctionExport : public PMLBitcodeExport {
+    yaml::Doc YDoc;
   public:
-    PMLFunctionExport(TargetMachine *TM) : PMLGenericBitcodeExport(TM) {}
+    PMLFunctionExport(TargetMachine &TM) : YDoc(TM.getTargetTriple()) {}
 
-    virtual void serializeFunction(const Function &F,
-                           yaml::Doc<yaml::GenericArchitecture>& doc);
+    virtual void serialize(const Function &F);
+
+    virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
+
+    yaml::Doc& getDoc() { return YDoc; }
 
     virtual bool doExportInstruction(const Instruction* Instr) { return true; }
 
     virtual void exportInstruction(yaml::Instruction* I, const Instruction* II);
   };
 
-  class PMLMachineFunctionExport : public PMLGenericExport {
+  class PMLMachineFunctionExport : public PMLExport {
+    yaml::Doc YDoc;
 
+    TargetMachine &TM;
   public:
-    PMLMachineFunctionExport(TargetMachine *TM) : PMLGenericExport(TM) {}
+    PMLMachineFunctionExport(TargetMachine &TM)
+      : YDoc(TM.getTargetTriple()), TM(TM) {}
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Doc<yaml::GenericArchitecture>& doc);
+    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
+
+    virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
+
+    yaml::Doc& getDoc() { return YDoc; }
 
     virtual bool doExportInstruction(const MachineInstr *Instr) { return true; }
 
@@ -614,15 +515,20 @@ namespace llvm {
 
   };
 
-  class PMLRelationGraphExport : public PMLGenericExport {
-    MachineLoopInfo *LI;
+  class PMLRelationGraphExport : public PMLExport {
+    yaml::Doc YDoc;
 
+    MachineLoopInfo *LI;
   public:
-    PMLRelationGraphExport(TargetMachine *TM) : PMLGenericExport(TM), LI(0) {}
+    PMLRelationGraphExport(TargetMachine &TM)
+      : YDoc(TM.getTargetTriple()), LI(0) {}
 
     /// Build the Control-Flow Relation Graph connection machine code and bitcode
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                           yaml::Doc<yaml::GenericArchitecture>& doc);
+    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
+
+    virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
+
+    yaml::Doc& getDoc() { return YDoc; }
 
   private:
 

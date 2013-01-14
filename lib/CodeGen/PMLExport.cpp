@@ -64,24 +64,28 @@ template <> struct FlowGraphTrait<MachineBasicBlock> {
 namespace llvm
 {
 
-const std::string yaml::GenericArchitecture::Version  = "pml-0.1";
-const std::string yaml::GenericArchitecture::ArchName = "generic";
-
-const Function* PMLBitcodeExport::getFunctionForMF(MachineFunction &MF) const {
-  // TODO keep track of exported functions, avoid duplicates (return null!)
-  return MF.getFunction();
+void PMLBitcodeExportAdapter::initialize(Module &M) {
+  Exporter->initialize(M);
 }
 
-void PMLBitcodeExport::serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                       yaml::Output *Output) {
-  if (const Function *F = getFunctionForMF(MF)) {
-    serializeFunction(*F, Output);
-  }
+void PMLBitcodeExportAdapter::finalize(Module &M) {
+  Exporter->finalize(M);
+}
+
+void PMLBitcodeExportAdapter::serialize(MachineFunction &MF,
+                                        MachineLoopInfo* LI)
+{
+  const Function *F = MF.getFunction();
+  if (F) Exporter->serialize(*F);
+}
+
+void PMLBitcodeExportAdapter::writeOutput(yaml::Output *Output) {
+  Exporter->writeOutput(Output);
 }
 
 
-void PMLFunctionExport::serializeFunction(const Function &Fn,
-                                  yaml::Doc<yaml::GenericArchitecture>& doc)
+
+void PMLFunctionExport::serialize(const Function &Fn)
 {
   yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn.getName());
 
@@ -116,7 +120,7 @@ void PMLFunctionExport::serializeFunction(const Function &Fn,
   }
   // TODO: we do not compute a hash yet
   F->Hash = StringRef("0");
-  doc.addFunction(F);
+  YDoc.addFunction(F);
 }
 
 void PMLFunctionExport::exportInstruction(yaml::Instruction* I,
@@ -134,18 +138,17 @@ void PMLFunctionExport::exportInstruction(yaml::Instruction* I,
 }
 
 void PMLMachineFunctionExport::serialize(MachineFunction &MF,
-                                     MachineLoopInfo* LI,
-                                     yaml::Doc<yaml::GenericArchitecture>& doc)
+                                         MachineLoopInfo* LI)
 {
-  yaml::GenericArchitecture::MachineFunction *F =
-     new yaml::GenericArchitecture::MachineFunction(MF.getFunctionNumber());
+  yaml::GenericFormat::MachineFunction *F =
+     new yaml::GenericFormat::MachineFunction(MF.getFunctionNumber());
   F->MapsTo = yaml::Name(MF.getFunction()->getName());
   F->Level = yaml::level_machinecode;
-  yaml::GenericArchitecture::MachineBlock *B;
+  yaml::GenericFormat::MachineBlock *B;
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
     B = F->addBlock(
-        new yaml::GenericArchitecture::MachineBlock(BB->getNumber()));
+        new yaml::GenericFormat::MachineBlock(BB->getNumber()));
 
     for (MachineBasicBlock::const_pred_iterator BBPred = BB->pred_begin(),
         E = BB->pred_end(); BBPred != E; ++BBPred)
@@ -166,7 +169,7 @@ void PMLMachineFunctionExport::serialize(MachineFunction &MF,
     // export instruction and branch Information
     MachineBasicBlock *TrueSucc = 0, *FalseSucc = 0;
     SmallVector<MachineOperand, 4> Conditions;
-    const TargetInstrInfo *TII = getTargetMachine()->getInstrInfo();
+    const TargetInstrInfo *TII = TM.getInstrInfo();
     bool HasBranchInfo = !TII->AnalyzeBranch(*BB, TrueSucc, FalseSucc,
         Conditions, false);
 
@@ -188,7 +191,7 @@ void PMLMachineFunctionExport::serialize(MachineFunction &MF,
 
   // TODO: we do not compute a hash yet
   F->Hash = StringRef("0");
-  doc.addMachineFunction(F);
+  YDoc.addMachineFunction(F);
 }
 
 void PMLMachineFunctionExport::exportInstruction(MachineFunction &MF,
@@ -477,8 +480,7 @@ void addProgressNodes(yaml::RelationGraph *RG,
 }
 
 
-void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI,
-                                 yaml::Doc<yaml::GenericArchitecture>& doc)
+void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
 {
   this->LI = LI;
 
@@ -556,21 +558,21 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI,
       break;
     }
     else if (TabuEvents.empty()) {
-      errs() << "[mc2yml] Warning: inconsistent initial mapping for "
-          << MF.getFunction()->getName() << " (retrying)\n";
+      dbgs() << "[mc2yml] Warning: inconsistent initial mapping for "
+             << MF.getFunction()->getName() << " (retrying)\n";
     }
     TabuEvents.insert(UnmatchedEvents.begin(), UnmatchedEvents.end());
   }
   if (!UnmatchedEvents.empty()) {
-    errs() << "[mc2yml] Error: failed to find a correct event mapping for "
-        << MF.getFunction()->getName() << ": ";
+    dbgs() << "[mc2yml] Error: failed to find a correct event mapping for "
+           << MF.getFunction()->getName() << ": ";
     for (std::set<StringRef>::iterator I = UnmatchedEvents.begin(), E =
         UnmatchedEvents.end(); I != E; ++I) {
-      errs() << *I << ",";
+      dbgs() << *I << ",";
     }
-    errs() << "\n";
+    dbgs() << "\n";
   }
-  doc.addRelationGraph(RG);
+  YDoc.addRelationGraph(RG);
 }
 
 void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
@@ -651,13 +653,9 @@ PMLExportPass::~PMLExportPass() {
 }
 
 void PMLExportPass::addDefaultExporter() {
-  PMLGenericExportProxy *PGEP = new PMLGenericExportProxy(TM);
-
-  PGEP->addExporter( new PMLFunctionExport(TM) );
-  PGEP->addExporter( new PMLMachineFunctionExport(TM) );
-  PGEP->addExporter( new PMLRelationGraphExport(TM) );
-
-  Exporters.push_back( PGEP );
+  Exporters.push_back( new PMLBitcodeExportAdapter(new PMLFunctionExport(*TM)));
+  Exporters.push_back( new PMLMachineFunctionExport(*TM) );
+  Exporters.push_back( new PMLRelationGraphExport(*TM) );
 }
 
 void PMLExportPass::getAnalysisUsage(AnalysisUsage &AU) const {
@@ -667,6 +665,8 @@ void PMLExportPass::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool PMLExportPass::doInitialization(Module &M) {
+  // TODO with the current implementation, we actually do not need to
+  // keep the Output as field, we only use it in finalization.
   std::string ErrorInfo;
   OutFile = new tool_output_file(OutFileName.c_str(), ErrorInfo, 0);
   if (!ErrorInfo.empty()) {
@@ -681,7 +681,7 @@ bool PMLExportPass::doInitialization(Module &M) {
 
   for (std::vector<PMLExport*>::iterator it = Exporters.begin(),
        end = Exporters.end(); it != end; it++) {
-    (*it)->initialize(M, Output);
+    (*it)->initialize(M);
   }
   return false;
 }
@@ -689,7 +689,10 @@ bool PMLExportPass::doInitialization(Module &M) {
 bool PMLExportPass::doFinalization(Module &M) {
   for (std::vector<PMLExport*>::iterator it = Exporters.begin(),
        end = Exporters.end(); it != end; it++) {
-    (*it)->finalize(M, Output);
+    (*it)->finalize(M);
+    // TODO we could be slightly more clevererer here and try to serialize stuff
+    // during export already, so we do not need to keep everything in memory..
+    (*it)->writeOutput(Output);
   }
 
   if (OutFile) {
@@ -705,7 +708,7 @@ bool PMLExportPass::runOnMachineFunction(MachineFunction &MF) {
 
   for (std::vector<PMLExport*>::iterator it = Exporters.begin(),
        end = Exporters.end(); it != end; it++) {
-    (*it)->serialize(MF, LI, Output);
+    (*it)->serialize(MF, LI);
   }
 
   return false;

@@ -46,7 +46,7 @@ namespace llvm {
 
   class PatmosFunctionExport : public PMLFunctionExport {
   public:
-    PatmosFunctionExport(PatmosTargetMachine *tm) : PMLFunctionExport(tm) {}
+    PatmosFunctionExport(PatmosTargetMachine &tm) : PMLFunctionExport(tm) {}
 
     virtual bool doExportInstruction(const Instruction* Instr) {
       if (SkipSerializeInstructions) {
@@ -59,7 +59,7 @@ namespace llvm {
 
   class PatmosMachineFunctionExport : public PMLMachineFunctionExport {
   public:
-    PatmosMachineFunctionExport(PatmosTargetMachine *tm)
+    PatmosMachineFunctionExport(PatmosTargetMachine &tm)
       : PMLMachineFunctionExport(tm) {}
 
     virtual bool doExportInstruction(const MachineInstr *Ins) {
@@ -115,10 +115,10 @@ namespace llvm {
     PMLExportPass *PEP = new PMLExportPass(filename, &tm, false);
 
     // Add our own export passes
-    PEP->addExporter( new PatmosMachineFunctionExport(&tm) );
-    // TODO this casting is nasty, can we do something about it??
-    PEP->addExporter( (PMLBitcodeExport*)new PatmosFunctionExport(&tm) );
-    PEP->addExporter( new PMLRelationGraphExport(&tm) );
+    PEP->addExporter( new PatmosMachineFunctionExport(tm) );
+    PEP->addExporter( new PMLBitcodeExportAdapter(
+                          new PatmosFunctionExport(tm) ));
+    PEP->addExporter( new PMLRelationGraphExport(tm) );
 
     return PEP;
   }
