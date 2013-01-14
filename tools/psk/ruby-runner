@@ -36,4 +36,4 @@ fi
 
 # Run
 if [ -z "${LIBDIR}" ] ; then LIBDIR=$(dirname $0)/lib ;  fi
-${RUBY} -I ${LIBDIR} ${LIBDIR}/$0.rb "${@}"
+${RUBY} -I "${LIBDIR}" "${LIBDIR}/$(basename $0).rb" "${@}"

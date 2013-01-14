@@ -99,7 +99,7 @@ std::vector<StringRef> PMLInstrInfo::getCallee(MachineFunction &Caller,
   return Callees;
 }
 
-const std::vector<MachineBasicBlock*> PMLInstrInfo::getJumpTargets(
+const std::vector<MachineBasicBlock*> PMLInstrInfo::getBranchTargets(
                                       MachineFunction &MF,
                                       const MachineInstr *Instr)
 {
@@ -264,31 +264,40 @@ void PMLMachineFunctionExport::exportBranchInstruction(MachineFunction &MF,
                                  MachineBasicBlock *TrueSucc,
                                  MachineBasicBlock *FalseSucc)
 {
+  // Should we check the PMLInstrInfo for branch targets?
+  bool LookupBranchTargets = true;
+
   if (Ins->getDesc().isConditionalBranch()) {
     I->BranchType = yaml::branch_conditional;
-    if (HasBranchInfo && TrueSucc)
+    if (HasBranchInfo && TrueSucc) {
       I->BranchTargets.push_back(yaml::Name(TrueSucc->getNumber()));
+      LookupBranchTargets = false;
+    }
   }
   else if (Ins->getDesc().isUnconditionalBranch()) {
     I->BranchType = yaml::branch_unconditional;
     MachineBasicBlock *USucc =
         Conditions.empty() ? TrueSucc : FalseSucc;
-    if (HasBranchInfo && USucc)
+    if (HasBranchInfo && USucc) {
       I->BranchTargets.push_back(yaml::Name(USucc->getNumber()));
+      LookupBranchTargets = false;
+    }
   }
   else if (Ins->getDesc().isIndirectBranch()) {
     I->BranchType = yaml::branch_indirect;
-
-    typedef const std::vector<MachineBasicBlock*> JTVector;
-    JTVector targets = PII->getJumpTargets(MF, Ins);
-
-    for (JTVector::const_iterator it = targets.begin(),ie=targets.end();
-          it != ie; ++it) {
-      I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
-    }
   }
   else {
     I->BranchType = yaml::branch_any;
+  }
+
+  if (LookupBranchTargets) {
+    typedef const std::vector<MachineBasicBlock*> BTVector;
+    BTVector targets = PII->getBranchTargets(MF, Ins);
+
+    for (BTVector::const_iterator it = targets.begin(),ie=targets.end();
+          it != ie; ++it) {
+      I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
+    }
   }
 }
 

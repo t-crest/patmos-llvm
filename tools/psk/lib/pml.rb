@@ -283,6 +283,7 @@ module PML
       @hash = qname.hash
       @is_loopheader = @data['loops'] && @data['loops'].first == self.name
       @loopnest = (@data['loops']||[]).length
+      die("No instructions in #{@name}") unless @data['instructions']
       @instructions = IndexedList.new(@data['instructions'].map { |ins| 
                                                Instruction.new(self, ins) 
                                              })

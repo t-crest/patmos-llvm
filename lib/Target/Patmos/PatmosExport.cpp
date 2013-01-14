@@ -67,12 +67,21 @@ namespace llvm {
       return Callees;
     }
 
-    virtual const std::vector<MachineBasicBlock*> getJumpTargets(
+    virtual const std::vector<MachineBasicBlock*> getBranchTargets(
                                     MachineFunction &MF,
                                     const MachineInstr *Instr)
     {
+      std::vector<MachineBasicBlock*> targets;
+
       // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
       switch (Instr->getOpcode()) {
+      case Patmos::BR:
+      case Patmos::BRu:
+      case Patmos::BRCF:
+      case Patmos::BRCFu:
+        // TODO handle normal branches, return single branch target
+
+        break;
       case Patmos::BRT:
       case Patmos::BRTu:
       case Patmos::BRCFT:
@@ -88,7 +97,6 @@ namespace llvm {
         return JTBBs;
       }
 
-      std::vector<MachineBasicBlock*> targets;
       return targets;
     }
   };

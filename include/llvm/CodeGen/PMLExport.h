@@ -469,7 +469,7 @@ namespace llvm {
     virtual std::vector<StringRef> getCallee(MachineFunction &Caller,
                                              const MachineInstr *Instr);
 
-    virtual const std::vector<MachineBasicBlock*> getJumpTargets(
+    virtual const std::vector<MachineBasicBlock*> getBranchTargets(
                                 MachineFunction &MF,
                                 const MachineInstr *Instr);
   };
@@ -586,12 +586,12 @@ namespace llvm {
   protected:
     TargetMachine *TM;
 
-    std::string OutFileName;
+    StringRef OutFileName;
     tool_output_file *OutFile;
     yaml::Output *Output;
 
   public:
-    PMLExportPass(std::string& filename, TargetMachine *tm,
+    PMLExportPass(StringRef filename, TargetMachine *tm,
                   bool AddDefaultExporter = true)
       : MachineFunctionPass(ID), TM(tm), OutFileName(filename),
        OutFile(0), Output(0)
@@ -621,6 +621,26 @@ namespace llvm {
     /// Serialize using configured exporter. This uses
     /// the GenericArchitecture trait.
     virtual bool runOnMachineFunction(MachineFunction &MF);
+  };
+
+
+  class PMLReachableCodeExportPass : ModulePass {
+
+    std::vector<PMLExport*> MCExporters;
+    std::vector<PMLExport*> BCExporters;
+
+  public:
+    PMLReachableCodeExportPass(std::string& filename, TargetMachine &TM);
+
+    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+
+    virtual const char *getPassName() const {
+      return "YAML/PML Reachable Code Export";
+    }
+
+    virtual bool runOnModule(Module &M);
+
+
   };
 
 } // end namespace llvm
