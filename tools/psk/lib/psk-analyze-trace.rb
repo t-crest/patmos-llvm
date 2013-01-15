@@ -128,7 +128,7 @@ class TraceMonitor
         # generate return event at return instruction
         # FIXME: does not work for predicated return instructions now,
         # it would be helpful if return instructions where marked in PML
-        if (block['successors']||[]).empty?
+        if block.successors.empty?
           return_ins = block.instructions[-1-DELAY_SLOTS]
           add_watch(@wp_return_instr,return_ins['address'],return_ins)
         end

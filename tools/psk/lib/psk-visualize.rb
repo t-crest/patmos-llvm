@@ -40,9 +40,8 @@ class FlowGraphVisualizer < Visualizer
       nodes[bid] = g.add_nodes(bid.to_s, :label => label)
     end
     function.blocks.each do |block|
-      bid = block.name
-      (block['successors']||[]).each do |s|
-        g.add_edges(nodes[bid],nodes[s])
+      block.successors.each do |s|
+        g.add_edges(nodes[block.name],nodes[s.name])
       end
     end
     g

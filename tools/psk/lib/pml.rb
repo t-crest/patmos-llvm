@@ -14,7 +14,7 @@ module PML
     unless yield
       pnt = Thread.current.backtrace[1]
       $stderr.puts ("#{$0}: Assertion failed in #{pnt}: #{msg}")
-      puts "    "+Thread.current.backtrace.join("\n    ")
+      puts "    "+Thread.current.backtrace[1..-1].join("\n    ")
       exit 1
     end
   end
@@ -324,8 +324,7 @@ module PML
       FunctionRef.new(self)
     end
     def [](k)
-      internal_error "Function: do not access blocks directly" if k=='blocks'
-      internal_error "Function: do not access loops directly" if  k=='loops'
+      assert("Function: do not access blocks/loops directly") { k!='blocks'&&k!='loops'}
       @data[k]
     end
     def hash; @hash ; end
@@ -364,8 +363,20 @@ module PML
       @instructions = InstructionList.new(self, @data['instructions'])
     end
     def [](k)
-      internal_error "Block: do not access instructions directly" if k=='instructions'
+      assert("Do not access instructions via []") { k != 'instructions' }
+      assert("Do not access predecessors/successors directly") { k != 'predecessors' } 
+      assert("Do not access predecessors/successors directly") { k != 'successors' } 
       @data[k]
+    end
+    # block predecessors; not ready at initialization time
+    def predecessors
+      return @predecessors if @predecessors
+      @predecessors = (@data['predecessors']||[]).map { |s| function.blocks.by_name(s) }.uniq.freeze
+    end
+    # block successors; not ready at initialization time
+    def successors
+      return @successors if @successors
+      @successors = (@data['successors']||[]).map { |s| function.blocks.by_name(s) }.uniq.freeze
     end
     def ref
       BlockRef.new(self)
