@@ -338,25 +338,12 @@ module PML
     def label
       @data['label'] || @data['mapsto'] || blocks.first.label
     end
-
-    # map from called function to list of callsites
-    # XXX ugly: expects a block which resolves callees
-    # returns nil if there are unresolved indirect calls
-    def callgraph_successors
-      return @cg_succs if @cg_succs
-      @cg_succs = {}
+    def each_callsite
       blocks.each do |block|
         block.callsites.each do |cs|
-          if cs['callees'].include?("__any__")
-            return (@cg_succs = nil)
-          end
-         cs['callees'].each do |c|
-            f = yield c
-            (@cg_succs[f]||=[]).push(cs)
-          end
+          yield cs
         end
       end
-      @cg_succs
     end
   # end of class Function
   end
@@ -385,9 +372,6 @@ module PML
     end
     def to_s
       "#{function['mapsto']}/#{qname}"
-    end
-    def loopname
-      { 'function' => function.name, 'loop' => name }
     end
     def hash; @hash ; end
     def loopheader? ; @is_loopheader ; end
@@ -560,8 +544,10 @@ module PML
 
     # Dynamic classification and simplification of special purpose flowfacts
 
-    # return [scope,block,freq] if this flow fact constraints the frequency
-    # of a single block (nil otherwise)
+    # if this is a flowfact constraining the frequency of a single block,
+    # return [scope, block, freq]
+    #  block  ... BlockRef
+    #  freq   ... Integer
     def get_block_frequency_bound
       return nil unless lhs.list.length == 1
       term = lhs.list.first
@@ -569,7 +555,9 @@ module PML
       [scope, term.ppref, rhs]
     end
 
-    # return [scope,cs,targets] if this is a calltarget-* flowfact
+    # if this is a calltarget-* flowfact, return [scope, cs, targets]:
+    #   cs      ... InstructionRef
+    #   targets ... [FunctionRef]
     def get_calltargets
       callsite_candidate = lhs.list.select { |term|
         term.factor.abs == 1 && term.ppref.kind_of?(InstructionRef)
