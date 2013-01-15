@@ -12,27 +12,26 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/YAMLParser.h"
-
-#include "llvm/ADT/ilist.h"
-#include "llvm/ADT/ilist_node.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/ADT/ilist.h"
+#include "llvm/ADT/ilist_node.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 using namespace yaml;
 
 enum UnicodeEncodingForm {
-  UEF_UTF32_LE, //< UTF-32 Little Endian
-  UEF_UTF32_BE, //< UTF-32 Big Endian
-  UEF_UTF16_LE, //< UTF-16 Little Endian
-  UEF_UTF16_BE, //< UTF-16 Big Endian
-  UEF_UTF8,     //< UTF-8 or ascii.
-  UEF_Unknown   //< Not a valid Unicode encoding.
+  UEF_UTF32_LE, ///< UTF-32 Little Endian
+  UEF_UTF32_BE, ///< UTF-32 Big Endian
+  UEF_UTF16_LE, ///< UTF-16 Little Endian
+  UEF_UTF16_BE, ///< UTF-16 Big Endian
+  UEF_UTF8,     ///< UTF-8 or ascii.
+  UEF_Unknown   ///< Not a valid Unicode encoding.
 };
 
 /// EncodingInfo - Holds the encoding type and length of the byte order mark if
@@ -252,6 +251,7 @@ namespace yaml {
 class Scanner {
 public:
   Scanner(const StringRef Input, SourceMgr &SM);
+  Scanner(MemoryBuffer *Buffer, SourceMgr &SM_);
 
   /// @brief Parse the next token and return it without popping it.
   Token &peekNext();
@@ -489,9 +489,6 @@ private:
   /// @brief Can the next token be the start of a simple key?
   bool IsSimpleKeyAllowed;
 
-  /// @brief Is the next token required to start a simple key?
-  bool IsSimpleKeyRequired;
-
   /// @brief True if an error has occurred.
   bool Failed;
 
@@ -658,7 +655,7 @@ std::string yaml::escape(StringRef Input) {
       EscapedInput += "\\r";
     else if (*i == 0x1B)
       EscapedInput += "\\e";
-    else if (*i >= 0 && *i < 0x20) { // Control characters not handled above.
+    else if ((unsigned char)*i < 0x20) { // Control characters not handled above.
       std::string HexStr = utohexstr(*i);
       EscapedInput += "\\x" + std::string(2 - HexStr.size(), '0') + HexStr;
     } else if (*i & 0x80) { // UTF-8 multiple code unit subsequence.
@@ -704,12 +701,26 @@ Scanner::Scanner(StringRef Input, SourceMgr &sm)
   , FlowLevel(0)
   , IsStartOfStream(true)
   , IsSimpleKeyAllowed(true)
-  , IsSimpleKeyRequired(false)
   , Failed(false) {
   InputBuffer = MemoryBuffer::getMemBuffer(Input, "YAML");
   SM.AddNewSourceBuffer(InputBuffer, SMLoc());
   Current = InputBuffer->getBufferStart();
   End = InputBuffer->getBufferEnd();
+}
+
+Scanner::Scanner(MemoryBuffer *Buffer, SourceMgr &SM_)
+  : SM(SM_)
+  , InputBuffer(Buffer)
+  , Current(InputBuffer->getBufferStart())
+  , End(InputBuffer->getBufferEnd())
+  , Indent(-1)
+  , Column(0)
+  , Line(0)
+  , FlowLevel(0)
+  , IsStartOfStream(true)
+  , IsSimpleKeyAllowed(true)
+  , Failed(false) {
+    SM.AddNewSourceBuffer(InputBuffer, SMLoc());
 }
 
 Token &Scanner::peekNext() {
@@ -755,6 +766,8 @@ Token Scanner::getNext() {
 }
 
 StringRef::iterator Scanner::skip_nb_char(StringRef::iterator Position) {
+  if (Position == End)
+    return Position;
   // Check 7 bit c-printable - b-char.
   if (   *Position == 0x09
       || (*Position >= 0x20 && *Position <= 0x7E))
@@ -778,6 +791,8 @@ StringRef::iterator Scanner::skip_nb_char(StringRef::iterator Position) {
 }
 
 StringRef::iterator Scanner::skip_b_break(StringRef::iterator Position) {
+  if (Position == End)
+    return Position;
   if (*Position == 0x0D) {
     if (Position + 1 != End && *(Position + 1) == 0x0A)
       return Position + 2;
@@ -903,6 +918,7 @@ bool Scanner::consume(uint32_t Expected) {
 void Scanner::skip(uint32_t Distance) {
   Current += Distance;
   Column += Distance;
+  assert(Current <= End && "Skipped past the end");
 }
 
 bool Scanner::isBlankOrBreak(StringRef::iterator Position) {
@@ -1211,7 +1227,9 @@ bool Scanner::scanFlowScalar(bool IsDoubleQuoted) {
         ++Current;
       // Repeat until the previous character was not a '\' or was an escaped
       // backslash.
-    } while (*(Current - 1) == '\\' && wasEscaped(Start + 1, Current));
+    } while (   Current != End
+             && *(Current - 1) == '\\'
+             && wasEscaped(Start + 1, Current));
   } else {
     skip(1);
     while (true) {
@@ -1237,6 +1255,12 @@ bool Scanner::scanFlowScalar(bool IsDoubleQuoted) {
       }
     }
   }
+
+  if (Current == End) {
+    setError("Expected quote at end of scalar", Current);
+    return false;
+  }
+
   skip(1); // Skip ending quote.
   Token T;
   T.Kind = Token::TK_Scalar;
@@ -1523,6 +1547,10 @@ Stream::Stream(StringRef Input, SourceMgr &SM)
   : scanner(new Scanner(Input, SM))
   , CurrentDoc(0) {}
 
+Stream::Stream(MemoryBuffer *InputBuffer, SourceMgr &SM)
+  : scanner(new Scanner(InputBuffer, SM))
+  , CurrentDoc(0) {}
+
 Stream::~Stream() {}
 
 bool Stream::failed() { return scanner->failed(); }
@@ -1624,9 +1652,13 @@ StringRef ScalarNode::getValue(SmallVectorImpl<char> &Storage) const {
     return UnquotedValue;
   }
   // Plain or block.
-  size_t trimtrail = Value.rfind(' ');
-  return Value.drop_back(
-    trimtrail == StringRef::npos ? 0 : Value.size() - trimtrail);
+  // return Value.rtrim(" ");
+  // Backport to 3.1
+  unsigned EndIndex = Value.size();
+  while(EndIndex > 0 && Value[EndIndex-1] == ' ') {
+      --EndIndex;
+  }
+  return Value.drop_back(Value.size() - EndIndex);
 }
 
 StringRef ScalarNode::unescapeDoubleQuoted( StringRef UnquotedValue
@@ -1732,8 +1764,10 @@ StringRef ScalarNode::unescapeDoubleQuoted( StringRef UnquotedValue
           if (UnquotedValue.size() < 3)
             // TODO: Report error.
             break;
-          unsigned int UnicodeScalarValue = 0;
-          UnquotedValue.substr(1, 2).getAsInteger(16, UnicodeScalarValue);
+          unsigned int UnicodeScalarValue;
+          if (UnquotedValue.substr(1, 2).getAsInteger(16, UnicodeScalarValue))
+            // TODO: Report error.
+            UnicodeScalarValue = 0xFFFD;
           encodeUTF8(UnicodeScalarValue, Storage);
           UnquotedValue = UnquotedValue.substr(2);
           break;
@@ -1742,8 +1776,10 @@ StringRef ScalarNode::unescapeDoubleQuoted( StringRef UnquotedValue
           if (UnquotedValue.size() < 5)
             // TODO: Report error.
             break;
-          unsigned int UnicodeScalarValue = 0;
-          UnquotedValue.substr(1, 4).getAsInteger(16, UnicodeScalarValue);
+          unsigned int UnicodeScalarValue;
+          if (UnquotedValue.substr(1, 4).getAsInteger(16, UnicodeScalarValue))
+            // TODO: Report error.
+            UnicodeScalarValue = 0xFFFD;
           encodeUTF8(UnicodeScalarValue, Storage);
           UnquotedValue = UnquotedValue.substr(4);
           break;
@@ -1752,8 +1788,10 @@ StringRef ScalarNode::unescapeDoubleQuoted( StringRef UnquotedValue
           if (UnquotedValue.size() < 9)
             // TODO: Report error.
             break;
-          unsigned int UnicodeScalarValue = 0;
-          UnquotedValue.substr(1, 8).getAsInteger(16, UnicodeScalarValue);
+          unsigned int UnicodeScalarValue;
+          if (UnquotedValue.substr(1, 8).getAsInteger(16, UnicodeScalarValue))
+            // TODO: Report error.
+            UnicodeScalarValue = 0xFFFD;
           encodeUTF8(UnicodeScalarValue, Storage);
           UnquotedValue = UnquotedValue.substr(8);
           break;
@@ -2113,5 +2151,3 @@ bool Document::expectToken(int TK) {
   }
   return true;
 }
-
-OwningPtr<Document> document_iterator::NullDoc;

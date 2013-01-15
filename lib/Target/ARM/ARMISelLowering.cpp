@@ -1293,7 +1293,8 @@ ARMTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                              const SmallVectorImpl<SDValue> &OutVals,
                              const SmallVectorImpl<ISD::InputArg> &Ins,
                              DebugLoc dl, SelectionDAG &DAG,
-                             SmallVectorImpl<SDValue> &InVals) const {
+                             SmallVectorImpl<SDValue> &InVals,
+                             MachinePointerInfo MPI) const {
   MachineFunction &MF = DAG.getMachineFunction();
   bool IsStructRet    = (Outs.empty()) ? false : Outs[0].Flags.isSRet();
   bool IsSibCall = false;
@@ -2100,7 +2101,8 @@ ARMTargetLowering::LowerToTLSGeneralDynamicModel(GlobalAddressSDNode *GA,
                 false, false, false, false,
                 0, CallingConv::C, /*isTailCall=*/false,
                 /*doesNotRet=*/false, /*isReturnValueUsed=*/true,
-                DAG.getExternalSymbol("__tls_get_addr", PtrVT), Args, DAG, dl);
+                DAG.getExternalSymbol("__tls_get_addr", PtrVT), Args, DAG, dl,
+                MachinePointerInfo());
   return CallResult.first;
 }
 

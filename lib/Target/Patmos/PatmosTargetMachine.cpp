@@ -16,6 +16,7 @@
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
@@ -37,6 +38,10 @@ namespace {
     cl::init(false),
     cl::desc("Enable the Patmos stack cache analysis."),
     cl::Hidden);
+  static cl::opt<std::string> SerializeMachineCode(
+    "mpatmos-serialize",
+    cl::desc("Export PML specification of generated machine code to FILE"),
+    cl::init(""));
 
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
@@ -81,6 +86,11 @@ namespace {
       if (EnableStackCacheAnalysis) {
         addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
+
+      if (! SerializeMachineCode.empty())
+          PM->add(createPatmosExportPass(SerializeMachineCode,
+                                         getPatmosTargetMachine()));
+
       return true;
     }
 

@@ -32,6 +32,8 @@ namespace llvm {
   FunctionPass *createPatmosSPConvPass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
   FunctionPass *createPatmosFunctionSplitterPass(TargetMachine &tm);
+  FunctionPass *createPatmosExportPass(std::string& filename,
+                                       PatmosTargetMachine &tm);
 
   FunctionPass *createPatmosPreserveFunctionPass();
   ModulePass *createPatmosCallGraphBuilder();

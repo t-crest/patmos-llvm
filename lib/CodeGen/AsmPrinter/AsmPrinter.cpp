@@ -56,7 +56,7 @@ static const char *EHTimerName = "DWARF Exception Writer";
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
 static cl::opt<bool>
-ForceBlockLabels("force-block-labels",
+ForceBlockLabels("mforce-block-labels",
                  cl::desc("Emit labels for all basic blocks."));
 
 char AsmPrinter::ID = 0;
@@ -166,6 +166,11 @@ bool AsmPrinter::doInitialization(Module &M) {
     .Initialize(OutContext, TM);
 
   Mang = new Mangler(OutContext, *TM.getTargetData());
+
+  // If we want to generate labels for all basic blocks, we must
+  // turn temporary labels off.
+  if (ForceBlockLabels)
+    OutContext.setAllowTemporaryLabels(false);
 
   // Allow the target to emit any magic that it wants at the start of the file.
   EmitStartOfAsmFile(M);

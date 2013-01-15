@@ -102,6 +102,7 @@ add_llvm_library(LLVMCodeGen
   TwoAddressInstructionPass.cpp
   UnreachableBlockElim.cpp
   VirtRegMap.cpp
+  PMLExport.cpp
   )
 
 add_subdirectory(SelectionDAG)

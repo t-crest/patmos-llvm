@@ -193,7 +193,8 @@ EmitTargetCodeForMemset(SelectionDAG &DAG, DebugLoc dl,
                     false, // is return val used
                     DAG.getExternalSymbol(TLI.getLibcallName(RTLIB::MEMSET),
                                           TLI.getPointerTy()), // callee
-                    Args, DAG, dl); // arg list, DAG and debug
+                    Args, DAG, dl,  // arg list, DAG and debug
+                    MachinePointerInfo());
 
   return CallResult.second;
 }

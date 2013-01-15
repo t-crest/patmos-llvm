@@ -15,6 +15,7 @@
 
 #include "PatmosCallGraphBuilder.h"
 #include "llvm/Module.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -43,7 +44,7 @@ namespace llvm {
   void MCGNode::dump() const
   {
     if (isUnknown())
-      dbgs() << "<UNKNOWN>";
+      dbgs() << "<UNKNOWN-"<< *T << ">";
     else
       dbgs() << MF->getFunction()->getName();
   }
@@ -52,10 +53,10 @@ namespace llvm {
 
   void MCGSite::dump() const
   {
-    MachineFunction *MF = MI ? MI->getParent()->getParent() : NULL;
-    dbgs() << "  MCGSite: " << (MF ? MF->getFunction()->getName() :
-                                      "<UNKNOWN>") << " --> ";
-    MCGN->dump();
+    dbgs() << "  MCGSite: ";
+    Caller->dump();
+    dbgs() << " --> ";
+    Callee->dump();
 
     if (MI) {
       dbgs() << "\t";
@@ -66,6 +67,125 @@ namespace llvm {
   }
 
   //----------------------------------------------------------------------------
+
+  static bool isEmptyStructPointer(Type *Ty)
+  {
+    if (PointerType *PTy = dyn_cast<PointerType>(Ty)) {
+      if (StructType *STy = dyn_cast<StructType>(PTy->getElementType())) {
+        return (STy->getNumContainedTypes() == 0);
+      }
+    }
+
+    return false;
+  }
+
+  // return value: -1 recursive dependence
+  //                0 not isomorphic
+  //                1 isomorphic
+  int MCallGraph::areTypesIsomorphic(Type *DstTy, Type *SrcTy)
+  {
+    // normalize parameter order
+    if (DstTy > SrcTy)
+      return areTypesIsomorphic(SrcTy, DstTy);
+
+    // TODO: this is a hack to fix-up an error in clang's LLVM code generator,
+    // which messes up certain structs.
+    if (isEmptyStructPointer(DstTy) && SrcTy->isPointerTy())
+      return 1;
+
+    // TODO: this is a hack to fix-up an error in clang's LLVM code generator,
+    // which messes up certain structs.
+    if (isEmptyStructPointer(SrcTy) && DstTy->isPointerTy())
+      return 1;
+
+    // Two types with differing kinds are clearly not isomorphic.
+    if (DstTy->getTypeID() != SrcTy->getTypeID())
+      return 0;
+
+    // check for recursion and known equivalent types
+    equivalent_types_t::const_iterator tmp(EQ.find(std::make_pair(DstTy,
+                                                                  SrcTy)));
+    if (tmp != EQ.end()) {
+      return tmp->second;
+    }
+
+    // Two identical types are clearly isomorphic.  Remember this
+    // non-speculatively.
+    if (DstTy == SrcTy) {
+      return 1;
+    }
+
+    // Okay, we have two types with identical kinds that we haven't seen before.
+
+    // assume types are not identical for now
+    EQ[std::make_pair(DstTy, SrcTy)] = 0;
+
+    // If this is an opaque struct type, special case it.
+    if (StructType *SSTy = dyn_cast<StructType>(SrcTy)) {
+      if (SSTy->isOpaque()) {
+        assert(false);
+        return 1;
+      }
+
+      if (cast<StructType>(DstTy)->isOpaque()) {
+        assert(false);
+        return 1;
+      }
+    }
+
+    // If the number of subtypes disagree between the two types, then we fail.
+    if (SrcTy->getNumContainedTypes() != DstTy->getNumContainedTypes())
+      return 0;
+
+    // Fail if any of the extra properties (e.g. array size) of the type disagree.
+    if (isa<IntegerType>(DstTy))
+      return 0;  // bitwidth disagrees.
+    if (PointerType *PT = dyn_cast<PointerType>(DstTy)) {
+      if (PT->getAddressSpace() != cast<PointerType>(SrcTy)->getAddressSpace())
+        return 0;
+
+    } else if (FunctionType *FT = dyn_cast<FunctionType>(DstTy)) {
+      if (FT->isVarArg() != cast<FunctionType>(SrcTy)->isVarArg())
+        return 0;
+    } else if (StructType *DSTy = dyn_cast<StructType>(DstTy)) {
+      StructType *SSTy = cast<StructType>(SrcTy);
+      if (DSTy->isLiteral() != SSTy->isLiteral() ||
+          DSTy->isPacked() != SSTy->isPacked())
+        return 0;
+    } else if (ArrayType *DATy = dyn_cast<ArrayType>(DstTy)) {
+      if (DATy->getNumElements() != cast<ArrayType>(SrcTy)->getNumElements())
+        return 0;
+    } else if (VectorType *DVTy = dyn_cast<VectorType>(DstTy)) {
+      if (DVTy->getNumElements() != cast<ArrayType>(SrcTy)->getNumElements())
+        return 0;
+    }
+
+    // Otherwise, we speculate that these two types will line up and recursively
+    // check the subelements.
+
+    // ok, we need to recurs, mark the types accordingly.
+    EQ[std::make_pair(DstTy, SrcTy)] = -1;
+
+    int retval = 1;
+    for (unsigned i = 0, e = SrcTy->getNumContainedTypes(); i != e; ++i) {
+      switch (areTypesIsomorphic(DstTy->getContainedType(i),
+                                 SrcTy->getContainedType(i))) {
+      case 0:
+        // ok, types do not match
+        EQ[std::make_pair(DstTy, SrcTy)] = 0;
+        return 0;
+      case -1:
+        retval = -1;
+        break;
+      }
+    }
+
+    // seems the types match
+    EQ[std::make_pair(DstTy, SrcTy)] = retval;
+
+    // If everything seems to have lined up, then everything is great.
+    return retval;
+  }
 
   MCGNode *MCallGraph::makeMCGNode(MachineFunction *MF)
   {
@@ -83,24 +203,53 @@ namespace llvm {
     return newMCGN;
   }
 
-  MCGNode *MCallGraph::getUnknownNode()
+  MCGNode *MCallGraph::getUnknownNode(Type *T)
   {
-    return makeMCGNode(NULL);
+    // does a call graph node for the Type exist?
+    for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+        i++) {
+      if ((*i)->isUnknown()) {
+        if (areTypesIsomorphic((*i)->getType(), T)) {
+          // mark all elements with -1 as 1
+          for(equivalent_types_t::iterator j(EQ.begin()), je(EQ.end()); j != je;
+              j++) {
+            j->second = j->second * j->second;
+          }
+          return *i;
+        }
+        else {
+          // erase all elements with -1
+          for(equivalent_types_t::iterator j(EQ.begin()), je(EQ.end());
+              j != je;) {
+            if (j->second == -1)
+              EQ.erase(j++);
+            else
+              j++;
+          }
+        }
+      }
+    }
+
+    // construct a new call graph node for the Type
+    MCGNode *newMCGN = new MCGNode(T);
+    Nodes.push_back(newMCGN);
+
+    return newMCGN;
   }
 
-  MCGSite *MCallGraph::makeMCGSite(MachineInstr *MI, MCGNode *MCGN)
+  MCGSite *MCallGraph::makeMCGSite(MCGNode *Caller, MachineInstr *MI,
+                                   MCGNode *Callee)
   {
-    MCGSite *newSite = new MCGSite(MI, MCGN);
+    MCGSite *newSite = new MCGSite(Caller, MI, Callee);
 
     // store the site with the graph
     Sites.push_back(newSite);
 
-    // append the site to the MachineInstr's parent call graph node
-    MCGNode *parent = getParentMCGNode(MI);
-    parent->Sites.push_back(newSite);
+    // append the site to the caller call graph node
+    Caller->Sites.push_back(newSite);
 
     // append the site to the calling sites of the call graph node
-    MCGN->CallingSites.push_back(newSite);
+    Callee->CallingSites.push_back(newSite);
 
     return newSite;
   }
@@ -131,7 +280,7 @@ namespace llvm {
     }
   }
 
-  //----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------rk
 
   void PatmosCallGraphBuilder::visitCallSites(Module &M, MachineFunction *MF)
   {
@@ -139,7 +288,7 @@ namespace llvm {
     MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
 
     // make a call graph node, also for functions that are never called.
-    MCG.makeMCGNode(MF);
+    MCGNode *MCGN = MCG.makeMCGNode(MF);
 
     for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
         i++) {
@@ -150,26 +299,31 @@ namespace llvm {
           // get target
           const MachineOperand &MO(j->getOperand(2));
 
-          // try to find the target of the call
           const Function *F = NULL;
+          Type *T = NULL;
+
+          // try to find the target of the call
           if (MO.isGlobal()) {
             // is the global value a function?
             F = dyn_cast<Function>(MO.getGlobal());
           }
           else if (MO.isSymbol()) {
             // find the function in the current module
-            F = dyn_cast<Function>(M.getNamedValue(MO.getSymbolName()));
+            F = dyn_cast_or_null<Function>(M.getNamedValue(MO.getSymbolName()));
           }
-          else {
-            // be conservative here.
-            F = NULL;
+
+          if (j->hasOneMemOperand()) {
+            // try at least to get the function's type
+            const Value *Callee = (*j->memoperands_begin())->getValue();
+            T = Callee ? Callee->getType() : NULL;
           }
 
           // does a MachineFunction exist for F?
           MachineFunction *MF = F ? MMI.getMachineFunction(F) : NULL;
 
           // construct a new call site
-          MCG.makeMCGSite(j, MF ? MCG.makeMCGNode(MF) : MCG.getUnknownNode());
+          MCG.makeMCGSite(MCGN, j,
+                          MF ? MCG.makeMCGNode(MF) : MCG.getUnknownNode(T));
         }
       }
     }
@@ -177,7 +331,7 @@ namespace llvm {
 
   MCGNode *PatmosCallGraphBuilder::getMCGNode(Module &M, const char *name)
   {
-    Function *F = dyn_cast<Function>(M.getNamedValue(name));
+    Function *F = dyn_cast_or_null<Function>(M.getNamedValue(name));
     if (F) {
       // get the machine-level module information for M.
       MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
@@ -194,25 +348,28 @@ namespace llvm {
 
   void PatmosCallGraphBuilder::markLive_(MCGNode *N)
   {
-    // the <UNKNOWN> node is skipped here.
-    if (!N || N->isUnknown() || !N->isDead())
+    // skip nodes that have been visited before
+    if (!N || !N->isDead())
       return;
 
     N->markLive();
 
     for(MCGSites::const_iterator i(N->getSites().begin()),
         ie(N->getSites().end()); i != ie; i++) {
-      markLive_((*i)->getMCGN());
+      markLive_((*i)->getCallee());
     }
   }
 
   void PatmosCallGraphBuilder::markLive(MCGNode *N)
   {
+    if (!N)
+      return;
+
     N->markLive();
 
     for(MCGSites::const_iterator i(N->getSites().begin()),
         ie(N->getSites().end()); i != ie; i++) {
-      markLive_((*i)->getMCGN());
+      markLive_((*i)->getCallee());
     }
   }
 
@@ -234,12 +391,10 @@ namespace llvm {
         visitCallSites(M, MF);
 
         // represent external callers
+        const Function *F = MF->getFunction();
+        Type *T = F ? F->getType() : NULL;
         if (i->hasAddressTaken()) {
-          MCGN->markLive();
-          MCG.makeMCGSite(NULL, MCGN);
-        }
-        else if (i->hasExternalLinkage()) {
-          MCG.makeMCGSite(NULL, MCGN);
+          MCG.makeMCGSite(MCG.getUnknownNode(T), NULL, MCGN);
         }
       }
     }

@@ -1446,7 +1446,7 @@ SDValue PPCTargetLowering::LowerINIT_TRAMPOLINE(SDValue Op,
                 /*isTailCall=*/false,
                 /*doesNotRet=*/false, /*isReturnValueUsed=*/true,
                 DAG.getExternalSymbol("__trampoline_setup", PtrVT),
-                Args, DAG, dl);
+                Args, DAG, dl, MachinePointerInfo());
 
   return CallResult.second;
 }
@@ -2871,7 +2871,8 @@ PPCTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
                              const SmallVectorImpl<SDValue> &OutVals,
                              const SmallVectorImpl<ISD::InputArg> &Ins,
                              DebugLoc dl, SelectionDAG &DAG,
-                             SmallVectorImpl<SDValue> &InVals) const {
+                             SmallVectorImpl<SDValue> &InVals,
+                             MachinePointerInfo MPI) const {
   if (isTailCall)
     isTailCall = IsEligibleForTailCallOptimization(Callee, CallConv, isVarArg,
                                                    Ins, DAG);
