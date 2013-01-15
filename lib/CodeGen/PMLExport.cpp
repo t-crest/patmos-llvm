@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CFG.h"
@@ -83,10 +84,10 @@ void PMLBitcodeExportAdapter::writeOutput(yaml::Output *Output) {
   Exporter->writeOutput(Output);
 }
 
-std::vector<StringRef> PMLInstrInfo::getCallee(MachineFunction &Caller,
-                                               const MachineInstr *Ins)
+PMLInstrInfo::StringList PMLInstrInfo::getCalleeNames(MachineFunction &Caller,
+                                                 const MachineInstr *Ins)
 {
-  std::vector<StringRef> Callees;
+  StringList Callees;
   for (MachineInstr::const_mop_iterator Op = Ins->operands_begin(),
       E = Ins->operands_end(); Op != E; ++Op) {
     if (Op->isGlobal()) {
@@ -99,13 +100,69 @@ std::vector<StringRef> PMLInstrInfo::getCallee(MachineFunction &Caller,
   return Callees;
 }
 
-const std::vector<MachineBasicBlock*> PMLInstrInfo::getBranchTargets(
+PMLInstrInfo::MFList PMLInstrInfo::getCallees(Module &M,
+                                              MachineModuleInfo &MMI,
+                                              MachineFunction &MF,
+                                              const MachineInstr *Ins)
+{
+  MFList Callees;
+
+  // Using the names found earlier to find functions.
+  // This will not work if a temp function has no name, but can this be anyway?
+  StringList CalleeNames = getCalleeNames(MF, Ins);
+
+  for (StringList::iterator it = CalleeNames.begin(), ie = CalleeNames.end();
+       it != ie; ++it)
+  {
+    Function *F = M.getFunction(*it);
+    if (!F) continue;
+
+    MachineFunction *MF = MMI.getMachineFunction(F);
+    if (!MF) continue;
+
+    Callees.push_back(MF);
+  }
+
+  return Callees;
+}
+
+
+PMLInstrInfo::MBBList PMLInstrInfo::getBranchTargets(
                                       MachineFunction &MF,
                                       const MachineInstr *Instr)
 {
-  std::vector<MachineBasicBlock*> targets;
+  MBBList targets;
   return targets;
 }
+
+PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(Module &M,
+                                              MachineModuleInfo &MMI,
+                                              MachineFunction &MF)
+{
+  MFList CalledFunctions;
+
+  // Iterate over all instructions, get callees for all call sites
+  for (MachineFunction::iterator BB = MF.begin(), BE = MF.end(); BB != BE;
+       ++BB)
+  {
+    for (MachineBasicBlock::iterator II = BB->begin(), IE = BB->end();
+         II != IE; ++II)
+    {
+      if (!II->getDesc().isCall()) continue;
+
+      MFList Callees = getCallees(M, MMI, MF, II);
+      for (MFList::iterator CI = Callees.begin(), CE = Callees.end();
+           CI != CE; ++CI)
+      {
+        // TODO make this unique!!
+        CalledFunctions.push_back(*CI);
+      }
+    }
+  }
+
+  return CalledFunctions;
+}
+
 
 void PMLFunctionExport::serialize(const Function &Fn)
 {
@@ -241,7 +298,7 @@ void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
                                  yaml::GenericMachineInstruction *I,
                                  const MachineInstr *Ins)
 {
-  std::vector<StringRef> Callees = PII->getCallee(MF, Ins);
+  std::vector<StringRef> Callees = PII->getCalleeNames(MF, Ins);
 
   for (std::vector<StringRef>::iterator it = Callees.begin(),ie = Callees.end();
        it != ie; ++it) {
@@ -249,9 +306,10 @@ void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
   }
 
   if (!I->hasCallees()) {
-    errs()
-        << "[mc2yml] Warning: no known callee for MC instruction in "
-        << MF.getFunction()->getName() << "\n";
+    errs() << "[mc2yml] Warning: no known callee for MC instruction ";
+    errs() << "(opcode " << Ins->getOpcode() << ")";
+    errs() << " in " << MF.getFunction()->getName() << "\n";
+    // TODO shouldn't we just leave this empty??
     I->addCallee(StringRef("__any__"));
   }
 }
@@ -595,19 +653,19 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
       break;
     }
     else if (TabuEvents.empty()) {
-      dbgs() << "[mc2yml] Warning: inconsistent initial mapping for "
-             << MF.getFunction()->getName() << " (retrying)\n";
+      DEBUG(dbgs() << "[mc2yml] Warning: inconsistent initial mapping for "
+                   << MF.getFunction()->getName() << " (retrying)\n");
     }
     TabuEvents.insert(UnmatchedEvents.begin(), UnmatchedEvents.end());
   }
   if (!UnmatchedEvents.empty()) {
-    dbgs() << "[mc2yml] Error: failed to find a correct event mapping for "
+    DEBUG(dbgs() << "[mc2yml] Error: failed to find a correct event mapping for "
            << MF.getFunction()->getName() << ": ";
     for (std::set<StringRef>::iterator I = UnmatchedEvents.begin(), E =
         UnmatchedEvents.end(); I != E; ++I) {
       dbgs() << *I << ",";
     }
-    dbgs() << "\n";
+    dbgs() << "\n");
   }
   YDoc.addRelationGraph(RG);
 }
@@ -689,12 +747,6 @@ PMLExportPass::~PMLExportPass() {
   }
 }
 
-void PMLExportPass::addDefaultExporter() {
-  Exporters.push_back( new PMLBitcodeExportAdapter(new PMLFunctionExport(*TM)));
-  Exporters.push_back( new PMLMachineFunctionExport(*TM) );
-  Exporters.push_back( new PMLRelationGraphExport(*TM) );
-}
-
 void PMLExportPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
   AU.addRequired<MachineLoopInfo>();
@@ -754,11 +806,169 @@ bool PMLExportPass::runOnMachineFunction(MachineFunction &MF) {
 char PMLExportPass::ID = 0;
 
 
+
+PMLModuleExportPass::PMLModuleExportPass(StringRef filename, TargetMachine &TM,
+                              ArrayRef<StringRef> roots, PMLInstrInfo *pii)
+  : ModulePass(ID), OutFileName(filename)
+{
+  PII = pii ? pii : new PMLInstrInfo();
+  for (size_t i = 0; i < roots.size(); i++) {
+    Roots.push_back(roots[i]);
+  }
+}
+
+PMLModuleExportPass::~PMLModuleExportPass() {
+  while (!BCExporters.empty()) {
+    delete BCExporters.back();
+    BCExporters.pop_back();
+  }
+  while (!MCExporters.empty()) {
+    delete MCExporters.back();
+    MCExporters.pop_back();
+  }
+}
+
+void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
+{
+  AU.setPreservesAll();
+  AU.addRequired<MachineModuleInfo>();
+  AU.addRequired<MachineLoopInfo>();
+  ModulePass::getAnalysisUsage(AU);
+}
+
+bool PMLModuleExportPass::runOnModule(Module &M)
+{
+  // get the machine-level module information.
+  MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
+  MachineLoopInfo &LI(getAnalysis<MachineLoopInfo>());
+
+  // Queue roots
+  FoundFunctions.clear();
+  Queue.clear();
+  for (size_t i=0; i < Roots.size(); i++) {
+    addToQueue(M, MMI, Roots[i]);
+  }
+
+  initialize(M);
+
+  // follow roots until no new methods are found
+  while (!Queue.empty()) {
+    std::string FnName = Queue.front();
+    Queue.pop_front();
+
+    const Function* F = M.getFunction(FnName);
+    if (!F) continue;
+
+    for (size_t i=0; i < BCExporters.size(); i++) {
+      BCExporters[i]->serialize(*F);
+    }
+
+    // TODO if we do not run as machine pass, skip this and queue callees of F
+
+    MachineFunction *MF = MMI.getMachineFunction(F);
+    if (!MF) continue;
+
+    for (size_t i=0; i < MCExporters.size(); i++) {
+      MCExporters[i]->serialize(*MF, &LI);
+    }
+
+    addCalleesToQueue(M, MMI, *MF);
+  }
+
+  finalize(M);
+
+  return false;
+}
+
+void PMLModuleExportPass::addCalleesToQueue(Module &M, MachineModuleInfo &MMI,
+                                            MachineFunction &MF)
+{
+  PMLInstrInfo::MFList Callees = PII->getCalledFunctions(M, MMI, MF);
+  for (PMLInstrInfo::MFList::iterator it = Callees.begin(), ie = Callees.end();
+       it != ie; ++it)
+  {
+    addToQueue(*it);
+  }
+}
+
+void PMLModuleExportPass::initialize(Module &M) {
+  for (MCExportList::iterator it = MCExporters.begin(), ie = MCExporters.end();
+       it != ie; ++it)
+  {
+    (*it)->initialize(M);
+  }
+  for (BCExportList::iterator it = BCExporters.begin(), ie = BCExporters.end();
+       it != ie; ++it)
+  {
+    (*it)->initialize(M);
+  }
+}
+
+void PMLModuleExportPass::finalize(Module &M) {
+  tool_output_file *OutFile;
+  yaml::Output *Output;
+  std::string ErrorInfo;
+
+  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
+  if (!ErrorInfo.empty()) {
+    delete OutFile;
+    errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
+    errs() << "[mc2yml] Reason: " << ErrorInfo;
+    return;
+  }
+  else {
+    Output = new yaml::Output(OutFile->os());
+  }
+
+  for (MCExportList::iterator it = MCExporters.begin(), ie = MCExporters.end();
+       it != ie; ++it)
+  {
+    (*it)->finalize(M);
+    (*it)->writeOutput(Output);
+  }
+  for (BCExportList::iterator it = BCExporters.begin(), ie = BCExporters.end();
+       it != ie; ++it)
+  {
+    (*it)->finalize(M);
+    (*it)->writeOutput(Output);
+  }
+
+  if (OutFile) {
+    OutFile->keep();
+    delete Output;
+    delete OutFile;
+  }
+}
+
+void PMLModuleExportPass::addToQueue(Module &M, MachineModuleInfo &MMI,
+                                     std::string FnName)
+{
+  if (FoundFunctions.find(FnName) == FoundFunctions.end()) {
+    Queue.push_back(FnName);
+  }
+  FoundFunctions.insert(FnName);
+}
+
+void PMLModuleExportPass::addToQueue(MachineFunction *MF) {
+  if (!MF) return;
+
+
+}
+
+char PMLModuleExportPass::ID = 0;
+
+
 /// Returns a newly-created PML export pass.
 MachineFunctionPass *
 createPMLExportPass(std::string& FileName, TargetMachine &TM)
 {
-  return new PMLExportPass(FileName, &TM);
+  PMLExportPass *PEP = new PMLExportPass(FileName, TM);
+
+  PEP->addExporter( new PMLFunctionExport(TM) );
+  PEP->addExporter( new PMLMachineFunctionExport(TM) );
+  PEP->addExporter( new PMLRelationGraphExport(TM) );
+
+  return PEP;
 }
 
 } // end namespace llvm

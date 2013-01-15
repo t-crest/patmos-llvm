@@ -19,6 +19,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/raw_ostream.h"
@@ -27,6 +28,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
+#include <list>
 
 /// YAML serialization for LLVM modules (machinecode,bitcode)
 /// produces one or more documents of type llvm::yaml::Doc.
@@ -410,6 +412,37 @@ struct MappingTraits< Doc > {
 
 namespace llvm {
 
+  /// Provides information about machine instructions, can be overloaded for
+  /// specific targets.
+  class PMLInstrInfo {
+  public:
+    virtual ~PMLInstrInfo() {}
+
+    typedef std::vector<StringRef>                StringList;
+    typedef const std::vector<MachineBasicBlock*> MBBList;
+    typedef std::vector<MachineFunction*>         MFList;
+
+    // TODO merge getCalleeNames and getCallees somehow (return struct that
+    // contains both names and MFs)
+
+    /// getCalleeNames - get the names of the possible called functions.
+    /// If a callee has no name, it is omitted.
+    virtual StringList getCalleeNames(MachineFunction &Caller,
+                                      const MachineInstr *Instr);
+
+    /// getCallees - get possible callee functions for a call.
+    /// If the name of a callee is known but not in this module, it is omitted.
+    virtual MFList getCallees(Module &M, MachineModuleInfo &MMI,
+                              MachineFunction &MF, const MachineInstr *Instr);
+
+    virtual MBBList getBranchTargets(MachineFunction &MF,
+                                     const MachineInstr *Instr);
+
+    virtual MFList getCalledFunctions(Module &M,
+                                      MachineModuleInfo &MMI,
+                                      MachineFunction &MF);
+  };
+
   /// Base class for all exporters
   class PMLExport {
   public:
@@ -457,21 +490,6 @@ namespace llvm {
     virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
 
     virtual void writeOutput(yaml::Output *Output);
-  };
-
-  /// Provides information about machine instructions, can be overloaded for
-  /// specific targets.
-  class PMLInstrInfo {
-  public:
-    virtual ~PMLInstrInfo() {}
-
-    /// getCallee - get the names of the possible called functions.
-    virtual std::vector<StringRef> getCallee(MachineFunction &Caller,
-                                             const MachineInstr *Instr);
-
-    virtual const std::vector<MachineBasicBlock*> getBranchTargets(
-                                MachineFunction &MF,
-                                const MachineInstr *Instr);
   };
 
   // --------------- Standard exporters --------------------- //
@@ -583,30 +601,23 @@ namespace llvm {
 
     std::vector<PMLExport*> Exporters;
 
-  protected:
-    TargetMachine *TM;
-
     StringRef OutFileName;
     tool_output_file *OutFile;
     yaml::Output *Output;
 
   public:
-    PMLExportPass(StringRef filename, TargetMachine *tm,
-                  bool AddDefaultExporter = true)
-      : MachineFunctionPass(ID), TM(tm), OutFileName(filename),
+    PMLExportPass(StringRef filename, TargetMachine &tm)
+      : MachineFunctionPass(ID), OutFileName(filename),
        OutFile(0), Output(0)
-    {
-      // TODO optionally provide custom PMLInstrInfo here
-      if (AddDefaultExporter) addDefaultExporter();
-    }
+    { }
 
     virtual ~PMLExportPass();
 
-    /// addDefaultExporter - Add a set of standard PML exporter.
-    /// Not virtual on purpose (overloading will not work).
-    void addDefaultExporter();
-
     void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
+
+    void addExporter(PMLBitcodeExport *PE) {
+      Exporters.push_back( new PMLBitcodeExportAdapter(PE) );
+    }
 
     // ----------------- Pass Interface  ----------------- //
 
@@ -623,23 +634,60 @@ namespace llvm {
     virtual bool runOnMachineFunction(MachineFunction &MF);
   };
 
+  // TODO add a pass that runs on bitcode functions only, as FunctionPass.
 
-  class PMLReachableCodeExportPass : ModulePass {
+  // TODO this pass is currently implemented to work as machinecode module
+  // pass. It should either support running on bitcode only as well, or
+  // implement another pass for that.
+  class PMLModuleExportPass : ModulePass {
 
-    std::vector<PMLExport*> MCExporters;
-    std::vector<PMLExport*> BCExporters;
+    static char ID;
+
+    typedef std::vector<PMLExport*> MCExportList;
+    typedef std::vector<PMLBitcodeExport*> BCExportList;
+    typedef std::vector<std::string> StringList;
+    typedef std::list<std::string>   StringQueue;
+    typedef std::set<std::string>    StringSet;
+
+    MCExportList MCExporters;
+    BCExportList BCExporters;
+
+    PMLInstrInfo *PII;
+
+    StringRef OutFileName;
+    StringList  Roots;
+
+    StringSet   FoundFunctions;
+    StringQueue Queue;
 
   public:
-    PMLReachableCodeExportPass(std::string& filename, TargetMachine &TM);
+    PMLModuleExportPass(StringRef filename, TargetMachine &TM,
+                        ArrayRef<StringRef> roots, PMLInstrInfo *PII = 0);
+
+    virtual ~PMLModuleExportPass();
+
+    void addExporter(PMLExport *PE) { MCExporters.push_back(PE); }
+
+    void addExporter(PMLBitcodeExport *PE) { BCExporters.push_back(PE); }
+
+    virtual const char *getPassName() const {return "YAML/PML Module Export";}
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
 
-    virtual const char *getPassName() const {
-      return "YAML/PML Reachable Code Export";
-    }
-
     virtual bool runOnModule(Module &M);
 
+  protected:
+
+    void initialize(Module &M);
+
+    void finalize(Module &M);
+
+    void addCalleesToQueue(Module &M, MachineModuleInfo &MMI,
+                           MachineFunction &MF);
+
+    void addToQueue(Module &M, MachineModuleInfo &MMI, std::string FnName);
+
+    void addToQueue(MachineFunction *MF);
 
   };
 

@@ -14,6 +14,7 @@
 #define DEBUG_TYPE "patmos-export"
 
 #include "Patmos.h"
+#include "PatmosCallGraphBuilder.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
@@ -35,7 +36,6 @@
 
 using namespace llvm;
 
-// TODO should we make this a generic option of PMLExport?
 static cl::opt<bool> SkipSerializeInstructions (
   "mpatmos-serialize-skip-instructions",
   cl::init(false),
@@ -45,7 +45,7 @@ static cl::opt<bool> SkipSerializeInstructions (
 namespace llvm {
 
   class PatmosPMLInstrInfo : public PMLInstrInfo {
-    virtual std::vector<StringRef> getCallee(MachineFunction &Caller,
+    virtual std::vector<StringRef> getCalleeNames(MachineFunction &Caller,
                                              const MachineInstr *Instr)
     {
       std::vector<StringRef> Callees;
@@ -87,7 +87,7 @@ namespace llvm {
         }
 
         break;
-      }
+        }
       case Patmos::BRT:
       case Patmos::BRTu:
       case Patmos::BRCFT:
@@ -101,7 +101,7 @@ namespace llvm {
         JTEntries &JTBBs(MJTI->getJumpTables()[index].MBBs);
 
         return JTBBs;
-      }
+        }
       }
 
       return targets;
@@ -141,12 +141,11 @@ namespace llvm {
   FunctionPass *createPatmosExportPass(std::string& filename,
                                        PatmosTargetMachine &tm)
   {
-    PMLExportPass *PEP = new PMLExportPass(filename, &tm, false);
+    PMLExportPass *PEP = new PMLExportPass(filename, tm);
 
     // Add our own export passes
     PEP->addExporter( new PatmosMachineFunctionExport(tm) );
-    PEP->addExporter( new PMLBitcodeExportAdapter(
-                          new PatmosFunctionExport(tm) ));
+    PEP->addExporter( new PatmosFunctionExport(tm) );
     PEP->addExporter( new PMLRelationGraphExport(tm) );
 
     return PEP;
