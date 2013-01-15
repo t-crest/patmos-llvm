@@ -24,7 +24,7 @@ PATMOS_LD_BIN="patmos-ld"
 PATMOS_PATH=File.join(File.dirname(`which patmos-ld`),"..")
 
 # local build commands
-LLC="%<bin>s -march=patmos -mforce-block-labels -mpatmos-serialize=%<pml>s -filetype=obj -o %<of>s %<if>s"
+LLC="%<bin>s -march=patmos -mforce-block-labels -mpatmos-serialize=%<pml>s -mpatmos-preemit-bitcode=%<bc>s -filetype=obj -o %<of>s %<if>s"
 
 # cannot use CLANG inside build dir (missing libs)
 PATMOS_CLANG="%<patmos>s/bin/patmos-clang -Xllc --serialize=%<pml>s -o %<of>s %<if>s" 
@@ -43,8 +43,9 @@ PML2AIS="%<psk>s/psk pml2ais --header --ais %<ais>s -a %<apx>s -b %<elf>s -e mai
 AIT2PML="%<psk>s/psk ait2pml -i %<if>s -o %<of>s -x %<xml>s"
 
 # external tools
-BC2ALF="%<bin>s -march=alf -alf-standalone -alf-memory-areas=0x0000-0xffff -o=%<of>s %<if>s"
-ALF2FF="%<bin>s -i=%<if>s func=main -ae ffg=ub vola=t pu -f co o=%<of>s"
+IGNORED_DEFINITIONS="_start,_exit,exit,abort,_sbrk.heap_ptr,__adddf3,__addsf3,__divdf3,__divsf3,__eqdf2,__eqsf2,__extendsfdf2,__fixdfdi,__fixdfsi,__fixsfdi,__fixsfsi,__fixunsdfdi,__fixunsdfsi,__fixunssfdi,__fixunssfsi,__floatdidf,__floatdisf,__floatsidf,__floatsisf,__floatundidf,__floatundisf,__floatunsidf,__floatunsisf,__gedf2,__gesf2,__gtdf2,__gtsf2,__ledf2,__lesf2,__ltdf2,__ltsf2,memcpy,memmove,memset,__muldf3,__mulsf3,__nedf2,__nesf2,__subdf3,__subsf3,__truncdfsf2,__unorddf2,__unordsf2"
+BC2ALF="%<bin>s -march=alf -alf-standalone -alf-ignore-definitions=#{IGNORED_DEFINITIONS} -alf-memory-areas=0x0000-0xffff -o=%<of>s %<if>s"
+ALF2FF="%<bin>s -i=%<if>s func=main -ae ffg=ub vola=t -f co o=%<of>s"
 AIT="%<bin>s -b %<apx>s"
 
 class Demo
@@ -127,11 +128,16 @@ end.parse!
 
 die "Wrong number of arguments. Try --help" unless ARGV.length==1
 
-bc,mod=ARGV[0],ARGV[0].sub(/\.[^\.]*$/,'')
-die "File #{bc} does not exist" unless File.exist?(bc)
-
 outdir = File.expand_path demo.outdir
+bc,mod=ARGV[0],ARGV[0].sub(/\.[^\.]*$/,'')
 file = Proc.new { |suffix| File.join(outdir, "#{File.basename(mod)}.#{suffix}") }
+
+if ! File.exist?(bc)
+  die "File #{bc} does not exist" 
+elsif bc == file.call("bc")
+  die "Outdir should be different from source directory"
+end
+
 demo.logfile = file.call("log")
 pml = file.call("elf.pml")
 system("echo PSK-DEMO > #{demo.logfile}")
@@ -144,11 +150,11 @@ demo.info("and performs various tasks using the PSK tool chain")
 demo.sep
 
 demo.step("Link application with patmos-newlib (bitcode level)") do
-  demo.run_patmos(PATMOS_LLVM_LD, :if=>bc, :of=> file.call("elf.bc"))
+  demo.run_patmos(PATMOS_LLVM_LD, :if=>bc, :of=> file.call("bc"))
 end
 
 demo.step("Run backend, and export LLVM-internal information to YML") do
-  demo.run_build(LLC, "llc", :if => file.call("elf.bc"), :pml => pml, :of=>file.call("elf.o"))
+  demo.run_build(LLC, "llc", :if => file.call("bc"), :bc => file.call("elf.bc"), :pml => pml, :of=>file.call("elf.o"))
 end
 
 demo.step("Link ELF binary") do
@@ -170,7 +176,7 @@ end
 
 unless `which #{demo.cmd_sweet}`.strip.empty?
   demo.step("Generate SWEET Flow Facts") do
-    demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
+    demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => file.call("elf.bc"), :of => file.call("alf"))
     demo.run(ALF2FF, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))
   end
   demo.step("Add SWEET Flow Facts to PML file") do
