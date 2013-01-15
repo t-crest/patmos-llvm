@@ -45,6 +45,12 @@ static cl::opt<bool> SkipSerializeInstructions (
   cl::Hidden, cl::CommaSeparated);
 
 
+static cl::opt<std::string> DumpPreEmitBitcode(
+  "mpatmos-preemit-bitcode",
+  cl::desc("Write the final bitcode representation (before emit) to FILE"),
+  cl::init(""));
+
+
 namespace llvm {
 
   class PatmosPMLInstrInfo : public PMLInstrInfo {
@@ -299,7 +305,9 @@ namespace llvm {
     PEP->addExporter( new PatmosMachineFunctionExport(tm) );
     PEP->addExporter( new PatmosFunctionExport(tm) );
     PEP->addExporter( new PMLRelationGraphExport(tm) );
-
+    
+    if (! DumpPreEmitBitcode.empty())
+      PEP->writeBitcode(DumpPreEmitBitcode);
     return PEP;
   }
 

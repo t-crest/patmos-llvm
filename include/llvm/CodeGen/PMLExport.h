@@ -585,8 +585,6 @@ namespace llvm {
     bool isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target);
   };
 
-
-
   // ---------------------- Export Passes ------------------------- //
 
   // TODO Define FunctionPass that runs only BitcodeExporter
@@ -602,6 +600,7 @@ namespace llvm {
     StringRef OutFileName;
     tool_output_file *OutFile;
     yaml::Output *Output;
+    std::string BitcodeFile;
 
   protected:
     PMLExportPass(char &id, TargetMachine &tm, StringRef filename)
@@ -621,6 +620,7 @@ namespace llvm {
     void addExporter(PMLBitcodeExport *PE) {
       Exporters.push_back( new PMLBitcodeExportAdapter(PE) );
     }
+    void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }
 
     // ----------------- Pass Interface  ----------------- //
 

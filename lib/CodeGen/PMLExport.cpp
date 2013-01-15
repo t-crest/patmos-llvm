@@ -14,6 +14,7 @@
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
+#include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -794,6 +795,18 @@ bool PMLExportPass::doFinalization(Module &M) {
     delete Output;
     delete OutFile;
   }
+
+  if (!BitcodeFile.empty()) {
+    std::string ErrorInfo;
+    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo, 0);
+    WriteBitcodeToFile(&M, BitcodeStream.os());
+    if(! ErrorInfo.empty()) {
+      errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";
+    } else {
+      BitcodeStream.keep();
+    }
+  }
+
   return false;
 }
 
@@ -986,5 +999,6 @@ createPMLExportPass(TargetMachine &TM, std::string& FileName)
 
   return PEP;
 }
+
 
 } // end namespace llvm
