@@ -22,9 +22,16 @@ class SimulatorTrace
     @elf,@pasim = elf,pasim
   end
   def each
-    die("Executable #{@pasim} not found") unless File.executable?(`which #{@pasim}`.chomp)
-    IO.popen("pasim -q --debug 0 --debug-fmt trace -b #{@elf} 2>&1 1>/dev/null") do |io|
-      while item=parse(io.gets) ; yield item ; end
+    die("File '#{@elf}' (ELF) not found") unless File.exist?("#{@elf}")
+    begin
+      IO.popen("#{@pasim} -q --debug 0 --debug-fmt trace -b #{@elf} 2>&1 1>/dev/null") do |io|
+        while item=parse(io.gets) ; yield item ; end
+      end
+    ensure
+      status = $?.exitstatus
+      if status == 127
+        die("Running the simulator '#{@pasim}' failed: Program not found (exit status 127)")
+      end
     end
   end
   def parse(line)
@@ -298,24 +305,22 @@ class FrequencyRecord
 end
 
 class AnalyzeTraceTool
-  def AnalyzeTraceTool.add_options(opts,options)
-
-# TODO: analysis entry != trace entry (think: running N tests invoking measure vs. frequencies relative to measure)
-#    opts.on("--trace-entry FUNCTION", "Name of the program entry to be traced") { |f| options.trace_entry = f }
-
-    opts.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse") { |f| options.analysis_entry = f }
+  def AnalyzeTraceTool.add_options(opts)
+    opts.binary_file
+    opts.trace_entry
+    opts.analysis_entry
     opts.on("--pasim-command FILE", "path to pasim (=pasim)") { |f| options.pasim = f }
+    opts.add_check do |options|
+      options.pasim = "pasim" unless options.pasim
+      die_usage("Binary file argument is mandatory") unless options.binary_file
+    end
   end
 
-  # elf ... patmos ELF
-  # pml ... PML for the prgoam
-  # options.pasim ... path to pasim executable
-  def AnalyzeTraceTool.run(elf,pml,options)
-    options.pasim = "pasim"           unless options.pasim
-    options.trace_entry = "main"      unless options.trace_entry
-    options.analysis_entry = "main"   unless options.analysis_entry
-
-    tm = TraceMonitor.new(elf,pml,options.pasim)
+  # pml                 ... PML object
+  # options.binary_file ... path to ELF binary
+  # options.pasim       ... path to pasim executable
+  def AnalyzeTraceTool.run(pml,options)
+    tm = TraceMonitor.new(options.binary_file, pml, options.pasim)
     tm.subscribe(VerboseRecorder.new($dbgs)) if options.debug
     entry  = pml.machine_functions.by_label(options.analysis_entry)
     global = GlobalRecorder.new(entry)
@@ -388,8 +393,10 @@ Run simulator (patmos: pasim --debug-fmt trace), record execution frequencies
 of instructions and generate flow facts. Also records indirect call targets.
 EOF
 
-  options, args = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |opts,options|
-    AnalyzeTraceTool.add_options(opts,options)
+  options, args = PML::optparse( [:binary_file], "program.elf", SYNOPSIS) do |opts|
+    opts.needs_pml
+    opts.writes_pml
+    AnalyzeTraceTool.add_options(opts)
   end
-  AnalyzeTraceTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  AnalyzeTraceTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
 end

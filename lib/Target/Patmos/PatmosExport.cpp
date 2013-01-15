@@ -289,6 +289,8 @@ namespace llvm {
     PEP->addExporter( new PatmosFunctionExport(tm) );
     PEP->addExporter( new PMLRelationGraphExport(tm) );
 
+    if (! DumpPreEmitBitcode.empty())
+      PEP->writeBitcode(DumpPreEmitBitcode);
     return PEP;
   }
 

@@ -57,14 +57,15 @@ module PML
     attr_reader :data
   end
 
-  # Proxy for read-only lists
+  # Proxy for (read-only) lists
   class ListProxy
     attr_reader :list
     def to_s
       list.to_s
     end
-    def method_missing(name,*args,&block)
-      list.send(name,*args,&block)
+    # delegator to list (which should be frozen)
+    def method_missing(method, *args, &block)
+      list.send(method, *args, &block)
     end
   end
 
@@ -88,8 +89,8 @@ module PML
       else
         @data = PMLDoc.merge_stream(stream)
       end
-      @bitcode_functions = FunctionList.new(@data['bitcode-functions'])
-      @machine_functions = FunctionList.new(@data['machine-functions'])
+      @bitcode_functions = FunctionList.new(@data['bitcode-functions'] || [])
+      @machine_functions = FunctionList.new(@data['machine-functions'] || [])
       @data['flowfacts'] ||= []
       @flowfacts = FlowFactList.from_pml(self, @data['flowfacts'])
     end

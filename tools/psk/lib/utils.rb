@@ -10,21 +10,26 @@ require 'pml'
 $dbgs = $stderr
 
 module PML
+
   def internal_error(msg)
     raise Exception.new("[#{$0}] INTERNAL ERROR: #{msg}")
   end
+
   def die(msg)
     $stderr.puts "[#{$0}] FATAL: #{msg}"
-    puts Thread.current.backtrace
+#    puts Thread.current.backtrace
     exit 1
   end
+
   def die_usage(msg)
     $stderr.puts "#{$0}: #{msg}. Try --help."
     exit 1
   end
+
   def warn(msg)
     $stderr.puts "[#{$0}] WARNING #{msg}"
   end
+
   def warn_once(msg,detail=nil)
     $warn_once ||= {}
     return if $warn_once[msg]
@@ -32,36 +37,73 @@ module PML
     warn(msg+detail.to_s)
     $warn_once[msg]=true
   end
+
   def info(msg)
     $stderr.puts "[#{$0}] INFO #{msg}"
   end
-  def optparse(arg_range, arg_descr, synopsis, opts)
+
+  class OptionParser < ::OptionParser
+    attr_reader :options, :checks
+    def initialize(options, &block)
+      @options, @checks = options, []
+      super(&block)
+    end
+    def add_check(&block)
+      @checks.push(block)
+    end
+    # tool needs input PML option
+    def needs_pml
+      self.on("-i", "--input FILE", "Input PML File") { |f| options.input = f }
+      add_check { |options| die_usage("No input PML file specified") unless options.input }
+    end
+    # tool writes PML file (stdout or --output FILE)
+    def writes_pml
+      self.on("-o", "--output FILE", "Output PML File (=stdout)") { |f| options.output = f }      
+    end
+    # ELF binaries
+    def binary_file(default = nil)
+      options.binary_file = default unless options.binary_file || default == nil
+      self.on("-b", "--binary FILE", "Name of the binary file to analyze") { |f| options.binary_file = f }
+    end
+    # Trace entry
+    def trace_entry
+      options.trace_entry = "main" unless options.trace_entry
+      self.on("--trace-entry FUNCTION", "Name of the function to trace") { |f| options.trace_entry = f }
+    end
+    # Analysis entry
+    def analysis_entry
+      options.analysis_entry = "main" unless options.analysis_entry
+      self.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse")
+    end
+    # Run argument checks
+    def check!(arg_range = nil)
+      if arg_range.kind_of?(Array)
+        die_usage "Wrong number of positional arguments" unless arg_range.length == ARGV.length
+        arg_range.zip(ARGV).each { |option, arg|
+          self.options.send("#{option}=".to_sym, arg)
+        }
+      elsif arg_range.kind_of?(Range)
+        die_usage "Wrong number of positional arguments" unless arg_range.cover?(ARGV)
+      end
+      checks.each { |check| check.call(options) }
+    end
+  end
+
+  # common option parser
+  def optparse(arg_range, arg_descr, synopsis)
     options = OpenStruct.new
-    do_input  = opts[:type] == :io || opts[:type] == :input
-    do_output = opts[:type] == :io || opts[:type] == :output
-    parser = OptionParser.new do |opts|
+    parser = PML::OptionParser.new(options) do |opts|
       opts.banner = "usage: #{File.basename($0)} OPTIONS #{arg_descr}\n\n#{SYNOPSIS}\n" 
-      opts.on("-i", "--input FILE", "Input PML File") { |f| options.input = f } if do_input
-      opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f } if do_output
+      opts.separator("Options:")
+      yield opts if block_given?
+      opts.separator("")
       opts.on("--verbose", "verbose output") { options.verbose = true }
       opts.on("--debug", "debug output") { options.debug = true }
-      yield [opts,options] if block_given?
       opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
-    end.parse!
-    arg_range_ok = if ! arg_range
-                     true
-                   elsif arg_range.kind_of?(Integer)
-                     ARGV.length == arg_range
-                   else
-                     arg_range.cover?(ARGV.length)
-                   end
-    die_usage "Wrong number of positional arguments" unless arg_range_ok
-    if do_input
-      die_usage "Option --input is mandatory" unless options.input
-      [options, ARGV]
-    else
-      [options, ARGV]
     end
+    parser.parse!
+    parser.check!(arg_range)
+    [options, ARGV]
   end
 end
 

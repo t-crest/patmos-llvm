@@ -31,6 +31,9 @@ Merges a stream of YAML documents into one document (if version
 and architecture are compatible)
 EOF
 
-  options, args = PML::optparse(nil, "[file.pml..]", SYNOPSIS, :type => :output)
+  options, args = PML::optparse(nil, "[file.pml...]", SYNOPSIS) do |opts|
+    opts.writes_pml
+  end
+  args = [ $< ] if args.empty?
   MergeTool.run(args).dump_to_file(options.output)
 end

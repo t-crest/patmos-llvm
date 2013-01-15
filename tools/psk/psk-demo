@@ -38,9 +38,10 @@ MERGE="%<psk>s/psk merge -o %<of>s %<ifs>s"
 FF2PML="%<psk>s/psk ff2pml -i %<if>s -o %<of>s %<ff>s"
 EXTRACT_SYMBOLS="%<psk>s/psk extract-symbols -i %<if>s -o %<of>s %<elf>s"
 ANALYZE_TRACE="%<psk>s/psk analyze-trace -i %<if>s -o %<of>s %<elf>s"
+WCA="%<psk>s/psk wca -i %<if>s -o %<of>s"
 DEMO_EQUATIONS="%<psk>s/psk demo-equations %<if>s"
 PML2AIS="%<psk>s/psk pml2ais --header --ais %<ais>s -a %<apx>s -b %<elf>s -e main -r %<report>s -x %<result>s %<if>s"
-AIT2PML="%<psk>s/psk ait2pml -i %<if>s -o %<of>s -x %<xml>s"
+AIT2PML="%<psk>s/psk ait2pml -i %<if>s -o %<of>s %<xml>s"
 
 # external tools
 IGNORED_DEFINITIONS="_start,_exit,exit,abort,_sbrk.heap_ptr,__adddf3,__addsf3,__divdf3,__divsf3,__eqdf2,__eqsf2,__extendsfdf2,__fixdfdi,__fixdfsi,__fixsfdi,__fixsfsi,__fixunsdfdi,__fixunsdfsi,__fixunssfdi,__fixunssfsi,__floatdidf,__floatdisf,__floatsidf,__floatsisf,__floatundidf,__floatundisf,__floatunsidf,__floatunsisf,__gedf2,__gesf2,__gtdf2,__gtsf2,__ledf2,__lesf2,__ltdf2,__ltsf2,memcpy,memmove,memset,__muldf3,__mulsf3,__nedf2,__nesf2,__subdf3,__subsf3,__truncdfsf2,__unorddf2,__unordsf2"
@@ -174,6 +175,7 @@ demo.step("Analyze trace generated using pasim") do
                :noredirect => true)
 end
 
+
 unless `which #{demo.cmd_sweet}`.strip.empty?
   demo.step("Generate SWEET Flow Facts") do
     demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => file.call("elf.bc"), :of => file.call("alf"))
@@ -186,6 +188,10 @@ end
 
 demo.step("Display control-flow relation graph equations and flow fact inequalities") do
   demo.run_psk(DEMO_EQUATIONS, :if => pml) #,:noredirect => true)
+end
+
+demo.step("Run psk worst-case estimation") do
+  demo.run_psk(WCA, :if => pml, :of => pml)
 end
 
 demo.step("Export information to aiT's ais format") do

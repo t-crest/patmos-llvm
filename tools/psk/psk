@@ -4,7 +4,7 @@
 
 # Set library path for installation
 
-KNOWN_COMMANDS="analyze-trace ait2pml bench extract-symbols pml2ais ff2pml"
+KNOWN_COMMANDS="analyze-trace ait2pml bench extract-symbols pml2ais ff2pml merge visualize"
 usage() {
     cat <<EOF >&2
 usage: psk <command> [<args>]
@@ -16,6 +16,8 @@ The following psk commands are available and supported:
   ait2pml         ... Add aiT analysis results to the PML database
   pml2ais         ... Translate program information to aiT's AIS format
   bench           ... Simulate and analyze benchmark, print execution time
+  visualize       ... Visualize IR and MC CFGs as well as relation graphs [alpha]
+  merge           ... Merge several PML file in one [alpha]
 Other commands: $(echo $(list_unknown_commands))
 
 See 'psk help <command>' for more information on a specific command.

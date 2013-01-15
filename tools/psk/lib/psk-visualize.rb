@@ -15,14 +15,16 @@ rescue Exception => details
 end
 
 class Visualizer
+  attr_reader :options
   def generate(object,outfile)
     g = visualize(object)
-    puts outfile
+    $dbgs.puts outfile if options.debug
     g.output( :png => "#{outfile}" )
-    $stderr.puts "#{outfile} ok"
+    $stderr.puts "#{outfile} ok" if options.verbose
   end
 end
 class FlowGraphVisualizer < Visualizer
+  def initialize(options) ; @options = options ; end
   def visualize(function)
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
@@ -50,6 +52,7 @@ class FlowGraphVisualizer < Visualizer
   end
 end
 class RelationGraphVisualizer < Visualizer
+  def initialize(options) ; @options = options ; end
   def visualize(rg)
     nodes = {}
     g = GraphViz.new( :G, :type => :digraph )
@@ -74,6 +77,7 @@ class RelationGraphVisualizer < Visualizer
     g
   end
 end
+
 class VisualizeTool
   def VisualizeTool.default_targets(pml)
     pml.bitcode_functions.reachable_from("main").first.map { |f| 
@@ -88,7 +92,7 @@ class VisualizeTool
 
     targets.each do |target|
       # Visualize the bitcode, machine code and relation graphs
-      fgv = FlowGraphVisualizer.new
+      fgv = FlowGraphVisualizer.new(options)
       begin
         bf = pml.bitcode_functions.by_name(target)
         fgv.generate(bf,File.join(outdir, target + ".bc" + ".png")) 
@@ -103,7 +107,7 @@ class VisualizeTool
         puts "Failed to visualize machinecode function #{target}: #{detail}"
       end
       begin
-        rgv = RelationGraphVisualizer.new
+        rgv = RelationGraphVisualizer.new(options)
         rg = pml.data['relation-graphs'].find { |f| f['src']['function'] ==target or f['dst']['function'] == target }
         raise Exception.new("Relation Graph not found") unless rg
         rgv.generate(rg,File.join(outdir, target + ".rg" + ".png"))
@@ -113,9 +117,9 @@ class VisualizeTool
     end
   end
 
-  def VisualizeTool.add_options(opts,options)
-    opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| options.functions = f.split(/\s*,\s*/) }
-    opts.on("-O","--outdir DIR","Output directory for image files") { |d| options.outdir = d }
+  def VisualizeTool.add_options(opts)
+    opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| opts.options.functions = f.split(/\s*,\s*/) }
+    opts.on("-O","--outdir DIR","Output directory for image files") { |d| opts.options.outdir = d }
   end
 end
 
@@ -124,8 +128,8 @@ SYNOPSIS=<<EOF if __FILE__ == $0
 Visualize bitcode and machine code CFGS, and the control-flow relation
 graph of the specified set of functions
 EOF
-  options, args = PML::optparse(1,"FILE.pml", SYNOPSIS, :type => :none) do |opts,options|
-    VisualizeTool.add_options(opts,options)
+  options, args = PML::optparse([:input],"FILE.pml", SYNOPSIS) do |opts|
+    VisualizeTool.add_options(opts)
   end
   VisualizeTool.run(PMLDoc.from_file(args.first), options)
 end

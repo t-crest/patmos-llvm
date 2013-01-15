@@ -19,15 +19,15 @@ class BenchTool
     WcaTool.run(pml,options)
     AisExportTool.run(pml,options.ais,options)
     ApxExportTool.run(pml,options)
-    AitAnalyzeTool.run(options)
+    AitAnalyzeTool.run(pml, options)
     AitImportTool.run(pml,options)
     pml.data['timing'].each do |t|
       puts YAML::dump(t)
     end
     pml
   end
-  def BenchTool.add_options(opts,options)
-    TOOLS.each { |toolclass| toolclass.add_options(opts,options) }
+  def BenchTool.add_options(opts)
+    TOOLS.each { |toolclass| toolclass.add_options(opts) }
   end
 end
 
@@ -35,8 +35,8 @@ if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
 PSK benchmark run: extract addresses, analyze trace, run aiT
 EOF
-  options, args = PML::optparse(1, "program.elf.pml", SYNOPSIS, :type => :none) do |opts,options|
-    BenchTool.add_options(opts,options)
+  options, args = PML::optparse([:input], "program.elf.pml", SYNOPSIS) do |opts|
+    BenchTool.add_options(opts)
   end
   BenchTool.run(PMLDoc.from_file(args[0]), options)
 end

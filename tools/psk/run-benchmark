@@ -11,6 +11,9 @@ if [ -z "${3}" ] ; then usage ; fi
 BINDIR="${1}"
 OUTDIR="${2}"
 BC="${3}"
+BENCHMARK="${4}"
+if [ -z "${BENCHMARK}" ] ; then BENCHMARK="bench" ; fi
+
 M=$(basename "${BC}" .bc)
 ELF="${BINDIR}/${M}.elf"
 PML="${BINDIR}/${M}.elf.pml"
@@ -26,11 +29,14 @@ fi
 
 # analyze
 MO="${OUTDIR}/${M}"
-./psk bench "${PML}" \
+./psk "${BENCHMARK}" "${PML}" \
     --ais "${MO}.ais" \
     --binary "${ELF}" \
     --report "${MO}.txt" \
     --apx "${MO}.apx" \
     --results "${MO}.xml" \
     --header \
+    --bitcode "${BINDIR}/${M}.elf.bc" \
+    --alf "${BINDIR}/${M}.alf" \
+    --sweet-flowfacts "${MO}.ff" \
     --analysis-entry main

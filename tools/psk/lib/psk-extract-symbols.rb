@@ -22,6 +22,7 @@ class ExtractSymbols
       end
     end
     die "The command #{options.objdump} exited with status #{$?.exitstatus}" unless $?.success?
+    self
   end
   def update_pml 
     @pml.machine_functions.each do |function|
@@ -60,27 +61,30 @@ class ExtractSymbols
 end
 
 class ExtractSymbolsTool
-  def ExtractSymbolsTool.add_options(opts,options)
-      opts.on("--objdump-command FILE", "path to 'patmos-objdump'")   { |f| options.objdump = f }
-      opts.on("--text-sections SECTION,..", "list of code sections") { |s| options.text_sections = s.split(/\s*,\s*/) }
+  def ExtractSymbolsTool.add_options(opts)
+    opts.on("--objdump-command FILE", "path to 'patmos-llvm-objdump'")   { |f| opts.options.objdump = f }
+    opts.on("--text-sections SECTION,..", "list of code sections (=.text)")  { |s| opts.options.text_sections = s.split(/\s*,\s*/) }
+    opts.add_check do |options|
+      options.objdump = "patmos-llvm-objdump" unless options.objdump
+      options.text_sections = [".text"] unless options.text_sections
+    end
   end
-  def ExtractSymbolsTool.run(elf, pml, options)
-    options.objdump = "patmos-objdump" unless options.objdump
-    options.text_sections = [".text"] unless options.text_sections
-    extract = ExtractSymbols.new(pml)
-    extract.analyze(elf, options)
-    extract.update_pml
-    pml
+  def ExtractSymbolsTool.run(pml, options)
+    ExtractSymbols.new(pml).analyze(options.binary_file, options).update_pml
   end
 end
 
 if __FILE__ == $0
   SYNOPSIS=<<EOF
-Extract Symbol Addresses from ELF file.
+Extract Symbol Addresses from ELF file. It is possible to specify the same file
+for input and output; as long as the ELF file does not change, this is an
+idempotent transformation.
 EOF
 
-  options, args = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |o|
-    ExtractSymbolsTool.add_options(*o)
+  options, args = PML::optparse([:binary_file], "program.elf", SYNOPSIS) do |opts|
+    opts.needs_pml
+    opts.writes_pml
+    ExtractSymbolsTool.add_options(opts)
   end
-  ExtractSymbolsTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  ExtractSymbolsTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
 end
