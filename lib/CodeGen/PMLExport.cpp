@@ -807,6 +807,16 @@ char PMLExportPass::ID = 0;
 
 
 
+PMLModuleExportPass::PMLModuleExportPass(char &id, StringRef filename, TargetMachine &TM,
+                              ArrayRef<StringRef> roots, PMLInstrInfo *pii)
+  : ModulePass(id), OutFileName(filename)
+{
+  PII = pii ? pii : new PMLInstrInfo();
+  for (size_t i = 0; i < roots.size(); i++) {
+    Roots.push_back(roots[i]);
+  }
+}
+
 PMLModuleExportPass::PMLModuleExportPass(StringRef filename, TargetMachine &TM,
                               ArrayRef<StringRef> roots, PMLInstrInfo *pii)
   : ModulePass(ID), OutFileName(filename)
@@ -853,20 +863,15 @@ bool PMLModuleExportPass::runOnModule(Module &M)
 
   // follow roots until no new methods are found
   while (!Queue.empty()) {
-    std::string FnName = Queue.front();
+    MachineFunction *MF = Queue.front();
     Queue.pop_front();
 
-    const Function* F = M.getFunction(FnName);
-    if (!F) continue;
-
-    for (size_t i=0; i < BCExporters.size(); i++) {
-      BCExporters[i]->serialize(*F);
+    const Function* F = MF->getFunction();
+    if (F) {
+      for (size_t i=0; i < BCExporters.size(); i++) {
+        BCExporters[i]->serialize(*F);
+      }
     }
-
-    // TODO if we do not run as machine pass, skip this and queue callees of F
-
-    MachineFunction *MF = MMI.getMachineFunction(F);
-    if (!MF) continue;
 
     for (size_t i=0; i < MCExporters.size(); i++) {
       MCExporters[i]->serialize(*MF, &LI);
@@ -943,16 +948,27 @@ void PMLModuleExportPass::finalize(Module &M) {
 void PMLModuleExportPass::addToQueue(Module &M, MachineModuleInfo &MMI,
                                      std::string FnName)
 {
-  if (FoundFunctions.find(FnName) == FoundFunctions.end()) {
-    Queue.push_back(FnName);
+  Function *F = M.getFunction(FnName);
+  if (!F) {
+    errs() << "[mc2yml] Could not find function " << FnName << " in module.\n";
+    return;
   }
-  FoundFunctions.insert(FnName);
+
+  MachineFunction *MF = MMI.getMachineFunction(F);
+  if (!MF) {
+    return;
+  }
+
+  addToQueue(MF);
 }
 
 void PMLModuleExportPass::addToQueue(MachineFunction *MF) {
   if (!MF) return;
 
-
+  if (FoundFunctions.find(MF) == FoundFunctions.end()) {
+    Queue.push_back(MF);
+    FoundFunctions.insert(MF);
+  }
 }
 
 char PMLModuleExportPass::ID = 0;
