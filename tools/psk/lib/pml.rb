@@ -357,17 +357,26 @@ module PML
       @name = @data['name']
       @qname = label
       @hash = qname.hash
-      @is_loopheader = @data['loops'] && @data['loops'].first == self.name
-      @loopnest = (@data['loops']||[]).length
+
+      loopnames = @data['loops'] || []
+      @loopnest = loopnames.length
+      @is_loopheader = loopnames.first == self.name
+
       die("No instructions in #{@name}") unless @data['instructions']
       @instructions = InstructionList.new(self, @data['instructions'])
     end
     def [](k)
       assert("Do not access instructions via []") { k != 'instructions' }
-      assert("Do not access predecessors/successors directly") { k != 'predecessors' } 
-      assert("Do not access predecessors/successors directly") { k != 'successors' } 
+      assert("Do not access predecessors/successors directly") { k != 'predecessors' && k != 'successors' } 
+      assert("Do not access loops directly") { k != 'loops' } 
       @data[k]
     end
+    # loops: not ready at initialization time    
+    def loops
+      return @loops if @loops
+      @loops = (@data['loops']||[]).map { |l| function.blocks.by_name(l) }
+    end
+
     # block predecessors; not ready at initialization time
     def predecessors
       return @predecessors if @predecessors
