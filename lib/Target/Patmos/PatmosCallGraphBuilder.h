@@ -43,7 +43,7 @@ namespace llvm {
   class MCGNode
   {
     friend class MCallGraph;
-    friend class GraphTraits<MCallGraph>;
+    friend struct GraphTraits<MCallGraph>;
   private:
     /// The MachineFunction represented by this call graph node, or NULL.
     MachineFunction *MF;
@@ -168,8 +168,8 @@ namespace llvm {
   /// A machine-level call graph.
   class MCallGraph
   {
-    friend class GraphTraits<MCallGraph>;
-    friend class DOTGraphTraits<MCallGraph>;
+    friend struct GraphTraits<MCallGraph>;
+    friend struct DOTGraphTraits<MCallGraph>;
     friend class PatmosCallGraphBuilder;
   private:
     /// The graph's nodes.
@@ -254,6 +254,11 @@ namespace llvm {
       AU.addRequired<MachineModuleInfo>();
 
       ModulePass::getAnalysisUsage(AU);
+    }
+
+    MCallGraph *getCallGraph()
+    {
+      return &MCG;
     }
 
     /// getNodes - Return the graph's nodes.
