@@ -384,9 +384,8 @@ end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF
-Generate flow facts reflecting frequencies from machine-code
-execution traces generated with 'pasim --debug'.
-Also adds observed receivers to indirect calls callee field.
+Run simulator (patmos: pasim --debug-fmt trace), record execution frequencies
+of instructions and generate flow facts. Also records indirect call targets.
 EOF
 
   options, args = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |opts,options|
