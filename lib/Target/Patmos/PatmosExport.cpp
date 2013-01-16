@@ -39,8 +39,10 @@ using namespace llvm;
 static cl::opt<bool> SkipSerializeInstructions (
   "mpatmos-serialize-skip-instructions",
   cl::init(false),
+  cl::value_desc("names"),
   cl::desc("Only export interesting instructions, such as branches."),
-  cl::Hidden);
+  cl::Hidden, cl::CommaSeparated);
+
 
 namespace llvm {
 
@@ -202,17 +204,16 @@ namespace llvm {
   };
 
 
-
-  class PatmosModuleExportPass : public PMLModuleExportPass {
-
+  class PatmosExportPass : public PMLExportPass {
     static char ID;
 
     PatmosPMLInstrInfo PII;
-
   public:
-    PatmosModuleExportPass(StringRef filename, PatmosTargetMachine &tm,
-                           ArrayRef<StringRef> roots)
-     : PMLModuleExportPass(ID, filename, tm, roots) {}
+    PatmosExportPass(PatmosTargetMachine &tm, StringRef filename)
+     : PMLExportPass(ID, tm, filename)
+    {
+      //initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
+    }
 
     virtual const char *getPassName() const {
       return "Patmos YAML/PML Module Export";
@@ -220,13 +221,45 @@ namespace llvm {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
-      AU.addRequired<PatmosCallGraphBuilder>();
+      //AU.addRequired<PatmosCallGraphBuilder>();
+      PMLExportPass::getAnalysisUsage(AU);
+    }
+
+    virtual bool doInitialization(Module &M) {
+      //PatmosCallGraphBuilder *PCG = &getAnalysis<PatmosCallGraphBuilder>();
+      //PII.setCallGraph( PCG->getCallGraph() );
+      return PMLExportPass::doInitialization(M);
+    }
+  };
+
+  char PatmosExportPass::ID = 0;
+
+
+  class PatmosModuleExportPass : public PMLModuleExportPass {
+    static char ID;
+
+    PatmosPMLInstrInfo PII;
+  public:
+    PatmosModuleExportPass(PatmosTargetMachine &tm, StringRef filename,
+                           ArrayRef<std::string> roots)
+     : PMLModuleExportPass(ID, tm, filename, roots)
+    {
+      //initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
+    }
+
+    virtual const char *getPassName() const {
+      return "Patmos YAML/PML Module Export";
+    }
+
+    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+      AU.setPreservesAll();
+      //AU.addRequired<PatmosCallGraphBuilder>();
       PMLModuleExportPass::getAnalysisUsage(AU);
     }
 
     virtual bool runOnModule(Module &M) {
-      PatmosCallGraphBuilder *PCG = &getAnalysis<PatmosCallGraphBuilder>();
-      PII.setCallGraph( PCG->getCallGraph() );
+      //PatmosCallGraphBuilder *PCG = &getAnalysis<PatmosCallGraphBuilder>();
+      //PII.setCallGraph( PCG->getCallGraph() );
       return PMLModuleExportPass::runOnModule(M);
     }
   };
@@ -238,10 +271,27 @@ namespace llvm {
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass
-  FunctionPass *createPatmosExportPass(std::string& filename,
-                                       PatmosTargetMachine &tm)
+  FunctionPass *createPatmosExportPass(PatmosTargetMachine &tm,
+                                       std::string& filename)
   {
-    PMLExportPass *PEP = new PMLExportPass(filename, tm);
+    PMLExportPass *PEP = new PatmosExportPass(tm, filename);
+
+    // Add our own export passes
+    PEP->addExporter( new PatmosMachineFunctionExport(tm) );
+    PEP->addExporter( new PatmosFunctionExport(tm) );
+    PEP->addExporter( new PMLRelationGraphExport(tm) );
+
+    return PEP;
+  }
+
+  /// createPatmosExportPass - Returns a new PatmosExportPass
+  /// \see PatmosExportPass
+  ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &tm,
+                                           std::string& filename,
+                                           ArrayRef<std::string> roots)
+  {
+    PatmosModuleExportPass *PEP =
+                      new PatmosModuleExportPass(tm, filename, roots);
 
     // Add our own export passes
     PEP->addExporter( new PatmosMachineFunctionExport(tm) );
