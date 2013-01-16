@@ -211,6 +211,7 @@ void PMLFunctionExport::exportInstruction(yaml::Instruction* I,
     }
     else {
       // TODO: we still have no information about indirect calls
+      // TODO: use PMLInstrInfo to try to get call info about bitcode calls
       I->addCallee(StringRef("__any__"));
     }
   }
@@ -807,24 +808,19 @@ char PMLExportPass::ID = 0;
 
 
 
-PMLModuleExportPass::PMLModuleExportPass(char &id, StringRef filename, TargetMachine &TM,
-                              ArrayRef<StringRef> roots, PMLInstrInfo *pii)
-  : ModulePass(id), OutFileName(filename)
+PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
+                              StringRef filename,
+                              ArrayRef<std::string> roots, PMLInstrInfo *pii)
+  : ModulePass(id), OutFileName(filename), Roots(roots)
 {
   PII = pii ? pii : new PMLInstrInfo();
-  for (size_t i = 0; i < roots.size(); i++) {
-    Roots.push_back(roots[i]);
-  }
 }
 
-PMLModuleExportPass::PMLModuleExportPass(StringRef filename, TargetMachine &TM,
-                              ArrayRef<StringRef> roots, PMLInstrInfo *pii)
-  : ModulePass(ID), OutFileName(filename)
+PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
+                              ArrayRef<std::string> roots, PMLInstrInfo *pii)
+  : ModulePass(ID), OutFileName(filename), Roots(roots)
 {
   PII = pii ? pii : new PMLInstrInfo();
-  for (size_t i = 0; i < roots.size(); i++) {
-    Roots.push_back(roots[i]);
-  }
 }
 
 PMLModuleExportPass::~PMLModuleExportPass() {
@@ -976,9 +972,9 @@ char PMLModuleExportPass::ID = 0;
 
 /// Returns a newly-created PML export pass.
 MachineFunctionPass *
-createPMLExportPass(std::string& FileName, TargetMachine &TM)
+createPMLExportPass(TargetMachine &TM, std::string& FileName)
 {
-  PMLExportPass *PEP = new PMLExportPass(FileName, TM);
+  PMLExportPass *PEP = new PMLExportPass(TM, FileName);
 
   PEP->addExporter( new PMLFunctionExport(TM) );
   PEP->addExporter( new PMLMachineFunctionExport(TM) );

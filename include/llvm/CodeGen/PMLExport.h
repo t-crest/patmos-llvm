@@ -605,8 +605,13 @@ namespace llvm {
     tool_output_file *OutFile;
     yaml::Output *Output;
 
+  protected:
+    PMLExportPass(char &id, TargetMachine &tm, StringRef filename)
+      : MachineFunctionPass(id), OutFileName(filename),
+       OutFile(0), Output(0)
+    { }
   public:
-    PMLExportPass(StringRef filename, TargetMachine &tm)
+    PMLExportPass(TargetMachine &tm, StringRef filename)
       : MachineFunctionPass(ID), OutFileName(filename),
        OutFile(0), Output(0)
     { }
@@ -639,7 +644,7 @@ namespace llvm {
   // TODO this pass is currently implemented to work as machine-code module
   // pass. It should either support running on bitcode only as well, or
   // implement another pass for that.
-  class PMLModuleExportPass : ModulePass {
+  class PMLModuleExportPass : public ModulePass {
 
     static char ID;
 
@@ -661,11 +666,11 @@ namespace llvm {
     MFQueue Queue;
 
   protected:
-    PMLModuleExportPass(char &ID, StringRef filename, TargetMachine &TM,
-                        ArrayRef<StringRef> roots, PMLInstrInfo *PII = 0);
+    PMLModuleExportPass(char &ID, TargetMachine &TM, StringRef filename,
+                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
   public:
-    PMLModuleExportPass(StringRef filename, TargetMachine &TM,
-                        ArrayRef<StringRef> roots, PMLInstrInfo *PII = 0);
+    PMLModuleExportPass(TargetMachine &TM, StringRef filename,
+                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
 
     virtual ~PMLModuleExportPass();
 
