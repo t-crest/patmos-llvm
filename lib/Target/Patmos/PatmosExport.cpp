@@ -45,6 +45,14 @@ static cl::opt<bool> SkipSerializeInstructions (
 namespace llvm {
 
   class PatmosPMLInstrInfo : public PMLInstrInfo {
+
+    MCallGraph *MCG;
+
+  public:
+    PatmosPMLInstrInfo() : PMLInstrInfo(), MCG(0) {}
+
+    void setCallGraph(MCallGraph *mcg) { MCG = mcg; }
+
     virtual std::vector<StringRef> getCalleeNames(MachineFunction &Caller,
                                              const MachineInstr *Instr)
     {
@@ -65,6 +73,13 @@ namespace llvm {
       }
 
       return Callees;
+    }
+
+    virtual MFList getCallees(Module &M, MachineModuleInfo &MMI,
+                              MachineFunction &MF, const MachineInstr *Instr)
+    {
+
+      return PMLInstrInfo::getCallees(M, MMI, MF, Instr);
     }
 
     virtual const std::vector<MachineBasicBlock*> getBranchTargets(
@@ -106,6 +121,15 @@ namespace llvm {
 
       return targets;
     }
+
+    virtual MFList getCalledFunctions(Module &M,
+                                      MachineModuleInfo &MMI,
+                                      MachineFunction &MF)
+    {
+
+      return PMLInstrInfo::getCalledFunctions(M, MMI, MF);
+    }
+
   };
 
   class PatmosFunctionExport : public PMLFunctionExport {
@@ -135,6 +159,17 @@ namespace llvm {
     }
   };
 
+
+  class PatmosModuleExportPass : public PMLModuleExportPass {
+
+    static char ID;
+
+  public:
+    PatmosModuleExportPass(StringRef filename, PatmosTargetMachine &tm,
+                           ArrayRef<StringRef> roots)
+     : PMLModuleExportPass(ID, filename, tm, roots) {}
+
+  };
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass
