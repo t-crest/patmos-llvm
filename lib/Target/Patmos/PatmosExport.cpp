@@ -71,6 +71,24 @@ namespace llvm {
         // find the function in the current module
         Callees.push_back(MO.getSymbolName());
       }
+      else if (MCG) {
+        // TODO should we use the callgraph in any case if we have one?
+        // (but for immediate calls, this is not much of an advantage..)
+
+        MCGNode *node = MCG->makeMCGNode(&Caller);
+        MCGSite *site = node->findSite(Instr);
+
+        if (site && site->getCallee()) {
+          MCGNode *Callee = site->getCallee();
+          // TODO for unknown nodes, try to resolve using type??
+          if (Callee->getMF()) {
+            MachineFunction *MF = Callee->getMF();
+            if (MF && MF->getFunction()) {
+              Callees.push_back(MF->getFunction()->getName());
+            }
+          }
+        }
+      }
 
       return Callees;
     }
@@ -78,7 +96,15 @@ namespace llvm {
     virtual MFList getCallees(Module &M, MachineModuleInfo &MMI,
                               MachineFunction &MF, const MachineInstr *Instr)
     {
-
+      if (MCG) {
+        MCGNode *node = MCG->makeMCGNode(&MF);
+        MCGSite *site = node->findSite(Instr);
+        MFList Callees;
+        if (site && site->getCallee() && site->getCallee()->getMF()) {
+          Callees.push_back( site->getCallee()->getMF() );
+        }
+        return Callees;
+      }
       return PMLInstrInfo::getCallees(M, MMI, MF, Instr);
     }
 
@@ -88,13 +114,12 @@ namespace llvm {
     {
       std::vector<MachineBasicBlock*> targets;
 
-      // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
       switch (Instr->getOpcode()) {
       case Patmos::BR:
       case Patmos::BRu:
       case Patmos::BRCF:
       case Patmos::BRCFu: {
-        // TODO handle normal branches, return single branch target
+        // handle normal branches, return single branch target
         const MachineOperand &MO(Instr->getOperand(2));
 
         if (MO.isMBB()) {
@@ -107,6 +132,7 @@ namespace llvm {
       case Patmos::BRTu:
       case Patmos::BRCFT:
       case Patmos::BRCFTu: {
+        // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
         assert(Instr->getNumOperands() == 4);
 
         unsigned index = Instr->getOperand(3).getIndex();
@@ -126,7 +152,23 @@ namespace llvm {
                                       MachineModuleInfo &MMI,
                                       MachineFunction &MF)
     {
-
+      if (MCG) {
+        // take the shortcut using the callgraph
+        MCGNode *node = MCG->makeMCGNode(&MF);
+        if (node) {
+          MFList Callees;
+          const MCGSites &Sites = node->getSites();
+          for (MCGSites::const_iterator it = Sites.begin(), ie = Sites.end();
+               it != ie; ++it)
+          {
+            MCGNode *Callee = (*it)->getCallee();
+            if (Callee && Callee->getMF()) {
+              Callees.push_back(Callee->getMF());
+            }
+          }
+          return Callees;
+        }
+      }
       return PMLInstrInfo::getCalledFunctions(M, MMI, MF);
     }
 
@@ -160,16 +202,39 @@ namespace llvm {
   };
 
 
+
   class PatmosModuleExportPass : public PMLModuleExportPass {
 
     static char ID;
+
+    PatmosPMLInstrInfo PII;
 
   public:
     PatmosModuleExportPass(StringRef filename, PatmosTargetMachine &tm,
                            ArrayRef<StringRef> roots)
      : PMLModuleExportPass(ID, filename, tm, roots) {}
 
+    virtual const char *getPassName() const {
+      return "Patmos YAML/PML Module Export";
+    }
+
+    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+      AU.setPreservesAll();
+      AU.addRequired<PatmosCallGraphBuilder>();
+      PMLModuleExportPass::getAnalysisUsage(AU);
+    }
+
+    virtual bool runOnModule(Module &M) {
+      PatmosCallGraphBuilder *PCG = &getAnalysis<PatmosCallGraphBuilder>();
+      PII.setCallGraph( PCG->getCallGraph() );
+      return PMLModuleExportPass::runOnModule(M);
+    }
   };
+
+  char PatmosModuleExportPass::ID = 0;
+
+
+
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass

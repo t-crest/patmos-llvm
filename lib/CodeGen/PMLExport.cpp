@@ -211,6 +211,7 @@ void PMLFunctionExport::exportInstruction(yaml::Instruction* I,
     }
     else {
       // TODO: we still have no information about indirect calls
+      // TODO: use PMLInstrInfo to try to get call info about bitcode calls
       I->addCallee(StringRef("__any__"));
     }
   }

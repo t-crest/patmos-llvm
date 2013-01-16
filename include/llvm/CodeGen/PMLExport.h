@@ -639,7 +639,7 @@ namespace llvm {
   // TODO this pass is currently implemented to work as machine-code module
   // pass. It should either support running on bitcode only as well, or
   // implement another pass for that.
-  class PMLModuleExportPass : ModulePass {
+  class PMLModuleExportPass : public ModulePass {
 
     static char ID;
 
