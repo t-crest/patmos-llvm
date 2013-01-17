@@ -46,6 +46,7 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/CommandLine.h"
 using namespace llvm;
 
 static const char *DWARFGroupName = "DWARF Emission";
@@ -53,6 +54,10 @@ static const char *DbgTimerName = "DWARF Debug Writer";
 static const char *EHTimerName = "DWARF Exception Writer";
 
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
+
+static cl::opt<bool>
+ForceBlockLabels("mforce-block-labels",
+                 cl::desc("Emit labels for all basic blocks."));
 
 char AsmPrinter::ID = 0;
 
@@ -161,6 +166,11 @@ bool AsmPrinter::doInitialization(Module &M) {
     .Initialize(OutContext, TM);
 
   Mang = new Mangler(OutContext, *TM.getDataLayout());
+
+  // If we want to generate labels for all basic blocks, we must
+  // turn temporary labels off.
+  if (ForceBlockLabels)
+    OutContext.setAllowTemporaryLabels(false);
 
   // Allow the target to emit any magic that it wants at the start of the file.
   EmitStartOfAsmFile(M);
@@ -2109,7 +2119,9 @@ void AsmPrinter::EmitBasicBlockStart(const MachineBasicBlock *MBB) const {
   }
 
   // Print the main label for the block.
-  if (MBB->pred_empty() || isBlockOnlyReachableByFallthrough(MBB)) {
+  if ((MBB->pred_empty() || isBlockOnlyReachableByFallthrough(MBB)) &&
+      !ForceBlockLabels)
+  {
     if (isVerbose() && OutStreamer.hasRawTextSupport()) {
       // NOTE: Want this comment at start of line, don't emit with AddComment.
       OutStreamer.EmitRawText(Twine(MAI->getCommentString()) + " BB#" +

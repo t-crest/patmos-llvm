@@ -16,6 +16,7 @@
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
@@ -30,12 +31,22 @@ extern "C" void LLVMInitializePatmosTarget() {
 }
 
 namespace {
-  /// EnableCallGraph - Option to enable the construction of a machine-level 
-  /// call graph.
-  static cl::opt<bool> EnableCallGraph(
-    "mpatmos-enable-call-graph",
+  /// EnableStackCacheAnalysis - Option to enable the analysis of Patmos' stack
+  /// cache usage.
+  static cl::opt<bool> EnableStackCacheAnalysis(
+    "mpatmos-enable-stack-cache-analysis",
     cl::init(false),
-    cl::desc("Enable the Patmos call graph construction."),
+    cl::desc("Enable the Patmos stack cache analysis."),
+    cl::Hidden);
+
+  static cl::opt<std::string> SerializeMachineCode(
+    "mpatmos-serialize",
+    cl::desc("Export PML specification of generated machine code to FILE"),
+    cl::init(""));
+
+  static cl::list<std::string> SerializeRoots(
+    "mpatmos-serialize-roots",
+    cl::desc("Export only methods reachable from given functions"),
     cl::Hidden);
 
   /// Patmos Code Generator Pass Configuration Options.
@@ -78,9 +89,20 @@ namespace {
       addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
-      if (EnableCallGraph) {
-        addModulePass(createPatmosCallGraphBuilder());
+      if (EnableStackCacheAnalysis) {
+        addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
+
+      if (!SerializeMachineCode.empty()) {
+        if (SerializeRoots.empty()) {
+          addPass(createPatmosExportPass(getPatmosTargetMachine(),
+                                         SerializeMachineCode));
+        } else {
+          addModulePass(createPatmosModuleExportPass(getPatmosTargetMachine(),
+                                         SerializeMachineCode, SerializeRoots));
+        }
+      }
+
       return true;
     }
 

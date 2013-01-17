@@ -290,9 +290,7 @@ PatmosTargetLowering::LowerCall(CallLoweringInfo &CLI,
     llvm_unreachable("Unsupported calling convention");
   case CallingConv::Fast:
   case CallingConv::C:
-    return LowerCCCCallTo(CLI.Chain, CLI.Callee, CLI.CallConv, CLI.IsVarArg, 
-			  CLI.IsTailCall, CLI.Outs, CLI.OutVals, CLI.Ins,
-			  CLI.DL, CLI.DAG, InVals);
+    return LowerCCCCallTo(CLI, InVals);
   }
 }
 
@@ -451,15 +449,19 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
 /// (physical regs)/(stack frame), CALLSEQ_START and CALLSEQ_END are emitted.
 /// TODO: sret.
 SDValue
-PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
-                                     CallingConv::ID CallConv, bool isVarArg,
-                                     bool isTailCall,
-                                     const SmallVectorImpl<ISD::OutputArg>
-                                       &Outs,
-                                     const SmallVectorImpl<SDValue> &OutVals,
-                                     const SmallVectorImpl<ISD::InputArg> &Ins,
-                                     DebugLoc dl, SelectionDAG &DAG,
-                                     SmallVectorImpl<SDValue> &InVals) const {
+PatmosTargetLowering::LowerCCCCallTo(CallLoweringInfo &CLI,
+                                     SmallVectorImpl<SDValue> &InVals) const
+{
+  SelectionDAG &DAG                     = CLI.DAG;
+  DebugLoc &dl                          = CLI.DL;
+  SmallVector<ISD::OutputArg, 32> &Outs = CLI.Outs;
+  SmallVector<SDValue, 32> &OutVals     = CLI.OutVals;
+  SmallVector<ISD::InputArg, 32> &Ins   = CLI.Ins;
+  SDValue Chain                         = CLI.Chain;
+  SDValue Callee                        = CLI.Callee;
+  CallingConv::ID CallConv              = CLI.CallConv;
+  bool isVarArg                         = CLI.IsVarArg;
+
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
@@ -557,7 +559,16 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
   if (InFlag.getNode())
     Ops.push_back(InFlag);
 
-  Chain = DAG.getNode(PatmosISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
+
+  // attach machine-level aliasing information
+  MachineMemOperand *MMO = 
+      DAG.getMachineFunction().getMachineMemOperand(CLI.MPI, 0, 4, 0);
+
+  Chain = DAG.getMemIntrinsicNode(PatmosISD::CALL, dl,
+                                  NodeTys, &Ops[0], Ops.size(),
+                                  MVT::i32, MMO);
+
+//   Chain = DAG.getNode(PatmosISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
   InFlag = Chain.getValue(1);
 
   // Create the CALLSEQ_END node.

@@ -428,7 +428,6 @@ MachineMemOperand::MachineMemOperand(MachinePointerInfo ptrinfo, unsigned f,
   assert((PtrInfo.V == 0 || isa<PointerType>(PtrInfo.V->getType())) &&
          "invalid pointer value");
   assert(getBaseAlignment() == a && "Alignment is not a power of 2!");
-  assert((isLoad() || isStore()) && "Not a load/store!");
 }
 
 /// Profile - Gather unique data for the object.
@@ -463,9 +462,6 @@ uint64_t MachineMemOperand::getAlignment() const {
 }
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const MachineMemOperand &MMO) {
-  assert((MMO.isLoad() || MMO.isStore()) &&
-         "SV has to be a load, store or both.");
-
   if (MMO.isVolatile())
     OS << "Volatile ";
 
@@ -473,6 +469,8 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const MachineMemOperand &MMO) {
     OS << "LD";
   if (MMO.isStore())
     OS << "ST";
+  if (!MMO.isStore() && !MMO.isLoad())
+    OS << "REF";
   OS << MMO.getSize();
 
   // Print the address information.

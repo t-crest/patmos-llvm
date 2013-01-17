@@ -5284,7 +5284,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
 void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
                                       bool isTailCall,
                                       MachineBasicBlock *LandingPad) {
-  PointerType *PT = cast<PointerType>(CS.getCalledValue()->getType());
+  const Value *CalledValue = CS.getCalledValue();
+  PointerType *PT = cast<PointerType>(CalledValue->getType());
   FunctionType *FTy = cast<FunctionType>(PT->getElementType());
   Type *RetTy = FTy->getReturnType();
   MachineModuleInfo &MMI = DAG.getMachineFunction().getMMI();
@@ -5385,9 +5386,10 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
   if (isTailCall && TM.Options.EnableFastISel)
     isTailCall = false;
 
+  MachinePointerInfo MPI(CalledValue);
   TargetLowering::
   CallLoweringInfo CLI(getRoot(), RetTy, FTy, isTailCall, Callee, Args, DAG,
-                       getCurDebugLoc(), CS);
+                       getCurDebugLoc(), CS, MPI);
   std::pair<SDValue,SDValue> Result = TLI.LowerCallTo(CLI);
   assert((isTailCall || Result.second.getNode()) &&
          "Non-null chain expected with non-tail call!");

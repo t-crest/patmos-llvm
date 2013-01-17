@@ -92,6 +92,10 @@ PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
 static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
     cl::desc("Run live interval analysis earlier in the pipeline"));
 
+//static cl::opt<std::string> SerializeMachineCode("serialize",
+//  cl::desc("Export specification of generated machine code to FILE"),
+//  cl::init(""));
+
 /// Allow standard passes to be disabled by command line options. This supports
 /// simple binary flags that either suppress the pass or do nothing.
 /// i.e. -disable-mypass=false has no effect.
@@ -517,6 +521,10 @@ void TargetPassConfig::addMachinePasses() {
 
   if (addPreEmitPass())
     printAndVerify("After PreEmit passes");
+
+  // Serialize machine code
+  // if (! SerializeMachineCode.empty())
+  //    PM->add(createPMLExportPass(SerializeMachineCode, TM));
 }
 
 /// Add passes that optimize machine instructions in SSA form.

@@ -1327,6 +1327,7 @@ public:
     SmallVector<SDValue, 32> OutVals;
     SmallVector<ISD::InputArg, 32> Ins;
 
+    MachinePointerInfo MPI;
 
     /// CallLoweringInfo - Constructs a call lowering context based on the
     /// ImmutableCallSite \p cs.
@@ -1355,6 +1356,35 @@ public:
       IsReturnValueUsed(isReturnValueUsed), IsTailCall(isTailCall),
       NumFixedArgs(numFixedArgs), CallConv(callConv), Callee(callee),
       Args(args), DAG(dag), DL(dl), CS(NULL) {}
+ 
+    /// CallLoweringInfo - Constructs a call lowering context based on the
+    /// ImmutableCallSite \p cs.
+    CallLoweringInfo(SDValue chain, Type *retTy,
+                     FunctionType *FTy, bool isTailCall, SDValue callee,
+                     ArgListTy &args, SelectionDAG &dag, DebugLoc dl,
+                     ImmutableCallSite &cs, const MachinePointerInfo &mpi)
+    : Chain(chain), RetTy(retTy), RetSExt(cs.paramHasAttr(0, Attributes::SExt)),
+      RetZExt(cs.paramHasAttr(0, Attributes::ZExt)), IsVarArg(FTy->isVarArg()),
+      IsInReg(cs.paramHasAttr(0, Attributes::InReg)),
+      DoesNotReturn(cs.doesNotReturn()),
+      IsReturnValueUsed(!cs.getInstruction()->use_empty()),
+      IsTailCall(isTailCall), NumFixedArgs(FTy->getNumParams()),
+      CallConv(cs.getCallingConv()), Callee(callee), Args(args), DAG(dag),
+      DL(dl), CS(&cs), MPI(mpi) {}
+
+    /// CallLoweringInfo - Constructs a call lowering context based on the
+    /// provided call information.
+    CallLoweringInfo(SDValue chain, Type *retTy, bool retSExt, bool retZExt,
+                     bool isVarArg, bool isInReg, unsigned numFixedArgs,
+                     CallingConv::ID callConv, bool isTailCall,
+                     bool doesNotReturn, bool isReturnValueUsed, SDValue callee,
+                     ArgListTy &args, SelectionDAG &dag, DebugLoc dl, 
+		     const MachinePointerInfo &mpi)
+    : Chain(chain), RetTy(retTy), RetSExt(retSExt), RetZExt(retZExt),
+      IsVarArg(isVarArg), IsInReg(isInReg), DoesNotReturn(doesNotReturn),
+      IsReturnValueUsed(isReturnValueUsed), IsTailCall(isTailCall),
+      NumFixedArgs(numFixedArgs), CallConv(callConv), Callee(callee),
+      Args(args), DAG(dag), DL(dl), CS(NULL), MPI(mpi) {}
   };
 
   /// LowerCallTo - This function lowers an abstract call to a function into an

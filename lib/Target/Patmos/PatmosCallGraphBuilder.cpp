@@ -13,391 +13,404 @@
 
 #define DEBUG_TYPE "patmos-call-graph-builder"
 
-#include "Patmos.h"
-#include "llvm/Pass.h"
+#include "PatmosCallGraphBuilder.h"
 #include "llvm/Module.h"
-#include "llvm/CodeGen/MachineFunction.h"
-#include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/DOTGraphTraits.h"
-#include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include <vector>
-#include <iostream>
 
 using namespace llvm;
 
+INITIALIZE_PASS(PatmosCallGraphBuilder, "patmos-mcg",
+                "Patmos Call Graph Builder", false, true)
+
 namespace llvm {
-  // forward declarations
-  class MCGSite;
-  class MCGNode;
-  class MCallGraph;
+  char PatmosCallGraphBuilder::ID = 0;
 
-  /// A vector of call sites.
-  typedef std::vector<MCGSite*> MCGSites;
+  //----------------------------------------------------------------------------
 
-  /// A vector of call graph nodes.
-  typedef std::vector<MCGNode*> MCGNodes;
-
-  /// A node in the machine-level call graph.
-  class MCGNode
+  MCGSite *MCGNode::findSite(const MachineInstr *MI) const
   {
-    friend class MCallGraph;
-    friend class GraphTraits<MCallGraph>;
-  private:
-    /// The MachineFunction represented by this call graph node, or NULL.
-    MachineFunction *MF;
-
-    /// The node's call sites.
-    MCGSites Sites;
-
-    /// Flag indicating whether the node's function is dead code.
-    bool IsDead;
-  public:
-    /// Construct a new call graph node.
-    explicit MCGNode(MachineFunction *mf) : MF(mf), IsDead(true) {}
-
-    /// getMF - Return the node's MachineFunction.
-    MachineFunction *getMF() const
-    {
-      return MF;
+    for(MCGSites::const_iterator i(Sites.begin()), ie(Sites.end()); i != ie;
+        i++) {
+      if ((*i)->getMI() == MI)
+        return *i;
     }
 
-    /// getSites - Get the call sites of the call node.
-    const MCGSites &getSites() const
-    {
-      return Sites;
-    }
+    return NULL;
+  }
 
-    /// markLive - Mark the node's function as live, i.e., not dead.
-    void markLive()
-    {
-      IsDead = false;
-    }
-
-    /// isDead - Check whether the node's function is marked as dead code.
-    bool isDead() const
-    {
-      return IsDead;
-    }
-
-   /// dump - print the call graph node to the debug stream.
-    void dump() const
-    {
-      if (MF)
-        dbgs() << MF->getFunction()->getName();
-      else
-        dbgs() << "<UNKNOWN>";
-    }
-  };
-
-  /// A machine-level call site
-  class MCGSite
+  void MCGNode::dump() const
   {
-  private:
-    /// The call instruction of the call site.
-    MachineInstr *MI;
+    if (isUnknown())
+      dbgs() << "<UNKNOWN-"<< *T << ">";
+    else
+      dbgs() << MF->getFunction()->getName();
+  }
 
-    /// The call graph node referenced by this call site.
-    MCGNode *MCGN;
+  //----------------------------------------------------------------------------
 
-  public:
-    /// Construct a new call site.
-    MCGSite(MachineInstr *mi, MCGNode *mcgn) : MI(mi), MCGN(mcgn) {}
+  void MCGSite::dump() const
+  {
+    dbgs() << "  MCGSite: ";
+    Caller->dump();
+    dbgs() << " --> ";
+    Callee->dump();
 
-    /// getMI - Return the call site's call instruction.
-    MachineInstr *getMI() const
-    {
-      return MI;
+    if (MI) {
+      dbgs() << "\t";
+      MI->dump();
     }
+    else
+      dbgs() << "\n";
+  }
 
-    /// getMCGN - Return the call site's call graph node.
-    MCGNode *getMCGN() const
-    {
-      return MCGN;
-    }
+  //----------------------------------------------------------------------------
 
-    /// dump - print the call site to the debug stream.
-    void dump() const
-    {
-      MachineFunction *MF = MI ? MI->getParent()->getParent() : NULL;
-      dbgs() << "  MCGSite: " << (MF ? MF->getFunction()->getName() :
-                                       "<UNKNOWN>") << " --> ";
-      MCGN->dump();
-
-      if (MI) {
-        dbgs() << "\t";
-        MI->dump();
+  static bool isEmptyStructPointer(Type *Ty)
+  {
+    if (PointerType *PTy = dyn_cast<PointerType>(Ty)) {
+      if (StructType *STy = dyn_cast<StructType>(PTy->getElementType())) {
+        return (STy->getNumContainedTypes() == 0);
       }
-      else 
-        dbgs() << "\n";
     }
-  };
 
-  /// A machine-level call graph.
-  class MCallGraph
+    return false;
+  }
+
+  // return value: -1 recursive dependence
+  //                0 not isomorphic
+  //                1 isomorphic
+  int MCallGraph::areTypesIsomorphic(Type *DstTy, Type *SrcTy)
   {
-    friend class GraphTraits<MCallGraph>;
-    friend class DOTGraphTraits<MCallGraph>;
-  private:
-    /// The graph's nodes.
-    MCGNodes Nodes;
+    // normalize parameter order
+    if (DstTy > SrcTy)
+      return areTypesIsomorphic(SrcTy, DstTy);
 
-    /// The graph's call sites.
-    MCGSites Sites;
-  public:
-    /// getNodes - Return the graph's nodes.
-    MCGNodes &getNodes()
-    {
-      return Nodes;
+    // TODO: this is a hack to fix-up an error in clang's LLVM code generator,
+    // which messes up certain structs.
+    if (isEmptyStructPointer(DstTy) && SrcTy->isPointerTy())
+      return 1;
+
+    // TODO: this is a hack to fix-up an error in clang's LLVM code generator,
+    // which messes up certain structs.
+    if (isEmptyStructPointer(SrcTy) && DstTy->isPointerTy())
+      return 1;
+
+    // Two types with differing kinds are clearly not isomorphic.
+    if (DstTy->getTypeID() != SrcTy->getTypeID())
+      return 0;
+
+    // check for recursion and known equivalent types
+    equivalent_types_t::const_iterator tmp(EQ.find(std::make_pair(DstTy,
+                                                                  SrcTy)));
+    if (tmp != EQ.end()) {
+      return tmp->second;
     }
 
-    /// getSites - Return the graph's call sites.
-    MCGSites &getSites()
-    {
-      return Sites;
+    // Two identical types are clearly isomorphic.  Remember this
+    // non-speculatively.
+    if (DstTy == SrcTy) {
+      return 1;
     }
 
-    /// makeMCGNode - Return a call graph node for the MachineFunction. The node 
-    /// is either newly constructed, or, if one exists, a node from the nodes 
-    /// set associated with the MachineFunction is returned.
-    MCGNode *makeMCGNode(MachineFunction *MF)
-    {
-      // does a call graph node for the machine function exist?
-      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
-          i++) {
-        if ((*i)->getMF() == MF)
+    // Okay, we have two types with identical kinds that we haven't seen before.
+
+    // assume types are not identical for now
+    EQ[std::make_pair(DstTy, SrcTy)] = 0;
+
+    // If this is an opaque struct type, special case it.
+    if (StructType *SSTy = dyn_cast<StructType>(SrcTy)) {
+      if (SSTy->isOpaque()) {
+        assert(false);
+        return 1;
+      }
+
+      if (cast<StructType>(DstTy)->isOpaque()) {
+        assert(false);
+        return 1;
+      }
+    }
+
+    // If the number of subtypes disagree between the two types, then we fail.
+    if (SrcTy->getNumContainedTypes() != DstTy->getNumContainedTypes())
+      return 0;
+
+    // Fail if any of the extra properties (e.g. array size) of the type disagree.
+    if (isa<IntegerType>(DstTy))
+      return 0;  // bitwidth disagrees.
+    if (PointerType *PT = dyn_cast<PointerType>(DstTy)) {
+      if (PT->getAddressSpace() != cast<PointerType>(SrcTy)->getAddressSpace())
+        return 0;
+
+    } else if (FunctionType *FT = dyn_cast<FunctionType>(DstTy)) {
+      if (FT->isVarArg() != cast<FunctionType>(SrcTy)->isVarArg())
+        return 0;
+    } else if (StructType *DSTy = dyn_cast<StructType>(DstTy)) {
+      StructType *SSTy = cast<StructType>(SrcTy);
+      if (DSTy->isLiteral() != SSTy->isLiteral() ||
+          DSTy->isPacked() != SSTy->isPacked())
+        return 0;
+    } else if (ArrayType *DATy = dyn_cast<ArrayType>(DstTy)) {
+      if (DATy->getNumElements() != cast<ArrayType>(SrcTy)->getNumElements())
+        return 0;
+    } else if (VectorType *DVTy = dyn_cast<VectorType>(DstTy)) {
+      if (DVTy->getNumElements() != cast<ArrayType>(SrcTy)->getNumElements())
+        return 0;
+    }
+
+    // Otherwise, we speculate that these two types will line up and recursively
+    // check the subelements.
+
+    // ok, we need to recurs, mark the types accordingly.
+    EQ[std::make_pair(DstTy, SrcTy)] = -1;
+
+    int retval = 1;
+    for (unsigned i = 0, e = SrcTy->getNumContainedTypes(); i != e; ++i) {
+      switch (areTypesIsomorphic(DstTy->getContainedType(i),
+                                 SrcTy->getContainedType(i))) {
+      case 0:
+        // ok, types do not match
+        EQ[std::make_pair(DstTy, SrcTy)] = 0;
+        return 0;
+      case -1:
+        retval = -1;
+        break;
+      }
+    }
+
+    // seems the types match
+    EQ[std::make_pair(DstTy, SrcTy)] = retval;
+
+    // If everything seems to have lined up, then everything is great.
+    return retval;
+  }
+
+  MCGNode *MCallGraph::makeMCGNode(MachineFunction *MF)
+  {
+    // does a call graph node for the machine function exist?
+    for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+        i++) {
+      if ((*i)->getMF() == MF)
+        return *i;
+    }
+
+    // construct a new call graph node for the MachineFunction
+    MCGNode *newMCGN = new MCGNode(MF);
+    Nodes.push_back(newMCGN);
+
+    return newMCGN;
+  }
+
+  MCGNode *MCallGraph::getUnknownNode(Type *T)
+  {
+    // does a call graph node for the Type exist?
+    for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+        i++) {
+      if ((*i)->isUnknown()) {
+        if (areTypesIsomorphic((*i)->getType(), T)) {
+          // mark all elements with -1 as 1
+          for(equivalent_types_t::iterator j(EQ.begin()), je(EQ.end()); j != je;
+              j++) {
+            j->second = j->second * j->second;
+          }
           return *i;
-      }
-
-      // construct a new call graph node for the MachineFunction
-      MCGNode *newMCGN = new MCGNode(MF);
-      Nodes.push_back(newMCGN);
-
-      return newMCGN;
-    }
-
-    /// getUnknownNode - Get a pseudo call graph node for unknown call targets.
-    MCGNode *getUnknownNode()
-    {
-      return makeMCGNode(NULL);
-    }
-
-    /// makeMCGSite - Return a call site.
-    MCGSite *makeMCGSite(MachineInstr *MI, MCGNode *MCGN)
-    {
-      MCGSite *newSite = new MCGSite(MI, MCGN);
-
-      // store the site with the graph
-      Sites.push_back(newSite);
-
-      // append the site to the MachineInstr's parent call graph node
-      MachineFunction *MF = MI ? MI->getParent()->getParent() : NULL;
-      MCGNode *parent = makeMCGNode(MF);
-      parent->Sites.push_back(newSite);
-
-      return newSite;
-    }
-
-    /// dump - print all call sites of the call graph to the debug stream.
-    void dump() const
-    {
-      for(MCGSites::const_iterator i(Sites.begin()), ie(Sites.end()); i != ie;
-          i++) {
-        (*i)->dump();
-      }
-    }
-
-    /// view - show a DOT dump of the call graph.
-    void view()
-    {
-      ViewGraph(*this, "MCallGraph");
-    }
-
-    /// Free the call graph and all its nodes and call sites.
-    virtual ~MCallGraph()
-    {
-      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end());
-          i != ie; i++) {
-        delete *i;
-      }
-
-      for(MCGSites::const_iterator i(Sites.begin()), ie(Sites.end()); i != ie;
-          i++) {
-        delete *i;
-      }
-    }
-  };
-
-  /// Pass to construct the call graph at the machine-level of the current 
-  /// module.
-  class PatmosCallGraphBuilder: public ModulePass {
-  private:
-    /// Pass ID
-    static char ID;
-
-    /// A call graph.
-    MCallGraph MCG;
-
-  public:
-    PatmosCallGraphBuilder() : ModulePass(ID)
-    {
-    }
-
-    /// getAnalysisUsage - Inform the pass manager that nothing is modified 
-    /// here.
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const
-    {
-      AU.setPreservesAll();
-      AU.addRequired<MachineModuleInfo>();
-
-      ModulePass::getAnalysisUsage(AU);
-    }
-
-    /// visitCallSites - Visit all call-sites of the MachineFunction and append 
-    /// them to a simple machine-level call graph.
-    void visitCallSites(Module &M, MachineFunction *MF)
-    {
-      // get the machine-level module information.
-      MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
-
-      // make a call graph node, also for functions that are never called.
-      MCG.makeMCGNode(MF);
-
-      for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
-          i++) {
-        for(MachineBasicBlock::instr_iterator j(i->instr_begin()),
-            je(i->instr_end()); j != je; j++) {
-
-          if (j->isCall()) {
-            // get target
-            const MachineOperand &MO(j->getOperand(2));
-
-            // try to find the target of the call
-            const Function *F = NULL;
-            if (MO.isGlobal()) {
-              // is the global value a function?
-              F = dyn_cast<Function>(MO.getGlobal());
-            }
-            else if (MO.isSymbol()) {
-              // find the function in the current module
-              F = dyn_cast<Function>(M.getNamedValue(MO.getSymbolName()));
-            }
-            else {
-              // be conservative here.
-              F = NULL;
-            }
-
-            // does a MachineFunction exist for F?
-            MachineFunction *MF = F ? MMI.getMachineFunction(F) : NULL;
-
-            // construct a new call site
-            MCG.makeMCGSite(j, MF ? MCG.makeMCGNode(MF) : MCG.getUnknownNode());
+        }
+        else {
+          // erase all elements with -1
+          for(equivalent_types_t::iterator j(EQ.begin()), je(EQ.end());
+              j != je;) {
+            if (j->second == -1)
+              EQ.erase(j++);
+            else
+              j++;
           }
         }
       }
     }
 
-    /// getMCGNode - Return the call graph node of the function with the given
-    /// name.
-    MCGNode *getMCGNode(Module &M, const char *name)
-    {
-      Function *F = dyn_cast<Function>(M.getNamedValue(name));
-      if (F) {
-        // get the machine-level module information for M.
-        MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
+    // construct a new call graph node for the Type
+    MCGNode *newMCGN = new MCGNode(T);
+    Nodes.push_back(newMCGN);
 
-        // get the MachineFunction
-        MachineFunction *MF = MMI.getMachineFunction(F);
+    return newMCGN;
+  }
 
-        if (MF)
-          return MCG.makeMCGNode(MF);
-      }
+  MCGSite *MCallGraph::makeMCGSite(MCGNode *Caller, MachineInstr *MI,
+                                   MCGNode *Callee)
+  {
+    MCGSite *newSite = new MCGSite(Caller, MI, Callee);
 
-      return NULL;
+    // store the site with the graph
+    Sites.push_back(newSite);
+
+    // append the site to the caller call graph node
+    Caller->Sites.push_back(newSite);
+
+    // append the site to the calling sites of the call graph node
+    Callee->CallingSites.push_back(newSite);
+
+    return newSite;
+  }
+
+  void MCallGraph::dump() const
+  {
+    for(MCGSites::const_iterator i(Sites.begin()), ie(Sites.end()); i != ie;
+        i++) {
+      (*i)->dump();
+    }
+  }
+
+  void MCallGraph::view()
+  {
+    ViewGraph(*this, "MCallGraph");
+  }
+
+  MCallGraph::~MCallGraph()
+  {
+    for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end());
+        i != ie; i++) {
+      delete *i;
     }
 
-    /// markLive_ - Mark the node and all its callees as live. The UNKNOWN node
-    /// is treated special.
-    void markLive_(MCGNode *N)
-    {
-      // the <UNKNOWN> node is skipped here.
-      if (!N || !N->getMF() || !N->isDead())
-        return;
+    for(MCGSites::const_iterator i(Sites.begin()), ie(Sites.end()); i != ie;
+        i++) {
+      delete *i;
+    }
+  }
 
-      N->markLive();
+  //----------------------------------------------------------------------------rk
 
-      for(MCGSites::const_iterator i(N->getSites().begin()),
-          ie(N->getSites().end()); i != ie; i++) {
-        markLive_((*i)->getMCGN());
+  void PatmosCallGraphBuilder::visitCallSites(Module &M, MachineFunction *MF)
+  {
+    // get the machine-level module information.
+    MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
+
+    // make a call graph node, also for functions that are never called.
+    MCGNode *MCGN = MCG.makeMCGNode(MF);
+
+    for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
+        i++) {
+      for(MachineBasicBlock::instr_iterator j(i->instr_begin()),
+          je(i->instr_end()); j != je; j++) {
+
+        if (j->isCall()) {
+          // get target
+          const MachineOperand &MO(j->getOperand(2));
+
+          const Function *F = NULL;
+          Type *T = NULL;
+
+          // try to find the target of the call
+          if (MO.isGlobal()) {
+            // is the global value a function?
+            F = dyn_cast<Function>(MO.getGlobal());
+          }
+          else if (MO.isSymbol()) {
+            // find the function in the current module
+            F = dyn_cast_or_null<Function>(M.getNamedValue(MO.getSymbolName()));
+          }
+
+          if (j->hasOneMemOperand()) {
+            // try at least to get the function's type
+            const Value *Callee = (*j->memoperands_begin())->getValue();
+            T = Callee ? Callee->getType() : NULL;
+          }
+
+          // does a MachineFunction exist for F?
+          MachineFunction *MF = F ? MMI.getMachineFunction(F) : NULL;
+
+          // construct a new call site
+          MCG.makeMCGSite(MCGN, j,
+                          MF ? MCG.makeMCGNode(MF) : MCG.getUnknownNode(T));
+        }
       }
     }
+  }
 
-    /// markLive - Mark the node and all its callees as live. The UNKNOWN node
-    /// is treated special.
-    void markLive(MCGNode *N)
-    {
-      N->markLive();
-
-      for(MCGSites::const_iterator i(N->getSites().begin()),
-          ie(N->getSites().end()); i != ie; i++) {
-        markLive_((*i)->getMCGN());
-      }
-    }
-
-    /// runOnModule - Construct a simple machine-level call graph from the given 
-    /// module.
-    virtual bool runOnModule(Module &M)
-    {
+  MCGNode *PatmosCallGraphBuilder::getMCGNode(Module &M, const char *name)
+  {
+    Function *F = dyn_cast_or_null<Function>(M.getNamedValue(name));
+    if (F) {
       // get the machine-level module information for M.
       MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
 
-      // visit all functions in the module
-      for(Module::const_iterator i(M.begin()), ie(M.end()); i != ie; i++) {
-        // get the machine-level function
-        MachineFunction *MF = MMI.getMachineFunction(i);
+      // get the MachineFunction
+      MachineFunction *MF = MMI.getMachineFunction(F);
 
-        // find all call-sites in the MachineFunction
-        if (MF) {
-          MCGNode *MCGN = MCG.makeMCGNode(MF);
+      if (MF)
+        return MCG.makeMCGNode(MF);
+    }
 
-          // visit each call site within that function
-          visitCallSites(M, MF);
+    return NULL;
+  }
 
-          // represent external callers
-          if (i->hasAddressTaken()) {
-            MCGN->markLive();
-            MCG.makeMCGSite(NULL, MCGN);
-          }
-          else if (i->hasExternalLinkage()) {
-            MCG.makeMCGSite(NULL, MCGN);
-          }
+  void PatmosCallGraphBuilder::markLive_(MCGNode *N)
+  {
+    // skip nodes that have been visited before
+    if (!N || !N->isDead())
+      return;
+
+    N->markLive();
+
+    for(MCGSites::const_iterator i(N->getSites().begin()),
+        ie(N->getSites().end()); i != ie; i++) {
+      markLive_((*i)->getCallee());
+    }
+  }
+
+  void PatmosCallGraphBuilder::markLive(MCGNode *N)
+  {
+    if (!N)
+      return;
+
+    N->markLive();
+
+    for(MCGSites::const_iterator i(N->getSites().begin()),
+        ie(N->getSites().end()); i != ie; i++) {
+      markLive_((*i)->getCallee());
+    }
+  }
+
+  bool PatmosCallGraphBuilder::runOnModule(Module &M)
+  {
+    // get the machine-level module information for M.
+    MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
+
+    // visit all functions in the module
+    for(Module::const_iterator i(M.begin()), ie(M.end()); i != ie; i++) {
+      // get the machine-level function
+      MachineFunction *MF = MMI.getMachineFunction(i);
+
+      // find all call-sites in the MachineFunction
+      if (MF) {
+        MCGNode *MCGN = MCG.makeMCGNode(MF);
+
+        // visit each call site within that function
+        visitCallSites(M, MF);
+
+        // represent external callers
+        const Function *F = MF->getFunction();
+        Type *T = F ? F->getType() : NULL;
+        if (i->hasAddressTaken()) {
+          MCG.makeMCGSite(MCG.getUnknownNode(T), NULL, MCGN);
         }
       }
-
-      // discover live/dead functions
-      markLive(getMCGNode(M, "_start"));
-      markLive(getMCGNode(M, "main"));
-
-      DEBUG(
-        std::string tmp;
-        raw_fd_ostream of("mcg.dot", tmp);
-        WriteGraph(of, MCG);
-      );
-
-      return false;
     }
 
-    /// getPassName - Return the pass' name.
-    virtual const char *getPassName() const {
-      return "Patmos Call Graph Builder";
-    }
+    // discover live/dead functions
+    markLive(getMCGNode(M, "_start"));
+    markLive(getMCGNode(M, "main"));
 
-  };
+    DEBUG(
+      std::string tmp;
+      raw_fd_ostream of("mcg.dot", tmp);
+      WriteGraph(of, MCG);
+    );
 
-  char PatmosCallGraphBuilder::ID = 0;
+    return false;
+  }
 }
 
 /// createPatmosCallGraphBuilder - Returns a new PatmosCallGraphBuilder.
@@ -405,92 +418,3 @@ ModulePass *llvm::createPatmosCallGraphBuilder() {
   return new PatmosCallGraphBuilder();
 }
 
-
-namespace llvm {
-  template <> struct GraphTraits<MCallGraph> {
-    typedef MCGNode NodeType;
-    class ChildIteratorType
-    {
-      MCGSites::iterator I;
-
-    public:
-      typedef MCGSites::iterator::iterator_category iterator_category;
-      typedef MCGSites::iterator::difference_type difference_type;
-      typedef MCGSites::iterator::pointer pointer;
-      typedef MCGSites::iterator::reference reference;
-      typedef NodeType value_type;
-
-      ChildIteratorType(MCGSites::iterator i) : I(i) {
-      }
-
-      bool operator!=(ChildIteratorType a) {
-        return I != a.I;
-      }
-
-      ChildIteratorType operator++() {
-        ChildIteratorType tmp(I);
-        I++;
-        return tmp;
-      }
-
-      difference_type operator-(ChildIteratorType &a) {
-        return I - a.I;
-      }
-
-      NodeType *operator*() {
-        return (*I)->getMCGN();
-      }
-    };
-
-    static inline ChildIteratorType child_begin(NodeType *N) {
-      return N->Sites.begin();
-    }
-    static inline ChildIteratorType child_end(NodeType *N) {
-      return N->Sites.end();
-    }
-
-    static NodeType *getEntryNode(const MCallGraph &G) {
-      return G.Nodes.front();
-    }
-
-    // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
-    typedef MCGNodes::const_iterator nodes_iterator;
-    static nodes_iterator nodes_begin(const MCallGraph &G) {
-      return G.Nodes.begin();
-    }
-    static nodes_iterator nodes_end  (const MCallGraph &G) {
-      return G.Nodes.end();
-    }
-    static unsigned       size       (const MCallGraph &G)  {
-      return G.Nodes.size();
-    }
-  };
-
-  template<>
-  struct DOTGraphTraits<MCallGraph> : public DefaultDOTGraphTraits {
-    typedef MCGSites::const_iterator EdgeIteratorType;
-
-    DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
-
-    static std::string getGraphName(const MCallGraph &G) {
-      return "xxx";
-    }
-
-    template<typename T>
-    static bool isNodeHidden(const T) {
-      return false;
-    }
-
-    std::string getNodeLabel(const MCGNode *N, const MCallGraph &G) {
-      if (N->getMF())
-        return N->getMF()->getFunction()->getName();
-      else
-        return "<UNKNOWN>";
-    }
-
-    static std::string getNodeAttributes(const MCGNode *N,
-                                         const MCallGraph &G) {
-      return N->isDead() ? "color=\"red\"" : "";
-    }
-  };
-}

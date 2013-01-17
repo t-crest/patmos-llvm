@@ -29,7 +29,9 @@ add_llvm_target(PatmosCodeGen
   PatmosDelaySlotFiller.cpp
   PatmosFunctionSplitter.cpp
   PatmosCallGraphBuilder.cpp
+  PatmosStackCacheAnalysis.cpp
   PatmosPreserveFunction.cpp
+  PatmosExport.cpp
   )
 
 add_dependencies(LLVMPatmosCodeGen intrinsics_gen)

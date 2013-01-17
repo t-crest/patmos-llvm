@@ -17,6 +17,7 @@
 
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/ADT/ArrayRef.h"
 
 
 namespace llvm {
@@ -24,13 +25,22 @@ namespace llvm {
   class FunctionPass;
   class ModulePass;
   class formatted_raw_ostream;
+  class PassRegistry;
+
+  void initializePatmosCallGraphBuilderPass(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
   FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
-  FunctionPass *createPatmosFunctionSplitterPass(TargetMachine &tm);
+  FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);
+  FunctionPass *createPatmosExportPass(PatmosTargetMachine &tm,
+                                       std::string& filename);
+  ModulePass   *createPatmosModuleExportPass(PatmosTargetMachine &tm,
+                                       std::string& filename,
+                                       ArrayRef<std::string> roots);
 
   FunctionPass *createPatmosPreserveFunctionPass();
   ModulePass *createPatmosCallGraphBuilder();
+  ModulePass *createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm);
 } // end namespace llvm;
 
 #endif // _LLVM_TARGET_PATMOS_H_

@@ -1284,8 +1284,8 @@ namespace llvm {
 
   public:
     /// PatmosFunctionSplitter - Create a new instance of the function splitter.
-    PatmosFunctionSplitter(TargetMachine &tm) :
-      MachineFunctionPass(ID), 
+    PatmosFunctionSplitter(PatmosTargetMachine &tm) :
+      MachineFunctionPass(ID),
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
       // TODO we could disable this pass if this is not a PatmosTargetMachine
@@ -1343,7 +1343,7 @@ namespace llvm {
 
 /// createPatmosFunctionSplitterPass - Returns a new PatmosFunctionSplitter
 /// \see PatmosFunctionSplitter
-FunctionPass *llvm::createPatmosFunctionSplitterPass(TargetMachine &tm) {
+FunctionPass *llvm::createPatmosFunctionSplitterPass(PatmosTargetMachine &tm) {
   return new PatmosFunctionSplitter(tm);
 }
 
