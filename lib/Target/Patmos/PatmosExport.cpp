@@ -22,6 +22,7 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CommandLine.h"
@@ -221,13 +222,15 @@ namespace llvm {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
+      // TODO this does not currently work, because a FunctionPass must not
+      // depend on a ModulePass (CallGraphBuilder) in the backend!
       //AU.addRequired<PatmosCallGraphBuilder>();
       PMLExportPass::getAnalysisUsage(AU);
     }
 
     virtual bool doInitialization(Module &M) {
-      //PatmosCallGraphBuilder *PCG = &getAnalysis<PatmosCallGraphBuilder>();
-      //PII.setCallGraph( PCG->getCallGraph() );
+      //PatmosCallGraphBuilder PCGB( getAnalysis<PatmosCallGraphBuilder>() );
+      //PII.setCallGraph( PCGB.getCallGraph() );
       return PMLExportPass::doInitialization(M);
     }
   };
@@ -244,7 +247,7 @@ namespace llvm {
                            ArrayRef<std::string> roots)
      : PMLModuleExportPass(ID, tm, filename, roots)
     {
-      //initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
+      initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
 
     virtual const char *getPassName() const {
@@ -253,19 +256,20 @@ namespace llvm {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
-      //AU.addRequired<PatmosCallGraphBuilder>();
-      PMLModuleExportPass::getAnalysisUsage(AU);
+      AU.addRequired<PatmosCallGraphBuilder>();
+      // TODO this does not work currently, because a ModulePass must not
+      // depend on a FunctionPass (MachineLoopInfo)!
+      PMLModuleExportPass::ModulePass::getAnalysisUsage(AU);
     }
 
     virtual bool runOnModule(Module &M) {
-      //PatmosCallGraphBuilder *PCG = &getAnalysis<PatmosCallGraphBuilder>();
-      //PII.setCallGraph( PCG->getCallGraph() );
+      PatmosCallGraphBuilder &PCGB( getAnalysis<PatmosCallGraphBuilder>() );
+      PII.setCallGraph( PCGB.getCallGraph() );
       return PMLModuleExportPass::runOnModule(M);
     }
   };
 
   char PatmosModuleExportPass::ID = 0;
-
 
 
 
