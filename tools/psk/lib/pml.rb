@@ -63,16 +63,11 @@ module PML
     def to_s
       list.to_s
     end
-    # XXX: derive delegators for all permitted read-only operations
-    def each
-      @list.each { |v| yield v }
-    end
-    def length
-      @list.length
+    def method_missing(name,*args,&block)
+      list.send(name,*args,&block)
     end
   end
-  
-  
+
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc < Proxy
@@ -241,6 +236,28 @@ module PML
       super(data.map { |f| Function.new(f) })
       @data = data
     end
+
+    # return [rs, unresolved]
+    # rs .. list of (known functions) reachable from name
+    # unresolved .. set of callsites that could not be resolved
+    def reachable_from(name)
+      unresolved = Set.new
+      rs = reachable_set(by_name(name)) { |f|
+        callees = []
+        f.each_callsite { |cs|
+          cs['callees'].each { |n|
+            if(! @named[n])
+              unresolved.add(cs)
+            else
+              callees.push(by_name(n))
+            end
+          }
+        }
+        callees
+      }
+      [rs, unresolved]
+    end
+
     def [](name)
       by_name(name)
     end
