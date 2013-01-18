@@ -28,12 +28,13 @@ class FlowGraphVisualizer < Visualizer
     g.node[:shape] = "rectangle"
     name = function['name'].to_s
     name << "/#{function['mapsto']}" if function['mapsto']
+    g[:label] = "CFG for " + name
     nodes = {}
     function.blocks.each do |block|
       bid = block.name
       label = "#{block.name}"
       label << " (#{block['mapsto']})" if block['mapsto']
-      label << " L#{block.loops.join(",")}" unless block.loops.empty?
+      label << " L#{block.loops.map {|b| b.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
       #    block['instructions'].each do |ins|
       #      label << "\n#{ins['opcode']} #{ins['size']}"
