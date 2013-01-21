@@ -26,7 +26,9 @@ add_llvm_target(PatmosCodeGen
   PatmosSelectionDAGInfo.cpp
   PatmosAsmPrinter.cpp
   PatmosMCInstLower.cpp
-  PatmosSPConv.cpp
+  PatmosSinglePathInfo.cpp
+  PatmosSPPredicate.cpp
+  PatmosSPReduce.cpp
   PatmosDelaySlotFiller.cpp
   PatmosFunctionSplitter.cpp
   PatmosCallGraphBuilder.cpp

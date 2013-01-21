@@ -153,6 +153,42 @@ void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
 }
 
 
+
+bool PatmosInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
+  switch(MI->getOpcode()) {
+    // Pseudo instruction at the end of a basic block, inserted during
+    // single-path predication phase to hold the predicate of the basic block.
+    // Every instruction generated during and after register allocation
+    // (copies, spill code) needs also to be predicated.
+    case Patmos::PSEUDO_SP_PRED_BBEND:
+    {
+      unsigned preg = MI->getOperand(0).getReg();
+      // Get a new iterator, and iterate backward, until the corresponding
+      // BBBEGIN pseudo is found.
+      MachineBasicBlock::iterator J = prior(MI);
+      while( J->getOpcode()!=Patmos::PSEUDO_SP_PRED_BBBEGIN ) {
+        // for each non-predicated but predicatble instruction,
+        // set the predicate (register)
+        if (J->isPredicable() && !isPredicated(J)) {
+          int i = J->findFirstPredOperandIdx();
+          MachineOperand &PO1 = J->getOperand(i);
+          PO1.setReg(preg);
+        }
+        --J;
+      }
+      assert( J->getOpcode() == Patmos::PSEUDO_SP_PRED_BBBEGIN );
+      // Finally, remove the pseudo instructions
+      J->eraseFromParent();
+      MI->eraseFromParent();
+      break;
+    }
+    default:
+      break;
+  }
+  return false;
+}
+
+
 DFAPacketizer *PatmosInstrInfo::
 CreateTargetScheduleState(const TargetMachine *TM,
                            const ScheduleDAG *DAG) const {

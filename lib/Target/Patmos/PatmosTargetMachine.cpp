@@ -13,6 +13,7 @@
 
 #include "Patmos.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosSinglePathInfo.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
@@ -21,6 +22,9 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils/UnifyFunctionExitNodes.h"
+
 
 using namespace llvm;
 
@@ -29,6 +33,8 @@ extern "C" void LLVMInitializePatmosTarget() {
   // Register the target.
   RegisterTargetMachine<PatmosTargetMachine> X(ThePatmosTarget);
 }
+
+
 
 namespace {
   /// EnableStackCacheAnalysis - Option to enable the analysis of Patmos' stack
@@ -45,9 +51,13 @@ namespace {
 
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
+
+  private:
+    PatmosSinglePathInfo PSPI;
+
   public:
     PatmosPassConfig(PatmosTargetMachine *TM, PassManagerBase &PM)
-      : TargetPassConfig(TM, PM) {}
+      : TargetPassConfig(TM, PM), PSPI( PatmosSinglePathInfo(*TM) ) {}
 
     PatmosTargetMachine &getPatmosTargetMachine() const {
       return getTM<PatmosTargetMachine>();
@@ -76,6 +86,20 @@ namespace {
       return false;
     }
 
+    /// addPreISelPasses - This method should add any "last minute" LLVM->LLVM
+    /// passes (which are run just before instruction selector).
+    virtual bool addPreISel() {
+      if (PSPI.enabled()) {
+        // Single-path transformation requires a single exit node
+        PM->add(createUnifyFunctionExitNodesPass());
+        // Single-path transformation currently cannot deal with
+        // switch/jumptables -> lower them to ITEs
+        PM->add(createLowerSwitchPass());
+        return true;
+      }
+      return false;
+    }
+
     /// addPreEmitPass - This pass may be implemented by targets that want to run
     /// passes immediately before machine code is emitted.  This should return
     /// true if -print-machineinstrs should print out the code after the passes.
@@ -98,8 +122,23 @@ namespace {
     /// run passes immediately before register allocation. This should return
     /// true if -print-machineinstrs should print after these passes.
     virtual bool addPreRegAlloc() {
-      PM->add(createPatmosSPConvPass(getPatmosTargetMachine()));
-      return true;
+      if (PSPI.enabled()) {
+        PM->add(createPatmosSPPredicatePass(getPatmosTargetMachine(), PSPI));
+        return true;
+      }
+      return false;
+    }
+
+    /// addPostRegAlloc - This method may be implemented by targets that want to
+    /// run passes after register allocation pass pipeline but before
+    /// prolog-epilog insertion.  This should return true if -print-machineinstrs
+    /// should print after these passes.
+    virtual bool addPostRegAlloc() {
+      if (PSPI.enabled()) {
+        PM->add(createPatmosSPReducePass(getPatmosTargetMachine(), PSPI));
+        return true;
+      }
+      return false;
     }
 
     /// addPreSched2 - This method may be implemented by targets that want to
@@ -108,7 +147,9 @@ namespace {
     /// print after these passes.
     virtual bool addPreSched2() {
       if (getOptLevel() != CodeGenOpt::None) {
-        addPass(IfConverterID);
+        if (!PSPI.enabled()) {
+          addPass(IfConverterID);
+        }
       }
       return true;
     }

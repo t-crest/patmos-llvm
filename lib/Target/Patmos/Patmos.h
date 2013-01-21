@@ -25,11 +25,15 @@ namespace llvm {
   class ModulePass;
   class formatted_raw_ostream;
   class PassRegistry;
+  class PatmosSinglePathInfo;
 
   void initializePatmosCallGraphBuilderPass(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
-  FunctionPass *createPatmosSPConvPass(const PatmosTargetMachine &tm);
+  FunctionPass *createPatmosSPPredicatePass(const PatmosTargetMachine &tm,
+                                            PatmosSinglePathInfo &pspi);
+  FunctionPass *createPatmosSPReducePass(const PatmosTargetMachine &tm,
+                                         PatmosSinglePathInfo &pspi);
   FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
   FunctionPass *createPatmosFunctionSplitterPass(TargetMachine &tm);
   FunctionPass *createPatmosExportPass(std::string& filename,
