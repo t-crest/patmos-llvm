@@ -40,7 +40,8 @@ class TraceMonitor
   def initialize(elf,pml,pasim,program_start = "main")
     @pml = pml
     @trace = SimulatorTrace.new(elf,pasim)
-    @start = @pml.machine_functions.by_label(program_start).blocks.first['address']
+    @program_entry = @pml.machine_functions.by_label(program_start)
+    @start = @program_entry.blocks.first.address
     @observers = []
     # whether an instruction is a watch point
     @wp = {}
@@ -54,18 +55,38 @@ class TraceMonitor
     @wp_return_instr = {}
     build_watchpoints
   end
+
   def subscribe(obj)
     @observers.push(obj)
   end
+
   def run
-    callstack, loopstack = [], []
+    @executed_instructions = 0
+    callstack, last_call = [], nil
+    current_function, loopstack = nil, nil
+
     @trace.each do |pc,cycles|
+
       @started = true if pc == @start
       next unless @started
+
+      @executed_instructions += 1
       next unless @wp[pc]
+      
+      # Handle Basic Block
       if b = @wp_block_start[pc]
         # function entry
         if b.address == b.function.address
+          # call
+          if last_call
+            c, call_time = last_call
+            assert("No call instruction before function entry") { call_time + 1 + DELAY_SLOTS == @executed_instructions }
+            callstack.push(c)
+            last_call = nil
+          else
+            assert("Empty call history at function entry, but not main function") { b.function == @program_entry }
+          end
+          current_function = b.function
           loopstack = []
           publish(:function, b.function, callstack[-1], cycles) 
         end
@@ -86,30 +107,40 @@ class TraceMonitor
           end
         end
         # basic block
+        assert("Current function does not match block: #{current_function} != #{b}") { current_function == b.function }
         publish(:block, b, cycles)
       end
-      if c  = @wp_call_instr[pc]
-        callstack.push(loopstack)
-        callstack.push(c)
+
+      # Handle Call
+      if c = @wp_call_instr[pc]
+        last_call = [c, @executed_instructions]
       end
-      # TODO: handle predicated calls
-      # if cr = @wp_callreturn_instr[pc]
+
+      # Handle Return Block (TODO: in order to handle predicated returns, we need to know where return instructions are)
       if r = @wp_return_instr[pc]
-        if callstack.empty?
+        if callstack.empty? 
           publish(:ret, r, nil, cycles)
-          return
+        else
+          publish(:ret, r, callstack[-1], cycles)
         end
-        publish(:ret, r, callstack[-1], cycles)
-        callstack.pop
-        loopstack = callstack.pop          
+        break if(r.function == @program_entry)
+        assert("Callstack empty at return (inconsistent callstack)") { ! callstack.empty? }
+        c = callstack.pop
+        loopstack = c.block.loops.reverse
+        current_function = c.function
       end
+
     end
+
+    publish(:eof)
   end
+
   def publish(msg,*args)
     @observers.each do |obs|
       obs.send(msg,*args)
     end
   end
+
   private
   def build_watchpoints
     # generate watchpoints for all relevant machine functions
@@ -171,7 +202,7 @@ class GlobalRecorder
   attr_reader :results
   def initialize(start_mf)
     @start_name = start_mf.name
-    @results = FrequencyRecord.new
+    @results = FrequencyRecord.new("GlobalRecorder(#{start_mf})")
   end
   def function(callee,callsite,cycles)
     results.start(cycles) if callee['name']==@start_name
@@ -183,7 +214,8 @@ class GlobalRecorder
   def ret(rsite,csite,cycles)
     results.stop(cycles) if(rsite.function.name==@start_name)
   end
-  def method_missing(event,*args) ; end
+  def eof ; end
+  def method_missing(event, *args); end
 end
 class LoopRecorder
   attr_reader :results
@@ -199,7 +231,7 @@ class LoopRecorder
     @started = false if rsite.function.name==@start_name
   end
   def loopenter(bb, cycles)
-    results[bb] = FrequencyRecord.new unless results[bb]
+    results[bb] = FrequencyRecord.new("LoopRecorder(#{bb})") unless results[bb]
     results[bb].start(cycles)
     results[bb].increment(bb)
   end
@@ -209,13 +241,15 @@ class LoopRecorder
   def loopexit(bb, cycles)
     results[bb].stop(cycles)
   end
-  def method_missing(event,*args) ; end
+  def eof ; end
+  def method_missing(event, *args); end
 end
 
 # Utility class to record frequencies when analyzing traces
 class FrequencyRecord
   attr_reader :cycles, :freqs, :calltargets
-  def initialize
+  def initialize(name)
+    @name = name
     @calltargets = {}
   end
   def start(cycles)
@@ -229,7 +263,7 @@ class FrequencyRecord
     (@calltargets[callsite]||=Set.new).add(callee) if @current_record && callsite
   end
   def stop(cycles)
-    die "Recorder: stop without start" unless @current_record
+    die "Recorder: stop without start: #{@name}" unless @current_record
     @cycles = merge_ranges(cycles - @cycles_start, @cycles)
     unless @freqs
       @freqs = {}
@@ -248,6 +282,7 @@ class FrequencyRecord
         @freqs[bref] = merge_ranges(count, 0..0) unless @current_record.include?(bref)
       end
     end
+    @current_record = nil
   end
   def dump(io=$>)
     (io.puts "No records";return) unless @freqs
@@ -281,7 +316,7 @@ class AnalyzeTraceTool
     options.analysis_entry = "main"   unless options.analysis_entry
 
     tm = TraceMonitor.new(elf,pml,options.pasim)
-    tm.subscribe(VerboseRecorder.new) if options.debug
+    tm.subscribe(VerboseRecorder.new($dbgs)) if options.debug
     entry  = pml.machine_functions.by_label(options.analysis_entry)
     global = GlobalRecorder.new(entry)
     loops  = LoopRecorder.new(entry)
@@ -349,9 +384,8 @@ end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF
-Generate flow facts reflecting frequencies from machine-code
-execution traces generated with 'pasim --debug'.
-Also adds observed receivers to indirect calls callee field.
+Run simulator (patmos: pasim --debug-fmt trace), record execution frequencies
+of instructions and generate flow facts. Also records indirect call targets.
 EOF
 
   options, args = PML::optparse(1..1, "program.elf", SYNOPSIS, :type => :io) do |opts,options|

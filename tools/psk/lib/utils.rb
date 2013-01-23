@@ -40,7 +40,7 @@ module PML
     do_input  = opts[:type] == :io || opts[:type] == :input
     do_output = opts[:type] == :io || opts[:type] == :output
     parser = OptionParser.new do |opts|
-      opts.banner = "Usage: #{File.basename($0)} OPTIONS #{arg_descr}\n#{synopsis}"
+      opts.banner = "usage: #{File.basename($0)} OPTIONS #{arg_descr}\n\n#{SYNOPSIS}\n" 
       opts.on("-i", "--input FILE", "Input PML File") { |f| options.input = f } if do_input
       opts.on("-o", "--output FILE", "Output PML File") { |f| options.output = f } if do_output
       opts.on("--verbose", "verbose output") { options.verbose = true }

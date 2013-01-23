@@ -57,6 +57,10 @@ template <> struct FlowGraphTrait<MachineBasicBlock> {
   }
 };
 
+bool operator==(const Name n1, const Name n2) {
+  return n1.NameStr == n2.NameStr;
+}
+
 } // end namespace yaml
 } // end namespace llvm
 

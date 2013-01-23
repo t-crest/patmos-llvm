@@ -45,7 +45,7 @@ end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
-Translate AIT analysis results to PML.
+Add aiT analysis results to the PML database.
 EOF
   options, args = PML::optparse(0, "", SYNOPSIS, :type => :io) do |opts,options|
     AitImportTool.add_options(opts,options)

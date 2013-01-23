@@ -99,9 +99,7 @@ struct Name {
 };
 
 /// Comparing two names
-bool operator==(const Name n1, const Name n2) {
-  return n1.NameStr == n2.NameStr;
-}
+bool operator==(const Name n1, const Name n2);
 
 template<>
 struct ScalarTraits<Name> {
