@@ -162,11 +162,16 @@ bool PatmosInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
     // (copies, spill code) needs also to be predicated.
     case Patmos::PSEUDO_SP_PRED_BBEND:
     {
-      unsigned preg = MI->getOperand(0).getReg();
+      MachineOperand &MO = MI->getOperand(0);
+      unsigned preg = MO.getReg();
+      bool needKillFlag = MO.isKill();
       // Get a new iterator, and iterate backward, until the corresponding
       // BBBEGIN pseudo is found.
       MachineBasicBlock::iterator J = prior(MI);
       while( J->getOpcode()!=Patmos::PSEUDO_SP_PRED_BBBEGIN ) {
+        // no nesting!
+        assert( J->getOpcode() != Patmos::PSEUDO_SP_PRED_BBEND );
+
         // for each non-predicated but predicatble instruction,
         // set the predicate (register)
         if (J->isPredicable() && !isPredicated(J)) {
@@ -174,9 +179,15 @@ bool PatmosInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
           MachineOperand &PO1 = J->getOperand(i);
           PO1.setReg(preg);
         }
+        // the pseudo instruction killed the preg, move the kill
+        // up to the next possible location
+        if (needKillFlag && J->readsRegister(preg)) {
+          J->addRegisterKilled(preg, &RI);
+          needKillFlag = false;
+        }
+        // move back by one inst
         --J;
       }
-      assert( J->getOpcode() == Patmos::PSEUDO_SP_PRED_BBBEGIN );
       // Finally, remove the pseudo instructions
       J->eraseFromParent();
       MI->eraseFromParent();
@@ -309,7 +320,7 @@ bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
   while (I != MBB.begin()) {
     --I;
 
-    if (I->isDebugValue())
+    if (I->isDebugValue() || I->isPseudo())
       continue;
 
     // Working from the bottom, when we see a non-terminator inst, we're done.

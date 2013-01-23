@@ -269,13 +269,16 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
                                     "#PSEUDO_PREG_RELOAD", "", []>;
 }
 
+
+// Pseudo instructions for single-path predication
 let isCodeGenOnly=1 in {
-def PSEUDO_SP_PRED_BBEND   : PseudoInst<(outs),
-                                        (ins PRegs:$p),
-                                        "#PSEUDO_SP_PRED_BBEND", "", []>;
-def PSEUDO_SP_PRED_BBBEGIN : PseudoInst<(outs),
-                                        (ins),
-                                        "#PSEUDO_SP_PRED_BBBEGIN", "", []>;
+  let isTerminator=1 in
+  def PSEUDO_SP_PRED_BBEND   : PseudoInst<(outs),
+                                          (ins PRegs:$p),
+                                          "#PSEUDO_SP_PRED_BBEND", "", []>;
+  def PSEUDO_SP_PRED_BBBEGIN : PseudoInst<(outs),
+                                          (ins),
+                                          "#PSEUDO_SP_PRED_BBBEGIN", "", []>;
 }
 
 

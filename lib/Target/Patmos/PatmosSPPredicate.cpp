@@ -292,7 +292,7 @@ void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
     // \see PatmosInstrInfo::expandPostRAPseudo()
     MachineBasicBlock::iterator MI=MBB->getFirstTerminator();
     BuildMI(*MBB, MI, MI->getDebugLoc(), TII->get(Patmos::PSEUDO_SP_PRED_BBEND))
-        .addReg(preg, getKillRegState(true));
+      .addReg(preg); // we don't set any kill flag; rely on the live-var analysis
 
     while (MI != MBB->getFirstNonPHI()) {
       --MI;
@@ -323,7 +323,8 @@ void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
       }
     }
     // After the PHI instructions, add a delimiter pseudo instruction.
-    BuildMI(*MBB, MI, MI->getDebugLoc(), TII->get(Patmos::PSEUDO_SP_PRED_BBBEGIN));
+    // No -> this is done in the Reduce phase, to avoid copies inserted before BBBEGIN
+    //BuildMI(*MBB, MI, MI->getDebugLoc(), TII->get(Patmos::PSEUDO_SP_PRED_BBBEGIN));
   }
 
 }

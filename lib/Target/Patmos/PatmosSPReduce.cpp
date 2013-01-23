@@ -135,6 +135,11 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     NextMBB->moveAfter(MBB);
     TII->RemoveBranch(*MBB);
 
+    // Insert a delimiter pseudo instruction at the beginning
+    if (prior(MBB->end())->getOpcode() == Patmos::PSEUDO_SP_PRED_BBEND) {
+      BuildMI(*MBB, MBB->begin(), MBB->begin()->getDebugLoc(),
+              TII->get(Patmos::PSEUDO_SP_PRED_BBBEGIN));
+      }
     DEBUG( MBB->dump() );
 
     // move forward
