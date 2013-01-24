@@ -67,7 +67,6 @@ public:
   // NB: This routine's complexity is linear on the number of successors.
   MachineBasicBlock *getHotSucc(MachineBasicBlock *MBB) const;
 
-  // Get the sum of the probabilities of all edges between SRC and DST.
   // Return a probability as a fraction between 0 (0% probability) and
   // 1 (100% probability), however the value is never equal to 0, and can be 1
   // only iff SRC block has only one successor.

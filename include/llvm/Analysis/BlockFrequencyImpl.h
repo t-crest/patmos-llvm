@@ -189,7 +189,6 @@ class BlockFrequencyImpl {
 
     bool isInLoop = false;
     bool isLoopHead = false;
-    SmallPtrSet<BlockT *, 4> Preds;
 
     for (typename GT::ChildIteratorType
          PI = GraphTraits< Inverse<BlockT *> >::child_begin(BB),
@@ -199,11 +198,9 @@ class BlockFrequencyImpl {
 
       if (isReachable(Pred) && isBackedge(Pred, BB)) {
         isLoopHead = true;
-      } else if (BlocksInLoop.count(Pred) && !Preds.count(Pred)) {
+      } else if (BlocksInLoop.count(Pred)) {
         incBlockFreq(BB, getEdgeFreq(Pred, BB));
         isInLoop = true;
-        // Do not count multiple edges to same block twice
-        Preds.insert(Pred);
       }
       // TODO: else? irreducible.
     }
@@ -236,8 +233,6 @@ class BlockFrequencyImpl {
         break;
     }
 
-    SmallPtrSet<BlockT *, 4> Preds;
-
     // Compute loop's cyclic probability using backedges probabilities.
     for (typename GT::ChildIteratorType
          PI = GraphTraits< Inverse<BlockT *> >::child_begin(Head),
@@ -245,7 +240,7 @@ class BlockFrequencyImpl {
          PI != PE; ++PI) {
       BlockT *Pred = *PI;
       assert(Pred);
-      if (isReachable(Pred) && isBackedge(Pred, Head) && !Preds.count(Pred)) {
+      if (isReachable(Pred) && isBackedge(Pred, Head)) {
         uint64_t N = getEdgeFreq(Pred, Head).getFrequency();
         uint64_t D = getBlockFreq(Head).getFrequency();
         assert(N <= EntryFreq && "Backedge frequency must be <= EntryFreq!");
@@ -255,8 +250,6 @@ class BlockFrequencyImpl {
         CycleProb[Head] += (uint32_t) Res;
         DEBUG(dbgs() << "  CycleProb[" << getBlockName(Head) << "] += " << Res
                      << " --> " << CycleProb[Head] << "\n");
-
-        Preds.insert(Pred);
       }
     }
   }
