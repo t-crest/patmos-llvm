@@ -427,6 +427,9 @@ PredicateInstruction(MachineInstr *MI,
         "Unexpected Patmos predicate operand");
     PO1.setReg(Pred[0].getReg());
     PO2.setImm(Pred[1].getImm());
+
+    // Fix opcode from uncond. to cond.
+    fixOpcodeForGuard(MI);
     return true;
   }
   return false;
