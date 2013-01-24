@@ -106,7 +106,7 @@ namespace {
       return Changed;
     }
 
-    /// hasDefUseDep - Returns true if D defines a register thet is used in U.
+    /// hasDefUseDep - Returns true if D defines a register that is used in U.
     /// Used in this class to check whether a value loaded to a register is
     /// used in the next instruction.
     bool hasDefUseDep(const MachineInstr *D, const MachineInstr *U) const;
@@ -245,6 +245,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
       }
       // skip debug value
       if (J->isDebugValue()) continue;
+      if (J->isImplicitDef()) continue;
 
       // skip upon hazard
       if (DI.hasHazard(J)) {
