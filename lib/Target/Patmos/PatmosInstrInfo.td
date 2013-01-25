@@ -674,11 +674,17 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
   let Constraints = "$old = $pd", isCodeGenOnly = 1 in
   def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, PRegs:$old, PRegs:$new),
                   "mov", "$pd = $new",
-                  [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]> 
+                  [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]>
   {
     bits<4> new;
     let ps1 = new;
   }
+
+
+  // conditional predicate move, but the "new" operand (ps1) can have an inversion flag
+  let Constraints = "$old = $pd", isCodeGenOnly = 1 in
+  def PCMOV2 : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, PRegs:$old, predset:$ps1),
+                  "mov", "$pd = $ps1", []>;
 }
 
 //not uses nor opcode (nor Pd = Ps, !p0)
