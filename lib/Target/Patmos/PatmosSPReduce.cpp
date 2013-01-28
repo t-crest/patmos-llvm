@@ -44,6 +44,7 @@
 #include <sstream>
 #include <iostream>
 
+
 using namespace llvm;
 
 
@@ -75,7 +76,7 @@ namespace {
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {
-      return "Patmos Single-Path Converter";
+      return "Patmos Single-Path Reducer";
     }
 
     /// getAnalysisUsage - Specify which passes this pass depends on
@@ -89,7 +90,8 @@ namespace {
       bool changed = false;
       // only convert function if specified on command line
       if ( PSPI.isToConvert(MF) ) {
-        DEBUG( dbgs() << "Single-Path reducing " << MF.getFunction()->getName() << "\n");
+        DEBUG( dbgs() << "[Single-Path] Reducing "
+                      << MF.getFunction()->getName() << "\n" );
         doReduceFunction(MF);
         changed |= true;
       }
@@ -114,6 +116,11 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm,
 
 
 void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
+
+  // FIXME
+  // Track data dependences between predicate defines and uses, introduced
+  // by register allocation of predicate registers
+
 
   // Topological order of MBBs - following only works for DAGs (without loops)
   // Replace the edges of the CFG by a linear toposorted sequence
@@ -140,12 +147,10 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
       BuildMI(*MBB, MBB->begin(), MBB->begin()->getDebugLoc(),
               TII->get(Patmos::PSEUDO_SP_PRED_BBBEGIN));
       }
-    DEBUG( MBB->dump() );
+    DEBUG_TRACE( MBB->dump() );
 
     // move forward
     MBB = NextMBB;
   }
-  DEBUG( MBB->dump() );
-
-  dbgs() << "Finished with function.\n";
+  DEBUG_TRACE( MBB->dump() );
 }

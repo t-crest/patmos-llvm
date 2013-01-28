@@ -21,6 +21,17 @@
 
 #include <set>
 
+
+// define for more detailed debugging output
+#define PATMOS_SINGLEPATH_TRACE
+
+#ifdef PATMOS_SINGLEPATH_TRACE
+#define DEBUG_TRACE(x) DEBUG(x)
+#else
+#define DEBUG_TRACE(x) /*empty*/
+#endif
+
+
 namespace llvm {
 
   /// PatmosSinglePathInfo - Class to hold info about Single-path code generation
@@ -42,7 +53,7 @@ namespace llvm {
     }
 
     /// isToConvert - Return true if the function should be if-converted
-    bool isToConvert(MachineFunction &MF);
+    bool isToConvert(MachineFunction &MF) const;
 
   };
 

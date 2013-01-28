@@ -48,16 +48,6 @@
 #include <iostream>
 
 
-// define for more detailed debugging output
-#define PATMOS_SINGLEPATH_TRACE
-
-#ifdef PATMOS_SINGLEPATH_TRACE
-#define DEBUG_TRACE(x) DEBUG(x)
-#else
-#define DEBUG_TRACE(x) /*empty*/
-#endif
-
-
 
 using namespace llvm;
 
@@ -100,6 +90,17 @@ namespace {
     BitVector computeUpwardsExposedUses(MachineFunction &MF,
                                         K_t &K, R_t &R) const;
 
+    /// insertPredDefinitions - Insert predicate register definitions at the
+    /// edges computed in K. Also insert initializations for predicates in K
+    /// for which the bit is set in needsInit.
+    /// The vreg for use in a specific MBB is returned in pred_use_vregs.
+    void insertPredDefinitions(MachineFunction &MF, K_t &K, R_t &R,
+                               BitVector &needsInit, R_t &pred_use_vregs)
+                               const;
+
+    /// applyPredicates - predicate instructions of MBBs according
+    /// to pred_use_vregs
+    void applyPredicates(MachineFunction &MF, R_t &pred_use_vregs) const;
 
   protected:
     /// Perform the conversion on a given MachineFunction
@@ -107,7 +108,8 @@ namespace {
 
   public:
     /// PatmosSPPredicate - Initialize with PatmosTargetMachine
-    PatmosSPPredicate(const PatmosTargetMachine &tm, PatmosSinglePathInfo &pspi) :
+    PatmosSPPredicate(const PatmosTargetMachine &tm,
+                      PatmosSinglePathInfo &pspi) :
       MachineFunctionPass(ID), TM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>()),
         TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
@@ -131,7 +133,8 @@ namespace {
       bool changed = false;
       // only convert function if specified on command line
       if ( PSPI.isToConvert(MF) ) {
-        DEBUG( dbgs() << "[Single-Path] Predicating " << MF.getFunction()->getName() << "\n");
+        DEBUG( dbgs() << "[Single-Path] Predicating "
+                      << MF.getFunction()->getName() << "\n" );
         doConvertFunction(MF);
         changed |= true;
       }
@@ -155,9 +158,6 @@ FunctionPass *llvm::createPatmosSPPredicatePass(const PatmosTargetMachine &tm,
 ///////////////////////////////////////////////////////////////////////////////
 
 void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
-
-
-  MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
   MachineLoopInfo &LI = getAnalysis<MachineLoopInfo>();
   // Get loop information
@@ -183,131 +183,15 @@ void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
   // "Augment K"
   BitVector pred_initialize = computeUpwardsExposedUses(MF, K, R);
 
-
-  // use SSAUpdater for keeping SSA in the presence of multiple defining CD edges
-  MachineSSAUpdater SSAUp(MF);
   // contains the "right" virtual register for use of each MBB
-  R_t pred_vregs;
+  R_t pred_use_vregs;
+  insertPredDefinitions(MF, K, R, pred_initialize, pred_use_vregs);
 
-  // insert defs in MBBs (before terminators)
-  for (unsigned int i=0; i<K.size(); i++) {
-
-    // check for definition edges
-    if (K[i].size()==0) {
-      dbgs() << "  skip: no definition predicate for p" << i << "\n";
-      continue;
-    }
-
-    // edge definitions
-    for (CD_map_entry_t::iterator EI=K[i].begin(); EI!=K[i].end(); ++EI) {
-      MachineBasicBlock *MBBSrc = EI->first, *MBBDst = EI->second;
-      // for AnalyzeBranch
-      MachineBasicBlock *TBB = NULL, *FBB = NULL;
-      SmallVector<MachineOperand, 4> Cond;
-      if (!TII->AnalyzeBranch(*MBBSrc, TBB, FBB, Cond)) {
-        // According to AnalyzeBranch spec, at a conditional branch, Cond will hold the branch conditions
-        // Further, there are two cases for conditional branches:
-        // 1. conditional+fallthrough:   TBB holds branch target
-        // 2. conditional+unconditional: TBB holds target of conditional branch,
-        //                               FBB the target of the unconditional one
-        // Hence, the branch condition will always refer to the TBB edge.
-        assert( !Cond.empty() && "AnalyzeBranch for SP-IfConversion failed; could not determine branch condition");
-        if (MBBDst != TBB)  TII->ReverseBranchCondition(Cond);
-
-        unsigned preg_cmp = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
-        if (EI==K[i].begin()) SSAUp.Initialize(preg_cmp);
-        // we insert the predicate definition before any branch (or the end of the MBB)
-        MachineBasicBlock::iterator firstTI = MBBSrc->getFirstTerminator();
-        MachineInstr *NewMI;
-        if (pred_initialize.test(i)) {
-          // augmented definitions: initialized with F?
-          DebugLoc DL;
-          unsigned preg_f = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
-          MachineInstr *NewMI = AddDefaultPred(BuildMI(MF.front(), MF.front().begin(), DL,
-              TII->get(Patmos::PCLR), preg_f));
-          dbgs() << "Insert initialization in BB#" << MF.front().getNumber() << ": " << *NewMI;
-
-          NewMI = AddDefaultPred(BuildMI(*MBBSrc, firstTI, firstTI->getDebugLoc(),
-                                 TII->get(Patmos::PCMOV2), preg_cmp))
-                  .addReg(preg_f)
-                  .addOperand(Cond[0]).addOperand(Cond[1]);
-        } else {
-          NewMI = AddDefaultPred(BuildMI(*MBBSrc, firstTI, firstTI->getDebugLoc(),
-                                 TII->get(Patmos::PMOV), preg_cmp))
-                  .addOperand(Cond[0]).addOperand(Cond[1]);
-        }
-        //TODO Is this a proper way dealing with kills?
-        // Note that there might be additional instructions inserted for other k \in K
-        RegInfo.clearKillFlags(Cond[0].getReg());
-        dbgs() << "Insert in BB#" << MBBSrc->getNumber() << ": " << *NewMI;
-
-        // SSA Update
-        SSAUp.AddAvailableValue(MBBSrc, preg_cmp);
-      } else {
-        assert(0 && "AnalyzeBranch failed");
-      }
-    }
-    // obtain virtual register for each MBB in correct SSA form
-    for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
-      MachineBasicBlock *MBB = FI;
-      if (R[MBB] != i) continue;
-      pred_vregs[MBB] = SSAUp.GetValueAtEndOfBlock(MBB);
-    }
-  }
 
   // TODO Input-independent control-flow?
 
-  // apply predicates (vregs) to all instructions in blocks
-  dbgs() << "Applying predicates to MBBs\n";
-  for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
-    MachineBasicBlock *MBB = FI;
+  applyPredicates(MF, pred_use_vregs);
 
-    // check for use predicate
-    if (!pred_vregs.count(MBB)) {
-      dbgs() << "  skip: no definition predicate for BB#" << MBB->getNumber() << "\n";
-      continue;
-    }
-
-    unsigned preg = pred_vregs[MBB];
-    dbgs() << "  applying " << PrintReg(preg) << " to BB#" << MBB->getNumber() << "\n";
-
-    // At the end, insert a pseudo with the virtual register of the BB as input operand.
-    // This is required to be able to predicate instructions generated during register
-    // allocation
-    // \see PatmosInstrInfo::expandPostRAPseudo()
-    MachineBasicBlock::iterator MI=MBB->getFirstTerminator();
-    MachineInstr *PseudoMI = BuildMI(*MBB, MI, MI->getDebugLoc(), TII->get(Patmos::PSEUDO_SP_PRED_BBEND))
-      .addReg(preg); // we don't set any kill flag; rely on the live-var analysis
-
-    while (MI != MBB->getFirstNonPHI()) {
-      --MI;
-      assert(!MI->isBundle() && //FIXME
-          "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
-
-      // check for terminators - return? //TODO
-      if (MI->isReturn()) {
-          dbgs() << "    skip return: " << *MI;
-          continue;
-      }
-
-      if (MI->isPredicable()) {
-        if (!TII->isPredicated(MI)) {
-          // find first predicate operand
-          int i = MI->findFirstPredOperandIdx();
-          assert(i != -1);
-          MachineOperand &PO1 = MI->getOperand(i);
-          MachineOperand &PO2 = MI->getOperand(i+1);
-          assert(PO1.isReg() && PO2.isImm() &&
-              "Unexpected Patmos predicate operand");
-          PO1.setReg(preg);
-          PO2.setImm(0);
-        } else {
-          //TODO handle already predicated instructions
-          dbgs() << "    in BB#" << MBB->getNumber() << ": instruction already predicated: " << *MI;
-        }
-      }
-    }
-  }
 }
 
 
@@ -317,7 +201,7 @@ void PatmosSPPredicate::computeControlDependence(MachineFunction &MF,
                                                  CD_map_t &CD) const {
   // for CD, we need the Postdom-Tree
   MachinePostDominatorTree &PDT = getAnalysis<MachinePostDominatorTree>();
-  assert( PDT.getRoots().size()==1 && "Function must have a single exit node!");
+  assert(PDT.getRoots().size()==1 && "Function must have a single exit node!");
 
 
   DEBUG_TRACE( dbgs() << "Post-dominator tree:\n" );
@@ -340,17 +224,19 @@ void PatmosSPPredicate::computeControlDependence(MachineFunction &MF,
       }
     } // end for all successors
   } // end for each MBB
-#ifdef PATMOS_SINGLEPATH_TRACE
-  // dump CD
-  dbgs() << "Control dependence:\n";
-  for (CD_map_t::iterator I=CD.begin(); I!=CD.end(); ++I) {
-    dbgs() << "BB#" << I->first->getNumber() << ": { ";
-    for (CD_map_entry_t::iterator EI=I->second.begin(); EI!=I->second.end(); ++EI) {
-      dbgs() << "(" << EI->first->getNumber() << "," << EI->second->getNumber() << "), ";
+  DEBUG_TRACE({
+    // dump CD
+    dbgs() << "Control dependence:\n";
+    for (CD_map_t::iterator I=CD.begin(), E=CD.end(); I!=E; ++I) {
+      dbgs() << "BB#" << I->first->getNumber() << ": { ";
+      for (CD_map_entry_t::iterator EI=I->second.begin(), EE=I->second.end();
+           EI!=EE; ++EI) {
+        dbgs() << "(" << EI->first->getNumber() << ","
+                      << EI->second->getNumber() << "), ";
+      }
+      dbgs() << "}\n";
     }
-    dbgs() << "}\n";
-  }
-#endif
+  });
 }
 
 
@@ -379,22 +265,24 @@ void PatmosSPPredicate::decomposeControlDependence(MachineFunction &MF,
     }
   } // end for each MBB
 
-#ifdef PATMOS_SINGLEPATH_TRACE
-  // dump R, K
-  dbgs() << "Decomposed CD:\n";
-  dbgs() << "map R: MBB -> pN\n";
-  for (R_t::iterator RI=R.begin(), RE=R.end(); RI!=RE; ++RI) {
-    dbgs() << "R(" << RI->first->getNumber() << ") = p" << RI->second << "\n";
-  }
-  dbgs() << "map K: pN -> t \\in CD\n";
-  for (unsigned int i=0; i<K.size(); i++) {
-    dbgs() << "K(p" << i << ") -> {";
-    for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end(); EI!=EE; ++EI) {
-      dbgs() << "(" << EI->first->getNumber() << "," << EI->second->getNumber() << "), ";
+  DEBUG_TRACE({
+    // dump R, K
+    dbgs() << "Decomposed CD:\n";
+    dbgs() << "map R: MBB -> pN\n";
+    for (R_t::iterator RI=R.begin(), RE=R.end(); RI!=RE; ++RI) {
+      dbgs() << "R(" << RI->first->getNumber() << ") = p" << RI->second << "\n";
     }
-    dbgs() << "}\n";
-  }
-#endif
+    dbgs() << "map K: pN -> t \\in CD\n";
+    for (unsigned int i=0; i<K.size(); i++) {
+      dbgs() << "K(p" << i << ") -> {";
+      for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
+            EI!=EE; ++EI) {
+        dbgs() << "(" << EI->first->getNumber() << ","
+               << EI->second->getNumber() << "), ";
+      }
+      dbgs() << "}\n";
+    }
+  });
 }
 
 
@@ -405,7 +293,7 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
   std::map<MachineBasicBlock*, BitVector> gen;
   std::map<MachineBasicBlock*, BitVector> kill;
   // fill gen/kill
-  for (R_t::iterator EI=R.begin(); EI!=R.end(); ++EI) {
+  for (R_t::iterator EI=R.begin(), EE=R.end(); EI!=EE; ++EI) {
     MachineBasicBlock *MBB = EI->first;
     gen[MBB] = BitVector(K.size());
     kill[MBB] = BitVector(K.size());
@@ -413,27 +301,29 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
     gen[MBB].set( EI->second );
   }
   for (unsigned int i=0; i<K.size(); i++) {
-    for (CD_map_entry_t::iterator KI=K[i].begin(); KI!=K[i].end(); ++KI) {
+    // each MBB defining a predicate kills a use
+    for (CD_map_entry_t::iterator KI=K[i].begin(), KE=K[i].end();
+         KI!=KE; ++KI) {
       kill[KI->first].set(i);
     }
   }
-#ifdef PATMOS_SINGLEPATH_TRACE
-  dbgs() << "Compute Upwards Exposed Uses\n";
-  // dump gen/kill
-  dbgs() << "DU: MBB -> gen/kill sets (bvlen " << K.size() << ")\n";
-  for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
-    MachineBasicBlock *MBB = FI;
-    dbgs() << "  MBB#" << MBB->getNumber() << " gen: {";
-    for (unsigned i=0; i<gen[MBB].size(); i++) {
-      if (gen[MBB].test(i)) dbgs() << " p" << i;
+  DEBUG_TRACE({
+    dbgs() << "Compute Upwards Exposed Uses\n";
+    // dump gen/kill
+    dbgs() << "DU: MBB -> gen/kill sets (bvlen " << K.size() << ")\n";
+    for (MachineFunction::iterator FI=MF.begin(), FE=MF.end(); FI!=FE; ++FI) {
+      MachineBasicBlock *MBB = FI;
+      dbgs() << "  BB#" << MBB->getNumber() << " gen: {";
+      for (unsigned i=0; i<gen[MBB].size(); i++) {
+        if (gen[MBB].test(i)) dbgs() << " p" << i;
+      }
+      dbgs() << " }  kill: {";
+      for (unsigned i=0; i<kill[MBB].size(); i++) {
+        if (kill[MBB].test(i)) dbgs() << " p" << i;
+      }
+      dbgs() << " }\n";
     }
-    dbgs() << " }  kill: {";
-    for (unsigned i=0; i<kill[MBB].size(); i++) {
-      if (kill[MBB].test(i)) dbgs() << " p" << i;
-    }
-    dbgs() << " }\n";
-  }
-#endif
+  });
 
   std::queue<MachineBasicBlock*> worklist;
   std::map<MachineBasicBlock*, BitVector> bvIn;
@@ -449,9 +339,7 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
   bvIn[worklist.front()].set();
   worklist.pop();
   // iterate.
-  unsigned itcnt = 0;
   while (!worklist.empty()) {
-    DEBUG_TRACE(dbgs() << "Iteration " << itcnt << ":\n");
     // pop first element
     MachineBasicBlock *MBB = worklist.front();
     worklist.pop();
@@ -464,13 +352,13 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
     bvOut.reset(kill[MBB]);
     bvOut |= gen[MBB];
     if (bvOut != bvIn[MBB]) {
-#ifdef PATMOS_SINGLEPATH_TRACE
-      dbgs() << "  Update IN of MBB#" << MBB->getNumber() << "{";
-      for (unsigned i=0; i<bvOut.size(); i++) {
-        if (bvOut.test(i)) dbgs() << " p" << i;
-      }
-      dbgs() << " }\n";
-#endif
+      DEBUG_TRACE({
+          dbgs() << "  Update IN of BB#" << MBB->getNumber() << "{";
+          for (unsigned i=0; i<bvOut.size(); i++) {
+          if (bvOut.test(i)) dbgs() << " p" << i;
+          }
+          dbgs() << " }\n";
+      });
       bvIn[MBB] = bvOut;
       // add predecessors to worklist
       for (MachineBasicBlock::pred_iterator PI=MBB->pred_begin();
@@ -478,17 +366,186 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
           worklist.push(*PI);
       }
     }
-    itcnt++;
-  }
+  } // end of main iteration
+
   // Augmented elements
   BitVector *pred_initialize = &bvIn[&MF.front()];
-#ifdef PATMOS_SINGLEPATH_TRACE
-  // dump pN to be initialized
-  dbgs() << "Initialization with F:";
-  for (unsigned i=0; i<pred_initialize->size(); i++) {
-    if (pred_initialize->test(i)) dbgs() << " p" << i;
-  }
-  dbgs() << "\n";
-#endif
+  DEBUG_TRACE({
+    // dump pN to be initialized
+    dbgs() << "Initialization with F:";
+    for (unsigned i=0; i<pred_initialize->size(); i++) {
+      if (pred_initialize->test(i)) dbgs() << " p" << i;
+    }
+    dbgs() << "\n";
+  });
   return *pred_initialize;
+}
+
+
+
+void PatmosSPPredicate::insertPredDefinitions(MachineFunction &MF, K_t &K,
+                                              R_t &R, BitVector &needsInit,
+                                              R_t &pred_use_vregs) const {
+
+  DEBUG( dbgs() << "Insert Predicate Definitions\n" );
+
+  MachineRegisterInfo &RegInfo = MF.getRegInfo();
+
+  // use SSAUpdater for preserving SSA
+  // (in the presence of multiple defining CD edges)
+  MachineSSAUpdater SSAUp(MF);
+
+  // For each predicate, insert defs in MBBs (before terminators)
+  for (unsigned int i=0; i<K.size(); i++) {
+
+    // check for definition edges
+    if (K[i].size()==0) {
+      DEBUG( dbgs() << "  Skip: no definition predicate for p" << i << "\n" );
+      continue;
+    }
+
+    // for each definition edge
+    for (CD_map_entry_t::iterator EI=K[i].begin(); EI!=K[i].end(); ++EI) {
+      MachineBasicBlock *MBBSrc = EI->first, *MBBDst = EI->second;
+      // for AnalyzeBranch
+      MachineBasicBlock *TBB = NULL, *FBB = NULL;
+      SmallVector<MachineOperand, 4> Cond;
+      if (!TII->AnalyzeBranch(*MBBSrc, TBB, FBB, Cond)) {
+        // According to AnalyzeBranch spec, at a conditional branch,
+        // Cond will hold the branch conditions
+        // Further, there are two cases for conditional branches:
+        // 1. conditional+fallthrough:   TBB holds branch target
+        // 2. conditional+unconditional: TBB holds target of conditional branch,
+        //                               FBB the target of the unconditional one
+        // Hence, the branch condition will always refer to the TBB edge.
+        assert( !Cond.empty() && "AnalyzeBranch for SP-IfConversion failed; "
+                                 "could not determine branch condition");
+        if (MBBDst != TBB)  TII->ReverseBranchCondition(Cond);
+        unsigned preg_cmp = RegInfo.createVirtualRegister(
+                              &Patmos::PRegsRegClass );
+
+        MachineInstr *InitMI = NULL;
+        unsigned preg_f; // only set if InitMI
+        // on the first real definition...
+        if (EI==K[i].begin()) {
+          // ... initialize the SSA Updater
+          SSAUp.Initialize(preg_cmp);
+          // ... and check for initialization
+          if (needsInit.test(i)) {
+            // initialized with F?
+            DebugLoc DL; //TODO
+            preg_f = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
+            InitMI = AddDefaultPred(BuildMI(MF.front(), MF.front().begin(), DL,
+                  TII->get(Patmos::PCLR), preg_f));
+            DEBUG( dbgs() << "  Insert initialization in BB#"
+                          << MF.front().getNumber() << ": " << *InitMI );
+          }
+        }
+
+        // insert the predicate definition before any branch at the MBB end
+        MachineBasicBlock::iterator firstTI = MBBSrc->getFirstTerminator();
+        DebugLoc DL(firstTI->getDebugLoc());
+        MachineInstr *NewMI;
+        if (InitMI) {
+          // PCMOV2 instruction is like a select, with a constraint to the
+          // register allocator to allocate the defined register and the old
+          // (overwritten) one to the same physical register
+          NewMI = AddDefaultPred(BuildMI(*MBBSrc, firstTI, DL,
+                                 TII->get(Patmos::PCMOV2), preg_cmp))
+                  .addReg(preg_f) // the initialized register
+                  .addOperand(Cond[0]).addOperand(Cond[1]);
+        } else {
+          NewMI = AddDefaultPred(BuildMI(*MBBSrc, firstTI, DL,
+                                 TII->get(Patmos::PMOV), preg_cmp))
+                  .addOperand(Cond[0]).addOperand(Cond[1]);
+        }
+        //TODO Is this a proper way dealing with kills?
+        // Note that there might be additional definitions inserted in MBB
+        // for other k \in K
+        RegInfo.clearKillFlags(Cond[0].getReg());
+        DEBUG( dbgs() << "  Insert in BB#" << MBBSrc->getNumber()
+                      << ": " << *NewMI );
+
+        // SSA Update
+        SSAUp.AddAvailableValue(MBBSrc, preg_cmp);
+      } else {
+        assert(0 && "AnalyzeBranch failed");
+      }
+    } // end for each definition edge
+
+    // obtain virtual register for each MBB using the i-th predicate,
+    // preserving correct SSA form (with SSA Updater)
+    for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
+      MachineBasicBlock *MBB = FI;
+      if (R[MBB] != i) continue;
+      pred_use_vregs[MBB] = SSAUp.GetValueAtEndOfBlock(MBB);
+    }
+
+  } // end for each predicate
+}
+
+
+
+void PatmosSPPredicate::applyPredicates(MachineFunction &MF,
+                                        R_t &pred_use_vregs) const {
+  DEBUG( dbgs() << "Applying predicates to MBBs\n" );
+
+  // for each MBB
+  for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
+    MachineBasicBlock *MBB = FI;
+
+    // check for use predicate
+    if (!pred_use_vregs.count(MBB)) {
+      DEBUG( dbgs() << "  skip: no definitions for BB#" << MBB->getNumber()
+                    << "\n" );
+      continue;
+    }
+
+    // lookup for current MBB
+    unsigned preg = pred_use_vregs[MBB];
+    DEBUG( dbgs() << "  applying " << PrintReg(preg) << " to BB#"
+                  << MBB->getNumber() << "\n" );
+
+    // obtain iterators from first non-PHI instr, to first terminator
+    MachineBasicBlock::iterator MI(MBB->getFirstNonPHI()),
+                                ME(MBB->getFirstTerminator());
+    // apply predicate to all instructions in block
+    for( ; MI != ME; ++MI) {
+      assert(!MI->isBundle() &&
+             "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
+
+      // check for terminators - return? //TODO
+      if (MI->isReturn()) {
+          DEBUG( dbgs() << "    skip return: " << *MI );
+          continue;
+      }
+      // TODO properly handle calls
+
+      if (MI->isPredicable()) {
+        if (!TII->isPredicated(MI)) {
+          // find first predicate operand
+          int i = MI->findFirstPredOperandIdx();
+          assert(i != -1);
+          MachineOperand &PO1 = MI->getOperand(i);
+          MachineOperand &PO2 = MI->getOperand(i+1);
+          assert(PO1.isReg() && PO2.isImm() &&
+                 "Unexpected Patmos predicate operand");
+          PO1.setReg(preg);
+          PO2.setImm(0);
+        } else {
+          //TODO handle already predicated instructions
+          DEBUG( dbgs() << "    in BB#" << MBB->getNumber()
+                        << ": instruction already predicated: " << *MI );
+        }
+      }
+    }
+    // At the end, insert a pseudo with the virtual register of the MBB as
+    // input operand. This is required to be able to predicate instructions
+    // generated during register allocation.
+    // \see PatmosInstrInfo::expandPostRAPseudo()
+    BuildMI(*MBB, ME, ME->getDebugLoc(), TII->get(Patmos::PSEUDO_SP_PRED_BBEND))
+      .addReg(preg);
+      // NB: we don't set any kill flag; rely on the live-var analysis
+
+  } // end for each MBB
 }

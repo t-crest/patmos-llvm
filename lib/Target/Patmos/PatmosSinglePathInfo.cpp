@@ -27,7 +27,6 @@
 
 #include "PatmosSinglePathInfo.h"
 
-
 using namespace llvm;
 
 
@@ -44,22 +43,25 @@ static cl::list<std::string> SPConvList(
 
 
 
-PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm) : TM(tm) {
+PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm)
+  : TM(tm) {
 
   // get the set of functions to convert as specified on command line
   SPConvFuncs.insert( SPConvList.begin(), SPConvList.end() );
-  dbgs() << "[PatmosSP] Single-Path Info created.\n";
+  DEBUG_TRACE( dbgs() << "[PatmosSP] Single-Path Info created.\n" );
 }
 
 #if 0
   if (!SPConvFuncs.empty()) {
     DEBUG( dbgs() << "Following functions to SPConv not found:\n" );
-    for (std::set<std::string>::iterator it=SPConvFuncs.begin(); it!=SPConvFuncs.end(); ++it)
+    for (std::set<std::string>::iterator it=SPConvFuncs.begin();
+            it!=SPConvFuncs.end(); ++it) {
       DEBUG( dbgs() << *it << ' ');
+    }
     DEBUG( dbgs() << '\n');
   }
 #endif
 
-bool PatmosSinglePathInfo::isToConvert(MachineFunction &MF) {
+bool PatmosSinglePathInfo::isToConvert(MachineFunction &MF) const {
   return SPConvFuncs.count(MF.getFunction()->getName()) > 0;
 }
