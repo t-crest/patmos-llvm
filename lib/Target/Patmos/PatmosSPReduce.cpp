@@ -66,6 +66,8 @@ namespace {
     /// Reduce a given MachineFunction
     void doReduceFunction(MachineFunction &MF);
 
+    /// Merge the linear sequence of MBBs to a single MBB
+    void mergeMBBs(MachineFunction &MF);
   public:
     /// PatmosSPReduce - Initialize with PatmosTargetMachine
     PatmosSPReduce(const PatmosTargetMachine &tm, PatmosSinglePathInfo &pspi) :
@@ -126,9 +128,10 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Replace the edges of the CFG by a linear toposorted sequence
   // TODO Input-independent control-flow?
   ReversePostOrderTraversal<MachineFunction*> RPOT(&MF);
-  ReversePostOrderTraversal<MachineFunction*>::rpo_iterator I = RPOT.begin();
+  ReversePostOrderTraversal<MachineFunction*>::rpo_iterator I = RPOT.begin(),
+                                                            E = RPOT.end();
   MachineBasicBlock *MBB = *I;
-  while ( ++I != RPOT.end()) {
+  while ( ++I != E) {
     MachineBasicBlock *NextMBB = *I;
 
     // first, remove all successors ...
@@ -153,4 +156,39 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     MBB = NextMBB;
   }
   DEBUG_TRACE( MBB->dump() );
+
+  // XXX 
+  //mergeMBBs(MF);
+
 }
+
+
+void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
+  MachineFunction::iterator I = MF.begin(), E = MF.end();
+
+  MachineBasicBlock *PrevMBB = I;
+  while (++I != E) {
+    MachineBasicBlock *MBB = I;
+
+    assert(PrevMBB->succ_size() == 1);
+    DEBUG_TRACE( dbgs() << "  Merge MBB#" << MBB->getNumber() << "\n" );
+    PrevMBB->splice(PrevMBB->end(), MBB, MBB->begin(), MBB->end());
+    PrevMBB->removeSuccessor(PrevMBB->succ_begin());
+    assert(PrevMBB->succ_empty());
+    PrevMBB->transferSuccessors(MBB);
+  }
+
+  bool change = true;
+  while (change) {
+    change = false;
+    for(MachineFunction::iterator I=next(MF.begin()), E=MF.end(); I!=E; ++I) {
+      assert(I->pred_empty());
+      //if (I->pred_empty()) {
+        MF.erase(I);
+        change = true;
+        break;
+      //}
+    }
+  }
+}
+
