@@ -1,5 +1,5 @@
 #
-# Common utilities for the psk ruby implementations
+# Common utilities for the platin ruby implementations
 #
 require 'ostruct'
 require 'optparse'

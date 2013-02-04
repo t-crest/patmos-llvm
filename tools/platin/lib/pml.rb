@@ -177,7 +177,7 @@ module PML
           elsif(! merged_doc[k])
             merged_doc[k] = doc[k]
           elsif(merged_doc[k] != doc[k])
-            raise Exception.new("psk-merge: mismatch in non-list attribute #{k}: #{merged_doc[k]} and #{doc[k]}")
+            raise Exception.new("platin-merge: mismatch in non-list attribute #{k}: #{merged_doc[k]} and #{doc[k]}")
           end
         end
       end

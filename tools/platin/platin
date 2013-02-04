@@ -7,9 +7,9 @@
 KNOWN_COMMANDS="analyze-trace ait2pml bench extract-symbols pml2ais ff2pml merge visualize"
 usage() {
     cat <<EOF >&2
-usage: psk <command> [<args>]
+usage: platin <command> [<args>]
 
-The following psk commands are available and supported:
+The following platin commands are available and supported:
   ff2pml          ... Translate SWEET flowfacts to PML
   extract-symbols ... Extract addresses of symbols from ELF file
   analyze-trace   ... Generate flow facts from simulator traces
@@ -20,20 +20,20 @@ The following psk commands are available and supported:
   merge           ... Merge several PML file in one [alpha]
 Other commands: $(echo $(list_unknown_commands))
 
-See 'psk help <command>' for more information on a specific command.
+See 'platin help <command>' for more information on a specific command.
 EOF
 }
 
 show_help() {
     COMMAND=$1
     shift
-    ${RUBY} -I ${LIBDIR} ${LIBDIR}/psk-"${COMMAND}".rb --help
+    ${RUBY} -I ${LIBDIR} ${LIBDIR}/platin-"${COMMAND}".rb --help
 }
 
 list_unknown_commands() {
-    for driver in $(ls "${LIBDIR}"/psk-*.rb) ; do
+    for driver in $(ls "${LIBDIR}"/platin-*.rb) ; do
 	name=$(basename "${driver}" .rb)
-	name=${name/psk-/}
+	name=${name/platin-/}
 	unset known
 	for cmd in ${KNOWN_COMMANDS} ; do
 	    if [ $name == $cmd ] ; then known=yes ; break ; fi
@@ -97,4 +97,4 @@ elif [ "${COMMAND}" == "help" ] ; then
     exit 0
 fi
 # Run command
-${RUBY} -I ${LIBDIR} ${LIBDIR}/psk-"${COMMAND}".rb "${@}"
+${RUBY} -I ${LIBDIR} ${LIBDIR}/platin-"${COMMAND}".rb "${@}"

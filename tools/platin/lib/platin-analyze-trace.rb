@@ -7,7 +7,7 @@
 #  pasim >/dev/null .. 18s
 #  read from pasim  .. 1m39
 #  read and parse   .. 1m52
-#  psk-analyze-trace .. 2m
+#  platin-analyze-trace .. 2m
 # So there is probably not a lot to optimize in the ruby logic.
 #
 # Nevertheless, for this tool it might be worth to think of a faster solution;

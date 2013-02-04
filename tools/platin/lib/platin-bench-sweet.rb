@@ -3,13 +3,13 @@
 require 'utils.rb'
 include PML
 
-require 'psk-analyze-trace'
-require 'psk-extract-symbols'
-require 'psk-pml2ais'
-require 'psk-ait2pml'
-require 'psk-ff2pml'
-require 'psk-transform'
-require 'psk-wca'
+require 'platin-analyze-trace'
+require 'platin-extract-symbols'
+require 'platin-pml2ais'
+require 'platin-ait2pml'
+require 'platin-ff2pml'
+require 'platin-transform'
+require 'platin-wca'
 
 
 class BenchToolSweet

@@ -432,7 +432,7 @@ class WcaTool
       end
     end
     # report result
-    entry = TimingEntry.new(entry.ref, cycles, 'level' => 'machinecode', 'origin' => 'psk')
+    entry = TimingEntry.new(entry.ref, cycles, 'level' => 'machinecode', 'origin' => 'platin')
     pml.add_timing(entry)
     pml
   end

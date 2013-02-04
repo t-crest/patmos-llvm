@@ -33,15 +33,15 @@ PATMOS_CLANG="%<patmos>s/bin/patmos-clang -Xllc --serialize=%<pml>s -o %<of>s %<
 PATMOS_PASIM="%<patmos>s/bin/pasim -q --debug 1 -b %<if>s 2>%<tracefile>s"
 PATMOS_LLVM_LD="%<patmos>s/bin/#{PATMOS_LLVM_LD_BIN} -emit-llvm -L%<patmos>s/patmos-unknown-elf/lib/ -b %<of>s %<patmos>s/patmos-unknown-elf/lib/crt0.o %<if>s -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/libcsyms.lst %<patmos>s/patmos-unknown-elf/lib/libcsyms.o -lc -lpatmos -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsfsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsfsyms.o -lrtsf -internalize-public-api-file=%<patmos>s/patmos-unknown-elf/lib/librtsyms.lst %<patmos>s/patmos-unknown-elf/lib/librtsyms.o -lrt -internalize-public-api-list=_start,main -no-script"
 PATMOS_LD="%<patmos>s/bin/#{PATMOS_LD_BIN} -o %<of>s -nostdlib -static --defsym _uart_status_base=0xF0000000 --defsym _uart_data_base=0xF0000004 --defsym _shadow_stack_base=0x4000000 --defsym _shadow_stack_base=0x4000000 --defsym _stack_cache_base=0x3000000 --defsym __heap_end=0x2000000 --defsym __heap_start=end %<if>s"
-# psk tools
-MERGE="%<psk>s/psk merge -o %<of>s %<ifs>s"
-FF2PML="%<psk>s/psk ff2pml -i %<if>s -o %<of>s %<ff>s"
-EXTRACT_SYMBOLS="%<psk>s/psk extract-symbols -i %<if>s -o %<of>s %<elf>s"
-ANALYZE_TRACE="%<psk>s/psk analyze-trace -i %<if>s -o %<of>s %<elf>s"
-WCA="%<psk>s/psk wca -i %<if>s -o %<of>s"
-DEMO_EQUATIONS="%<psk>s/psk demo-equations %<if>s"
-PML2AIS="%<psk>s/psk pml2ais --header --ais %<ais>s -a %<apx>s -b %<elf>s -e main -r %<report>s -x %<result>s %<if>s"
-AIT2PML="%<psk>s/psk ait2pml -i %<if>s -o %<of>s %<xml>s"
+# platin tools
+MERGE="%<platin>s/psk merge -o %<of>s %<ifs>s"
+FF2PML="%<platin>s/psk ff2pml -i %<if>s -o %<of>s %<ff>s"
+EXTRACT_SYMBOLS="%<platin>s/psk extract-symbols -i %<if>s -o %<of>s %<elf>s"
+ANALYZE_TRACE="%<platin>s/psk analyze-trace -i %<if>s -o %<of>s %<elf>s"
+WCA="%<platin>s/psk wca -i %<if>s -o %<of>s"
+DEMO_EQUATIONS="%<platin>s/psk demo-equations %<if>s"
+PML2AIS="%<platin>s/psk pml2ais --header --ais %<ais>s -a %<apx>s -b %<elf>s -e main -r %<report>s -x %<result>s %<if>s"
+AIT2PML="%<platin>s/psk ait2pml -i %<if>s -o %<of>s %<xml>s"
 
 # external tools
 IGNORED_DEFINITIONS="_start,_exit,exit,abort,_sbrk.heap_ptr,__adddf3,__addsf3,__divdf3,__divsf3,__eqdf2,__eqsf2,__extendsfdf2,__fixdfdi,__fixdfsi,__fixsfdi,__fixsfsi,__fixunsdfdi,__fixunsdfsi,__fixunssfdi,__fixunssfsi,__floatdidf,__floatdisf,__floatsidf,__floatsisf,__floatundidf,__floatundisf,__floatunsidf,__floatunsisf,__gedf2,__gesf2,__gtdf2,__gtsf2,__ledf2,__lesf2,__ltdf2,__ltsf2,memcpy,memmove,memset,__muldf3,__mulsf3,__nedf2,__nesf2,__subdf3,__subsf3,__truncdfsf2,__unorddf2,__unordsf2"
@@ -69,8 +69,8 @@ class Demo
     arghash[:bin] = File.join(File.dirname(__FILE__),@level,@builddir,"bin","#{@binprefix}#{bin}")
     run(cmd, arghash)
   end
-  def run_psk(cmd, arghash)
-    arghash[:psk] = File.join(File.dirname(__FILE__))
+  def run_platin(cmd, arghash)
+    arghash[:platin] = File.join(File.dirname(__FILE__))
     run(cmd, arghash)
   end
   # running
@@ -163,15 +163,15 @@ demo.step("Link ELF binary") do
 end
 
 demo.step("Merge Stream of PML documents (optional)") do
-  demo.run_psk(MERGE, :ifs => "#{pml}", :of => pml)
+  demo.run_platin(MERGE, :ifs => "#{pml}", :of => pml)
 end
 
 demo.step("Extract addresses from ELF binary") do
-  demo.run_psk(EXTRACT_SYMBOLS, :if => pml, :of => pml, :elf => file.call("elf"))
+  demo.run_platin(EXTRACT_SYMBOLS, :if => pml, :of => pml, :elf => file.call("elf"))
 end
 
 demo.step("Analyze trace generated using pasim") do
-  demo.run_psk(ANALYZE_TRACE, :if=> pml, :of => pml, :elf => file.call("elf"),
+  demo.run_platin(ANALYZE_TRACE, :if=> pml, :of => pml, :elf => file.call("elf"),
                :noredirect => true)
 end
 
@@ -182,20 +182,20 @@ unless `which #{demo.cmd_sweet}`.strip.empty?
     demo.run(ALF2FF, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))
   end
   demo.step("Add SWEET Flow Facts to PML file") do
-    demo.run_psk(FF2PML, :if => pml, :of => pml, :ff => file.call("ff"))
+    demo.run_platin(FF2PML, :if => pml, :of => pml, :ff => file.call("ff"))
   end
 end
 
 demo.step("Display control-flow relation graph equations and flow fact inequalities") do
-  demo.run_psk(DEMO_EQUATIONS, :if => pml) #,:noredirect => true)
+  demo.run_platin(DEMO_EQUATIONS, :if => pml) #,:noredirect => true)
 end
 
-demo.step("Run psk worst-case estimation") do
-  demo.run_psk(WCA, :if => pml, :of => pml)
+demo.step("Run platin worst-case estimation") do
+  demo.run_platin(WCA, :if => pml, :of => pml)
 end
 
 demo.step("Export information to aiT's ais format") do
-  demo.run_psk(PML2AIS, :if => pml, :ais => file.call("ais"),
+  demo.run_platin(PML2AIS, :if => pml, :ais => file.call("ais"),
                :apx => file.call("apx"), :elf => file.call("elf"),
                :report => file.call("report"), :result => file.call("xml"))
 end
@@ -207,7 +207,7 @@ unless `which #{demo.cmd_ait}`.empty?
     demo.info("aiT results: (report is in #{file.call("report")})")
   end
   demo.step("Import aiT results") do
-    demo.run_psk(AIT2PML, :if => pml, :of => pml, :xml => file.call("xml"))
+    demo.run_platin(AIT2PML, :if => pml, :of => pml, :xml => file.call("xml"))
   end
 
 end

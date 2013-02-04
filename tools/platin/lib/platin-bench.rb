@@ -3,11 +3,11 @@
 require 'utils.rb'
 include PML
 
-require 'psk-analyze-trace'
-require 'psk-extract-symbols'
-require 'psk-wca'
-require 'psk-pml2ais'
-require 'psk-ait2pml'
+require 'platin-analyze-trace'
+require 'platin-extract-symbols'
+require 'platin-wca'
+require 'platin-pml2ais'
+require 'platin-ait2pml'
 
 class BenchTool
   TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool,WcaTool,
