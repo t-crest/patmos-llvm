@@ -658,6 +658,7 @@ namespace llvm {
     PMLInstrInfo *PII;
 
     StringRef   OutFileName;
+    std::string BitcodeFile;
     StringList  Roots;
 
     MFSet   FoundFunctions;
@@ -675,6 +676,8 @@ namespace llvm {
     void addExporter(PMLExport *PE) { MCExporters.push_back(PE); }
 
     void addExporter(PMLBitcodeExport *PE) { BCExporters.push_back(PE); }
+
+    void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }
 
     virtual const char *getPassName() const {return "YAML/PML Module Export";}
 

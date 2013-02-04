@@ -36,7 +36,4 @@ MO="${OUTDIR}/${M}"
     --apx "${MO}.apx" \
     --results "${MO}.xml" \
     --header \
-    --bitcode "${BINDIR}/${M}.elf.bc" \
-    --alf "${BINDIR}/${M}.alf" \
-    --sweet-flowfacts "${MO}.ff" \
     --analysis-entry main

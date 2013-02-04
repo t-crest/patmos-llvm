@@ -67,12 +67,41 @@ module PML
     def method_missing(method, *args, &block)
       list.send(method, *args, &block)
     end
+    def lookup(dict,key,name)
+      v = dict[key]
+      raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}") unless v
+      v
+    end
+    def add_lookup(dict,key,val,name,opts={})
+      return if ! key && opts[:ignore_if_missing]
+      raise Exception.new("#{self.class}#by_#{name}: Duplicate object with key #{key}: #{val} and #{dict[key]}") if dict[key]
+      dict[key] = val
+    end
   end
 
+  # Lists where elements can be queried by name and qualified name
+  module NameIndexList
+    def by_name(name)
+      build_name_index unless @named
+      lookup(@named, name, "name")
+    end
+    def by_qname(name)
+      build_name_index unless @named
+      lookup(@qnamed, name, "qname")
+    end
+    def build_name_index
+      @named, @qnamed = {}, {}
+      list.each do |v|
+        add_lookup(@named, v.name, v, "name")
+        add_lookup(@qnamed, v.qname, v, "qname")
+      end
+    end
+  end
+  
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc < Proxy
-    attr_reader :bitcode_functions,:machine_functions,:flowfacts
+    attr_reader :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts
 
     def initialize(data_or_io)
       stream = if data_or_io.kind_of?(Array)
@@ -91,17 +120,21 @@ module PML
       end
       @bitcode_functions = FunctionList.new(@data['bitcode-functions'] || [])
       @machine_functions = FunctionList.new(@data['machine-functions'] || [])
+      @relation_graphs   = RelationGraphList.new(@data['relation-graphs'] || [], @bitcode_functions, @machine_functions)
       @data['flowfacts'] ||= []
       @flowfacts = FlowFactList.from_pml(self, @data['flowfacts'])
     end
+
     def add_timing(timing_entry)
       @data['timing'] ||= []
       @data['timing'].push(timing_entry.data)      
     end
+
     def to_s
       "PMLDoc{bitcode-functions: |#{bitcode_functions.length}|, machine-functions: |#{machine_functions.length}"+
         ", flowfacts: |#{flowfacts.length}|}"
     end
+
     def dump_to_file(filename)
       if filename.nil?
         dump($>)
@@ -111,8 +144,24 @@ module PML
         end
       end
     end
+
     def dump(io)
-      io.write(YAML::dump(data))
+      final = @data.dup
+      final.delete("flowfacts") if @data["flowfacts"] == []
+      final.delete("timing") if @data["timing"] == []
+      io.write(YAML::dump(final))
+    end
+
+    # XXX: patmos specific
+    def delay_slots
+      2
+    end
+    def machine_code_only_functions
+      %w{_start _exit exit abort __adddf3 __addsf3 __divsi3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2} +
+        %w{__fixdfdi __fixdfsi __fixsfdi __fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi __floatdidf __floatdisf} +
+        %w{__floatsidf __floatsisf __floatundidf __floatundisf __floatunsidf __floatunsisf __gedf2 __gesf2 __gtdf2 __gtsf2} +
+        %w{__ledf2 __lesf2 __ltdf2 __ltsf2 __muldf3 __mulsf3 __nedf2 __nesf2 __subdf3 __subsf3 __truncdfsf2 __unorddf2 __unordsf2} +
+        %w{memcpy memmove memset}
     end
 
     def PMLDoc.from_file(filename)
@@ -202,40 +251,13 @@ module PML
     end
   end
 
-  # Lists of functions, blocks and instructions
-  class ProgramPointList < ListProxy
-    attr_reader :list
-    def initialize(list)
-      @list = list
-      build_lookup
-    end
-    def by_name(key)
-      lookup(@named,key,"name")
-    end
-    private
-    def lookup(dict,key,name)
-      v = dict[key]
-      raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}") unless v
-      v
-    end
-    def add_lookup(dict,key,val,name,opts={})
-      return if ! key && opts[:ignore_if_missing]
-      raise Exception.new("#{self.class}#by_#{name}: Duplicate object with key #{key}: #{val} and #{dict[key]}") if dict[key]
-      dict[key] = val
-    end
-    def build_lookup
-      @named = {}
-      @list.each do |v|
-        add_lookup(@named,v.name,v,"name")
-      end
-    end
-  end
-
   # List of functions in the program
-  class FunctionList < ProgramPointList
+  class FunctionList < ListProxy
+    include NameIndexList
     def initialize(data)
-      super(data.map { |f| Function.new(f) })
+      @list = data.map { |f| Function.new(f) }
       @data = data
+      build_lookup
     end
 
     # return [rs, unresolved]
@@ -269,7 +291,6 @@ module PML
       lookup(@labelled, label, "label")
     end
     def build_lookup
-      super()
       @address = {}
       @labelled = {}
       @list.each do |v|
@@ -280,10 +301,12 @@ module PML
   end
 
   # List of PML basic blocks in a function
-  class BlockList < ProgramPointList
+  class BlockList < ListProxy
+    include NameIndexList
     def initialize(function, data)
-      super(data.map { |b| Block.new(function, b) })
+      @list = data.map { |b| Block.new(function, b) }
       @data = data
+      @data.freeze
     end
     def first
       @list.first
@@ -294,10 +317,12 @@ module PML
   end
 
   # List of PML instructions in a block
-  class InstructionList < ProgramPointList
+  class InstructionList < ListProxy
+    include NameIndexList
     def initialize(block, data)
-      super(data.map { |i| Instruction.new(block, i) })
+      @list = data.map { |i| Instruction.new(block, i) }
       @data = data
+      @data.freeze
     end
     def [](index)
       @list[index]
@@ -456,6 +481,99 @@ module PML
     end
     def hash; @hash ; end
     def index ; @data['index']; end
+  end
+
+  # List of relation graphs (unmodifiable)
+  class RelationGraphList < ListProxy
+    def initialize(data, srclist, dstlist)
+      @list = data.map { |rg| RelationGraph.new(rg, srclist, dstlist) }
+      @data = data
+      build_lookup
+    end
+    def by_name(name, level)
+      assert("RelationGraphList#by_name: level != :src,:dst") { [:src,:dst].include?(level) }
+      lookup(@named[level], name, "#{level}-name")
+    end
+    def build_lookup
+      @named = { :src => {}, :dst => {} }
+      @list.each do |rg|
+        add_lookup(@named[:src], rg.src.name, rg, "src-name")
+        add_lookup(@named[:dst], rg.dst.name, rg, "dst-name")
+      end
+    end
+  end
+
+  # List of relation graph nodes (unmodifiable)
+  class RelationNodeList < ListProxy
+    include NameIndexList
+    def initialize(data, rg)
+      @list = data.map { |n| RelationNode.new(n, rg) }
+      @data = data
+      @data.freeze
+    end
+  end
+      
+
+  # Relation Graphs
+  class RelationGraph < Proxy
+    attr_reader :src_functions, :dst_functions, :src, :dst, :nodes
+    def initialize(data,src_funs,dst_funs)
+      @data = data
+      @src_functions, @dst_functions = src_funs, dst_funs
+      @src = src_funs.by_name(data['src']['function'])
+      @dst = dst_funs.by_name(data['dst']['function'])
+      @nodes = RelationNodeList.new(data['nodes'], self)
+    end
+    def get_function(level)
+      level == :src ? @src : @dst
+    end
+    def qname
+      "#{src.qname}<>#{dst.qname}"
+    end
+  end
+
+  # Relation Graph node
+  class RelationNode < Proxy
+    attr_reader :name, :rg
+    def initialize(data, rg)
+      @data = data
+      @rg = rg
+      @name = data['name']
+      @successors = {} # lazy initialization
+    end
+    def get_block(level)
+      return nil unless @data["#{level}-block"]
+      rg.get_function(level).blocks.by_name(@data["#{level}-block"])
+    end
+    # returns one out of [ :progress, :dst, :src, :entry, :exit ]
+    def type
+      @data['type'].to_sym
+    end
+    def successors_matching(block, level)
+      assert("successors_matching: nil argument") { ! block.nil? }
+      successors(level).select { |b|
+        succblock = b.get_block(level)
+        ! succblock.nil? && succblock == block
+      }
+    end
+    def successors(level)
+      return @successors[level] if @successors[level]
+      @successors[level] = (@data["#{level}-successors"]||[]).map { |succ|
+        @rg.nodes.by_name(succ)
+      }.uniq
+      @successors[level]
+    end
+    def qname
+      "#{rg.qname}_#{name}"
+    end
+    def to_s
+      "#{type}:#{qname}"
+    end
+    # Extract qname ~ id pattern and refactor as mixin
+    def ==(other)  ; qname == other.qname ; end
+    def <=>(other) ; qname <=> other.qname ; end
+    def eql?(other); self == other ; end
+    def hash; qname.hash ; end
   end
 
   # List of flowfacts (modifiable)

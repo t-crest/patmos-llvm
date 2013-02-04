@@ -20,7 +20,7 @@ class AitAnalyzeTool
   end
   def AitAnalyzeTool.run(pml, options)
     system("#{options.a3} -b #{options.apx_file}")
-    die "aiT failed batch processing #{options.apx_file} (exit status #{$?})" unless $? == 0
+    die "aiT (command: '#{options.a3}') failed batch processing #{options.apx_file} (exit status #{$?})" unless $? == 0
   end
 end
 

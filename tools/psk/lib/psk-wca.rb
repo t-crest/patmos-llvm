@@ -18,9 +18,6 @@ rescue Exception => details
   die "Failed to load required ruby libraries"
 end
 
-# XXX: move to patmos specific file
-DELAY_SLOTS = 2
-
 # Simple interface to lp_solve for IPET problems
 class LpSolveIPET
   # Tolarable floating point error in objective
@@ -416,7 +413,7 @@ class WcaTool
           end
         }
         if branch_index
-          branch_index + DELAY_SLOTS + 1
+          branch_index + pml.delay_slots + 1
         else
           src.instructions.length
         end

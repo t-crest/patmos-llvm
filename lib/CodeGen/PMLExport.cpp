@@ -956,6 +956,18 @@ void PMLModuleExportPass::finalize(Module &M) {
     delete Output;
     delete OutFile;
   }
+
+  if (!BitcodeFile.empty()) {
+    std::string ErrorInfo;
+    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo, 0);
+    WriteBitcodeToFile(&M, BitcodeStream.os());
+    if(! ErrorInfo.empty()) {
+      errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";
+    } else {
+      BitcodeStream.keep();
+    }
+  }
+
 }
 
 void PMLModuleExportPass::addToQueue(Module &M, MachineModuleInfo &MMI,

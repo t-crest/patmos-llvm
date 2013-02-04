@@ -22,6 +22,9 @@ module PML
   end
 
   class AISExporter
+    def AISExporter.supported_types
+      ['loop-local','calltargets-global','infeasible-global']
+    end
     attr_reader :outfile
     def initialize(pml,ais_file,options)
       @pml = pml

@@ -8,26 +8,41 @@ require 'psk-extract-symbols'
 require 'psk-pml2ais'
 require 'psk-ait2pml'
 require 'psk-ff2pml'
+require 'psk-transform'
 require 'psk-wca'
 
-class BenchToolSweet
-  TOOLS = [SweetAnalyzeTool,SweetImportTool,
-           ExtractSymbolsTool,AnalyzeTraceTool, WcaTool,
-           AisExportTool,ApxExportTool,AitAnalyzeTool,AitImportTool]
 
+class BenchToolSweet
+  TOOLS = [SweetAnalyzeTool, SweetTraceTool, SweetImportTool,
+           ExtractSymbolsTool,AnalyzeTraceTool, RelationGraphValidationTool,
+           WcaTool,
+           AisExportTool,ApxExportTool,AitAnalyzeTool,AitImportTool]
+  def BenchToolSweet.step(descr)
+    $stderr.puts("+ #{descr}")
+    t1 = Time.now
+    yield
+    t2 = Time.now
+    $stderr.puts("- #{descr.ljust(35)} #{((t2-t1)*1000).to_i} ms")
+  end
   def BenchToolSweet.run(pml,options)
-    SweetAnalyzeTool.run(pml, options)
-    SweetImportTool.run(pml, options)
-    ExtractSymbolsTool.run(pml,options)
-    AnalyzeTraceTool.run(pml,options)
-    WcaTool.run(pml, options)
-    AisExportTool.run(pml,options)
-    ApxExportTool.run(pml,options)
-    AitAnalyzeTool.run(pml, options)
-    AitImportTool.run(pml,options)
-    pml.data['timing'].each do |t|
-      puts YAML::dump(t)
-    end
+    step("Extracting Addresses")           { ExtractSymbolsTool.run(pml,options).dump_to_file(options.input) }
+    step("Running SWEET analysis")         { SweetAnalyzeTool.run(pml, options) }
+    step("Running SWEET trace generation") { SweetTraceTool.run(pml, options) }
+    step("Import SWEET flow facts")        { SweetImportTool.run(pml, options) }
+    step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options) }
+    step("Validate Relation Graph")        { RelationGraphValidationTool.run(pml,options) }
+    step("Running WCA")                    { WcaTool.run(pml, options) }
+    step("AIS Export")  {
+      AisExportTool.run(pml,options)
+      ApxExportTool.run(pml,options)
+    }
+    step("Run aiT")                        { AitAnalyzeTool.run(pml, options) }
+    step("Import aiT Results")             { AitImportTool.run(pml,options) }
+    step("Results: ") {
+      pml.data['timing'].each do |t|
+        puts YAML::dump(t)
+      end
+    }
     pml
   end
   def BenchToolSweet.add_options(opts)

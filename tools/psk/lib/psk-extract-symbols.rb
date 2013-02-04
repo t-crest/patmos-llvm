@@ -21,7 +21,7 @@ class ExtractSymbols
         end
       end
     end
-    die "The command #{options.objdump} exited with status #{$?.exitstatus}" unless $?.success?
+    die "The objdump command '#{options.objdump}' exited with status #{$?.exitstatus}" unless $?.success?
     self
   end
   def update_pml 

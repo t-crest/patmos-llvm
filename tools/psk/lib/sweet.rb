@@ -3,6 +3,9 @@
 #
 # Bindings to the SWEET (Swedish Execution Time) tool
 #
+require 'utils'
+require 'trace'
+include PML
 begin
   require 'rubygems'
   require 'rsec'
@@ -211,10 +214,50 @@ module SWEET
       }
     end
   end
-
+  #
+  # Read sweet single-path trace and generate bitcode events
+  # yields
+  class TraceMonitor < ::TraceMonitor
+    def initialize(tracefile, pml)
+      super()
+      @tracefile, @pml = tracefile, pml
+    end
+    def run
+      @executed_instructions = 0
+      lines = File.readlines(@tracefile)
+      lines[1..-1].each do |l|        
+        raise Exception.new("Bad trace file: more than one trace line: #{l}") if l.strip != ""
+      end
+      lastins = nil
+      lines.first.split.each do |entry|
+        break if entry == ";"
+        llvm_pos, internal_pos = entry.split(':::')
+        next if internal_pos # skip internal ALF statements
+        fname,blockname,insindex,fsucc,blocksucc = llvm_pos.split('::')
+        next if fsucc # skip edges
+        function = @pml.bitcode_functions.by_name(fname)
+        block = function.blocks.by_name(blockname)
+        instruction = block.instructions[(insindex || 0).to_i]
+        # call: start of function
+        if block == function.blocks.first && ! insindex
+          publish(:function, function, lastins, @executed_instructions)
+        elsif block != lastins.block && instruction.name != 0
+          publish(:ret, lastins, instruction, @executed_instructions)
+        end
+        if instruction.name == 0
+          publish(:block, block, @executed_instructions)
+        end
+        lastins = block.instructions[insindex.to_i]
+        @executed_instructions += 1
+      end
+      publish(:eof)
+    end
+  end
 end # module SWEET
 
+# extend option parser
 module PML
+  # option parser extensions
   class OptionParser
     def runs_llvm2alf
       self.on("--alf-llc FILE", "path to alf-llc (=alf-llc)")  { |f| options.alf_llc = f }
@@ -238,7 +281,7 @@ module PML
       self.add_check { |options| die_usage "Specifying SWEET flowfact file is mandatory" unless options.sweet_flowfact_file }
     end
     def sweet_trace_file
-      self.on("--sweet-trace FILE.tf", "SWEET trace file") { |f| options.sweet_tt_file = f }
+      self.on("--sweet-trace FILE.tf", "SWEET trace file") { |f| options.sweet_trace_file = f }
       self.add_check { |options| die_usage "Specifying SWEET trace file is mandatory" unless options.sweet_trace_file }
     end
   end
@@ -253,6 +296,7 @@ class AlfTool
   #  mem_areas        ... memory areas which can be accessed using hardcoded addresses
   #  ignored_definitions ... ignore the given set of definitions
   def AlfTool.run(options, alf_opts = {})
+    needs_options(options, :alf_llc, :alf_file, :bitcode_file)
     cmd = [ options.alf_llc, "-march=alf", "-o", options.alf_file ]
     cmd.push("-alf-standalone") if alf_opts[:standalone]
     cmd.push("-alf-ignore-volatiles") if alf_opts[:ignore_volatiles]
@@ -279,12 +323,12 @@ end
 # tool to invoke sweet to generate IR-level flow facts
 class SweetAnalyzeTool
   def SweetAnalyzeTool.run(pml, options)
+    needs_options(options, :sweet, :alf_file, :analysis_entry, :sweet_flowfact_file)
     AlfTool.run(options, :standalone => true, :memory_areas => [(0..0xffff)], :ignored_definitions => AlfTool.default_ignored_definitions)
     system(options.sweet, "-i=#{options.alf_file}", "func=#{options.analysis_entry}", "-ae",
            "ffg=ub", "vola=t", "pu", "-f", "co", "o=#{options.sweet_flowfact_file}")
     die "#{options.sweet} failed with exit status #{$?}"  unless $? == 0
   end
-
   def SweetAnalyzeTool.add_options(opts)
     opts.analysis_entry
     opts.runs_sweet
@@ -294,10 +338,11 @@ end
 
 # tool to invoke SWEET to generate IR-level traces
 class SweetTraceTool
-  def SweetTraceTool.run(options)
-    AlfTool.run_alf(options, :standalone => true, :memory_areas => [(0..0xffff)], :ignore_volatiles => true)
+  def SweetTraceTool.run(pml, options)
+    AlfTool.run(options, :standalone => true, :memory_areas => [(0..0xffff)], :ignore_volatiles => true,
+                :ignored_definitions => AlfTool.default_ignored_definitions)
     system(options.sweet, "-i=#{options.alf_file}", "func=#{options.trace_entry}",
-           "-ae", "vola=t", "css", "gtf=#{options.sweet_tf_file}")
+           "-ae", "vola=t", "css", "gtf=#{options.sweet_trace_file}")
     die "SWEET analysis failed"  unless $? == 0
   end
   

@@ -35,7 +35,7 @@ class AisExportTool
       opts.options.ffs_srcs = srcs.split(/\s*,\s*/)
     }
     opts.add_check { |options|
-      options.ffs_types = ['loop-local','calltargets-global','infeasible-global'] unless options.ffs_types
+      options.ffs_types = AISExporter.supported_types unless options.ffs_types
       options.ffs_srcs = 'all' unless options.ffs_srcs
     }
   end

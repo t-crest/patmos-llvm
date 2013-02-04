@@ -26,6 +26,12 @@ module PML
     exit 1
   end
 
+  def needs_options(ostruct,*opts)
+    opts.each do |opt|
+      internal_error("Option #{opt} not set") unless ostruct.send(opt)
+    end
+  end
+
   def warn(msg)
     $stderr.puts "[#{$0}] WARNING #{msg}"
   end
@@ -51,19 +57,22 @@ module PML
     def add_check(&block)
       @checks.push(block)
     end
+    def needs(option_name, msg)
+      add_check { |options| die_usage(msg) unless options.send(option_name) }
+    end
     # tool needs input PML option
     def needs_pml
       self.on("-i", "--input FILE", "Input PML File") { |f| options.input = f }
-      add_check { |options| die_usage("No input PML file specified") unless options.input }
+      needs(:input, "No input PML file specified")
     end
     # tool writes PML file (stdout or --output FILE)
     def writes_pml
       self.on("-o", "--output FILE", "Output PML File (=stdout)") { |f| options.output = f }      
     end
     # ELF binaries
-    def binary_file(default = nil)
-      options.binary_file = default unless options.binary_file || default == nil
+    def binary_file(mandatory = false)
       self.on("-b", "--binary FILE", "Name of the binary file to analyze") { |f| options.binary_file = f }
+      needs(:binary_file, "Option --binary is mandatory") if mandatory
     end
     # Trace entry
     def trace_entry
