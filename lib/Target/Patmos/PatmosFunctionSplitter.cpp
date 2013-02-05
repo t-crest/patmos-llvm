@@ -136,6 +136,10 @@ namespace llvm {
     /// non-natural loops or switches.
     MachineBasicBlock * const MBB;
 
+    /// The block's fallthrough target -- NULL if the MBB does not fall
+    /// through or if the block does not have an MBB associated with it.
+    MachineBasicBlock * FallthroughTarget;
+
     /// Flag indicating whether the block or the code region it represents
     /// contains a call instruction.
     bool HasCall;
@@ -170,6 +174,7 @@ namespace llvm {
     /// Create a block.
     ablock(unsigned id, agraph* g, MachineBasicBlock *mbb = NULL,
            bool hascall = false,  unsigned size = 0) : ID(id), G(g), MBB(mbb),
+                                                      FallthroughTarget(0),
                                                       HasCall(hascall),
                                                       HasCallinSCC(false),
                                                       Size(size), SCCSize(0),
@@ -216,10 +221,17 @@ namespace llvm {
       // create blocks
       unsigned id = 0;
       std::map<const MachineBasicBlock*, ablock*> MBBtoA;
+      ablock *pred = 0;
       for(MachineFunction::iterator i(mf->begin()), ie(mf->end());
           i != ie; i++) {
         // make a block
         ablock *ab = new ablock(id++, this, i, hasCall(i), getBBSize(i));
+
+        // Keep track of fallthough edges
+        if (pred && mayFallThrough(pred->MBB)) {
+          pred->FallthroughTarget = ab->MBB;
+        }
+        pred = ab;
 
         // store block
         MBBtoA[i] = ab;
@@ -307,37 +319,6 @@ namespace llvm {
       }
 
       return true;
-    }
-
-    /// getFallThroughTarget - Get the fall-through target of a basic block.
-    MachineBasicBlock *getFallThroughTarget(MachineBasicBlock *MBB)
-    {
-      if (MBB->succ_size() == 1)
-        return *MBB->succ_begin();
-
-      assert(MBB->succ_size() == 2);
-
-      for(MachineBasicBlock::instr_iterator t(MBB->instr_begin()),
-          te(MBB->instr_end()); t != te; t++)
-      {
-        MachineInstr *mi = &*t;
-
-        // skip non-branch instructions
-        if (!mi->isTerminator())
-          continue;
-
-        assert(!mi->isIndirectBranch() || mi->isUnconditionalBranch());
-
-        if (mi->isConditionalBranch()) {
-          MachineBasicBlock *br_succ = mi->getOperand(2).getMBB();
-
-          // get fall-through target
-          return (br_succ == *MBB->succ_begin()) ?
-                                       *++MBB->succ_begin() : *MBB->succ_begin();
-        }
-      }
-
-      assert(false);
     }
 
     /// getBBSize - Size of the basic block in bytes.
@@ -648,8 +629,7 @@ namespace llvm {
     ablock *selectBlock(ablock *region, ablock_set &ready, ablock *last)
     {
       // check if the fall-through is ready
-      MachineBasicBlock *fallthrough = last && mayFallThrough(last->MBB) ?
-                                         getFallThroughTarget(last->MBB) : NULL;
+      MachineBasicBlock *fallthrough = last ? last->FallthroughTarget : NULL;
 
       ablock *minID = NULL;
       for(ablock_set::iterator i(ready.begin()), ie(ready.end()); i != ie;
@@ -886,9 +866,9 @@ namespace llvm {
     /// fixupFallThrough - In case the given layout successor is not the 
     /// fall-through of the given block insert a jump and corresponding NOPs to
     /// the actual fall-through target.
-    void fixupFallThrough(MachineBasicBlock *fallthrough,
-                          MachineBasicBlock *layout_successor) {
-      MachineBasicBlock *target = getFallThroughTarget(fallthrough);
+    void fixupFallThrough(ablock *block, MachineBasicBlock *layout_successor) {
+      MachineBasicBlock *fallthrough = block->MBB;
+      MachineBasicBlock *target = block->FallthroughTarget;
 
       // fix-up needed?
       if (target != layout_successor) {
@@ -899,6 +879,8 @@ namespace llvm {
                                DebugLoc(), TII.get(Patmos::NOP)));
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                DebugLoc(), TII.get(Patmos::NOP)));
+
+        block->FallthroughTarget = NULL;
 
 #ifdef PATMOS_TRACE_FIXUP
         DEBUG(dbgs() << "Fixup: " << fallthrough->getName() << "|"
@@ -915,7 +897,7 @@ namespace llvm {
       PatmosMachineFunctionInfo *PMFI= MF->getInfo<PatmosMachineFunctionInfo>();
 
       // keep track of fall-through blocks
-      MachineBasicBlock *fallThrough = NULL;
+      ablock *fallThrough = NULL;
 
       // reorder the blocks and fix-up fall-through blocks
       MachineBasicBlock *last = order.back()->MBB;
@@ -940,7 +922,9 @@ namespace llvm {
         }
 
         // keep track of fall-through blocks
-        fallThrough = mayFallThrough(MBB) ? MBB : NULL;
+        // Note: we could just do (*i)->FallthroughTarget ? *i : NULL; here, but
+        // this way it is more robust..
+        fallThrough = mayFallThrough(MBB) ? *i : NULL;
       }
 
       // fix-up fall-through blocks
@@ -1280,13 +1264,12 @@ namespace llvm {
     /// Pass ID
     static char ID;
 
-    TargetMachine &TM;
     const PatmosSubtarget &STC;
 
   public:
     /// PatmosFunctionSplitter - Create a new instance of the function splitter.
-    PatmosFunctionSplitter(TargetMachine &tm) :
-      MachineFunctionPass(ID), TM(tm),
+    PatmosFunctionSplitter(PatmosTargetMachine &tm) :
+      MachineFunctionPass(ID),
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
       // TODO we could disable this pass if this is not a PatmosTargetMachine
@@ -1344,7 +1327,7 @@ namespace llvm {
 
 /// createPatmosFunctionSplitterPass - Returns a new PatmosFunctionSplitter
 /// \see PatmosFunctionSplitter
-FunctionPass *llvm::createPatmosFunctionSplitterPass(TargetMachine &tm) {
+FunctionPass *llvm::createPatmosFunctionSplitterPass(PatmosTargetMachine &tm) {
   return new PatmosFunctionSplitter(tm);
 }
 

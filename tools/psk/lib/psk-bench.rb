@@ -31,7 +31,7 @@ end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
-PSK benchmark run: extract symbols, analyze trace, run aiT"
+PSK benchmark run: extract addresses, analyze trace, run aiT
 EOF
   options, args = PML::optparse(1, "program.elf.pml", SYNOPSIS, :type => :none) do |opts,options|
     BenchTool.add_options(opts,options)

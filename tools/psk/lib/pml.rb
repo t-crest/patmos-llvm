@@ -14,7 +14,7 @@ module PML
     unless yield
       pnt = Thread.current.backtrace[1]
       $stderr.puts ("#{$0}: Assertion failed in #{pnt}: #{msg}")
-      puts "    "+Thread.current.backtrace.join("\n    ")
+      puts "    "+Thread.current.backtrace[1..-1].join("\n    ")
       exit 1
     end
   end
@@ -63,16 +63,11 @@ module PML
     def to_s
       list.to_s
     end
-    # XXX: derive delegators for all permitted read-only operations
-    def each
-      @list.each { |v| yield v }
-    end
-    def length
-      @list.length
+    def method_missing(name,*args,&block)
+      list.send(name,*args,&block)
     end
   end
-  
-  
+
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc < Proxy
@@ -241,6 +236,28 @@ module PML
       super(data.map { |f| Function.new(f) })
       @data = data
     end
+
+    # return [rs, unresolved]
+    # rs .. list of (known functions) reachable from name
+    # unresolved .. set of callsites that could not be resolved
+    def reachable_from(name)
+      unresolved = Set.new
+      rs = reachable_set(by_name(name)) { |f|
+        callees = []
+        f.each_callsite { |cs|
+          cs['callees'].each { |n|
+            if(! @named[n])
+              unresolved.add(cs)
+            else
+              callees.push(by_name(n))
+            end
+          }
+        }
+        callees
+      }
+      [rs, unresolved]
+    end
+
     def [](name)
       by_name(name)
     end
@@ -324,8 +341,7 @@ module PML
       FunctionRef.new(self)
     end
     def [](k)
-      internal_error "Function: do not access blocks directly" if k=='blocks'
-      internal_error "Function: do not access loops directly" if  k=='loops'
+      assert("Function: do not access blocks/loops directly") { k!='blocks'&&k!='loops'}
       @data[k]
     end
     def hash; @hash ; end
@@ -358,14 +374,35 @@ module PML
       @name = @data['name']
       @qname = label
       @hash = qname.hash
-      @is_loopheader = @data['loops'] && @data['loops'].first == self.name
-      @loopnest = (@data['loops']||[]).length
+
+      loopnames = @data['loops'] || []
+      @loopnest = loopnames.length
+      @is_loopheader = loopnames.first == self.name
+
       die("No instructions in #{@name}") unless @data['instructions']
       @instructions = InstructionList.new(self, @data['instructions'])
     end
     def [](k)
-      internal_error "Block: do not access instructions directly" if k=='instructions'
+      assert("Do not access instructions via []") { k != 'instructions' }
+      assert("Do not access predecessors/successors directly") { k != 'predecessors' && k != 'successors' } 
+      assert("Do not access loops directly") { k != 'loops' } 
       @data[k]
+    end
+    # loops: not ready at initialization time    
+    def loops
+      return @loops if @loops
+      @loops = (@data['loops']||[]).map { |l| function.blocks.by_name(l) }
+    end
+
+    # block predecessors; not ready at initialization time
+    def predecessors
+      return @predecessors if @predecessors
+      @predecessors = (@data['predecessors']||[]).map { |s| function.blocks.by_name(s) }.uniq.freeze
+    end
+    # block successors; not ready at initialization time
+    def successors
+      return @successors if @successors
+      @successors = (@data['successors']||[]).map { |s| function.blocks.by_name(s) }.uniq.freeze
     end
     def ref
       BlockRef.new(self)

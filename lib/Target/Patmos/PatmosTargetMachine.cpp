@@ -44,10 +44,16 @@ namespace {
     cl::init(false),
     cl::desc("Enable the Patmos stack cache analysis."),
     cl::Hidden);
+
   static cl::opt<std::string> SerializeMachineCode(
     "mpatmos-serialize",
     cl::desc("Export PML specification of generated machine code to FILE"),
     cl::init(""));
+
+  static cl::list<std::string> SerializeRoots(
+    "mpatmos-serialize-roots",
+    cl::desc("Export only methods reachable from given functions"),
+    cl::Hidden);
 
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
@@ -111,9 +117,15 @@ namespace {
         addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
 
-      if (! SerializeMachineCode.empty())
-          PM->add(createPatmosExportPass(SerializeMachineCode,
-                                         getPatmosTargetMachine()));
+      if (!SerializeMachineCode.empty()) {
+        if (SerializeRoots.empty()) {
+          PM->add(createPatmosExportPass(getPatmosTargetMachine(),
+                                         SerializeMachineCode));
+        } else {
+          addModulePass(createPatmosModuleExportPass(getPatmosTargetMachine(),
+                                         SerializeMachineCode, SerializeRoots));
+        }
+      }
 
       return true;
     }

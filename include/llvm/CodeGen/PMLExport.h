@@ -99,9 +99,7 @@ struct Name {
 };
 
 /// Comparing two names
-bool operator==(const Name n1, const Name n2) {
-  return n1.NameStr == n2.NameStr;
-}
+bool operator==(const Name n1, const Name n2);
 
 template<>
 struct ScalarTraits<Name> {
@@ -605,8 +603,13 @@ namespace llvm {
     tool_output_file *OutFile;
     yaml::Output *Output;
 
+  protected:
+    PMLExportPass(char &id, TargetMachine &tm, StringRef filename)
+      : MachineFunctionPass(id), OutFileName(filename),
+       OutFile(0), Output(0)
+    { }
   public:
-    PMLExportPass(StringRef filename, TargetMachine &tm)
+    PMLExportPass(TargetMachine &tm, StringRef filename)
       : MachineFunctionPass(ID), OutFileName(filename),
        OutFile(0), Output(0)
     { }
@@ -636,33 +639,36 @@ namespace llvm {
 
   // TODO add a pass that runs on bitcode functions only, as FunctionPass.
 
-  // TODO this pass is currently implemented to work as machinecode module
+  // TODO this pass is currently implemented to work as machine-code module
   // pass. It should either support running on bitcode only as well, or
   // implement another pass for that.
-  class PMLModuleExportPass : ModulePass {
+  class PMLModuleExportPass : public ModulePass {
 
     static char ID;
 
-    typedef std::vector<PMLExport*> MCExportList;
+    typedef std::vector<PMLExport*>        MCExportList;
     typedef std::vector<PMLBitcodeExport*> BCExportList;
-    typedef std::vector<std::string> StringList;
-    typedef std::list<std::string>   StringQueue;
-    typedef std::set<std::string>    StringSet;
+    typedef std::vector<std::string>       StringList;
+    typedef std::list<MachineFunction*>    MFQueue;
+    typedef std::set<MachineFunction*>     MFSet;
 
     MCExportList MCExporters;
     BCExportList BCExporters;
 
     PMLInstrInfo *PII;
 
-    StringRef OutFileName;
+    StringRef   OutFileName;
     StringList  Roots;
 
-    StringSet   FoundFunctions;
-    StringQueue Queue;
+    MFSet   FoundFunctions;
+    MFQueue Queue;
 
+  protected:
+    PMLModuleExportPass(char &ID, TargetMachine &TM, StringRef filename,
+                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
   public:
-    PMLModuleExportPass(StringRef filename, TargetMachine &TM,
-                        ArrayRef<StringRef> roots, PMLInstrInfo *PII = 0);
+    PMLModuleExportPass(TargetMachine &TM, StringRef filename,
+                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
 
     virtual ~PMLModuleExportPass();
 
