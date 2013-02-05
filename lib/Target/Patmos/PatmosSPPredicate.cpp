@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This pass predicates instructions before register allocation.
+// This pass predicates instructions before Post-RA scheduling.
 //
 //===----------------------------------------------------------------------===//
 
@@ -31,7 +31,6 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/MachineSSAUpdater.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -391,10 +390,6 @@ void PatmosSPPredicate::insertPredDefinitions(MachineFunction &MF, K_t &K,
 
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
-  // use SSAUpdater for preserving SSA
-  // (in the presence of multiple defining CD edges)
-  MachineSSAUpdater SSAUp(MF);
-
   // For each predicate, insert defs in MBBs (before terminators)
   for (unsigned int i=0; i<K.size(); i++) {
 
@@ -403,6 +398,8 @@ void PatmosSPPredicate::insertPredDefinitions(MachineFunction &MF, K_t &K,
       DEBUG( dbgs() << "  Skip: no definition predicate for p" << i << "\n" );
       continue;
     }
+
+    unsigned preg = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
 
     // for each definition edge
     for (CD_map_entry_t::iterator EI=K[i].begin(); EI!=K[i].end(); ++EI) {
@@ -421,44 +418,14 @@ void PatmosSPPredicate::insertPredDefinitions(MachineFunction &MF, K_t &K,
         assert( !Cond.empty() && "AnalyzeBranch for SP-IfConversion failed; "
                                  "could not determine branch condition");
         if (MBBDst != TBB)  TII->ReverseBranchCondition(Cond);
-        unsigned preg_cmp = RegInfo.createVirtualRegister(
-                              &Patmos::PRegsRegClass );
 
-        MachineInstr *InitMI = NULL;
-        unsigned preg_f; // only set if InitMI
-        // on the first real definition...
-        if (EI==K[i].begin()) {
-          // ... initialize the SSA Updater
-          SSAUp.Initialize(preg_cmp);
-          // ... and check for initialization
-          if (needsInit.test(i)) {
-            // initialized with F?
-            DebugLoc DL; //TODO
-            preg_f = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
-            InitMI = AddDefaultPred(BuildMI(MF.front(), MF.front().begin(), DL,
-                  TII->get(Patmos::PCLR), preg_f));
-            DEBUG( dbgs() << "  Insert initialization in BB#"
-                          << MF.front().getNumber() << ": " << *InitMI );
-          }
-        }
 
         // insert the predicate definition before any branch at the MBB end
         MachineBasicBlock::iterator firstTI = MBBSrc->getFirstTerminator();
         DebugLoc DL(firstTI->getDebugLoc());
-        MachineInstr *NewMI;
-        if (InitMI) {
-          // PCMOV2 instruction is like a select, with a constraint to the
-          // register allocator to allocate the defined register and the old
-          // (overwritten) one to the same physical register
-          NewMI = AddDefaultPred(BuildMI(*MBBSrc, firstTI, DL,
-                                 TII->get(Patmos::PCMOV2), preg_cmp))
-                  .addReg(preg_f) // the initialized register
-                  .addOperand(Cond[0]).addOperand(Cond[1]);
-        } else {
-          NewMI = AddDefaultPred(BuildMI(*MBBSrc, firstTI, DL,
-                                 TII->get(Patmos::PMOV), preg_cmp))
-                  .addOperand(Cond[0]).addOperand(Cond[1]);
-        }
+        MachineInstr *NewMI = AddDefaultPred(BuildMI(*MBBSrc, firstTI, DL,
+                                 TII->get(Patmos::PMOV), preg))
+                                .addOperand(Cond[0]).addOperand(Cond[1]);
         //TODO Is this a proper way dealing with kills?
         // Note that there might be additional definitions inserted in MBB
         // for other k \in K
@@ -466,19 +433,27 @@ void PatmosSPPredicate::insertPredDefinitions(MachineFunction &MF, K_t &K,
         DEBUG( dbgs() << "  Insert in BB#" << MBBSrc->getNumber()
                       << ": " << *NewMI );
 
-        // SSA Update
-        SSAUp.AddAvailableValue(MBBSrc, preg_cmp);
       } else {
         assert(0 && "AnalyzeBranch failed");
       }
     } // end for each definition edge
+
+    if (needsInit.test(i)) {
+      // initialized with F?
+      DebugLoc DL; //TODO
+      MachineInstr *InitMI = AddDefaultPred(BuildMI(MF.front(), MF.front().begin(), DL,
+          TII->get(Patmos::PCLR), preg));
+      DEBUG( dbgs() << "  Insert initialization in BB#"
+          << MF.front().getNumber() << ": " << *InitMI );
+    }
 
     // obtain virtual register for each MBB using the i-th predicate,
     // preserving correct SSA form (with SSA Updater)
     for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
       MachineBasicBlock *MBB = FI;
       if (R[MBB] != i) continue;
-      pred_use_vregs[MBB] = SSAUp.GetValueAtEndOfBlock(MBB);
+      pred_use_vregs[MBB] = preg;
+      // TODO beautify
     }
 
   } // end for each predicate
@@ -506,11 +481,9 @@ void PatmosSPPredicate::applyPredicates(MachineFunction &MF,
     DEBUG( dbgs() << "  applying " << PrintReg(preg) << " to BB#"
                   << MBB->getNumber() << "\n" );
 
-    // obtain iterators from first non-PHI instr, to first terminator
-    MachineBasicBlock::iterator MI(MBB->getFirstNonPHI()),
-                                ME(MBB->getFirstTerminator());
     // apply predicate to all instructions in block
-    for( ; MI != ME; ++MI) {
+    for( MachineBasicBlock::iterator MI = MBB->begin(),
+            ME(MBB->getFirstTerminator()); MI != ME; ++MI) {
       assert(!MI->isBundle() &&
              "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
 
@@ -538,14 +511,6 @@ void PatmosSPPredicate::applyPredicates(MachineFunction &MF,
                         << ": instruction already predicated: " << *MI );
         }
       }
-    }
-    // At the end, insert a pseudo with the virtual register of the MBB as
-    // input operand. This is required to be able to predicate instructions
-    // generated during register allocation.
-    // \see PatmosInstrInfo::expandPostRAPseudo()
-    BuildMI(*MBB, ME, ME->getDebugLoc(), TII->get(Patmos::PSEUDO_SP_PRED_BBEND))
-      .addReg(preg);
-      // NB: we don't set any kill flag; rely on the live-var analysis
-
+    } // for each instruction in MBB
   } // end for each MBB
 }

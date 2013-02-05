@@ -155,47 +155,6 @@ void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
 
 
 bool PatmosInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
-  switch(MI->getOpcode()) {
-    // Pseudo instruction at the end of a basic block, inserted during
-    // single-path predication phase to hold the predicate of the basic block.
-    // Every instruction generated during and after register allocation
-    // (copies, spill code) needs also to be predicated.
-    case Patmos::PSEUDO_SP_PRED_BBEND:
-    {
-      MachineOperand &MO = MI->getOperand(0);
-      unsigned preg = MO.getReg();
-      bool needKillFlag = MO.isKill();
-      // Get a new iterator, and iterate backward, until the corresponding
-      // BBBEGIN pseudo is found.
-      MachineBasicBlock::iterator J = prior(MI);
-      while( J->getOpcode()!=Patmos::PSEUDO_SP_PRED_BBBEGIN ) {
-        // no nesting!
-        assert( J->getOpcode() != Patmos::PSEUDO_SP_PRED_BBEND );
-
-        // for each non-predicated but predicatble instruction,
-        // set the predicate (register)
-        if (J->isPredicable() && !isPredicated(J)) {
-          int i = J->findFirstPredOperandIdx();
-          MachineOperand &PO1 = J->getOperand(i);
-          PO1.setReg(preg);
-        }
-        // the pseudo instruction killed the preg, move the kill
-        // up to the next possible location
-        if (needKillFlag && J->readsRegister(preg)) {
-          J->addRegisterKilled(preg, &RI);
-          needKillFlag = false;
-        }
-        // move back by one inst
-        --J;
-      }
-      // Finally, remove the pseudo instructions
-      J->eraseFromParent();
-      MI->eraseFromParent();
-      break;
-    }
-    default:
-      break;
-  }
   return false;
 }
 

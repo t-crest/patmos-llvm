@@ -66,8 +66,13 @@ namespace {
     /// Reduce a given MachineFunction
     void doReduceFunction(MachineFunction &MF);
 
+    /// Put the MBBs in a topological order
+    void linearizeMBBs(MachineFunction &MF,
+                       std::vector<MachineBasicBlock*> &order);
+
     /// Merge the linear sequence of MBBs to a single MBB
-    void mergeMBBs(MachineFunction &MF);
+    void mergeMBBs(MachineFunction &MF,
+                   std::vector<MachineBasicBlock*> &order);
   public:
     /// PatmosSPReduce - Initialize with PatmosTargetMachine
     PatmosSPReduce(const PatmosTargetMachine &tm, PatmosSinglePathInfo &pspi) :
@@ -119,17 +124,25 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm,
 
 void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
-  // FIXME
-  // Track data dependences between predicate defines and uses, introduced
-  // by register allocation of predicate registers
+  std::vector<MachineBasicBlock*> order;
 
+  // first linearize, updating successors accordingly
+  linearizeMBBs(MF, order);
+  // then merge to a single basic block
+  mergeMBBs(MF, order);
+}
+
+void PatmosSPReduce::linearizeMBBs(MachineFunction &MF,
+                                   std::vector<MachineBasicBlock*> &order) {
 
   // Topological order of MBBs - following only works for DAGs (without loops)
   // Replace the edges of the CFG by a linear toposorted sequence
-  // TODO Input-independent control-flow?
+  // FIXME order in hyperblocks
   ReversePostOrderTraversal<MachineFunction*> RPOT(&MF);
-  ReversePostOrderTraversal<MachineFunction*>::rpo_iterator I = RPOT.begin(),
-                                                            E = RPOT.end();
+  order.insert(order.begin(), RPOT.begin(), RPOT.end());
+
+  std::vector<MachineBasicBlock*>::iterator I = order.begin(),
+                                            E = order.end();
   MachineBasicBlock *MBB = *I;
   while ( ++I != E) {
     MachineBasicBlock *NextMBB = *I;
@@ -145,50 +158,39 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     NextMBB->moveAfter(MBB);
     TII->RemoveBranch(*MBB);
 
-    // Insert a delimiter pseudo instruction at the beginning
-    if (prior(MBB->end())->getOpcode() == Patmos::PSEUDO_SP_PRED_BBEND) {
-      BuildMI(*MBB, MBB->begin(), MBB->begin()->getDebugLoc(),
-              TII->get(Patmos::PSEUDO_SP_PRED_BBBEGIN));
-      }
     DEBUG_TRACE( MBB->dump() );
 
     // move forward
     MBB = NextMBB;
   }
   DEBUG_TRACE( MBB->dump() );
-
-  // XXX 
-  //mergeMBBs(MF);
-
 }
 
 
-void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
-  MachineFunction::iterator I = MF.begin(), E = MF.end();
+void PatmosSPReduce::mergeMBBs(MachineFunction &MF,
+                               std::vector<MachineBasicBlock*> &order) {
+  std::vector<MachineBasicBlock*>::iterator I = order.begin(),
+                                            E = order.end();
 
-  MachineBasicBlock *PrevMBB = I;
+  MachineBasicBlock *BaseMBB = *I;
+  // iterate through order of MBBs
   while (++I != E) {
-    MachineBasicBlock *MBB = I;
-
-    assert(PrevMBB->succ_size() == 1);
+    // get MBB of iterator
+    MachineBasicBlock *MBB = *I;
+    // we are supposed to be on a linear sequence!
+    assert(BaseMBB->succ_size() == 1);
     DEBUG_TRACE( dbgs() << "  Merge MBB#" << MBB->getNumber() << "\n" );
-    PrevMBB->splice(PrevMBB->end(), MBB, MBB->begin(), MBB->end());
-    PrevMBB->removeSuccessor(PrevMBB->succ_begin());
-    assert(PrevMBB->succ_empty());
-    PrevMBB->transferSuccessors(MBB);
+    // transfer the instructions
+    BaseMBB->splice(BaseMBB->end(), MBB, MBB->begin(), MBB->end());
+    // remove the edge between BaseMBB and MBB
+    BaseMBB->removeSuccessor(BaseMBB->succ_begin());
+    // BaseMBB gets the successors of MBB instead
+    assert(BaseMBB->succ_empty());
+    BaseMBB->transferSuccessors(MBB);
+    // remove MBB from MachineFunction
+    MF.erase(MBB);
   }
-
-  bool change = true;
-  while (change) {
-    change = false;
-    for(MachineFunction::iterator I=next(MF.begin()), E=MF.end(); I!=E; ++I) {
-      assert(I->pred_empty());
-      //if (I->pred_empty()) {
-        MF.erase(I);
-        change = true;
-        break;
-      //}
-    }
-  }
+  // invalidate order
+  order.clear();
 }
 

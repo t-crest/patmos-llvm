@@ -122,10 +122,6 @@ namespace {
     /// run passes immediately before register allocation. This should return
     /// true if -print-machineinstrs should print after these passes.
     virtual bool addPreRegAlloc() {
-      if (PSPI.enabled()) {
-        PM->add(createPatmosSPPredicatePass(getPatmosTargetMachine(), PSPI));
-        return true;
-      }
       return false;
     }
 
@@ -134,10 +130,6 @@ namespace {
     /// prolog-epilog insertion.  This should return true if -print-machineinstrs
     /// should print after these passes.
     virtual bool addPostRegAlloc() {
-      if (PSPI.enabled()) {
-        PM->add(createPatmosSPReducePass(getPatmosTargetMachine(), PSPI));
-        return true;
-      }
       return false;
     }
 
@@ -146,8 +138,11 @@ namespace {
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
     virtual bool addPreSched2() {
-      if (getOptLevel() != CodeGenOpt::None) {
-        if (!PSPI.enabled()) {
+      if (PSPI.enabled()) {
+        PM->add(createPatmosSPPredicatePass(getPatmosTargetMachine(), PSPI));
+        PM->add(createPatmosSPReducePass(getPatmosTargetMachine(), PSPI));
+      } else {
+        if (getOptLevel() != CodeGenOpt::None) {
           addPass(IfConverterID);
         }
       }
