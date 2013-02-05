@@ -12,7 +12,7 @@ LEVEL="../.."
 BUILDDIR="build"
 
 # Default External commands
-CMD_SWEET="sweet" # set to nil to disable analysis with SWEET
+CMD_SWEET="" # set to enable analysis with SWEET
 CMD_ALF_LLC="alf-llc"
 CMD_AIT="a3patmos"
 
@@ -168,8 +168,7 @@ demo.step("Analyze trace generated using pasim") do
                :noredirect => true)
 end
 
-unless `which #{demo.cmd_sweet}`.empty?
-
+unless `which #{demo.cmd_sweet}`.strip.empty?
   demo.step("Generate SWEET Flow Facts") do
     demo.run(BC2ALF, :bin => demo.cmd_alf_llc, :if => bc, :of => file.call("alf"))
     demo.run(ALF2FF, :bin => demo.cmd_sweet,   :if => file.call("alf"), :of => file.call("ff"))

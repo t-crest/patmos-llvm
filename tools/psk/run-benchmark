@@ -33,4 +33,4 @@ MO="${OUTDIR}/${M}"
     --apx "${MO}.apx" \
     --results "${MO}.xml" \
     --header \
-    --entry main
+    --analysis-entry main

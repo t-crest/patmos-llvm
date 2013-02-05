@@ -2,13 +2,41 @@
 #
 # ruby-runner
 
-# Set library path (adapt for installation)
-LIBDIR= #(LIBDIR)
+# Set library path for installation
 
-list_commands() {
+KNOWN_COMMANDS="analyze-trace ait2pml bench extract-symbols pml2ais ff2pml"
+usage() {
+    cat <<EOF >&2
+usage: psk <command> [<args>]
+
+The following psk commands are available and supported:
+  ff2pml          ... Translate SWEET flowfacts to PML
+  extract-symbols ... Extract addresses of symbols from ELF file
+  analyze-trace   ... Generate flow facts from simulator traces
+  ait2pml         ... Add aiT analysis results to the PML database
+  pml2ais         ... Translate program information to aiT's AIS format
+  bench           ... Simulate and analyze benchmark, print execution time
+Other commands: $(echo $(list_unknown_commands))
+
+See 'psk help <command>' for more information on a specific command.
+EOF
+}
+
+show_help() {
+    COMMAND=$1
+    shift
+    ${RUBY} -I ${LIBDIR} ${LIBDIR}/psk-"${COMMAND}".rb --help
+}
+
+list_unknown_commands() {
     for driver in $(ls "${LIBDIR}"/psk-*.rb) ; do
-	naked=$(basename "${driver}" .rb)
-	echo ${naked/psk-/}
+	name=$(basename "${driver}" .rb)
+	name=${name/psk-/}
+	unset known
+	for cmd in ${KNOWN_COMMANDS} ; do
+	    if [ $name == $cmd ] ; then known=yes ; break ; fi
+	done
+	if [ -z "${known}" ]; then echo ${name} ; fi
     done
 }
 
@@ -45,16 +73,26 @@ detect_ruby() {
 detect_ruby
 
 # Set LIBDIR fallback
-if [ -z "${LIBDIR}" ] ; then LIBDIR=$(dirname $0)/lib ;  fi
+if [ -z "${RELATIVE_LIBDIR}" ] ; then
+    RELATIVE_LIBDIR=lib
+fi
+if [ -z "${LIBDIR}" ] ; then
+    LIBDIR=$(dirname $0)/"${RELATIVE_LIBDIR}"
+fi
 
 # Select command
 COMMAND=$1
 shift
 if [ -z "${COMMAND}" ] ; then
-    echo "Usage: psk command args.." >&2
-    COMMANDS=$(list_commands)
-    echo " commands: $(echo ${COMMANDS})" >&2
+    usage
     exit 1
+elif [ "${COMMAND}" == "help" ] ; then
+    if [ -z "${1}" ] ; then
+	usage
+    else
+	show_help $1
+    fi
+    exit 0
 fi
 # Run command
 ${RUBY} -I ${LIBDIR} ${LIBDIR}/psk-"${COMMAND}".rb "${@}"
