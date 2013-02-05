@@ -180,7 +180,7 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
 
     DebugLoc DL                      = (MI != MBB.end()) ? MI->getDebugLoc()
                                                                    : DebugLoc();
-    const TargetInstrInfo &TII       = *MF.getTarget().getInstrInfo();
+    const TargetInstrInfo &TII       = *TM.getInstrInfo();
 
     // emit reserve instruction
     AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Opcode)))
@@ -205,7 +205,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // get some references
   MachineBasicBlock &MBB     = MF.front();
   MachineFrameInfo *MFI      = MF.getFrameInfo();
-  const TargetInstrInfo *TII = MF.getTarget().getInstrInfo();
+  const TargetInstrInfo *TII = TM.getInstrInfo();
 
   MachineBasicBlock::iterator MBBI = MBB.begin();
   DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
@@ -278,7 +278,7 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
                                        MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
   MachineFrameInfo *MFI            = MF.getFrameInfo();
-  const TargetInstrInfo *TII       = MF.getTarget().getInstrInfo();
+  const TargetInstrInfo *TII       = TM.getInstrInfo();
   DebugLoc dl                      = MBBI->getDebugLoc();
 
   //----------------------------------------------------------------------------
@@ -311,21 +311,37 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
 void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
                                   MachineFunction& MF, RegScavenger* RS) const {
 
+  const TargetInstrInfo *TII = TM.getInstrInfo();
   MachineRegisterInfo& MRI = MF.getRegInfo();
 
-  // Mark RFP, RFB, and RFO as used or unused.
-  if (hasFP(MF))
-    MRI.setPhysRegUsed(Patmos::RFP);
+  // Insert instructions at the beginning of the entry block;
+  // callee-saved-reg spills are inserted at front afterwards
+  MachineBasicBlock &EntryMBB = MF.front();
+  DebugLoc DL = EntryMBB.front().getDebugLoc();
 
-  // Mark the special registers of the method cache to be used when calls exist.
+  if (hasFP(MF)) {
+    // if framepointer enabled, set it to point to the stack pointer.
+    // Set frame pointer: FP = SP
+    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::MOV), Patmos::RFP))
+      .addReg(Patmos::RSP);
+    // Mark RFP as used
+    MRI.setPhysRegUsed(Patmos::RFP);
+  }
+
+  // load the current function base if it needs to be passed to call sites
   if (MF.getFrameInfo()->hasCalls()) {
+    // load long immediate: current function symbol into RFB
+    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::LIl), Patmos::RFB))
+      .addGlobalAddress(MF.getFunction());
+    // Mark the special registers of the method cache to be used when calls exist.
     MRI.setPhysRegUsed(Patmos::RFB);
     MRI.setPhysRegUsed(Patmos::RFO);
-  }
-  else {
+  } else {
     MRI.setPhysRegUnused(Patmos::RFB);
     MRI.setPhysRegUnused(Patmos::RFO);
   }
+
+
 }
 
 bool
@@ -339,30 +355,22 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
-  MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
+  const TargetInstrInfo &TII = *TM.getInstrInfo();
 
   unsigned spilledSize = 0;
-  bool predicateSpilled = false;
   for (unsigned i = CSI.size(); i != 0; --i) {
     unsigned Reg = CSI[i-1].getReg();
     // Add the callee-saved register as live-in. It's killed at the spill.
     MBB.addLiveIn(Reg);
 
+    // as all PRegs are aliased with SZ, a spill of a Preg will cause
+    // a spill of SZ
+    if (Patmos::PRegsRegClass.contains(Reg))
+      continue;
     // copy to R register first, then spill
     if (Patmos::SRegsRegClass.contains(Reg)) {
       TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Reg, true);
       Reg = Patmos::R9;
-    }
-    else if (Patmos::PRegsRegClass.contains(Reg)) {
-      if (predicateSpilled)
-        // store all predicate registers at once
-        continue;
-      else {
-        TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::SZ, true);
-        Reg = Patmos::R9;
-        predicateSpilled = true;
-      }
     }
 
     // spill
@@ -372,20 +380,6 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
     // increment spilled size
     spilledSize += 4;
-  }
-
-  // if framepointer enabled, set it to point to the stack pointer.
-  if (hasFP(MF)) {
-    // Set frame pointer: FP = SP
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::MOV), Patmos::RFP))
-      .addReg(Patmos::RSP);
-  }
-
-  // load the current function base if it needs to be passed to call sites
-  if (MF.getFrameInfo()->hasCalls()) {
-    // load long immediate: current function symbol into RFB
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::LIl), Patmos::RFB))
-      .addGlobalAddress(MF.getFunction());
   }
 
   return true;
@@ -403,7 +397,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   MachineFunction &MF = *MBB.getParent();
-  const TargetInstrInfo &TII = *MF.getTarget().getInstrInfo();
+  const TargetInstrInfo &TII = *TM.getInstrInfo();
 
   // if framepointer enabled, first restore the stack pointer.
   if (hasFP(MF)) {
@@ -413,28 +407,19 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
   }
 
   // restore the calle saved register
-  bool predicateLoaded = false;
   for (unsigned i = CSI.size(); i != 0; --i) {
     unsigned Reg = CSI[i-1].getReg();
     unsigned tmpReg = Reg;
     // Add the callee-saved register as live-in. It's killed at the spill.
     MBB.addLiveIn(Reg);
 
+    // SZ is aliased with PRegs
+    if (Patmos::PRegsRegClass.contains(Reg))
+        continue;
+
     // copy to special register after reloading
     if (Patmos::SRegsRegClass.contains(Reg))
       tmpReg = Patmos::R9;
-
-    if (Patmos::PRegsRegClass.contains(Reg))
-    {
-      if (predicateLoaded)
-        continue;
-      else
-      {
-        tmpReg = Patmos::R9;
-        Reg = Patmos::SZ; // load into SZ
-        predicateLoaded = true;
-      }
-    }
 
     // load
     const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(tmpReg);
