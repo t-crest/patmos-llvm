@@ -443,19 +443,14 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
 bool DelayHazardInfo::isRegInSet(const SmallSet<unsigned, 32> &RegSet,
                                  unsigned reg) const {
 
-  if (RegSet.count(reg))
-    return true;
-  // check Aliased Registers
-  /*
-  for (const uint16_t *Alias = PDSF.TRI->getAliasSet(reg);
-       *Alias; ++ Alias)
-    if (RegSet.count(*Alias)) {
+  // Check Reg and all aliased Registers.
+  for (MCRegAliasIterator AI(reg, PDSF.TRI, true);
+       AI.isValid(); ++AI)
+    if (RegSet.count(*AI)) {
       DEBUG_TRACE(dbgs() << " ---- alias: "
-                  << PrintReg(*Alias, PDSF.TRI) << "\n");
+                  << PrintReg(*AI, PDSF.TRI) << "\n");
       return true;
     }
-  */
-
   return false;
 }
 
