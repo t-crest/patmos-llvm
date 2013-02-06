@@ -467,6 +467,9 @@ bool IfConverter::ValidSimple(BBInfo &TrueBBI, unsigned &Dups,
   if (TrueBBI.IsBrAnalyzable)
     return false;
 
+  if (!TrueBBI.BB->succ_empty())
+    return false;
+
   if (TrueBBI.BB->pred_size() > 1) {
     if (TrueBBI.CannotBeCopied ||
         !TII->isProfitableToDupForIfCvt(*TrueBBI.BB, TrueBBI.NonPredSize,
