@@ -60,6 +60,15 @@ public:
     return A;
   }
 
+  /// hasReservedSpillSlot - Return true if target has reserved a spill slot in
+  /// the stack frame of the given function for the specified register. e.g. On
+  /// x86, if the frame register is required, the first fixed stack object is
+  /// reserved as its spill slot. This tells PEI not to create a new stack frame
+  /// object for the given register. It should be called only after
+  /// processFunctionBeforeCalleeSavedScan().
+  virtual bool hasReservedSpillSlot(const MachineFunction &MF, unsigned Reg,
+                                    int &FrameIdx) const;
+
 #if 0
   const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
 #endif
@@ -67,10 +76,6 @@ public:
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
-
-#if 0
-  void processFunctionBeforeFrameFinalized(MachineFunction &MF) const;
-#endif
 
   void eliminateFrameIndex(MachineBasicBlock::iterator II,
                            int SPAdj, RegScavenger *RS = NULL) const;//XXX

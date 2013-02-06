@@ -132,23 +132,6 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
   MBB.erase(I);
 }
 
-#if 0
-void
-PatmosRegisterInfo::processFunctionBeforeFrameFinalized(MachineFunction &MF)
-                                                                         const {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-
-  // Create a frame entry for the FPW register that must be saved.
-  if (TFI->hasFP(MF)) {
-    int FrameIdx = MF.getFrameInfo()->CreateFixedObject(2, -4, true);
-    (void)FrameIdx;
-    assert(FrameIdx == MF.getFrameInfo()->getObjectIndexBegin() &&
-           "Slot for FPW register must be last in order to be found!");
-  }
-}
-
-#endif
-
 
 
 void
@@ -393,4 +376,18 @@ unsigned PatmosRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
 
   return TFI->hasFP(MF) ? Patmos::RFP : Patmos::RSP;
+}
+
+
+bool PatmosRegisterInfo::hasReservedSpillSlot(const MachineFunction &MF,
+                                          unsigned Reg, int &FrameIdx) const {
+
+  // We don't want to create a stack frame object for PRegs, they are handled
+  // by SZ, as they're aliased
+  // Simply return true - this prevents creation of a stack frame object,
+  // and PRegs are not spilled on their own so the FrameIdx is not queried
+  if (Patmos::PRegsRegClass.contains(Reg))
+    return true;
+
+  return false;
 }
