@@ -317,7 +317,16 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   // Insert instructions at the beginning of the entry block;
   // callee-saved-reg spills are inserted at front afterwards
   MachineBasicBlock &EntryMBB = MF.front();
-  DebugLoc DL = EntryMBB.front().getDebugLoc();
+
+  DebugLoc DL;
+  MachineBasicBlock *NBB = &EntryMBB;
+  while (NBB) {
+    if (!NBB->empty()) {
+      DL = NBB->front().getDebugLoc();
+      break;
+    }
+    NBB = NBB->getNextNode();
+  }
 
   if (hasFP(MF)) {
     // if framepointer enabled, set it to point to the stack pointer.
