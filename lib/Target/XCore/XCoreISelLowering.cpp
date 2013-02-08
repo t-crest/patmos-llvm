@@ -875,7 +875,6 @@ LowerINIT_TRAMPOLINE(SDValue Op, SelectionDAG &DAG) const {
 
 /// XCore call implementation
 SDValue
-<<<<<<< HEAD
 XCoreTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                SmallVectorImpl<SDValue> &InVals) const {
   SelectionDAG &DAG                     = CLI.DAG;
