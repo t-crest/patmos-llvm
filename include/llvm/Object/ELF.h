@@ -29,7 +29,6 @@
 #include <algorithm>
 #include <limits>
 #include <utility>
-#include "../Support/ELF.h"
 
 namespace llvm {
 namespace object {
