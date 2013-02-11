@@ -49,6 +49,12 @@ namespace {
     cl::desc("Export only methods reachable from given functions"),
     cl::Hidden);
 
+  static cl::opt<bool> DisableIfConverter(
+      "mpatmos-disable-ifcvt",
+      cl::init(false),
+      cl::desc("Disable if-converter for Patmos."),
+      cl::Hidden);
+
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
   public:
@@ -111,7 +117,7 @@ namespace {
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
     virtual bool addPreSched2() {
-      if (getOptLevel() != CodeGenOpt::None) {
+      if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
         addPass(&IfConverterID);
       }
       return true;
