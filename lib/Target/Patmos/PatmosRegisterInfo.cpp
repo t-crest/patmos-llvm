@@ -201,7 +201,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         //AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::WAIT) )); //XXX
         AddDefaultPred(BuildMI(MBB, II, DL, TII.get(ld_opc), Patmos::RTR))
           .addReg(basePtr, false).addImm(offset); // address
-        AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::CMPEQ), DestReg))
+        AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::CMPNEQ), DestReg))
           .addReg(Patmos::RTR).addReg(Patmos::R0); // compare with 0
       }
       break;
