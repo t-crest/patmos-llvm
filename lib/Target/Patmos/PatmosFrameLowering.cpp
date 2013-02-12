@@ -59,6 +59,10 @@ bool PatmosFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const 
 }
 #endif
 
+static unsigned int align(unsigned int offset, unsigned int alignment) {
+  return ((offset + alignment - 1) / alignment) * alignment;
+}
+
 void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
                                                 BitVector &SCFIs) const
 {
@@ -129,20 +133,36 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
     // assigned to stack cache or shadow stack?
     if (SCFIs[FI]) {
       // alignment
-      SCOffset = ((SCOffset + FIalignment - 1) / FIalignment) * FIalignment;
+      unsigned int next_SCOffset = align(SCOffset, FIalignment);
 
-      DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << SCOffset
-                   << "(" << FIoffset << ")\n");
+      // check if the FI still fits into the SC
+      if (align(next_SCOffset + FIsize, STC.getStackCacheBlockSize()) <=
+          STC.getStackCacheSize()) {
+        DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << next_SCOffset
+                    << "(" << FIoffset << ")\n");
 
-      // reassign stack offset
-      MFI.setObjectOffset(FI, SCOffset);
+        // reassign stack offset
+        MFI.setObjectOffset(FI, next_SCOffset);
 
-      // reserve space on the stack cache
-      SCOffset += FIsize;
+        // reserve space on the stack cache
+        SCOffset = next_SCOffset + FIsize;
+
+        // the FI is assigned to the SC, process next FI
+        continue;
+      }
+      else {
+        // the FI is not assigned to the SC -- fall-through and put it on the 
+        // shadow stack
+        SCFIs[FI] = false;
+      }
     }
-    else {
+
+    // assign the FI to the shadow stack
+    {
+      assert(!SCFIs[FI]);
+
       // alignment
-      SSOffset = ((SSOffset + FIalignment - 1) / FIalignment) * FIalignment;
+      SSOffset = align(SSOffset, FIalignment);
 
       DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SS: " << SSOffset
                    << "(" << FIoffset << ")\n");
@@ -156,12 +176,12 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
   }
 
   // align stack frame on stack cache
-  unsigned stackCacheSize = ((SCOffset + STC.getStackCacheBlockSize() - 1) /
-                   STC.getStackCacheBlockSize()) * STC.getStackCacheBlockSize();
+  unsigned stackCacheSize = align(SCOffset, STC.getStackCacheBlockSize());
+
+  assert(stackCacheSize <= STC.getStackCacheSize());
 
   // align shadow stack. call arguments are already included in SSOffset
-  unsigned stackSize = ((SSOffset + getStackAlignment() - 1) /
-                        getStackAlignment()) * getStackAlignment();
+  unsigned stackSize = align(SSOffset, getStackAlignment());
 
   // update offset of fixed objects
   for(unsigned FI = MFI.getObjectIndexBegin(), FIe = 0; FI != FIe; FI++) {
