@@ -46,69 +46,69 @@ class PatmosPRED<bits<3> num, string n> : PatmosReg<n> {
 //  Registers
 //===----------------------------------------------------------------------===//
 
-def R0  : PatmosGPR< 0,  "r0">;
-def R1  : PatmosGPR< 1,  "r1">;
-def R2  : PatmosGPR< 2,  "r2">;
-def R3  : PatmosGPR< 3,  "r3">;
-def R4  : PatmosGPR< 4,  "r4">;
-def R5  : PatmosGPR< 5,  "r5">;
-def R6  : PatmosGPR< 6,  "r6">;
-def R7  : PatmosGPR< 7,  "r7">;
-def R8  : PatmosGPR< 8,  "r8">;
-def R9  : PatmosGPR< 9,  "r9">;
-def R10 : PatmosGPR<10, "r10">;
-def R11 : PatmosGPR<11, "r11">;
-def R12 : PatmosGPR<12, "r12">;
-def R13 : PatmosGPR<13, "r13">;
-def R14 : PatmosGPR<14, "r14">;
-def R15 : PatmosGPR<15, "r15">;
-def R16 : PatmosGPR<16, "r16">;
-def R17 : PatmosGPR<17, "r17">;
-def R18 : PatmosGPR<18, "r18">;
-def R19 : PatmosGPR<19, "r19">;
-def R20 : PatmosGPR<20, "r20">;
-def R21 : PatmosGPR<21, "r21">;
-def R22 : PatmosGPR<22, "r22">;
-def R23 : PatmosGPR<23, "r23">;
-def R24 : PatmosGPR<24, "r24">;
-def R25 : PatmosGPR<25, "r25">;
-def R26 : PatmosGPR<26, "r26">;
-def RTR : PatmosGPR<27, "r27">; // reserved temporary register
-def RFP : PatmosGPR<28, "r28">; // frame ptr
-def RSP : PatmosGPR<29, "r29">; // stack ptr
-def RFB : PatmosGPR<30, "r30">; // return info: function base
-def RFO : PatmosGPR<31, "r31">; // return info: function offset
+def R0  : PatmosGPR< 0,  "r0">, DwarfRegNum<[0]>;
+def R1  : PatmosGPR< 1,  "r1">, DwarfRegNum<[1]>;
+def R2  : PatmosGPR< 2,  "r2">, DwarfRegNum<[2]>;
+def R3  : PatmosGPR< 3,  "r3">, DwarfRegNum<[3]>;
+def R4  : PatmosGPR< 4,  "r4">, DwarfRegNum<[4]>;
+def R5  : PatmosGPR< 5,  "r5">, DwarfRegNum<[5]>;
+def R6  : PatmosGPR< 6,  "r6">, DwarfRegNum<[6]>;
+def R7  : PatmosGPR< 7,  "r7">, DwarfRegNum<[7]>;
+def R8  : PatmosGPR< 8,  "r8">, DwarfRegNum<[8]>;
+def R9  : PatmosGPR< 9,  "r9">, DwarfRegNum<[9]>;
+def R10 : PatmosGPR<10, "r10">, DwarfRegNum<[10]>;
+def R11 : PatmosGPR<11, "r11">, DwarfRegNum<[11]>;
+def R12 : PatmosGPR<12, "r12">, DwarfRegNum<[12]>;
+def R13 : PatmosGPR<13, "r13">, DwarfRegNum<[13]>;
+def R14 : PatmosGPR<14, "r14">, DwarfRegNum<[14]>;
+def R15 : PatmosGPR<15, "r15">, DwarfRegNum<[15]>;
+def R16 : PatmosGPR<16, "r16">, DwarfRegNum<[16]>;
+def R17 : PatmosGPR<17, "r17">, DwarfRegNum<[17]>;
+def R18 : PatmosGPR<18, "r18">, DwarfRegNum<[18]>;
+def R19 : PatmosGPR<19, "r19">, DwarfRegNum<[19]>;
+def R20 : PatmosGPR<20, "r20">, DwarfRegNum<[20]>;
+def R21 : PatmosGPR<21, "r21">, DwarfRegNum<[21]>;
+def R22 : PatmosGPR<22, "r22">, DwarfRegNum<[22]>;
+def R23 : PatmosGPR<23, "r23">, DwarfRegNum<[23]>;
+def R24 : PatmosGPR<24, "r24">, DwarfRegNum<[24]>;
+def R25 : PatmosGPR<25, "r25">, DwarfRegNum<[25]>;
+def R26 : PatmosGPR<26, "r26">, DwarfRegNum<[26]>;
+def RTR : PatmosGPR<27, "r27">, DwarfRegNum<[27]>; // reserved temporary register
+def RFP : PatmosGPR<28, "r28">, DwarfRegNum<[28]>; // frame ptr
+def RSP : PatmosGPR<29, "r29">, DwarfRegNum<[29]>; // stack ptr
+def RFB : PatmosGPR<30, "r30">, DwarfRegNum<[30]>; // return info: function base
+def RFO : PatmosGPR<31, "r31">, DwarfRegNum<[31]>; // return info: function offset
 
-def P0  : PatmosPRED<0, "p0">;
-def P1  : PatmosPRED<1, "p1">;
-def P2  : PatmosPRED<2, "p2">;
-def P3  : PatmosPRED<3, "p3">;
-def P4  : PatmosPRED<4, "p4">;
-def P5  : PatmosPRED<5, "p5">;
-def P6  : PatmosPRED<6, "p6">;
-def P7  : PatmosPRED<7, "p7">;
+def P0  : PatmosPRED<0, "p0">, DwarfRegNum<[50]>;
+def P1  : PatmosPRED<1, "p1">, DwarfRegNum<[51]>;
+def P2  : PatmosPRED<2, "p2">, DwarfRegNum<[52]>;
+def P3  : PatmosPRED<3, "p3">, DwarfRegNum<[53]>;
+def P4  : PatmosPRED<4, "p4">, DwarfRegNum<[54]>;
+def P5  : PatmosPRED<5, "p5">, DwarfRegNum<[55]>;
+def P6  : PatmosPRED<6, "p6">, DwarfRegNum<[56]>;
+def P7  : PatmosPRED<7, "p7">, DwarfRegNum<[57]>;
 
 //def PRF : PatmosPRF<"pred", [P0, P1, P2, P3, P4, P5, P6, P7]>;
 //def SZ  : PatmosSPRWithSubRegs< 0,  "sz", [PRF]>;
 
 let Aliases = [P0, P1, P2, P3, P4, P5, P6, P7] in
-def SZ  : PatmosSPR< 0,  "s0">; // zero
+def SZ  : PatmosSPR< 0,  "s0">, DwarfRegNum<[0]>; // zero
 
-def SM  : PatmosSPR< 1,  "sm">;
-def SL  : PatmosSPR< 2,  "sl">;
-def SH  : PatmosSPR< 3,  "sh">;
-def S4  : PatmosSPR< 4,  "s4">;
-def S5  : PatmosSPR< 5,  "s5">;
-def ST  : PatmosSPR< 6,  "st">;
-def S7  : PatmosSPR< 7,  "s7">;
-def S8  : PatmosSPR< 8,  "s8">;
-def S9  : PatmosSPR< 9,  "s9">;
-def S10 : PatmosSPR<10, "s10">;
-def S11 : PatmosSPR<11, "s11">;
-def S12 : PatmosSPR<12, "s12">;
-def S13 : PatmosSPR<13, "s13">;
-def S14 : PatmosSPR<14, "s14">;
-def S15 : PatmosSPR<15, "s15">;
+def SM  : PatmosSPR< 1,  "sm">, DwarfRegNum<[32]>;
+def SL  : PatmosSPR< 2,  "sl">, DwarfRegNum<[33]>;
+def SH  : PatmosSPR< 3,  "sh">, DwarfRegNum<[34]>;
+def S4  : PatmosSPR< 4,  "s4">, DwarfRegNum<[35]>;
+def S5  : PatmosSPR< 5,  "s5">, DwarfRegNum<[36]>;
+def ST  : PatmosSPR< 6,  "st">, DwarfRegNum<[37]>;
+def S7  : PatmosSPR< 7,  "s7">, DwarfRegNum<[38]>;
+def S8  : PatmosSPR< 8,  "s8">, DwarfRegNum<[39]>;
+def S9  : PatmosSPR< 9,  "s9">, DwarfRegNum<[40]>;
+def S10 : PatmosSPR<10, "s10">, DwarfRegNum<[41]>;
+def S11 : PatmosSPR<11, "s11">, DwarfRegNum<[42]>;
+def S12 : PatmosSPR<12, "s12">, DwarfRegNum<[43]>;
+def S13 : PatmosSPR<13, "s13">, DwarfRegNum<[44]>;
+def S14 : PatmosSPR<14, "s14">, DwarfRegNum<[45]>;
+def S15 : PatmosSPR<15, "s15">, DwarfRegNum<[46]>;
 
 
 
