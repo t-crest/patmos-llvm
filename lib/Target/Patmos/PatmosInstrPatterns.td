@@ -126,36 +126,39 @@ def : Pat<(setne  predsel:$a, (i1 -1)), (PNOT predsel:$a)>;
 def : Pat<(i1 (trunc RRegs:$a)), (ISODD RRegs:$a)>;
 
 
-// inst_C: instruction to use for data cache load
-// inst_M: instruction to use for uncached load
-multiclass LoadTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
+// inst_C: instruction to use for data load
+multiclass LoadTypedPatterns<PatmosInst inst, PatFrag immFg, PatFrag pfg>
 {
   // load register indirect from cache
-  def ra : Pat<(pfg RRegs:$ra), (inst_C RRegs:$ra, 0)>;
+  def ra : Pat<(pfg RRegs:$ra), (inst RRegs:$ra, 0)>;
 
   // load register indirect + immediate from cache
   def raimm : Pat<(pfg (add RRegs:$ra, immFg:$imm)),
-                  (inst_C RRegs:$ra, immFg:$imm)>;
+                  (inst RRegs:$ra, immFg:$imm)>;
 
   // load register indirect from cache
-  def fi : Pat<(pfg fipat:$fi), (inst_C fipat:$fi, 0)>;
+  def fi : Pat<(pfg fipat:$fi), (inst fipat:$fi, 0)>;
 
   // load register indirect from cache
   def fiimm : Pat<(pfg (add fipat:$fi, immFg:$imm)),
-                  (inst_C fipat:$fi, immFg:$imm)>;
+                  (inst fipat:$fi, immFg:$imm)>;
 
   def fior : Pat<(pfg (or fipat:$fi, immFg:$imm)),
-                  (inst_C fipat:$fi, immFg:$imm)>;
+                  (inst fipat:$fi, immFg:$imm)>;
 
   // TODO: more patterns here
 }
 
 class cachedLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr), [{
-		return !cast<MemSDNode>(N)->isVolatile() && !cast<MemSDNode>(N)->isNonTemporal();
+		return cast<MemSDNode>(N)->getAddressSpace() == 0 && !cast<MemSDNode>(N)->isNonTemporal();
 	    }]>;
 
 class uncachedLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr), [{
-		return cast<MemSDNode>(N)->isVolatile() || cast<MemSDNode>(N)->isNonTemporal();
+		return cast<MemSDNode>(N)->getAddressSpace() == 0 && cast<MemSDNode>(N)->isNonTemporal();
+	    }]>;
+
+class spmLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr), [{
+		return cast<MemSDNode>(N)->getAddressSpace() == 1;
 	    }]>;
 
 // feel free to use multiclass if you find out how to make them work ..
@@ -174,6 +177,13 @@ defm LBUM : LoadTypedPatterns<LBUM, imm7  , uncachedLoad<zextloadi8>>;
 defm LHEM : LoadTypedPatterns<LHUM, imm7s1, uncachedLoad<extloadi16>>;
 defm LBEM : LoadTypedPatterns<LBUM, imm7  , uncachedLoad<extloadi8>>;
 
+defm LWL  : LoadTypedPatterns<LWL , imm7s2, spmLoad<load>>;
+defm LHL  : LoadTypedPatterns<LHL , imm7s1, spmLoad<sextloadi16>>;
+defm LBL  : LoadTypedPatterns<LBL , imm7  , spmLoad<sextloadi8>>;
+defm LHUL : LoadTypedPatterns<LHUL, imm7s1, spmLoad<zextloadi16>>;
+defm LBUL : LoadTypedPatterns<LBUL, imm7  , spmLoad<zextloadi8>>;
+defm LHEL : LoadTypedPatterns<LHUL, imm7s1, spmLoad<extloadi16>>;
+defm LBEL : LoadTypedPatterns<LBUL, imm7  , spmLoad<extloadi8>>;
 
 // store patterns
 
@@ -203,12 +213,17 @@ multiclass StoreTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
 }
 
 class cachedStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patStore node:$val, node:$ptr), [{
-		return !cast<MemSDNode>(N)->isVolatile() && !cast<MemSDNode>(N)->isNonTemporal();
+		return cast<MemSDNode>(N)->getAddressSpace() == 0 && !cast<MemSDNode>(N)->isNonTemporal();
 	    }]>;
 
 class uncachedStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patStore node:$val, node:$ptr), [{
-		return cast<MemSDNode>(N)->isVolatile() || cast<MemSDNode>(N)->isNonTemporal();
+		return cast<MemSDNode>(N)->getAddressSpace() == 0 && cast<MemSDNode>(N)->isNonTemporal();
 	    }]>;
+
+class spmStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patStore node:$val, node:$ptr), [{
+		return cast<MemSDNode>(N)->getAddressSpace() == 1;
+	    }]>;
+
 
 defm SW  : StoreTypedPatterns<SWC, imm7s2, cachedStore<store>>;
 defm SH  : StoreTypedPatterns<SHC, imm7s1, cachedStore<truncstorei16>>;
@@ -216,6 +231,9 @@ defm SB  : StoreTypedPatterns<SBC, imm7  , cachedStore<truncstorei8>>;
 defm SWM : StoreTypedPatterns<SWM, imm7s2, uncachedStore<store>>;
 defm SHM : StoreTypedPatterns<SHM, imm7s1, uncachedStore<truncstorei16>>;
 defm SBM : StoreTypedPatterns<SBM, imm7  , uncachedStore<truncstorei8>>;
+defm SWL : StoreTypedPatterns<SWL, imm7s2, spmStore<store>>;
+defm SHL : StoreTypedPatterns<SHL, imm7s1, spmStore<truncstorei16>>;
+defm SBL : StoreTypedPatterns<SBL, imm7  , spmStore<truncstorei8>>;
 
 
 // Branch via JumpTable
