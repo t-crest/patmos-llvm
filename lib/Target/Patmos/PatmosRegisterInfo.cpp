@@ -43,7 +43,7 @@ PatmosRegisterInfo::PatmosRegisterInfo(PatmosTargetMachine &tm,
 
 const uint16_t*
 PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
-  const TargetFrameLowering *TFI = MF->getTarget().getFrameLowering();
+  const TargetFrameLowering *TFI = TM.getFrameLowering();
   //const Function* F = MF->getFunction();
   static const uint16_t CalleeSavedRegs[] = {
     // Special regs
@@ -74,12 +74,11 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   };
 
   return (TFI->hasFP(*MF)) ? CalleeSavedRegsFP : CalleeSavedRegs;
-
 }
 
 BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  const TargetFrameLowering *TFI = TM.getFrameLowering();
 
   Reserved.set(Patmos::R0);
   Reserved.set(Patmos::P0);
@@ -226,7 +225,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineInstr &MI                = *II;
   MachineBasicBlock &MBB          = *MI.getParent();
   MachineFunction &MF             = *MBB.getParent();
-  const TargetFrameLowering &TFI  = *MF.getTarget().getFrameLowering();
+  const TargetFrameLowering &TFI  = *TM.getFrameLowering();
   const MachineFrameInfo &MFI     = *MF.getFrameInfo();
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
@@ -373,7 +372,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 }
 
 unsigned PatmosRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  const TargetFrameLowering *TFI = TM.getFrameLowering();
 
   return TFI->hasFP(MF) ? Patmos::RFP : Patmos::RSP;
 }
