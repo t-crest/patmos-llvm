@@ -1074,7 +1074,7 @@ namespace llvm {
         rewriteCode();
 
       // ensure method alignment
-      MF->EnsureAlignment(log2(STC.getMethodCacheBlockSize()));
+      MF->ensureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
     /// transferSuccessors - replace uses of OldSucc to uses of NewSucc.

@@ -37,6 +37,8 @@ add_llvm_target(PatmosCodeGen
   PatmosExport.cpp
   )
 
+add_dependencies(LLVMPatmosCodeGen intrinsics_gen)
+
 add_subdirectory(AsmParser)
 add_subdirectory(Disassembler)
 add_subdirectory(InstPrinter)

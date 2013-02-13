@@ -17,7 +17,6 @@ set(sources
   X86AsmPrinter.cpp
   X86COFFMachineModuleInfo.cpp
   X86CodeEmitter.cpp
-  X86ELFWriterInfo.cpp
   X86FastISel.cpp
   X86FloatingPoint.cpp
   X86FrameLowering.cpp
@@ -51,6 +50,8 @@ if( CMAKE_CL_64 )
 endif()
 
 add_llvm_target(X86CodeGen ${sources})
+
+add_dependencies(LLVMX86CodeGen intrinsics_gen)
 
 add_subdirectory(AsmParser)
 add_subdirectory(Disassembler)

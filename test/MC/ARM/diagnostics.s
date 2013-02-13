@@ -47,7 +47,47 @@
 @ CHECK-ERRORS: error: immediate shift value out of range
 @ CHECK-ERRORS:         adc r4, r5, r6, ror #32
 
+        @ Out of range shift immediate values for load/store.
+        str r1, [r2, r3, lsl #invalid]
+        ldr r4, [r5], r6, lsl #-1
+        pld r4, [r5, r6, lsl #32]
+        str r4, [r5], r6, lsr #-1
+        ldr r4, [r5, r6, lsr #33]
+        pld r4, [r5, r6, asr #-1]
+        str r4, [r5, r6, asr #33]
+        ldr r4, [r5, r6, ror #-1]
+        pld r4, [r5, r6, ror #32]
+        pld r4, [r5, r6, rrx #0]
 
+@ CHECK-ERRORS: error: shift amount must be an immediate
+@ CHECK-ERRORS:         str r1, [r2, r3, lsl #invalid]
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         ldr r4, [r5], r6, lsl #-1
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         pld r4, [r5, r6, lsl #32]
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         str r4, [r5], r6, lsr #-1
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         ldr r4, [r5, r6, lsr #33]
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         pld r4, [r5, r6, asr #-1]
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         str r4, [r5, r6, asr #33]
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         ldr r4, [r5, r6, ror #-1]
+@ CHECK-ERRORS:                              ^
+@ CHECK-ERRORS: error: immediate shift value out of range
+@ CHECK-ERRORS:         pld r4, [r5, r6, ror #32]
+@ CHECK-ERRORS: error: ']' expected
+@ CHECK-ERRORS:         pld r4, [r5, r6, rrx #0]
+        
         @ Out of range 16-bit immediate on BKPT
         bkpt #65536
 
@@ -70,8 +110,8 @@
         dbg #-1
         dbg #16
 
-@ CHECK-ERRORS: error: invalid operand for instruction
-@ CHECK-ERRORS: error: invalid operand for instruction
+@ CHECK-ERRORS: error: immediate operand must be in the range [0,15]
+@ CHECK-ERRORS: error: immediate operand must be in the range [0,15]
 @  Double-check that we're synced up with the right diagnostics.
 @ CHECK-ERRORS: dbg #16
 
@@ -86,8 +126,8 @@
 @ CHECK-ERRORS: error: invalid operand for instruction
 @ CHECK-ERRORS: error: invalid operand for instruction
 @ CHECK-ERRORS: error: invalid operand for instruction
-@ CHECK-ERRORS: error: invalid operand for instruction
-@ CHECK-ERRORS: error: invalid operand for instruction
+@ CHECK-ERRORS: error: immediate operand must be in the range [0,15]
+@ CHECK-ERRORS: error: immediate operand must be in the range [0,15]
 
 
         @ Out of range immediate for MOV
@@ -115,8 +155,8 @@
 @ CHECK-ERRORS: error: invalid operand for instruction
 @ CHECK-ERRORS: error: invalid operand for instruction
 @ CHECK-ERRORS: error: invalid operand for instruction
-@ CHECK-ERRORS: error: invalid operand for instruction
-@ CHECK-ERRORS: error: invalid operand for instruction
+@ CHECK-ERRORS: error: immediate operand must be in the range [0,15]
+@ CHECK-ERRORS: error: immediate operand must be in the range [0,15]
 
         @ Shifter operand validation for PKH instructions.
         pkhbt r2, r2, r3, lsl #-1
@@ -315,3 +355,19 @@
 @ CHECK-ERRORS: error: coprocessor option must be an immediate in range [0, 255]
 @ CHECK-ERRORS:         ldc2 p2, c8, [r1], { -1 }
 @ CHECK-ERRORS:                              ^
+
+        @ Bad CPS instruction format.
+        cps f,#1
+@ CHECK-ERRORS: error: invalid operand for instruction
+@ CHECK-ERRORS:         cps f,#1
+@ CHECK-ERRORS:               ^
+
+        @ Bad operands for msr
+        msr #0, #0
+        msr foo, #0
+@ CHECK-ERRORS: error: invalid operand for instruction
+@ CHECK-ERRORS:         msr #0, #0
+@ CHECK-ERRORS:             ^
+@ CHECK-ERRORS: error: invalid operand for instruction
+@ CHECK-ERRORS:         msr foo, #0
+@ CHECK-ERRORS:             ^

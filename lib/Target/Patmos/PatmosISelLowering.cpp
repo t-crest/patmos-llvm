@@ -43,14 +43,14 @@ using namespace llvm;
 
 PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   TargetLowering(tm, new TargetLoweringObjectFileELF()),
-  Subtarget(*tm.getSubtargetImpl()), TM(tm) {
+  Subtarget(*tm.getSubtargetImpl()) {
 
-  TD = getTargetData();
+  TD = getDataLayout();
 
   // Set up the register classes.
   // SRegs are not used for computations.
-  addRegisterClass(MVT::i32, Patmos::RRegsRegisterClass);
-  addRegisterClass(MVT::i1,  Patmos::PRegsRegisterClass);
+  addRegisterClass(MVT::i32, &Patmos::RRegsRegClass);
+  addRegisterClass(MVT::i1,  &Patmos::PRegsRegClass);
 
   // Compute derived properties from the register classes
   computeRegisterProperties();
@@ -280,29 +280,19 @@ PatmosTargetLowering::LowerFormalArguments(SDValue Chain,
 
 
 SDValue
-PatmosTargetLowering::LowerCall(SDValue Chain, SDValue Callee,
-                                CallingConv::ID CallConv, bool isVarArg,
-                                bool doesNotRet, bool &isTailCall,
-                                const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                const SmallVectorImpl<SDValue> &OutVals,
-                                const SmallVectorImpl<ISD::InputArg> &Ins,
-                                DebugLoc dl, SelectionDAG &DAG,
-                                SmallVectorImpl<SDValue> &InVals,
-                                MachinePointerInfo MPI) const {
+PatmosTargetLowering::LowerCall(CallLoweringInfo &CLI,
+                                SmallVectorImpl<SDValue> &InVals) const {
   // Patmos target does not yet support tail call optimization.
-  isTailCall = false;
+  CLI.IsTailCall = false;
 
-  switch (CallConv) {
+  switch (CLI.CallConv) {
   default:
     llvm_unreachable("Unsupported calling convention");
   case CallingConv::Fast:
   case CallingConv::C:
-    return LowerCCCCallTo(Chain, Callee, CallConv, isVarArg, isTailCall,
-                          Outs, OutVals, Ins, dl, DAG, InVals, MPI);
+    return LowerCCCCallTo(CLI, InVals);
   }
 }
-
-
 
 
 
@@ -348,7 +338,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
         }
       case MVT::i32:
         unsigned VReg =
-          RegInfo.createVirtualRegister(Patmos::RRegsRegisterClass);
+          RegInfo.createVirtualRegister(&Patmos::RRegsRegClass);
         RegInfo.addLiveIn(VA.getLocReg(), VReg);
         SDValue ArgValue = DAG.getCopyFromReg(Chain, dl, VReg, RegVT);
 
@@ -459,16 +449,19 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
 /// (physical regs)/(stack frame), CALLSEQ_START and CALLSEQ_END are emitted.
 /// TODO: sret.
 SDValue
-PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
-                                     CallingConv::ID CallConv, bool isVarArg,
-                                     bool isTailCall,
-                                     const SmallVectorImpl<ISD::OutputArg>
-                                       &Outs,
-                                     const SmallVectorImpl<SDValue> &OutVals,
-                                     const SmallVectorImpl<ISD::InputArg> &Ins,
-                                     DebugLoc dl, SelectionDAG &DAG,
-                                     SmallVectorImpl<SDValue> &InVals,
-                                     MachinePointerInfo MPI) const {
+PatmosTargetLowering::LowerCCCCallTo(CallLoweringInfo &CLI,
+                                     SmallVectorImpl<SDValue> &InVals) const
+{
+  SelectionDAG &DAG                     = CLI.DAG;
+  DebugLoc &dl                          = CLI.DL;
+  SmallVector<ISD::OutputArg, 32> &Outs = CLI.Outs;
+  SmallVector<SDValue, 32> &OutVals     = CLI.OutVals;
+  SmallVector<ISD::InputArg, 32> &Ins   = CLI.Ins;
+  SDValue Chain                         = CLI.Chain;
+  SDValue Callee                        = CLI.Callee;
+  CallingConv::ID CallConv              = CLI.CallConv;
+  bool isVarArg                         = CLI.IsVarArg;
+
   // Analyze operands of the call, assigning locations to each operand.
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
@@ -568,8 +561,8 @@ PatmosTargetLowering::LowerCCCCallTo(SDValue Chain, SDValue Callee,
 
 
   // attach machine-level aliasing information
-  MachineMemOperand *MMO = DAG.getMachineFunction().getMachineMemOperand(MPI, 0,
-                                                                         4, 0);
+  MachineMemOperand *MMO = 
+      DAG.getMachineFunction().getMachineMemOperand(CLI.MPI, 0, 4, 0);
 
   Chain = DAG.getMemIntrinsicNode(PatmosISD::CALL, dl,
                                   NodeTys, &Ops[0], Ops.size(),
@@ -648,19 +641,19 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
     case 'R':  // r0-r31
     case 'r':  // general purpose registers
       //if (VT == MVT::i32) {
-        return std::make_pair(0U, Patmos::RRegsRegisterClass);
+        return std::make_pair(0U, &Patmos::RRegsRegClass);
       //}
       //assert("Unexpected register type");
       //return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
     case 'S':
       if (VT == MVT::i32) {
-        return std::make_pair(0U, Patmos::SRegsRegisterClass);
+        return std::make_pair(0U, &Patmos::SRegsRegClass);
       }
       assert("Unexpected register type");
       return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));
     case 'P':
       if (VT == MVT::i1) {
-        return std::make_pair(0U, Patmos::PRegsRegisterClass);
+        return std::make_pair(0U, &Patmos::PRegsRegClass);
       }
       assert("Unexpected register type");
       return std::make_pair(0U, static_cast<const TargetRegisterClass*>(0));

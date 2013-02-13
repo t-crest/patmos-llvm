@@ -35,7 +35,7 @@ using namespace llvm;
 
 PatmosInstrInfo::PatmosInstrInfo(PatmosTargetMachine &tm)
   : PatmosGenInstrInfo(Patmos::ADJCALLSTACKDOWN, Patmos::ADJCALLSTACKUP),
-    RI(tm, *this), TM(tm) {}
+    RI(tm, *this) {}
 
 bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
                                             unsigned &SrcOpIdx1,
@@ -433,6 +433,9 @@ PredicateInstruction(MachineInstr *MI,
         "Unexpected Patmos predicate operand");
     PO1.setReg(Pred[0].getReg());
     PO2.setImm(Pred[1].getImm());
+
+    // Fix opcode from uncond. to cond.
+    fixOpcodeForGuard(MI);
     return true;
   }
   return false;

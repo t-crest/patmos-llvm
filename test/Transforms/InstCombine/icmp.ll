@@ -637,3 +637,43 @@ define i1 @test62(i8* %a) {
 ; CHECK: @test62
 ; CHECK-NEXT: ret i1 true
 }
+
+define i1 @test63(i8 %a, i32 %b) nounwind {
+  %z = zext i8 %a to i32
+  %t = and i32 %b, 255
+  %c = icmp eq i32 %z, %t
+  ret i1 %c
+; CHECK: @test63
+; CHECK-NEXT: %1 = trunc i32 %b to i8
+; CHECK-NEXT: %c = icmp eq i8 %1, %a
+; CHECK-NEXT: ret i1 %c
+}
+
+define i1 @test64(i8 %a, i32 %b) nounwind {
+  %t = and i32 %b, 255
+  %z = zext i8 %a to i32
+  %c = icmp eq i32 %t, %z
+  ret i1 %c
+; CHECK: @test64
+; CHECK-NEXT: %1 = trunc i32 %b to i8
+; CHECK-NEXT: %c = icmp eq i8 %1, %a
+; CHECK-NEXT: ret i1 %c
+}
+
+define i1 @test65(i64 %A, i64 %B) {
+  %s1 = add i64 %A, %B
+  %s2 = add i64 %A, %B
+  %cmp = icmp eq i64 %s1, %s2
+; CHECK: @test65
+; CHECK-NEXT: ret i1 true
+  ret i1 %cmp
+}
+
+define i1 @test66(i64 %A, i64 %B) {
+  %s1 = add i64 %A, %B
+  %s2 = add i64 %B, %A
+  %cmp = icmp eq i64 %s1, %s2
+; CHECK: @test66
+; CHECK-NEXT: ret i1 true
+  ret i1 %cmp
+}

@@ -73,16 +73,17 @@ public:
   virtual bool ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                            bool &HasPrefix);
 
-  virtual bool ParseInstruction(StringRef Name, SMLoc NameLoc,
+  virtual bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
                                 SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   virtual bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc);
 
   virtual bool ParseDirective(AsmToken DirectiveID);
 
-  virtual bool MatchAndEmitInstruction(SMLoc IDLoc,
+  virtual bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                               MCStreamer &Out);
+                               MCStreamer &Out, unsigned &ErrorInfo, 
+			       bool MatchingInlineAsm);
 
   void EatToEndOfStatement();
 
@@ -320,12 +321,12 @@ void PatmosOperand::print(raw_ostream &OS) const {
 
 
 bool PatmosAsmParser::
-MatchAndEmitInstruction(SMLoc IDLoc,
+MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                         SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                        MCStreamer &Out) {
+                        MCStreamer &Out, unsigned &ErrorInfo, 
+			bool MatchingInlineAsm) {
   MCInst Inst;
   SMLoc ErrorLoc;
-  unsigned ErrorInfo;
   bool isBundled = false;
 
   PatmosOperand *Op = (PatmosOperand*)Operands.back();
@@ -343,7 +344,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
 
   BundleCounter = isBundled ? BundleCounter + 1 : 0;
 
-  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo)) {
+  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm, 0)) {
   default: break;
   case Match_Success:
   {
@@ -449,6 +450,8 @@ MatchAndEmitInstruction(SMLoc IDLoc,
       }
     }
 
+    Opcode = Inst.getOpcode();
+
     Out.EmitInstruction(Inst);
     return false;
   }
@@ -456,8 +459,6 @@ MatchAndEmitInstruction(SMLoc IDLoc,
     return Error(IDLoc, "instruction use requires an option to be enabled");
   case Match_MnemonicFail:
       return Error(IDLoc, "unrecognized instruction mnemonic");
-  case Match_ConversionFail:
-    return Error(IDLoc, "unable to convert operands to instruction");
   case Match_InvalidOperand:
     ErrorLoc = IDLoc;
     if (ErrorInfo != ~0U) {
@@ -706,7 +707,7 @@ ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands, bo
 }
 
 bool PatmosAsmParser::
-ParseInstruction(StringRef Name, SMLoc NameLoc,
+ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
                  SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 {
   // The first operand is the token for the instruction name

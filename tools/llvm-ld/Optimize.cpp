@@ -17,7 +17,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/DynamicLibrary.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/PassNameParser.h"
 #include "llvm/Support/PluginLoader.h"
@@ -86,8 +86,8 @@ void Optimize(Module *M) {
   if (VerifyEach)
     Passes.add(createVerifierPass());
 
-  // Add an appropriate TargetData instance for this module...
-  addPass(Passes, new TargetData(M));
+  // Add an appropriate DataLayout instance for this module...
+  addPass(Passes, new DataLayout(M));
 
   if (!DisableOptimizations)
     PassManagerBuilder().populateLTOPassManager(Passes, !DisableInternalize,

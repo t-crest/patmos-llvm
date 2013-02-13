@@ -23,7 +23,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -317,7 +317,16 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   // Insert instructions at the beginning of the entry block;
   // callee-saved-reg spills are inserted at front afterwards
   MachineBasicBlock &EntryMBB = MF.front();
-  DebugLoc DL = EntryMBB.front().getDebugLoc();
+
+  DebugLoc DL;
+  MachineBasicBlock *NBB = &EntryMBB;
+  while (NBB) {
+    if (!NBB->empty()) {
+      DL = NBB->front().getDebugLoc();
+      break;
+    }
+    NBB = NBB->getNextNode();
+  }
 
   if (hasFP(MF)) {
     // if framepointer enabled, set it to point to the stack pointer.
@@ -340,8 +349,6 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     MRI.setPhysRegUnused(Patmos::RFB);
     MRI.setPhysRegUnused(Patmos::RFO);
   }
-
-
 }
 
 bool

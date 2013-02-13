@@ -1,5 +1,3 @@
-set(LLVM_REQUIRES_EH 1)
-set(LLVM_REQUIRES_RTTI 1)
 set(LLVM_LINK_COMPONENTS Support)
 
 add_tablegen(llvm-tblgen LLVM
@@ -10,7 +8,9 @@ add_tablegen(llvm-tblgen LLVM
   CodeEmitterGen.cpp
   CodeGenDAGPatterns.cpp
   CodeGenInstruction.cpp
+  CodeGenMapTable.cpp
   CodeGenRegisters.cpp
+  CodeGenSchedule.cpp
   CodeGenTarget.cpp
   DAGISelEmitter.cpp
   DAGISelMatcherEmitter.cpp
@@ -27,7 +27,6 @@ add_tablegen(llvm-tblgen LLVM
   PseudoLoweringEmitter.cpp
   RegisterInfoEmitter.cpp
   SetTheory.cpp
-  StringMatcher.cpp
   SubtargetEmitter.cpp
   TGValueTypes.cpp
   TableGen.cpp
