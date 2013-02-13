@@ -693,18 +693,24 @@ def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
                 "not", "$pd = $ps1",
                 [(set PRegs:$pd, (not predsel:$ps1))]>;
 
-//set uses or opcode (or Pd = p0 | p0)
-let ps1 = 0, ps2 = 0 in
-def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
-                "set", "$pd",
-                [(set PRegs:$pd, (i1 -1))]>;
 
-//clr uses xor opcode (xor Pd = p0 ^ p0)
-let ps1 = 0, ps2 = 0 in
-def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
-                "clr", "$pd",
-                [(set PRegs:$pd, (i1 0))]>;
 
+let isAsCheapAsAMove = 1,
+    isMoveImm = 1,
+    isReMaterializable = 1 in
+{
+  //set uses or opcode (or Pd = p0 | p0)
+  let ps1 = 0, ps2 = 0 in
+  def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
+                  "set", "$pd",
+                  [(set PRegs:$pd, (i1 -1))]>;
+
+  //clr uses xor opcode (xor Pd = p0 ^ p0)
+  let ps1 = 0, ps2 = 0 in
+  def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
+                  "clr", "$pd",
+                  [(set PRegs:$pd, (i1 0))]>;
+}
 
 // Wait
 def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;

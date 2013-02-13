@@ -152,7 +152,7 @@ stuff too.
 
 //===---------------------------------------------------------------------===//
 
-For vector types, TargetData.cpp::getTypeInfo() returns alignment that is equal
+For vector types, DataLayout.cpp::getTypeInfo() returns alignment that is equal
 to the type size. It works but can be overly conservative as the alignment of
 specific vector types are target dependent.
 
@@ -961,6 +961,12 @@ int f(int i, int j) { return i < j + 1; }
 int g(int i, int j) { return j > i - 1; }
 Should combine to "i <= j" (the add/sub has nsw).  Currently not
 optimized with "clang -emit-llvm-bc | opt -std-compile-opts".
+
+//===---------------------------------------------------------------------===//
+
+unsigned f(unsigned x) { return ((x & 7) + 1) & 15; }
+The & 15 part should be optimized away, it doesn't change the result. Currently
+not optimized with "clang -emit-llvm-bc | opt -std-compile-opts".
 
 //===---------------------------------------------------------------------===//
 
@@ -2359,10 +2365,5 @@ should fold to (x & y) == 0.
 
 unsigned foo(unsigned x, unsigned y) { return x > y && x != 0; }
 should fold to x > y.
-
-//===---------------------------------------------------------------------===//
-
-int f(double x) { return __builtin_fabs(x) < 0.0; }
-should fold to false.
 
 //===---------------------------------------------------------------------===//

@@ -16,16 +16,16 @@
 #include "MCTargetDesc/PatmosBaseInfo.h"
 #include "llvm/MC/EDInstInfo.h"
 #include "llvm/MC/MCDisassembler.h"
+#include "llvm/MC/MCFixedLenDisassembler.h"
 #include "llvm/Support/MemoryObject.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/MathExtras.h"
 
-
-#include "PatmosGenEDInfo.inc"
 
 using namespace llvm;
 
@@ -64,10 +64,6 @@ private:
 
 };
 
-const EDInstInfo *PatmosDisassembler::getEDInfo() const {
-  return instInfoPatmos;
-}
-
 // We could use the information from PatmosGenRegisterInfo.inc here,
 // but this would require linking to PatmosMCTargetDesc and providing
 // static functions there to access those structs.
@@ -104,7 +100,11 @@ static DecodeStatus DecodePredRegisterClass(MCInst &Inst, unsigned RegNo, uint64
                                             const void *Decoder);
 
 #include "PatmosGenDisassemblerTables.inc"
-#include "llvm/MC/MCInstrDesc.h"
+#include "PatmosGenEDInfo.inc"
+
+const EDInstInfo *PatmosDisassembler::getEDInfo() const {
+  return instInfoPatmos;
+}
 
   /// readInstruction - read four bytes from the MemoryObject
 static DecodeStatus readInstruction32(const MemoryObject &region,
@@ -150,7 +150,7 @@ PatmosDisassembler::getInstruction(MCInst &instr,
   // TODO we could check the opcode for ALUl instruction format to avoid calling decode32 in that case
 
   // Calling the auto-generated decoder function.
-  Result = decodePatmosInstruction32(instr, Insn, Address, this, STI);
+  Result = decodeInstruction(DecoderTablePatmos32, instr, Insn, Address, this, STI);
 
   // Try decoding as 64bit ALUl instruction
   if (Result == MCDisassembler::Fail) {
@@ -166,7 +166,7 @@ PatmosDisassembler::getInstruction(MCInst &instr,
     // Set bundle-bit for ALUl format, combine instruction opcode and immediate
     uint64_t Insn64 = (1ULL << 63) | ((uint64_t)Insn << 32) | InsnL;
 
-    Result = decodePatmosInstruction64(instr, Insn64, Address, this, STI);
+    Result = decodeInstruction(DecoderTablePatmos64, instr, Insn64, Address, this, STI);
     if (Result == MCDisassembler::Fail)
       return MCDisassembler::Fail;
 

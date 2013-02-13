@@ -20,6 +20,7 @@ namespace llvm {
 class MCAsmBackend;
 class MCContext;
 class MCCodeEmitter;
+class MCRegisterInfo;
 class MCInstrInfo;
 class MCObjectWriter;
 class MCSubtargetInfo;
@@ -30,10 +31,11 @@ class raw_ostream;
 extern Target ThePatmosTarget;
 
 MCCodeEmitter *createPatmosMCCodeEmitter(const MCInstrInfo &MCII,
+					 const MCRegisterInfo &MRI,
                                          const MCSubtargetInfo &STI,
                                          MCContext &Ctx);
 
-MCAsmBackend *createPatmosAsmBackend(const Target &T, StringRef TT);
+MCAsmBackend *createPatmosAsmBackend(const Target &T, StringRef TT, StringRef CPU);
 
 MCObjectWriter *createPatmosELFObjectWriter(raw_ostream &OS, uint8_t OSABI);
 

@@ -55,6 +55,12 @@ namespace {
     cl::desc("Export only methods reachable from given functions"),
     cl::Hidden);
 
+  static cl::opt<bool> DisableIfConverter(
+      "mpatmos-disable-ifcvt",
+      cl::init(false),
+      cl::desc("Disable if-converter for Patmos."),
+      cl::Hidden);
+
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
 
@@ -78,17 +84,17 @@ namespace {
     void addModulePass(ModulePass *MP)
     {
       // ensure that MachineFunctionAnalysis is preserved across the module pass
-      PM->add(createPatmosPreserveFunctionPass());
+      addPass(createPatmosPreserveFunctionPass());
 
       // add the module pass
-      PM->add(MP);
+      addPass(MP);
 
       // rebuild the MachineFunctionAnalysis
-      PM->add(new MachineFunctionAnalysis(getPatmosTargetMachine()));
+      addPass(new MachineFunctionAnalysis(getPatmosTargetMachine()));
     }
 
     virtual bool addInstSelector() {
-      PM->add(createPatmosISelDag(getPatmosTargetMachine()));
+      addPass(createPatmosISelDag(getPatmosTargetMachine()));
       return false;
     }
 
@@ -110,8 +116,8 @@ namespace {
     /// passes immediately before machine code is emitted.  This should return
     /// true if -print-machineinstrs should print out the code after the passes.
     virtual bool addPreEmitPass(){
-      PM->add(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
-      PM->add(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+      addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
+      addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
       if (EnableStackCacheAnalysis) {
         addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
@@ -119,7 +125,7 @@ namespace {
 
       if (!SerializeMachineCode.empty()) {
         if (SerializeRoots.empty()) {
-          PM->add(createPatmosExportPass(getPatmosTargetMachine(),
+          addPass(createPatmosExportPass(getPatmosTargetMachine(),
                                          SerializeMachineCode));
         } else {
           addModulePass(createPatmosModuleExportPass(getPatmosTargetMachine(),
@@ -158,7 +164,7 @@ namespace {
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
     virtual bool addPreSched2() {
-      if (getOptLevel() != CodeGenOpt::None) {
+      if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
         if (!PSPI.enabled()) {
           addPass(IfConverterID);
         }
@@ -183,7 +189,7 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
     // compiler-rt/lib/patmos/*.ll
     // Note: Both ABI and Preferred Alignment must be 32bit for all supported
     // types, backend does not support different stack alignment.
-    DataLayout("E-S32-p:32:32:32-i8:8:8-i16:16:16-i32:32:32-i64:32:32-f64:32:32-a0:0:32-s0:32:32-v64:32:32-v128:32:32-n32"),
+    DL("E-S32-p:32:32:32-i8:8:8-i16:16:16-i32:32:32-i64:32:32-f64:32:32-a0:0:32-s0:32:32-v64:32:32-v128:32:32-n32"),
 
     InstrInfo(*this), TLInfo(*this), TSInfo(*this),
     FrameLowering(*this),

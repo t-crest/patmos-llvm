@@ -106,7 +106,7 @@ namespace {
       return Changed;
     }
 
-    /// hasDefUseDep - Returns true if D defines a register thet is used in U.
+    /// hasDefUseDep - Returns true if D defines a register that is used in U.
     /// Used in this class to check whether a value loaded to a register is
     /// used in the next instruction.
     bool hasDefUseDep(const MachineInstr *D, const MachineInstr *U) const;
@@ -245,6 +245,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
       }
       // skip debug value
       if (J->isDebugValue()) continue;
+      if (J->isImplicitDef()) continue;
 
       // skip upon hazard
       if (DI.hasHazard(J)) {
@@ -442,17 +443,14 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
 bool DelayHazardInfo::isRegInSet(const SmallSet<unsigned, 32> &RegSet,
                                  unsigned reg) const {
 
-  if (RegSet.count(reg))
-    return true;
-  // check Aliased Registers
-  for (const uint16_t *Alias = PDSF.TRI->getAliasSet(reg);
-       *Alias; ++ Alias)
-    if (RegSet.count(*Alias)) {
+  // Check Reg and all aliased Registers.
+  for (MCRegAliasIterator AI(reg, PDSF.TRI, true);
+       AI.isValid(); ++AI)
+    if (RegSet.count(*AI)) {
       DEBUG_TRACE(dbgs() << " ---- alias: "
-                  << PrintReg(*Alias, PDSF.TRI) << "\n");
+                  << PrintReg(*AI, PDSF.TRI) << "\n");
       return true;
     }
-
   return false;
 }
 

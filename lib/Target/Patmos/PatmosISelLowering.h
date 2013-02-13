@@ -109,18 +109,10 @@ namespace llvm {
 
   private:
     const PatmosSubtarget &Subtarget;
-    const PatmosTargetMachine &TM;
-    const TargetData *TD;
+    const DataLayout *TD;
 
-    SDValue LowerCCCCallTo(SDValue Chain, SDValue Callee,
-                           CallingConv::ID CallConv, bool isVarArg,
-                           bool isTailCall,
-                           const SmallVectorImpl<ISD::OutputArg> &Outs,
-                           const SmallVectorImpl<SDValue> &OutVals,
-                           const SmallVectorImpl<ISD::InputArg> &Ins,
-                           DebugLoc dl, SelectionDAG &DAG,
-                           SmallVectorImpl<SDValue> &InVals,
-                           MachinePointerInfo MPI) const;
+    SDValue LowerCCCCallTo(CallLoweringInfo &CLI,
+                           SmallVectorImpl<SDValue> &InVals) const;
 
     SDValue LowerCCCArguments(SDValue Chain,
                               CallingConv::ID CallConv,
@@ -136,14 +128,8 @@ namespace llvm {
                             DebugLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
   public:
-    virtual SDValue LowerCall(SDValue Chain, SDValue Callee, CallingConv::ID CallConv,
-                      bool isVarArg, bool doesNotRet, bool &isTailCall,
-                      const SmallVectorImpl<ISD::OutputArg> &Outs,
-                      const SmallVectorImpl<SDValue> &OutVals,
-                      const SmallVectorImpl<ISD::InputArg> &Ins,
-                      DebugLoc dl, SelectionDAG &DAG,
-                      SmallVectorImpl<SDValue> &InVals,
-                      MachinePointerInfo MPI) const;
+    virtual SDValue LowerCall(CallLoweringInfo &CLI,
+                      SmallVectorImpl<SDValue> &InVals) const;
 
     virtual SDValue LowerFormalArguments(SDValue Chain,
                                  CallingConv::ID CallConv, bool isVarArg,

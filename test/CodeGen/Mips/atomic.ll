@@ -1,4 +1,4 @@
-; RUN: llc -march=mipsel < %s | FileCheck %s
+; RUN: llc -march=mipsel --disable-machine-licm < %s | FileCheck %s
 
 @x = common global i32 0, align 4
 
@@ -8,7 +8,7 @@ entry:
   ret i32 %0
 
 ; CHECK:   AtomicLoadAdd32:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(x)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(x)
 ; CHECK:   $[[BB0:[A-Z_0-9]+]]:
 ; CHECK:   ll      $[[R1:[0-9]+]], 0($[[R0]])
 ; CHECK:   addu    $[[R2:[0-9]+]], $[[R1]], $4
@@ -22,7 +22,7 @@ entry:
   ret i32 %0
 
 ; CHECK:   AtomicLoadNand32:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(x)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(x)
 ; CHECK:   $[[BB0:[A-Z_0-9]+]]:
 ; CHECK:   ll      $[[R1:[0-9]+]], 0($[[R0]])
 ; CHECK:   and     $[[R3:[0-9]+]], $[[R1]], $4
@@ -40,7 +40,7 @@ entry:
   ret i32 %0
 
 ; CHECK:   AtomicSwap32:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(x)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(x)
 ; CHECK:   $[[BB0:[A-Z_0-9]+]]:
 ; CHECK:   ll      ${{[0-9]+}}, 0($[[R0]])
 ; CHECK:   sc      $[[R2:[0-9]+]], 0($[[R0]])
@@ -56,7 +56,7 @@ entry:
   ret i32 %0
 
 ; CHECK:   AtomicCmpSwap32:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(x)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(x)
 ; CHECK:   $[[BB0:[A-Z_0-9]+]]:
 ; CHECK:   ll      $2, 0($[[R0]])
 ; CHECK:   bne     $2, $4, $[[BB1:[A-Z_0-9]+]]
@@ -75,7 +75,7 @@ entry:
   ret i8 %0
 
 ; CHECK:   AtomicLoadAdd8:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(y)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(y)
 ; CHECK:   addiu   $[[R1:[0-9]+]], $zero, -4
 ; CHECK:   and     $[[R2:[0-9]+]], $[[R0]], $[[R1]]
 ; CHECK:   andi    $[[R3:[0-9]+]], $[[R0]], 3
@@ -106,7 +106,7 @@ entry:
   ret i8 %0
 
 ; CHECK:   AtomicLoadSub8:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(y)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(y)
 ; CHECK:   addiu   $[[R1:[0-9]+]], $zero, -4
 ; CHECK:   and     $[[R2:[0-9]+]], $[[R0]], $[[R1]]
 ; CHECK:   andi    $[[R3:[0-9]+]], $[[R0]], 3
@@ -137,7 +137,7 @@ entry:
   ret i8 %0
 
 ; CHECK:   AtomicLoadNand8:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(y)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(y)
 ; CHECK:   addiu   $[[R1:[0-9]+]], $zero, -4
 ; CHECK:   and     $[[R2:[0-9]+]], $[[R0]], $[[R1]]
 ; CHECK:   andi    $[[R3:[0-9]+]], $[[R0]], 3
@@ -169,7 +169,7 @@ entry:
   ret i8 %0
 
 ; CHECK:   AtomicSwap8:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(y)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(y)
 ; CHECK:   addiu   $[[R1:[0-9]+]], $zero, -4
 ; CHECK:   and     $[[R2:[0-9]+]], $[[R0]], $[[R1]]
 ; CHECK:   andi    $[[R3:[0-9]+]], $[[R0]], 3
@@ -181,8 +181,9 @@ entry:
 
 ; CHECK:   $[[BB0:[A-Z_0-9]+]]:
 ; CHECK:   ll      $[[R10:[0-9]+]], 0($[[R2]])
+; CHECK:   and     $[[R18:[0-9]+]], $[[R9]], $[[R6]]
 ; CHECK:   and     $[[R13:[0-9]+]], $[[R10]], $[[R7]]
-; CHECK:   or      $[[R14:[0-9]+]], $[[R13]], $[[R9]]
+; CHECK:   or      $[[R14:[0-9]+]], $[[R13]], $[[R18]]
 ; CHECK:   sc      $[[R14]], 0($[[R2]])
 ; CHECK:   beq     $[[R14]], $zero, $[[BB0]]
 
@@ -198,7 +199,7 @@ entry:
   ret i8 %0
 
 ; CHECK:   AtomicCmpSwap8:
-; CHECK:   lw      $[[R0:[0-9]+]], %got(y)($gp)
+; CHECK:   lw      $[[R0:[0-9]+]], %got(y)
 ; CHECK:   addiu   $[[R1:[0-9]+]], $zero, -4
 ; CHECK:   and     $[[R2:[0-9]+]], $[[R0]], $[[R1]]
 ; CHECK:   andi    $[[R3:[0-9]+]], $[[R0]], 3
@@ -242,3 +243,19 @@ entry:
 ; CHECK:   sync 0
 }
 
+; make sure that this assertion in
+; TwoAddressInstructionPass::TryInstructionTransform does not fail:
+;
+; line 1203: assert(TargetRegisterInfo::isVirtualRegister(regB) &&
+;
+; it failed when MipsDAGToDAGISel::ReplaceUsesWithZeroReg replaced an
+; operand of an atomic instruction with register $zero. 
+@a = external global i32
+
+define i32 @zeroreg() nounwind {
+entry:
+  %0 = cmpxchg i32* @a, i32 1, i32 0 seq_cst
+  %1 = icmp eq i32 %0, 1
+  %conv = zext i1 %1 to i32
+  ret i32 %conv
+}

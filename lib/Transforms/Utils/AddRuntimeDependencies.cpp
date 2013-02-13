@@ -42,12 +42,12 @@
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
 #include "llvm/Intrinsics.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
+#include "llvm/IRBuilder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InstVisitor.h"
-#include "llvm/Support/IRBuilder.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
@@ -93,7 +93,7 @@ namespace {
     bool LowerCalls;
     Module *M;
     LLVMContext *Context;
-    const TargetData *TD;
+    const DataLayout *TD;
 
     SmallPtrSet<Constant*, 8> Used;
     SmallPtrSet<Constant*, 8> Lowered;
@@ -109,7 +109,7 @@ namespace {
       return LowerCalls;
     }
 
-    void setTargetData(Module &M, const TargetData *TD) {
+    void setDataLayout(Module &M, const DataLayout *TD) {
       this->M = &M;
       this->Context = &M.getContext();
       this->TD = TD;
@@ -166,7 +166,7 @@ namespace {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesCFG();
-      AU.addRequired<TargetData>();
+      AU.addRequired<DataLayout>();
     }
 
     virtual void print(raw_ostream &O, const Module *M) const {}
@@ -228,15 +228,15 @@ namespace {
     CallConfig() {}
     virtual ~CallConfig() {}
 
-    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) = 0;
+    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const DataLayout &TD) = 0;
 
     /// Called when addCallArguments returns false or lowering is disabled.
-    virtual Constant* getAdditionalPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+    virtual Constant* getAdditionalPrototype(LLVMContext &Context, Module &M, const DataLayout &TD) {
       return 0;
     }
 
     /// return false when the instruction cannot be lowered.
-    virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
+    virtual bool addCallArguments(LLVMContext &Context, Module &M, const DataLayout &TD,
                                   IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args) = 0;
 
   };
@@ -261,14 +261,14 @@ namespace {
        RetTy(I.getType()), AllowLower(AllowLower) { }
 
 
-    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const DataLayout &TD) {
       std::vector<Type *> ParamTys;
       for (User::const_op_iterator I = ArgBegin; I != ArgEnd; ++I)
         ParamTys.push_back((*I)->getType());
       return M.getOrInsertFunction(FnName, FunctionType::get(RetTy, ParamTys, false));
     }
 
-    virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
+    virtual bool addCallArguments(LLVMContext &Context, Module &M, const DataLayout &TD,
                                   IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args)
     {
       if (!AllowLower) return false;
@@ -284,7 +284,7 @@ namespace {
     DivModCallConfig(const char *FnName, Instruction &I)
      : CallConfig(), FnName(FnName), ITy(I.getOperand(0)->getType()) { }
 
-    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const DataLayout &TD) {
       std::vector<Type *> ParamTys;
       ParamTys.push_back(ITy);
       ParamTys.push_back(ITy);
@@ -292,7 +292,7 @@ namespace {
       return M.getOrInsertFunction(FnName, FunctionType::get(ITy, ParamTys, false));
     }
 
-    virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
+    virtual bool addCallArguments(LLVMContext &Context, Module &M, const DataLayout &TD,
                                   IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args)
     {
       return false;
@@ -307,7 +307,7 @@ namespace {
     MemCallConfig(const char *FnName, CallInst *CI, bool isMemset)
      : CallConfig(), FnName(FnName), CI(CI), isMemset(isMemset) { }
 
-    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const DataLayout &TD) {
       return M.getOrInsertFunction(FnName,
             Type::getInt8PtrTy(Context),
             Type::getInt8PtrTy(Context),
@@ -315,7 +315,7 @@ namespace {
             TD.getIntPtrType(Context), (Type *)0);
     }
 
-    virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
+    virtual bool addCallArguments(LLVMContext &Context, Module &M, const DataLayout &TD,
                                   IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args)
     {
       IntegerType *IntPtr = TD.getIntPtrType(Context);
@@ -348,7 +348,7 @@ namespace {
      : CallConfig(), FName(FName), DName(DName), LName(LName), I(I), TyCache(TyCache),
        UseRetTy(UseRetTy), AllowLower(AllowLower) { }
 
-    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+    virtual Constant* getPrototype(LLVMContext &Context, Module &M, const DataLayout &TD) {
       std::vector<Type *> ParamTys;
       for (User::const_op_iterator it = I.op_begin(); it != I.op_end(); ++it)
         ParamTys.push_back((*it)->getType());
@@ -364,7 +364,7 @@ namespace {
       return M.getOrInsertFunction(FnName, FunctionType::get(getRetType(), ParamTys, false));
     }
 
-    virtual Constant* getAdditionalPrototype(LLVMContext &Context, Module &M, const TargetData &TD) {
+    virtual Constant* getAdditionalPrototype(LLVMContext &Context, Module &M, const DataLayout &TD) {
       // If we have some sort of double instruction, add the float variant too, since the backend
       // sometimes optimizes the types..
       if (getFPType()->isFloatTy()) {
@@ -379,7 +379,7 @@ namespace {
                                                             ParamTys, false));
     }
 
-    virtual bool addCallArguments(LLVMContext &Context, Module &M, const TargetData &TD,
+    virtual bool addCallArguments(LLVMContext &Context, Module &M, const DataLayout &TD,
                                   IRBuilder<> &Builder, SmallVectorImpl<Value*> &Args)
     {
       // for compares, we would need to cast correctly and handle unordered stuff, skip it
@@ -427,7 +427,7 @@ llvm::createAddRuntimeDependenciesPass(bool LowerCalls, std::string FloatABI) {
 //-----------------------------------------------------------------------------
 
 bool AddRuntimeDependencies::runOnModule(Module &M) {
-  RIC.setTargetData(M, &getAnalysis<TargetData>());
+  RIC.setDataLayout(M, &getAnalysis<DataLayout>());
 
   TyCache.DoubleTy = Type::getDoubleTy(M.getContext());
   TyCache.FloatTy = Type::getFloatTy(M.getContext());

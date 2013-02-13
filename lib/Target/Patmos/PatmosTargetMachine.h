@@ -21,7 +21,7 @@
 #include "PatmosSelectionDAGInfo.h"
 #include "PatmosRegisterInfo.h"
 #include "PatmosSubtarget.h"
-#include "llvm/Target/TargetData.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -31,7 +31,7 @@ namespace llvm {
 ///
 class PatmosTargetMachine : public LLVMTargetMachine {
   PatmosSubtarget        Subtarget;
-  const TargetData       DataLayout;       // Calculates type size & alignment
+  const DataLayout       DL;       // Calculates type size & alignment
   PatmosInstrInfo        InstrInfo;
   PatmosTargetLowering   TLInfo;
   PatmosSelectionDAGInfo TSInfo;
@@ -50,7 +50,7 @@ public:
   }
 
   virtual const PatmosInstrInfo *getInstrInfo() const  { return &InstrInfo; }
-  virtual const TargetData *getTargetData() const     { return &DataLayout;}
+  virtual const DataLayout *getDataLayout() const     { return &DL;}
   virtual const PatmosSubtarget *getSubtargetImpl() const { return &Subtarget; }
 
   virtual const TargetRegisterInfo *getRegisterInfo() const {

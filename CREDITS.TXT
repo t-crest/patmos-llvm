@@ -5,8 +5,8 @@ done!
 
 The list is sorted by surname and formatted to allow easy grepping and
 beautification by scripts.  The fields are: name (N), email (E), web-address
-(W), PGP key ID and fingerprint (P), description (D), and snail-mail address
-(S).
+(W), PGP key ID and fingerprint (P), description (D), snail-mail address
+(S), and (I) IRC handle.
 
 
 N: Vikram Adve
@@ -17,10 +17,14 @@ D: The Sparc64 backend, provider of much wisdom, and motivator for LLVM
 N: Owen Anderson
 E: resistor@mac.com
 D: LCSSA pass and related LoopUnswitch work
-D: GVNPRE pass, TargetData refactoring, random improvements
+D: GVNPRE pass, DataLayout refactoring, random improvements
 
 N: Henrik Bach
 D: MingW Win32 API portability layer
+
+N: Aaron Ballman
+E: aaron@aaronballman.com
+D: __declspec attributes, Windows support, general bug fixing
 
 N: Nate Begeman
 E: natebegeman@mac.com
@@ -324,10 +328,6 @@ D: LTO tool, PassManager rewrite, Loop Pass Manager, Loop Rotate
 D: GCC PCH Integration (llvm-gcc), llvm-gcc improvements
 D: Optimizer improvements, Loop Index Split
 
-N: Sandeep Patel
-E: deeppatel1987@gmail.com
-D: ARM calling conventions rewrite, hard float support
-
 N: Wesley Peck
 E: peckw@wesleypeck.com
 W: http://wesleypeck.com/
@@ -342,9 +342,18 @@ W: http://vladimir_prus.blogspot.com
 E: ghost@cs.msu.su
 D: Made inst_iterator behave like a proper iterator, LowerConstantExprs pass
 
+N: Kalle Raiskila
+E: kalle.rasikila@nokia.com
+D: Some bugfixes to CellSPU
+
 N: Xerxes Ranby
 E: xerxes@zafena.se
 D: Cmake dependency chain and various bug fixes
+
+N: Alex Rosenberg
+E: alexr@leftfield.org
+I: arosenberg
+D: ARM calling conventions rewrite, hard float support
 
 N: Chad Rosier
 E: mcrosier@apple.com
@@ -361,6 +370,7 @@ D: MSIL backend
 
 N: Duncan Sands
 E: baldrick@free.fr
+I: baldrick
 D: Ada support in llvm-gcc
 D: Dragonegg plugin
 D: Exception handling improvements
