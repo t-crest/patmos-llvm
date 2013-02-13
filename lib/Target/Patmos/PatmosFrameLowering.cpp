@@ -349,8 +349,6 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     MRI.setPhysRegUnused(Patmos::RFB);
     MRI.setPhysRegUnused(Patmos::RFO);
   }
-
-
 }
 
 bool
