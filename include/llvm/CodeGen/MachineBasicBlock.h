@@ -113,6 +113,11 @@ public:
   ///
   const BasicBlock *getBasicBlock() const { return BB; }
 
+  /// setBasicBlock - Set the LLVM block that this instance
+  /// corresponded to originally. Set to NULL if this block does not
+  /// correspond directly to an LLVM basic block
+  void setBasicBlock(BasicBlock* bb) { BB = bb; }
+
   /// getName - Return the name of the corresponding LLVM basic block, or
   /// "(null)".
   StringRef getName() const;
