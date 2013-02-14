@@ -103,10 +103,10 @@ namespace {
     virtual bool addPreISel() {
       if (PSPI.enabled()) {
         // Single-path transformation requires a single exit node
-        PM->add(createUnifyFunctionExitNodesPass());
+        addPass(createUnifyFunctionExitNodesPass());
         // Single-path transformation currently cannot deal with
         // switch/jumptables -> lower them to ITEs
-        PM->add(createLowerSwitchPass());
+        addPass(createLowerSwitchPass());
         return true;
       }
       return false;
@@ -157,11 +157,11 @@ namespace {
     /// print after these passes.
     virtual bool addPreSched2() {
       if (PSPI.enabled()) {
-        PM->add(createPatmosSPPredicatePass(getPatmosTargetMachine(), PSPI));
-        PM->add(createPatmosSPReducePass(getPatmosTargetMachine(), PSPI));
+        addPass(createPatmosSPPredicatePass(getPatmosTargetMachine(), PSPI));
+        addPass(createPatmosSPReducePass(getPatmosTargetMachine(), PSPI));
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
-          addPass(IfConverterID);
+          addPass(&IfConverterID);
         }
       }
       return true;

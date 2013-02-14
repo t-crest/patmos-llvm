@@ -65,3 +65,59 @@ PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm)
 bool PatmosSinglePathInfo::isToConvert(MachineFunction &MF) const {
   return SPConvFuncs.count(MF.getFunction()->getName()) > 0;
 }
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// SPNode methods
+///////////////////////////////////////////////////////////////////////////////
+
+
+SPNode::SPNode(SPNode *parent, const MachineBasicBlock *header,
+               const MachineBasicBlock *succ)
+               : Parent(parent), SuccMBB(succ) {
+  Level = 0;
+  // add to parent's child list
+  if (Parent) {
+    Parent->Children[header] = this;
+    Level = Parent->Level + 1;
+  }
+  // add header also to block list
+  Blocks.push_back(header);
+}
+
+/// destructor - free the child nodes first, cleanup
+SPNode::~SPNode() {
+  for (std::map<const MachineBasicBlock*, SPNode*>::iterator
+            I = Children.begin(), E = Children.end(); I != E; ++I) {
+    delete I->second;
+  }
+  Children.clear();
+}
+
+void SPNode::addMBB(const MachineBasicBlock *MBB) {
+  if (Blocks.front() != MBB) {
+    Blocks.push_back(MBB);
+  }
+}
+
+static void indent(unsigned level) {
+  for(unsigned i=0; i<level; i++)
+    dbgs() << "  ";
+}
+
+void SPNode::dump() const {
+  indent(Level);
+  dbgs() <<  "[BB#" << Blocks.front()->getNumber() << "]\n";
+  for (unsigned i=1; i<Blocks.size(); i++) {
+    indent(Level+1);
+    dbgs() <<  " BB#" << Blocks[i]->getNumber() << "\n";
+  }
+  for (std::map<const MachineBasicBlock*, SPNode*>::const_iterator
+            I = Children.begin(), E = Children.end(); I != E; ++I) {
+    I->second->dump();
+  }
+}
+

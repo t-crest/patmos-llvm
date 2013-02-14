@@ -19,7 +19,9 @@
 #include <Patmos.h>
 #include <PatmosTargetMachine.h>
 
+#include <vector>
 #include <set>
+#include <map>
 
 
 // define for more detailed debugging output
@@ -34,28 +36,85 @@
 
 namespace llvm {
 
+// forward decl
+class SPNode;
+
   /// PatmosSinglePathInfo - Class to hold info about Single-path code generation
   class PatmosSinglePathInfo {
-  private:
+    private:
 
-    const PatmosTargetMachine &TM;
+      const PatmosTargetMachine &TM;
 
-    /// Set of functions to be converted
-    std::set<std::string> SPConvFuncs;
+      /// Set of functions to be converted
+      std::set<std::string> SPConvFuncs;
 
-  public:
+    public:
 
-    /// PatmosSinglePathInfo
-    explicit PatmosSinglePathInfo(const PatmosTargetMachine &tm);
+      /// PatmosSinglePathInfo
+      explicit PatmosSinglePathInfo(const PatmosTargetMachine &tm);
 
-    bool enabled() {
-      return !SPConvFuncs.empty();
-    }
+      bool enabled() {
+        return !SPConvFuncs.empty();
+      }
 
-    /// isToConvert - Return true if the function should be if-converted
-    bool isToConvert(MachineFunction &MF) const;
+      /// isToConvert - Return true if the function should be if-converted
+      bool isToConvert(MachineFunction &MF) const;
 
   };
+
+
+  class MachineBasicBlock;
+
+  class SPNode {
+    public:
+      /// constructor - Create an SPNode with specified parent SP node or NULL
+      /// if top level; the header/entry MBB, and the succ MBB
+      explicit SPNode(SPNode *parent, const MachineBasicBlock *header,
+                      const MachineBasicBlock *succ);
+
+      /// destructor - free the child nodes first, cleanup
+      ~SPNode();
+
+      /// addMBB - Add an MBB to the SP node
+      void addMBB(const MachineBasicBlock *MBB);
+
+      /// getParent
+      const SPNode *getParent() const { return Parent; }
+
+      /// getHeader
+      const MachineBasicBlock *getHeader() const { return Blocks.front(); }
+
+      /// getSuccMBB - Get the single successor MBB
+      const MachineBasicBlock *getSuccMBB() const { return SuccMBB; }
+
+      /// getLevel - Get the nesting level of the SPNode
+      unsigned int getLevel() const { return Level; }
+
+      // dump() - Dump state of this SP node and the subtree
+      void dump() const;
+
+    private:
+      // parent SPNode
+      SPNode *Parent;
+
+      // successor MBB
+      const MachineBasicBlock *SuccMBB;
+
+      // children as map: header MBB -> SPNode
+      std::map<const MachineBasicBlock*, SPNode*> Children;
+
+      // MBBs contained
+      std::vector<const MachineBasicBlock*> Blocks;
+
+      // nesting level
+      unsigned int Level;
+  };
+
+
+
+
+
+
 
 } // end of namespace llvm
 

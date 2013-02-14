@@ -77,6 +77,14 @@ namespace {
     typedef std::vector<CD_map_entry_t>            K_t;
     typedef std::map<MachineBasicBlock*, unsigned> R_t;
 
+
+
+    /// createSPNodeTree - Create an SPNode tree, return the root node.
+    /// The tree needs to be destroyed by the client,
+    /// by deleting the root node.
+    SPNode *createSPNodeTree(const MachineFunction &MF) const;
+
+
     /// computeControlDependence - Compute CD for a given function.
     void computeControlDependence(MachineFunction &MF, CD_map_t &CD) const;
 
@@ -156,18 +164,76 @@ FunctionPass *llvm::createPatmosSPPredicatePass(const PatmosTargetMachine &tm,
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
 
-  MachineLoopInfo &LI = getAnalysis<MachineLoopInfo>();
+// build the SPNode tree in DFS order, creating new SPNodes preorder
+static
+void createSPNodeSubtree(MachineLoop *loop, SPNode *parent,
+                         std::map<const MachineLoop *, SPNode *> &M) {
+  // We need to make some assumptions about the loops we can handle for now...
+  // allow only one successor for SPNode
+  assert( loop->getExitBlock() != NULL &&
+          "Allow only one successor for loops!" );
+  assert( loop->getLoopLatch() != NULL &&
+          "Allow only exactly one backedge for loops!" );
+  assert( loop->getExitingBlock() != NULL &&
+          "Allow only exactly one exiting edge for loops!" );
+
+  assert( loop->getHeader() == loop->getExitingBlock() &&
+          "Allow only loops with Header == Exiting Block!" );
+
+  SPNode *N = new SPNode(parent,
+                         loop->getHeader(),
+                         loop->getExitBlock()
+                         );
+
+  // update map: Loop -> SPNode
+  M[loop] = N;
+
+  for (MachineLoop::iterator I = loop->begin(), E = loop->end();
+          I != E; ++I) {
+    createSPNodeSubtree(*I, N, M);
+  }
+}
+
+
+SPNode *PatmosSPPredicate::createSPNodeTree(const MachineFunction &MF) const {
   // Get loop information
-  int loopcnt = 0;
+  MachineLoopInfo &LI = getAnalysis<MachineLoopInfo>();
+
+  // First, create a SPNode tree
+  std::map<const MachineLoop *, SPNode *> M;
+
+  SPNode *Root = new SPNode(NULL, &MF.front(), NULL);
+
+  M[NULL] = Root;
+
+  // iterate over top-level loops
   for (MachineLoopInfo::iterator I=LI.begin(), E=LI.end(); I!=E; ++I) {
     MachineLoop *Loop = *I;
-    Loop->dump();
-    loopcnt++;
+    createSPNodeSubtree(Loop, Root, M);
   }
-  assert(loopcnt == 0 && "Cannot process loops yet.\n");
 
+  // Then, add MBBs to the corresponding SPNodes
+  for (MachineFunction::const_iterator FI=MF.begin(), FE=MF.end();
+          FI!=FE; ++FI) {
+    const MachineBasicBlock *MBB = FI;
+    const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
+    M[Loop]->addMBB(MBB);
+  }
+
+  return Root;
+}
+
+
+
+
+void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
+
+  SPNode *Root = createSPNodeTree(MF);
+  Root->dump();
+  delete Root;
+
+  MF.viewCFGOnly();
 
   // CD: MBB -> set of edges
   CD_map_t CD;
