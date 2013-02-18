@@ -18,6 +18,12 @@ rescue Exception => details
   die "Failed to load required ruby libraries"
 end
 
+class UnknownVariableException < Exception
+  def initialize(msg)
+    super(msg)
+  end
+end
+
 # Simple interface to lp_solve for IPET problems
 class LpSolveIPET
   # Tolarable floating point error in objective
@@ -35,20 +41,23 @@ class LpSolveIPET
     @constraints = []
   end
   def add_variable(v)
-    # $dbgs.puts "Adding variable #{v}" if @options.debug
+    $dbgs.puts "Adding variable #{v}" if @options.debug
+    raise Exception.new("Duplicate variable: #{v}") if @indexmap[v]
     @variables.push(v)
     @indexmap[v] = @variables.length # starting with 1
   end
   # index of a variable
   def index(variable)
-    @indexmap[variable] or raise Exception.new("unknown variable: #{variable}")
+    @indexmap[variable] or raise UnknownVariableException.new("unknown variable: #{variable}")
   end
 
   # set cost of all variables to 0
   def reset_cost
     @costs = Hash.new(0)
   end
-
+  def get_cost(v)
+    @costs[v]
+  end
   # add cost to the specified variable
   def add_cost(variable, cost)
     # puts "Adding cost #{variable} -> #{cost}"
@@ -63,10 +72,16 @@ class LpSolveIPET
     name = "__#{@constraints.size}" unless name
     $dbgs.puts "Adding constraint #{show_constraint(terms_lhs,op,const_rhs)} (#{name})" if @options.debug
     terms_indexed = Hash.new(0)
-    terms_lhs.each { |v,c| 
+    terms_lhs.each { |v,c|
       terms_indexed[index(v)] += c
     }
-    @constraints.push([name,terms_indexed.to_a,lpsolve_op(op),const_rhs])
+    terms_array = terms_indexed.to_a.reject { |v,c| c == 0 }
+    if(terms_array == [])
+      return if const_rhs == 0
+      return if const_rhs >= 0 && op == "less-equal"
+      raise Exception.new("Inconsistent constraint: #{terms_lhs} #{op} #{const_rhs}")
+    end
+    @constraints.push([name,terms_array,lpsolve_op(op),const_rhs])
   end
 
   # pretty print constraint (XXX: hackish)
@@ -91,7 +106,7 @@ class LpSolveIPET
           "#{c} #{v}"
         end
       }.compact.join(" + ")
-    }.join(" = ")
+    }.join(op == "equal" ? " = " : " <= ")
   end
 
   # run solver to find maximum cost
@@ -112,10 +127,10 @@ class LpSolveIPET
     lp.print_solution(-1) if @options.lp_debug
     obj = lp.objective
     freqmap = extract_frequencies(lp.get_variables)
-    #raise lp_solve_error(r) unless r == 0
-    #if (obj-obj.round.to_f).abs > EPS
-    #  raise Exception.new("Untolerable floating point inaccuracy > #{EPS} in objective #{obj}")
-    #end    
+    # raise lp_solve_error(r) unless r == 0
+    if (obj-obj.round.to_f).abs > EPS
+      raise Exception.new("Untolerable floating point inaccuracy > #{EPS} in objective #{obj}")
+    end
     [obj.round, freqmap ]
   end
 
@@ -179,16 +194,12 @@ class LpSolveIPET
   end
 end
 
-class Edge
-  attr_reader :qname,:source,:target
-  def initialize(edge_source, edge_target)
-    @source,@target = edge_source, edge_target
-    @qname = "#{@source.qname}->#{@target.qname}"
-  end
-  def backedge?
-    return false unless source.kind_of?(Block)
-    return false unless source.loopnest >= target.loopnest && target.loopheader?
-    source['loops'][-1] == target.name # ugly
+class Callsite
+  attr_reader :qname,:inst,:level
+  def initialize(inst, level)
+    @inst, @level = inst, level
+    level_prefix = @level == :src ? "src/" : ""
+    @qname = "#{level_prefix}/#{@inst.qname}"
   end
   def to_s ; @qname ; end
   def hash;  @qname.hash ; end
@@ -196,10 +207,42 @@ class Edge
   def eql?(other); self == other; end
 end
 
-class IPETBuilder
-  attr_reader :pml, :ipet
-  def initialize(ipet)
-    @ipet = ipet
+class Edge
+  attr_reader :qname,:source,:target, :level
+  def initialize(edge_source, edge_target, level)
+    @source,@target,@level = edge_source, edge_target, level
+    arrow  = @level == :src ? "~>" : "->"
+    @qname = "#{@source.qname}#{arrow}#{:exit == @target ? 'exit' : @target.qname}"
+  end
+  def backedge?
+    return false if :exit == target
+    return false unless source.kind_of?(Block)
+    return false unless source.loopnest >= target.loopnest && target.loopheader?
+    source_loop_index = source.loopnest - target.loopnest
+    source.loops[source_loop_index] == target
+  end
+  def to_s ; @qname ; end
+  def hash;  @qname.hash ; end
+  def ==(other); qname == other.qname ; end
+  def eql?(other); self == other; end
+end
+
+
+class IPETModel
+  attr_reader :pml, :ipet, :level
+  attr_reader :infeasible, :calltargets
+  def initialize(ipet, level)
+    @ipet, @level = ipet, level
+    @calltargets = {}
+    @infeasible = Set.new
+  end
+
+  def add_calltargets(cs, fs)
+    @calltargets[cs] = fs
+  end
+
+  def set_infeasible(block)
+    @infeasible.add(block)
   end
 
   def add_callsite(callsite, fs)
@@ -214,7 +257,7 @@ class IPETBuilder
     calledges = []
     lhs = [ [callsite, 1] ]
     fs.each do |f|
-      calledge = Edge.new(callsite, f)
+      calledge = Edge.new(callsite, f, level)
       ipet.add_variable(calledge)
       calledges.push(calledge)
       lhs.push([calledge, -1])
@@ -224,9 +267,9 @@ class IPETBuilder
     # return call edges
     calledges
   end
-  
+
   # frequency of analysis entry is 1
-  def add_entry_constraint(entry_function)    
+  def add_entry_constraint(entry_function)
     ipet.add_constraint(function_frequency(entry_function),"equal",1,"entry")
   end
 
@@ -236,13 +279,12 @@ class IPETBuilder
     lhs.concat(function_frequency(function,1))
     ipet.add_constraint(lhs,"equal",0,"callers_#{function}")
   end
-  
+
   # frequency of incoming is frequency of outgoing edges
   def add_block_constraint(block)
     return if block.predecessors.empty?
-    return if (block.predecessors == block.successors)
     lhs = if block.successors.empty?
-            lhs = sum_incoming(block,-1) + [[block,1]]
+            lhs = sum_incoming(block,-1) + [[Edge.new(block,:exit,level),1]]
           else
             lhs = sum_incoming(block,-1) + sum_outgoing(block)
           end
@@ -253,20 +295,20 @@ class IPETBuilder
     block_frequency(function.blocks.first, factor)
   end
   def block_frequency(block, factor=1)
-    if block.successors.empty? # return block variable
-      [[block,factor]]
+    if block.successors.empty? # return exit edge
+      [[Edge.new(block,:exit,level),factor]]
     else
       sum_outgoing(block,factor)
     end
   end
   def sum_incoming(block, factor=1)
     block.predecessors.map { |pred|
-      [Edge.new(pred,block), factor]
+      [Edge.new(pred,block,level), factor]
     }
   end
   def sum_outgoing(block, factor=1)
     block.successors.map { |succ|
-      [Edge.new(block,succ), factor]
+      [Edge.new(block,succ,level), factor]
     }
   end
   def sum_loop_entry(loopblock, factor=1)
@@ -279,32 +321,36 @@ class IPETBuilder
   def each_edge(function)
     function.blocks.each do |bb|
       bb.successors.each do |bb2|
-        yield Edge.new(bb,bb2)
+        yield Edge.new(bb,bb2,level)
       end
       if bb.successors.empty? # returns
-        yield bb
+        yield Edge.new(bb,:exit,level)
       end
     end
   end
-# end of class IPETBuilder
-end
+end # end of class IPETBuilder
 
-class MachineCodeIPETBuilder < IPETBuilder
-
+class IPETBuilder
+  attr_reader :ipet
   def initialize(pml, options)
-    super(LpSolveIPET.new([], options))
+    @ipet     = LpSolveIPET.new([], options)
+    @mc_model = IPETModel.new(@ipet, :dst)
+    if options.use_relation_graph
+      @bc_model = IPETModel.new(@ipet, :src)
+    end
     @ffcount = 0
     @pml, @options = pml, options
-    @calltargets = {}
-    @infeasible = Set.new
   end
 
-  def add_calltargets(cs, fs)
-    @calltargets[cs] = fs
+  def add_calltargets(cs, fs, level)
+    # FIXME: interprocedural analysis is only available for machinecode
+    return unless level == :dst
+    @mc_model.add_calltargets(cs,fs)
   end
 
-  def set_infeasible(block)
-    @infeasible.add(block)
+  def set_infeasible(block, level)
+    model = (level == :dst) ? (@mc_model) : (@bc_model)
+    model.set_infeasible(block)
   end
 
   # Build basic IPET structure.
@@ -313,64 +359,137 @@ class MachineCodeIPETBuilder < IPETBuilder
     functions = reachable_set(entry) do |function|
       succs = Set.new
       function.each_callsite { |cs|
-        next if @infeasible.include?(cs.block)
+        next if @mc_model.infeasible.include?(cs.block)
         cs['callees'].each { |fname|
           if(fname == '__any__')
             # external flow fact
-            @calltargets[cs].each { |f| succs.add(f) }
+            @mc_model.calltargets[cs].each { |f| succs.add(f) }
           else
             # compiler information
             f = @pml.machine_functions.by_label(fname)
-            add_calltargets(cs, [f])
+            @mc_model.add_calltargets(cs, [f])
             succs.add(f)
           end
         }
       }
-      each_edge(function) do |edge|
-        ipet.add_variable(edge)
+      add_bitcode_variables(function) if @bc_model
+      @mc_model.each_edge(function) do |edge|
+        @ipet.add_variable(edge)
         cost = yield edge
-        ipet.add_cost(edge, cost)
+        @ipet.add_cost(edge, cost)
       end
       succs # return successors to reachable_set
     end
     function_callers = {}
     functions.each do |f|
+      add_bitcode_constraints(f) if @bc_model
       f.blocks.each do |block|
-        add_block_constraint(block)
-        next if @infeasible.include?(block)
+        @mc_model.add_block_constraint(block)
+        next if @mc_model.infeasible.include?(block)
         # Good idea for debugging, as it makes it easy to spot unbounded blocks
-        ipet.add_constraint( block_frequency(block), "less-equal", 1000000)#  if @options.debug
+        @ipet.add_constraint( @mc_model.block_frequency(block), "less-equal", 1000000) #if @options.debug
         block.callsites.each do |cs|
-          call_edges = add_callsite(cs, @calltargets[cs])
+          call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets[cs])
           call_edges.each do |ce|
             (function_callers[ce.target] ||= []).push(ce)
           end
         end
       end
     end
-    add_entry_constraint(entry)
+    @mc_model.add_entry_constraint(entry)
     function_callers.each do |f,ces|
-      add_function_constraint(f, ces)
+      @mc_model.add_function_constraint(f, ces)
     end
   end
+
 
   # currently we only support block frequency bounds
   def add_flowfact(ff)
     scope, bref, freq = ff.get_block_frequency_bound
+    model = ff.level == "machinecode" ? @mc_model : @bc_model
+    raise Exception.new("IPETBuilder#add_flowfact: cannot add bitcode flowfact without using relation graph") unless model
     lhs = []
     if scope.kind_of?(FunctionRef)
-      lhs = block_frequency(bref.block) + function_frequency(scope.function, -freq)
+      lhs = model.block_frequency(bref.block) + model.function_frequency(scope.function, -freq)
     elsif scope.kind_of?(LoopRef)
-      lhs  = block_frequency(bref.block) + sum_loop_entry(scope.loopblock, -freq)
+      lhs = model.block_frequency(bref.block) + model.sum_loop_entry(scope.loopblock, -freq)
     else
+#      $stderr.puts "Skipping unsupported constraint #{ff}"
       return false
     end
     begin
       ipet.add_constraint(lhs,"less-equal", 0, "#{ff['classification']}_#{@ffcount+=1}")
     rescue Exception => detail
-      #puts "Skipping constraint: #{detail}"
+      $stderr.puts "Skipping constraint: #{detail}"
     end
   end
+
+private
+  # add variables for bitcode basic blocks and relation graph
+  # (only if relation graph is available)
+  def add_bitcode_variables(machine_function)
+    return unless @pml.relation_graphs.has_named?(machine_function.name, :dst)
+    rg = @pml.relation_graphs.by_name(machine_function.name, :dst)
+    bitcode_function = rg.get_function(:src)
+    @bc_model.each_edge(bitcode_function) do |edge|
+      @ipet.add_variable(edge)
+    end
+    each_relation_edge(rg) do |edge|
+      @ipet.add_variable(edge)
+    end
+  end
+
+  # add constraints for bitcode basic blocks and relation graph
+  # (only if relation graph is available)
+  def add_bitcode_constraints(machine_function)
+    return unless @pml.relation_graphs.has_named?(machine_function.name, :dst)
+    rg = @pml.relation_graphs.by_name(machine_function.name, :dst)
+    bitcode_function = rg.get_function(:src)
+    bitcode_function.blocks.each { |block|
+      @ipet.add_constraint( @bc_model.block_frequency(block), "less-equal", 1000000000) #if @options.debug
+      @bc_model.add_block_constraint(block)
+    }
+    # group relation edges by corresponding BC/MC edge and by source node
+    rg_edges_of_edge   = { :src => {}, :dst => {} }
+    rg_edges_by_source = {}
+    each_relation_edge(rg) do |edge|
+      level = edge.level
+      source_block = edge.source.get_block(level)
+      target_block = (edge.target.type == :exit) ? :exit : (edge.target.get_block(level))
+
+      assert("Bad RG: #{edge}") { source_block && target_block }
+
+      if [:entry,:progress].include?(edge.source.type)
+        rg_edges_by_source[edge.source] ||= { :src => [], :dst => [] }
+        rg_edges_by_source[edge.source][level].push(edge)
+      end
+      (rg_edges_of_edge[level][Edge.new(source_block,target_block,level)] ||=[]).push(edge)
+    end
+    rg_edges_of_edge.each do |level,edgemap|
+      edgemap.each do |edge,rg_edges|
+        @ipet.add_constraint(rg_edges.map {|rge|[rge,1]}+[[edge,-1]], "equal", 0)
+      end
+    end
+    rg_edges_by_source.each do |_,edges|
+      lhs = edges[:src].map { |e| [e,1] } + edges[:dst].map { |e| [e,-1] }
+      @ipet.add_constraint(lhs, "equal", 0)
+    end
+  end
+
+  # return all relation-graph edges
+  def each_relation_edge(rg)
+    rg.nodes.each { |node|
+      [:src,:dst].each { |level|
+        next unless node.get_block(level)
+        node.successors(level).each { |node2|
+          if node2.type == :exit || node2.get_block(level)
+            yield Edge.new(node,node2,level)
+          end
+        }
+      }
+    }
+  end
+
 end
 
 # TODO: relation graph strategy
@@ -381,20 +500,24 @@ end
 # * add relation constraints
 
 class WcaTool
+  # XXX: loop-local should be block-loop
+  # XXX: calltargets-global are supported, but used during construction
+  SUPPORTED_FLOW_FACT_TYPES=%w{loop-local loop-function loop-global block-local block-function block-global infeasible-global}
   def WcaTool.run(pml,options)
     options.entry = "main" unless options.entry
-    builder = MachineCodeIPETBuilder.new(pml, options)
+    builder = IPETBuilder.new(pml, options)
     entry = pml.machine_functions.by_label(options.analysis_entry)
     pml.flowfacts.each do |ff|
       # set indirect call targets
+      model = (ff.level == "machinecode") ? :dst : :src
       scope,cs,targets = ff.get_calltargets
       if scope && scope.kind_of?(FunctionRef) && scope.function == entry
-        builder.add_calltargets(cs.instruction, targets)
+        builder.add_calltargets(cs.instruction, targets, model)
       end
       # set infeasible blocks
       scope,bref,frequency = ff.get_block_frequency_bound
       if scope && scope.kind_of?(FunctionRef) && scope.function == entry && frequency == 0
-        builder.set_infeasible(bref.block)
+        builder.set_infeasible(bref.block, model)
       end
     end
     # build IPET, including cost
@@ -420,24 +543,38 @@ class WcaTool
       end
     end
     # add flowfacts
+    ff_types = options.flow_fact_types
+    ff_types = WcaTool::SUPPORTED_FLOW_FACT_TYPES if ff_types == :supported
     pml.flowfacts.each do |ff|
-      builder.add_flowfact(ff) if ff['level'] == 'machinecode'
+      # skip if no sources where specified, the level is bitcode, and no relation graph should be used
+      next if options.flow_fact_srcs == "all" && ff.level == "bitcode" && ! options.use_relation_graph
+      # skip unless the source of the flow fact should be used
+      next unless options.flow_fact_srcs == "all" || options.flow_fact_srcs.include?(ff.origin)
+
+      # skip unless that kind of flow fact should be used
+      # XXX: sweet flowfacts are not classified yet...
+      next unless ff_types.include?(ff.classification) || ! ff.classification
+      builder.add_flowfact(ff)
     end
     # solve IPET
     cycles,freqs = builder.ipet.solve_max
     if options.verbose
       puts "Cycles: #{cycles}"
-      freqs.each do |v,freq|
-        puts "#{v}: #{freq}"
-      end
+      freqs.map { |v,freq|
+        [v,freq * builder.ipet.get_cost(v)]
+      }.sort { |a,b| b[1] <=> a[1] }.each { |v,cost|
+        puts "#{v}: #{freqs[v]} (#{cost} cyc)"
+      }
     end
     # report result
-    entry = TimingEntry.new(entry.ref, cycles, 'level' => 'machinecode', 'origin' => 'platin')
-    pml.add_timing(entry)
+    entry = TimingEntry.new(entry.ref, cycles, 'level' => 'machinecode', 'origin' => options.timing_name || 'platin')
+    pml.timing.add(entry)
     pml
   end
   def WcaTool.add_options(opts)
     opts.analysis_entry
+    opts.flow_fact_selection
+    opts.calculates_wcet
   end
 end
 

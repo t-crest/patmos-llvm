@@ -12,14 +12,18 @@ class AisExportTool
     File.open(options.ais_file, "w") { |outfile|
       ais = AISExporter.new(pml, outfile, options)
       ais.gen_header if options.ais_header
-
+      exported_flow_fact_types = options.flow_fact_types
+      if options.flow_fact_types == :supported
+        exported_flow_fact_types = AISExporter.supported_types
+      end
       pml.machine_functions.each do |func|
         ais.export_jumptables(func)
       end
       pml.flowfacts.each do |fact|
-        next unless fact['level'] == 'machinecode'
-        next unless options.ffs_srcs=='all' || options.ffs_srcs.include?(fact['origin'])
-        next unless options.ffs_types.include?(fact.classification)
+        next unless fact.level == 'machinecode'
+        next unless options.flow_fact_srcs == 'all' ||
+                    options.flow_fact_srcs.include?(fact['origin'])
+        next unless exported_flow_fact_types.include?(fact.classification)
         ais.export_flowfact(fact)
       end
     }
@@ -27,17 +31,10 @@ class AisExportTool
 
   def AisExportTool.add_options(opts)
     opts.ais_file(true)
-    opts.on("-g", "--header", "Generate AIS header") { |f| opts.options.ais_header = f }
-    opts.on("--flow-facts TYPE,..", "Flow facts to export (=loop-local,calltargets-global,infeasible-global)") { |ty|
-      opts.options.ffs_types = ty.split(/\s*,\s*/)
+    opts.on("-g", "--header", "Generate AIS header") { |f|
+      opts.options.ais_header = f
     }
-    opts.on("--flow-facts-from ORIGIN,..", "Elegible Flow Fact Sources (=all)") { |srcs|
-      opts.options.ffs_srcs = srcs.split(/\s*,\s*/)
-    }
-    opts.add_check { |options|
-      options.ffs_types = AISExporter.supported_types unless options.ffs_types
-      options.ffs_srcs = 'all' unless options.ffs_srcs
-    }
+    opts.flow_fact_selection
   end
 end
 

@@ -63,7 +63,7 @@ class AnalyzeTraceTool
     fact_context = { 'level' => 'machinecode', 'origin' => 'trace'}
     globalscope = entry.ref
 
-    pml.add_timing(TimingEntry.new(globalscope,global.results.cycles.max,fact_context))
+    pml.timing.add(TimingEntry.new(globalscope,global.results.cycles.max,fact_context))
 
     # Export global block frequencies, call targets and infeasible blocks
     global.results.freqs.each do |block,freq|

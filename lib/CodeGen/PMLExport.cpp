@@ -312,9 +312,9 @@ void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
   }
 
   if (!I->hasCallees()) {
-    errs() << "[mc2yml] Warning: no known callee for MC instruction ";
-    errs() << "(opcode " << Ins->getOpcode() << ")";
-    errs() << " in " << MF.getFunction()->getName() << "\n";
+    // errs() << "[mc2yml] Warning: no known callee for MC instruction ";
+    // errs() << "(opcode " << Ins->getOpcode() << ")";
+    // errs() << " in " << MF.getFunction()->getName() << "\n";
     // TODO shouldn't we just leave this empty??
     I->addCallee(StringRef("__any__"));
   }
@@ -547,14 +547,18 @@ void addProgressNodes(yaml::RelationGraph *RG,
     delete IQueue;
   }
   yaml::RelationNode *RN = RG->getExitNode();
+
+  // add src-edges from src-labeled nodes to exit
   for (std::vector<yaml::RelationNode*>::iterator PI =
       BitcodeEvents.getExitPredecessors().begin(), PE =
       BitcodeEvents.getExitPredecessors().end(); PI != PE; ++PI)
-    (*PI)->addSuccessor(RN, false);
+    (*PI)->addSuccessor(RN, true);
+
+  // add dst-edges from dst-labeled nodes to exit
   for (std::vector<yaml::RelationNode*>::iterator PI =
       MachineEvents.getExitPredecessors().begin(), PE =
       MachineEvents.getExitPredecessors().end(); PI != PE; ++PI)
-    (*PI)->addSuccessor(RN, true);
+    (*PI)->addSuccessor(RN, false);
   if (BitcodeEvents.begin() != BitcodeEvents.end()) {
     // unmatched events (bitcode side)
     for (EventQueueMap<const BasicBlock*>::iterator I = BitcodeEvents.begin(),

@@ -67,7 +67,33 @@ module PML
     end
     # tool writes PML file (stdout or --output FILE)
     def writes_pml
-      self.on("-o", "--output FILE", "Output PML File (=stdout)") { |f| options.output = f }      
+      self.on("-o", "--output FILE", "Output PML File (=stdout)") { |f| options.output = f }
+    end
+    # tool generates WCET results
+    def calculates_wcet
+      self.on("--timing-name NAME", "Name of the strategy to generate WCET information") { |n| timing_name = n }
+    end
+    # user should specify selection of flow facts
+    def flow_fact_selection
+      self.on("--flow-fact-types TYPE,...", "Flow facts to export (=supported,minimal)") { |ty|
+        if ty == "supported"
+          options.flow_fact_types = :supported
+        elsif ty == "minimal"
+          options.flow_fact_types = FlowFact::MINIMAL_FLOWFACT_TYPES
+        else
+          options.flow_fact_types = ty.split(/\s*,\s*/)
+        end
+      }
+      self.on("--flow-fact-srcs SOURCE,..", "Flow fact sources to use (=all)") { |srcs|
+        options.flow_fact_srcs = srcs.split(/\s*,\s*/)
+      }
+      self.on("--use-relation-graph", "whether to use bitcode flowfacts via relation graph") {
+        options.use_relation_graph = true
+      }
+      add_check { |options|
+        options.flow_fact_types = :supported unless options.flow_fact_types
+        options.flow_fact_srcs  = "all" unless options.flow_fact_srcs
+      }
     end
     # ELF binaries
     def binary_file(mandatory = false)

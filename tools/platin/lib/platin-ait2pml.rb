@@ -27,14 +27,15 @@ end
 class AitImportTool
   def AitImportTool.add_options(opts, excl = [])
     opts.analysis_entry
+    opts.calculates_wcet
     opts.ait_result_file unless excl.include?(:ait_result_file)
   end
   def AitImportTool.run(pml,options)
     doc = Document.new(File.read(options.ait_result_file))
     cycles = doc.elements["results/result[1]/cycles"].text.to_i
     scope = pml.machine_functions.by_label(options.analysis_entry).ref
-    entry = TimingEntry.new(scope, cycles, 'level' => 'machinecode', 'origin' => 'aiT')
-    pml.add_timing(entry)
+    entry = TimingEntry.new(scope, cycles, 'level' => 'machinecode', 'origin' => options.timing_name || 'aiT')
+    pml.timing.add(entry)
     pml
   end
 end

@@ -268,10 +268,11 @@ module PML
         die_usage "Specifying the bitcode file is mandatory for SWEET analysis" unless options.bitcode_file
         die_usage "Specifying the ALF file is mandatory for SWEET analysis"     unless options.alf_file
       }
-    end      
+    end
     def runs_sweet
       runs_llvm2alf
       self.on("--sweet-command FILE", "path to sweet (=sweet)") { |f| options.sweet = f }
+      self.on("--sweet-ignore-volatiles", "treat volatile memory areas as ordinary ones") { |f| options.sweet_ignore_volatiles = true }
       self.add_check { |options|
         options.sweet   ||= "sweet"
       }
@@ -312,7 +313,7 @@ class AlfTool
     die "#{options.alf_llc} failed with exit status #{$?}" unless $? == 0
   end
   def AlfTool.default_ignored_definitions
-    %w{_start _exit exit abort _sbrk.heap_ptr __adddf3 __addsf3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2 __fixdfdi __fixdfsi __fixsfdi __fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi __floatdidf __floatdisf} +
+    %w{_start _exit exit abort raise _raise_r  __sigtramp __sigtramp_r malloc _malloc_r _malloc_trim_r __malloc_sbrk_base _sbrk_r _sbrk _sbrk.heap_ptr __adddf3 __addsf3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2 __fixdfdi __fixdfsi __fixsfdi __fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi __floatdidf __floatdisf} +
     %w{__floatsidf __floatsisf __floatundidf __floatundisf __floatunsidf __floatunsisf __gedf2 __gesf2 __gtdf2 __gtsf2 __ledf2 __lesf2 __ltdf2 __ltsf2 memcpy memmove memset __muldf3 __mulsf3 __nedf2 __nesf2 __subdf3 __subsf3 __truncdfsf2 __unorddf2 __unordsf2}
   end
   def AlfTool.add_options(opts)
@@ -324,9 +325,11 @@ end
 class SweetAnalyzeTool
   def SweetAnalyzeTool.run(pml, options)
     needs_options(options, :sweet, :alf_file, :analysis_entry, :sweet_flowfact_file)
-    AlfTool.run(options, :standalone => true, :memory_areas => [(0..0xffff)], :ignored_definitions => AlfTool.default_ignored_definitions)
+    alfopts = {:standalone => true, :memory_areas => [(0..0xffff)], :ignored_definitions => AlfTool.default_ignored_definitions }
+    alfopts[:ignore_volatiles] = true if options.sweet_ignore_volatiles
+    AlfTool.run(options, alfopts)
     system(options.sweet, "-i=#{options.alf_file}", "func=#{options.analysis_entry}", "-ae",
-           "ffg=ub", "vola=t", "pu", "-f", "co", "o=#{options.sweet_flowfact_file}")
+           "ffg=uhss,uhsf,uhsp,unss,unsf,unsp", "vola=t", "pu", "-f", "co", "o=#{options.sweet_flowfact_file}")
     die "#{options.sweet} failed with exit status #{$?}"  unless $? == 0
   end
   def SweetAnalyzeTool.add_options(opts)

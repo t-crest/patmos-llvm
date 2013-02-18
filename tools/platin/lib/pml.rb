@@ -36,6 +36,9 @@ module PML
     [r1.min,r2.min].min .. [r1.max,r2.max].max
   end
 
+  # calculate the reachable set from entry,
+  # where the provided block needs to compute
+  # the successors of an item
   def reachable_set(entry)
     reachable = Set.new
     todo = [entry]
@@ -97,11 +100,11 @@ module PML
       end
     end
   end
-  
+
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc < Proxy
-    attr_reader :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts
+    attr_reader :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
 
     def initialize(data_or_io)
       stream = if data_or_io.kind_of?(Array)
@@ -123,16 +126,13 @@ module PML
       @relation_graphs   = RelationGraphList.new(@data['relation-graphs'] || [], @bitcode_functions, @machine_functions)
       @data['flowfacts'] ||= []
       @flowfacts = FlowFactList.from_pml(self, @data['flowfacts'])
-    end
-
-    def add_timing(timing_entry)
       @data['timing'] ||= []
-      @data['timing'].push(timing_entry.data)      
+      @timing = TimingList.from_pml(self, @data['timing'])
     end
 
     def to_s
       "PMLDoc{bitcode-functions: |#{bitcode_functions.length}|, machine-functions: |#{machine_functions.length}"+
-        ", flowfacts: |#{flowfacts.length}|}"
+        ", flowfacts: |#{flowfacts.length}|}, timing: |#{timing.length}|"
     end
 
     def dump_to_file(filename)
@@ -157,10 +157,10 @@ module PML
       2
     end
     def machine_code_only_functions
-      %w{_start _exit exit abort __adddf3 __addsf3 __divsi3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2} +
+      %w{_start _exit exit abort __ashldi3 __adddf3 __addsf3 __divsi3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2} +
         %w{__fixdfdi __fixdfsi __fixsfdi __fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi __floatdidf __floatdisf} +
         %w{__floatsidf __floatsisf __floatundidf __floatundisf __floatunsidf __floatunsisf __gedf2 __gesf2 __gtdf2 __gtsf2} +
-        %w{__ledf2 __lesf2 __ltdf2 __ltsf2 __muldf3 __mulsf3 __nedf2 __nesf2 __subdf3 __subsf3 __truncdfsf2 __unorddf2 __unordsf2} +
+        %w{__ledf2 __lesf2 __lshrdi3 __ltdf2 __ltsf2 __muldf3 __mulsf3 __nedf2 __nesf2 __subdf3 __subsf3 __truncdfsf2 __unorddf2 __unordsf2} +
         %w{memcpy memmove memset}
     end
 
@@ -184,7 +184,7 @@ module PML
       merged_doc
     end
   end
-  
+
   class Reference < Proxy
     attr_reader :qname
     def Reference.from_pml(functions, data)
@@ -219,9 +219,10 @@ module PML
 
   # Qualified name for blocks
   class BlockRef < Reference
-    attr_reader :block, :qname
+    attr_reader :function, :block, :qname
     def initialize(block, data = nil)
       @block = block
+      @function = block.function
       @qname = block.qname
       @data = data || { 'function' => block.function.name, 'block' => block.name }
     end
@@ -229,9 +230,10 @@ module PML
 
   # Qualified name for loops
   class LoopRef < Reference
-    attr_reader :loopblock, :qname
+    attr_reader :function, :loopblock, :qname
     def initialize(block, data = nil)
       @loopblock = block
+      @function = block.function
       @qname = block.qname
       @data = data || { 'function' => loopblock.function.name, 'loop' => loopblock.name }
     end
@@ -239,9 +241,10 @@ module PML
 
   # Qualified name for instructions
   class InstructionRef < Reference
-    attr_reader :instruction, :qname
+    attr_reader :function, :block, :instruction, :qname
     def initialize(instruction, data = nil)
       @instruction = instruction
+      @block, @function = instruction.block, instruction.function
       @qname = instruction.qname
       @data = data || { 'function' => instruction.function.name,
         'block' => instruction.block.name, 'instruction' => instruction.name }
@@ -269,10 +272,12 @@ module PML
         callees = []
         f.each_callsite { |cs|
           cs['callees'].each { |n|
-            if(! @named[n])
-              unresolved.add(cs)
+            if(f = @labelled[n])
+              callees.push(f)
+            elsif(f = @named[n])
+              callees.push(f)
             else
-              callees.push(by_name(n))
+              unresolved.add(cs)
             end
           }
         }
@@ -328,7 +333,7 @@ module PML
       @list[index]
     end
   end
-  
+
   # References to Program Points (functions, blocks, instructions)
   class ProgramPointProxy < Proxy
     attr_reader :name, :qname
@@ -398,7 +403,7 @@ module PML
       @data = mbb
       @function = function
       @name = @data['name']
-      @qname = label
+      @qname = "#{function.name}/#{@name}"
       @hash = qname.hash
 
       loopnames = @data['loops'] || []
@@ -410,11 +415,11 @@ module PML
     end
     def [](k)
       assert("Do not access instructions via []") { k != 'instructions' }
-      assert("Do not access predecessors/successors directly") { k != 'predecessors' && k != 'successors' } 
-      assert("Do not access loops directly") { k != 'loops' } 
+      assert("Do not access predecessors/successors directly") { k != 'predecessors' && k != 'successors' }
+      assert("Do not access loops directly") { k != 'loops' }
       @data[k]
     end
-    # loops: not ready at initialization time    
+    # loops: not ready at initialization time
     def loops
       return @loops if @loops
       @loops = (@data['loops']||[]).map { |l| function.blocks.by_name(l) }
@@ -434,7 +439,11 @@ module PML
       BlockRef.new(self)
     end
     def to_s
-      "#{function['mapsto']}/#{qname}"
+      if function['mapsto']
+        "(#{function['mapsto']})#{qname}"
+      else
+        qname
+      end
     end
     def hash; @hash ; end
     def loopheader? ; @is_loopheader ; end
@@ -464,7 +473,7 @@ module PML
       @block = block
       @data = ins
       @name = index
-      @qname = "#{block.label}+#{@name}"
+      @qname = "#{block.qname}/#{@name}"
       @hash = @qname.hash
     end
     def ref
@@ -490,6 +499,9 @@ module PML
       @data = data
       build_lookup
     end
+    def has_named?(name, level)
+      ! @named[level][name].nil?
+    end
     def by_name(name, level)
       assert("RelationGraphList#by_name: level != :src,:dst") { [:src,:dst].include?(level) }
       lookup(@named[level], name, "#{level}-name")
@@ -512,7 +524,7 @@ module PML
       @data.freeze
     end
   end
-      
+
 
   # Relation Graphs
   class RelationGraph < Proxy
@@ -631,6 +643,9 @@ module PML
   # Flow Fact utility class
   class FlowFact < Proxy
     ATTRIBUTES = %w{classification level origin}
+    CLASSIFICATION_OBJECTS = %w{block,loop,calltargets,infeasible}
+    CLASSIFICATION_SCOPES  = %w{local,function,global}
+    MINIMAL_FLOWFACT_TYPES = %w{loop-local calltargets-global infeasible-global}
     attr_reader :scope, :lhs, :op, :rhs
     def initialize(scope, lhs, op, rhs, data = nil)
       assert("scope not a reference") { scope.kind_of?(Reference) }
@@ -647,7 +662,7 @@ module PML
       end
     end
     def FlowFact.from_pml(pml, data)
-      mod = if data['level'] == 'bitcode' 
+      mod = if data['level'] == 'bitcode'
               pml.bitcode_functions
             elsif data['level'] == 'machinecode'
               pml.machine_functions
@@ -668,6 +683,12 @@ module PML
     end
     def classification
       @attributes['classification']
+    end
+    def level
+      @attributes['level']
+    end
+    def origin
+      @attributes ['origin']
     end
     def [](k)
       @attributes[k]
@@ -692,7 +713,7 @@ module PML
       terms = [ Term.new(cs.ref, -1) ]
       receiverset.each do |function| 
         terms.push(Term.new(function.ref, 1))
-      end      
+      end
       flowfact = FlowFact.new(scoperef,TermList.new(terms),'equal',0)
       flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact
@@ -732,12 +753,63 @@ module PML
     end
   end
 
+  # List of timing entries (modifiable)
+  class TimingList < ListProxy
+    def initialize(list, data = nil)
+      assert("list is nil") { list }
+      @list = list
+      @data = data ? data : list.map { |ff| ff.to_pml }
+      build_index
+    end
+    def TimingList.from_pml(pml, data)
+      TimingList.new(data.map { |d| TimingEntry.from_pml(pml,d) }, data)
+    end
+    def add(te)
+      @list.push(te)
+      @data.push(te.data)
+      add_index(te)
+    end
+    def by_origin(origin)
+      lookup(@by_origin, origin, "origin")
+    end
+    private
+    def build_index
+      @by_origin = {}
+      @list.each { |te| add_index(te) }
+    end
+    def add_index(te)
+      (@by_origin[te.origin]||=[]).push(te)
+    end
+  end
+
   # timing entries are used to record WCET analysis results or measurement results
   class TimingEntry < Proxy
-    def initialize(scope, cycles, context)
-      @data = context.dup
-      @data['scope'] ||= scope.data
-      @data['cycles'] = cycles
+    attr_reader :cycles, :scope
+    def initialize(scope, cycles, context, data = nil)
+      @scope = scope
+      @cycles = cycles
+      @context = context
+      @data = data || to_pml
+    end
+    def origin
+      data['origin']
+    end
+    ### XXX: code dup
+    def TimingEntry.from_pml(pml, data)
+      mod = if data['level'] == 'bitcode'
+              pml.bitcode_functions
+            elsif data['level'] == 'machinecode'
+              pml.machine_functions
+            else
+              raise Exception.new("Unsupported representation level: #{data['level']}")
+            end
+      TimingEntry.new(Reference.from_pml(mod,data['scope']), data['cycles'], data, data)
+    end
+    def to_pml
+      data = @context.dup
+      data['scope'] = @scope.data
+      data['cycles'] = @cycles
+      data
     end
     def to_s
       @data.to_s
