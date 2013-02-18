@@ -5,16 +5,18 @@ include PML
 
 require 'psk-analyze-trace'
 require 'psk-extract-symbols'
+require 'psk-wca'
 require 'psk-pml2ais'
 require 'psk-ait2pml'
 
 class BenchTool
-  TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool, AisExportTool, 
-           ApxExportTool,AitAnalyzeTool,AitImportTool]
+  TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool,WcaTool,
+           AisExportTool,ApxExportTool,AitAnalyzeTool,AitImportTool]
 
   def BenchTool.run(pml,options)
     ExtractSymbolsTool.run(options.binary,pml,options)
     AnalyzeTraceTool.run(options.binary,pml,options)
+    WcaTool.run(pml,options)
     AisExportTool.run(pml,options.ais,options)
     ApxExportTool.run(pml,options)
     AitAnalyzeTool.run(options)
