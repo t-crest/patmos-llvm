@@ -7,13 +7,12 @@ require 'platin-analyze-trace'
 require 'platin-extract-symbols'
 require 'platin-pml2ais'
 require 'platin-ait2pml'
-require 'platin-ff2pml'
 require 'platin-transform'
 require 'platin-wca'
 
 
 class BenchTool
-  TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool, RelationGraphValidationTool,
+  TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool,
            WcaTool,
            AisExportTool,ApxExportTool,AitAnalyzeTool,AitImportTool]
   def BenchTool.step(descr)
@@ -25,16 +24,7 @@ class BenchTool
   end
   def BenchTool.run(pml,options)
     step("Extracting Addresses")           { ExtractSymbolsTool.run(pml,options).dump_to_file(options.input) }
-    step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options) }
-    step("Up-transform MC Traces")         { TransformTool.run(pml,options.merge(:flow_fact_src="trace",:flow_fact_orgin=>"trace.bitcode")).
-                                                           dump_to_file(options.input) } # XXX: during dev only
-    step("Validate Relation Graph")        {
-      begin
-        RelationGraphValidationTool.run(pml,options)
-      rescue Exception => detail
-        $stderr.puts ("RG Validation failed: #{detail}")
-      end
-    }
+    step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options).dump_to_file(options.input) } # XXX: during dev only
 
     options.flow_fact_types = :supported
     options.flow_fact_srcs = ["trace"]
@@ -43,30 +33,6 @@ class BenchTool
     options.flow_fact_types = FlowFact::MINIMAL_FLOWFACT_TYPES
     options.timing_name = "platin-trace-minimal"
     step("Running WCA (machine code - minimal trace facts)") { WcaTool.run(pml,options) }
-
-    # copy trace flow facts which are cannnot covered by trace.bitcode facts (compiler-rt)
-    # to trace.support
-    copied = []
-    pml.flowfacts.each { |ff|
-      needed = ff.lhs.any? { |term| pml.machine_code_only_functions.include?(term.ppref.function.label) }
-      if needed
-        ff2 = ff.dup
-        ff2.add_attribute('origin', 'trace.support')
-        warn_once("Adding support for #{ff2.lhs.map { |t| t.ppref.function }.join(",")}")
-        copied.push(ff2)
-      end
-    }
-    copied.each { |ff| pml.flowfacts.add(ff) }
-    options.flow_fact_types = :supported
-    options.flow_fact_srcs = ["trace.bitcode","trace.support"]
-    options.use_relation_graph = true
-    options.timing_name = "platin-bitcode-all"
-    step("Running WCA (relation graph - bitcode facts)")   { WcaTool.run(pml, options) }
-
-    # not yet supported
-    #options.flow_fact_types = FlowFact::MINIMAL_FLOWFACT_TYPES
-    #options.timing_name = "platin-bitcode-minimal"
-    #step("Running WCA (relation graph - minimal bitcode facts)")   { WcaTool.run(pml, options) }
 
     options.flow_fact_types = :supported
     options.flow_fact_srcs = "all"
