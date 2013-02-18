@@ -328,6 +328,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       }
       break;
     case Patmos::ADDl:
+    case Patmos::DBG_VALUE:
       // all should be fine
       Offset += FrameDisplacement;
       break;
@@ -354,7 +355,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::SWC: case Patmos::SWM: opcode = Patmos::SWS; break;
     case Patmos::SHC: case Patmos::SHM: opcode = Patmos::SHS; break;
     case Patmos::SBC: case Patmos::SBM: opcode = Patmos::SBS; break;
-    case Patmos::ADDi: case Patmos::ADDl:
+    case Patmos::ADDi: case Patmos::ADDl: case Patmos::DBG_VALUE:
       break;
     default:
       assert("Unexpected operation with FrameIndex encountered." && false);
