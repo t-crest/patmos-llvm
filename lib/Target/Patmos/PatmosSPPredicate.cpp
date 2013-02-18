@@ -290,15 +290,25 @@ void PatmosSPPredicate::computeControlDependence(MachineFunction &MF,
       MachineBasicBlock *SMBB = *SI;
       // exclude edges to post-dominaing successors
       if (!PDT.dominates(SMBB, MBB)) {
-        MachineDomTreeNode *t = PDT[SMBB];
         // insert the edge MBB->SMBB to all controlled blocks
-        while( t != ipdom) {
+        for (MachineDomTreeNode *t = PDT[SMBB]; t != ipdom; t = t->getIDom()) {
           CD[t->getBlock()].insert( std::make_pair(MBB,SMBB) );
-          t = t->getIDom();
         }
       }
     } // end for all successors
   } // end for each MBB
+
+  // add control dependence for entry edge NULL -> BB0
+  {
+    MachineBasicBlock *entryMBB = &MF.front();
+    for ( MachineDomTreeNode *t = PDT[entryMBB]; t != NULL; t = t->getIDom() ) {
+      CD[t->getBlock()].insert( std::make_pair(
+                                  (MachineBasicBlock*)NULL, entryMBB)
+                                  );
+    }
+  }
+
+
   DEBUG_TRACE({
     // dump CD
     dbgs() << "Control dependence:\n";
@@ -306,7 +316,7 @@ void PatmosSPPredicate::computeControlDependence(MachineFunction &MF,
       dbgs() << "BB#" << I->first->getNumber() << ": { ";
       for (CD_map_entry_t::iterator EI=I->second.begin(), EE=I->second.end();
            EI!=EE; ++EI) {
-        dbgs() << "(" << EI->first->getNumber() << ","
+        dbgs() << "(" << ((EI->first) ? EI->first->getNumber() : -1) << ","
                       << EI->second->getNumber() << "), ";
       }
       dbgs() << "}\n";
@@ -352,8 +362,8 @@ void PatmosSPPredicate::decomposeControlDependence(MachineFunction &MF,
       dbgs() << "K(p" << i << ") -> {";
       for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
             EI!=EE; ++EI) {
-        dbgs() << "(" << EI->first->getNumber() << ","
-               << EI->second->getNumber() << "), ";
+        dbgs() << "(" << ((EI->first) ? EI->first->getNumber() : -1) << ","
+                      << EI->second->getNumber() << "), ";
       }
       dbgs() << "}\n";
     }
@@ -370,6 +380,7 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
   // fill gen/kill
   for (R_t::iterator EI=R.begin(), EE=R.end(); EI!=EE; ++EI) {
     MachineBasicBlock *MBB = EI->first;
+
     gen[MBB] = BitVector(K.size());
     kill[MBB] = BitVector(K.size());
     // put R(MBB) into gen (as use)
@@ -379,6 +390,7 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
     // each MBB defining a predicate kills a use
     for (CD_map_entry_t::iterator KI=K[i].begin(), KE=K[i].end();
          KI!=KE; ++KI) {
+      if (!KI->first) continue; // skip entry edge
       kill[KI->first].set(i);
     }
   }
