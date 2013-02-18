@@ -113,10 +113,13 @@ class RelationGraphValidationTool
   end
 end
 
-class RelationGraphTool
-  def RelationGraphTool.add_options(opts)
+class RelationGraphTransformTool
+  def RelationGraphTransformTool.add_options(opts)
     opts.analysis_entry
+    opts.flow_fact_selection
+    opts.generates_flowfacts
     opts.on("--validate", "Validate relation graph") { opts.options.validate = true }
+    RelationGraphValidationTool.add_options(opts)
     opts.add_check { |options|
       if options.validate
         die_usage("Binary file is needed for validation. Try --help") unless options.binary_file
@@ -124,13 +127,29 @@ class RelationGraphTool
     }
   end
 
-  # elf ... patmos ELF
   # pml ... PML for the prgoam
-  # options.pasim ... path to pasim executable
-  def RelationGraphTool.run(elf,options)
-    #
+  # XXX: this is just a stub, there is more work to do
+  def RelationGraphTransformTool.run(pml,options)
     if(options.validate)
       RelationGraphValidation.new.validate
+    end
+    ilp  = ILP.new
+    ipet = IPETBuilder.new(ilp)
+    ipet.build(pml,options)
+    level = nil
+    pml.flowfacts.each { |ff|
+      if ff.matches(options.flow_fact_types, options.flow_fact_srcs)
+        if level && ff.level != level
+          die("Flow Fact Transform: selected flow facts from both bitcode and machinecode")
+        end
+        level = ff.level
+        ipet.add_flowfact(ff)
+      end
+    }
+    ilp.variables.each do |var|
+      if ilp.vartype[var] != :dst
+        ilp.eliminate(var)
+      end
     end
     pml
   end
@@ -141,8 +160,7 @@ SYNOPSIS=<<EOF
 Validates relation graph and transforms flow facts from IR level to machine code level.
 EOF
   options, args = PML::optparse([:input], "file.pml", SYNOPSIS) do |opts|
-    RelationGraphTool.add_options(opts)
-    RelationGraphValidationTool.add_options(opts)
+    RelationGraphTransformTool.add_options(opts)
   end
   RelationGraphValidationTool.run(PMLDoc.from_file(options.input), options)
 end

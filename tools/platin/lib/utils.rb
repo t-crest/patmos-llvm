@@ -69,9 +69,13 @@ module PML
     def writes_pml
       self.on("-o", "--output FILE", "Output PML File (=stdout)") { |f| options.output = f }
     end
+    # tool calculates flowfacts
+    def generates_flowfacts
+      self.on("--flow-fact-origin NAME", "Name of the flow fact generator") { |n| options.flow_fact_origin = n }
+    end
     # tool generates WCET results
     def calculates_wcet
-      self.on("--timing-name NAME", "Name of the strategy to generate WCET information") { |n| timing_name = n }
+      self.on("--timing-name NAME", "Name of the strategy to generate WCET information") { |n| options.timing_name = n }
     end
     # user should specify selection of flow facts
     def flow_fact_selection

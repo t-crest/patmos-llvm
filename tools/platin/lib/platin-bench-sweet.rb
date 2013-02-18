@@ -27,11 +27,17 @@ class BenchToolSweet
   def BenchToolSweet.run(pml,options)
     step("Extracting Addresses")           { ExtractSymbolsTool.run(pml,options).dump_to_file(options.input) }
     options.sweet_ignore_volatiles = true
-    step("Running SWEET analysis")         { SweetAnalyzeTool.run(pml, options) }
     step("Running SWEET trace generation") { SweetTraceTool.run(pml, options) }
-    step("Import SWEET flow facts")        { SweetImportTool.run(pml, options).dump_to_file(options.input) } # XXX: during dev only
+    step("Running SWEET analysis")         { SweetAnalyzeTool.run(pml, options) }
+    step("Import SWEET flow facts")        { SweetImportTool.run(pml, options) }
     step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options).dump_to_file(options.input) } # XXX: during dev only
-    step("Validate Relation Graph")        { RelationGraphValidationTool.run(pml,options) }
+    step("Validate Relation Graph")        {
+      begin
+        RelationGraphValidationTool.run(pml,options)
+      rescue Exception => detail
+        $stderr.puts ("RG Validation failed: #{detail}")
+      end
+    }
 
     options.flow_fact_types = :supported
     options.flow_fact_srcs = ["trace"]

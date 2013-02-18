@@ -328,8 +328,14 @@ class SweetAnalyzeTool
     alfopts = {:standalone => true, :memory_areas => [(0..0xffff)], :ignored_definitions => AlfTool.default_ignored_definitions }
     alfopts[:ignore_volatiles] = true if options.sweet_ignore_volatiles
     AlfTool.run(options, alfopts)
-    system(options.sweet, "-i=#{options.alf_file}", "func=#{options.analysis_entry}", "-ae",
-           "ffg=uhss,uhsf,uhsp,unss,unsf,unsp", "vola=t", "pu", "-f", "co", "o=#{options.sweet_flowfact_file}")
+    i_args  = [ "-i=#{options.alf_file}", "func=#{options.analysis_entry}" ]
+    do_args = [ ]
+    ae_args = [ "-ae", "ffg=uhss,uhsf,uhsp,unss,unsf,unsp", "vola=t", "pu" ]
+    ff_args = ["-f", "co", "o=#{options.sweet_flowfact_file}" ]
+    if options.sweet_ignore_volatiles
+      do_args = [ "-do" , "floats=est" ]
+    end
+    system(options.sweet, *(i_args+do_args+ae_args+ff_args))
     die "#{options.sweet} failed with exit status #{$?}"  unless $? == 0
   end
   def SweetAnalyzeTool.add_options(opts)
@@ -344,11 +350,11 @@ class SweetTraceTool
   def SweetTraceTool.run(pml, options)
     AlfTool.run(options, :standalone => true, :memory_areas => [(0..0xffff)], :ignore_volatiles => true,
                 :ignored_definitions => AlfTool.default_ignored_definitions)
-    system(options.sweet, "-i=#{options.alf_file}", "func=#{options.trace_entry}",
+    system(options.sweet, "-i=#{options.alf_file}", "func=#{options.trace_entry}","-do","floats=est",
            "-ae", "vola=t", "css", "gtf=#{options.sweet_trace_file}")
     die "SWEET analysis failed"  unless $? == 0
   end
-  
+
   def SweetTraceTool.add_options(opts)
     opts.analysis_entry
     opts.runs_sweet
