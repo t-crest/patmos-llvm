@@ -18,6 +18,7 @@
 
 #include <Patmos.h>
 #include <PatmosTargetMachine.h>
+#include <llvm/ADT/GraphTraits.h>
 
 #include <vector>
 #include <set>
@@ -68,9 +69,9 @@ class SPNode;
   class SPNode {
     public:
       /// constructor - Create an SPNode with specified parent SP node or NULL
-      /// if top level; the header/entry MBB, and the succ MBB
+      /// if top level; the header/entry MBB; the succ MBB; number of backedges
       explicit SPNode(SPNode *parent, const MachineBasicBlock *header,
-                      const MachineBasicBlock *succ);
+                      const MachineBasicBlock *succ, unsigned numbe);
 
       /// destructor - free the child nodes first, cleanup
       ~SPNode();
@@ -90,8 +91,15 @@ class SPNode;
       /// getLevel - Get the nesting level of the SPNode
       unsigned int getLevel() const { return Level; }
 
+      /// getOrder - Get a list of MBBs for the final layout
+      void getOrder(std::vector<const MachineBasicBlock *> &list);
+
       // dump() - Dump state of this SP node and the subtree
       void dump() const;
+
+      /// child_iterator - Type for child iterator
+      typedef std::map<const MachineBasicBlock*,
+                       SPNode*>::iterator child_iterator;
 
     private:
       // parent SPNode
@@ -99,6 +107,9 @@ class SPNode;
 
       // successor MBB
       const MachineBasicBlock *SuccMBB;
+
+      // number of backedges
+      const unsigned NumBackedges;
 
       // children as map: header MBB -> SPNode
       std::map<const MachineBasicBlock*, SPNode*> Children;
@@ -109,12 +120,6 @@ class SPNode;
       // nesting level
       unsigned int Level;
   };
-
-
-
-
-
-
 
 } // end of namespace llvm
 

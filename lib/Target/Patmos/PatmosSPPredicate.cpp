@@ -173,17 +173,16 @@ void createSPNodeSubtree(MachineLoop *loop, SPNode *parent,
   // allow only one successor for SPNode
   assert( loop->getExitBlock() != NULL &&
           "Allow only one successor for loops!" );
-  assert( loop->getLoopLatch() != NULL &&
-          "Allow only exactly one backedge for loops!" );
   assert( loop->getExitingBlock() != NULL &&
           "Allow only exactly one exiting edge for loops!" );
-
+  // for now, also:
   assert( loop->getHeader() == loop->getExitingBlock() &&
           "Allow only loops with Header == Exiting Block!" );
 
   SPNode *N = new SPNode(parent,
                          loop->getHeader(),
-                         loop->getExitBlock()
+                         loop->getExitBlock(),
+                         loop->getNumBackEdges()
                          );
 
   // update map: Loop -> SPNode
@@ -203,7 +202,7 @@ SPNode *PatmosSPPredicate::createSPNodeTree(const MachineFunction &MF) const {
   // First, create a SPNode tree
   std::map<const MachineLoop *, SPNode *> M;
 
-  SPNode *Root = new SPNode(NULL, &MF.front(), NULL);
+  SPNode *Root = new SPNode(NULL, &MF.front(), NULL, 0);
 
   M[NULL] = Root;
 
@@ -231,9 +230,15 @@ void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
 
   SPNode *Root = createSPNodeTree(MF);
   Root->dump();
-  delete Root;
 
-  MF.viewCFGOnly();
+  // let's see if we get the order right
+  std::vector<const MachineBasicBlock *> order;
+  Root->getOrder(order);
+  for(unsigned i=0; i<order.size(); i++) {
+    dbgs() << " | " << order[i]->getNumber() << "\n";
+  }
+
+  delete Root;
 
   // CD: MBB -> set of edges
   CD_map_t CD;
@@ -247,6 +252,9 @@ void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
 
   // "Augment K"
   BitVector pred_initialize = computeUpwardsExposedUses(MF, K, R);
+
+  // XXX for debugging
+  //MF.viewCFGOnly();
 
   // contains the "right" virtual register for use of each MBB
   R_t pred_use_vregs;
@@ -280,8 +288,10 @@ void PatmosSPPredicate::computeControlDependence(MachineFunction &MF,
     for(MachineBasicBlock::succ_iterator SI=MBB->succ_begin(),
                                          SE=MBB->succ_end(); SI!=SE; ++SI) {
       MachineBasicBlock *SMBB = *SI;
+      // exclude edges to post-dominaing successors
       if (!PDT.dominates(SMBB, MBB)) {
         MachineDomTreeNode *t = PDT[SMBB];
+        // insert the edge MBB->SMBB to all controlled blocks
         while( t != ipdom) {
           CD[t->getBlock()].insert( std::make_pair(MBB,SMBB) );
           t = t->getIDom();

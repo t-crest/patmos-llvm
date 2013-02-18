@@ -76,8 +76,8 @@ bool PatmosSinglePathInfo::isToConvert(MachineFunction &MF) const {
 
 
 SPNode::SPNode(SPNode *parent, const MachineBasicBlock *header,
-               const MachineBasicBlock *succ)
-               : Parent(parent), SuccMBB(succ) {
+               const MachineBasicBlock *succ, unsigned int numbe)
+               : Parent(parent), SuccMBB(succ), NumBackedges(numbe) {
   Level = 0;
   // add to parent's child list
   if (Parent) {
@@ -103,6 +103,53 @@ void SPNode::addMBB(const MachineBasicBlock *MBB) {
   }
 }
 
+
+void SPNode::getOrder(std::vector<const MachineBasicBlock *> &list) {
+  std::vector<const MachineBasicBlock *> S;
+  std::vector<const MachineBasicBlock *> succs;
+  std::map<const MachineBasicBlock *, int> deps;
+  // for each block in SPNode excluding header,
+  // store the number of preds
+  for (unsigned i=1; i<Blocks.size(); i++) {
+    const MachineBasicBlock *MBB = Blocks[i];
+    deps[MBB] = MBB->pred_size();
+    if (Children.count(MBB)) {
+      SPNode *subloop = Children[MBB];
+      deps[MBB] -= subloop->NumBackedges;
+    }
+  }
+  // consider subloop headers
+  for (child_iterator I = Children.begin(), E = Children.end(); I != E; ++I) {
+      deps[I->first] = I->first->pred_size() - I->second->NumBackedges;
+  }
+
+  S.push_back(Blocks.front());
+  while(!S.empty()) {
+    const MachineBasicBlock *n = S.back();
+    S.pop_back();
+    // n is either a subloop header or a block of this SPNode
+    if (Children.count(n)) {
+      SPNode *loop = Children[n];
+      loop->getOrder(list);
+      succs.push_back(loop->getSuccMBB());
+    } else {
+      list.push_back(n);
+      succs.insert( succs.end(), n->succ_begin(), n->succ_end() );
+    }
+
+    for (unsigned i=0; i<succs.size(); i++) {
+      const MachineBasicBlock *succ = succs[i];
+      // successors for which all preds were visited become available
+      if (succ != getHeader()) {
+        deps[succ]--;
+        if (deps[succ] == 0)
+          S.push_back(succ);
+      }
+    }
+    succs.clear();
+  }
+}
+
 static void indent(unsigned level) {
   for(unsigned i=0; i<level; i++)
     dbgs() << "  ";
@@ -110,7 +157,12 @@ static void indent(unsigned level) {
 
 void SPNode::dump() const {
   indent(Level);
-  dbgs() <<  "[BB#" << Blocks.front()->getNumber() << "]\n";
+  dbgs() <<  "[BB#" << Blocks.front()->getNumber() << "]";
+  if (SuccMBB) {
+    dbgs() << " -> BB#" << SuccMBB->getNumber();
+  }
+  dbgs() << "\n";
+
   for (unsigned i=1; i<Blocks.size(); i++) {
     indent(Level+1);
     dbgs() <<  " BB#" << Blocks[i]->getNumber() << "\n";
