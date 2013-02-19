@@ -315,16 +315,31 @@ struct MappingTraits< RelationScope > {
   }
 };
 
+/// Relation Graph construction status (everything except 'valid' is a bug)
+/// valid: no problems during construction
+/// corrected: initial mapping did not include all path, but tabu list corrected the problem
+/// incomplete: no sensible mapping that includes all paths from both graphs was found
+enum RelationGraphStatus { rg_status_valid, rg_status_corrected, rg_status_incomplete };
+template <>
+struct ScalarEnumerationTraits<RelationGraphStatus> {
+  static void enumeration(IO &io, RelationGraphStatus& status) {
+    io.enumCase(status, "valid", rg_status_valid);
+    io.enumCase(status, "corrected", rg_status_corrected);
+    io.enumCase(status, "incomplete", rg_status_incomplete);
+  }
+};
+
 /// Relation Graphs
 struct RelationGraph {
   static const int EntryIndex = 0;
   static const int ExitIndex  = 1;
   int NextIndex;
+  RelationGraphStatus Status;
   RelationScope *SrcScope;
   RelationScope *DstScope;
   std::vector<RelationNode*> RelationNodes;
   RelationGraph(RelationScope *src, RelationScope *dst)
-    : SrcScope(src), DstScope(dst)
+  : Status(rg_status_valid), SrcScope(src), DstScope(dst)
   {
     RelationNodes.push_back(new RelationNode(yaml::Name(EntryIndex),rnt_entry));
     RelationNodes.push_back(new RelationNode(yaml::Name(ExitIndex),rnt_exit));
@@ -350,6 +365,7 @@ struct MappingTraits< RelationGraph > {
     io.mapRequired("src",   *RG.SrcScope);
     io.mapRequired("dst",   *RG.DstScope);
     io.mapRequired("nodes", RG.RelationNodes);
+    io.mapOptional("status", RG.Status);
   }
 };
 IS_PTR_SEQUENCE_VECTOR(RelationGraph)

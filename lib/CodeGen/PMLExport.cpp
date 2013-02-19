@@ -598,7 +598,7 @@ void addProgressNodes(yaml::RelationGraph *RG,
 void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
 {
   this->LI = LI;
-  
+
   Function *BF = const_cast<Function*>(MF.getFunction());
   if (!BF)
     return;
@@ -612,10 +612,10 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
   // retry (with a retry limit)
   unsigned TriesLeft = 3;
   yaml::RelationGraph *RG = 0;
+  yaml::RelationGraphStatus Status = yaml::rg_status_valid;
   while (TriesLeft-- > 0) {
     if (RG)
       delete RG; // also deletes scopes and nodes
-
     /// Create Graph
     yaml::RelationScope *DstScope = new yaml::RelationScope(
         yaml::Name(MF.getFunctionNumber()), yaml::level_machinecode);
@@ -671,22 +671,18 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
     }
     if (UnmatchedEvents.empty()) { // No unmatched events this time
       break;
-    }
-    else if (TabuEvents.empty()) {
-      errs() << "[mc2yml] Warning: inconsistent initial mapping for "
-             << MF.getFunction()->getName() << " (retrying)\n";
+    } else if (TabuEvents.empty()) {
+      DEBUG(errs() << "[mc2yml] Warning: inconsistent initial mapping for "
+            << MF.getFunction()->getName() << " (retrying)\n");
+      Status = yaml::rg_status_corrected;
     }
     TabuEvents.insert(UnmatchedEvents.begin(), UnmatchedEvents.end());
   }
   if (!UnmatchedEvents.empty()) {
-    errs() << "[mc2yml] Error: failed to find a correct event mapping for "
-           << MF.getFunction()->getName() << ": ";
-    for (std::set<StringRef>::iterator I = UnmatchedEvents.begin(), E =
-        UnmatchedEvents.end(); I != E; ++I) {
-      errs() << *I << ",";
-    }
-    errs() << "\n";
+    DEBUG(errs() << "[mc2yml] Error: failed to find a correct event mapping for " << MF.getFunction()->getName() << "\n");
+    Status = yaml::rg_status_incomplete;
   }
+  RG->Status = Status;
   YDoc.addRelationGraph(RG);
 }
 
