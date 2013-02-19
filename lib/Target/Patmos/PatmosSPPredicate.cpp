@@ -252,6 +252,13 @@ void PatmosSPPredicate::doConvertFunction(MachineFunction &MF) {
 
   // "Augment K"
   BitVector pred_initialize = computeUpwardsExposedUses(MF, K, R);
+  /*
+  for (unsigned i=0; i<K.size(); i++) {
+    if (pred_initialize.test(i)) {
+      K[i].insert( std::make_pair((MachineBasicBlock *)NULL, &MF.front()) );
+    }
+  }
+  */
 
   // XXX for debugging
   //MF.viewCFGOnly();
@@ -456,16 +463,17 @@ BitVector PatmosSPPredicate::computeUpwardsExposedUses(MachineFunction &MF,
   } // end of main iteration
 
   // Augmented elements
-  BitVector *pred_initialize = &bvIn[&MF.front()];
+  BitVector pred_initialize = bvIn[&MF.front()];
+  pred_initialize.reset(0); // entry edge
   DEBUG_TRACE({
     // dump pN to be initialized
     dbgs() << "Initialization with F:";
-    for (unsigned i=0; i<pred_initialize->size(); i++) {
-      if (pred_initialize->test(i)) dbgs() << " p" << i;
+    for (unsigned i=0; i<pred_initialize.size(); i++) {
+      if (pred_initialize.test(i)) dbgs() << " p" << i;
     }
     dbgs() << "\n";
   });
-  return *pred_initialize;
+  return pred_initialize;
 }
 
 
