@@ -26,15 +26,14 @@ add_llvm_target(PatmosCodeGen
   PatmosSelectionDAGInfo.cpp
   PatmosAsmPrinter.cpp
   PatmosMCInstLower.cpp
-  PatmosSinglePathInfo.cpp
-  PatmosSPPredicate.cpp
-  PatmosSPReduce.cpp
   PatmosDelaySlotFiller.cpp
   PatmosFunctionSplitter.cpp
   PatmosCallGraphBuilder.cpp
   PatmosStackCacheAnalysis.cpp
   PatmosPreserveFunction.cpp
   PatmosExport.cpp
+  PatmosSinglePathInfo.cpp
+  PatmosSPReduce.cpp
   )
 
 add_dependencies(LLVMPatmosCodeGen intrinsics_gen)

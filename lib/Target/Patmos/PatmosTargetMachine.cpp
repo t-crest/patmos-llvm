@@ -64,12 +64,9 @@ namespace {
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
 
-  private:
-    PatmosSinglePathInfo PSPI;
-
   public:
     PatmosPassConfig(PatmosTargetMachine *TM, PassManagerBase &PM)
-      : TargetPassConfig(TM, PM), PSPI( PatmosSinglePathInfo(*TM) ) {}
+      : TargetPassConfig(TM, PM) {}
 
     PatmosTargetMachine &getPatmosTargetMachine() const {
       return getTM<PatmosTargetMachine>();
@@ -101,7 +98,7 @@ namespace {
     /// addPreISelPasses - This method should add any "last minute" LLVM->LLVM
     /// passes (which are run just before instruction selector).
     virtual bool addPreISel() {
-      if (PSPI.enabled()) {
+      if (PatmosSinglePathInfo::isEnabled()) {
         // Single-path transformation requires a single exit node
         addPass(createUnifyFunctionExitNodesPass());
         // Single-path transformation currently cannot deal with
@@ -156,9 +153,9 @@ namespace {
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
     virtual bool addPreSched2() {
-      if (PSPI.enabled()) {
-        addPass(createPatmosSPPredicatePass(getPatmosTargetMachine(), PSPI));
-        addPass(createPatmosSPReducePass(getPatmosTargetMachine(), PSPI));
+      if (PatmosSinglePathInfo::isEnabled()) {
+        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+        addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
           addPass(&IfConverterID);
