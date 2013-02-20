@@ -34,11 +34,16 @@ For Debian or Ubuntu, you may need to install the following packages:
     flex bison
     libelf-dev
     graphviz
+    python
+    zlib1g-dev
 
 To build the simulator, you also need the following packages (version >= 1.46):
 
     libboost-dev libboost-program-options-dev
 
+For the WCET analysis integration (optional), you also need
+
+    ruby1.9.1
 
 --------------------------------------------------------------------------------
 2. Configure and build
