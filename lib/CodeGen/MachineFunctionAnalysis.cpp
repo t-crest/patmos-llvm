@@ -61,12 +61,22 @@ bool MachineFunctionAnalysis::runOnFunction(Function &F) {
 
 void MachineFunctionAnalysis::releaseMemory() {
   // if needed preserve the MachineFunction, otherwise free its entirely
-  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
-  if (PreserveMF && MF) {
-    MMI.putMachineFunction(MF, MF->getFunction());
+  MachineModuleInfo *MMI = getAnalysisIfAvailable<MachineModuleInfo>();
+  
+  if (PreserveMF && MMI && MF) {
+    // store the MachineFunction instead of destroying it,
+    // but only if MachineFunctionAnalysis has been initialized before
+    // It seems that this happens sometimes when this analysis is free'd 
+    // but not used before
+    MMI->putMachineFunction(MF, MF->getFunction());
   }
+  else if (MMI && MF) {
+    // If we have a MachineModuleInfo, cleanup there as well
+    MMI->removeMachineFunction(MF->getFunction());
+    delete MF;
+  } 
   else if (MF) {
-    MMI.removeMachineFunction(MF->getFunction());
+    // No MachineModuleInfo, no need to remove anything
     delete MF;
   }
 
