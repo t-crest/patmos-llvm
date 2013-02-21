@@ -392,12 +392,14 @@ SPNode::SPNode(SPNode *parent, const MachineBasicBlock *header,
                const MachineBasicBlock *succ, unsigned int numbe)
                : Parent(parent), SuccMBB(succ), NumBackedges(numbe) {
   Level = 0;
-  // add to parent's child list
   if (Parent) {
+    // add to parent's child list
     Parent->Children[header] = this;
+    // add to parent's block list as well
+    Parent->addMBB(header);
     Level = Parent->Level + 1;
   }
-  // add header also to block list
+  // add header also to this SPNode's block list
   Blocks.push_back(header);
 }
 
@@ -430,10 +432,6 @@ void SPNode::getOrder(std::vector<const MachineBasicBlock *> &list) {
       SPNode *subloop = Children[MBB];
       deps[MBB] -= subloop->NumBackedges;
     }
-  }
-  // consider subloop headers
-  for (child_iterator I = Children.begin(), E = Children.end(); I != E; ++I) {
-      deps[I->first] = I->first->pred_size() - I->second->NumBackedges;
   }
 
   S.push_back(Blocks.front());
@@ -477,12 +475,13 @@ void SPNode::dump() const {
   dbgs() << "\n";
 
   for (unsigned i=1; i<Blocks.size(); i++) {
-    indent(Level+1);
-    dbgs() <<  " BB#" << Blocks[i]->getNumber() << "\n";
-  }
-  for (std::map<const MachineBasicBlock*, SPNode*>::const_iterator
-            I = Children.begin(), E = Children.end(); I != E; ++I) {
-    I->second->dump();
+    const MachineBasicBlock *MBB = Blocks[i];
+    if (Children.count(MBB)) {
+      Children.at(MBB)->dump();
+    } else {
+      indent(Level+1);
+      dbgs() <<  " BB#" << MBB->getNumber() << "\n";
+    }
   }
 }
 
