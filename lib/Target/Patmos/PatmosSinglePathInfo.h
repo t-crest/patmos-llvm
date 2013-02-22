@@ -115,10 +115,6 @@ namespace llvm {
       /// PredDefsF
       void collectPredDefs(MachineFunction &MF, const K_t &K);
 
-      /// computeUpwardsExposedUses - Compute predicates which need to be
-      /// initialized with 'false' as they are upwards exposed
-      BitVector computeUpwardsExposedUses(MachineFunction &MF,
-          K_t &K, R_t &R) const;
 
     public:
       /// Pass ID
