@@ -19,6 +19,7 @@
 #include <Patmos.h>
 #include <PatmosTargetMachine.h>
 #include <llvm/Module.h>
+#include <llvm/ADT/BitVector.h>
 #include <llvm/CodeGen/MachineFunctionPass.h>
 
 #include <vector>
@@ -49,14 +50,16 @@ namespace llvm {
       /// Typedefs for control dependence:
       /// CD: MBB -> set of edges
       /// CD describes, which edges an MBB is control-dependent on.
-      typedef std::set<std::pair<MachineBasicBlock*,
-              MachineBasicBlock*> > CD_map_entry_t;
-      typedef std::map<MachineBasicBlock*, CD_map_entry_t> CD_map_t;
+      typedef std::set<std::pair<const MachineBasicBlock*,
+              const MachineBasicBlock*> > CD_map_entry_t;
+      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
 
       /// Typedefs for R and K (decomposed CD)
-      typedef std::vector<CD_map_entry_t>            K_t;
-      typedef std::map<MachineBasicBlock*, unsigned> R_t;
+      typedef std::vector<CD_map_entry_t>                  K_t;
+      typedef std::map<const MachineBasicBlock*, unsigned> R_t;
 
+      /// Typedef for MBB -> BitVector map
+      typedef std::map<const MachineBasicBlock*, BitVector> MBB_BV_map_t;
 
       const PatmosTargetMachine &TM;
       const PatmosSubtarget &STC;
@@ -65,8 +68,29 @@ namespace llvm {
       /// Set of functions to be converted
       const std::set<std::string> Funcs;
 
+
       /// Set of functions yet to be analyzed
       std::set<std::string> FuncsRemain;
+
+
+      ////////// state of the pass
+
+      /// Number of predicates used
+      unsigned PredCount;
+
+      /// Map MBBs to predicate they use
+      std::map<const MachineBasicBlock*, unsigned> PredUse;
+
+      /// Map MBBs to predicates they set to their true edge
+      MBB_BV_map_t PredDefsT;
+
+      /// Map MBBs to predicates they set to their false edge
+      MBB_BV_map_t PredDefsF;
+
+      /// Root SPNode
+      SPNode *Root;
+
+
 
       /// Analyze a given MachineFunction
       void analyzeFunction(MachineFunction &MF);
@@ -80,8 +104,16 @@ namespace llvm {
       void computeControlDependence(MachineFunction &MF, CD_map_t &CD) const;
 
       /// decomposeControlDependence - Decompose CD into K and R
-      void decomposeControlDependence(MachineFunction &MF, CD_map_t &CD,
-          K_t &K, R_t &R) const;
+      void decomposeControlDependence(MachineFunction &MF, const CD_map_t &CD,
+                                      K_t &K, R_t &R) const;
+
+      /// getInitializees - Return the predicates that need to be initialized
+      /// for a given SPNode
+      BitVector getInitializees(const SPNode *N) const;
+
+      /// collectPredDefs - Collect definitions in MBBs, in PredDefsT and
+      /// PredDefsF
+      void collectPredDefs(MachineFunction &MF, const K_t &K);
 
       /// computeUpwardsExposedUses - Compute predicates which need to be
       /// initialized with 'false' as they are upwards exposed
@@ -124,14 +156,28 @@ namespace llvm {
       virtual void dump() const;
 #endif
 
-      ///////////////////////////////////
+      ////////////////////////////////////
+      // accessing main analysis results:
+      ////////////////////////////////////
 
       /// isToConvert - Return true if the function should be if-converted
       bool isToConvert(MachineFunction &MF) const;
 
-      /// getNumPredicates
-      //unsigned getNumPredicates() const;
+      /// getNumPredicates - Returns the number of predicates required for
+      /// this function
+      unsigned getNumPredicates() const { return PredCount; }
 
+      /// getGuardPredicate - Returns the guarding predicate for an MBB
+      BitVector getPredUse(const MachineBasicBlock *);
+
+      /// getPredDefsT - Returs a bitvector for preds set on the true edge
+      BitVector getPredDefsT(const MachineBasicBlock *);
+
+      /// getPredDefsF - Returs a bitvector for preds set on the false edge
+      BitVector getPredDefsF(const MachineBasicBlock *);
+
+      /// getRootNode - Return the Root SPNode for this function
+      SPNode *getRootNode() const { return Root; }
   };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -139,6 +185,7 @@ namespace llvm {
   class MachineBasicBlock;
 
   class SPNode {
+    friend class PatmosSinglePathInfo;
     public:
       /// constructor - Create an SPNode with specified parent SP node or NULL
       /// if top level; the header/entry MBB; the succ MBB; number of backedges
@@ -162,6 +209,10 @@ namespace llvm {
 
       /// getLevel - Get the nesting level of the SPNode
       unsigned int getLevel() const { return Level; }
+
+      /// isTopLevel - Returs true if the SPNode is the top-level SPNode
+      /// (not a loop)
+      bool isTopLevel() const { return (NULL == Parent); }
 
       /// getOrder - Get a list of MBBs for the final layout
       void getOrder(std::vector<const MachineBasicBlock *> &list);

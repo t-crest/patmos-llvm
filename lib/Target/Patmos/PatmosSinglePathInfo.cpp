@@ -73,7 +73,7 @@ PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm)
   : MachineFunctionPass(ID), TM(tm),
     STC(tm.getSubtarget<PatmosSubtarget>()),
     TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
-    Funcs(SPFuncList.begin(), SPFuncList.end())   {}
+    Funcs(SPFuncList.begin(), SPFuncList.end()), Root(0)   {}
 
 
 bool PatmosSinglePathInfo::doInitialization(Module &M) {
@@ -94,6 +94,10 @@ bool PatmosSinglePathInfo::doFinalization(Module &M) {
     DEBUG( dbgs() << '\n');
     FuncsRemain.clear();
   }
+  if (Root) {
+    delete Root;
+    Root = NULL;
+  }
   return false;
 }
 
@@ -105,6 +109,15 @@ void PatmosSinglePathInfo::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
+  // clear the state of the pass
+  PredCount = 0;
+  PredUse.clear();
+  PredDefsT.clear();
+  PredDefsF.clear();
+  if (Root) {
+    delete Root;
+    Root = NULL;
+  }
   // only consider function if specified on command line
   std::string curfunc = MF.getFunction()->getName();
   if ( isToConvert(MF) ) {
@@ -117,6 +130,11 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
 }
 
 
+static void printBitVector(raw_ostream &OS, BitVector B) {
+  for (int i=B.size()-1; i>=0; i--) {
+    OS << ( (B.test(i)) ? "1" : "0" );
+  }
+}
 
 void PatmosSinglePathInfo::print(raw_ostream &OS, const Module *M) const {
   // TODO implement
@@ -130,26 +148,44 @@ void PatmosSinglePathInfo::dump() const {
 #endif
 
 
-
-
-
 bool PatmosSinglePathInfo::isToConvert(MachineFunction &MF) const {
   return Funcs.count(MF.getFunction()->getName()) > 0;
 }
 
+
+
+BitVector PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) {
+  BitVector bv(PredCount);
+  if (PredUse.count(MBB)) {
+    bv.set(PredUse.at(MBB));
+  }
+  return bv;
+}
+
+
+BitVector PatmosSinglePathInfo::getPredDefsT(const MachineBasicBlock *MBB) {
+  if (PredDefsT.count(MBB)) {
+    return PredDefsT.at(MBB);
+  }
+  return BitVector(PredCount);
+}
+
+
+BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB) {
+  if (PredDefsF.count(MBB)) {
+    return PredDefsF.at(MBB);
+  }
+  return BitVector(PredCount);
+}
+
+
+
+
 void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
-  SPNode *Root = createSPNodeTree(MF);
+  Root = createSPNodeTree(MF);
   Root->dump();
 
-  // let's see if we get the order right
-  std::vector<const MachineBasicBlock *> order;
-  Root->getOrder(order);
-  for(unsigned i=0; i<order.size(); i++) {
-    dbgs() << " | " << order[i]->getNumber() << "\n";
-  }
-
-  delete Root;
 
   // CD: MBB -> set of edges
   CD_map_t CD;
@@ -161,15 +197,28 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
   decomposeControlDependence(MF, CD, K, R);
 
 
-  // "Augment K"
-  BitVector pred_initialize = computeUpwardsExposedUses(MF, K, R);
-  /*
-  for (unsigned i=0; i<K.size(); i++) {
-    if (pred_initialize.test(i)) {
-      K[i].insert( std::make_pair((MachineBasicBlock *)NULL, &MF.front()) );
+  // Properly assign the Uses/Defs
+  PredCount = K.size();
+  PredUse = R;
+  // collect PredDefsT, PredDefsF
+  collectPredDefs(MF, K);
+
+
+  DEBUG_TRACE({
+    dbgs() << "Number of predicates: " <<  PredCount << "\n";
+    dbgs() << "Defs to T edges in " <<  PredDefsT.size() << " MBBs\n";
+    dbgs() << "Defs to F edges in " <<  PredDefsF.size() << " MBBs\n";
+    for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
+              I!=E; ++I) {
+      dbgs() << "MBB#" << I->getNumber() << ": use ";
+      printBitVector(dbgs(), getPredUse(I));
+      dbgs() << " defT ";
+      printBitVector(dbgs(), getPredDefsT(I));
+      dbgs() << " defF ";
+      printBitVector(dbgs(), getPredDefsF(I));
+      dbgs() << "\n";
     }
-  }
-  */
+  });
 
   // XXX for debugging
   //MF.viewCFGOnly();
@@ -178,13 +227,11 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
 
 
-// TODO Maybe an artificial entry node?
 void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
                                                     CD_map_t &CD) const {
   // for CD, we need the Postdom-Tree
   MachinePostDominatorTree &PDT = getAnalysis<MachinePostDominatorTree>();
   assert(PDT.getRoots().size()==1 && "Function must have a single exit node!");
-
 
   DEBUG_TRACE( dbgs() << "Post-dominator tree:\n" );
   DEBUG_TRACE( PDT.print(dbgs(), MF.getFunction()->getParent()) );
@@ -210,7 +257,7 @@ void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
   // add control dependence for entry edge NULL -> BB0
   {
     MachineBasicBlock *entryMBB = &MF.front();
-    for ( MachineDomTreeNode *t = PDT[entryMBB]; t != NULL; t = t->getIDom() ) {
+    for (MachineDomTreeNode *t = PDT[entryMBB]; t != NULL; t = t->getIDom() ) {
       CD[t->getBlock()].insert( std::make_pair(
                                   (MachineBasicBlock*)NULL, entryMBB)
                                   );
@@ -236,12 +283,12 @@ void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
 
 
 void PatmosSinglePathInfo::decomposeControlDependence(MachineFunction &MF,
-                                                      CD_map_t &CD, K_t &K,
-                                                      R_t &R) const {
+                                                      const CD_map_t &CD,
+                                                      K_t &K, R_t &R) const {
   int p = 0;
   for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
     MachineBasicBlock *MBB = FI;
-    CD_map_entry_t t = CD[MBB];
+    CD_map_entry_t t = CD.at(MBB);
     int q=-1;
     // try to lookup the control dependence
     for (unsigned int i=0; i<K.size(); i++) {
@@ -281,15 +328,61 @@ void PatmosSinglePathInfo::decomposeControlDependence(MachineFunction &MF,
 }
 
 
+BitVector PatmosSinglePathInfo::getInitializees(const SPNode *N) const {
+  BitVector bv(PredCount);
+  for (unsigned i=1; i<N->Blocks.size(); i++) {
+    bv.set(PredUse.at(N->Blocks[i]));
+  }
+  return bv;
+}
+
+void PatmosSinglePathInfo::collectPredDefs(MachineFunction &MF, const K_t &K) {
+  // For each predicate, compute defs
+  for (unsigned int i=0; i<K.size(); i++) {
+    // for each definition edge
+    for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
+              EI!=EE; ++EI) {
+      const MachineBasicBlock *MBBSrc = EI->first, *MBBDst = EI->second;
+      if (!MBBSrc) continue; // top-level entry edge
+      // for AnalyzeBranch
+      MachineBasicBlock *TBB = NULL, *FBB = NULL;
+      SmallVector<MachineOperand, 4> Cond;
+      if (!TII->AnalyzeBranch(*const_cast<MachineBasicBlock*>(MBBSrc),
+                              TBB, FBB, Cond)) {
+        // According to AnalyzeBranch spec, at a conditional branch,
+        // Cond will hold the branch conditions
+        // Further, there are two cases for conditional branches:
+        // 1. conditional+fallthrough:   TBB holds branch target
+        // 2. conditional+unconditional: TBB holds target of conditional branch,
+        //                               FBB the target of the unconditional one
+        // Hence, the branch condition will always refer to the TBB edge.
+        assert( !Cond.empty() && "AnalyzeBranch for SP-IfConversion failed; "
+                                 "could not determine branch condition");
+        MBB_BV_map_t &PredDefs = (MBBDst == TBB) ? PredDefsT : PredDefsF;
+        // if the entry of MBB does not exist yet, create it
+        if (!PredDefs.count(MBBSrc)) {
+          PredDefs[MBBSrc] = BitVector(PredCount);
+        }
+        PredDefs[MBBSrc].set(i);
+      } else {
+        assert(0 && "AnalyzeBranch failed");
+      }
+    } // end for each definition edge
+  }
+
+}
+
+
+
 
 BitVector PatmosSinglePathInfo::
 computeUpwardsExposedUses(MachineFunction &MF, K_t &K, R_t &R) const {
   // ... by solving data-flow equations (upwards-exposed uses)
-  std::map<MachineBasicBlock*, BitVector> gen;
-  std::map<MachineBasicBlock*, BitVector> kill;
+  std::map<const MachineBasicBlock*, BitVector> gen;
+  std::map<const MachineBasicBlock*, BitVector> kill;
   // fill gen/kill
   for (R_t::iterator EI=R.begin(), EE=R.end(); EI!=EE; ++EI) {
-    MachineBasicBlock *MBB = EI->first;
+    const MachineBasicBlock *MBB = EI->first;
 
     gen[MBB] = BitVector(K.size());
     kill[MBB] = BitVector(K.size());

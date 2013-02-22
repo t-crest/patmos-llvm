@@ -136,20 +136,19 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
 
 void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
-  // contains the "right" virtual register for use of each MBB
-  //R_t pred_use_vregs;
-  //insertPredDefinitions(MF, K, R, pred_initialize, pred_use_vregs);
+  PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
 
-  // TODO Input-independent control-flow?
-  //applyPredicates(MF, pred_use_vregs);
-
-
-  std::vector<MachineBasicBlock*> order;
+  // let's see if we get the order right
+  std::vector<const MachineBasicBlock *> order;
+  PSPI.getRootNode()->getOrder(order);
+  for(unsigned i=0; i<order.size(); i++) {
+    dbgs() << " | " << order[i]->getNumber() << "\n";
+  }
 
   // first linearize, updating successors accordingly
-  linearizeMBBs(MF, order);
+  //linearizeMBBs(MF, order);
   // then merge to a single basic block
-  mergeMBBs(MF, order);
+  //mergeMBBs(MF, order);
 }
 
 #if 0
