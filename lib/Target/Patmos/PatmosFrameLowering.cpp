@@ -87,7 +87,9 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
 
   // assign new offsets to FIs
   unsigned int SCOffset = 0;            // next stack slot in stack cache
-  unsigned int SSOffset = maxFrameSize; // next stack slot on the shadow stack
+  unsigned int SSOffset = (hasFP(MF) ? 0 : maxFrameSize);
+                                        // next stack slot on the shadow stack
+
   DEBUG(dbgs() << "PatmosSC: " << MF.getFunction()->getName() << "\n");
   DEBUG(MFI.print(MF, dbgs()));
   for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI != FIe; FI++) {
@@ -223,7 +225,6 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // assign some FIs to the stack cache if possible
   unsigned stackSize = 0;
-  unsigned maxFrameSize = MFI->getMaxCallFrameSize();
   if (!DisableStackCache) {
     // assign some FIs to the stack cache
     stackSize = assignFIsToStackCache(MF);
@@ -236,7 +237,12 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   }
   else {
     // First, compute final stack size.
-    stackSize = MFI->getStackSize() + (!hasFP(MF) ? 0 : maxFrameSize);
+    unsigned maxFrameSize = MFI->getMaxCallFrameSize();
+    // TODO check: for the printf example MFI->getStackSize() is two words
+    // too large; it might already contain the frame size or may not be updated
+    // correctly. Use assignFIsToStackCacke with disabled cache assignment to
+    // get the shadow stack frame size correctly (?)
+    stackSize = MFI->getStackSize() + (hasFP(MF) ? 0 : maxFrameSize);
     MFI->setStackSize(stackSize);
   }
 
@@ -258,6 +264,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   }
 
   // eliminate DYNALLOC instruction (aka. alloca)
+  /*
   const MCInstrDesc &dynallocMCID = (maxFrameSize <= 0xFFF) ?
                                 TII->get(Patmos::SUBi) : TII->get(Patmos::SUBl);
 
@@ -272,6 +279,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
       }
     }
   }
+  */
 }
 
 void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
