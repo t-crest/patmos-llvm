@@ -263,23 +263,6 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
     }
   }
 
-  // eliminate DYNALLOC instruction (aka. alloca)
-  /*
-  const MCInstrDesc &dynallocMCID = (maxFrameSize <= 0xFFF) ?
-                                TII->get(Patmos::SUBi) : TII->get(Patmos::SUBl);
-
-  for (MachineFunction::iterator BB(MF.begin()), E(MF.end()); BB != E; ++BB) {
-    for (MachineBasicBlock::iterator MI(BB->begin()), MIE(BB->end()); MI != MIE;
-         MI++) {
-      // found a DYNALLOC instruction?
-      if (MI->getOpcode() == Patmos::DYNALLOC) {
-        // rewrite it to a sub immediate/sub immediate long
-        MI->getOperand(4).setImm(maxFrameSize);
-        MI->setDesc(dynallocMCID);
-      }
-    }
-  }
-  */
 }
 
 void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,

@@ -28,7 +28,6 @@ class SDTCisI32<int OpNum> : SDTCisVT<OpNum, i32>;
 def SDT_PatmosCall         : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
 def SDT_PatmosCallSeqStart : SDCallSeqStart<[SDTCisI32<0>]>;
 def SDT_PatmosCallSeqEnd   : SDCallSeqEnd<[SDTCisI32<0>, SDTCisI32<1>]>;
-def SDT_PatmosDynAlloc     : SDTypeProfile<0, 1, [SDTCisI32<0>]>;
 
 def SDT_PatmosMul          : SDTypeProfile<0, 2, [SDTCisInt<0>,
                                                   SDTCisSameAs<0, 1>]>;
@@ -59,9 +58,6 @@ def PatmosMul     : SDNode<"PatmosISD::MUL", SDT_PatmosMul,
 
 def PatmosMulU    : SDNode<"PatmosISD::MULU", SDT_PatmosMul,
                            [SDNPCommutative, SDNPAssociative, SDNPOutGlue]>;
-
-def PatmosDynAlloc: SDNode<"PatmosISD::DYNALLOC", SDT_PatmosDynAlloc,
-                           [SDNPHasChain]>;
 
 def brjt          : SDNode<"ISD::BR_JT", SDTBrjt,  [SDNPHasChain]>;
 
@@ -467,14 +463,6 @@ def CADDi : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$
                  "add", "$rd = $rs1, $imm",
                  []>;
 
-// Allocate space on the current stack space -- aka alloca
-// FIXME: no opcode, no fields, no nothing in PatmosInst .. must derive from ALUi or something!
-let Defs = [RSP], Uses = [RSP], isPseudo = 1 in
-def DYNALLOC : PatmosInst<(outs RRegs:$rd),
-                          (ins pred:$p, RRegs:$rs1, uimm12:$imm),
-                          "add", "$rd = $rs1, $imm",
-                          [], FOther, IIC_ALU>;
-
 
 // move instructions
 let isAsCheapAsAMove = 1, imm = 0, ImmOpNo = 0 in {
@@ -806,9 +794,6 @@ let ImmShift = 0, ImmSigned = 1 in defm SB  : StoreTyped<0b010, imm7  , "sb">;
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
-
-// dynamic stack allocation (aka alloca)
-def : Pat<(PatmosDynAlloc (i32 0)), (DYNALLOC RSP, 0)>;
 
 
 // Patterns are in a separate file
