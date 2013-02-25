@@ -28,9 +28,9 @@ def show_constraint(terms_lhs,op,const_rhs)
   }
   [lhs.to_a, rhs.to_a].map { |ts|
     ts.map { |v,c|
-      if v == :__const && c == 0
+      if :__const  == v && c == 0
         nil
-      elsif v == :__const
+      elsif :__const == v
         c
       elsif c == 1
         v
@@ -99,8 +99,7 @@ class ILP
   # terms_lhs .. [ [v,c] ]
   # op        .. "equal" or "less-equal"
   # const_rhs .. integer
-  def add_constraint(terms_lhs,op,const_rhs,name=nil)
-    name = "__#{@constraints.size}" unless name
+  def add_constraint(terms_lhs,op,const_rhs,name)
     $dbgs.puts "Adding constraint #{show_constraint(terms_lhs,op,const_rhs)} (#{name})" if @options.debug
     terms_indexed = Hash.new(0)
     terms_lhs.each { |v,c|
@@ -147,8 +146,12 @@ class ILP
     n.each { |name,terms,op,rhs| add_indexed_constraint(terms,op,rhs,name) }
     # substitution if E is non-empty
     if ! e.empty?
-      e_coeff, e_constr = e.first
-      _,e_terms,e_op,e_rhs = e_constr
+      # XXX: avoid callsite constraints
+      eq_constr = e.find { |coeff,constr| constr[0] !~ /^callsite_/ }
+      eq_constr = e.first unless eq_constr
+      e_coeff, e_constr = eq_constr
+      e_name,e_terms,e_op,e_rhs = e_constr
+
       if e_coeff < 0
         e_coeff = -e_coeff
         e_terms.merge!(e_terms) { |v,c| 0-c }
@@ -198,6 +201,7 @@ class ILP
   end
   private
   def add_indexed_constraint(terms_indexed,op,const_rhs,name)
+    raise Exception.new("add_indexed_constraint: name is nil") unless name
     terms_indexed.delete_if { |v,c| c == 0 }
     if(terms_indexed.empty?)
       return if const_rhs == 0
@@ -422,7 +426,7 @@ class IPETModel
 
   # frequency of analysis entry is 1
   def add_entry_constraint(entry_function)
-    ipet.add_constraint(function_frequency(entry_function),"equal",1,"entry")
+    ipet.add_constraint(function_frequency(entry_function),"equal",1,"structural_entry")
   end
 
   # frequency of function is equal to sum of all callsite frequencies
@@ -484,8 +488,8 @@ end # end of class IPETBuilder
 
 class IPETBuilder
   attr_reader :ilp
-  def initialize(pml, options)
-    @ilp     = LpSolveILP.new(options)
+  def initialize(pml, options, ilp = nil)
+    @ilp = if ilp then ilp else LpSolveILP.new(options) end
     @mc_model = IPETModel.new(@ilp, :dst)
     if options.use_relation_graph
       @bc_model = IPETModel.new(@ilp, :src)
@@ -514,6 +518,9 @@ class IPETBuilder
         next if @mc_model.infeasible.include?(cs.block)
         cs['callees'].each { |fname|
           if(fname == '__any__')
+            if ! @mc_model.calltargets[cs]
+              die("Unknown calltargets for #{cs}")
+            end
             # external flow fact
             @mc_model.calltargets[cs].each { |f| succs.add(f) }
           else
@@ -551,9 +558,37 @@ class IPETBuilder
       @mc_model.add_function_constraint(f, ces)
     end
   end
+  #
+  # Refine control-flow model using infeasible/calltarget flowfact information
+  #
+  # This method implements two refinements:
+  #
+  # (1) in scope main, frequency==0 => dead code (infeasible)
+  # (2) in scope main, cs calls one of targets => refine calltarget sets
+  #
+  def refine(entry, flowfacts)
+    flowfacts.each do |ff|
+      # set indirect call targets
+      model = (ff.level == "machinecode") ? :dst : :src
+      scope,cs,targets = ff.get_calltargets
+      if scope && scope.kind_of?(FunctionRef) && scope.function == entry
+        add_calltargets(cs.instruction, targets, model)
+      end
+      # set infeasible blocks
+      scope,bref,frequency = ff.get_block_frequency_bound
+      if scope && scope.kind_of?(FunctionRef) && scope.function == entry && frequency == 0
+        set_infeasible(bref.block, model)
+      end
+    end
+  end
 
-
-  # currently we only support block frequency bounds
+  #
+  # Add flowfacts
+  #
+  # Supported flowfacts:
+  #
+  # (1) Linear Combinations of Block Frequencies relative to Function or Loop Scope
+  #
   def add_flowfact(ff)
     scope, bref, freq = ff.get_block_frequency_bound
     model = ff.level == "machinecode" ? @mc_model : @bc_model
@@ -568,7 +603,9 @@ class IPETBuilder
       return false
     end
     begin
-      ilp.add_constraint(lhs,"less-equal", 0, "#{ff['classification']}_#{@ffcount+=1}")
+      name = "ff_#{ff['classification']}_#{@ffcount+=1}"
+      ilp.add_constraint(lhs,"less-equal", 0, name)
+      name
     rescue Exception => detail
       $stderr.puts "Skipping constraint: #{detail}"
     end

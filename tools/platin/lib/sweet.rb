@@ -277,13 +277,13 @@ module PML
         options.sweet   ||= "sweet"
       }
     end
-    def sweet_flowfact_file
+    def sweet_flowfact_file(mandatory = true)
       self.on("--sweet-flowfacts FILE.ff", "SWEET flowfact file") { |f| options.sweet_flowfact_file = f }
-      self.add_check { |options| die_usage "Specifying SWEET flowfact file is mandatory" unless options.sweet_flowfact_file }
+      self.add_check { |options| die_usage "Specifying SWEET flowfact file is mandatory" unless options.sweet_flowfact_file } if mandatory
     end
-    def sweet_trace_file
+    def sweet_trace_file(mandatory = true)
       self.on("--sweet-trace FILE.tf", "SWEET trace file") { |f| options.sweet_trace_file = f }
-      self.add_check { |options| die_usage "Specifying SWEET trace file is mandatory" unless options.sweet_trace_file }
+      self.add_check { |options| die_usage "Specifying SWEET trace file is mandatory" unless options.sweet_trace_file } if mandatory
     end
   end
 # end module PML
@@ -313,8 +313,18 @@ class AlfTool
     die "#{options.alf_llc} failed with exit status #{$?}" unless $? == 0
   end
   def AlfTool.default_ignored_definitions
-    %w{_start _exit exit abort raise _raise_r  __sigtramp __sigtramp_r malloc _malloc_r _malloc_trim_r __malloc_sbrk_base _sbrk_r _sbrk _sbrk.heap_ptr __adddf3 __addsf3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2 __fixdfdi __fixdfsi __fixsfdi __fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi __floatdidf __floatdisf} +
-    %w{__floatsidf __floatsisf __floatundidf __floatundisf __floatunsidf __floatunsisf __gedf2 __gesf2 __gtdf2 __gtsf2 __ledf2 __lesf2 __ltdf2 __ltsf2 memcpy memmove memset __muldf3 __mulsf3 __nedf2 __nesf2 __subdf3 __subsf3 __truncdfsf2 __unorddf2 __unordsf2}
+    %w{__adddf3 __addsf3 __divdf3 __divsf3 __eqdf2} +
+      %w{__eqsf2 __extendsfdf2 __fixdfdi __fixdfsi __fixsfdi} +
+      %w{__fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi} +
+      %w{__floatdidf __floatdisf __floatsidf __floatsisf __floatundidf} +
+      %w{__floatundisf __floatunsidf __floatunsisf __gedf2 __gesf2} +
+      %w{__gtdf2 __gtsf2 __ledf2 __lesf2 __ltdf2} +
+      %w{__ltsf2 __malloc_sbrk_base __muldf3 __mulsf3 __nedf2} +
+      %w{__nesf2 __sigtramp __sigtramp_r __subdf3 __subsf3} +
+      %w{__truncdfsf2 __unorddf2 __unordsf2 _exit _malloc_r} +
+      %w{_malloc_trim_r _raise_r _sbrk _sbrk.heap_ptr _sbrk_r} +
+      %w{_signal_r _start abort exit malloc memcpy} +
+      %w{memmove memset raise setjmp longjmp signal}
   end
   def AlfTool.add_options(opts)
     opts.runs_llvm2alf

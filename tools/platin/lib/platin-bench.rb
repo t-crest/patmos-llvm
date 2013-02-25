@@ -23,9 +23,12 @@ class BenchTool
     $stderr.puts("- #{descr.ljust(35)} #{((t2-t1)*1000).to_i} ms")
   end
   def BenchTool.run(pml,options)
+    step("Sanity Checks") {
+      rgs = pml.relation_graphs.select { |rg| rg.data['status'] != 'valid' && rg.src.name != "abort" }
+      warn("Problematic Relation Graphs: #{rgs.map { |rg| "#{rg.qname} / #{rg.data['status']}" }.join(", ")}") unless rgs.empty?
+    }
     step("Extracting Addresses")           { ExtractSymbolsTool.run(pml,options).dump_to_file(options.input) }
     step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options).dump_to_file(options.input) } # XXX: during dev only
-
     options.flow_fact_types = :supported
     options.flow_fact_srcs = ["trace"]
     options.timing_name = "platin-trace-all"

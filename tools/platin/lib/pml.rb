@@ -75,6 +75,13 @@ module PML
       raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}") unless v
       v
     end
+    def lookup_optional(dict,key,name)
+      begin
+        return lookup(dict,key,name)
+      rescue Exception => detail
+        return nil
+      end
+    end
     def add_lookup(dict,key,val,name,opts={})
       return if ! key && opts[:ignore_if_missing]
       raise Exception.new("#{self.class}#by_#{name}: Duplicate object with key #{key}: #{val} and #{dict[key]}") if dict[key]
@@ -604,6 +611,21 @@ module PML
       @data.push(ff.data)
       add_index(ff)
     end
+
+    def filter(ff_types, ff_srcs, ff_levels)
+      @list.select { |ff|
+        # skip if level does not match
+        if ! ff_levels.include?(ff.level)
+          false
+        elsif ff_srcs != "all" && ! ff_srcs.include?(ff.origin)
+          false
+        elsif ff.classification && ! ff_types.include?(ff.classification)
+          false
+        else
+          true
+        end
+      }
+    end
     private
     def build_index
       @by_class = {}
@@ -770,7 +792,7 @@ module PML
       add_index(te)
     end
     def by_origin(origin)
-      lookup(@by_origin, origin, "origin")
+      lookup_optional(@by_origin, origin, "origin")
     end
     private
     def build_index
