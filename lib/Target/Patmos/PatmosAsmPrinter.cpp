@@ -142,6 +142,9 @@ void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
     MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
+  // emit size in words
+  SizeExpr = MCBinaryExpr::CreateShr(SizeExpr,
+                            MCConstantExpr::Create(2, OutContext), OutContext);
 
   OutStreamer.EmitFStart(SymStart, SizeExpr, Alignment);
 }
