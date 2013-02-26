@@ -18,6 +18,7 @@
 #include "llvm/Target/TargetFrameLowering.h"
 
 namespace llvm {
+  class BitVector;
   class PatmosSubtarget;
   class PatmosTargetMachine;
 
@@ -28,8 +29,15 @@ protected:
 
   /// assignFIsToStackCache - Assign some FIs to the stack cache.
   /// Currently this is only done for spill slots.
+  /// @param SCFIs - should be set to true for all indices of frame objects
+  ///                that should be assigned to the stack cache.
+  void assignFIsToStackCache(MachineFunction &MF, BitVector &SCFIs) const;
+
+  /// assignFrameObjects - Fix the layout of the stack frame, assign FIs to
+  /// either stack cache or shadow stack, and update all stack offsets.
+  /// Also reserves space for the call frame if no frame pointer is used.
   /// @return The final size of the shadow stack.
-  unsigned assignFIsToStackCache(MachineFunction &MF) const;
+  unsigned assignFrameObjects(MachineFunction &MF, bool UseStackCache) const;
 
   /// emitSTC - Emit a stack reserve/free/ensure operation.
   /// The size of the stack frame is calculated before by assignFIsToStackCache
