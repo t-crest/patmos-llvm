@@ -132,7 +132,30 @@ PatmosRegisterInfo::getPointerRegClass(unsigned Kind) const {
 void PatmosRegisterInfo::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator I) const {
-  // Simply discard ADJCALLSTACKDOWN, ADJCALLSTACKUP instructions.
+  // We need to adjust the stack pointer here (and not in the prologue) to
+  // handle alloca instructions that modify the stack pointer before ADJ*
+  // instructions. We only need to do that if we need a frame pointer, otherwise
+  // we reserve size for the call stack frame in FrameLowering in the prologue.
+  if (TM.getFrameLowering()->hasFP(MF)) {
+    MachineInstr &MI = *I;
+    DebugLoc dl = MI.getDebugLoc();
+    int Size = MI.getOperand(0).getImm();
+    unsigned Opcode;
+    if (MI.getOpcode() == Patmos::ADJCALLSTACKDOWN) {
+      Opcode = (Size <= 0xFFF) ? Patmos::SUBi : Patmos::SUBl;
+    }
+    else if (MI.getOpcode() == Patmos::ADJCALLSTACKUP) {
+      Opcode = (Size <= 0xFFF) ? Patmos::ADDi : Patmos::ADDl;
+    }
+    else {
+        llvm_unreachable("Unsupported pseudo instruction.");
+    }
+    if (Size)
+      AddDefaultPred(BuildMI(MBB, I, dl, TII.get(Opcode), Patmos::RSP))
+                                                  .addReg(Patmos::RSP)
+                                                  .addImm(Size);
+  }
+  // erase the pseudo instruction
   MBB.erase(I);
 }
 
@@ -333,6 +356,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       }
       break;
     case Patmos::ADDl:
+    case Patmos::DBG_VALUE:
       // all should be fine
       Offset += FrameDisplacement;
       break;
@@ -359,7 +383,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::SWC: case Patmos::SWM: opcode = Patmos::SWS; break;
     case Patmos::SHC: case Patmos::SHM: opcode = Patmos::SHS; break;
     case Patmos::SBC: case Patmos::SBM: opcode = Patmos::SBS; break;
-    case Patmos::ADDi: case Patmos::ADDl:
+    case Patmos::ADDi: case Patmos::ADDl: case Patmos::DBG_VALUE:
       break;
     default:
       assert("Unexpected operation with FrameIndex encountered." && false);

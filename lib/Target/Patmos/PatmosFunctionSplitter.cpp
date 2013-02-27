@@ -53,6 +53,7 @@
 #undef PATMOS_DUMP_ALL_SCC_DOTS
 
 #include "Patmos.h"
+#include "PatmosAsmPrinter.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosSubtarget.h"
@@ -65,6 +66,9 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
+#include "llvm/MC/MCNullStreamer.h"
+#include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrDesc.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -72,6 +76,7 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
 
 #include <map>
 #include <sstream>
@@ -102,6 +107,35 @@ static cl::opt<bool> EnableShowCFGs(
 namespace llvm {
   class ablock;
   class agraph;
+
+  // TODO move this class into a separate header, track call sites and stack
+  // cache control instructions, use in CallGraphBuilder, ...
+  class PatmosInstrAnalyzer : public MCNullStreamer
+  {
+    const MCInstrInfo &MII;
+    unsigned count;
+    unsigned size;
+  public:
+    PatmosInstrAnalyzer(MCContext &ctx)
+     : MCNullStreamer(ctx), MII(ctx.getInstrInfo()), count(0), size(0)
+    {
+    }
+
+    void reset() {
+      count = 0;
+      size = 0;
+    }
+
+    unsigned getCount() const { return count; }
+
+    unsigned getSize() const { return size; }
+
+    virtual void EmitInstruction(const MCInst &Inst) {
+      const MCInstrDesc &MID = MII.get(Inst.getOpcode());
+      count++;
+      size += MID.getSize();
+    }
+  };
 
   /// aedge - an edge in a transformed copy of the CFG.
   class aedge
@@ -212,10 +246,13 @@ namespace llvm {
     MachineFunction *MF;
 
     /// Target machine information
+    PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
 
     /// Construct a graph from a machine function.
-    agraph(MachineFunction *mf, const PatmosSubtarget &stc) : MF(mf), STC(stc) {
+    agraph(MachineFunction *mf, PatmosTargetMachine &tm) : MF(mf), PTM(tm),
+        STC(tm.getSubtarget<PatmosSubtarget>())
+    {
       Blocks.reserve(mf->size());
 
       // create blocks
@@ -225,7 +262,7 @@ namespace llvm {
       for(MachineFunction::iterator i(mf->begin()), ie(mf->end());
           i != ie; i++) {
         // make a block
-        ablock *ab = new ablock(id++, this, i, hasCall(i), getBBSize(i));
+        ablock *ab = new ablock(id++, this, i, hasCall(i), getBBSize(i, PTM));
 
         // Keep track of fallthough edges
         if (pred && mayFallThrough(pred->MBB)) {
@@ -321,14 +358,37 @@ namespace llvm {
       return true;
     }
 
+    static unsigned int getInstrSize(MachineInstr *MI, PatmosTargetMachine &PTM)
+    {
+      if (MI->isInlineAsm()) {
+        // TODO is there a way to get the current context?
+        MCContext Ctx(*PTM.getMCAsmInfo(),
+             *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);
+
+        // PIA is deleted by AsmPrinter
+        PatmosInstrAnalyzer *PIA = new PatmosInstrAnalyzer(Ctx);
+        PIA->SwitchSection(
+               PTM.getTargetLowering()->getObjFileLowering().getTextSection() );
+
+        PatmosAsmPrinter PAP(PTM, *PIA);
+        PAP.EmitInlineAsm(MI);
+
+        return PIA->getSize();
+      } else {
+        // trust the desc..
+        return MI->getDesc().Size;
+      }
+    }
+
     /// getBBSize - Size of the basic block in bytes.
-    static unsigned int getBBSize(MachineBasicBlock *MBB)
+    static unsigned int getBBSize(MachineBasicBlock *MBB,
+                                  PatmosTargetMachine &PTM)
     {
       unsigned int size = 0;
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
-        size += i->getDesc().Size;
+        size += getInstrSize(i, PTM);
       }
 
       // add some bytes in case we need to fix-up the fall-through
@@ -341,6 +401,7 @@ namespace llvm {
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
+        // TODO check for inline assembly
         if (i->isCall())
           return true;
       }
@@ -584,7 +645,7 @@ namespace llvm {
             bool has_call_in_scc = false;
             for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++) {
               assert((*i)->MBB);
-              scc_size += getBBSize((*i)->MBB);
+              scc_size += getBBSize((*i)->MBB, PTM);
               has_call_in_scc |= (*i)->HasCall;
             }
 
@@ -1173,7 +1234,8 @@ namespace llvm {
 
     /// splitBlock - Split a basic block into smaller blocks that each fit into
     /// the method cache.
-    static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize)
+    static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize,
+                                   PatmosTargetMachine &PTM)
     {
       // make a new block
       unsigned int curr_size = 12;
@@ -1183,7 +1245,7 @@ namespace llvm {
           ie(MBB->instr_end()); i != ie; i++)
       {
         // get instruction size
-        unsigned int i_size = i->getDesc().Size;
+        unsigned int i_size = agraph::getInstrSize(i, PTM);
 
         // ensure that delay slots are respected
         unsigned int delay_slot_margin = i->hasDelaySlot() ? 20 : 0;
@@ -1219,7 +1281,7 @@ namespace llvm {
         }
       }
 
-      return total_size + getBBSize(MBB);
+      return total_size + getBBSize(MBB, PTM);
     }
 
     void view()
@@ -1264,12 +1326,13 @@ namespace llvm {
     /// Pass ID
     static char ID;
 
+    PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
 
   public:
     /// PatmosFunctionSplitter - Create a new instance of the function splitter.
     PatmosFunctionSplitter(PatmosTargetMachine &tm) :
-      MachineFunctionPass(ID),
+      MachineFunctionPass(ID), PTM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
       // TODO we could disable this pass if this is not a PatmosTargetMachine
@@ -1288,13 +1351,13 @@ namespace llvm {
 
       unsigned total_size = 0;
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
-        unsigned bb_size = agraph::getBBSize(i);
+        unsigned bb_size = agraph::getBBSize(i, PTM);
 
         // in case the block is larger than the method cache, split it and
         // update its
         //
         if (bb_size > STC.getMethodCacheSize()) {
-          bb_size = agraph::splitBlock(i, STC.getMethodCacheSize());
+          bb_size = agraph::splitBlock(i, STC.getMethodCacheSize(), PTM);
         }
 
         total_size += bb_size;
@@ -1306,7 +1369,7 @@ namespace llvm {
       // splitting needed?
       if (total_size > STC.getMethodCacheSize()) {
         // construct a copy of the CFG.
-        agraph G(&MF, STC);
+        agraph G(&MF, PTM);
         G.transformSCCs();
 
         // compute regions -- i.e., split the function

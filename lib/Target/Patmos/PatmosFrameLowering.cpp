@@ -59,16 +59,19 @@ bool PatmosFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const 
 }
 #endif
 
-unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
+static unsigned int align(unsigned int offset, unsigned int alignment) {
+  return ((offset + alignment - 1) / alignment) * alignment;
+}
+
+void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
+                                                BitVector &SCFIs) const
+{
   MachineFrameInfo &MFI = *MF.getFrameInfo();
-  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
   const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
-  unsigned maxFrameSize = MFI.getMaxCallFrameSize();
 
   assert(MFI.isCalleeSavedInfoValid());
 
   // find all FIs used for callee saved registers
-  BitVector SCFIs(MFI.getObjectIndexEnd());
   for(std::vector<CalleeSavedInfo>::const_iterator i(CSI.begin()),
       ie(CSI.end()); i != ie; i++)
   {
@@ -84,10 +87,32 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
     if (MFI.isSpillSlotObjectIndex(FI))
       SCFIs[FI] = true;
   }
+}
+
+
+unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
+                                                 bool UseStackCache) const
+{
+  MachineFrameInfo &MFI = *MF.getFrameInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
+  unsigned maxFrameSize = MFI.getMaxCallFrameSize();
+
+  // defaults to false (all objects are assigned to shadow stack)
+  BitVector SCFIs(MFI.getObjectIndexEnd());
+
+  if (UseStackCache) {
+    assignFIsToStackCache(MF, SCFIs);
+  }
 
   // assign new offsets to FIs
-  unsigned int SCOffset = 0;            // next stack slot in stack cache
-  unsigned int SSOffset = maxFrameSize; // next stack slot on the shadow stack
+
+  // next stack slot in stack cache
+  unsigned int SCOffset = 0;
+  // next stack slot in shadow stack
+  // Also reserve space for the call frame if we do not use a frame pointer.
+  // This must be in sync with PatmosRegisterInfo::eliminateCallFramePseudoInstr
+  unsigned int SSOffset = (hasFP(MF) ? 0 : maxFrameSize);
+
   DEBUG(dbgs() << "PatmosSC: " << MF.getFunction()->getName() << "\n");
   DEBUG(MFI.print(MF, dbgs()));
   for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI != FIe; FI++) {
@@ -95,15 +120,11 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
       continue;
 
     unsigned FIalignment = MFI.getObjectAlignment(FI);
-    unsigned FIsize = MFI.getObjectSize(FI); //XXX DP: shouldn't this be int64_t ?
+    int64_t FIsize = MFI.getObjectSize(FI);
     int FIoffset = MFI.getObjectOffset(FI);
 
-    // XXX DP: can this ever happen? Apart from the condition,
-    // FIsize==~0ULL => MFI.isDeadObjectIndex(FI)
-    // and we shouldn't have come here anyways.
-    if (FIsize == ~0U && FIsize == 0) {
-      assert(false && "impossible?!");
-      continue;
+    if (FIsize > INT_MAX) {
+      report_fatal_error("Frame objects with size > INT_MAX not supported.");
     }
 
     // be sure to catch some special stack objects not expected for Patmos
@@ -112,20 +133,36 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
     // assigned to stack cache or shadow stack?
     if (SCFIs[FI]) {
       // alignment
-      SCOffset = ((SCOffset + FIalignment - 1) / FIalignment) * FIalignment;
+      unsigned int next_SCOffset = align(SCOffset, FIalignment);
 
-      DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << SCOffset
-                   << "(" << FIoffset << ")\n");
+      // check if the FI still fits into the SC
+      if (align(next_SCOffset + FIsize, STC.getStackCacheBlockSize()) <=
+          STC.getStackCacheSize()) {
+        DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << next_SCOffset
+                    << "(" << FIoffset << ")\n");
 
-      // reassign stack offset
-      MFI.setObjectOffset(FI, SCOffset);
+        // reassign stack offset
+        MFI.setObjectOffset(FI, next_SCOffset);
 
-      // reserve space on the stack cache
-      SCOffset += FIsize;
+        // reserve space on the stack cache
+        SCOffset = next_SCOffset + FIsize;
+
+        // the FI is assigned to the SC, process next FI
+        continue;
+      }
+      else {
+        // the FI is not assigned to the SC -- fall-through and put it on the 
+        // shadow stack
+        SCFIs[FI] = false;
+      }
     }
-    else {
+
+    // assign the FI to the shadow stack
+    {
+      assert(!SCFIs[FI]);
+
       // alignment
-      SSOffset = ((SSOffset + FIalignment - 1) / FIalignment) * FIalignment;
+      SSOffset = align(SSOffset, FIalignment);
 
       DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SS: " << SSOffset
                    << "(" << FIoffset << ")\n");
@@ -139,12 +176,12 @@ unsigned PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF) const {
   }
 
   // align stack frame on stack cache
-  unsigned stackCacheSize = ((SCOffset + STC.getStackCacheBlockSize() - 1) /
-                   STC.getStackCacheBlockSize()) * STC.getStackCacheBlockSize();
+  unsigned stackCacheSize = align(SCOffset, STC.getStackCacheBlockSize());
+
+  assert(stackCacheSize <= STC.getStackCacheSize());
 
   // align shadow stack. call arguments are already included in SSOffset
-  unsigned stackSize = ((SSOffset + getStackAlignment() - 1) /
-                        getStackAlignment()) * getStackAlignment();
+  unsigned stackSize = align(SSOffset, getStackAlignment());
 
   // update offset of fixed objects
   for(unsigned FI = MFI.getObjectIndexBegin(), FIe = 0; FI != FIe; FI++) {
@@ -222,22 +259,14 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   }
 
   // assign some FIs to the stack cache if possible
-  unsigned stackSize = 0;
-  unsigned maxFrameSize = MFI->getMaxCallFrameSize();
-  if (!DisableStackCache) {
-    // assign some FIs to the stack cache
-    stackSize = assignFIsToStackCache(MF);
+  unsigned stackSize = assignFrameObjects(MF, !DisableStackCache);
 
+  if (!DisableStackCache) {
     // emit a reserve instruction
     emitSTC(MF, MBB, MBBI, Patmos::SRES);
 
     // patch all call sites
     patchCallSites(MF);
-  }
-  else {
-    // First, compute final stack size.
-    stackSize = MFI->getStackSize() + (!hasFP(MF) ? 0 : maxFrameSize);
-    MFI->setStackSize(stackSize);
   }
 
   //----------------------------------------------------------------------------
@@ -257,21 +286,6 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
     }
   }
 
-  // eliminate DYNALLOC instruction (aka. alloca)
-  const MCInstrDesc &dynallocMCID = (maxFrameSize <= 0xFFF) ?
-                                TII->get(Patmos::SUBi) : TII->get(Patmos::SUBl);
-
-  for (MachineFunction::iterator BB(MF.begin()), E(MF.end()); BB != E; ++BB) {
-    for (MachineBasicBlock::iterator MI(BB->begin()), MIE(BB->end()); MI != MIE;
-         MI++) {
-      // found a DYNALLOC instruction?
-      if (MI->getOpcode() == Patmos::DYNALLOC) {
-        // rewrite it to a sub immediate/sub immediate long
-        MI->getOperand(4).setImm(maxFrameSize);
-        MI->setDesc(dynallocMCID);
-      }
-    }
-  }
 }
 
 void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,

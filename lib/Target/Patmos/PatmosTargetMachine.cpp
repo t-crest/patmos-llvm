@@ -117,6 +117,9 @@ namespace {
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
       if (EnableStackCacheAnalysis) {
+	// TODO can we do that before the function splitter? It should remove
+	// some instructions, which can help the splitter, and the splitter
+	// should not modify the stack frames
         addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
 

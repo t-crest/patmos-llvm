@@ -162,6 +162,12 @@ public:
 #ifndef NDEBUG
     IndentLevel = 0;
 #endif
+    
+    // Hack for bug
+    // http://code.google.com/p/nativeclient/issues/detail?id=2786
+    Desc.make_weak();
+    InlinedAtLocation.make_weak();
+
     if (Parent)
       Parent->addChild(this);
   }

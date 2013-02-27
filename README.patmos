@@ -34,11 +34,16 @@ For Debian or Ubuntu, you may need to install the following packages:
     flex bison
     libelf-dev
     graphviz
+    python
+    zlib1g-dev
 
 To build the simulator, you also need the following packages (version >= 1.46):
 
     libboost-dev libboost-program-options-dev
 
+For the WCET analysis integration (optional), you also need
+
+    ruby1.9.1
 
 --------------------------------------------------------------------------------
 2. Configure and build
@@ -264,7 +269,7 @@ To setup Eclipse with C++ and GDB support for developing LLVM, follow those step
             - /usr/include
             - /usr/include/c++/4.6
             - /usr/include/c++/4.6/x86_64-linux-gnu
-            - /usr/include/x64_64-linux-gnu
+            - /usr/include/x86_64-linux-gnu
             - GET_REGINFO_MC_DESC, GET_REGINFO_HEADER, GET_REGINFO_TARGET_DESC, 
 	      GET_ASSEMBLER_HEADER, GET_MATCHER_IMPLEMENTATION
         - Setup indexer to consume up to 100-200Mb

@@ -137,7 +137,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
 
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32  , Custom);
+  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
 
   // handling of variadic parameters
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
@@ -157,8 +157,6 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
     case ISD::STORE:              return LowerSTORE(Op,DAG);
     case ISD::SMUL_LOHI:
     case ISD::UMUL_LOHI:          return LowerMUL_LOHI(Op, DAG);
-    // alloca
-    case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
     case ISD::VASTART:            return LowerVASTART(Op, DAG);
     default:
       llvm_unreachable("unimplemented operation");
@@ -668,39 +666,6 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 }
 
 
-SDValue
-PatmosTargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
-                                              SelectionDAG &DAG) const {
-  SDValue chain = Op.getOperand(0);
-  SDValue size = Op.getOperand(1);
-  DebugLoc dl = Op.getDebugLoc();
-
-  // get result pointer, which needs to be adjusted according to the maximal 
-  // call framer size (this is lowered when the epilog is emitted)
-  SDVTList VTs = DAG.getVTList(MVT::i32, MVT::Other);
-  SDValue dynAlloc = DAG.getNode(PatmosISD::DYNALLOC, dl, VTs, chain,
-                                 DAG.getTargetConstant(0, MVT::i32));
-
-
-  // get value of stack pointer
-  SDValue readSP = DAG.getCopyFromReg(dynAlloc.getValue(1), dl,
-                                      Patmos::RSP, MVT::i32);
-
-  // reserve space on stack, i.e., sp -= size
-  SDValue updateSP = DAG.getNode(ISD::SUB, dl, MVT::i32, readSP, size);
-
-  // copy value back to stack pointer
-  SDValue writeSP = DAG.getCopyToReg(readSP.getValue(1), dl, Patmos::RSP,
-                                     updateSP);
-
-
-  // merge results
-  SDValue Ops[2] = { dynAlloc, writeSP };
-  return DAG.getMergeValues(Ops, 2, dl);
-}
-
-
-
 
 
 SDValue
@@ -728,7 +693,6 @@ const char *PatmosTargetLowering::getTargetNodeName(unsigned Opcode) const {
   default: return NULL;
   case PatmosISD::RET_FLAG:           return "PatmosISD::RET_FLAG";
   case PatmosISD::CALL:               return "PatmosISD::CALL";
-  case PatmosISD::DYNALLOC:           return "PatmosISD::DYNALLOC";
   case PatmosISD::MUL:                return "PatmosISD::MUL";
   case PatmosISD::MULU:               return "PatmosISD::MULU";
   }

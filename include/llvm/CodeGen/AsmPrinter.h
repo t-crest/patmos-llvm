@@ -431,6 +431,14 @@ namespace llvm {
     // Inline Asm Support
     //===------------------------------------------------------------------===//
   public:
+    /// EmitInlineAsm - Emit a blob of inline asm to the output streamer.
+    void EmitInlineAsm(StringRef Str, const MDNode *LocMDNode = 0,
+                    InlineAsm::AsmDialect AsmDialect = InlineAsm::AD_ATT) const;
+
+    /// EmitInlineAsm - This method formats and emits the specified machine
+    /// instruction that is an inline asm.
+    void EmitInlineAsm(const MachineInstr *MI) const;
+
     // These are hooks that targets can override to implement inline asm
     // support.  These should probably be moved out of AsmPrinter someday.
 
@@ -467,14 +475,6 @@ namespace llvm {
     mutable unsigned LastFn;
     mutable unsigned Counter;
     mutable unsigned SetCounter;
-
-    /// EmitInlineAsm - Emit a blob of inline asm to the output streamer.
-    void EmitInlineAsm(StringRef Str, const MDNode *LocMDNode = 0,
-                    InlineAsm::AsmDialect AsmDialect = InlineAsm::AD_ATT) const;
-
-    /// EmitInlineAsm - This method formats and emits the specified machine
-    /// instruction that is an inline asm.
-    void EmitInlineAsm(const MachineInstr *MI) const;
 
     //===------------------------------------------------------------------===//
     // Internal Implementation Details

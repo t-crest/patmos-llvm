@@ -95,6 +95,9 @@ namespace llvm {
         assert(PMFI->getStackCacheReservedBytes() %
                STC.getStackCacheBlockSize() == 0);
 
+	// TODO a function might contain inline asm code that might use SRES/SFREE,
+	// we should check for that.
+
         return PMFI->getStackCacheReservedBytes();
       }
     }
@@ -164,6 +167,8 @@ namespace llvm {
           if (nodeUse != UNLIMITED && childUse != UNLIMITED &&
               nodeUse + childUse <= STC.getStackCacheSize()) {
             // yup, all fits! remove the SENS.
+	    // TODO we have to be careful here! This could be inside a delay
+	    // slot or part of a bundle! Check and update accordingly.
             MBB->erase(i++);
 
             DEBUG(

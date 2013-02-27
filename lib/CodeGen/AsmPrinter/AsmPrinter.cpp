@@ -104,10 +104,11 @@ AsmPrinter::AsmPrinter(TargetMachine &tm, MCStreamer &Streamer)
     OutContext(Streamer.getContext()),
     OutStreamer(Streamer),
     LastMI(0), LastFn(0), Counter(~0U), SetCounter(0) {
-  DD = 0; DE = 0; MMI = 0; LI = 0;
+  DD = 0; DE = 0; MMI = 0; LI = 0; MF = 0;
   CurrentFnSym = CurrentFnSymForSize = 0;
   GCMetadataPrinters = 0;
   VerboseAsm = Streamer.isVerboseAsm();
+  Mang = new Mangler(OutContext, *TM.getDataLayout());
 }
 
 AsmPrinter::~AsmPrinter() {
@@ -121,6 +122,8 @@ AsmPrinter::~AsmPrinter() {
     delete &GCMap;
     GCMetadataPrinters = 0;
   }
+
+  delete Mang;
 
   delete &OutStreamer;
 }
@@ -164,8 +167,6 @@ bool AsmPrinter::doInitialization(Module &M) {
   // Initialize TargetLoweringObjectFile.
   const_cast<TargetLoweringObjectFile&>(getObjFileLowering())
     .Initialize(OutContext, TM);
-
-  Mang = new Mangler(OutContext, *TM.getDataLayout());
 
   // If we want to generate labels for all basic blocks, we must
   // turn temporary labels off.
@@ -958,7 +959,6 @@ bool AsmPrinter::doFinalization(Module &M) {
   // after everything else has gone out.
   EmitEndOfAsmFile(M);
 
-  delete Mang; Mang = 0;
   MMI = 0;
 
   OutStreamer.Finish();

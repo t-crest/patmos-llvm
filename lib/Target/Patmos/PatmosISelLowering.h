@@ -28,9 +28,6 @@ namespace llvm {
       /// Return with a flag operand. Operand 0 is the chain operand.
       RET_FLAG,
 
-      /// DYNALLOC - Dynamic Stack Allocation.
-      DYNALLOC,
-
       /// multiplication
       MUL, MULU,
 
@@ -142,9 +139,6 @@ namespace llvm {
                         const SmallVectorImpl<ISD::OutputArg> &Outs,
                         const SmallVectorImpl<SDValue> &OutVals,
                         DebugLoc dl, SelectionDAG &DAG) const;
-
-    /// LowerDYNAMIC_STACKALLOC - Lower a dynamic stack allocation (aka alloca).
-    SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
 
     /// LowerVASTART - Lower the va_start intrinsic to access parameters of
     /// variadic functions.
