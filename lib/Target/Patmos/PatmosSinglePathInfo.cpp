@@ -114,6 +114,7 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
   PredUse.clear();
   PredDefsT.clear();
   PredDefsF.clear();
+  PredEntryEdge.clear();
   if (Root) {
     delete Root;
     Root = NULL;
@@ -153,8 +154,15 @@ bool PatmosSinglePathInfo::isToConvert(MachineFunction &MF) const {
 }
 
 
+int PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) const {
+  if (PredUse.count(MBB)) {
+    return PredUse.at(MBB);
+  }
+  return -1;
+}
 
-BitVector PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) {
+BitVector PatmosSinglePathInfo::getPredUseBV(const MachineBasicBlock *MBB)
+                                                                    const {
   BitVector bv(PredCount);
   if (PredUse.count(MBB)) {
     bv.set(PredUse.at(MBB));
@@ -163,7 +171,8 @@ BitVector PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) {
 }
 
 
-BitVector PatmosSinglePathInfo::getPredDefsT(const MachineBasicBlock *MBB) {
+BitVector PatmosSinglePathInfo::getPredDefsT(const MachineBasicBlock *MBB)
+                                                                    const {
   if (PredDefsT.count(MBB)) {
     return PredDefsT.at(MBB);
   }
@@ -171,7 +180,8 @@ BitVector PatmosSinglePathInfo::getPredDefsT(const MachineBasicBlock *MBB) {
 }
 
 
-BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB) {
+BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB)
+                                                                    const {
   if (PredDefsF.count(MBB)) {
     return PredDefsF.at(MBB);
   }
@@ -179,6 +189,10 @@ BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB) {
 }
 
 
+void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
+  assert( Root != NULL );
+  Root->walk(walker);
+}
 
 
 void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
@@ -208,10 +222,14 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
     dbgs() << "Number of predicates: " <<  PredCount << "\n";
     dbgs() << "Defs to T edges in " <<  PredDefsT.size() << " MBBs\n";
     dbgs() << "Defs to F edges in " <<  PredDefsF.size() << " MBBs\n";
+    dbgs() << "Defs T on entry edge: ";
+      printBitVector(dbgs(), PredEntryEdge);
+      dbgs() << "\n";
+
     for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
               I!=E; ++I) {
       dbgs() << "MBB#" << I->getNumber() << ": use ";
-      printBitVector(dbgs(), getPredUse(I));
+      printBitVector(dbgs(), getPredUseBV(I));
       dbgs() << " defT ";
       printBitVector(dbgs(), getPredDefsT(I));
       dbgs() << " defF ";
@@ -337,13 +355,19 @@ BitVector PatmosSinglePathInfo::getInitializees(const SPNode *N) const {
 }
 
 void PatmosSinglePathInfo::collectPredDefs(MachineFunction &MF, const K_t &K) {
+  // Initialize entry predicates
+  PredEntryEdge = BitVector(PredCount);
   // For each predicate, compute defs
   for (unsigned int i=0; i<K.size(); i++) {
     // for each definition edge
     for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
               EI!=EE; ++EI) {
       const MachineBasicBlock *MBBSrc = EI->first, *MBBDst = EI->second;
-      if (!MBBSrc) continue; // top-level entry edge
+      if (!MBBSrc) {
+        // top-level entry edge
+        PredEntryEdge.set(i);
+        continue;
+      }
       // for AnalyzeBranch
       MachineBasicBlock *TBB = NULL, *FBB = NULL;
       SmallVector<MachineOperand, 4> Cond;
@@ -378,13 +402,15 @@ void PatmosSinglePathInfo::collectPredDefs(MachineFunction &MF, const K_t &K) {
 ///////////////////////////////////////////////////////////////////////////////
 
 
-SPNode::SPNode(SPNode *parent, const MachineBasicBlock *header,
-               const MachineBasicBlock *succ, unsigned int numbe)
-               : Parent(parent), SuccMBB(succ), NumBackedges(numbe) {
+SPNode::SPNode(SPNode *parent, MachineBasicBlock *header,
+               MachineBasicBlock *succ, unsigned int numbe)
+               : Parent(parent), SuccMBB(succ), NumBackedges(numbe),
+                 LoopBound(-1) {
   Level = 0;
   if (Parent) {
     // add to parent's child list
-    Parent->Children[header] = this;
+    Parent->HeaderMap[header] = this;
+    Parent->Children.push_back(this);
     // add to parent's block list as well
     Parent->addMBB(header);
     Level = Parent->Level + 1;
@@ -395,51 +421,55 @@ SPNode::SPNode(SPNode *parent, const MachineBasicBlock *header,
 
 /// destructor - free the child nodes first, cleanup
 SPNode::~SPNode() {
-  for (std::map<const MachineBasicBlock*, SPNode*>::iterator
-            I = Children.begin(), E = Children.end(); I != E; ++I) {
-    delete I->second;
+  for (unsigned i=0; i<Children.size(); i++) {
+    delete Children[i];
   }
   Children.clear();
+  HeaderMap.clear();
 }
 
-void SPNode::addMBB(const MachineBasicBlock *MBB) {
+void SPNode::addMBB(MachineBasicBlock *MBB) {
   if (Blocks.front() != MBB) {
     Blocks.push_back(MBB);
   }
 }
 
 
-void SPNode::getOrder(std::vector<const MachineBasicBlock *> &list) {
-  std::vector<const MachineBasicBlock *> S;
-  std::vector<const MachineBasicBlock *> succs;
-  std::map<const MachineBasicBlock *, int> deps;
+void SPNode::walk(SPNodeWalker &walker) {
+  std::vector<MachineBasicBlock *> S;
+  std::vector<MachineBasicBlock *> succs;
+  std::map<MachineBasicBlock *, int> deps;
   // for each block in SPNode excluding header,
   // store the number of preds
   for (unsigned i=1; i<Blocks.size(); i++) {
-    const MachineBasicBlock *MBB = Blocks[i];
+    MachineBasicBlock *MBB = Blocks[i];
     deps[MBB] = MBB->pred_size();
-    if (Children.count(MBB)) {
-      SPNode *subloop = Children[MBB];
+    if (HeaderMap.count(MBB)) {
+      SPNode *subloop = HeaderMap[MBB];
       deps[MBB] -= subloop->NumBackedges;
     }
   }
 
+  walker.enterSubnode(this);
+
   S.push_back(Blocks.front());
   while(!S.empty()) {
-    const MachineBasicBlock *n = S.back();
+    MachineBasicBlock *n = S.back();
     S.pop_back();
-    // n is either a subloop header or a block of this SPNode
-    if (Children.count(n)) {
-      SPNode *loop = Children[n];
-      loop->getOrder(list);
-      succs.push_back(loop->getSuccMBB());
+    // n is either a subloop header or a simple block of this SPNode
+    if (HeaderMap.count(n)) {
+      // subloop header
+      SPNode *subnode = HeaderMap[n];
+      subnode->walk(walker);
+      succs.push_back(subnode->getSuccMBB());
     } else {
-      list.push_back(n);
+      // simple block
       succs.insert( succs.end(), n->succ_begin(), n->succ_end() );
+      walker.nextMBB(n);
     }
 
     for (unsigned i=0; i<succs.size(); i++) {
-      const MachineBasicBlock *succ = succs[i];
+      MachineBasicBlock *succ = succs[i];
       // successors for which all preds were visited become available
       if (succ != getHeader()) {
         deps[succ]--;
@@ -449,6 +479,8 @@ void SPNode::getOrder(std::vector<const MachineBasicBlock *> &list) {
     }
     succs.clear();
   }
+
+  walker.exitSubnode(this);
 }
 
 static void indent(unsigned level) {
@@ -465,9 +497,9 @@ void SPNode::dump() const {
   dbgs() << "\n";
 
   for (unsigned i=1; i<Blocks.size(); i++) {
-    const MachineBasicBlock *MBB = Blocks[i];
-    if (Children.count(MBB)) {
-      Children.at(MBB)->dump();
+    MachineBasicBlock *MBB = Blocks[i];
+    if (HeaderMap.count(MBB)) {
+      HeaderMap.at(MBB)->dump();
     } else {
       indent(Level+1);
       dbgs() <<  " BB#" << MBB->getNumber() << "\n";
@@ -511,7 +543,7 @@ void createSPNodeSubtree(MachineLoop *loop, SPNode *parent,
 
 
 SPNode *
-PatmosSinglePathInfo::createSPNodeTree(const MachineFunction &MF) const {
+PatmosSinglePathInfo::createSPNodeTree(MachineFunction &MF) const {
   // Get loop information
   MachineLoopInfo &LI = getAnalysis<MachineLoopInfo>();
 
@@ -529,9 +561,9 @@ PatmosSinglePathInfo::createSPNodeTree(const MachineFunction &MF) const {
   }
 
   // Then, add MBBs to the corresponding SPNodes
-  for (MachineFunction::const_iterator FI=MF.begin(), FE=MF.end();
+  for (MachineFunction::iterator FI=MF.begin(), FE=MF.end();
           FI!=FE; ++FI) {
-    const MachineBasicBlock *MBB = FI;
+    MachineBasicBlock *MBB = FI;
     const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
     M[Loop]->addMBB(MBB);
   }

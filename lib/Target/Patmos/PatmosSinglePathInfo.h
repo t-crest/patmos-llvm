@@ -43,6 +43,7 @@ namespace llvm {
 
   // forward decl
   class SPNode;
+  class SPNodeWalker;
 
   /// PatmosSinglePathInfo - Single-Path analysis pass
   class PatmosSinglePathInfo : public MachineFunctionPass {
@@ -87,6 +88,9 @@ namespace llvm {
       /// Map MBBs to predicates they set to their false edge
       MBB_BV_map_t PredDefsF;
 
+      /// Specifies, which predicates are true at the entry edge
+      BitVector PredEntryEdge;
+
       /// Root SPNode
       SPNode *Root;
 
@@ -98,7 +102,7 @@ namespace llvm {
       /// createSPNodeTree - Create an SPNode tree, return the root node.
       /// The tree needs to be destroyed by the client,
       /// by deleting the root node.
-      SPNode *createSPNodeTree(const MachineFunction &MF) const;
+      SPNode *createSPNodeTree(MachineFunction &MF) const;
 
       /// computeControlDependence - Compute CD for a given function.
       void computeControlDependence(MachineFunction &MF, CD_map_t &CD) const;
@@ -106,10 +110,6 @@ namespace llvm {
       /// decomposeControlDependence - Decompose CD into K and R
       void decomposeControlDependence(MachineFunction &MF, const CD_map_t &CD,
                                       K_t &K, R_t &R) const;
-
-      /// getInitializees - Return the predicates that need to be initialized
-      /// for a given SPNode
-      BitVector getInitializees(const SPNode *N) const;
 
       /// collectPredDefs - Collect definitions in MBBs, in PredDefsT and
       /// PredDefsF
@@ -163,45 +163,56 @@ namespace llvm {
       /// this function
       unsigned getNumPredicates() const { return PredCount; }
 
-      /// getGuardPredicate - Returns the guarding predicate for an MBB
-      BitVector getPredUse(const MachineBasicBlock *);
+      /// getPredUse - Returns the guarding predicate for an MBB
+      int getPredUse(const MachineBasicBlock *) const;
+
+      /// getPredUse - Returns the guarding predicate for an MBB
+      BitVector getPredUseBV(const MachineBasicBlock *) const;
 
       /// getPredDefsT - Returs a bitvector for preds set on the true edge
-      BitVector getPredDefsT(const MachineBasicBlock *);
+      BitVector getPredDefsT(const MachineBasicBlock *) const;
 
       /// getPredDefsF - Returs a bitvector for preds set on the false edge
-      BitVector getPredDefsF(const MachineBasicBlock *);
+      BitVector getPredDefsF(const MachineBasicBlock *) const;
+
+      /// getPredEntryEdge - Returs a bitvector for preds true on entry edge
+      BitVector getPredEntryEdge() const { return PredEntryEdge; }
+
+      /// getInitializees - Return the predicates that need to be initialized
+      /// for a given SPNode
+      BitVector getInitializees(const SPNode *N) const;
 
       /// getRootNode - Return the Root SPNode for this function
       SPNode *getRootNode() const { return Root; }
+
+      /// walkRoot - Walk the top-level SPNode
+      void walkRoot(SPNodeWalker &walker) const;
   };
 
 ///////////////////////////////////////////////////////////////////////////////
-
-  class MachineBasicBlock;
 
   class SPNode {
     friend class PatmosSinglePathInfo;
     public:
       /// constructor - Create an SPNode with specified parent SP node or NULL
       /// if top level; the header/entry MBB; the succ MBB; number of backedges
-      explicit SPNode(SPNode *parent, const MachineBasicBlock *header,
-                      const MachineBasicBlock *succ, unsigned numbe);
+      explicit SPNode(SPNode *parent, MachineBasicBlock *header,
+                      MachineBasicBlock *succ, unsigned numbe);
 
       /// destructor - free the child nodes first, cleanup
       ~SPNode();
 
       /// addMBB - Add an MBB to the SP node
-      void addMBB(const MachineBasicBlock *MBB);
+      void addMBB(MachineBasicBlock *MBB);
 
       /// getParent
       const SPNode *getParent() const { return Parent; }
 
       /// getHeader
-      const MachineBasicBlock *getHeader() const { return Blocks.front(); }
+      MachineBasicBlock *getHeader() const { return Blocks.front(); }
 
       /// getSuccMBB - Get the single successor MBB
-      const MachineBasicBlock *getSuccMBB() const { return SuccMBB; }
+      MachineBasicBlock *getSuccMBB() const { return SuccMBB; }
 
       /// getLevel - Get the nesting level of the SPNode
       unsigned int getLevel() const { return Level; }
@@ -210,37 +221,81 @@ namespace llvm {
       /// (not a loop)
       bool isTopLevel() const { return (NULL == Parent); }
 
-      /// getOrder - Get a list of MBBs for the final layout
-      void getOrder(std::vector<const MachineBasicBlock *> &list);
+      /// hasLoopBound - Returs true if the SPNode is a loop and has a bound
+      /// to be accounted for
+      bool hasLoopBound() const { return (-1 != LoopBound); }
+
+      /// getLoopBound - Return the loop bound for this SPNode
+      int getLoopBound() const { return LoopBound; }
+
+      /// walk - Walk this SPNode recursively
+      void walk(SPNodeWalker &walker);
 
       // dump() - Dump state of this SP node and the subtree
       void dump() const;
 
       /// child_iterator - Type for child iterator
-      typedef std::map<const MachineBasicBlock*,
-                       SPNode*>::iterator child_iterator;
+      typedef std::vector<SPNode*>::iterator child_iterator;
 
     private:
       // parent SPNode
       SPNode *Parent;
 
       // successor MBB
-      const MachineBasicBlock *SuccMBB;
+      MachineBasicBlock *SuccMBB;
 
       // number of backedges
       const unsigned NumBackedges;
 
+      // loop bound
+      int LoopBound;
+
       // children as map: header MBB -> SPNode
-      std::map<const MachineBasicBlock*, SPNode*> Children;
+      std::map<MachineBasicBlock*, SPNode*> HeaderMap;
 
       // MBBs contained
-      std::vector<const MachineBasicBlock*> Blocks;
+      std::vector<MachineBasicBlock*> Blocks;
+
+      // sub-nodes
+      std::vector<SPNode*> Children;
 
       // nesting level
       unsigned int Level;
+
+    public:
+      /// child_begin - Iterator begin for subloops
+      child_iterator child_begin() { return Children.begin(); }
+
+      /// child_end - Iterator end for subloops
+      child_iterator child_end() { return Children.end(); }
   };
 
 ///////////////////////////////////////////////////////////////////////////////
+
+  class SPNodeWalker {
+    public:
+      virtual void nextMBB(MachineBasicBlock *) = 0;
+      virtual void enterSubnode(SPNode *) = 0;
+      virtual void exitSubnode(SPNode *) = 0;
+  };
+
+///////////////////////////////////////////////////////////////////////////////
+
+  // Allow clients to walk the list of nested SPNodes
+  template <> struct GraphTraits<SPNode*> {
+    typedef SPNode NodeType;
+    typedef SPNode::child_iterator ChildIteratorType;
+
+    static NodeType *getEntryNode(SPNode *N) { return N; }
+    static inline ChildIteratorType child_begin(NodeType *N) {
+      return N->child_begin();
+    }
+    static inline ChildIteratorType child_end(NodeType *N) {
+      return N->child_end();
+    }
+  };
+
+
 
 } // end of namespace llvm
 
