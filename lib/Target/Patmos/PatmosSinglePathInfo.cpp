@@ -188,6 +188,13 @@ BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB)
   return BitVector(PredCount);
 }
 
+BitVector PatmosSinglePathInfo::getPredDefsBoth(const MachineBasicBlock *MBB)
+                                                                    const {
+  BitVector bv(PredCount);
+  if (PredDefsT.count(MBB)) { bv |= PredDefsT.at(MBB); }
+  if (PredDefsF.count(MBB)) { bv |= PredDefsF.at(MBB); }
+  return bv;
+}
 
 void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
   assert( Root != NULL );

@@ -81,9 +81,13 @@ namespace {
     /// NB: for now, bv.size() <= 32
     uint32_t getImm32FromBitvector(BitVector bv) const;
 
-    /// insertPredDef - Insert predicate definition instruction
-    void insertPredDef(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
+    /// insertPredSet - Insert predicates set instruction
+    void insertPredSet(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
                        BitVector bits, SmallVector<MachineOperand, 4> &Cond);
+
+    /// insertPredClr - Insert predicates clear instruction
+    void insertPredClr(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
+                       BitVector bits);
 
     /// exractPReg - Extract the corect pred to PReg at the beginning of MBB
     void extractPReg(MachineBasicBlock *MBB, unsigned pred);
@@ -196,9 +200,10 @@ void PatmosSPReduce::insertPredDefinitions(MachineFunction &MF) {
   // For each MBB, check PSPI defs
   for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
     MachineBasicBlock *MBB = FI;
-
+    BitVector bvT(PSPI.getPredDefsT(MBB)),
+              bvF(PSPI.getPredDefsF(MBB));
     // check for definitions
-    if (PSPI.getPredDefsT(MBB).none() && PSPI.getPredDefsF(MBB).none()) {
+    if (bvT.none() && bvF.none()) {
       continue;
     }
 
@@ -216,14 +221,17 @@ void PatmosSPReduce::insertPredDefinitions(MachineFunction &MF) {
     bool condKill = Cond[0].isKill(); // store kill flag
     Cond[0].setIsKill(false);
 
+    // clear all preds that are going to be defined
+    insertPredClr(MBB, firstTI, PSPI.getPredDefsBoth(MBB));
+
     // definitions for the T edge
-    if (PSPI.getPredDefsT(MBB).any()) {
-      insertPredDef(MBB, firstTI, PSPI.getPredDefsT(MBB), Cond);
+    if (bvT.any()) {
+      insertPredSet(MBB, firstTI, bvT, Cond);
     }
     // definitions for the F edge
-    if (PSPI.getPredDefsF(MBB).any()) {
+    if (bvF.any()) {
       TII->ReverseBranchCondition(Cond);
-      insertPredDef(MBB, firstTI, PSPI.getPredDefsF(MBB), Cond);
+      insertPredSet(MBB, firstTI, bvF, Cond);
     }
     // restore kill flag at the last use
     prior(firstTI)->findRegisterUseOperand(Cond[0].getReg())
@@ -334,12 +342,9 @@ void PatmosSPReduce::insertInitializations(MachineFunction &MF) {
             GuardsReg)).addImm(imm);
       prior(MI)->dump();
     } else {
-      uint32_t imm = getImm32FromBitvector(PSPI.getInitializees(N));
       // insert initialization at top of header
       MachineBasicBlock::iterator MI = Header->begin();
-      AddDefaultPred(BuildMI(*Header, MI, MI->getDebugLoc(),
-            TII->get(Patmos::ANDl), GuardsReg))
-        .addReg(GuardsReg).addImm(~imm); // bitwise negated imm
+      insertPredClr(Header, MI, PSPI.getInitializees(N));
     }
   }
 
@@ -402,7 +407,7 @@ uint32_t PatmosSPReduce::getImm32FromBitvector(BitVector bv) const {
 }
 
 
-void PatmosSPReduce::insertPredDef(MachineBasicBlock *MBB,
+void PatmosSPReduce::insertPredSet(MachineBasicBlock *MBB,
                                    MachineBasicBlock::iterator MI,
                                    BitVector bits,
                                    SmallVector<MachineOperand, 4> &Cond) {
@@ -419,6 +424,14 @@ void PatmosSPReduce::insertPredDef(MachineBasicBlock *MBB,
     .addImm(imm);
 }
 
+void PatmosSPReduce::insertPredClr(MachineBasicBlock *MBB,
+                                   MachineBasicBlock::iterator MI,
+                                   BitVector bits) {
+  uint32_t imm = getImm32FromBitvector(bits);
+  AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
+        TII->get(Patmos::ANDl), GuardsReg))
+    .addReg(GuardsReg).addImm(~imm); // bitwise negated imm
+}
 
 void PatmosSPReduce::extractPReg(MachineBasicBlock *MBB, unsigned pred) {
   DebugLoc DL;

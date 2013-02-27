@@ -175,6 +175,9 @@ namespace llvm {
       /// getPredDefsF - Returs a bitvector for preds set on the false edge
       BitVector getPredDefsF(const MachineBasicBlock *) const;
 
+      /// getPredDefsBoth - Returs a bitvector for preds set on both edges
+      BitVector getPredDefsBoth(const MachineBasicBlock *) const;
+
       /// getPredEntryEdge - Returs a bitvector for preds true on entry edge
       BitVector getPredEntryEdge() const { return PredEntryEdge; }
 
