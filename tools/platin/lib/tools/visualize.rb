@@ -1,8 +1,10 @@
 #!/usr/bin/env ruby
 #
-# This is debugging only; ok to remove from repo at some point
+# PLATIN tool set
 #
-require 'utils.rb'
+# Simple visualizer (should be expanded to do proper report generation)
+#
+require 'platin.rb'
 include PML
 
 begin
@@ -89,7 +91,6 @@ class VisualizeTool
   def VisualizeTool.run(pml, options)
     targets = options.functions || VisualizeTool.default_targets(pml)
     outdir = options.outdir || "."
-
     targets.each do |target|
       # Visualize the bitcode, machine code and relation graphs
       fgv = FlowGraphVisualizer.new(options)
@@ -115,6 +116,7 @@ class VisualizeTool
         puts "Failed to visualize relation graph of #{target}: #{detail}"
       end
     end
+    statistics("number of generated bc,mc,rg graphs" => targets.length) if options.stats
   end
 
   def VisualizeTool.add_options(opts)

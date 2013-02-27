@@ -1,9 +1,9 @@
 #
-# PSK tool set
+# PLATIN tool set
 #
 # aiT bridge
 #
-require 'utils'
+require 'platin'
 
 module PML
   class OptionParser
@@ -22,14 +22,13 @@ module PML
   end
 
   class AISExporter
-    def AISExporter.supported_types
-      ['loop-local','calltargets-global','infeasible-global']
-    end
+    attr_reader :stats_generated_facts,  :stats_skipped_flowfacts
     attr_reader :outfile
     def initialize(pml,ais_file,options)
       @pml = pml
       @outfile = ais_file
       @options = options
+      @stats_generated_facts, @stats_skipped_flowfacts = 0, 0
     end
 
     # Generate a global AIS header
@@ -47,6 +46,7 @@ module PML
     end
 
     def gen_fact(ais_instr, descr)
+      @stats_generated_facts += 1
       @outfile.puts(ais_instr+" # "+descr)
       $stderr.puts(ais_instr) if @options.verbose
     end
@@ -113,7 +113,7 @@ module PML
       elsif(ff.classification == 'infeasible-global')
         export_infeasible(ff)
       else
-        die ("General purpose flow-fact generation not yet implemented")
+        @stats_skipped_flowfacts += 1
       end
     end
 

@@ -1,5 +1,5 @@
 #
-# PSK Toolchain
+# PLATIN Toolchain
 #
 # Generate trace using pasim and extract flow facts (underapproximations)
 #
@@ -13,8 +13,7 @@
 # Nevertheless, for this tool it might be worth to think of a faster solution;
 # it seems as if the pipe communication the cuprit.
 
-require 'utils'
-require 'trace'
+require 'platin'
 include PML
 
 class AnalyzeTraceTool
@@ -23,11 +22,12 @@ class AnalyzeTraceTool
     opts.trace_entry
     opts.analysis_entry
     opts.pasim
+    opts.generates_flowfacts
   end
 
   def AnalyzeTraceTool.run(pml,options)
     needs_options(options, :analysis_entry, :binary_file, :pasim)
-    trace = SimulatorTrace.new(options.binary_file, options.pasim)
+    trace = pml.arch.simulator_trace(options)
     tm = MachineTraceMonitor.new(pml, trace)
     tm.subscribe(VerboseRecorder.new($dbgs)) if options.debug
     entry  = pml.machine_functions.by_label(options.analysis_entry)
@@ -52,6 +52,7 @@ class AnalyzeTraceTool
       end
     end
 
+
     if options.verbose
       $dbgs.puts "Global Frequencies"
       global.results.dump($dbgs)
@@ -60,17 +61,19 @@ class AnalyzeTraceTool
       $dbgs.puts "Executed Functions: #{executed_blocks.keys.join(", ")}"
     end
 
-    fact_context = { 'level' => 'machinecode', 'origin' => 'trace'}
+    fact_context = { 'level' => 'machinecode', 'origin' => options.flow_fact_output || 'trace'}
     globalscope = entry.ref
 
     pml.timing.add(TimingEntry.new(globalscope,global.results.cycles.max,fact_context))
+
+    flow_facts_before = pml.flowfacts.length
 
     # Export global block frequencies, call targets and infeasible blocks
     global.results.freqs.each do |block,freq|
       pml.flowfacts.add(FlowFact.block_frequency(globalscope, block, freq, fact_context, "block-global"))
     end
     global.results.calltargets.each do |cs,receiverset|
-      next unless cs['callees'].include?('__any__')
+      next unless cs.unresolved_call?
       pml.flowfacts.add(FlowFact.calltargets(globalscope, cs, receiverset, fact_context, "calltargets-global"))
     end
     infeasible_blocks.each do |block|
@@ -93,7 +96,8 @@ class AnalyzeTraceTool
         end
       end
     end
-
+    statistics("simulator trace length" => trace.stats_num_items,
+               "extracted flow-flact hypotheses" => pml.flowfacts.length - flow_facts_before) if options.stats
     pml
   end
 end
@@ -103,7 +107,8 @@ SYNOPSIS=<<EOF
 Run simulator (patmos: pasim --debug-fmt trace), record execution frequencies
 of instructions and generate flow facts. Also records indirect call targets.
 EOF
-
+  # FIXME: binary file is passed as positional argument, and thus should not be shown
+  # as option argument in usage
   options, args = PML::optparse( [:binary_file], "program.elf", SYNOPSIS) do |opts|
     opts.needs_pml
     opts.writes_pml

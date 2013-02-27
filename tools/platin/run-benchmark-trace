@@ -12,7 +12,7 @@ if [ -z "${3}" ] ; then usage ; fi
 BINDIR="${1}"
 OUTDIR="${2}"
 BC="${3}"
-BENCHMARK="bench"
+BENCHMARK="bench-trace"
 
 M=$(basename "${BC}" .bc)
 ELF="${BINDIR}/${M}.elf"

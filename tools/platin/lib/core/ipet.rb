@@ -3,43 +3,10 @@
 #
 # ILP/IPET module
 #
-require 'utils'
-begin
-  require 'rubygems'
-  require "lpsolve"
-rescue Exception => details
-  warn "Failed to load library lpsolve"
-  info "  ==> aptitude install liblpsolve55-dev [Debian/Ubuntu]"
-  info "  ==> gem1.9.1 install lpsolve --pre"
-  die "Failed to load required ruby libraries"
-end
-
+require 'core/utils'
+require 'core/pml'
+require 'set'
 module PML
-
-# pretty print constraint (XXX: hackish)
-def show_constraint(terms_lhs,op,const_rhs)
-  lhs, rhs = Hash.new(0), Hash.new(0)
-  (terms_lhs+[[:__const,-const_rhs]]).each { |v,c|
-    if c > 0
-      lhs[v] += c
-    else
-      rhs[v] -= c
-    end
-  }
-  [lhs.to_a, rhs.to_a].map { |ts|
-    ts.map { |v,c|
-      if :__const  == v && c == 0
-        nil
-      elsif :__const == v
-        c
-      elsif c == 1
-        v
-      else
-        "#{c} #{v}"
-      end
-    }.compact.join(" + ")
-  }.map { |s| s.empty? ? "0" : s }.join(op == "equal" ? " = " : " <= ")
-end
 
 class UnknownVariableException < Exception
   def initialize(msg)
@@ -47,9 +14,92 @@ class UnknownVariableException < Exception
   end
 end
 
+# Indexed Constraints (normalized, with fast hashing)
+# Terms: Index => Integer != 0
+# Rhs: Integer
+# Invariant: gcd(lhs.map(:second) + [rhs]) == 1
+# Hash: ...
+class IndexedConstraint
+  attr_reader :name, :lhs, :op, :rhs, :key, :hash
+  def initialize(ilp, lhs, op, rhs, name)
+    @ilp = ilp
+    @name, @lhs, @op, @rhs = name, lhs, op, rhs
+    raise Exception.new("add_indexed_constraint: name is nil") unless name
+    @lhs.delete_if { |v,c| c == 0 }
+    if(@lhs.empty?)
+      if @rhs == 0
+        @tauto = true
+      elsif @rhs >= 0 && @op == "less-equal"
+        @tauto = true
+      else
+        raise Exception.new("Inconsistent constraint: #{self}")
+      end
+    end
+    unless @tauto
+      div = @lhs.values.inject(0,:gcd)
+      @lhs.merge!(@lhs) { |v,c| c / div }
+      @rhs /= div
+    end
+  end
+  def tautology?
+    @tauto
+  end
+  def get_coeff(v)
+    @lhs[v]
+  end
+  def named_lhs
+    named_lhs = Hash.new(0)
+    @lhs.each { |vi,c| named_lhs[@ilp.var_by_index(vi)] = c }
+    named_lhs
+  end
+  def set(v,c)
+    @lhs[v] = c
+    @lhs.delete(v) if @lhs[v] == 0
+    @key, @hash = nil, nil
+  end
+  def add(v,c)
+    set(v,c+@lhs[v])
+  end
+  def hash
+    @hash if @hash
+    @hash = key.hash
+  end
+  def key
+    @key if @key
+    @key = [@lhs,@op == 'equal',@rhs]
+  end
+  def ==(other)
+    @key == other.key
+  end
+  def <=>(other)
+    @key <=> other.key
+  end
+  def eql?(other); self == other ; end
+  def to_s(use_indices=false)
+    lhs, rhs = Hash.new(0), Hash.new(0)
+    (@lhs.to_a+[[0,-@rhs]]).each { |v,c|
+      if c > 0
+        lhs[v] += c
+      else
+        rhs[v] -= c
+      end
+    }
+    [lhs.to_a, rhs.to_a].map { |ts|
+      ts.map { |v,c|
+        if v == 0
+          (c==0) ? nil : c
+        else
+          vname = use_indices ? v.to_s : @ilp.var_by_index(v).to_s
+          (c == 1) ? vname : "#{c} #{vname}"
+        end
+      }.compact.join(" + ")
+    }.map { |s| s.empty? ? "0" : s }.join(@op == "equal" ? " = " : " <= ")
+  end
+end
+
 # ILP base class
 class ILP
-  attr_reader :variables, :constraints, :cost, :options, :vartype
+  attr_reader :variables, :constraints, :costs, :options, :vartype
   # variables ... array of distinct, comparable items
   def initialize(options = nil)
     @options = options || OpenStruct.new(:verbose=>false,:debug=>false)
@@ -57,16 +107,30 @@ class ILP
     @indexmap = {}
     @vartype = {}
     @eliminated = Hash.new(false)
-    @constraints = []
-    @constraint_set = Hash.new(false)
+    @constraints = Set.new
     reset_cost
   end
+  # number of non-eliminated variables
+  def num_variables
+    variables.length - @eliminated.length
+  end
+  # short description
   def to_s
-    "#<#{self.class}:#{variables.length - @eliminated.length} vars, #{constraints.length} cs>"
+    "#<#{self.class}:#{num_variables} vars, #{constraints.length} cs>"
+  end
+  # print ILP
+  def dump(io=$stderr)
+    io.puts("max " + costs.map { |v,c| "#{c} #{v}" }.join(" + "))
+    @indexmap.each do |v,ix|
+      next if @eliminated[ix]
+      io.puts " #{ix}: int #{v}"
+    end
+    @constraints.each_with_index do |c,ix|
+      io.puts " #{ix}: constraint #{c.name}: #{c}"
+    end
   end
   # add a new variable
   def add_variable(v, vartype=:dst, lb = 0, ub = nil)
-    $dbgs.puts "Adding variable #{v}" if @options.debug
     raise Exception.new("Duplicate variable: #{v}") if @indexmap[v]
     @variables.push(v)
     index = @variables.length # starting with 1
@@ -79,6 +143,10 @@ class ILP
   # index of a variable
   def index(variable)
     @indexmap[variable] or raise UnknownVariableException.new("unknown variable: #{variable}")
+  end
+  # variable by index
+  def var_by_index(ix)
+    @variables[ix-1]
   end
   # set cost of all variables to 0
   def reset_cost
@@ -93,14 +161,13 @@ class ILP
     @costs[variable] += cost
   end
   def reset_constraints
-    @constraints, @constraint_set = [], Hash.new(false)
+    @constraints = Set.new
   end
   # add constraint:
   # terms_lhs .. [ [v,c] ]
   # op        .. "equal" or "less-equal"
   # const_rhs .. integer
   def add_constraint(terms_lhs,op,const_rhs,name)
-    $dbgs.puts "Adding constraint #{show_constraint(terms_lhs,op,const_rhs)} (#{name})" if @options.debug
     terms_indexed = Hash.new(0)
     terms_lhs.each { |v,c|
       terms_indexed[index(v)] += c
@@ -112,8 +179,14 @@ class ILP
     add_constraint([[variable,-1]],"less-equal",-lb,"__lower_bound_v#{ix}") if lb
     add_constraint([[variable,1]],"less-equal",ub,"__upper_bound_v#{ix}") if ub
   end
+
+  # Substitution
+  def eliminate_weak(var)
+    eliminate(var,true)
+  end
+
   # Fourier/Motzkin elimination
-  def eliminate(var)
+  def eliminate(var, weak=false)
     raise Exception.new("ILP#eliminate: non-zero cost") if @costs[var] != 0
     var = index(var)
     # group all constraints into 4 groups
@@ -121,36 +194,49 @@ class ILP
     # E: k var + ...  = c
     # L: k var + ... <= c with k > 0
     # U: k var + ... <= c with l > 0
-    n,e,l,u = [],[],[],[]
-    constraints_grouped = {}
-    constraints.each do |constr|
-      name,terms,op,const_rhs = constr
-      coeff = terms.find { |v,c| v == var}
-      coeff = coeff[1] if coeff
-      assert("eliminate: 0-coeff not permitted") { !coeff || coeff != 0 }
-      if ! coeff
-        n.push(constr)
-        next
+    e,l,u = [],[],[]
+    constraints.reject! do |constr|
+      coeff = constr.get_coeff(var)
+      if ! coeff || coeff == 0
+        # not affected, keep
+        false
+      else
+        set = if constr.op == "equal"
+                e
+              elsif coeff > 0
+                l
+              else
+                u
+              end
+        set.push([coeff,constr])
+        # delete
+        true
       end
-      terms.delete(var)
-      set = if op == "equal"
-              e
-            elsif coeff > 0
-              l
-            else
-              u
-            end
-      set.push([coeff,constr])
     end
-    reset_constraints
-    n.each { |name,terms,op,rhs| add_indexed_constraint(terms,op,rhs,name) }
-    # substitution if E is non-empty
+    # Trivial: no constraints for var
+    if e.empty? && l.empty? && u.empty?
+      @eliminated[var] = true
+      return
+    end
+    # No weak elimination possible
+    if e.empty? && weak
+      l.each { |_,c| @constraints.add(c) }
+      u.each { |_,c| @constraints.add(c) }
+      @eliminated[var] = false
+      return
+    end
+    # Delete var
+    (e+l+u).each { |coeff,constr|
+      constr.add(var, -coeff)
+    }
+    # Elimination
     if ! e.empty?
-      # XXX: avoid callsite constraints
-      eq_constr = e.find { |coeff,constr| constr[0] !~ /^callsite_/ }
+      # Substitution if E is non-empty
+      # FIXME: hack to avoid callsite constraints (for flow-fact trafo)
+      eq_constr = e.find { |coeff,constr| constr.name !~ /^callsite_/ }
       eq_constr = e.first unless eq_constr
       e_coeff, e_constr = eq_constr
-      e_name,e_terms,e_op,e_rhs = e_constr
+      e_terms, e_rhs = e_constr.lhs, e_constr.rhs
 
       if e_coeff < 0
         e_coeff = -e_coeff
@@ -158,7 +244,7 @@ class ILP
         e_rhs = -e_rhs
       end
       (e[1..-1] + l + u).each do |coeff,constr|
-        name,terms,op,rhs = constr
+        terms, rhs = constr.lhs, constr.rhs
         # substitution: e_coeff terms' - coeff e_terms <=> e_coeff rhs - coeff e_rhs
         # (1) multiply by e_coeff
         terms = terms.merge!(terms) { |v,c| c * e_coeff }
@@ -166,34 +252,25 @@ class ILP
         # (2) subtract (coeff * e_terms) and (coeff * e_rhs)
         e_terms.each { |v,c| terms[v] -= c * coeff }
         rhs -= coeff * e_rhs
-        # (3) normalize
-        terms.delete_if { |v,c| c == 0 }
-        add_indexed_constraint(terms,op,rhs,name)
+        # (3) add new constraint
+        add_indexed_constraint(terms, constr.op, rhs, constr.name)
       end
-    elsif l.empty? || u.empty?
-      # nothing to do
     else
+      # FM-Elimination
       # l: ax  + by <= d [ a  > 0 ]
       # u: a'x + cz <= e [ a' < 0 ]
       # a cz - a' by <= a e - a' d
       l.each do |l_coeff,l_constr|
-        l_name, l_terms, l_op, l_rhs = l_constr
+        l_terms, l_rhs = l_constr.lhs, l_constr.rhs
         u.each do |u_coeff,u_constr|
-          u_name, u_terms, u_op, u_rhs = u_constr
+          u_terms, u_rhs = u_constr.lhs, u_constr.rhs
           # terms = l_coeff * u_terms - u_coeff * l_terms
           terms = Hash.new(0)
           u_terms.each { |v,c| terms[v] += l_coeff * c }
           l_terms.each { |v,c| terms[v] -= u_coeff * c }
           rhs = l_coeff * u_rhs - u_coeff * l_rhs
-          name = l_name+"-lt-"+u_name
-          add_indexed_constraint(terms,u_op,rhs,name)
-
-          # puts "Ran FM"
-          # sl_terms = l_terms.dup ; sl_terms[var] = l_coeff
-          # su_terms = u_terms.dup ; su_terms[var] = u_coeff
-          # puts "L: #{show_constraint(sl_terms,l_op,l_rhs)}"
-          # puts "U: #{show_constraint(su_terms,u_op,u_rhs)}"
-          # puts "R: #{show_constraint(terms,u_op,rhs)} (#{name})"
+          name = l_constr.name+"<>"+u_constr.name
+          add_indexed_constraint(terms,l_constr.op,rhs,name)
         end
       end
     end
@@ -201,151 +278,9 @@ class ILP
   end
   private
   def add_indexed_constraint(terms_indexed,op,const_rhs,name)
-    raise Exception.new("add_indexed_constraint: name is nil") unless name
-    terms_indexed.delete_if { |v,c| c == 0 }
-    if(terms_indexed.empty?)
-      return if const_rhs == 0
-      return if const_rhs >= 0 && op == "less-equal"
-      raise Exception.new("Inconsistent constraint: #{terms_lhs} #{op} #{const_rhs}")
-    end
-    div = terms_indexed.values.inject(0,:gcd)
-    terms_indexed.merge!(terms_indexed) { |v,c| c / div }
-    const_rhs /= div
-    key = [terms_indexed,op,const_rhs]
-    return if @constraint_set[key]
-    @constraint_set[key] = true
-    @constraints.push([name,terms_indexed,op,const_rhs])
-  end
-end
-# Simple interface to lp_solve
-class LpSolveILP < ILP
-  # Tolarable floating point error in objective
-  EPS=0.0001
-  def initialize(options = nil)
-    super(options)
-    @eps = EPS
-  end
-  # run solver to find maximum cost
-  def solve_max
-    # create LP problem (maximize)
-    lp = create_lp
-    lp.set_maxim
-    # set objective and add constraints
-    lp.set_add_rowmode(true)
-    set_objective(lp)
-    add_linear_constraints(lp)
-    # solve
-    lp.set_add_rowmode(false)
-    lp.print_lp if options.lp_debug
-    lp.set_verbose(0)
-    r = lp.solve
-    # read solution
-    lp.print_solution(-1) if options.lp_debug
-    obj = lp.objective
-    freqmap = extract_frequencies(lp.get_variables)
-    if (r == LPSolve::INFEASIBLE)
-      diagnose_infeasibility(freqmap)
-    end
-    lp_solve_error(r) unless r == 0
-    if (obj-obj.round.to_f).abs > @eps
-      raise Exception.new("Untolerable floating point inaccuracy > #{EPS} in objective #{obj}")
-    end
-    [obj.round, freqmap ]
-  end
-
-  private
-  # create an LP with variables
-  def create_lp
-    lp = LPSolve.new(0, variables.size)
-    variables.each do |v|
-      ix = index(v)
-      lp.set_col_name(ix, "v_#{ix}")
-      lp.set_int(ix, true)
-    end
-    lp
-  end
-  # set LP ovjective
-  def set_objective(lp)
-    lp.set_obj_fnex(@costs.map { |v,c| [index(v),c] })
-  end
-  # add LP constraints
-  def add_linear_constraints(lp)
-    @constraints.each do |name,terms,op,const_rhs|
-      lp.add_constraintex(name,terms.to_a,lpsolve_op(op),const_rhs)
-    end
-  end
-  # extract solution vector
-  def extract_frequencies(fs)
-    vmap = {}
-    fs.each_with_index do |v, ix|
-      vmap[@variables[ix]] = v
-    end
-    vmap
-  end
-  # lp-solve comparsion operators
-  def lpsolve_op(op)
-    case op
-    when "equal"
-      LPSolve::EQ
-    when "less-equal"
-      LPSolve::LE
-    when "greater-equal"
-      LPSolve::GE
-    else
-      internal_error("Unsupported comparison operator #{op}")
-    end
-  end
-  def lp_solve_error(r)
-    msg =
-      case r
-      when LPSolve::NOMEMORY
-        "NOMEMORY"
-      when LPSolve::SUBOPTIMAL
-        "SUBOPTIMAL"
-      when LPSolve::INFEASIBLE
-        "INFEASIBLE"
-      when LPSolve::UNBOUNDED
-        "UNBOUNDED"
-      else
-        "ERROR_#{r}"
-      end
-    raise Exception.new("LPSolver Error: #{msg} (E#{r})")
-  end
-
-  SLACK=10000000
-  BIGM= 10000000
-  def diagnose_infeasibility(freqmap)
-    $stderr.puts "INFEASIBLE PROBLEM (#{@infeasible_diagnosis})"
-    lp_solve_error(LPSolve::INFEASIBLE) if $loop==true
-    $loop=true
-    old_constraints, slackvars = @constraints, []
-    reset_constraints
-    variables.each do |v|
-      add_constraint([[v,1]],"less-equal",BIGM,"__debug_upper_bound_v#{index(v)}")
-    end
-    old_constraints.each { |n,terms,op,rhs|
-      next if n =~ /__positive_/
-      v_lhs = add_variable("__slack_#{n}",:slack,0, BIGM)
-      add_cost("__slack_#{n}", -SLACK)
-      terms[v_lhs] = -1
-      if op == "equal"
-        v_rhs = add_variable("__slack_#{n}_rhs",:slack,0, BIGM)
-        add_cost("__slack_#{n}_rhs", -SLACK)
-        terms[v_rhs] = 1
-      end
-      add_indexed_constraint(terms,op,rhs,"__slack_#{n}")
-    }
-    @eps = 1.0
-    #@constraints.each do |n,terms,op,rhs|
-    #  puts "Slacked constraint #{n}: #{show_constraint(terms.map {|ix,c|[variables[ix-1],c]},op,rhs)}"
-    #end
-    cycles,freq = self.solve_max
-    freq.each do |v,k|
-      if v.to_s =~ /__slack/ && k != 0
-        $stderr.puts "SLACK: #{v.to_s.ljust(40)} #{k.to_s.rjust(8)}"
-      end
-    end
-    lp_solve_error(LPSolve::INFEASIBLE)
+    constr = IndexedConstraint.new(self, terms_indexed, op, const_rhs, name)
+    return if constr.tautology?
+    @constraints.add(constr)
   end
 end
 
@@ -362,7 +297,7 @@ class Callsite
   def eql?(other); self == other; end
 end
 
-class Edge
+class IPETEdge
   attr_reader :qname,:source,:target, :level
   def initialize(edge_source, edge_target, level)
     @source,@target,@level = edge_source, edge_target, level
@@ -376,6 +311,13 @@ class Edge
     source_loop_index = source.loopnest - target.loopnest
     r = source.loops[source_loop_index] == target
     r
+  end
+  def ref
+    if :exit == target
+      BlockRef.new(source)
+    else
+      EdgeRef.new(source, target)
+    end
   end
   def to_s ; @qname ; end
   def hash;  @qname.hash ; end
@@ -413,7 +355,7 @@ class IPETModel
     calledges = []
     lhs = [ [callsite, 1] ]
     fs.each do |f|
-      calledge = Edge.new(callsite, f, level)
+      calledge = IPETEdge.new(callsite, f, level)
       ipet.add_variable(calledge, level)
       calledges.push(calledge)
       lhs.push([calledge, -1])
@@ -440,7 +382,7 @@ class IPETModel
   def add_block_constraint(block)
     return if block.predecessors.empty?
     lhs = if block.successors.empty?
-            lhs = sum_incoming(block,-1) + [[Edge.new(block,:exit,level),1]]
+            lhs = sum_incoming(block,-1) + [[IPETEdge.new(block,:exit,level),1]]
           else
             lhs = sum_incoming(block,-1) + sum_outgoing(block)
           end
@@ -452,19 +394,22 @@ class IPETModel
   end
   def block_frequency(block, factor=1)
     if block.successors.empty? # return exit edge
-      [[Edge.new(block,:exit,level),factor]]
+      [[IPETEdge.new(block,:exit,level),factor]]
     else
       sum_outgoing(block,factor)
     end
   end
+  def edgeref_frequency(edgeref, factor = 1)
+    [[IPETEdge.new(edgeref.source, edgeref.target, level), factor ]]
+  end
   def sum_incoming(block, factor=1)
     block.predecessors.map { |pred|
-      [Edge.new(pred,block,level), factor]
+      [IPETEdge.new(pred,block,level), factor]
     }
   end
   def sum_outgoing(block, factor=1)
     block.successors.map { |succ|
-      [Edge.new(block,succ,level), factor]
+      [IPETEdge.new(block,succ,level), factor]
     }
   end
   def sum_loop_entry(loopblock, factor=1)
@@ -477,10 +422,10 @@ class IPETModel
   def each_edge(function)
     function.blocks.each do |bb|
       bb.successors.each do |bb2|
-        yield Edge.new(bb,bb2,level)
+        yield IPETEdge.new(bb,bb2,level)
       end
       if bb.successors.empty? # returns
-        yield Edge.new(bb,:exit,level)
+        yield IPETEdge.new(bb,:exit,level)
       end
     end
   end
@@ -489,7 +434,7 @@ end # end of class IPETBuilder
 class IPETBuilder
   attr_reader :ilp
   def initialize(pml, options, ilp = nil)
-    @ilp = if ilp then ilp else LpSolveILP.new(options) end
+    @ilp = ilp
     @mc_model = IPETModel.new(@ilp, :dst)
     if options.use_relation_graph
       @bc_model = IPETModel.new(@ilp, :src)
@@ -516,20 +461,20 @@ class IPETBuilder
       succs = Set.new
       function.each_callsite { |cs|
         next if @mc_model.infeasible.include?(cs.block)
-        cs['callees'].each { |fname|
-          if(fname == '__any__')
+        if cs.unresolved_call?
             if ! @mc_model.calltargets[cs]
               die("Unknown calltargets for #{cs}")
             end
             # external flow fact
             @mc_model.calltargets[cs].each { |f| succs.add(f) }
-          else
+        else
+          cs.callees.each { |fname|
             # compiler information
             f = @pml.machine_functions.by_label(fname)
             @mc_model.add_calltargets(cs, [f])
             succs.add(f)
-          end
-        }
+          }
+        end
       }
       add_bitcode_variables(function) if @bc_model
       @mc_model.each_edge(function) do |edge|
@@ -558,6 +503,7 @@ class IPETBuilder
       @mc_model.add_function_constraint(f, ces)
     end
   end
+
   #
   # Refine control-flow model using infeasible/calltarget flowfact information
   #
@@ -587,19 +533,34 @@ class IPETBuilder
   #
   # Supported flowfacts:
   #
-  # (1) Linear Combinations of Block Frequencies relative to Function or Loop Scope
+  # (1) Linear Combinations of Block or Edge Frequencies relative to Function or Loop Scope
   #
   def add_flowfact(ff)
-    scope, bref, freq = ff.get_block_frequency_bound
     model = ff.level == "machinecode" ? @mc_model : @bc_model
     raise Exception.new("IPETBuilder#add_flowfact: cannot add bitcode flowfact without using relation graph") unless model
     lhs = []
+    ff.lhs.each { |term|
+      pp = term.ppref
+      if pp.kind_of?(FunctionRef)
+        lhs += model.function_frequency(pp.function, term.factor)
+      elsif pp.kind_of?(BlockRef)
+        lhs += model.block_frequency(pp.block, term.factor)
+      elsif pp.kind_of?(EdgeRef)
+        lhs += model.edgeref_frequency(pp, term.factor)
+      elsif pp.kind_of?(InstructionRef)
+        # XXX: exclusively used in refinement for now
+        return false
+      else
+        die("Unknown reference type: #{pp.class}")
+      end
+    }
+    scope = ff.scope
     if scope.kind_of?(FunctionRef)
-      lhs = model.block_frequency(bref.block) + model.function_frequency(scope.function, -freq)
+      lhs += model.function_frequency(scope.function, -ff.rhs)
     elsif scope.kind_of?(LoopRef)
-      lhs = model.block_frequency(bref.block) + model.sum_loop_entry(scope.loopblock, -freq)
+      lhs += model.sum_loop_entry(scope.loopblock, -ff.rhs)
     else
-#      $stderr.puts "Skipping unsupported constraint #{ff}"
+      $stderr.puts "Skipping unsupported constraint #{ff}"
       return false
     end
     begin
@@ -608,6 +569,7 @@ class IPETBuilder
       name
     rescue Exception => detail
       $stderr.puts "Skipping constraint: #{detail}"
+      return false
     end
   end
 
@@ -649,7 +611,7 @@ private
         rg_edges_by_source[edge.source] ||= { :src => [], :dst => [] }
         rg_edges_by_source[edge.source][level].push(edge)
       end
-      (rg_edges_of_edge[level][Edge.new(source_block,target_block,level)] ||=[]).push(edge)
+      (rg_edges_of_edge[level][IPETEdge.new(source_block,target_block,level)] ||=[]).push(edge)
     end
     rg_edges_of_edge.each do |level,edgemap|
       edgemap.each do |edge,rg_edges|
@@ -669,13 +631,98 @@ private
         next unless node.get_block(level)
         node.successors(level).each { |node2|
           if node2.type == :exit || node2.get_block(level)
-            yield Edge.new(node,node2,level)
+            yield IPETEdge.new(node,node2,level)
           end
         }
       }
     }
   end
+end # IPETModel
 
+class FlowFactTransformation
+
+  attr_reader :pml, :options
+
+  def initialize(pml,options)
+    @pml, @options = pml, options
+  end
+
+  # Copy flowfacts
+  def copy(flowfacts)
+    copied = []
+    flowfacts.each { |ff|
+      ff2 = ff.deep_clone
+      ff2.add_attribute('origin', options.flow_fact_output)
+      info("Adding support for #{ff2.lhs.map { |t| t.ppref.function }.join(",")}") if options.verbose
+      copied.push(ff2)
+    }
+    copied.each { |ff| pml.flowfacts.add(ff) }
+    statistics("flowfacts copied to #{options.flow_fact_output}" => copied.length) if options.stats
+  end
+
+  def transform(entry, flowfacts, target_level)
+    ilp  = ILP.new
+    builder_opts = options.dup
+    builder_opts.use_relation_graph = true
+    ipet = IPETBuilder.new(pml,builder_opts,ilp)
+
+    # Refine Control-Flow Model
+    ipet.refine(entry, flowfacts)
+
+    # Build IPET, no costs
+    ipet.build(entry) { |edge| 0 }
+
+    # Add flow facts
+    flowfacts.each { |ff|
+      name = ipet.add_flowfact(ff)
+    }
+
+    # If direction up/down, eliminate all vars but dst/src
+    info "Running transformer to level #{target_level}" if options.verbose
+    constraints_before = ilp.constraints.length
+    ilp.variables.each do |var|
+      if ilp.vartype[var] != target_level
+        ilp.eliminate(var)
+      end
+    end
+    statistics("constraints after FM-elimination (#{constraints_before})" => ilp.constraints.length) if options.stats
+
+    new_flowfacts = []
+    ilp.constraints.each do |constr|
+      lhs = constr.named_lhs
+      name = constr.name
+
+      next if name =~ /^__lower_bound/ && constr.rhs == 0
+      next if name =~ /^structural/
+      next if name =~ /^rg/
+      next if name =~ /^call/
+
+      info "Adding transformed constraint #{constr}" if options.verbose
+
+      # make flow-fact
+      # Simplify: edges->block
+      # (1) get all referenced outgoing blocks
+      out_blocks = {}
+      lhs.each { |edge,coeff| out_blocks[edge.source] = 0 }
+      # (2) for each block, find minimum coeff for all of its outgoing edges
+      #     and replace edges by block
+      out_blocks.keys.each { |b|
+        edges = b.successors.map { |b2| IPETEdge.new(b,b2,target_level) }
+        edges = [ IPETEdge.new(b,:exit,target_level) ] if edges.empty?
+        min_coeff = edges.map { |e| lhs[e] }.min
+        if min_coeff != 0
+          edges.each { |e| lhs[e] -= min_coeff ; lhs.delete(e) if lhs[e] == 0 }
+          lhs[b] += min_coeff
+        end
+      }
+      terms = TermList.new(lhs.map { |v,c| Term.new(v.ref,c) })
+      scope = (target_level == :src) ? pml.bitcode_functions.by_name(entry.label) : entry
+      ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs)
+      new_flowfacts.push(ff)
+    end
+
+    new_flowfacts
+  end
 end
 
 end # module PML

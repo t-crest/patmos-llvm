@@ -1,6 +1,5 @@
 #
-# PSK tool set
-# pml.rb
+# PLATIN tool set
 #
 # PML data format classes
 #
@@ -108,10 +107,25 @@ module PML
     end
   end
 
+  # architectures
+  class Architecture
+    @@register = {}
+    def Architecture.register(archname,klass)
+      die("architecture #{archname} already registered to #{@@register[archname]}") if @@register[archname]
+      @@register[archname] = klass
+    end
+    def Architecture.from_triple(triple)
+      archname = triple.first
+      die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]
+      @@register[archname].new(triple)
+    end
+    require 'arch/patmos'
+  end
+
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc < Proxy
-    attr_reader :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
+    attr_reader :arch, :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
 
     def initialize(data_or_io)
       stream = if data_or_io.kind_of?(Array)
@@ -128,6 +142,8 @@ module PML
       else
         @data = PMLDoc.merge_stream(stream)
       end
+      triple = @data['triple'].split('-')
+      @arch = Architecture.from_triple(triple)
       @bitcode_functions = FunctionList.new(@data['bitcode-functions'] || [])
       @machine_functions = FunctionList.new(@data['machine-functions'] || [])
       @relation_graphs   = RelationGraphList.new(@data['relation-graphs'] || [], @bitcode_functions, @machine_functions)
@@ -153,16 +169,16 @@ module PML
     end
 
     def dump(io)
-      final = @data.dup
+      final = @data.clone
       final.delete("flowfacts") if @data["flowfacts"] == []
       final.delete("timing") if @data["timing"] == []
       io.write(YAML::dump(final))
     end
 
-    # XXX: patmos specific
     def delay_slots
-      2
+      @arch.delay_slots
     end
+
     def machine_code_only_functions
       %w{_start _exit exit abort __ashldi3 __adddf3 __addsf3 __divsi3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2} +
         %w{__fixdfdi __fixdfsi __fixsfdi __fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi __floatdidf __floatdisf} +
@@ -184,7 +200,7 @@ module PML
           elsif(! merged_doc[k])
             merged_doc[k] = doc[k]
           elsif(merged_doc[k] != doc[k])
-            raise Exception.new("platin-merge: mismatch in non-list attribute #{k}: #{merged_doc[k]} and #{doc[k]}")
+            die "Mismatch in non-list attribute #{k}: #{merged_doc[k]} and #{doc[k]}"
           end
         end
       end
@@ -208,6 +224,10 @@ module PML
       elsif loop = data['loop']
         loop = function.blocks.by_name(loop)
         return LoopRef.new(loop, data)
+      elsif src=data['edgesource']
+        bb_src = function.blocks.by_name(src)
+        bb_dst = function.blocks.by_name(data['edgetarget'])
+        return EdgeRef.new(bb_src, bb_dst, data)
       else
         return FunctionRef.new(function,data)
       end
@@ -246,6 +266,28 @@ module PML
     end
   end
 
+  class EdgeRef < Reference
+    attr_reader :source, :target, :qname
+    def initialize(source, target, data = nil)
+      assert("PML Edge: source and target function need to match") { source.function == target.function }
+      @source, @target = source, target
+      @data = data || { 'function' => source.function.name, 'edgesource' => source.name, 'edgetarget' => target.name }
+      @name = "#{source.name}->#{target.name}"
+      @qname = "#{source.qname}->#{target.name}"
+      @hash = @qname.hash
+    end
+    def function
+      source.function
+    end
+    def [](k)
+      @data[k]
+    end
+    def to_s
+      qname
+    end
+    def hash; @hash ; end
+  end
+
   # Qualified name for instructions
   class InstructionRef < Reference
     attr_reader :function, :block, :instruction, :qname
@@ -278,7 +320,7 @@ module PML
       rs = reachable_set(by_name(name)) { |f|
         callees = []
         f.each_callsite { |cs|
-          cs['callees'].each { |n|
+          cs.callees.each { |n|
             if(f = @labelled[n])
               callees.push(f)
             elsif(f = @named[n])
@@ -455,19 +497,22 @@ module PML
     def hash; @hash ; end
     def loopheader? ; @is_loopheader ; end
     def callsites
-      instructions.list.select { |i| (i['callees']||[]).length > 0 }
+      instructions.list.select { |i| i.callees.length > 0 }
     end
     def calls?
       ! callsites.empty?
     end
+
     def loopref
       assert("Block#loopref: not a loop header") { self.loopheader? }
       LoopRef.new(self)
     end
-    # LLVM specific (arch specific?)
+
+    # XXX: LLVM specific/arch specific
     def label
       Block.get_label(function.name, name)
     end
+
     def Block.get_label(fname,bname)
       ".LBB#{fname}_#{bname}"
     end
@@ -485,6 +530,12 @@ module PML
     end
     def ref
       InstructionRef.new(self)
+    end
+    def callees
+      @data['callees'] || []
+    end
+    def unresolved_call?
+      callees.include?("__any__")
     end
     def function
       block.function
@@ -595,6 +646,30 @@ module PML
     def hash; qname.hash ; end
   end
 
+  # Flow fact selector
+  class FlowFactSelection
+    MINIMAL_FLOWFACT_TYPES = %w{loop-local calltargets-global infeasible-global}
+    def initialize(pml, profile)
+      @pml, @profile = pml, profile
+    end
+    def include?(ff)
+      return true if @profile == "all"
+      is_loop       = ff.classification == "loop-local"
+      is_infeasible = ff.classification == "infeasible-global"
+      (_,cs,_)      = ff.get_calltargets
+      is_calltarget = cs && cs.instruction.unresolved_call?
+      is_rt         = ff.lhs.any? { |term| @pml.machine_code_only_functions.include?(term.ppref.function.label) }
+      is_minimal    = is_loop || is_infeasible || is_calltarget
+      is_local      = ff.lhs.all? { |term| term.ppref.function == ff.scope.function }
+      case @profile
+      when "minimal"    then is_minimal
+      when "local"      then is_minimal || is_local
+      when "rt-support" then is_rt || is_calltarget # FIXME: calltargets not supported on bitcode level yet
+      else raise Exception.new("Bad Profile #{@profile}")
+      end
+    end
+  end
+
   # List of flowfacts (modifiable)
   class FlowFactList < ListProxy
     def initialize(list, data = nil)
@@ -612,14 +687,16 @@ module PML
       add_index(ff)
     end
 
-    def filter(ff_types, ff_srcs, ff_levels)
+    def filter(pml, ff_selection, ff_srcs, ff_levels)
+      selector = FlowFactSelection.new(pml, ff_selection)
       @list.select { |ff|
         # skip if level does not match
         if ! ff_levels.include?(ff.level)
           false
+        # skip if source is not included
         elsif ff_srcs != "all" && ! ff_srcs.include?(ff.origin)
           false
-        elsif ff.classification && ! ff_types.include?(ff.classification)
+        elsif ! selector.include?(ff)
           false
         else
           true
@@ -642,6 +719,10 @@ module PML
       @list = list
       @data = data ? data : to_pml
     end
+    def deep_clone
+      list = @list.map { |v| v.deep_clone }
+      TermList.new(list)
+    end
     def to_pml
       list.map { |t| t.to_pml }
     end
@@ -651,8 +732,13 @@ module PML
   class Term < Proxy
     attr_reader :ppref, :factor
     def initialize(ppref,factor)
+      assert("Term#initialize: not a reference: #{ppref}") { ppref.kind_of?(Reference) }
       @ppref,@factor = ppref,factor
       @data = data ? data : to_pml
+    end
+    # ppref and factor are immutable
+    def deep_clone
+      Term.new(ppref, factor)
     end
     def to_pml
       { 'factor' => factor, 'program-point' => ppref.data }
@@ -663,15 +749,28 @@ module PML
   end
 
   # Flow Fact utility class
+  # Kind of flow facts of interest
+  # validity: * analysis-context ... flow fact is valid in the analysis context
+  #           * scope            ... flow fact is valid for each execution of its scope
+  # scope:    * function,loop    ... flow fact applies to every execution of the scope
+  # general:  * edges            ... relates CFG edges
+  #           * blocks           ... relates CFG blocks
+  #           * calltargets      ... relates call-sites and function entries
+  # special:  * infeasible       ... specifies code (blocks) not executed
+  #           * header           ... specifies bound on loop header
+  #           * backedges        ... specifies bound of backedges
   class FlowFact < Proxy
     ATTRIBUTES = %w{classification level origin}
-    CLASSIFICATION_OBJECTS = %w{block,loop,calltargets,infeasible}
-    CLASSIFICATION_SCOPES  = %w{local,function,global}
+    CLASSIFICATION_OBJECTS = %w{block loop calltargets infeasible}
+    CLASSIFICATION_SCOPES  = %w{local function global}
+    REFINE_FLOWFACT_TYPES = %w{calltargets-global infeasible-global}
     MINIMAL_FLOWFACT_TYPES = %w{loop-local calltargets-global infeasible-global}
     attr_reader :scope, :lhs, :op, :rhs
     def initialize(scope, lhs, op, rhs, data = nil)
       assert("scope not a reference") { scope.kind_of?(Reference) }
       assert("lhs not a list proxy") { lhs.kind_of?(ListProxy) }
+      assert("lhs is not a list of terms") { lhs.empty? || lhs[0].kind_of?(Term) }
+
       @scope, @lhs, @op, @rhs = scope, lhs, op, rhs
       @attributes = {}
       if data
@@ -682,6 +781,18 @@ module PML
       else
         @data = to_pml
       end
+    end
+    # string repr
+    def to_s
+      "FlowFact<#{@attributes.map {|k,v| "#{k}=#{v}"}.join(",")},in #{scope}: #{lhs} #{op} #{rhs}>"
+    end
+    # clone flow fact, lhs and attributes
+    def deep_clone
+      ff = FlowFact.new(scope, lhs.deep_clone, op, rhs)
+      @attributes.each do |k,v|
+        ff.add_attribute(k,v)
+      end
+      ff
     end
     def FlowFact.from_pml(pml, data)
       mod = if data['level'] == 'bitcode'
@@ -828,7 +939,7 @@ module PML
       TimingEntry.new(Reference.from_pml(mod,data['scope']), data['cycles'], data, data)
     end
     def to_pml
-      data = @context.dup
+      data = @context.clone
       data['scope'] = @scope.data
       data['cycles'] = @cycles
       data

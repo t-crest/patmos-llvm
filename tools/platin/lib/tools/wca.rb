@@ -4,27 +4,21 @@
 #
 # Simple Worst-Case Analysis using IPET
 #
-# TODO: support control-flow relation graphs
-#
-require 'utils'
-require 'ipet'
+require 'platin'
+require 'ext/lpsolve'
 include PML
 
 class WcaTool
-  # XXX: loop-local should be block-loop
-  # XXX: calltargets-global are supported, but used during construction
-  SUPPORTED_FLOW_FACT_TYPES=%w{loop-local loop-function loop-global block-local block-function block-global infeasible-global calltargets-global}
   def WcaTool.run(pml,options)
 
     # Builder and Analysis Entry
-    builder = IPETBuilder.new(pml, options)
+    ilp = LpSolveILP.new(options)
+    builder = IPETBuilder.new(pml, options, ilp)
     entry = pml.machine_functions.by_label(options.analysis_entry)
 
     # flow facts
-    ff_types = options.flow_fact_types
-    ff_types = WcaTool::SUPPORTED_FLOW_FACT_TYPES if ff_types == :supported
+    flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode","bitcode"])
     ff_levels = if options.use_relation_graph then ["bitcode","machinecode"] else ["machinecode"] end
-    flowfacts = pml.flowfacts.filter(ff_types, options.flow_fact_srcs, ff_levels)
 
     # Refine Control-Flow Model
     builder.refine(entry, flowfacts)
@@ -55,8 +49,21 @@ class WcaTool
     # Add flow facts
     flowfacts.each { |ff| builder.add_flowfact(ff) }
 
+    statistics("flowfacts" => flowfacts.length,
+               "ipet variables" => builder.ilp.num_variables,
+               "ipet constraints" => builder.ilp.constraints.length) if options.stats
+
+    # Weak-eliminate auxilliary variables
+    #ilp.variables.each do |var|
+    #  ilp.eliminate_weak(var) if ilp.costs[var] == 0
+    #end
+
     # Solve ILP
     cycles,freqs = builder.ilp.solve_max
+    statistics("ilp variables" => builder.ilp.num_variables,
+               "ilp constraints" => builder.ilp.constraints.length,
+               "ilp solution" => cycles) if options.stats
+
     if options.verbose
       puts "Cycles: #{cycles}"
       freqs.map { |v,freq|
@@ -68,30 +75,33 @@ class WcaTool
 
     # report result
     report = TimingEntry.new(entry.ref, cycles, 'problemsize' => builder.ilp.constraints.length,
-                             'level' => 'machinecode', 'origin' => options.timing_name || 'platin')
+                             'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)
 
-    # XXX: playing: fourier-motzkin elimination
-    if options.use_relation_graph
-      ilp = builder.ilp
-      ilp.variables.each do |var|
-        if ilp.vartype[var] != :dst
-          ilp.eliminate(var)
-          if options.debug
-            puts ilp
-            old_cycles = cycles
-            cycles,freqs = ilp.solve_max
-            raise Exception.new("Error eliminating #{var}") if cycles != old_cycles
-          end
-        end
-      end
-      cycles,freqs = ilp.solve_max
-      report = TimingEntry.new(entry.ref, cycles, 'problemsize' => ilp.constraints.length,'level' => 'machinecode',
-                               'origin' => (options.timing_name || 'platin')+"-fm")
-      pml.timing.add(report)
-    end
+    # # XXX: playing: fourier-motzkin elimination
+    # cycles = nil
+    # if options.use_relation_graph
+    #   ilp = builder.ilp
+    #   ilp.variables.each do |var|
+    #     if ilp.vartype[var] != :dst
+    #       ilp.eliminate(var)
+    #       if options.debug
+    #         puts ilp
+    #         old_cycles = cycles
+    #         cycles,freqs = ilp.solve_max
+    #         raise Exception.new("Error eliminating #{var}") if old_cycles && cycles != old_cycles
+    #       end
+    #     end
+    #   end
+    #   cycles,freqs = ilp.solve_max
+    #   report = TimingEntry.new(entry.ref, cycles, 'problemsize' => ilp.constraints.length,'level' => 'machinecode',
+    #                            'origin' => (options.timing_output || 'platin')+"-fm")
+    #   pml.timing.add(report)
+    # end
+
     pml
   end
+
   def WcaTool.add_options(opts)
     opts.analysis_entry
     opts.flow_fact_selection

@@ -1,15 +1,14 @@
 #!/usr/bin/env ruby
 #
-require 'utils.rb'
+require 'platin'
 include PML
 
-require 'platin-analyze-trace'
-require 'platin-extract-symbols'
-require 'platin-pml2ais'
-require 'platin-ait2pml'
-require 'platin-transform'
-require 'platin-wca'
-
+require 'platin/tools/analyze-trace'
+require 'platin/tools/extract-symbols'
+require 'platin/tools/pml2ais'
+require 'platin/tools/ait2pml'
+require 'platin/tools/transform'
+require 'platin/tools/wca'
 
 class BenchTool
   TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool,
@@ -29,23 +28,27 @@ class BenchTool
     }
     step("Extracting Addresses")           { ExtractSymbolsTool.run(pml,options).dump_to_file(options.input) }
     step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options).dump_to_file(options.input) } # XXX: during dev only
-    options.flow_fact_types = :supported
-    options.flow_fact_srcs = ["trace"]
-    options.timing_name = "platin-trace-all"
-    step("Running WCA (machine code - trace facts)")     { WcaTool.run(pml, options) }
-    options.flow_fact_types = FlowFact::MINIMAL_FLOWFACT_TYPES
-    options.timing_name = "platin-trace-minimal"
-    step("Running WCA (machine code - minimal trace facts)") { WcaTool.run(pml,options) }
 
-    options.flow_fact_types = :supported
-    options.flow_fact_srcs = "all"
-    options.timing_name = "aiT-minimal"
-    step("AIS Export")  {
-      AisExportTool.run(pml,options)
-      ApxExportTool.run(pml,options)
-    }
-    step("Run aiT")                        { AitAnalyzeTool.run(pml, options) }
-    step("Import aiT Results")             { AitImportTool.run(pml,options) }
+    ["all","minimal","local"].each do |selection|
+      opts = options.dup
+      opts.flow_fact_srcs = ["trace"]
+      opts.flow_fact_selection = selection
+
+      step("Running WCA (machine code - trace facts - #{selection})")  {
+        opts.timing_name = "wca-trace-#{selection}"
+        WcaTool.run(pml, opts)
+      }
+      step("Export aiT (machine code - trace facts - #{selection})")  {
+        opts.timing_name = "aiT-trace-#{selection}"
+        AisExportTool.run(pml,opts)
+        ApxExportTool.run(pml,opts)
+      }
+      step("Run aiT (machine code - trace facts - #{selection})")  {
+        opts.timing_name = "aiT-trace-#{selection}"
+        AitAnalyzeTool.run(pml, options)
+        AitImportTool.run(pml,options)
+      }
+    end
     step("Results: ") {
       pml.data['timing'].each do |t|
         puts YAML::dump(t)

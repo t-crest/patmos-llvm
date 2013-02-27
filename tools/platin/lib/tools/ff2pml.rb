@@ -5,10 +5,9 @@
 # Converts SWEET .ff files to PML format
 #
 # TODO: support a larger variety of flow facts (call strings, loop contexts)
-
-require 'utils'
-require 'sweet'
+require 'platin'
 include PML
+require 'ext/sweet'
 
 # Exception for unsupported flow facts
 class UnsupportedFlowFactException < Exception
@@ -60,17 +59,19 @@ end
 
 class SweetImportTool
   def SweetImportTool.add_options(opts,exclude=[])
+    opts.generates_flowfacts
     opts.sweet_flowfact_file unless exclude.include?(:sweet_flowfact_file)
   end
 
-  def SweetImportTool.run(pml, options)    
+  def SweetImportTool.run(pml, options)
     parser = SWEET::FlowFactParser.new.parser
-    converter = SweetFlowFactImport.new(pml.bitcode_functions, 'level' => 'bitcode', 'origin' => 'SWEET')
+    converter = SweetFlowFactImport.new(pml.bitcode_functions, 'level' => 'bitcode',
+                                        'origin' => options.flow_fact_output || 'sweet')
     ffs = []
     added, skipped, reasons, set = 0,0, Hash.new(0), {}
     File.readlines(options.sweet_flowfact_file).map do |s|
       begin
-        ff = parser.parse!(s)        
+        ff = parser.parse!(s)
         ff_pml = converter.to_pml(ff)
         if set[ff_pml]
           reasons["duplicate"] += 1
@@ -85,8 +86,8 @@ class SweetImportTool
         skipped += 1
       end
     end
+    statistics("added flow facts" => added, "skipped flow facts" => skipped) if options.stats
     if options.verbose
-      $dbgs.puts "Parsed #{skipped+added} flow facts, added #{added}"
       $dbgs.puts "Reasons for skipping flow facts: "
       reasons.each do |k,count|
         $dbgs.puts "  #{k} (#{count})"
@@ -100,7 +101,7 @@ end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
-Translate SWEET flow facts (format FF) to pml flow facts.
+Translate SWEET flow facts (format FF) to PML flow facts
 EOF
   options, args = PML::optparse([:sweet_flowfact_file], "file.ff", SYNOPSIS) do |opts|
     opts.needs_pml

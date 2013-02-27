@@ -4,36 +4,42 @@
 
 # Set library path for installation
 
-KNOWN_COMMANDS="analyze-trace ait2pml bench extract-symbols pml2ais ff2pml merge visualize"
+KNOWN_COMMANDS="analyze-trace ait2pml bench-trace bench-sweet wca transform extract-symbols pml2ais ff2pml visualize sweet"
 usage() {
     cat <<EOF >&2
 usage: platin <command> [<args>]
 
 The following platin commands are available and supported:
-  ff2pml          ... Translate SWEET flowfacts to PML
   extract-symbols ... Extract addresses of symbols from ELF file
   analyze-trace   ... Generate flow facts from simulator traces
+  transform       ... Transform flowfacts from bitcode to machinecode (and vice versa) [alpha]
+  wca             ... Calculate WCET cost using lp_solve [beta]
+  visualize       ... Visualize IR and MC CFGs as well as relation graphs [alpha]
+  bench-trace     ... Simulate and analyze benchmark using trace flow-fact hypotheses
+
   ait2pml         ... Add aiT analysis results to the PML database
   pml2ais         ... Translate program information to aiT's AIS format
-  bench           ... Simulate and analyze benchmark, print execution time
-  visualize       ... Visualize IR and MC CFGs as well as relation graphs [alpha]
-  merge           ... Merge several PML file in one [alpha]
-Other commands: $(echo $(list_unknown_commands))
+
+  sweet           ... Run SWEET analysis tool
+  ff2pml          ... Translate SWEET flowfacts to PML
+  bench-sweet     ... Simulate and Analyze benchmark using SWEET and trace flow-fact hypotheses
+
+  Undocumented commands: $(echo $(list_unknown_commands))
 
 See 'platin help <command>' for more information on a specific command.
 EOF
 }
+#  merge           ... Merge several PML file in one [not in a good shape]
 
 show_help() {
     COMMAND=$1
     shift
-    ${RUBY} -I ${LIBDIR} ${LIBDIR}/platin-"${COMMAND}".rb --help
+    ${RUBY} -I ${LIBDIR} ${LIBDIR}/tools/"${COMMAND}".rb --help
 }
 
 list_unknown_commands() {
-    for driver in $(ls "${LIBDIR}"/platin-*.rb) ; do
+    for driver in $(ls "${LIBDIR}"/tools/*.rb) ; do
 	name=$(basename "${driver}" .rb)
-	name=${name/platin-/}
 	unset known
 	for cmd in ${KNOWN_COMMANDS} ; do
 	    if [ $name == $cmd ] ; then known=yes ; break ; fi
@@ -97,4 +103,4 @@ elif [ "${COMMAND}" == "help" ] ; then
     exit 0
 fi
 # Run command
-${RUBY} -I ${LIBDIR} ${LIBDIR}/platin-"${COMMAND}".rb "${@}"
+${RUBY} -I ${LIBDIR} ${LIBDIR}/tools/"${COMMAND}".rb "${@}"

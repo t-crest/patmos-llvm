@@ -1,28 +1,29 @@
 #
-# Common utilities for the platin ruby implementations
+# PLATIN tool set
+#
+# Common utilities
 #
 require 'ostruct'
 require 'optparse'
 require 'yaml'
 require 'set'
-require 'pml'
 
 $dbgs = $stderr
 
 module PML
 
   def internal_error(msg)
-    raise Exception.new("[#{$0}] INTERNAL ERROR: #{msg}")
+    raise Exception.new(format_msg("INTERNAL ERROR", msg))
   end
 
   def die(msg)
-    $stderr.puts "[#{$0}] FATAL: #{msg}"
-#    puts Thread.current.backtrace
+    $stderr.puts(format_msg("FATAL",msg))
+    $stderr.puts Thread.current.backtrace
     exit 1
   end
 
   def die_usage(msg)
-    $stderr.puts "#{$0}: #{msg}. Try --help."
+    $stderr.puts(format_msg("USAGE","#{msg}. Try --help"))
     exit 1
   end
 
@@ -33,7 +34,7 @@ module PML
   end
 
   def warn(msg)
-    $stderr.puts "[#{$0}] WARNING #{msg}"
+    $stderr.puts(format_msg("WARNING",msg))
   end
 
   def warn_once(msg,detail=nil)
@@ -45,7 +46,16 @@ module PML
   end
 
   def info(msg)
-    $stderr.puts "[#{$0}] INFO #{msg}"
+    $stderr.puts(format_msg("INFO",msg))
+  end
+
+  def statistics(vs)
+    msg = vs.map { |k,v| "#{k}: #{v}" }.join(", ")
+    $stderr.puts(format_msg("STAT",msg))
+  end
+
+  def format_msg(tag,msg,align=30)
+    "[#{$0.to_s.ljust(align)}] #{tag}: #{msg}"
   end
 
   class OptionParser < ::OptionParser
@@ -71,31 +81,25 @@ module PML
     end
     # tool calculates flowfacts
     def generates_flowfacts
-      self.on("--flow-fact-origin NAME", "Name of the flow fact generator") { |n| options.flow_fact_origin = n }
+      self.on("--flow-fact-output NAME", "Name of the flow fact generator") { |n| options.flow_fact_output = n }
     end
     # tool generates WCET results
     def calculates_wcet
-      self.on("--timing-name NAME", "Name of the strategy to generate WCET information") { |n| options.timing_name = n }
+      self.on("--timing-output NAME", "Name of the WCET information generator") { |n| options.timing_output = n }
     end
     # user should specify selection of flow facts
     def flow_fact_selection
-      self.on("--flow-fact-types TYPE,...", "Flow facts to export (=supported,minimal)") { |ty|
-        if ty == "supported"
-          options.flow_fact_types = :supported
-        elsif ty == "minimal"
-          options.flow_fact_types = FlowFact::MINIMAL_FLOWFACT_TYPES
-        else
-          options.flow_fact_types = ty.split(/\s*,\s*/)
-        end
-      }
-      self.on("--flow-fact-srcs SOURCE,..", "Flow fact sources to use (=all)") { |srcs|
+      self.on("--flow-fact-input SOURCE,..", "Flow fact sources to use (=all)") { |srcs|
         options.flow_fact_srcs = srcs.split(/\s*,\s*/)
+      }
+      self.on("--flow-fact-selection PROFILE,...", "Flow facts set to use (=all,minimal,local,rt-support)") { |ty|
+        options.flow_fact_selection = ty
       }
       self.on("--use-relation-graph", "whether to use bitcode flowfacts via relation graph") {
         options.use_relation_graph = true
       }
       add_check { |options|
-        options.flow_fact_types = :supported unless options.flow_fact_types
+        options.flow_fact_types = "all" unless options.flow_fact_types
         options.flow_fact_srcs  = "all" unless options.flow_fact_srcs
       }
     end
@@ -136,6 +140,7 @@ module PML
       opts.separator("Options:")
       yield opts if block_given?
       opts.separator("")
+      opts.on("--stats", "print statistics") { options.stats = true }
       opts.on("--verbose", "verbose output") { options.verbose = true }
       opts.on("--debug", "debug output") { options.debug = true }
       opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }

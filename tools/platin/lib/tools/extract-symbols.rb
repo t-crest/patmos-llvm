@@ -3,28 +3,33 @@
 #
 # Tool to extract addresses from a patmos ELF file
 #
-
-require "utils.rb"
+require 'platin'
 include PML
 
 # Class to extract symbol addresses from an ELF file
 class ExtractSymbols
-  def initialize(pml)
-    @pml,@text_symbols = pml,{}
+  attr_reader :stats_address_count
+  def initialize(pml, options)
+    @pml,@options = pml, options
+    @text_symbols = {}
+    @stats_address_count = 0
   end
-  def analyze(elf,options)
-    r = IO.popen("#{options.objdump} -t '#{elf}'") do |io|
+  def analyze(elf)
+    r = IO.popen("#{@options.objdump} -t '#{elf}'") do |io|
       io.each_line do |line|
-        if record = objdump_extract(line)
-          next unless options.text_sections.include?(record.section)
+        if record = objdump_extract(line.chomp)
+          next unless @options.text_sections.include?(record.section)
+          info "Adding address for label #{record.label}: #{record.address}" if @options.debug
+          @stats_address_count += 1
           @text_symbols[record.label]=record.address
         end
       end
     end
-    die "The objdump command '#{options.objdump}' exited with status #{$?.exitstatus}" unless $?.success?
+    die "The objdump command '#{@options.objdump}' exited with status #{$?.exitstatus}" unless $?.success?
+    statistics("number of extracted addresses" => stats_address_count) if @options.stats
     self
   end
-  def update_pml 
+  def update_pml
     @pml.machine_functions.each do |function|
       addr = @text_symbols[Block.get_label(function['name'],0)] || @text_symbols[function['mapsto']]
       function_descr = "#{function['name']}/#{function['mapsto']}"
@@ -33,7 +38,7 @@ class ExtractSymbols
 
       function.blocks.each do |block|
         if block_addr = @text_symbols[block.label]
-          # Migh be different from current addr, as subfunctions require the emmiter
+          # Migh be different from current addr, as subfunctions require the emitter
           # to insert additional text between blocks
           addr = block_addr
         end
@@ -70,7 +75,7 @@ class ExtractSymbolsTool
     end
   end
   def ExtractSymbolsTool.run(pml, options)
-    ExtractSymbols.new(pml).analyze(options.binary_file, options).update_pml
+    ExtractSymbols.new(pml,options).analyze(options.binary_file).update_pml
   end
 end
 

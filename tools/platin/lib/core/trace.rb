@@ -1,54 +1,14 @@
 #
-# PSK tool set
+# PLATIN tool set
 #
 # trace analysis (similar to SWEET single path mode)
 #
+require 'core/utils'
+require 'core/pml'
 
-require 'utils'
 module PML
 
-#
-# XXX patmos specific
-# option parser extensions
-#
-class OptionParser
-  def pasim
-    self.on("--pasim-command FILE", "path to pasim (=pasim)") { |f| options.pasim = f }
-    self.add_check do |options|
-      options.pasim = "pasim" unless options.pasim
-    end
-  end
-end
-
-#
-# XXX: patmos specific
-# Class to (lazily) read pasim simulator trace
-# yields [program_counter, cycles] pairs
-#
-class SimulatorTrace
-  def initialize(elf,pasim)
-    @elf,@pasim = elf,pasim
-  end
-  def each
-    die("File '#{@elf}' (ELF) not found") unless File.exist?("#{@elf}")
-    begin
-      IO.popen("#{@pasim} -q --debug 0 --debug-fmt trace -b #{@elf} 2>&1 1>/dev/null") do |io|
-        while item=parse(io.gets) ; yield item ; end
-      end
-    ensure
-      status = $?.exitstatus
-      if status == 127
-        die("Running the simulator '#{@pasim}' failed: Program not found (exit status 127)")
-      end
-    end
-  end
-  private
-  def parse(line)
-    return nil unless line
-    pc, cyc = line.split(' ',2)
-    [ Integer("0x#{pc}"), Integer(cyc) ]
-  end
-end
+require 'arch/patmos'
 
 # Class to monitor traces and generate events
 # should implement a 'run' method
@@ -201,7 +161,7 @@ class MachineTraceMonitor < TraceMonitor
           if call_return_instr[abs_instr_index]
             add_watch(@wp_callreturn_instr,instruction['address'],instruction)
           end
-          if ! (instruction['callees']||[]).empty?
+          if ! instruction.callees.empty?
             add_watch(@wp_call_instr,instruction['address'],instruction)
             call_return_instr[abs_instr_index + 1 +@delay_slots]=true
           end
@@ -335,6 +295,68 @@ class FrequencyRecord
       io.puts "  #{site} calls #{recv.to_a.join(", ")}"
     end
   end
+end
+
+# Records progress node trace
+class ProgressTraceRecorder
+  attr_reader :level, :trace, :internal_preds
+  def initialize(pml, entry, is_machine_code, options)
+    @pml, @options = pml, options
+    @trace, @entry, @level = [], entry, is_machine_code ? :dst : :src
+    @internal_preds, @pred_list = [], []
+    @callstack = []
+  end
+  # set current relation graph
+  # if there is no relation graph, skip function
+  def function(callee,callsite,cycles)
+    @rg = @pml.relation_graphs.by_name(callee.name, @level)
+    $dbgs.puts "Call to rg for #{@level}-#{callee}: #{@rg.nodes.first}" if @rg && @options.debug
+    @callstack.push(@node)
+    @node = nil
+  end
+  # follow relation graph, emit progress nodes
+  def block(bb, _)
+    return unless @rg
+    if ! @node
+      first_node = @rg.nodes.first
+      assert("at_entry == at entry RG node") {
+        first_node.type == :entry
+      }
+      assert("at_entry == at first block") {
+        bb == first_node.get_block(level)
+      }
+      @node = first_node
+      $dbgs.puts "Visiting first node: #{@node}" if @options.debug
+      return
+    end
+    # find matching successor progress node
+    succs = @node.successors_matching(bb, @level)
+    if succs.length == 0
+      raise Exception.new("progress trace: no matching successor")
+    elsif succs.length > 1
+      raise Exception.new("progress trace: indeterministic successor choice: #{@node} via #{bb}: #{succs}")
+    else
+      succ = succs.first
+      if succ.type == :progress
+        trace.push(succ)
+        internal_preds.push(@pred_list)
+        @pred_list = []
+      else
+        @pred_list.push(succ)
+      end
+      @node = succ
+      $dbgs.puts "Visiting node: #{@node}" if @options.debug
+    end
+  end
+  # set current relation graph
+  def ret(rsite,csite,cycles)
+    return if csite.nil?
+    @rg = @pml.relation_graphs.by_name(csite.function.name, @level)
+    @node = @callstack.pop
+    $dbgs.puts "Return to rg for #{@level}-#{csite.function}: #{@rg.nodes.first}" if @rg and @options.debug
+  end
+  def eof ; end
+  def method_missing(event, *args); end
 end
 
 end # module pml

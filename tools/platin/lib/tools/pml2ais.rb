@@ -3,8 +3,8 @@
 #
 # AIS exporter
 #
-require 'utils'
-require 'ait'
+require 'platin'
+require 'ext/ait'
 include PML
 
 class AisExportTool
@@ -12,20 +12,10 @@ class AisExportTool
     File.open(options.ais_file, "w") { |outfile|
       ais = AISExporter.new(pml, outfile, options)
       ais.gen_header if options.ais_header
-      exported_flow_fact_types = options.flow_fact_types
-      if options.flow_fact_types == :supported
-        exported_flow_fact_types = AISExporter.supported_types
-      end
-      pml.machine_functions.each do |func|
-        ais.export_jumptables(func)
-      end
-      pml.flowfacts.each do |fact|
-        next unless fact.level == 'machinecode'
-        next unless options.flow_fact_srcs == 'all' ||
-                    options.flow_fact_srcs.include?(fact['origin'])
-        next unless exported_flow_fact_types.include?(fact.classification)
-        ais.export_flowfact(fact)
-      end
+      pml.machine_functions.each { |func| ais.export_jumptables(func) }
+      flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
+      flowfacts.each { |ff| ais.export_flowfact(ff) }
+      statistics("AIS flow facts" => ais.stats_generated_facts, "Unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
     }
   end
 
