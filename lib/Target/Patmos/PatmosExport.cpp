@@ -257,9 +257,7 @@ namespace llvm {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
       AU.addRequired<PatmosCallGraphBuilder>();
-      // TODO this does not work currently, because a ModulePass must not
-      // depend on a FunctionPass (MachineLoopInfo)!
-      PMLModuleExportPass::ModulePass::getAnalysisUsage(AU);
+      PMLModuleExportPass::getAnalysisUsage(AU);
     }
 
     virtual bool runOnModule(Module &M) {
