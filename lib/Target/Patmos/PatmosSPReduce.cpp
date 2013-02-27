@@ -74,9 +74,8 @@ namespace {
     /// insertInitializations - Insert initializations in headers
     void insertInitializations(MachineFunction &MF);
 
-    /// mergeMBBs - Merge the linear sequence of MBBs to a single MBB
-    void mergeMBBs(MachineFunction &MF,
-                   std::vector<MachineBasicBlock*> &order);
+    /// mergeMBBs - Merge the linear sequence of MBBs as possible
+    void mergeMBBs(MachineFunction &MF);
 
     /// getImm32FromBitvector - Returns an Imm32 mask for bits set in bv
     /// NB: for now, bv.size() <= 32
@@ -172,8 +171,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   PReg      = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
   PRTmp     = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
 
-  MF.viewCFGOnly();
-
   // insert predicate definitions
   insertPredDefinitions(MF);
 
@@ -186,11 +183,11 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   insertInitializations(MF);
 
+
+  mergeMBBs(MF);
+
   DEBUG( MF.dump() ); //XXX
   MF.viewCFGOnly();
-  // then merge basic blocks
-  //mergeMBBs(MF, order);
-
 }
 
 
@@ -353,28 +350,44 @@ void PatmosSPReduce::insertInitializations(MachineFunction &MF) {
 
 
 
-void PatmosSPReduce::mergeMBBs(MachineFunction &MF,
-                               std::vector<MachineBasicBlock*> &order) {
+void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
+  DEBUG( dbgs() << "Merge MBBs\n" );
+
+  // first, obtain the sequence of MBBs in DF order
+  std::vector<MachineBasicBlock*> order(df_begin(&MF.front()),
+                                        df_end(  &MF.front()));
+
+
   std::vector<MachineBasicBlock*>::iterator I = order.begin(),
                                             E = order.end();
 
   MachineBasicBlock *BaseMBB = *I;
+  DEBUG_TRACE( dbgs() << "Base MBB#" << BaseMBB->getNumber() << "\n" );
   // iterate through order of MBBs
   while (++I != E) {
     // get MBB of iterator
     MachineBasicBlock *MBB = *I;
-    // we are supposed to be on a linear sequence!
-    assert(BaseMBB->succ_size() == 1);
-    DEBUG_TRACE( dbgs() << "  Merge MBB#" << MBB->getNumber() << "\n" );
-    // transfer the instructions
-    BaseMBB->splice(BaseMBB->end(), MBB, MBB->begin(), MBB->end());
-    // remove the edge between BaseMBB and MBB
-    BaseMBB->removeSuccessor(BaseMBB->succ_begin());
-    // BaseMBB gets the successors of MBB instead
-    assert(BaseMBB->succ_empty());
-    BaseMBB->transferSuccessors(MBB);
-    // remove MBB from MachineFunction
-    MF.erase(MBB);
+
+    if (MBB->pred_size() == 1) {
+      DEBUG_TRACE( dbgs() << "  Merge MBB#" << MBB->getNumber() << "\n" );
+      // transfer the instructions
+      BaseMBB->splice(BaseMBB->end(), MBB, MBB->begin(), MBB->end());
+      // remove the edge between BaseMBB and MBB
+      BaseMBB->removeSuccessor(MBB);
+      // BaseMBB gets the successors of MBB instead
+      BaseMBB->transferSuccessors(MBB);
+      // remove MBB from MachineFunction
+      MF.erase(MBB);
+
+      if (BaseMBB->succ_size() > 1) {
+        // we have encountered a backedge
+        BaseMBB = *(++I);
+        DEBUG_TRACE( dbgs() << "Base MBB#" << BaseMBB->getNumber() << "\n" );
+      }
+    } else {
+      BaseMBB = MBB;
+      DEBUG_TRACE( dbgs() << "Base MBB#" << BaseMBB->getNumber() << "\n" );
+    }
   }
   // invalidate order
   order.clear();
