@@ -165,11 +165,10 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     report_fatal_error("Cannot handle more than 32 Predicates yet!");
   }
 
-  MachineRegisterInfo &RegInfo = MF.getRegInfo();
-
-  GuardsReg = RegInfo.createVirtualRegister(&Patmos::RRegsRegClass);
-  PReg      = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
-  PRTmp     = RegInfo.createVirtualRegister(&Patmos::PRegsRegClass);
+  //MachineRegisterInfo &RegInfo = MF.getRegInfo();
+  GuardsReg = Patmos::R26;
+  PReg      = Patmos::P7;
+  PRTmp     = Patmos::P6;
 
   // insert predicate definitions
   insertPredDefinitions(MF);
@@ -183,11 +182,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   insertInitializations(MF);
 
-
   mergeMBBs(MF);
 
-  DEBUG( MF.dump() ); //XXX
-  MF.viewCFGOnly();
+  MF.RenumberBlocks();
 }
 
 

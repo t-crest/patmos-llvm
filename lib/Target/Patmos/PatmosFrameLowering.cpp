@@ -349,6 +349,11 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     MRI.setPhysRegUnused(Patmos::RFB);
     MRI.setPhysRegUnused(Patmos::RFO);
   }
+
+  // mark used for single path support
+  MRI.setPhysRegUsed(Patmos::R26);
+  MRI.setPhysRegUsed(Patmos::P6);
+  MRI.setPhysRegUsed(Patmos::P7);
 }
 
 bool

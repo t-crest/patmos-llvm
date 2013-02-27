@@ -114,6 +114,11 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   if (TFI->hasFP(MF))
     Reserved.set(Patmos::RFP);
 
+  // Additionally reserved for preliminary Single-Path support
+  Reserved.set(Patmos::R26);
+  Reserved.set(Patmos::P6);
+  Reserved.set(Patmos::P7);
+
   return Reserved;
 }
 
