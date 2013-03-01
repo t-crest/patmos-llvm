@@ -201,6 +201,7 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
     outs() << "Disassembly of section " << name << ':';
 
     // Make a list of all the symbols in this section.
+    bool HasStartLabel = false;
     std::vector<std::pair<uint64_t, StringRef> > Symbols;
     for (symbol_iterator si = Obj->begin_symbols(),
                          se = Obj->end_symbols();
@@ -213,12 +214,15 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
 
         StringRef Name;
         if (error(si->getName(Name))) break;
+        HasStartLabel |= (Address == 0);
         Symbols.push_back(std::make_pair(Address, Name));
       }
     }
 
     // Always dump the whole section, even if it does not start with a label
-    Symbols.push_back(std::make_pair(0, name));
+    if (!HasStartLabel) {
+      Symbols.push_back(std::make_pair(0, name));
+    }
 
     // Sort the symbols by address, just in case they didn't come in that way.
     array_pod_sort(Symbols.begin(), Symbols.end());
@@ -292,6 +296,7 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
     std::vector<RelocationRef>::const_iterator rel_cur = Rels.begin();
     std::vector<RelocationRef>::const_iterator rel_end = Rels.end();
     // Disassemble symbol by symbol.
+    bool FirstSymbol = true;
     for (unsigned si = 0, se = Symbols.size(); si != se; ++si) {
       uint64_t Start = Symbols[si].first;
       uint64_t End;
@@ -302,11 +307,17 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
       // Make sure this symbol takes up space.
       else if (Symbols[si + 1].first != Start)
         End = Symbols[si + 1].first - 1;
-      else
+      else {
+        if (FirstSymbol) outs() << '\n';
+        FirstSymbol = false;
+        outs() << Symbols[si].second << ":\n";
         // This symbol has the same address as the next symbol. Skip it.
         continue;
+      }
 
-      outs() << '\n' << Symbols[si].second << ":\n";
+      if (FirstSymbol) outs() << '\n';
+      FirstSymbol = true;
+      outs() << Symbols[si].second << ":\n";
 
 #ifndef NDEBUG
         raw_ostream &DebugOut = DebugFlag ? dbgs() : nulls();
