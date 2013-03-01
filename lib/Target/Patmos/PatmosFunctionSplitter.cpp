@@ -69,8 +69,10 @@
 #include "llvm/MC/MCNullStreamer.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrDesc.h"
+#include "llvm/MC/MCSectionELF.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/GraphWriter.h"
@@ -367,8 +369,13 @@ namespace llvm {
 
         // PIA is deleted by AsmPrinter
         PatmosInstrAnalyzer *PIA = new PatmosInstrAnalyzer(Ctx);
-        PIA->SwitchSection(
-               PTM.getTargetLowering()->getObjFileLowering().getTextSection() );
+
+        // PTM.getTargetLowering()->getObjFileLowering() might not yet be
+        // initialized, so we create a new section object for this temp context
+        const MCSection* TS = Ctx.getELFSection(".text",
+                                                ELF::SHT_PROGBITS, 0,
+                                                SectionKind::getText());
+        PIA->SwitchSection(TS);
 
         PatmosAsmPrinter PAP(PTM, *PIA);
         PAP.EmitInlineAsm(MI);
