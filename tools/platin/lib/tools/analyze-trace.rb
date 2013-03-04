@@ -40,9 +40,12 @@ class AnalyzeTraceTool
     tm.run
 
     # Collect executed and infeasible blocks
-    executed_blocks = {}
-    infeasible_blocks = Set.new
+    executed_functions = Set.new
+    executed_blocks    = {}
+    infeasible_functions = Set.new
+    infeasible_blocks    = Set.new
     global.results.freqs.each do |block,freq|
+      executed_functions.add(block.function)
       bset = (executed_blocks[block.function] ||= Set.new)
       bset.add(block)
     end
@@ -50,6 +53,15 @@ class AnalyzeTraceTool
       function.blocks.each do |block|
         unless covered.include?(block)
           infeasible_blocks.add(block)
+          block.callsites.map { |i| i.callees }.flatten.each { |fname|
+            next if fname == "__any__"
+            fun = pml.machine_functions.by_label(fname)
+            unless executed_functions.include?(fun)
+              infeasible_functions.add(fun)
+              # Why we need them? -> Infeasible Predicated Calls!
+              infeasible_blocks.add(fun.blocks.first)
+            end
+          }
         end
       end
     end
@@ -106,7 +118,10 @@ class AnalyzeTraceTool
       pml.flowfacts.add(FlowFact.block_frequency(loop.loopref, loop, freq, fact_context, "loop-local"))
     end
 
-    # Warn about loops not executed
+    # Warn about functions / loops not executed
+    infeasible_functions.each do |function|
+      warn "Reachable function #{function} never executed by trace"
+    end
     executed_blocks.each do |function,bset|
       function.loops.each do |block|
         unless bset.include?(block)

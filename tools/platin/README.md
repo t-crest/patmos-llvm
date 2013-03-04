@@ -21,12 +21,13 @@ Demos
 $ mkdir src bin gen
 $ patmos-clang -emit-llvm -S -o src/jumptable.bc examples/jumptable.c
 
-(2a) Trace Analysis Demo (pasim trace analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
+(2) Compile to ELF
+
+$ patmos-clang -o bin/jumptable.elf  -mpatmos-preemit-bitcode=bin/jumptable.elf.bc -mpatmos-serialize=bin/jumptable.elf.pml src/jumptable.bc
+
+(3) Trace Analysis Demo (pasim trace analysis, SWEET analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
 
 $ ./run-benchmark bin/ gen/ src/jumptable.bc bench-trace
-
-(2b) SWEET Analysis Demo (SWEET analysis, platin IPET analysis, relation-graph validation and evaluation)
-
 $ ./run-benchmark bin/ gen/ src/jumptable.bc bench-sweet
 
 Open Questions

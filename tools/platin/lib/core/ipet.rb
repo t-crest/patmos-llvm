@@ -206,6 +206,7 @@ class ILP
     # L: k var + ... <= c with k > 0
     # U: k var + ... <= c with k < 0
     e,l,u = [],[],[]
+    # $stderr.puts("FM/Elimination: starting with a set of #{@constraints.length}")
     @constraints.reject! do |constr|
       coeff = constr.get_coeff(var)
       if ! coeff || coeff == 0
@@ -224,6 +225,7 @@ class ILP
         true
       end
     end
+    # $dbgs.puts("FM/Elimination: set of e=#{e.length}, l=#{l.length}, u=#{u.length}")
     # Trivial: no constraints for var
     if e.empty? && l.empty? && u.empty?
       @eliminated[var] = true
@@ -423,6 +425,17 @@ class IPETModel
     ipet.add_constraint(lhs,"equal",0,"structural_#{block.qname}")
   end
 
+  # frequency of incoming is frequency of outgoing edges is 0
+  def add_infeasible_block(block)
+    add_block_constraint(block)
+    unless block.predecessors.empty?
+      ipet.add_constraint(sum_incoming(block),"equal",0,"structural_#{block.qname}_0in")
+    end
+    unless block.successors.empty?
+      ipet.add_constraint(sum_outgoing(block),"equal",0,"structural_#{block.qname}_0out")
+    end
+  end
+
   def function_frequency(function, factor = 1)
     block_frequency(function.blocks.first, factor)
   end
@@ -522,8 +535,11 @@ class IPETBuilder
     mf_functions.each do |f|
       add_bitcode_constraints(f) if @bc_model
       f.blocks.each do |block|
+        if @mc_model.infeasible.include?(block)
+          @mc_model.add_infeasible_block(block)
+          next
+        end
         @mc_model.add_block_constraint(block)
-        next if @mc_model.infeasible.include?(block)
         block.callsites.each do |cs|
           call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets[cs])
           call_edges.each do |ce|
