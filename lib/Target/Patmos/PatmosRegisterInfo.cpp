@@ -16,6 +16,7 @@
 #include "Patmos.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosRegisterInfo.h"
+#include "PatmosSinglePathInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -114,10 +115,13 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   if (TFI->hasFP(MF))
     Reserved.set(Patmos::RFP);
 
-  // Additionally reserved for preliminary Single-Path support
-  Reserved.set(Patmos::R26);
-  Reserved.set(Patmos::P6);
-  Reserved.set(Patmos::P7);
+  if (PatmosSinglePathInfo::isEnabled()) {
+    // Additionally reserved for single-path support
+    Reserved.set(Patmos::R26); // FIXME
+    // guarantee two available predicate registers
+    Reserved.set(Patmos::P6);
+    Reserved.set(Patmos::P7);
+  }
 
   return Reserved;
 }

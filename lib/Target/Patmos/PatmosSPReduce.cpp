@@ -93,6 +93,9 @@ namespace {
     void extractPReg(MachineBasicBlock *MBB, unsigned pred);
 
     // predicate registers
+    /// AvailPredRegs - Predicate registers unused in the function,
+    /// which are used for allocation here
+    std::vector<unsigned> AvailPredRegs;
     unsigned GuardsReg; // RReg to hold all predicates
     unsigned PReg;      // current PReg
     unsigned PRTmp;     // temporary PReg
@@ -169,10 +172,24 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     report_fatal_error("Cannot handle more than 32 Predicates yet!");
   }
 
-  //MachineRegisterInfo &RegInfo = MF.getRegInfo();
+  // Note: We are past tracking liveness (past BranchFolding) so we
+  // cannot use RegScavenging
+  MachineRegisterInfo &RegInfo = MF.getRegInfo();
+
+  // Get the unused predicate registers
+  for (TargetRegisterClass::iterator I=Patmos::PRegsRegClass.begin(),
+      E=Patmos::PRegsRegClass.end(); I!=E; ++I ) {
+    if (RegInfo.reg_empty(*I) && *I!=Patmos::P0) {
+      AvailPredRegs.push_back(*I);
+      DEBUG( dbgs() << "PReg " << PrintReg(*I,TM.getRegisterInfo())
+                    << " available\n" );
+    }
+  }
   GuardsReg = Patmos::R26;
-  PReg      = Patmos::P7;
-  PRTmp     = Patmos::P6;
+  PReg      = AvailPredRegs.back();
+  PRTmp     = AvailPredRegs.front();
+
+
 
   // insert predicate definitions
   insertPredDefinitions(MF);

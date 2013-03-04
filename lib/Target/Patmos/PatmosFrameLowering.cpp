@@ -15,6 +15,7 @@
 #include "PatmosFrameLowering.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosSinglePathInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/Function.h"
@@ -327,6 +328,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
 
   const TargetInstrInfo *TII = TM.getInstrInfo();
   MachineRegisterInfo& MRI = MF.getRegInfo();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
 
   // Insert instructions at the beginning of the entry block;
   // callee-saved-reg spills are inserted at front afterwards
@@ -364,10 +366,15 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     MRI.setPhysRegUnused(Patmos::RFO);
   }
 
-  // mark used for single path support
-  MRI.setPhysRegUsed(Patmos::R26);
-  MRI.setPhysRegUsed(Patmos::P6);
-  MRI.setPhysRegUsed(Patmos::P7);
+  // mark all predicate registers as used, for single path support
+  // SZ is saved/restored as whole anyway
+  if (PatmosSinglePathInfo::isEnabled()) {
+    // TODO allocate predicate spill slots
+    // const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
+    // MFI->CreateSpillStackObject(RC->getSize(), RC->getAlignment());
+    MRI.setPhysRegUsed(Patmos::SZ);
+    MRI.setPhysRegUsed(Patmos::R26); // FIXME
+  }
 }
 
 bool
