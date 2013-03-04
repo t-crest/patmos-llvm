@@ -92,7 +92,7 @@ module PML
       self.on("--flow-fact-input SOURCE,..", "Flow fact sources to use (=all)") { |srcs|
         options.flow_fact_srcs = srcs.split(/\s*,\s*/)
       }
-      self.on("--flow-fact-selection PROFILE,...", "Flow facts set to use (=all,minimal,local,rt-support)") { |ty|
+      self.on("--flow-fact-selection PROFILE,...", "Flow facts set to use (=all,minimal,local,rt-support-{all,local})") { |ty|
         options.flow_fact_selection = ty
       }
       self.on("--use-relation-graph", "whether to use bitcode flowfacts via relation graph") {
@@ -110,13 +110,15 @@ module PML
     end
     # Trace entry
     def trace_entry
-      options.trace_entry = "main" unless options.trace_entry
       self.on("--trace-entry FUNCTION", "Name of the function to trace") { |f| options.trace_entry = f }
+      add_check { |options| options.trace_entry = "main" unless options.trace_entry }
     end
     # Analysis entry
     def analysis_entry
-      options.analysis_entry = "main" unless options.analysis_entry
-      self.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse")
+      self.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse") { |f|
+        options.analysis_entry = f
+      }
+      add_check { |options| options.analysis_entry = "main" unless options.analysis_entry }
     end
     # Run argument checks
     def check!(arg_range = nil)

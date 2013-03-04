@@ -40,6 +40,13 @@ class FlowGraphVisualizer < Visualizer
       label << " (#{block['mapsto']})" if block['mapsto']
       label << " L#{block.loops.map {|b| b.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
+      if options.show_calls
+        block.instructions.each do |ins|
+          unless ins.callees.empty?
+            label << "\n " << ins.callees.map { |c| "#{c}()" }.join(",")
+          end
+        end
+      end
       #    block['instructions'].each do |ins|
       #      label << "\n#{ins['opcode']} #{ins['size']}"
       #    end
@@ -82,10 +89,11 @@ end
 
 class VisualizeTool
   def VisualizeTool.default_targets(pml)
-    pml.bitcode_functions.reachable_from("main").first.map { |f| 
-      f.name
-    }.reject { |f|
-      f =~ /printf/
+    entry = pml.machine_functions.by_label("main")
+    pml.machine_functions.reachable_from(entry.name).first.reject { |f|
+      f.label =~ /printf/
+    }.map { |f|
+      f.label
     }
   end
   def VisualizeTool.run(pml, options)
@@ -121,6 +129,7 @@ class VisualizeTool
 
   def VisualizeTool.add_options(opts)
     opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| opts.options.functions = f.split(/\s*,\s*/) }
+    opts.on("--show-calls", "Visualize call sites") { opts.options.show_calls = true }
     opts.on("-O","--outdir DIR","Output directory for image files") { |d| opts.options.outdir = d }
   end
 end

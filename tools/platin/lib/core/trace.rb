@@ -56,85 +56,118 @@ class MachineTraceMonitor < TraceMonitor
   # run monitor
   def run
     @executed_instructions = 0
-    callstack, last_call = [], nil
-    current_function, loopstack = nil, nil
+    @callstack = []
+    @loopstack = nil
+    @current_function = nil
 
+    pending_return, pending_call = nil, nil
     @trace.each do |pc,cycles|
 
       @started = true if pc == @start
       next unless @started
 
       @executed_instructions += 1
-      next unless @wp[pc]
+      next unless @wp[pc] || pending_return
+
+      @cycles = cycles
+
       # Handle Basic Block
       if b = @wp_block_start[pc]
+
         # function entry
         if b.address == b.function.address
+
           # call
-          if last_call
-            c, call_time = last_call
-            assert("No call instruction before function entry") { call_time + 1 + @delay_slots == @executed_instructions }
-            callstack.push(c)
-            last_call = nil
+          if pending_call
+            handle_call(*pending_call) if pending_call
+            #puts "Call: #{pending_call.first} -> #{b.function}"
+            pending_call = nil
           else
-            assert("Empty call history at function entry, but not main function") { b.function == @program_entry }
+            assert("Empty call history at function entry, but not main function (#{b.function},#{@program_entry})") {
+              b.function == @program_entry
+            }
           end
-          current_function = b.function
-          loopstack = []
-          publish(:function, b.function, callstack[-1], cycles) 
+
+          # set current function
+          @current_function = b.function
+          @loopstack = []
+          publish(:function, b.function, @callstack[-1], @cycles)
         end
 
         # loop exit
-        exit_loops_downto(b.loopnest, loopstack, cycles)
+        exit_loops_downto(b.loopnest)
 
         # loop header
-        if b.loopheader?
-          if b.loopnest == loopstack.length && loopstack[-1].name != b.name
-            publish(:loopexit, loopstack.pop, cycles)
-          end
-          if b.loopnest == loopstack.length
-            publish(:loopcont, b, cycles)
-          else
-            loopstack.push b
-            publish(:loopenter, b, cycles)
-          end
-        end
+        handle_loopheader(b)
+
         # basic block
-        assert("Current function does not match block: #{current_function} != #{b}") { current_function == b.function }
-        publish(:block, b, cycles)
+        assert("Current function does not match block: #{@current_function} != #{b}") { @current_function == b.function }
+        publish(:block, b, @cycles)
       end
 
       # Handle Call
       if c = @wp_call_instr[pc]
-        last_call = [c, @executed_instructions]
+        pending_call = [c, @executed_instructions]
       end
 
       # Handle Return Block (TODO: in order to handle predicated returns, we need to know where return instructions are)
       if r = @wp_return_instr[pc]
-        exit_loops_downto(0, loopstack, cycles)
-        if callstack.empty?
-          publish(:ret, r, nil, cycles)
-        else
-          publish(:ret, r, callstack[-1], cycles)
-        end
-        break if(r.function == @program_entry)
-        assert("Callstack empty at return (inconsistent callstack)") { ! callstack.empty? }
-        c = callstack.pop
-        loopstack = c.block.loops.reverse
-        current_function = c.function
+        pending_return = [r,@executed_instructions]
       end
-
+      # Execute return
+      if pending_return && pending_return[1] + @delay_slots == @executed_instructions
+        #puts "Return from #{pending_return.first} -> #{@callstack[-1]}"
+        break unless handle_return(*pending_return)
+        pending_return = nil
+      end
     end
 
     publish(:eof)
   end
 
   private
-  def exit_loops_downto(nest, loopstack, cycles)
-    while nest < loopstack.length
-      publish(:loopexit, loopstack.pop, cycles)
+
+  def handle_loopheader(b)
+    if b.loopheader?
+      if b.loopnest == @loopstack.length && @loopstack[-1].name != b.name
+        publish(:loopexit, @loopstack.pop, @cycles)
+      end
+      if b.loopnest == @loopstack.length
+        publish(:loopcont, b, @cycles)
+      else
+        @loopstack.push b
+        publish(:loopenter, b, @cycles)
+      end
     end
   end
+
+  def handle_call(c, call_pc)
+    assert("No call instruction before function entry #{call_pc + 1 + @delay_slots} != #{@executed_instructions}") {
+      call_pc + 1 + @delay_slots == @executed_instructions
+    }
+    @callstack.push(c)
+  end
+
+  def handle_return(r, ret_pc)
+    exit_loops_downto(0)
+    if @callstack.empty?
+      publish(:ret, r, nil, @cycles)
+    else
+      publish(:ret, r, @callstack[-1], @cycles)
+    end
+    return nil if(r.function == @program_entry)
+    assert("Callstack empty at return (inconsistent callstack)") { ! @callstack.empty? }
+    c = @callstack.pop
+    @loopstack = c.block.loops.reverse
+    @current_function = c.function
+  end
+
+  def exit_loops_downto(nest)
+    while nest < @loopstack.length
+      publish(:loopexit, @loopstack.pop, @cycles)
+    end
+  end
+
   def build_watchpoints
     # generate watchpoints for all relevant machine functions
     @pml.machine_functions.each do |fun|
@@ -200,14 +233,51 @@ class GlobalRecorder
     @results = FrequencyRecord.new("GlobalRecorder(#{start_mf})")
   end
   def function(callee,callsite,cycles)
-    results.start(cycles) if callee['name']==@start_name
+    if callee['name']==@start_name
+      @running = true
+      results.start(cycles)
+    end
     results.call(callsite,callee)
   end
   def block(mbb, _)
+    return unless @running
     results.increment(mbb)
   end
   def ret(rsite,csite,cycles)
-    results.stop(cycles) if(rsite.function.name==@start_name)
+    if(rsite.function.name==@start_name)
+      results.stop(cycles)
+      @running = false
+    end
+  end
+  def eof ; end
+  def method_missing(event, *args); end
+end
+
+# Recorder for function-local block frequencies
+class LocalRecorder
+  attr_reader :results
+  def initialize(start_mf)
+    @start_name = start_mf.name
+    @running = false
+    @results = {}
+  end
+  def function(callee,callsite,cycles)
+    @running = true if callee['name']==@start_name
+    return unless @running
+    @function = callee
+    results[@function] = FrequencyRecord.new("LocalRecorder(#{callee})") unless results[@function]
+    results[@function].start(cycles)
+  end
+  def block(mbb, _)
+    return unless @running
+    results[@function].increment(mbb)
+  end
+  def ret(rsite,csite,cycles)
+    return unless @running
+    assert("Bad function context: #{@function}") { @function == rsite.function && @results[@function] }
+    @results[@function].stop(cycles)
+    @running = false if rsite.function.name==@start_name
+    @function = csite.function if @running
   end
   def eof ; end
   def method_missing(event, *args); end
@@ -228,14 +298,17 @@ class LoopRecorder
     @started = false if rsite.function.name==@start_name
   end
   def loopenter(bb, cycles)
+    return unless @started
     results[bb] = FrequencyRecord.new("LoopRecorder(#{bb})") unless results[bb]
     results[bb].start(cycles)
     results[bb].increment(bb)
   end
   def loopcont(bb, _)
+    return unless @started
     results[bb].increment(bb)
   end
   def loopexit(bb, cycles)
+    return unless @started
     results[bb].stop(cycles)
   end
   def eof ; end
@@ -284,9 +357,10 @@ class FrequencyRecord
     end
     @current_record = nil
   end
-  def dump(io=$>)
+  def dump(io=$>, header=nil)
     (io.puts "No records";return) unless @freqs
     io.puts "---"
+    io.puts header if header
     io.puts "cycles: #{cycles}"
     @freqs.keys.sort.each do |bref|
       io.puts "  #{bref.to_s.ljust(15)} \\in #{@freqs[bref]}"

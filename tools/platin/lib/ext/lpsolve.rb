@@ -151,13 +151,16 @@ class LpSolveILP < ILP
     old_constraints.each { |constr|
       n = constr.name
       next if n =~ /__positive_/
-      v_lhs = add_variable("__slack_#{n}",:slack,0, BIGM)
-      add_cost("__slack_#{n}", -SLACK)
-      constr.set(v_lhs, -1)
-      if constr.op == "equal"
-        v_rhs = add_variable("__slack_#{n}_rhs",:slack,0, BIGM)
-        add_cost("__slack_#{n}_rhs", -SLACK)
-        constr.set(v_rhs, 1)
+      # only relax flow facts, assuming structural constraints are correct
+      if constr.name =~ /^ff/
+        v_lhs = add_variable("__slack_#{n}",:slack,0, BIGM)
+        add_cost("__slack_#{n}", -SLACK)
+        constr.set(v_lhs, -1)
+        if constr.op == "equal"
+          v_rhs = add_variable("__slack_#{n}_rhs",:slack,0, BIGM)
+          add_cost("__slack_#{n}_rhs", -SLACK)
+          constr.set(v_rhs, 1)
+        end
       end
       add_indexed_constraint(constr.lhs,constr.op,constr.rhs,"__slack_#{n}")
     }
@@ -171,6 +174,7 @@ class LpSolveILP < ILP
         $stderr.puts "SLACK: #{v.to_s.ljust(40)} #{k.to_s.rjust(8)}"
       end
     end
+    $stderr.puts "Finished diagnosis with objective #{cycles}"
     @do_diagnose = true
   end
 end

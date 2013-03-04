@@ -28,12 +28,14 @@ class AnalyzeTraceTool
   def AnalyzeTraceTool.run(pml,options)
     needs_options(options, :analysis_entry, :binary_file, :pasim)
     trace = pml.arch.simulator_trace(options)
-    tm = MachineTraceMonitor.new(pml, trace)
+    tm = MachineTraceMonitor.new(pml, trace, options.trace_entry)
     tm.subscribe(VerboseRecorder.new($dbgs)) if options.debug
     entry  = pml.machine_functions.by_label(options.analysis_entry)
     global = GlobalRecorder.new(entry)
+    local  = LocalRecorder.new(entry)
     loops  = LoopRecorder.new(entry)
     tm.subscribe(global)
+    tm.subscribe(local)
     tm.subscribe(loops)
     tm.run
 
@@ -54,11 +56,18 @@ class AnalyzeTraceTool
 
 
     if options.verbose
-      $dbgs.puts "Global Frequencies"
+      $dbgs.puts "* Global Frequencies"
+      $dbgs.puts
       global.results.dump($dbgs)
-      puts "Loop Bounds"
+      $dbgs.puts
+      $dbgs.puts "* Local Frequencies"
+      local.results.each { |scope,r|
+        r.dump($dbgs, "Function: #{scope}")
+      }
+      $dbgs.puts
+      $dbgs.puts "* Loop Bounds"
       loops.results.values.each { |r| r.dump($dbgs) }
-      $dbgs.puts "Executed Functions: #{executed_blocks.keys.join(", ")}"
+      $dbgs.puts "* Executed Functions: #{executed_blocks.keys.join(", ")}"
     end
 
     fact_context = { 'level' => 'machinecode', 'origin' => options.flow_fact_output || 'trace'}
@@ -80,6 +89,14 @@ class AnalyzeTraceTool
       pml.flowfacts.add(FlowFact.block_frequency(globalscope, block, 0..0, fact_context, "infeasible-global"))
     end
 
+    # Export local block frequencies
+    local.results.each do |function,results|
+      scope = function.ref
+      results.freqs.each do |block,freq|
+        pml.flowfacts.add(FlowFact.block_frequency(scope, block, freq, fact_context, "block-local"))
+      end
+    end
+
     # Export Loops
     loops.results.values.each do |loopbound|
       loop,freq = loopbound.freqs.to_a[0]
@@ -88,6 +105,8 @@ class AnalyzeTraceTool
       end
       pml.flowfacts.add(FlowFact.block_frequency(loop.loopref, loop, freq, fact_context, "loop-local"))
     end
+
+    # Warn about loops not executed
     executed_blocks.each do |function,bset|
       function.loops.each do |block|
         unless bset.include?(block)

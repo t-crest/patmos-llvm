@@ -6,7 +6,27 @@ and transforming PML files.
 
 Requirements
 ------------
-$ aptitude install ruby1.9.1-full
+* ruby 1.9 or newer
+* gems (see ext/gem_install.sh): rsec, ruby-graphviz, lpsolve (unofficial)
+
+[Ubuntu]
+$ sudo aptitude install ruby1.9.1-full
+$ ./ext/install_gems.sh
+
+Demos
+-----
+
+(1) Compile source code to bitcode file (not yet linked with libc)
+
+$ patmos-clang -emit-llvm -S -o src/jumptable.bc src/jumptable.c
+
+(2a) Trace Analysis Demo (pasim trace analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
+
+$ ./run-benchmark trace bin/ gen/ src/jumptable.bc
+
+(2b) SWEET Analysis Demo (SWEET analysis, platin IPET analysis, relation-graph validation and evaluation)
+
+$ ./run-benchmark sweet bin/ gen/ src/jumptable.bc
 
 Open Questions
 --------------
@@ -17,24 +37,6 @@ Open Questions
   Is this correct ??
     "exit test at end" => loop header bound
     "exit test at beginning" => loop backedge bound = loop header bound - 1
-
-TODO
-----
-
-Demos
------
-
-(1) Compile source code to bitcode file (not yet linked with libc)
-
-$ patmos-clang -emit-llvm -S -o src/jumptable.bc src/jumptable.c
-
-(2a) Trace Analysis Demo (pasim trace analysis, aiT)
-
-$ ./run-benchmark-trace bin/ gen/ src/jumptable.bc
-
-(2b) SWEET Analysis Demo (SWEET analysis, relation graph validation and evaluation)
-
-$ ./run-benchmark-sweet bin/ gen/ src/jumptable.bc
 
 Known Problems
 --------------
@@ -60,4 +62,3 @@ Block Mapping Modifications
 ---------------------------
 * BranchFolder: when merging the tails of two basic blocks, delete the associated bitcode BB
 * BranchFolder: when merging a basic block and its successor, use one of the labels if it is defined
-* If-Converter: ...

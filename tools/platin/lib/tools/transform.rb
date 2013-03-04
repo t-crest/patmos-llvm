@@ -94,8 +94,8 @@ class RelationGraphTransformTool
     opts.on("--transform-action ACTION", "action to perform (=down,up,copy)") { |action| opts.options.transform_action = action }
     RelationGraphValidationTool.add_options(opts, false)
     opts.add_check { |options|
-      die_usage("Missing option --transform-action") unless options.transform_action
-      die_usage("Bad action #{options.transform_action} (not in {#{TRANSFORM_ACTIONS.join(",")}})") unless TRANSFORM_ACTIONS.include?(options.transform_action)
+      # die_usage("Missing option --transform-action") unless options.transform_action
+      # die_usage("Bad action #{options.transform_action} (not in {#{TRANSFORM_ACTIONS.join(",")}})") unless TRANSFORM_ACTIONS.include?(options.transform_action)
       if options.validate
         RelationGraphValidationTool.check_options(options)
       end
@@ -128,7 +128,7 @@ class RelationGraphTransformTool
         ff.add_attribute('level', (dir == :src) ? "bitcode" : "machinecode")
         pml.flowfacts.add(ff)
       }
-      info("Added #{new_ffs.length} transformed flowfacts to #{options.flow_fact_output}")
+      statistics("transformed flowfacts" =>new_ffs.length) if options.stats
     else
       die("Bad transformation action --transform-action=#{options.transform_action}")
     end

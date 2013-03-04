@@ -3,40 +3,53 @@
 require 'platin'
 include PML
 
-require 'platin/tools/analyze-trace'
-require 'platin/tools/extract-symbols'
-require 'platin/tools/pml2ais'
-require 'platin/tools/ait2pml'
-require 'platin/tools/ff2pml'
-require 'platin/tools/transform'
-require 'platin/tools/wca'
-require 'platin/tools/sweet'
+require 'tools/analyze-trace'
+require 'tools/extract-symbols'
+require 'tools/pml2ais'
+require 'tools/ait2pml'
+require 'tools/ff2pml'
+require 'tools/transform'
+require 'tools/wca'
+require 'tools/sweet'
 
 class BenchToolSweet
-  TOOLS = [SweetAnalyzeTool, SweetTraceTool, SweetImportTool,
-           ExtractSymbolsTool,AnalyzeTraceTool, RelationGraphValidationTool,
-           RelationGraphTransformTool, WcaTool,
-           AisExportTool,ApxExportTool,AitAnalyzeTool,AitImportTool]
-  def BenchToolSweet.step(descr)
-    $stderr.puts("+ #{descr}")
-    t1 = Time.now
-    yield
-    t2 = Time.now
-    $stderr.puts("- #{descr.ljust(35)} #{((t2-t1)*1000).to_i} ms")
+  TOOLS = [ExtractSymbolsTool,AnalyzeTraceTool,
+           WcaTool,
+           AisExportTool,ApxExportTool,AitAnalyzeTool,AitImportTool,
+           SweetAnalyzeTool, SweetImportTool ]
+  def BenchToolSweet.step(descr, exit_on_error = false)
+    begin
+      $stderr.puts("+ #{descr}")
+      t1 = Time.now
+      yield
+      t2 = Time.now
+      $stderr.puts("- #{descr.ljust(35)} #{((t2-t1)*1000).to_i} ms")
+    rescue Exception => detail
+      if exit_on_error
+        $stderr.puts(detail.backtrace)
+        die(detail.to_s)
+      else
+        warn("Analysis failed: #{detail.to_s}")
+      end
+    end
   end
   def BenchToolSweet.run(pml,options)
-
-    step("Extracting Addresses")           { ExtractSymbolsTool.run(pml,options).dump_to_file(options.input) }
+    step("Sanity Checks", true) {
+      rgs = pml.relation_graphs.select { |rg| rg.data['status'] != 'valid' && rg.src.name != "abort" }
+      warn("Problematic Relation Graphs: #{rgs.map { |rg| "#{rg.qname} / #{rg.data['status']}" }.join(", ")}") unless rgs.empty?
+    }
+    step("Extracting Addresses", true)           { ExtractSymbolsTool.run(pml,options).dump_to_file(options.input)  }
+    step("Analyze MC Traces", true)              { AnalyzeTraceTool.run(pml,options) }
 
     step("Running SWEET analysis analysis and trace generation")  {
       opts = options.dup
+      opts.sweet_ignore_volatiles = true
       opts.sweet_generate_trace = true
       SweetAnalyzeTool.run(pml, opts)
     }
     step("Import SWEET flow facts")        { SweetImportTool.run(pml, options) }
 
-    # XXX: dump_to_file: during dev only
-    step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options).dump_to_file(options.input) }
+    step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options) }
 
     step("Validate Relation Graph")        {
       begin
@@ -46,61 +59,50 @@ class BenchToolSweet
       end
     }
 
-    step("Running WCA (machine code - trace facts)")  {
-      opts = options.dup
-      opts.flow_fact_srcs = ["trace"]
-      opts.flow_fact_selection = "all"
-      opts.timing_name = "wca-trace-all"
-      WcaTool.run(pml, opts)
-    }
+    ["all", "local"].each do |selection|
 
-    step("Running WCA (machine code - minimal trace facts)") {
-      opts = options.dup
-      opts.flow_fact_selection = "minimal"
-      opts.timing_name = "wca-trace-minimal"
-      WcaTool.run(pml,opts)
-    }
+      step("Running WCA (machine code - trace facts - #{selection})")  {
+        opts = options.dup
+        opts.flow_fact_selection = selection
+        opts.timing_output = "wca-trace-#{selection}"
+        opts.flow_fact_srcs = ["trace"]
+        WcaTool.run(pml, opts)
+      }
 
-    step("Copy trace flow facts which are cannnot covered by SWEET facts (compiler-rt)") {
-      opts = options.dup
-      opts.transform_action = "copy"
-      opts.flow_fact_srcs   = ["trace"]
-      opts.flow_fact_selection  = "rt-support"
-      opts.flow_fact_output = "trace.support"
-      RelationGraphTransformTool.run(pml,opts)
-    }
+      step("Export/Analyze aiT (machine code - trace facts - #{selection})")  {
+        opts = options.dup
+        opts.flow_fact_selection = selection
+        opts.timing_output = "aiT-trace-#{selection}"
+        opts.flow_fact_srcs = ["trace"]
+        AisExportTool.run(pml,opts)
+        ApxExportTool.run(pml,opts)
+        AitAnalyzeTool.run(pml, opts)
+        AitImportTool.run(pml,opts)
+      }
 
-    step("Running WCA (relation graph - SWEET facts)")   {
-      opts = options.dup
-      opts.flow_fact_selection = "all"
-      opts.flow_fact_srcs = ["sweet","trace.support"]
-      opts.use_relation_graph = true
-      opts.timing_name = "wca-sweet-all"
-      WcaTool.run(pml, opts)
-    }
+      step("Running WCA (relation graph - SWEET facts)")   {
+        opts = options.dup
+        opts.transform_action = "copy"
+        opts.flow_fact_srcs   = ["trace"]
+        opts.flow_fact_selection  = "rt-support-#{selection}"
+        opts.flow_fact_output = "trace.support.#{selection}"
+        RelationGraphTransformTool.run(pml,opts)
 
-    # not yet supported
-    #options.flow_fact_selection = "minimal"
-    #options.timing_name = "wca-sweet-minimal"
-    #step("Running WCA (relation graph - minimal SWEET facts)")   { WcaTool.run(pml, options) }
-
-    step("AIS Export")  {
-      opts = options.dup
-      opts.flow_fact_selection = "all"
-      opts.flow_fact_srcs = "all"
-      opts.timing_name = "aiT-minimal"
-      AisExportTool.run(pml,opts)
-      ApxExportTool.run(pml,opts)
-    }
-
-    step("Run aiT")                        { AitAnalyzeTool.run(pml, options) }
-    step("Import aiT Results")             { AitImportTool.run(pml,options) }
+        opts.flow_fact_srcs = ["sweet","trace.support.#{selection}"]
+        opts.flow_fact_selection = selection
+        opts.use_relation_graph = true
+        opts.timing_output = "wca-sweet-#{selection}"
+        WcaTool.run(pml, opts)
+      }
+    end
 
     step("Results: ") {
-      pml.data['timing'].each do |t|
-        puts YAML::dump(t)
-      end
-    }
+      pml.timing.sort_by { |te|
+        [ te.scope.qname, te.cycles, te.origin ]
+      }.each { |te|
+        info "#{te.scope} = #{te.cycles} (#{te.origin})"
+      }
+    } if options.stats || options.verbose
     pml
   end
   def BenchToolSweet.add_options(opts)

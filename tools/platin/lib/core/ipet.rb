@@ -1,7 +1,7 @@
 #
 # PSK tool set
 #
-# ILP/IPET module
+# ILP/IPET/FM module
 #
 require 'core/utils'
 require 'core/pml'
@@ -18,31 +18,21 @@ end
 # Terms: Index => Integer != 0
 # Rhs: Integer
 # Invariant: gcd(lhs.map(:second) + [rhs]) == 1
-# Hash: ...
 class IndexedConstraint
   attr_reader :name, :lhs, :op, :rhs, :key, :hash
   def initialize(ilp, lhs, op, rhs, name)
     @ilp = ilp
     @name, @lhs, @op, @rhs = name, lhs, op, rhs
     raise Exception.new("add_indexed_constraint: name is nil") unless name
-    @lhs.delete_if { |v,c| c == 0 }
-    if(@lhs.empty?)
-      if @rhs == 0
-        @tauto = true
-      elsif @rhs >= 0 && @op == "less-equal"
-        @tauto = true
-      else
-        raise Exception.new("Inconsistent constraint: #{self}")
-      end
-    end
-    unless @tauto
-      div = @lhs.values.inject(0,:gcd)
-      @lhs.merge!(@lhs) { |v,c| c / div }
-      @rhs /= div
-    end
+    normalize!
   end
   def tautology?
+    normalize! if @tauto.nil?
     @tauto
+  end
+  def inconsistent?
+    normalize! if @inconsistent.nil?
+    @inconsistent
   end
   def get_coeff(v)
     @lhs[v]
@@ -54,11 +44,31 @@ class IndexedConstraint
   end
   def set(v,c)
     @lhs[v] = c
-    @lhs.delete(v) if @lhs[v] == 0
-    @key, @hash = nil, nil
+    invalidate!
   end
   def add(v,c)
     set(v,c+@lhs[v])
+  end
+  def invalidate!
+    @key, @hash, @gcd, @tauto, @inconsistent = nil, nil, nil, nil,nil
+  end
+  def normalize!
+    return unless @tauto.nil?
+    @lhs.delete_if { |v,c| c == 0 }
+    @tauto, @inconsistent = false, false
+    if(@lhs.empty?)
+      if @rhs == 0
+        @tauto = true
+      elsif @rhs >= 0 && @op == "less-equal"
+        @tauto = true
+      else
+        @inconsistent = true
+      end
+    else
+      @gcd = @lhs.values.inject(0,:gcd)
+      @lhs.merge!(@lhs) { |v,c| c / @gcd }
+      @rhs /= @gcd
+    end
   end
   def hash
     @hash if @hash
@@ -66,13 +76,14 @@ class IndexedConstraint
   end
   def key
     @key if @key
+    normalize!
     @key = [@lhs,@op == 'equal',@rhs]
   end
   def ==(other)
-    @key == other.key
+    key == other.key
   end
   def <=>(other)
-    @key <=> other.key
+    key <=> other.key
   end
   def eql?(other); self == other ; end
   def to_s(use_indices=false)
@@ -193,9 +204,9 @@ class ILP
     # N: var does not occur in group
     # E: k var + ...  = c
     # L: k var + ... <= c with k > 0
-    # U: k var + ... <= c with l > 0
+    # U: k var + ... <= c with k < 0
     e,l,u = [],[],[]
-    constraints.reject! do |constr|
+    @constraints.reject! do |constr|
       coeff = constr.get_coeff(var)
       if ! coeff || coeff == 0
         # not affected, keep
@@ -235,6 +246,7 @@ class ILP
       # FIXME: hack to avoid callsite constraints (for flow-fact trafo)
       eq_constr = e.find { |coeff,constr| constr.name !~ /^callsite_/ }
       eq_constr = e.first unless eq_constr
+      e.delete(eq_constr)
       e_coeff, e_constr = eq_constr
       e_terms, e_rhs = e_constr.lhs, e_constr.rhs
 
@@ -243,7 +255,7 @@ class ILP
         e_terms.merge!(e_terms) { |v,c| 0-c }
         e_rhs = -e_rhs
       end
-      (e[1..-1] + l + u).each do |coeff,constr|
+      (e + l + u).each do |coeff,constr|
         terms, rhs = constr.lhs, constr.rhs
         # substitution: e_coeff terms' - coeff e_terms <=> e_coeff rhs - coeff e_rhs
         # (1) multiply by e_coeff
@@ -256,6 +268,7 @@ class ILP
         add_indexed_constraint(terms, constr.op, rhs, constr.name)
       end
     else
+      assert("FM elimination should be disabled for eliminate_weak") { ! weak }
       # FM-Elimination
       # l: ax  + by <= d [ a  > 0 ]
       # u: a'x + cz <= e [ a' < 0 ]
@@ -280,6 +293,7 @@ class ILP
   def add_indexed_constraint(terms_indexed,op,const_rhs,name)
     constr = IndexedConstraint.new(self, terms_indexed, op, const_rhs, name)
     return if constr.tautology?
+    raise Exception.new("Inconsistent constraint #{name}: #{constr}") if constr.inconsistent?
     @constraints.add(constr)
   end
 end
@@ -297,6 +311,7 @@ class Callsite
   def eql?(other); self == other; end
 end
 
+
 class IPETEdge
   attr_reader :qname,:source,:target, :level
   def initialize(edge_source, edge_target, level)
@@ -305,14 +320,16 @@ class IPETEdge
     @qname = "#{@source.qname}#{arrow}#{:exit == @target ? 'exit' : @target.qname}"
   end
   def backedge?
-    return false if :exit == target
+    return false if target == :exit
+    target.backedge_target?(source)
+  end
+  def pml_entity?
     return false unless source.kind_of?(Block)
-    return false unless source.loopnest >= target.loopnest && target.loopheader?
-    source_loop_index = source.loopnest - target.loopnest
-    r = source.loops[source_loop_index] == target
-    r
+    return false unless :exit == target || target.kind_of?(Block)
+    true
   end
   def ref
+    assert("IPETEdge#ref: not a PML entity") { pml_entity? }
     if :exit == target
       BlockRef.new(source)
     else
@@ -339,10 +356,26 @@ class IPETModel
     @calltargets[cs] = fs
   end
 
+  # XXX: suboptimal ad-hoc propagation of infeasibility
+  # might lead to deep recursion
   def set_infeasible(block)
     @infeasible.add(block)
+    block.successors.each { |bsucc|
+      next if @infeasible.include?(bsucc)
+      if bsucc.predecessors.all? { |bpred| @infeasible.include?(bpred) || bsucc.backedge_target?(bpred) }
+        set_infeasible(bsucc)
+      end
+    }
+    block.predecessors.each { |bpred|
+      next if @infeasible.include?(bpred)
+      if bpred.successors.all? { |bsucc| @infeasible.include?(bsucc) }
+        set_infeasible(bpred)
+      end
+    }
   end
 
+  # FIXME: we do not have information on predicated calls ATM.
+  # Therefore, we use <= instead of = for call equations
   def add_callsite(callsite, fs)
     # variable for callsite
     ipet.add_variable(callsite, level)
@@ -351,16 +384,17 @@ class IPETModel
     ipet.add_constraint(lhs, "equal", 0, "callsite_#{callsite.qname}")
 
     # create call edges (callsite -> f) for each called function f
-    # the sum of all calledge frequencies is equal to the callsite frequency
+    # the sum of all calledge frequencies is (less than or) equal to the callsite frequency
+    # Note: less-than in the presence of predicated calls
     calledges = []
-    lhs = [ [callsite, 1] ]
+    lhs = [ [callsite, -1] ]
     fs.each do |f|
       calledge = IPETEdge.new(callsite, f, level)
       ipet.add_variable(calledge, level)
       calledges.push(calledge)
-      lhs.push([calledge, -1])
+      lhs.push([calledge, 1])
     end
-    ipet.add_constraint(lhs,"equal",0,"calledges_#{callsite.qname}")
+    ipet.add_constraint(lhs,"less-equal",0,"calledges_#{callsite.qname}")
 
     # return call edges
     calledges
@@ -457,9 +491,9 @@ class IPETBuilder
   # Build basic IPET structure.
   # Yields blocks, so the caller can compute their cost
   def build(entry)
-    functions = reachable_set(entry) do |function|
+    mf_functions = reachable_set(entry[:dst]) do |mf_function|
       succs = Set.new
-      function.each_callsite { |cs|
+      mf_function.each_callsite { |cs|
         next if @mc_model.infeasible.include?(cs.block)
         if cs.unresolved_call?
             if ! @mc_model.calltargets[cs]
@@ -476,16 +510,16 @@ class IPETBuilder
           }
         end
       }
-      add_bitcode_variables(function) if @bc_model
-      @mc_model.each_edge(function) do |edge|
+      add_bitcode_variables(mf_function) if @bc_model
+      @mc_model.each_edge(mf_function) do |edge|
         @ilp.add_variable(edge, :dst)
         cost = yield edge
         @ilp.add_cost(edge, cost)
       end
       succs # return successors to reachable_set
     end
-    function_callers = {}
-    functions.each do |f|
+    mf_function_callers = {}
+    mf_functions.each do |f|
       add_bitcode_constraints(f) if @bc_model
       f.blocks.each do |block|
         @mc_model.add_block_constraint(block)
@@ -493,13 +527,13 @@ class IPETBuilder
         block.callsites.each do |cs|
           call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets[cs])
           call_edges.each do |ce|
-            (function_callers[ce.target] ||= []).push(ce)
+            (mf_function_callers[ce.target] ||= []).push(ce)
           end
         end
       end
     end
-    @mc_model.add_entry_constraint(entry)
-    function_callers.each do |f,ces|
+    @mc_model.add_entry_constraint(entry[:dst])
+    mf_function_callers.each do |f,ces|
       @mc_model.add_function_constraint(f, ces)
     end
   end
@@ -517,12 +551,12 @@ class IPETBuilder
       # set indirect call targets
       model = (ff.level == "machinecode") ? :dst : :src
       scope,cs,targets = ff.get_calltargets
-      if scope && scope.kind_of?(FunctionRef) && scope.function == entry
+      if scope && scope.kind_of?(FunctionRef) && scope.function == entry[model]
         add_calltargets(cs.instruction, targets, model)
       end
       # set infeasible blocks
-      scope,bref,frequency = ff.get_block_frequency_bound
-      if scope && scope.kind_of?(FunctionRef) && scope.function == entry && frequency == 0
+      scope,bref = ff.get_block_infeasible
+      if scope && scope.kind_of?(FunctionRef) && scope.function == entry[model]
         set_infeasible(bref.block, model)
       end
     end
@@ -565,11 +599,10 @@ class IPETBuilder
     end
     begin
       name = "ff_#{ff['classification']}_#{@ffcount+=1}"
-      ilp.add_constraint(lhs,"less-equal", 0, name)
+      ilp.add_constraint(lhs, ff.op, 0, name)
       name
-    rescue Exception => detail
-      $stderr.puts "Skipping constraint: #{detail}"
-      return false
+    rescue UnknownVariableException => detail
+      $stderr.puts "Skipping constraint: #{detail}" if @options.debug
     end
   end
 
@@ -659,12 +692,12 @@ class FlowFactTransformation
     copied.each { |ff| pml.flowfacts.add(ff) }
     statistics("flowfacts copied to #{options.flow_fact_output}" => copied.length) if options.stats
   end
-
-  def transform(entry, flowfacts, target_level)
+  def transform(machine_entry, flowfacts, target_level)
     ilp  = ILP.new
     builder_opts = options.dup
     builder_opts.use_relation_graph = true
     ipet = IPETBuilder.new(pml,builder_opts,ilp)
+    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
 
     # Refine Control-Flow Model
     ipet.refine(entry, flowfacts)
@@ -681,7 +714,7 @@ class FlowFactTransformation
     info "Running transformer to level #{target_level}" if options.verbose
     constraints_before = ilp.constraints.length
     ilp.variables.each do |var|
-      if ilp.vartype[var] != target_level
+      if ilp.vartype[var] != target_level || var.kind_of?(Instruction) || ! var.pml_entity?
         ilp.eliminate(var)
       end
     end
@@ -695,28 +728,30 @@ class FlowFactTransformation
       next if name =~ /^__lower_bound/ && constr.rhs == 0
       next if name =~ /^structural/
       next if name =~ /^rg/
-      next if name =~ /^call/
+      # next if name =~ /^call/
 
-      info "Adding transformed constraint #{constr}" if options.verbose
-
-      # make flow-fact
       # Simplify: edges->block
-      # (1) get all referenced outgoing blocks
-      out_blocks = {}
-      lhs.each { |edge,coeff| out_blocks[edge.source] = 0 }
-      # (2) for each block, find minimum coeff for all of its outgoing edges
-      #     and replace edges by block
-      out_blocks.keys.each { |b|
-        edges = b.successors.map { |b2| IPETEdge.new(b,b2,target_level) }
-        edges = [ IPETEdge.new(b,:exit,target_level) ] if edges.empty?
-        min_coeff = edges.map { |e| lhs[e] }.min
-        if min_coeff != 0
-          edges.each { |e| lhs[e] -= min_coeff ; lhs.delete(e) if lhs[e] == 0 }
-          lhs[b] += min_coeff
-        end
-      }
+      unless lhs.any? { |var,_| ! var.kind_of?(IPETEdge) }
+        # (1) get all referenced outgoing blocks
+        out_blocks = {}
+        lhs.each { |edge,coeff| out_blocks[edge.source] = 0 }
+        # (2) for each block, find minimum coeff for all of its outgoing edges
+        #     and replace edges by block
+        out_blocks.keys.each { |b|
+          edges = b.successors.map { |b2| IPETEdge.new(b,b2,target_level) }
+          edges = [ IPETEdge.new(b,:exit,target_level) ] if edges.empty?
+          min_coeff = edges.map { |e| lhs[e] }.min
+          if min_coeff != 0
+            edges.each { |e| lhs[e] -= min_coeff ; lhs.delete(e) if lhs[e] == 0 }
+            lhs[b] += min_coeff
+          end
+        }
+      end
+
+      # Create flow-fact
       terms = TermList.new(lhs.map { |v,c| Term.new(v.ref,c) })
-      scope = (target_level == :src) ? pml.bitcode_functions.by_name(entry.label) : entry
+      scope = entry[target_level]
+      info "Adding transformed constraint #{constr} -> in #{scope} #{terms} #{constr.op} #{constr.rhs}" if options.verbose
       ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs)
       new_flowfacts.push(ff)
     end

@@ -97,11 +97,26 @@ module PML
       scope, pp, zero = ff.get_block_frequency_bound
       insname = dquote(pp.block.label)
 
-      # XXX: Hack: only export infeasible calls (minimum neccessary to calculate WCET)
-      if pp.block.calls?
-        gen_fact("instruction #{insname} is never executed ;",
-                 "globally infeasible call (source: #{ff['origin']})")
-      end
+      gen_fact("instruction #{insname} is never executed ;",
+               "globally infeasible call (source: #{ff['origin']})")
+    end
+
+    def export_linear_constraint(ff)
+      terms_lhs, terms_rhs = [],[]
+      terms = ff.lhs.dup
+      scope = ff.scope
+      scope = scope.function.blocks.first.ref if scope.kind_of?(FunctionRef)
+      terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0
+      terms.each { |t|
+        set = (t.factor < 0) ? terms_rhs : terms_lhs
+        set.push("#{t.factor.abs} (#{dquote(t.ppref.block.label)})")
+      }
+      cmp_op = "<="
+      constr = [terms_lhs, terms_rhs].map { |set|
+        set.empty? ? "0" : set.join(" + ")
+      }.join(cmp_op)
+      gen_fact("flow #{constr};",
+               "linear constraint on block frequencies (source: #{ff['origin']} / #{ff['classification']})")
     end
 
     # export linear-constraint flow facts
@@ -112,6 +127,8 @@ module PML
         export_loopbound(ff)
       elsif(ff.classification == 'infeasible-global')
         export_infeasible(ff)
+      elsif(ff.blocks_constraint? || ff.scope.kind_of?(FunctionRef))
+        export_linear_constraint(ff)
       else
         @stats_skipped_flowfacts += 1
       end

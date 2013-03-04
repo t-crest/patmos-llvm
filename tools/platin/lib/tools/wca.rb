@@ -14,7 +14,10 @@ class WcaTool
     # Builder and Analysis Entry
     ilp = LpSolveILP.new(options)
     builder = IPETBuilder.new(pml, options, ilp)
-    entry = pml.machine_functions.by_label(options.analysis_entry)
+
+    machine_entry = pml.machine_functions.by_label(options.analysis_entry)
+    bitcode_entry = pml.bitcode_functions.by_name(options.analysis_entry)
+    entry = { :dst => machine_entry, :src => bitcode_entry }
 
     # flow facts
     flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode","bitcode"])
@@ -54,9 +57,11 @@ class WcaTool
                "ipet constraints" => builder.ilp.constraints.length) if options.stats
 
     # Weak-eliminate auxilliary variables
-    #ilp.variables.each do |var|
-    #  ilp.eliminate_weak(var) if ilp.costs[var] == 0
-    #end
+    unless options.debug
+      ilp.variables.each do |var|
+        # ilp.eliminate_weak(var) if ilp.costs[var] == 0
+      end
+    end
 
     # Solve ILP
     cycles,freqs = builder.ilp.solve_max
@@ -74,7 +79,7 @@ class WcaTool
     end
 
     # report result
-    report = TimingEntry.new(entry.ref, cycles, 'problemsize' => builder.ilp.constraints.length,
+    report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => builder.ilp.constraints.length,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)
 
@@ -94,7 +99,7 @@ class WcaTool
     #     end
     #   end
     #   cycles,freqs = ilp.solve_max
-    #   report = TimingEntry.new(entry.ref, cycles, 'problemsize' => ilp.constraints.length,'level' => 'machinecode',
+    #   report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => ilp.constraints.length,'level' => 'machinecode',
     #                            'origin' => (options.timing_output || 'platin')+"-fm")
     #   pml.timing.add(report)
     # end

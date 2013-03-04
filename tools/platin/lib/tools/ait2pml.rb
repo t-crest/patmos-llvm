@@ -37,7 +37,7 @@ class AitImportTool
     doc = Document.new(File.read(options.ait_result_file))
     cycles = doc.elements["results/result[1]/cycles"].text.to_i
     scope = pml.machine_functions.by_label(options.analysis_entry).ref
-    entry = TimingEntry.new(scope, cycles, 'level' => 'machinecode', 'origin' => options.timing_output || 'aiT')
+    entry = TimingEntry.new(scope, cycles, 'level' => 'machinecode', 'origin' => options.timing_output || 'aiT-unknown')
     pml.timing.add(entry)
     statistics("imported results from aiT result file" => 1) if options.stats
     pml

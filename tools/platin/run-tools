@@ -2,10 +2,11 @@
 #
 # run all tools with all known options (testing)
 usage() {
-    echo "Usage: ${0} [--verbose] bindir outdir module.bc"
+    echo "Usage: ${0} bindir outdir module.bc"
     echo "<bindir> will contain module.elf, module.elf.pml and module.elf.bc"
     echo "<outdir> will contain module.{ais,xml,apx,..}"
-    echo "VERBOSE environment variable triggers verbose output"
+    echo "FF_SELECT selection of flow facts (=all,local,minimal)"
+    echo "VERBOSE if set, all executed commands are shown"
     echo "PATMOS_CFLAGS is passed to patmos-clang"
     exit 1
 }
@@ -49,41 +50,48 @@ function platin-wrapper() {
     fi
 }
 PLATIN=platin-wrapper
-
+if [ -z "${FF_SELECT}" ] ; then FF_SELECT="all" ; fi
 ${PLATIN} extract-symbols -i "${PML}" -o "${PML}" --objdump-command "${PATMOS_OBJDUMP}" --text-sections .text --stats "${ELF}"
 
 ${PLATIN} analyze-trace -i "${PML}" -o "${MO}.pml" --flow-fact-output=trace --analysis-entry main  --trace-entry main --pasim-command pasim --stats "${ELF}"
 
-${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-trace-all --flow-fact-input trace --flow-fact-selection all --analysis-entry main --stats
+${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-trace-${FF_SELECT} --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --stats
 
+# Generate support flow facts not covered at the bitcode level (constraint involving compiler-rt)
+# XXX: Currently we also need to include targets of indirect calls, and infeasible calls, as they are needed to build the CFG
 ${PLATIN} transform -i "${MO}.pml" -o "${MO}.pml" --flow-fact-input trace --flow-fact-output trace.support \
-    --flow-fact-selection=rt-support --transform-action=copy --stats
+    --flow-fact-selection=rt-support-${FF_SELECT} --transform-action=copy --stats
 
+# Relation-graph flow fact transformation
+# XXX: The flow fact transformation globalizes constraints (as FM-elimination currently does not use scope graphs to transform local cosntraints)
+#      Therefore, the selector for trace.bitcode constraints needs to be global (all)
 ${PLATIN} transform -i "${MO}.pml" -o "${MO}.pml" --flow-fact-input trace --flow-fact-output trace.bitcode \
-    --transform-action=up --flow-fact-selection all --analysis-entry main --stats
+    --transform-action=up --flow-fact-selection ${FF_SELECT} --analysis-entry main --stats
+${PLATIN} transform -i "${MO}.pml" -o "${MO}.pml" --flow-fact-input trace.bitcode,trace.support --flow-fact-output trace.trafo \
+    --transform-action=down --flow-fact-selection all --analysis-entry main --stats
+${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-tracebc-${FF_SELECT} --flow-fact-input trace.trafo,trace.support --flow-fact-selection all --analysis-entry main --stats
 
-${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-tracebc-all --use-relation-graph --flow-fact-input trace.bitcode,trace.support --flow-fact-selection all --analysis-entry main --stats
-
-${PLATIN} pml2ais --ais "${MO}.ais" -g --flow-fact-input trace --flow-fact-selection all --analysis-entry main --apx "${MO}.apx" \
+# aiT analysis
+${PLATIN} pml2ais --ais "${MO}.ais" -g --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --apx "${MO}.apx" \
     --binary "${ELF}" --results "${MO}.ait.xml" --report "${MO}.ait.txt" --stats "${MO}.pml"
-
-${PLATIN} ait2pml --input "${MO}.pml" --output "${MO}.pml" --timing-output aiT --analysis-entry main --analyze --apx "${MO}.apx" \
+${PLATIN} ait2pml --input "${MO}.pml" --output "${MO}.pml" --timing-output aiT-trace-${FF_SELECT} --analysis-entry main --analyze --apx "${MO}.apx" \
     --a3-command a3patmos --results "${MO}.ait.xml" --stats
 
+# SWEET analysis
+# XXX: again, we need to use all flow facts after transformation, as the transformation does not operate locally atm
 ${PLATIN} sweet --input "${MO}.pml" --analysis-entry main --alf-llc alf-llc --bitcode "${ELFBC}" --alf "${MO}.alf" \
     --sweet-command sweet --sweet-ignore-volatiles --sweet-generate-trace --sweet-flowfacts "${MO}.ff" --sweet-trace "${MO}.tf" \
     --stats
-${PLATIN} ff2pml --input "${MO}.pml" --output "${MO}.pml" --flow-fact-output "sweet" --stats "${MO}.ff"
-
-${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --use-relation-graph --timing-output sweet-all --flow-fact-input sweet,trace.support --flow-fact-selection all --analysis-entry main --stats
-
-${PLATIN} transform --input "${MO}.pml" --output "${MO}.pml"  --flow-fact-input "sweet","trace.support" --flow-fact-output "sweet.mc" \
-    --transform-action=down --flow-fact-selection all \
+${PLATIN} ff2pml --input "${MO}.pml" --output "${MO}.pml" --flow-fact-output "sweet.bitcode" --stats "${MO}.ff"
+${PLATIN} transform --input "${MO}.pml" --output "${MO}.pml"  --flow-fact-input "sweet.bitcode","trace.support" \
+    --flow-fact-output "sweet" \
+    --transform-action=down --flow-fact-selection ${FF_SELECT} \
     --validate --analysis-entry main --binary "${ELF}" --pasim-command pasim --sweet-trace "${MO}.tf" --stats
+${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml" --timing-output sweet-${FF_SELECT} --flow-fact-input sweet,trace.support --flow-fact-selection all --analysis-entry main --stats
 
-${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --use-relation-graph --timing-output sweet-mc-all --flow-fact-input sweet.mc,trace.support --flow-fact-selection all --analysis-entry main --stats
-
-${PLATIN} visualize --outdir /tmp --stats "${MO}.pml"
+rm -rf "${MO}/graphs.${M}/"
+mkdir -p "${MO}/graphs.${M}/"
+${PLATIN} visualize --outdir "${MO}/graphs.${M}/" --stats "${MO}.pml"
 
 # merge is not really implemented
 # ./platin merge -o "${MO}.pml" --stats "${MO}.pml" "${MO}.up.pml" "${MO}.wca.pml"
