@@ -15,7 +15,29 @@ uint32_t nondet() {
 
 typedef uint32_t (*ftype)(uint32_t);
 
-uint32_t f1(uint32_t in) { return in % 6; }
+uint32_t f1(uint32_t in) { 
+  int l = (in % 20) - 10;
+  int i = 20 - in;
+  int j = -in;
+  int k = 1;
+
+  /* loop here max 10 ; */
+  for (k = 0; k < l; k++) {
+    if ( i % 2 ) i /= 2;
+    else i = i*3 + 1;
+  }
+
+  switch (in+4) {
+  case 0: i = 40; j = 40; break;
+  case 1: i = 20; j = 10; break;
+  case 2: i = 30; j = 40; break;
+  case 3: i = 10; break;
+  case 4: i = 64; j = 15; break;
+  case 5: i = 50; break;
+  case 6: i = 40; break;
+  }
+  return (i+j)%6;
+}
 uint32_t f2(uint32_t in) { return in % 4; }
 uint32_t f3(uint32_t in) { return in % 7; }
 

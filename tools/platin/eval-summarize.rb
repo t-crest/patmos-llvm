@@ -33,12 +33,15 @@ column_labels = [ [ 'name'      , 'Name' ],
                   [ 'wca-trace-all'     , 'wca/tr' ],
                   [ 'wca-uptrace-all'   , 'wca/tr-rg' ],
                   [ 'aiT-trace-all'     , 'aiT/tr' ],
+                  [ 'wca-sweet-all'     , 'wca/sweet' ],
                   [ 'wca-trace-local'   , 'wca/tr/local' ],
                   [ 'wca-uptrace-local' , 'wca/tr-rg/local' ],
                   [ 'aiT-trace-local'   , 'aiT/tr/local' ],
+                  [ 'wca-sweet-local'   , 'wca/sweet/local' ],
                   [ 'wca-trace-minimal' , 'wca/tr/min' ],
                   [ 'wca-uptrace-minimal', 'wca/tr-rg/min' ],
-                  [ 'aiT-trace-minimal' , 'aiT/tr/min' ] ]
+                  [ 'aiT-trace-minimal' , 'aiT/tr/min' ],
+                  [ 'wca-sweet-minimal', 'wca/sweet/min' ] ]
 # legend
 legend = <<EOF
 name ... Name of the benchmark
@@ -75,6 +78,17 @@ class Table
   end
   def ensure_column(name, opts = {})
     add_column(name, opts) unless @colopts[name]
+  end
+  def remove_empty_columns!
+    newcols = []
+    @cols.each do |col|
+      if @rows.any? { |row| row.data[col] }
+        newcols.push(col)
+      else
+        @colopts.delete(col)
+      end
+    end
+    @cols = newcols
   end
   class Row
     attr_reader :data, :rowopts, :cellopts
@@ -238,6 +252,8 @@ EOF
       }
     }
   end
+
+  tab.remove_empty_columns!
 
   # returns [relative_value, relative_value_repr] or nil
   def relative_change(value,base)

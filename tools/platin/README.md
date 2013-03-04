@@ -18,15 +18,16 @@ Demos
 
 (1) Compile source code to bitcode file (not yet linked with libc)
 
-$ patmos-clang -emit-llvm -S -o src/jumptable.bc src/jumptable.c
+$ mkdir src bin gen
+$ patmos-clang -emit-llvm -S -o src/jumptable.bc examples/jumptable.c
 
 (2a) Trace Analysis Demo (pasim trace analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
 
-$ ./run-benchmark trace bin/ gen/ src/jumptable.bc
+$ ./run-benchmark bin/ gen/ src/jumptable.bc bench-trace
 
 (2b) SWEET Analysis Demo (SWEET analysis, platin IPET analysis, relation-graph validation and evaluation)
 
-$ ./run-benchmark sweet bin/ gen/ src/jumptable.bc
+$ ./run-benchmark bin/ gen/ src/jumptable.bc bench-sweet
 
 Open Questions
 --------------

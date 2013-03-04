@@ -49,8 +49,6 @@ class BenchToolSweet
     }
     step("Import SWEET flow facts")        { SweetImportTool.run(pml, options) }
 
-    step("Analyze MC Traces")              { AnalyzeTraceTool.run(pml,options) }
-
     step("Validate Relation Graph")        {
       begin
         RelationGraphValidationTool.run(pml,options)
