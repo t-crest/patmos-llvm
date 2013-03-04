@@ -443,7 +443,7 @@ void SPNode::addMBB(MachineBasicBlock *MBB) {
 
 
 void SPNode::walk(SPNodeWalker &walker) {
-  std::vector<MachineBasicBlock *> S;
+  std::deque<MachineBasicBlock *> S;
   std::vector<MachineBasicBlock *> succs;
   std::map<MachineBasicBlock *, int> deps;
   // for each block in SPNode excluding header,
@@ -480,8 +480,15 @@ void SPNode::walk(SPNodeWalker &walker) {
       // successors for which all preds were visited become available
       if (succ != getHeader()) {
         deps[succ]--;
-        if (deps[succ] == 0)
-          S.push_back(succ);
+        if (deps[succ] == 0) {
+          // heurisic: loops have lower priority
+          // to keep predicate life ranges short (not across loops)
+          if (HeaderMap.count(succ)) {
+            S.push_front(succ);
+          } else {
+            S.push_back(succ);
+          }
+        }
       }
     }
     succs.clear();
