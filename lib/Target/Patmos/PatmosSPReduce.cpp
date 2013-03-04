@@ -255,12 +255,12 @@ void PatmosSPReduce::applyPredicates(MachineFunction &MF) {
     // check for use predicate
     // TODO avoid hardcoding of p0
     if (pred <= 0) {
-      DEBUG( dbgs() << "  skip: no guard for MBB#" << MBB->getNumber()
+      DEBUG_TRACE( dbgs() << "  skip: no guard for MBB#" << MBB->getNumber()
                     << "\n" );
       continue;
     }
 
-    DEBUG( dbgs() << "  applying pred #" << pred << " to MBB#"
+    DEBUG_TRACE( dbgs() << "  applying pred #" << pred << " to MBB#"
                   << MBB->getNumber() << "\n" );
 
     // apply predicate to all instructions in block
@@ -271,7 +271,7 @@ void PatmosSPReduce::applyPredicates(MachineFunction &MF) {
 
       // check for terminators - return? //TODO
       if (MI->isReturn()) {
-          DEBUG( dbgs() << "    skip return: " << *MI );
+          DEBUG_TRACE( dbgs() << "    skip return: " << *MI );
           continue;
       }
       // TODO properly handle calls
@@ -289,7 +289,7 @@ void PatmosSPReduce::applyPredicates(MachineFunction &MF) {
           PO2.setImm(0);
         } else {
           //TODO handle already predicated instructions better?
-          DEBUG( dbgs() << "    in MBB#" << MBB->getNumber()
+          DEBUG_TRACE( dbgs() << "    in MBB#" << MBB->getNumber()
                         << ": instruction already predicated: " << *MI );
           // read out the predicate
           int i = MI->findFirstPredOperandIdx();
@@ -340,7 +340,6 @@ void PatmosSPReduce::insertInitializations(MachineFunction &MF) {
       AddDefaultPred(BuildMI(*Header, MI, MI->getDebugLoc(),
             TII->get( (isUInt<12>(imm))? Patmos::LIi : Patmos::LIl),
             GuardsReg)).addImm(imm);
-      prior(MI)->dump();
     } else {
       // insert initialization at top of header
       MachineBasicBlock::iterator MI = Header->begin();
@@ -448,7 +447,7 @@ void PatmosSPReduce::extractPReg(MachineBasicBlock *MBB, unsigned pred) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
-  dbgs() << "| MBB#" << MBB->getNumber() << "\n";
+  DEBUG_TRACE( dbgs() << "| MBB#" << MBB->getNumber() << "\n" );
 
   // remove all successors
   for ( MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
@@ -488,8 +487,8 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
   PatmosSinglePathInfo &PSPI = Pass.getAnalysis<PatmosSinglePathInfo>();
 
   MachineBasicBlock *Header = N->getHeader();
-  dbgs() << "NodeRange [MBB#" <<  N->getHeader()->getNumber()
-         <<  ", MBB#" <<  LastMBB->getNumber() << "]\n";
+  DEBUG_TRACE( dbgs() << "NodeRange [MBB#" <<  N->getHeader()->getNumber()
+                <<  ", MBB#" <<  LastMBB->getNumber() << "]\n" );
 
   if (N->isTopLevel()) return;
 

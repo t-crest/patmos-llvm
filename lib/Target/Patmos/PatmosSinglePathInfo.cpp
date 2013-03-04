@@ -205,7 +205,7 @@ void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
 void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
   Root = createSPNodeTree(MF);
-  Root->dump();
+  DEBUG( Root->dump() );
 
 
   // CD: MBB -> set of edges
