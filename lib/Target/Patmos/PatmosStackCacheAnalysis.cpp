@@ -23,6 +23,7 @@
 #include "llvm/Support/Debug.h"
 
 #include <map>
+#include <set>
 
 using namespace llvm;
 
@@ -30,15 +31,23 @@ namespace llvm {
   STATISTIC(RemovedSENS, "Useless SENS instructions removed.");
   STATISTIC(RemainingSENS, "SENS instructions remaining.");
 
-  /// Constant representing unlimited stack use (e.g., recursion).
-  static const unsigned int UNLIMITED =
-                                       std::numeric_limits<unsigned int>::max();
-
   /// Pass to analyze the usage of Patmos' stack cache.
   class PatmosStackCacheAnalysis : public ModulePass {
   private:
+    /// Work list of basic blocks.
+    typedef std::set<MachineBasicBlock*> MBBs;
+
+    /// Map basic blocks to local stack access usage information.
+    typedef std::map<MachineBasicBlock*, unsigned int> MBBUInt;
+
     /// Map call graph nodes to stack usage information.
     typedef std::map<MCGNode*, unsigned int> MCGNodeUInt;
+
+    /// List of ensures to be removed/not removed.
+    typedef std::map<MachineInstr*, bool> ENSUREs;
+
+    /// List of ensures and their respective sizes.
+    typedef std::map<MachineInstr*, unsigned int> SIZEs;
 
     /// Track for each call graph node the max. stack usage.
     MCGNodeUInt MaxStackUse;
@@ -76,7 +85,7 @@ namespace llvm {
       if (Node->isDead())
         return 0;
       else if (nodeUse == MaxStackUse.end())
-        return UNLIMITED;
+        return STC.getStackCacheSize();
       else
         return nodeUse->second;
     }
@@ -102,8 +111,8 @@ namespace llvm {
       }
     }
 
-    /// computeMaxUsage - Visit all children and find the maximal amount of 
-    /// space allocated by any of them (and their children).
+    /// computeMaxUsage - Visit all children in the call graph and find the 
+    /// maximal amount of  space allocated by any of them (and their children).
     void computeMaxUsage(MCGNode *Node, MCGNodeUInt &succCount, MCGNodes &WL)
     {
       // get the stack usage of the call graph node and all its children
@@ -124,8 +133,8 @@ namespace llvm {
       }
 
       // compute the call graph node's stack use
-      MaxStackUse[Node] = (maxChildUse == UNLIMITED || nodeUse == UNLIMITED)
-                            ? UNLIMITED : maxChildUse + nodeUse;
+      MaxStackUse[Node] = std::min(STC.getStackCacheSize(),
+                                   maxChildUse + nodeUse);
 
       // update the work list
       const MCGSites &callingSites(Node->getCallingSites());
@@ -138,89 +147,14 @@ namespace llvm {
       }
     }
 
-    /// removeEnsures - Does what it says. SENS instructions can be removed if
-    /// the preceding call plus the current frame on the stack cache fit into
-    /// the stack cache.
-    // TODO: take care of predication, i.e., predicated SENS/CALL instructions
-    // might be mangled and they might no match one to one.
-    void removeEnsures(MCGNode *Node, MachineBasicBlock *MBB)
+    /// computeMaxUsage - Visit all children in the call graph and find the
+    /// maximal amount of  space allocated by any of them (and their children).
+    void computeMaxUsage(const MCGNodes &Nodes)
     {
-      // get the stack usage of the current call graph node
-      unsigned int nodeUse = getStackUse(Node);
-
-      // track maximum stack usage of children in the call graph
-      unsigned int childUse = UNLIMITED;
-      MCGSite *lastSite = NULL;
-      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
-          ie(MBB->instr_end()); i != ie;) {
-        if (i->isCall()) {
-          // find call site
-          lastSite = Node->findSite(i);
-          assert(lastSite);
-
-          childUse = getMaxStackUsage(lastSite->getCallee());
-          i++;
-        }
-        else if (i->getOpcode() == Patmos::SENS) {
-          // does the current stack frame and all those of the children in the
-          // call graph fit into the stack cache?
-          if (nodeUse != UNLIMITED && childUse != UNLIMITED &&
-              nodeUse + childUse <= STC.getStackCacheSize()) {
-            // yup, all fits! remove the SENS.
-	    // TODO we have to be careful here! This could be inside a delay
-	    // slot or part of a bundle! Check and update accordingly.
-            MBB->erase(i++);
-
-            DEBUG(
-              assert(lastSite);
-              dbgs() << "Remove SENS: ";
-              lastSite->dump();
-              dbgs() << "\n";
-            );
-
-            RemovedSENS++;
-          }
-          else {
-            i++;
-            RemainingSENS++;
-          }
-        }
-        else {
-          i++;
-        }
-      }
-    }
-
-    /// removeEnsures - Does what it says. SENS instructions can be removed if
-    /// the preceding call plus the current frame on the stack cache fit into
-    /// the stack cache.
-    void removeEnsures(const MCGNodes &Nodes)
-    {
-      // visit all functions
-      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
-          i++) {
-        if (!(*i)->isUnknown()) {
-          MachineFunction *MF = (*i)->getMF();
-
-          // visit all basic blocks
-          for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je;
-              j++) {
-            removeEnsures(*i, j);
-          }
-        }
-      }
-    }
-
-    /// runOnModule - determine the state of the stack cache for each call site.
-    virtual bool runOnModule(Module &M)
-    {
-      PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
-      const MCGNodes &nodes(PCGB.getNodes());
-
       // initialize the work list
       MCGNodeUInt succCount;
       MCGNodes WL;
-      for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
+      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
           i++) {
         size_t succs = (*i)->getSites().size();
 
@@ -241,18 +175,284 @@ namespace llvm {
       }
 
       DEBUG(
-        for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
+        for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
             i++) {
-
           (*i)->dump();
-
-          unsigned int nodeUsage = getMaxStackUsage(*i);
-          if (nodeUsage == UNLIMITED)
-            dbgs() << ": INF\n";
-          else
-            dbgs() << ": " << nodeUsage << "\n";
+          dbgs() << ": " << getMaxStackUsage(*i) << "\n";
         }
       );
+    }
+
+    /// getStackUsage - Bound the address accessed by the instruction wrt. the 
+    /// stack cache.
+    unsigned int getStackUsage(MachineInstr *MI)
+    {
+      unsigned int scale = 1;
+      switch(MI->getOpcode())
+      {
+        case Patmos::SWS:
+          scale = 2;
+        case Patmos::SHS:
+          scale <<= 1;
+        case Patmos::SBS:
+        {
+          unsigned B = MI->getOperand(2).getReg();
+          if (MI->getOperand(3).isImm() && B == Patmos::R0) {
+            return scale * (MI->getOperand(3).getImm() + 1);
+          }
+          else return STC.getStackCacheSize();
+        }
+        case Patmos::LWS:
+          scale = 2;
+        case Patmos::LHS:
+        case Patmos::LHUS:
+          scale <<= 1;
+        case Patmos::LBS:
+        case Patmos::LBUS:
+        {
+          unsigned B = MI->getOperand(3).getReg();
+          if (MI->getOperand(4).isImm() && B == Patmos::R0) {
+            return scale * (MI->getOperand(4).getImm() + 1);
+          }
+          else return STC.getStackCacheSize();
+        }
+        default:
+          return 0;
+      }
+    }
+
+    /// propagateStackUse - Propagate information on the use of the stack cache
+    /// e.g., by loads and stores, upwards trough the CFG to ensure 
+    /// instructions. This information can be used to downsize or remove 
+    /// ensures.
+    void propagateStackUse(MBBs &WL, MBBUInt &INs, SIZEs &ENSs,
+                           MachineBasicBlock *MBB)
+    {
+      // get max. stack usage from CFG successors.
+      unsigned int stackUsage = INs[MBB];
+
+      // propagate within the basic block
+      for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
+          ie(MBB->instr_rend()); i != ie; i++) {
+
+        // check for ensures
+        if (i->getOpcode() == Patmos::SENS) {
+          assert(i->getOperand(2).isImm());
+
+          // compute actual space to ensure here
+          unsigned int ensure = 
+             std::ceil((float)stackUsage / (float)STC.getStackCacheBlockSize());
+
+          // update the ensure to reserve only the space actually used.
+          ENSs[&*i] = std::min(ensure, (unsigned int)i->getOperand(2).getImm());
+
+          // If we encounter an ensure, we can reset the stackUsage counter to 0
+          // since all following accesses will be served by this ensure. This
+          // also applies when this ensure is eliminated.
+          stackUsage = 0;
+        }
+        else {
+          // get the instruction's local stack usage
+          unsigned int instructionUsage = getStackUsage(&*i);
+
+          stackUsage = std::max(stackUsage, instructionUsage);
+        }
+      }
+
+      // propagate to CFG predecessors
+      for(MachineBasicBlock::pred_iterator i(MBB->pred_begin()),
+          ie(MBB->pred_end()); i != ie; i++) {
+        // check if the new stack usage is larger than what was known previously
+        if (INs[*i] < stackUsage) {
+          // update the predecessor's stack usage and put it on the work list
+          INs[*i] = stackUsage;
+          WL.insert(*i);
+        }
+      }
+    }
+
+    /// propagateStackUse - Propagate information on the use of the stack cache
+    /// e.g., by loads and stores, upwards trough the CFG to ensure
+    /// instructions. This information can be used to downsize or remove
+    /// ensures.
+    void propagateStackUse(const MCGNodes &Nodes)
+    {
+      // visit all functions
+      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+          i++) {
+        if (!(*i)->isUnknown()) {
+          MBBs WL;
+          SIZEs ENSs;
+          MBBUInt INs;
+          MachineFunction *MF = (*i)->getMF();
+
+          // initialize work list (yeah, reverse-reverse post order would be 
+          // optimal, but this works too).
+          for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
+              i++) {
+            WL.insert(i);
+          }
+
+          // process until the work list becomes empty
+          while (!WL.empty()) {
+            // get some basic block
+            MachineBasicBlock *MBB = *WL.begin();
+            WL.erase(WL.begin());
+
+            // update the basic block's information, potentially putting any of
+            // its predecessors on the work list.
+            propagateStackUse(WL, INs, ENSs, MBB);
+          }
+
+          // actually update the sizes of the ensure instructions.
+          for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
+              i++) {
+            i->first->getOperand(2).setImm(i->second);
+          }
+
+          DEBUG(
+            dbgs() << "*************************** "
+                   << MF->getFunction()->getName() << "\n";
+            for(MBBUInt::const_iterator i(INs.begin()), ie(INs.end()); i != ie;
+                i++) {
+              dbgs() << "  " << i->first->getName()
+                    << "(" << i->first->getNumber() << ")"
+                    << ": " << i->second << "\n";
+            }
+          );
+        }
+      }
+    }
+
+    /// removeEnsures - Does what it says. SENS instructions can be removed if
+    /// the preceding call plus the current frame on the stack cache fit into
+    /// the stack cache.
+    // TODO: take care of predication, i.e., predicated SENS/CALL instructions
+    // might be mangled and they might no match one to one.
+    void removeEnsures(MBBs &WL, MBBUInt &INs, ENSUREs &ENSs, MCGNode *Node,
+                       MachineBasicBlock *MBB)
+    {
+      // track maximum stack usage of children in the call graph -- initialize
+      // from predecessors in the CFG.
+      unsigned int childUse = INs[MBB];
+
+      // propagate maximum stack usage of call graph children within the basic
+      // block
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie; i++) {
+        if (i->isCall()) {
+          // find call site
+          MCGSite *site = Node->findSite(i);
+          assert(site);
+
+          childUse = std::max(childUse, getMaxStackUsage(site->getCallee()));
+        }
+        else if (i->getOpcode() == Patmos::SENS) {
+          unsigned int ensure = i->getOperand(2).getImm() *
+                                STC.getStackCacheBlockSize();
+
+          // does the content of the ensure and all the children in the call
+          // graph fit into the stack cache?
+          bool remove = (ensure + childUse) <= STC.getStackCacheSize();
+
+          if (ensure == 0) assert(remove);
+
+          // if all fits, the SENS can be removed.
+          ENSs[i] = remove;
+
+          if (!remove && (i->getOperand(0).getReg() == Patmos::NoRegister ||
+                          i->getOperand(0).getReg() == Patmos::P0)) {
+            // update the current usage of the stack cache.
+            if (childUse >= ensure)
+              childUse -= ensure;
+            else
+              childUse = 0;
+          }
+        }
+      }
+
+      // propagate to CFG successors
+      for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
+          ie(MBB->succ_end()); i != ie; i++) {
+        // check if the new stack usage is larger than what was known previously
+        if (INs[*i] < childUse) {
+          // update the successors's stack usage and put it on the work list
+          INs[*i] = childUse;
+          WL.insert(*i);
+        }
+      }
+    }
+
+    /// removeEnsures - Does what it says. SENS instructions can be removed if
+    /// the preceding call plus the current frame on the stack cache fit into
+    /// the stack cache.
+    void removeEnsures(const MCGNodes &Nodes)
+    {
+      // visit all functions
+      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+          i++) {
+        if (!(*i)->isUnknown()) {
+          MBBs WL;
+          ENSUREs ENSs;
+          MBBUInt INs;
+          MachineFunction *MF = (*i)->getMF();
+
+          // initialize work list (yeah, reverse post order would be optimal, 
+          // but this works too).
+          for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je;
+              j++) {
+            WL.insert(j);
+          }
+
+          // process until the work list becomes empty
+          while (!WL.empty()) {
+            // get some basic block
+            MachineBasicBlock *MBB = *WL.begin();
+            WL.erase(WL.begin());
+
+            // update the basic block's information, potentially putting any of
+            // its successors on the work list.
+            removeEnsures(WL, INs, ENSs, *i, MBB);
+          }
+
+          // actually remove ensure instructions
+          for(ENSUREs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
+              i++) {
+            if (i->second) {
+              i->first->getParent()->erase(i->first);
+              RemovedSENS++;
+            }
+            else {
+              RemainingSENS++;
+            }
+          }
+
+          DEBUG(
+            dbgs() << "########################### "
+                   << MF->getFunction()->getName() << "\n";
+            for(MBBUInt::const_iterator i(INs.begin()), ie(INs.end()); i != ie;
+                i++) {
+              dbgs() << "  " << i->first->getName()
+                    << "(" << i->first->getNumber() << ")"
+                    << ": " << i->second << "\n";
+            }
+          );
+        }
+      }
+    }
+
+    /// runOnModule - determine the state of the stack cache for each call site.
+    virtual bool runOnModule(Module &M)
+    {
+      PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
+      const MCGNodes &nodes(PCGB.getNodes());
+
+      // find for each ensure instruction the amount of stack content actually 
+      // used after its execution.
+      propagateStackUse(nodes);
+
+      // compute call-graph-level information on maximual stack cache usage
+      computeMaxUsage(nodes);
 
       // remove useless SENS instructions
       removeEnsures(nodes);
