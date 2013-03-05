@@ -110,7 +110,9 @@ static MCContext *addPassesToGenerateCode(LLVMTargetMachine *TM,
   MCContext *Context = &MMI->getContext(); // Return the MCContext by-ref.
 
   // Set up a MachineFunction for the rest of CodeGen to work on.
-  PM.add(new MachineFunctionAnalysis(*TM));
+  if (!PassConfig->isStopped()) {
+    PM.add(new MachineFunctionAnalysis(*TM));
+  }
 
   // Enable FastISel with -fast, but allow that to be overridden.
   if (EnableFastISelOption == cl::BOU_TRUE ||

@@ -3,7 +3,7 @@
 
 ; STOP: -loop-reduce -print-module
 ; STOP: Loop Strength Reduction
-; STOP-NEXT: Machine Function Analysis
+; STOP-NEXT: Print module to stderr
 
 ; START: -machine-branch-prob -gc-lowering
 ; START: FunctionPass Manager
