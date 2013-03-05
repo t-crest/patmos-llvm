@@ -70,7 +70,7 @@ namespace llvm {
 
   static bool isEmptyStructPointer(Type *Ty)
   {
-    if (PointerType *PTy = dyn_cast<PointerType>(Ty)) {
+    if (PointerType *PTy = Ty ? dyn_cast<PointerType>(Ty) : NULL) {
       if (StructType *STy = dyn_cast<StructType>(PTy->getElementType())) {
         return (STy->getNumContainedTypes() == 0);
       }
@@ -84,6 +84,9 @@ namespace llvm {
   //                1 isomorphic
   int MCallGraph::areTypesIsomorphic(Type *DstTy, Type *SrcTy)
   {
+    if (DstTy == NULL || SrcTy == NULL)
+      return DstTy == SrcTy;
+
     // normalize parameter order
     if (DstTy > SrcTy)
       return areTypesIsomorphic(SrcTy, DstTy);
