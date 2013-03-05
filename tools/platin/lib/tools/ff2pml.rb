@@ -58,7 +58,10 @@ class SweetFlowFactImport
 end
 
 class SweetImportTool
+  def SweetImportTool.add_config_options(opts)
+  end
   def SweetImportTool.add_options(opts,exclude=[])
+    SweetImportTool.add_config_options(opts)
     opts.generates_flowfacts
     opts.sweet_flowfact_file unless exclude.include?(:sweet_flowfact_file)
   end

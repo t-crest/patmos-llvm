@@ -9,7 +9,19 @@ require 'ext/lpsolve'
 include PML
 
 class WcaTool
+
+  def WcaTool.add_config_options(opts)
+  end
+
+  def WcaTool.add_options(opts)
+    WcaTool.add_config_options(opts)
+    opts.analysis_entry
+    opts.flow_fact_selection
+    opts.calculates_wcet
+  end
+
   def WcaTool.run(pml,options)
+    needs_options(options, :analysis_entry, :flow_fact_selection, :flow_fact_srcs, :timing_output)
 
     # Builder and Analysis Entry
     ilp = LpSolveILP.new(options)
@@ -20,7 +32,10 @@ class WcaTool
     entry = { :dst => machine_entry, :src => bitcode_entry }
 
     # flow facts
-    flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode","bitcode"])
+    flowfacts = pml.flowfacts.filter(pml,
+                                     options.flow_fact_selection,
+                                     options.flow_fact_srcs,
+                                     ["machinecode","bitcode"])
     ff_levels = if options.use_relation_graph then ["bitcode","machinecode"] else ["machinecode"] end
 
     # Refine Control-Flow Model
@@ -105,12 +120,6 @@ class WcaTool
     # end
 
     pml
-  end
-
-  def WcaTool.add_options(opts)
-    opts.analysis_entry
-    opts.flow_fact_selection
-    opts.calculates_wcet
   end
 end
 

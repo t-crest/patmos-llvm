@@ -741,10 +741,13 @@ class FlowFactTransformation
       lhs = constr.named_lhs
       name = constr.name
 
-      next if name =~ /^__lower_bound/ && constr.rhs == 0
-      next if name =~ /^structural/
-      next if name =~ /^rg/
-      # next if name =~ /^call/
+      interesting = true
+      interesting = false if name =~ /^__lower_bound/ && constr.rhs == 0
+      interesting = false if name =~ /^structural/
+      # interesting = false if name =~ /^rg/
+
+      info "NOT adding (boring) constraint #{name}: #{constr}" if options.debug && ! interesting
+      next unless interesting
 
       # Simplify: edges->block
       unless lhs.any? { |var,_| ! var.kind_of?(IPETEdge) }

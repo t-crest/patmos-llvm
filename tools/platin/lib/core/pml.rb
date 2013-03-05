@@ -141,6 +141,11 @@ module PML
       die("architecture #{archname} already registered to #{@@register[archname]}") if @@register[archname]
       @@register[archname] = klass
     end
+    def Architecture.simulator_options(opts)
+      @@register.each { |arch,klass|
+        klass.simulator_options(opts)
+      }
+    end
     def Architecture.from_triple(triple)
       archname = triple.first
       die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]

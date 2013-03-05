@@ -66,13 +66,16 @@ class ExtractSymbols
 end
 
 class ExtractSymbolsTool
-  def ExtractSymbolsTool.add_options(opts)
+  def ExtractSymbolsTool.add_config_options(opts)
     opts.on("--objdump-command FILE", "path to 'patmos-llvm-objdump'")   { |f| opts.options.objdump = f }
     opts.on("--text-sections SECTION,..", "list of code sections (=.text)")  { |s| opts.options.text_sections = s.split(/\s*,\s*/) }
     opts.add_check do |options|
       options.objdump = "patmos-llvm-objdump" unless options.objdump
       options.text_sections = [".text"] unless options.text_sections
     end
+  end
+  def ExtractSymbolsTool.add_options(opts)
+    ExtractSymbolsTool.add_config_options(opts)
   end
   def ExtractSymbolsTool.run(pml, options)
     ExtractSymbols.new(pml,options).analyze(options.binary_file).update_pml

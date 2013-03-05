@@ -258,23 +258,33 @@ end # module SWEET
 module PML
   # option parser extensions
   class OptionParser
-    def runs_llvm2alf
+    def alfllc_command
       self.on("--alf-llc FILE", "path to alf-llc (=alf-llc)")  { |f| options.alf_llc = f }
-      self.on("--bitcode FILE", "Bitcode file")                { |f| options.bitcode_file = f }
-      self.on("--alf FILE", "ALF program model file")          { |f| options.alf_file = f }
       self.add_check { |options|
         options.alf_llc ||= "alf-llc"
-        die_usage "Specifying the bitcode file is mandatory for SWEET analysis" unless options.bitcode_file
+      }
+    end
+    def sweet_command
+      self.on("--sweet-command FILE", "path to sweet (=sweet)") { |f| options.sweet = f }
+      self.add_check { |options|
+        options.sweet   ||= "sweet"
+      }
+    end
+    def bitcode_file(mandatory=false)
+      self.on("--bitcode FILE", "Bitcode file")                { |f| options.bitcode_file = f }
+      self.add_check { |options|
+        die_usage "Specifying a bitcode file (--bitcode) is mandatory" unless options.bitcode_file
+      } if mandatory
+    end
+    def runs_llvm2alf
+      bitcode_file(true)
+      self.on("--alf FILE", "ALF program model file")          { |f| options.alf_file = f }
+      self.add_check { |options|
         die_usage "Specifying the ALF file is mandatory for SWEET analysis"     unless options.alf_file
       }
     end
     def runs_sweet
-      runs_llvm2alf
-      self.on("--sweet-command FILE", "path to sweet (=sweet)") { |f| options.sweet = f }
       self.on("--sweet-ignore-volatiles", "treat volatile memory areas as ordinary ones") { |f| options.sweet_ignore_volatiles = true }
-      self.add_check { |options|
-        options.sweet   ||= "sweet"
-      }
     end
     def sweet_flowfact_file(mandatory = true)
       self.on("--sweet-flowfacts FILE.ff", "SWEET flowfact file") { |f| options.sweet_flowfact_file = f }

@@ -8,6 +8,13 @@ require 'ext/sweet'
 include PML
 
 class AlfTool
+  def AlfTool.config_options(opts)
+    opts.alfllc_command
+  end
+  def AlfTool.add_options(opts)
+    AlfTool.config_options(opts)
+    opts.runs_llvm2alf
+  end
   # Internal ALF options:
   #  standalone       ... create stubs (returning \TOP) for all undefined objects
   #  ignore_volatiles ... ignore LLVM's volatile qualitifier
@@ -44,13 +51,29 @@ class AlfTool
       %w{_signal_r _start abort exit malloc memcpy} +
       %w{memmove memset raise setjmp longjmp signal}
   end
-  def AlfTool.add_options(opts)
-    opts.runs_llvm2alf
-  end
 end
 
 # tool to invoke sweet to generate IR-level flow facts
 class SweetAnalyzeTool
+  def SweetAnalyzeTool.add_config_options(opts)
+    opts.alfllc_command
+    opts.sweet_command
+  end
+  def SweetAnalyzeTool.add_options(opts)
+    SweetAnalyzeTool.add_config_options(opts)
+    opts.analysis_entry
+    opts.runs_llvm2alf
+    opts.runs_sweet
+    opts.on("--sweet-generate-trace") { opts.options.sweet_generate_trace = true }
+    opts.sweet_flowfact_file
+    opts.sweet_trace_file(false)
+    opts.add_check { |options|
+      if options.sweet_generate_trace
+        options.sweet_ignore_volatiles = true
+        die("Option sweet_trace_file is mandatory given --sweet-generate-trace") unless options.sweet_trace_file
+      end
+    }
+  end
   def SweetAnalyzeTool.run(pml, options)
     needs_options(options, :sweet, :alf_file, :analysis_entry, :sweet_flowfact_file)
     alfopts = {:standalone => true, :memory_areas => [(0..0xffff)], :ignored_definitions => AlfTool.default_ignored_definitions }
@@ -92,19 +115,6 @@ class SweetAnalyzeTool
       die "#{options.sweet} failed with exit status #{$?}"
     end
     info("Successfully ran SWEET version #{version}") if options.verbose
-  end
-  def SweetAnalyzeTool.add_options(opts)
-    opts.analysis_entry
-    opts.runs_sweet
-    opts.on("--sweet-generate-trace") { opts.options.sweet_generate_trace = true }
-    opts.sweet_flowfact_file
-    opts.sweet_trace_file(false)
-    opts.add_check { |options|
-      if options.sweet_generate_trace
-        options.sweet_ignore_volatiles = true
-        die("Option sweet_trace_file is mandatory given --sweet-generate-trace") unless options.sweet_trace_file
-      end
-    }
   end
 end
 

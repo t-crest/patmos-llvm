@@ -13,8 +13,14 @@ Requirements
 $ sudo aptitude install ruby1.9.1-full
 $ ./ext/install_gems.sh
 
-Demos
------
+
+Demo: Automated Benchmark Evaluation
+------------------------------------
+
+$ SETS="basic" ./eval-run
+
+Demo with manual compilation: platin, aiT, SWEET
+------------------------------------------------
 
 (1) Compile source code to bitcode file (not yet linked with libc)
 
@@ -23,12 +29,18 @@ $ patmos-clang -emit-llvm -S -o src/jumptable.bc examples/jumptable.c
 
 (2) Compile to ELF
 
-$ patmos-clang -o bin/jumptable.elf  -mpatmos-preemit-bitcode=bin/jumptable.elf.bc -mpatmos-serialize=bin/jumptable.elf.pml src/jumptable.bc
+$ patmos-clang -o bin/jumptable.elf \
+               -mpatmos-preemit-bitcode=bin/jumptable.elf.bc \
+               -mpatmos-serialize=bin/jumptable.elf.pml src/jumptable.bc
 
-(3) Trace Analysis Demo (pasim trace analysis, SWEET analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
+(3) Trace Analysis Demo (platin trace analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
 
-$ ./run-benchmark bin/ gen/ src/jumptable.bc bench-trace
-$ ./run-benchmark bin/ gen/ src/jumptable.bc bench-sweet
+$ ./platin bench-trace --outdir gen --binary bin/jumptable.elf -o gen/jumptable.pml bin/jumptable.elf.pml
+
+(3b) Trace Analysis Demo + SWEET bitcode analysis (requires AlfBackend and SWEET)
+
+$ ./platin bench-sweet --outdir gen --bitcode bin/jumptable.elf.bc \
+                       --binary bin/jumptable.elf -o gen/jumptable.pml bin/jumptable.elf.pml
 
 Open Questions
 --------------

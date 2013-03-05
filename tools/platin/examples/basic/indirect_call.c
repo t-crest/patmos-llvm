@@ -45,7 +45,7 @@ ftype funs[FNS] = {f1,f2,f3};
 
 int main(int argc, char** argv) {
   int i;
-  uint32_t r;
+  uint32_t r = 0;
 
   for(i = 0; i < ITER; i++)
     r += funs[nondet() % FNS](nondet());

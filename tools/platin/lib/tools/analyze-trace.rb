@@ -17,11 +17,15 @@ require 'platin'
 include PML
 
 class AnalyzeTraceTool
+  def AnalyzeTraceTool.add_config_options(opts)
+    Architecture.simulator_options(opts)
+    opts.trace_entry
+  end
   def AnalyzeTraceTool.add_options(opts)
+    AnalyzeTraceTool.add_config_options(opts)
     opts.binary_file(true)
     opts.trace_entry
     opts.analysis_entry
-    opts.pasim
     opts.generates_flowfacts
   end
 

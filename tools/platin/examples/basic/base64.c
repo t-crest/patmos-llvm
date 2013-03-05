@@ -17,7 +17,7 @@ int b64_ntop(char const *src, size_t srclength, char *target, size_t targsize)
 {
         size_t datalength = 0;
         char input[3];
-        char output[4];
+        unsigned output[4];
         int i;
 
         while (2 < srclength) {

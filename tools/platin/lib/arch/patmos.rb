@@ -48,6 +48,12 @@ class Architecture < PML::Architecture
   def delay_slots
     2
   end
+  def Architecture.simulator_options(opts)
+    opts.on("--pasim-command FILE", "path to pasim (=pasim)") { |f| opts.options.pasim = f }
+    opts.add_check do |options|
+      options.pasim = "pasim" unless options.pasim
+    end
+  end
   def simulator_trace(options)
     SimulatorTrace.new(options.binary_file, options.pasim)
   end
@@ -57,16 +63,6 @@ end # module patmos
 
 # Extend PML
 module PML
-
-# Extend Option Parser
-class OptionParser
-  def pasim
-    self.on("--pasim-command FILE", "path to pasim (=pasim)") { |f| options.pasim = f }
-    self.add_check do |options|
-      options.pasim = "pasim" unless options.pasim
-    end
-  end
-end
 
 # Register architecture
 Architecture.register("patmos", PATMOS::Architecture)
