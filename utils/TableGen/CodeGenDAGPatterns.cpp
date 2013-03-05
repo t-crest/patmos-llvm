@@ -20,10 +20,14 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/CommandLine.h"
 #include <algorithm>
 #include <cstdio>
 #include <set>
 using namespace llvm;
+
+static cl::opt<bool> RecursiveXForm("recursive-xform", cl::init(false),
+       cl::desc("Make -gen-dag-isel resolve XForm patterns recursively"));
 
 //===----------------------------------------------------------------------===//
 //  EEVT::TypeSet Implementation
@@ -3086,9 +3090,11 @@ static bool ForceArbitraryInstResultType(TreePatternNode *N, TreePattern &TP) {
 static TreePatternNode *PromoteXForms(TreePatternNode *N)
 {
   // rewrite children first, if needed
-  for (unsigned ii = 0, ee = N->getNumChildren(); ii != ee; ++ii) {
-    TreePatternNode *ChildNode = PromoteXForms(N->getChild(ii));
-    N->setChild(ii, ChildNode);
+  if (RecursiveXForm) {
+    for (unsigned ii = 0, ee = N->getNumChildren(); ii != ee; ++ii) {
+      TreePatternNode *ChildNode = PromoteXForms(N->getChild(ii));
+      N->setChild(ii, ChildNode);
+    }
   }
 
   // then rewrite the node, if needed

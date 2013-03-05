@@ -20,6 +20,7 @@ BUILT_SOURCES = PatmosGenRegisterInfo.inc PatmosGenInstrInfo.inc \
 		PatmosGenMCCodeEmitter.inc \
 		PatmosGenEDInfo.inc PatmosGenDisassemblerTables.inc \
 		PatmosGenDFAPacketizer.inc
+GEN_DAG_ISEL_FLAGS=-recursive-xform
 
 DIRS = InstPrinter TargetInfo MCTargetDesc AsmParser Disassembler
 
