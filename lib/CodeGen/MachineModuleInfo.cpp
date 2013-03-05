@@ -22,6 +22,12 @@
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
+#include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Target/TargetInstrInfo.h"
+
 using namespace llvm;
 using namespace llvm::dwarf;
 
@@ -251,15 +257,16 @@ void MMIAddrLabelMapCallbackPtr::allUsesReplacedWith(Value *V2) {
 
 //===----------------------------------------------------------------------===//
 
-MachineModuleInfo::MachineModuleInfo(const MCAsmInfo &MAI,
-                                     const MCRegisterInfo &MRI,
-                                     const MCInstrInfo &MII,
-                                     const MCObjectFileInfo *MOFI)
-  : ImmutablePass(ID), Context(MAI, MRI, MII, MOFI),
+MachineModuleInfo::MachineModuleInfo(const TargetMachine &tm)
+  : ImmutablePass(ID), TM(&tm),
+    Context(*tm.getMCAsmInfo(), *tm.getRegisterInfo(), *tm.getInstrInfo(),
+            &tm.getTargetLowering()->getObjFileLowering()),
     ObjFileMMI(0), CompactUnwindEncoding(0), CurCallSite(0), CallsEHReturn(0),
     CallsUnwindInit(0), DbgInfoAvailable(false),
     UsesVAFloatArgument(false) {
   initializeMachineModuleInfoPass(*PassRegistry::getPassRegistry());
+  // from now on, we can use MachineFunctions
+  initializeMachineFunctionAnalysisPass(*PassRegistry::getPassRegistry());
   // Always emit some info, by default "no personality" info.
   Personalities.push_back(NULL);
   AddrLabelSymbols = 0;
@@ -267,7 +274,7 @@ MachineModuleInfo::MachineModuleInfo(const MCAsmInfo &MAI,
 }
 
 MachineModuleInfo::MachineModuleInfo()
-  : ImmutablePass(ID),
+  : ImmutablePass(ID), TM(0),
     Context(*(MCAsmInfo*)0, *(MCRegisterInfo*)0, *(MCInstrInfo*)0,
             (MCObjectFileInfo*)0) {
   llvm_unreachable("This MachineModuleInfo constructor should never be called, "
@@ -282,6 +289,13 @@ MachineModuleInfo::~MachineModuleInfo() {
   //assert(AddrLabelSymbols == 0 && "doFinalization not called");
   delete AddrLabelSymbols;
   AddrLabelSymbols = 0;
+
+  for (DenseMap<const Function*, MachineFunction*>::iterator
+     it = MachineFunctions.begin(), ie = MachineFunctions.end(); it != ie; it++)
+  {
+    delete it->second;
+  }
+  MachineFunctions.clear();
 }
 
 /// doInitialization - Initialize the state for a new module.
@@ -296,6 +310,14 @@ bool MachineModuleInfo::doInitialization() {
 bool MachineModuleInfo::doFinalization() {
   delete AddrLabelSymbols;
   AddrLabelSymbols = 0;
+
+  for (DenseMap<const Function*, MachineFunction*>::iterator
+     it = MachineFunctions.begin(), ie = MachineFunctions.end(); it != ie; it++)
+  {
+    delete it->second;
+  }
+  MachineFunctions.clear();
+
   return false;
 }
 

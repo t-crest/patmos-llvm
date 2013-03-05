@@ -58,6 +58,7 @@ class MachineFunction;
 class Module;
 class PointerType;
 class StructType;
+class TargetMachine;
 
 //===----------------------------------------------------------------------===//
 /// LandingPadInfo - This structure is used to retain landing pad info for
@@ -96,6 +97,9 @@ protected:
 /// schemes and reformated for specific use.
 ///
 class MachineModuleInfo : public ImmutablePass {
+  /// TM - The TargetMachine used for code generation.
+  const TargetMachine *TM;
+
   /// Context - This is the MCContext used for the entire code generator.
   MCContext Context;
 
@@ -180,8 +184,7 @@ public:
 
   MachineModuleInfo();  // DUMMY CONSTRUCTOR, DO NOT CALL.
   // Real constructor.
-  MachineModuleInfo(const MCAsmInfo &MAI, const MCRegisterInfo &MRI,
-                    const MCInstrInfo &MII, const MCObjectFileInfo *MOFI);
+  MachineModuleInfo(const TargetMachine &TM);
   ~MachineModuleInfo();
 
   bool doInitialization();
@@ -190,6 +193,8 @@ public:
   /// EndFunction - Discard function meta information.
   ///
   void EndFunction();
+
+  const TargetMachine& getTargetMachine() const { return *TM; }
 
   const MCContext &getContext() const { return Context; }
   MCContext &getContext() { return Context; }
@@ -414,8 +419,13 @@ public:
   }
 
   /// putMachineFunction - Store a MachineFunction and associate it with the 
-  /// given function.
+  /// given function. This transfers ownership of the MachineFunction to this
+  /// class.
   void putMachineFunction(MachineFunction *MF, const Function *F) {
+    // TODO is it possible that F is null (i.e. we created a MF in the backend)
+    //      If yes, handle this case by keeping those MFs as well.
+    assert(F && "Creating a MachineFunction without Function not supported!");
+
     // check for collisions
     MachineFunction *tmpMF = getMachineFunction(F);
     assert(tmpMF == MF || tmpMF == NULL);
@@ -426,7 +436,7 @@ public:
 
 
   /// removeMachineFunction - Remove the MachineFunction associated with the 
-  /// given function.
+  /// given function. Ownership is taken away from this class.
   void removeMachineFunction(const Function *F) {
     MachineFunctions.erase(F);
   }
