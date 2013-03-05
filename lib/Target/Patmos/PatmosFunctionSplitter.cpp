@@ -1282,8 +1282,8 @@ namespace llvm {
           }
 
           // start anew
-          i_count = 0;
-          curr_size = 12; // may fall through!
+          i_count = 1;
+          curr_size = 12 + i_size; // may fall through!
           i = MBB->instr_begin();
         }
       }
