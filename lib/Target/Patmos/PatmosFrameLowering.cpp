@@ -333,14 +333,6 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   MachineBasicBlock &EntryMBB = MF.front();
 
   DebugLoc DL;
-  MachineBasicBlock *NBB = &EntryMBB;
-  while (NBB) {
-    if (!NBB->empty()) {
-      DL = NBB->front().getDebugLoc();
-      break;
-    }
-    NBB = NBB->getNextNode();
-  }
 
   if (hasFP(MF)) {
     // if framepointer enabled, set it to point to the stack pointer.
