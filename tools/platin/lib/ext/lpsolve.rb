@@ -128,7 +128,7 @@ class LpSolveILP < ILP
     $stderr.puts "#{lp_solve_error_msg(problem)} PROBLEM - starting diagnosis"
     @do_diagnose = false
     variables.each do |v|
-      add_constraint([[v,1]],"less-equal",BIGM,"__debug_upper_bound_v#{index(v)}")
+      add_constraint([[v,1]],"less-equal",BIGM,"__debug_upper_bound_v#{index(v)}",:debug)
     end
     @eps = 1.0
     cycles,freq = self.solve_max
@@ -146,7 +146,7 @@ class LpSolveILP < ILP
     old_constraints, slackvars = @constraints, []
     reset_constraints
     variables.each do |v|
-      add_constraint([[v,1]],"less-equal",BIGM,"__debug_upper_bound_v#{index(v)}")
+      add_constraint([[v,1]],"less-equal",BIGM,"__debug_upper_bound_v#{index(v)}",:debug)
     end
     old_constraints.each { |constr|
       n = constr.name
@@ -162,7 +162,7 @@ class LpSolveILP < ILP
           constr.set(v_rhs, 1)
         end
       end
-      add_indexed_constraint(constr.lhs,constr.op,constr.rhs,"__slack_#{n}")
+      add_indexed_constraint(constr.lhs,constr.op,constr.rhs,"__slack_#{n}",Set.new([:slack]))
     }
     @eps = 1.0
     # @constraints.each do |c|

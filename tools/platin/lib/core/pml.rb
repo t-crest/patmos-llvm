@@ -935,6 +935,7 @@ module PML
       return nil unless lhs.list.length == 1
       term = lhs.list.first
       return nil unless term.factor == 1
+      return nil unless term.ppref.kind_of?(BlockRef)
       [scope, term.ppref, rhs]
     end
 
