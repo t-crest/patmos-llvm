@@ -23,7 +23,7 @@
 namespace llvm {
 
 /// PatmosMachineFunctionInfo - This class is derived from MachineFunction and
-/// contains private Patmos target-specific information for each 
+/// contains private Patmos target-specific information for each
 /// MachineFunction.
 class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// StackCacheReservedSize - Size in bytes that need to be reserved on the
@@ -40,7 +40,10 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// VarArgsFI - FrameIndex to access parameters of variadic functions.
   int VarArgsFI;
 
-  /// Set of entry blocks to code regions that are potentially cached by the 
+  /// RegScavengingFI - FrameIndex for an emergency spill slot.
+  int RegScavengingFI;
+
+  /// Set of entry blocks to code regions that are potentially cached by the
   /// method cache.
   std::set<const MachineBasicBlock*> MethodCacheRegionEntries;
 
@@ -95,14 +98,24 @@ public:
     VarArgsFI = newFI;
   }
 
-  /// addMethodCacheRegionEntry - Add the block to the set of method cache 
+  /// getRegScavengingFI - Get the FI used to access the emergency spill slot.
+  unsigned getRegScavengingFI() const {
+    return RegScavengingFI;
+  }
+
+  /// setRegScavengingFI - Set the FI used to access the emergency spill slot.
+  void setRegScavengingFI(int newFI) {
+    RegScavengingFI = newFI;
+  }
+
+  /// addMethodCacheRegionEntry - Add the block to the set of method cache
   /// region entry blocks.
   /// \see MethodCacheRegionEntries
   void addMethodCacheRegionEntry(const MachineBasicBlock *MBB) {
     MethodCacheRegionEntries.insert(MBB);
   }
 
-  /// isMethodCacheRegionEntry - Return whether the block is a method cache 
+  /// isMethodCacheRegionEntry - Return whether the block is a method cache
   /// region entry.
   /// \see MethodCacheRegionEntries
   bool isMethodCacheRegionEntry(const MachineBasicBlock *MBB) const {

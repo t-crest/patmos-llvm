@@ -53,7 +53,7 @@ protected:
   /// \see assignFIsToStackCache
   /// \see PatmosMachineFunctionInfo
   void patchCallSites(MachineFunction &MF) const;
-  public:
+public:
   explicit PatmosFrameLowering(const PatmosTargetMachine &tm);
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
