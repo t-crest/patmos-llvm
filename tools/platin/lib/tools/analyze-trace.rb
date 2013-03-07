@@ -14,6 +14,7 @@
 # it seems as if the pipe communication the cuprit.
 
 require 'platin'
+require 'tools/extract-symbols.rb'
 include PML
 
 class AnalyzeTraceTool
@@ -22,6 +23,7 @@ class AnalyzeTraceTool
     opts.trace_entry
   end
   def AnalyzeTraceTool.add_options(opts)
+    ExtractSymbolsTool.add_config_options(opts)
     AnalyzeTraceTool.add_config_options(opts)
     opts.binary_file(true)
     opts.trace_entry
@@ -31,10 +33,20 @@ class AnalyzeTraceTool
 
   def AnalyzeTraceTool.run(pml,options)
     needs_options(options, :analysis_entry, :binary_file, :pasim)
+    entry  = pml.machine_functions.by_label(options.analysis_entry, true)
+
+    if ! entry
+      die("Analysis entry (ELF label #{options.analysis_entry}) not found")
+    end
+
+    unless entry.blocks.first.address
+      warn("No addresses in PML file, trying to extract from ELF file and updating input PML")
+      pml = ExtractSymbolsTool.run(pml,options)
+      pml.dump_to_file(options.input)
+    end
     trace = pml.arch.simulator_trace(options)
     tm = MachineTraceMonitor.new(pml, trace, options.trace_entry)
     tm.subscribe(VerboseRecorder.new($dbgs)) if options.debug
-    entry  = pml.machine_functions.by_label(options.analysis_entry)
     global = GlobalRecorder.new(entry)
     local  = LocalRecorder.new(entry)
     loops  = LoopRecorder.new(entry)
@@ -43,6 +55,10 @@ class AnalyzeTraceTool
     tm.subscribe(loops)
     tm.run
 
+    if(global.results.freqs.nil?)
+      $stderr.puts("Analysis entry '#{options.analysis_entry}' never executed")
+      exit 1
+    end
     # Collect executed and infeasible blocks
     executed_functions = Set.new
     executed_blocks    = {}
@@ -72,6 +88,18 @@ class AnalyzeTraceTool
 
 
     if options.verbose
+      loops_by_fun = Hash.new
+      loops.results.each { |loop, r| (loops_by_fun[loop.function]||=[]).push([loop,r]) }
+      local.results.each { |scope,r|
+        $dbgs.printf("Function %-30s  Cycles: %15s  Executions: %8d\n",scope,r.cycles,r.runs)
+        loops_by_fun[scope].each { |loop,rl|
+          $dbgs.printf(" Loop %-30s     Cycles: %15s  Executions: %8d Bounds: %8s\n",
+                       loop, rl.cycles, rl.runs, rl.freqs.values[0])
+        }
+      }
+    end
+
+    if options.debug
       $dbgs.puts "* Global Frequencies"
       $dbgs.puts
       global.results.dump($dbgs)

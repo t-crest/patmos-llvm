@@ -190,17 +190,12 @@ module PML
     def method_missing(method, *args, &block)
       list.send(method, *args, &block)
     end
-    def lookup(dict,key,name)
+    def lookup(dict,key,name,error_if_missing=true)
       v = dict[key]
-      raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}") unless v
-      v
-    end
-    def lookup_optional(dict,key,name)
-      begin
-        return lookup(dict,key,name)
-      rescue Exception => detail
-        return nil
+      if ! v && error_if_missing
+        raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}")
       end
+      v
     end
     def add_lookup(dict,key,val,name,opts={})
       return if ! key && opts[:ignore_if_missing]
@@ -236,13 +231,13 @@ module PML
 
   # Lists where elements can be queried by name and qualified name
   module NameIndexList
-    def by_name(name)
+    def by_name(name, error_if_missing = true)
       build_name_index unless @named
-      lookup(@named, name, "name")
+      lookup(@named, name, "name", error_if_missing)
     end
-    def by_qname(name)
+    def by_qname(name, error_if_missing = true)
       build_name_index unless @named
-      lookup(@qnamed, name, "qname")
+      lookup(@qnamed, name, "qname", error_if_missing)
     end
     def build_name_index
       @named, @qnamed = {}, {}
@@ -404,11 +399,11 @@ module PML
     def [](name)
       by_name(name)
     end
-    def by_address(addr)
-      lookup(@address, addr, "address")
+    def by_address(addr, error_if_missing = true)
+      lookup(@address, addr, "address", error_if_missing)
     end
-    def by_label(label)
-      lookup(@labelled, label, "label")
+    def by_label(label, error_if_missing = true)
+      lookup(@labelled, label, "label", error_if_missing)
     end
     def build_lookup
       @address = {}
@@ -623,7 +618,7 @@ module PML
     end
     def by_name(name, level)
       assert("RelationGraphList#by_name: level != :src,:dst") { [:src,:dst].include?(level) }
-      lookup(@named[level], name, "#{level}-name")
+      lookup(@named[level], name, "#{level}-name", false)
     end
     def build_lookup
       @named = { :src => {}, :dst => {} }
@@ -976,8 +971,8 @@ module PML
       data.push(te.data)
       add_index(te)
     end
-    def by_origin(origin)
-      lookup_optional(@by_origin, origin, "origin")
+    def by_origin(origin, error_if_missing = true)
+      lookup(@by_origin, origin, "origin", error_if_missing)
     end
     private
     def build_index

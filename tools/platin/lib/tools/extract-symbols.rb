@@ -78,6 +78,7 @@ class ExtractSymbolsTool
     ExtractSymbolsTool.add_config_options(opts)
   end
   def ExtractSymbolsTool.run(pml, options)
+    needs_options(options, :objdump, :text_sections, :binary_file)
     ExtractSymbols.new(pml,options).analyze(options.binary_file).update_pml
   end
 end
