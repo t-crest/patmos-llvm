@@ -1,22 +1,19 @@
-#!/usr/bin/env ruby
 #
-# PSK tool set
+# PLATIN tool set
 #
-# Converts SWEET .ff files to PML format
+# Bindings to the SWEET (Swedish Execution Time) tool
 #
-# TODO: support a larger variety of flow facts (call strings, loop contexts)
-
-require 'utils'
+require 'platin'
 include PML
-
 begin
   require 'rubygems'
   require 'rsec'
   include Rsec::Helpers
 rescue Exception => details
-  warn "Failed to load library rsec"
-  info "  ==> gem1.9.1 install rsec"
-  die "Failed to load required ruby libraries"
+  $stderr.puts "Failed to load library rsec"
+  $stderr.puts "  ==> gem1.9.1 install rsec"
+  $stderr.put "Failed to load required ruby libraries"
+  exit 1
 end
 
 module SWEET
@@ -216,118 +213,88 @@ module SWEET
       }
     end
   end
-
+  #
+  # Read sweet single-path trace and generate bitcode events
+  # yields
+  class TraceMonitor < ::TraceMonitor
+    def initialize(tracefile, pml)
+      super()
+      @tracefile, @pml = tracefile, pml
+    end
+    def run
+      @executed_instructions = 0
+      lines = File.readlines(@tracefile)
+      lines[1..-1].each do |l|
+        raise Exception.new("Bad trace file: more than one trace line: #{l}") if l.strip != ""
+      end
+      lastins = nil
+      lines.first.split.each do |entry|
+        break if entry == ";"
+        llvm_pos, internal_pos = entry.split(':::')
+        next if internal_pos # skip internal ALF statements
+        fname,blockname,insindex,fsucc,blocksucc = llvm_pos.split('::')
+        next if fsucc # skip edges
+        function = @pml.bitcode_functions.by_name(fname)
+        block = function.blocks.by_name(blockname)
+        instruction = block.instructions[(insindex || 0).to_i]
+        # call: start of function
+        if block == function.blocks.first && ! insindex
+          publish(:function, function, lastins, @executed_instructions)
+        elsif block != lastins.block && instruction.name != 0
+          publish(:ret, lastins, instruction, @executed_instructions)
+        end
+        if instruction.name == 0
+          publish(:block, block, @executed_instructions)
+        end
+        lastins = block.instructions[insindex.to_i]
+        @executed_instructions += 1
+      end
+      publish(:eof)
+    end
+  end
 end # module SWEET
 
-class SweetAnalyzeTool
-  def SweetAnalyzeTool.run(options)
-    options.analysis_entry ||= "main"
-    options.sweet ||= "sweet"
-    options.alf_llc ||= "alf-llc"
-    die_usage "Specifying the bitcode file is mandatory for SWEET analysis" unless options.bitcode_file
-    die_usage "Specifying the ALF file is mandatory for SWEET analysis" unless options.sweet_alf_file
-    die_usage "Specifying the SWEET/FF file is mandatory for SWEET analysis" unless options.sweet_ff_file
-    system(options.alf_llc, "-march=alf", "-alf-standalone", "-alf-memory-areas=0x0000-0xffff", "-o",
-           options.sweet_alf_file, options.bitcode_file)
-    die "alf-llc failed" unless $? == 0
-    system(options.sweet, "-i=#{options.sweet_alf_file}", "func=#{options.analysis_entry}", "-ae",
-           "ffg=ub", "vola=t", "pu", "-f", "co", "o=#{options.sweet_ff_file}")
-    die "SWEET analysis failed"  unless $? == 0
-  end
-
-  def SweetAnalyzeTool.add_options(opts,options)
-    opts.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse") { |f| options.analysis_entry = f }
-    opts.on("--alf-llc FILE", "path to alf-llc (=alf-llc)") { |f| options.alf_llc = f }
-    opts.on("--sweet-command FILE", "path to sweet (=sweet)") { |f| options.sweet = f }
-    opts.on("--bitcode FILE", "Bitcode file")          { |f| options.bitcode_file = f }
-    opts.on("--sweet-alf FILE", "SWEET flowfact file") { |f| options.sweet_alf_file = f }
-    opts.on("--sweet-ff  FILE", "SWEET flowfact file") { |f| options.sweet_ff_file = f }
-  end
-end
-
-class UnsupportedFlowFactException < Exception
-  def initialize(msg)
-    super(msg)
-  end
-end
-
-class SweetFlowFactImport
-  def initialize(functions, fact_context)
-    @functions = functions
-    @fact_context = fact_context
-  end
-  def to_pml(ffsrc)
-    raise UnsupportedFlowFactException.new("loop scopes not yet supported") if ffsrc.quantifier != :total
-    raise UnsupportedFlowFactException.new("loop scopes not yet supported") if ffsrc.scope.stmt
-    raise UnsupportedFlowFactException.new("call strings not yet supported") unless ffsrc.callstring.empty?
-    scope = @functions.by_name(ffsrc.scope.f)
-    terms = ffsrc.constraint.vector.map { |pp,factor|
-      Term.new(pp_to_pml(pp).ref, factor)
-    }
-    op =
-      case ffsrc.constraint.op
-      when "<="; "less-equal"
-      when "=" ; "equal"
-      else     ; raise Exception.new("Bad constraint op: #{ffsrc.constraint.op}")
-      end
-    flowfact = FlowFact.new(scope.ref, TermList.new(terms), op, ffsrc.constraint.rhs)
-    flowfact.add_attributes(@fact_context)
-    flowfact
-  end
-  def pp_to_pml(pp)
-    raise UnsupportedFlowFactException.new("edge program points not yet supported") if pp.kind_of?(SWEET::Edge)
-    llvm,internal = pp.split(":::")
-    fun,block,ins = llvm.split("::")
-    # For upper bounds, we could ignore the internal structure of the block
-    raise UnsupportedFlowFactException.new("translation internal program points not supported") if internal
-    raise UnsupportedFlowFactException.new("instruction program points not supported") if ins
-    @functions.by_name(fun).blocks.by_name(block)
-  end
-end
-
-class SweetImportTool
-  def SweetImportTool.run(ff_file,pml,options)
-    parser = SWEET::FlowFactParser.new.parser
-    converter = SweetFlowFactImport.new(pml.bitcode_functions, 'level' => 'bitcode', 'origin' => 'SWEET')
-    ffs = []
-    added, skipped, reasons, set = 0,0, Hash.new(0), {}
-    File.readlines(ff_file).map do |s|
-      begin
-        ff = parser.parse!(s)        
-        ff_pml = converter.to_pml(ff)
-        if set[ff_pml]
-          reasons["duplicate"] += 1
-          skipped+=1
-        else
-          set[ff_pml] = true
-          pml.flowfacts.add(ff_pml)
-          added += 1
-        end
-      rescue UnsupportedFlowFactException=>detail
-        reasons[detail.to_s] += 1
-        skipped += 1
-      end
+# extend option parser
+module PML
+  # option parser extensions
+  class OptionParser
+    def alfllc_command
+      self.on("--alf-llc FILE", "path to alf-llc (=alf-llc)")  { |f| options.alf_llc = f }
+      self.add_check { |options|
+        options.alf_llc ||= "alf-llc"
+      }
     end
-    if options.verbose
-      $dbgs.puts "Parsed #{skipped+added} flow facts, added #{added}"
-      $dbgs.puts "Reasons for skipping flow facts: "
-      reasons.each do |k,count|
-        $dbgs.puts "  #{k} (#{count})"
-      end
+    def sweet_command
+      self.on("--sweet-command FILE", "path to sweet (=sweet)") { |f| options.sweet = f }
+      self.add_check { |options|
+        options.sweet   ||= "sweet"
+      }
     end
-    pml
+    def bitcode_file(mandatory=false)
+      self.on("--bitcode FILE", "Bitcode file")                { |f| options.bitcode_file = f }
+      self.add_check { |options|
+        die_usage "Specifying a bitcode file (--bitcode) is mandatory" unless options.bitcode_file
+      } if mandatory
+    end
+    def runs_llvm2alf
+      bitcode_file(true)
+      self.on("--alf FILE", "ALF program model file")          { |f| options.alf_file = f }
+      self.add_check { |options|
+        die_usage "Specifying the ALF file is mandatory for SWEET analysis"     unless options.alf_file
+      }
+    end
+    def runs_sweet
+      self.on("--sweet-ignore-volatiles", "treat volatile memory areas as ordinary ones") { |f| options.sweet_ignore_volatiles = true }
+    end
+    def sweet_flowfact_file(mandatory = true)
+      self.on("--sweet-flowfacts FILE.ff", "SWEET flowfact file") { |f| options.sweet_flowfact_file = f }
+      self.add_check { |options| die_usage "Specifying SWEET flowfact file is mandatory" unless options.sweet_flowfact_file } if mandatory
+    end
+    def sweet_trace_file(mandatory = true)
+      self.on("--sweet-trace FILE.tf", "SWEET trace file") { |f| options.sweet_trace_file = f }
+      self.add_check { |options| die_usage "Specifying SWEET trace file is mandatory" unless options.sweet_trace_file } if mandatory
+    end
   end
-  def SweetImportTool.add_options(opts,options)
-  end
+# end module PML
 end
 
-
-if __FILE__ == $0
-SYNOPSIS=<<EOF if __FILE__ == $0
-Translate SWEET flow facts (format FF) to pml flow facts.
-EOF
-  options, args = PML::optparse(1, "file.ff", SYNOPSIS, :type => :io) do |opts,options|
-    SweetImportTool.add_options(opts,options)
-  end
-  SweetImportTool.run(args.first, PMLDoc.from_file(options.input), options).dump_to_file(options.output)
-end

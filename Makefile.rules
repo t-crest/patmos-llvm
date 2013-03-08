@@ -1862,7 +1862,7 @@ $(ObjDir)/%GenCodeEmitter.inc.tmp: %.td $(ObjDir)/.dir $(LLVM_TBLGEN)
 $(TARGET:%=$(ObjDir)/%GenDAGISel.inc.tmp): \
 $(ObjDir)/%GenDAGISel.inc.tmp : %.td $(ObjDir)/.dir $(LLVM_TBLGEN)
 	$(Echo) "Building $(<F) DAG instruction selector implementation with tblgen"
-	$(Verb) $(LLVMTableGen) -gen-dag-isel -o $(call SYSPATH, $@) $<
+	$(Verb) $(LLVMTableGen) -gen-dag-isel $(GEN_DAG_ISEL_FLAGS) -o $(call SYSPATH, $@) $<
 
 $(TARGET:%=$(ObjDir)/%GenDisassemblerTables.inc.tmp): \
 $(ObjDir)/%GenDisassemblerTables.inc.tmp : %.td $(ObjDir)/.dir $(LLVM_TBLGEN)

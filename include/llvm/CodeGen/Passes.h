@@ -108,6 +108,10 @@ public:
     Started = (StartAfter == 0);
   }
 
+  bool isStarted() const { return Started; }
+
+  bool isStopped() const { return Stopped; }
+
   void setDisableVerify(bool Disable) { setOpt(DisableVerify, Disable); }
 
   bool getEnableTailMerge() const { return EnableTailMerge; }

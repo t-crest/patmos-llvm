@@ -15,23 +15,33 @@
 #define LLVM_CODEGEN_MACHINE_FUNCTION_ANALYSIS_H
 
 #include "llvm/Pass.h"
-#include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
 
+class TargetMachine;
 class MachineFunction;
 
 /// MachineFunctionAnalysis - This class is a Pass that manages a
 /// MachineFunction object.
 struct MachineFunctionAnalysis : public FunctionPass {
 private:
-  const TargetMachine &TM;
+  /// TM - The TargetMachine used to create new MachineFunctions.
+  /// If set, running this pass will create a new MachineFunction. If not
+  /// set, then the MachineFunctions will be retrieved from the
+  /// MachineModuleInfo pass.
+  const TargetMachine *TM;
+
   MachineFunction *MF;
+
+  /// PreserveMF - Preserve the MF after this pass is released in the
+  /// MachineModuleInfo and (temporarily) transfer ownership to it.
   bool PreserveMF;
+
   unsigned NextFnNum;
 public:
   static char ID;
-  explicit MachineFunctionAnalysis(const TargetMachine &tm);
+  MachineFunctionAnalysis();
+  MachineFunctionAnalysis(const TargetMachine &tm);
   ~MachineFunctionAnalysis();
 
   /// preserveMF - Indicate that the MachineFunction should be preserved even

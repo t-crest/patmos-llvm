@@ -99,11 +99,22 @@ To install libraries for LTO support:
 To build an application, the following command can be used to compile and link
 the application:
 
-    patmos-clang -target patmos-unknown-elf -o hello main.c hello.c
+    patmos-clang -o hello main.c hello.c
 
 The application can be simulated using
 
     pasim hello
+
+
+The default target triple is 'patmos-unknown-unknown-elf', if the clang compiler
+is called 'patmos-clang'. You can set the target triple explicitly using -target:
+
+    patmos-clang -target patmos-unknown-unknown-elf -o hello main.c hello.c
+
+The following target triples are supported by the patmos tool-chain:
+
+    patmos-unknown-unknown-elf	    No operating system, run ELF on bare metal.
+    patmos-unknown-rtems	    Use RTEMS, defines __rtems__.
 
 
 Options for compiling and linking using the clang driver:

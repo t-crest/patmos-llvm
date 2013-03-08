@@ -102,15 +102,14 @@ static MCContext *addPassesToGenerateCode(LLVMTargetMachine *TM,
 
   // Install a MachineModuleInfo class, which is an immutable pass that holds
   // all the per-module stuff we're generating, including MCContext.
-  MachineModuleInfo *MMI =
-    new MachineModuleInfo(*TM->getMCAsmInfo(), *TM->getRegisterInfo(),
-                          *TM->getInstrInfo(),
-                          &TM->getTargetLowering()->getObjFileLowering());
+  MachineModuleInfo *MMI = new MachineModuleInfo(*TM);
   PM.add(MMI);
   MCContext *Context = &MMI->getContext(); // Return the MCContext by-ref.
 
   // Set up a MachineFunction for the rest of CodeGen to work on.
-  PM.add(new MachineFunctionAnalysis(*TM));
+  if (!PassConfig->isStopped()) {
+    PM.add(new MachineFunctionAnalysis(*TM));
+  }
 
   // Enable FastISel with -fast, but allow that to be overridden.
   if (EnableFastISelOption == cl::BOU_TRUE ||

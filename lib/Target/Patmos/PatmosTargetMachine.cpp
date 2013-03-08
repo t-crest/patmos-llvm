@@ -113,15 +113,13 @@ namespace {
     /// passes immediately before machine code is emitted.  This should return
     /// true if -print-machineinstrs should print out the code after the passes.
     virtual bool addPreEmitPass(){
-      addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
-      addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
       if (EnableStackCacheAnalysis) {
-	// TODO can we do that before the function splitter? It should remove
-	// some instructions, which can help the splitter, and the splitter
-	// should not modify the stack frames
         addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
+
+      addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
+      addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
       if (!SerializeMachineCode.empty()) {
         if (SerializeRoots.empty()) {

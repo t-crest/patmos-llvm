@@ -1,8 +1,10 @@
 #!/usr/bin/env ruby
 #
-# This is debugging only; ok to remove from repo at some point
+# PLATIN tool set
 #
-require 'utils.rb'
+# Simple visualizer (should be expanded to do proper report generation)
+#
+require 'platin.rb'
 include PML
 
 begin
@@ -15,14 +17,16 @@ rescue Exception => details
 end
 
 class Visualizer
+  attr_reader :options
   def generate(object,outfile)
     g = visualize(object)
-    puts outfile
+    $dbgs.puts outfile if options.debug
     g.output( :png => "#{outfile}" )
-    $stderr.puts "#{outfile} ok"
+    $stderr.puts "#{outfile} ok" if options.verbose
   end
 end
 class FlowGraphVisualizer < Visualizer
+  def initialize(options) ; @options = options ; end
   def visualize(function)
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
@@ -36,6 +40,13 @@ class FlowGraphVisualizer < Visualizer
       label << " (#{block['mapsto']})" if block['mapsto']
       label << " L#{block.loops.map {|b| b.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
+      if options.show_calls
+        block.instructions.each do |ins|
+          unless ins.callees.empty?
+            label << "\n " << ins.callees.map { |c| "#{c}()" }.join(",")
+          end
+        end
+      end
       #    block['instructions'].each do |ins|
       #      label << "\n#{ins['opcode']} #{ins['size']}"
       #    end
@@ -50,6 +61,7 @@ class FlowGraphVisualizer < Visualizer
   end
 end
 class RelationGraphVisualizer < Visualizer
+  def initialize(options) ; @options = options ; end
   def visualize(rg)
     nodes = {}
     g = GraphViz.new( :G, :type => :digraph )
@@ -74,21 +86,22 @@ class RelationGraphVisualizer < Visualizer
     g
   end
 end
+
 class VisualizeTool
   def VisualizeTool.default_targets(pml)
-    pml.bitcode_functions.reachable_from("main").first.map { |f| 
-      f.name
-    }.reject { |f|
-      f =~ /printf/
+    entry = pml.machine_functions.by_label("main")
+    pml.machine_functions.reachable_from(entry.name).first.reject { |f|
+      f.label =~ /printf/
+    }.map { |f|
+      f.label
     }
   end
   def VisualizeTool.run(pml, options)
     targets = options.functions || VisualizeTool.default_targets(pml)
     outdir = options.outdir || "."
-
     targets.each do |target|
       # Visualize the bitcode, machine code and relation graphs
-      fgv = FlowGraphVisualizer.new
+      fgv = FlowGraphVisualizer.new(options)
       begin
         bf = pml.bitcode_functions.by_name(target)
         fgv.generate(bf,File.join(outdir, target + ".bc" + ".png")) 
@@ -103,7 +116,7 @@ class VisualizeTool
         puts "Failed to visualize machinecode function #{target}: #{detail}"
       end
       begin
-        rgv = RelationGraphVisualizer.new
+        rgv = RelationGraphVisualizer.new(options)
         rg = pml.data['relation-graphs'].find { |f| f['src']['function'] ==target or f['dst']['function'] == target }
         raise Exception.new("Relation Graph not found") unless rg
         rgv.generate(rg,File.join(outdir, target + ".rg" + ".png"))
@@ -111,11 +124,13 @@ class VisualizeTool
         puts "Failed to visualize relation graph of #{target}: #{detail}"
       end
     end
+    statistics("number of generated bc,mc,rg graphs" => targets.length) if options.stats
   end
 
-  def VisualizeTool.add_options(opts,options)
-    opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| options.functions = f.split(/\s*,\s*/) }
-    opts.on("-O","--outdir DIR","Output directory for image files") { |d| options.outdir = d }
+  def VisualizeTool.add_options(opts)
+    opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| opts.options.functions = f.split(/\s*,\s*/) }
+    opts.on("--show-calls", "Visualize call sites") { opts.options.show_calls = true }
+    opts.on("-O","--outdir DIR","Output directory for image files") { |d| opts.options.outdir = d }
   end
 end
 
@@ -124,8 +139,8 @@ SYNOPSIS=<<EOF if __FILE__ == $0
 Visualize bitcode and machine code CFGS, and the control-flow relation
 graph of the specified set of functions
 EOF
-  options, args = PML::optparse(1,"FILE.pml", SYNOPSIS, :type => :none) do |opts,options|
-    VisualizeTool.add_options(opts,options)
+  options, args = PML::optparse([:input],"FILE.pml", SYNOPSIS) do |opts|
+    VisualizeTool.add_options(opts)
   end
   VisualizeTool.run(PMLDoc.from_file(args.first), options)
 end

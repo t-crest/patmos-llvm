@@ -24,6 +24,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/DataLayout.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
@@ -54,21 +55,26 @@ bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
           MFI->isFrameAddressTaken());
 }
 
+
 #if 0
 bool PatmosFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
   return !MF.getFrameInfo()->hasVarSizedObjects();
 }
 #endif
 
+
 static unsigned int align(unsigned int offset, unsigned int alignment) {
   return ((offset + alignment - 1) / alignment) * alignment;
 }
+
 
 void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
                                                 BitVector &SCFIs) const
 {
   MachineFrameInfo &MFI = *MF.getFrameInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
   const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
+  const TargetRegisterInfo *TRI = TM.getRegisterInfo();
 
   assert(MFI.isCalleeSavedInfoValid());
 
@@ -77,6 +83,11 @@ void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
       ie(CSI.end()); i != ie; i++)
   {
     SCFIs[i->getFrameIdx()] = true;
+  }
+
+  // RegScavenging register
+  if (TRI->requiresRegisterScavenging(MF)) {
+    SCFIs[PMFI.getRegScavengingFI()] = true;
   }
 
   // find all FIs that are spill slots
@@ -89,6 +100,7 @@ void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
       SCFIs[FI] = true;
   }
 }
+
 
 
 unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
@@ -202,6 +214,8 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
   return stackSize;
 }
 
+
+
 void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                                   MachineBasicBlock::iterator &MI,
                                   unsigned Opcode) const {
@@ -239,6 +253,10 @@ void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
     }
   }
 }
+
+
+
+
 void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // get some references
   MachineBasicBlock &MBB     = MF.front();
@@ -327,36 +345,31 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
                                   MachineFunction& MF, RegScavenger* RS) const {
 
   const TargetInstrInfo *TII = TM.getInstrInfo();
-  MachineRegisterInfo& MRI = MF.getRegInfo();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  const TargetRegisterInfo *TRI = TM.getRegisterInfo();
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  MachineFrameInfo &MFI = *MF.getFrameInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   // Insert instructions at the beginning of the entry block;
   // callee-saved-reg spills are inserted at front afterwards
   MachineBasicBlock &EntryMBB = MF.front();
 
   DebugLoc DL;
-  MachineBasicBlock *NBB = &EntryMBB;
-  while (NBB) {
-    if (!NBB->empty()) {
-      DL = NBB->front().getDebugLoc();
-      break;
-    }
-    NBB = NBB->getNextNode();
-  }
 
   if (hasFP(MF)) {
     // if framepointer enabled, set it to point to the stack pointer.
     // Set frame pointer: FP = SP
-    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::MOV), Patmos::RFP))
-      .addReg(Patmos::RSP);
+    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL,
+          TII->get(Patmos::MOV), Patmos::RFP)).addReg(Patmos::RSP);
     // Mark RFP as used
     MRI.setPhysRegUsed(Patmos::RFP);
   }
 
   // load the current function base if it needs to be passed to call sites
-  if (MF.getFrameInfo()->hasCalls()) {
+  if (MFI.hasCalls()) {
     // load long immediate: current function symbol into RFB
-    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::LIl), Patmos::RFB))
+    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL,
+          TII->get(Patmos::LIl), Patmos::RFB))
       .addGlobalAddress(MF.getFunction());
     // Mark the special registers of the method cache to be used when calls exist.
     MRI.setPhysRegUsed(Patmos::RFB);
@@ -371,9 +384,17 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   if (PatmosSinglePathInfo::isEnabled()) {
     // TODO allocate predicate spill slots
     // const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
-    // MFI->CreateSpillStackObject(RC->getSize(), RC->getAlignment());
+    // MFI.CreateSpillStackObject(RC->getSize(), RC->getAlignment());
     MRI.setPhysRegUsed(Patmos::SZ);
     MRI.setPhysRegUsed(Patmos::R26); // FIXME
+  }
+
+
+  if (TRI->requiresRegisterScavenging(MF)) {
+    const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
+    int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
+    RS->setScavengingFrameIndex(fi);
+    PMFI.setRegScavengingFI(fi);
   }
 }
 

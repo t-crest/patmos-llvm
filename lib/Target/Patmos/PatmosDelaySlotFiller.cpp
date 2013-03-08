@@ -327,8 +327,8 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
     for (MachineBasicBlock::succ_iterator SMBB = MBB.succ_begin();
             SMBB!=MBB.succ_end(); ++SMBB) {
       MachineInstr *FirstMI = (*SMBB)->begin();
-      if (hasDefUseDep(I, FirstMI)) {
-        TII->insertNoop(**SMBB, FirstMI); // insert before first instruction
+      if ((*SMBB)->empty() || hasDefUseDep(I, FirstMI)) {
+        TII->insertNoop(**SMBB, (*SMBB)->begin()); // insert before first instruction
         // stats and debug output
         ++InsertedLoadNOPs;
         if (!inserted) {

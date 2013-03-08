@@ -14,6 +14,8 @@
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
+#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -170,13 +172,20 @@ PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(Module &M,
 
 void PMLFunctionExport::serialize(const Function &Fn)
 {
+  // create PML bitcode function
   yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn.getName());
-
   F->Level = yaml::level_bitcode;
   yaml::BitcodeBlock *B;
   for (Function::const_iterator BI = Fn.begin(), BE = Fn.end(); BI != BE;
       ++BI) {
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
+
+    // export loop information (FIXME: not available)
+    // Loop *Loop = ILI.getLoopFor(BI);
+    // while (Loop) {
+    //  B->Loops.push_back(yaml::Name(Loop->getHeader()->getName()));
+    //  Loop = Loop->getParentLoop();
+    // }
 
     /// B->MapsTo = (maybe C-source debug info?)
     for (const_pred_iterator PI = pred_begin(&*BI), PE = pred_end(&*BI); PI != PE;
@@ -311,9 +320,9 @@ void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
   }
 
   if (!I->hasCallees()) {
-    errs() << "[mc2yml] Warning: no known callee for MC instruction ";
-    errs() << "(opcode " << Ins->getOpcode() << ")";
-    errs() << " in " << MF.getFunction()->getName() << "\n";
+    // errs() << "[mc2yml] Warning: no known callee for MC instruction ";
+    // errs() << "(opcode " << Ins->getOpcode() << ")";
+    // errs() << " in " << MF.getFunction()->getName() << "\n";
     // TODO shouldn't we just leave this empty??
     I->addCallee(StringRef("__any__"));
   }
@@ -509,6 +518,7 @@ void addProgressNodes(yaml::RelationGraph *RG,
     EventQueue<MachineBasicBlock*>* MQueue = I->second;
     EventQueue<const BasicBlock*>* IQueue = BitcodeEvents.remove(Event);
     if (IQueue == 0) {
+      DEBUG(dbgs() << "Unmatched Machine Event: " << Event << "\n");
       UnmatchedEvents.insert(Event);
       continue;
     }
@@ -546,18 +556,23 @@ void addProgressNodes(yaml::RelationGraph *RG,
     delete IQueue;
   }
   yaml::RelationNode *RN = RG->getExitNode();
+
+  // add src-edges from src-labeled nodes to exit
   for (std::vector<yaml::RelationNode*>::iterator PI =
       BitcodeEvents.getExitPredecessors().begin(), PE =
       BitcodeEvents.getExitPredecessors().end(); PI != PE; ++PI)
-    (*PI)->addSuccessor(RN, false);
+    (*PI)->addSuccessor(RN, true);
+
+  // add dst-edges from dst-labeled nodes to exit
   for (std::vector<yaml::RelationNode*>::iterator PI =
       MachineEvents.getExitPredecessors().begin(), PE =
       MachineEvents.getExitPredecessors().end(); PI != PE; ++PI)
-    (*PI)->addSuccessor(RN, true);
+    (*PI)->addSuccessor(RN, false);
   if (BitcodeEvents.begin() != BitcodeEvents.end()) {
     // unmatched events (bitcode side)
     for (EventQueueMap<const BasicBlock*>::iterator I = BitcodeEvents.begin(),
         E = BitcodeEvents.end(); I != E; ++I) {
+      DEBUG(dbgs() << "Unmatched Event (Bitcode): " << I->first << "\n");
       UnmatchedEvents.insert(I->first);
     }
   }
@@ -597,10 +612,10 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
   // retry (with a retry limit)
   unsigned TriesLeft = 3;
   yaml::RelationGraph *RG = 0;
+  yaml::RelationGraphStatus Status = yaml::rg_status_valid;
   while (TriesLeft-- > 0) {
     if (RG)
       delete RG; // also deletes scopes and nodes
-
     /// Create Graph
     yaml::RelationScope *DstScope = new yaml::RelationScope(
         yaml::Name(MF.getFunctionNumber()), yaml::level_machinecode);
@@ -656,22 +671,18 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
     }
     if (UnmatchedEvents.empty()) { // No unmatched events this time
       break;
-    }
-    else if (TabuEvents.empty()) {
-      DEBUG(dbgs() << "[mc2yml] Warning: inconsistent initial mapping for "
-                   << MF.getFunction()->getName() << " (retrying)\n");
+    } else if (TabuEvents.empty()) {
+      DEBUG(errs() << "[mc2yml] Warning: inconsistent initial mapping for "
+            << MF.getFunction()->getName() << " (retrying)\n");
+      Status = yaml::rg_status_corrected;
     }
     TabuEvents.insert(UnmatchedEvents.begin(), UnmatchedEvents.end());
   }
   if (!UnmatchedEvents.empty()) {
-    DEBUG(dbgs() << "[mc2yml] Error: failed to find a correct event mapping for "
-           << MF.getFunction()->getName() << ": ";
-    for (std::set<StringRef>::iterator I = UnmatchedEvents.begin(), E =
-        UnmatchedEvents.end(); I != E; ++I) {
-      dbgs() << *I << ",";
-    }
-    dbgs() << "\n");
+    DEBUG(errs() << "[mc2yml] Error: failed to find a correct event mapping for " << MF.getFunction()->getName() << "\n");
+    Status = yaml::rg_status_incomplete;
   }
+  RG->Status = Status;
   YDoc.addRelationGraph(RG);
 }
 
@@ -682,30 +693,46 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
 {
   BitcodeEventMap.clear();
   MachineEventMap.clear();
+  DEBUG(dbgs() << "buildEventMaps() " << MF.begin()->getParent()->getFunction()->getName() << "\n");
+  std::map<MachineBasicBlock*, StringRef> InitialEvents;
   for (MachineFunction::iterator BlockI = MF.begin(), BlockE = MF.end();
       BlockI != BlockE; ++BlockI) {
-    /// Check predecessors, ignoring backedges, unmapped nodes and nodes mapped
-    /// to the entry node
-    if (!BlockI->getBasicBlock())
+    /// No mapping if there is no information on the original basic block
+    if (!BlockI->getBasicBlock()) {
+      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": no mapping information\n");
       continue;
-    if (BlockI->getBasicBlock() == BlockI->getBasicBlock()->getParent()->begin())
+    }
+    /// No mapping if it maps to the entry node
+    if (BlockI->getBasicBlock() == BlockI->getBasicBlock()->getParent()->begin()) {
+      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": entry node\n");
       continue;
-    if (TabuList.count(BlockI->getBasicBlock()->getName()) > 0)
+    }
+    /// XXX: No mapping if the loop nest levels do not match ?
+    /// No mapping if the block is tabu
+    if (TabuList.count(BlockI->getBasicBlock()->getName()) > 0) {
+      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": TABU\n");
       continue;
+    }
+
+    StringRef Event = BlockI->getBasicBlock()->getName();
 
     bool IsSubNode = false;
+    /// No mapping if predecessor (excluding loop latches) is mapped to the same block
     for (MachineBasicBlock::const_pred_iterator PredI = BlockI->pred_begin(),
         PredE = BlockI->pred_end(); PredI != PredE; ++PredI)
     {
       if (isBackEdge(*PredI, BlockI))
-        continue;
-      if ((*PredI)->getBasicBlock() == BlockI->getBasicBlock())
+          continue;
+      if ((*PredI)->getBasicBlock() == BlockI->getBasicBlock()) {
         IsSubNode = true;
+        break;
+      }
     }
-    if (IsSubNode)
+    if (IsSubNode) {
+      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": subgraph node\n");
       continue;
-
-    StringRef Event = BlockI->getBasicBlock()->getName();
+    }
+    DEBUG(dbgs() << "MachineEvent " << BlockI->getNumber() << " -> " << Event << "\n");
     MachineEventMap.insert(std::make_pair(BlockI, Event));
     BitcodeEventMap.insert(std::make_pair(BlockI->getBasicBlock(), Event));
   }
@@ -794,6 +821,18 @@ bool PMLExportPass::doFinalization(Module &M) {
     delete Output;
     delete OutFile;
   }
+
+  if (!BitcodeFile.empty()) {
+    std::string ErrorInfo;
+    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo, 0);
+    WriteBitcodeToFile(&M, BitcodeStream.os());
+    if(! ErrorInfo.empty()) {
+      errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";
+    } else {
+      BitcodeStream.keep();
+    }
+  }
+
   return false;
 }
 
@@ -943,6 +982,18 @@ void PMLModuleExportPass::finalize(Module &M) {
     delete Output;
     delete OutFile;
   }
+
+  if (!BitcodeFile.empty()) {
+    std::string ErrorInfo;
+    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo, 0);
+    WriteBitcodeToFile(&M, BitcodeStream.os());
+    if(! ErrorInfo.empty()) {
+      errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";
+    } else {
+      BitcodeStream.keep();
+    }
+  }
+
 }
 
 void PMLModuleExportPass::addToQueue(Module &M, MachineModuleInfo &MMI,
@@ -986,5 +1037,6 @@ createPMLExportPass(TargetMachine &TM, std::string& FileName)
 
   return PEP;
 }
+
 
 } // end namespace llvm

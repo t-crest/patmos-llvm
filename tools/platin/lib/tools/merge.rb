@@ -6,15 +6,15 @@
 # The real work is done in the PML library,
 # this is just a simple wrapper
 #
-require 'utils.rb'
+require 'platin'
 include PML
 
 class MergeTool
   def MergeTool.run(files)
     stream = []
     files.each do |f|
-      data = if f.kind_of?(String) 
-               File.open(f) { |fh| YAML::load_stream(fh) }        
+      data = if f.kind_of?(String)
+               File.open(f) { |fh| YAML::load_stream(fh) }
              else
                YAML::load_stream(f)
              end
@@ -31,6 +31,9 @@ Merges a stream of YAML documents into one document (if version
 and architecture are compatible)
 EOF
 
-  options, args = PML::optparse(nil, "[file.pml..]", SYNOPSIS, :type => :output)
+  options, args = PML::optparse(nil, "[file.pml...]", SYNOPSIS) do |opts|
+    opts.writes_pml
+  end
+  args = [ $< ] if args.empty?
   MergeTool.run(args).dump_to_file(options.output)
 end
