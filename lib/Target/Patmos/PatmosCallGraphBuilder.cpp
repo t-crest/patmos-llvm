@@ -285,7 +285,7 @@ namespace llvm {
 
   //----------------------------------------------------------------------------rk
 
-  void PatmosCallGraphBuilder::visitCallSites(Module &M, MachineFunction *MF)
+  void PatmosCallGraphBuilder::visitCallSites(const Module &M, MachineFunction *MF)
   {
     // get the machine-level module information.
     MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
@@ -332,7 +332,7 @@ namespace llvm {
     }
   }
 
-  MCGNode *PatmosCallGraphBuilder::getMCGNode(Module &M, const char *name)
+  MCGNode *PatmosCallGraphBuilder::getMCGNode(const Module &M, const char *name)
   {
     Function *F = dyn_cast_or_null<Function>(M.getNamedValue(name));
     if (F) {
@@ -376,7 +376,7 @@ namespace llvm {
     }
   }
 
-  bool PatmosCallGraphBuilder::runOnModule(Module &M)
+  bool PatmosCallGraphBuilder::runOnMachineModule(const Module &M)
   {
     // get the machine-level module information for M.
     MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());

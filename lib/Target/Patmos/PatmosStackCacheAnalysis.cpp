@@ -20,6 +20,7 @@
 #include "PatmosTargetMachine.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/Support/Debug.h"
 
 #include <map>
@@ -32,7 +33,7 @@ namespace llvm {
   STATISTIC(RemainingSENS, "SENS instructions remaining.");
 
   /// Pass to analyze the usage of Patmos' stack cache.
-  class PatmosStackCacheAnalysis : public ModulePass {
+  class PatmosStackCacheAnalysis : public MachineModulePass {
   private:
     /// Work list of basic blocks.
     typedef std::set<MachineBasicBlock*> MBBs;
@@ -59,7 +60,7 @@ namespace llvm {
     static char ID;
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
-        ModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>())
+        MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>())
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
@@ -442,7 +443,7 @@ namespace llvm {
     }
 
     /// runOnModule - determine the state of the stack cache for each call site.
-    virtual bool runOnModule(Module &M)
+    virtual bool runOnMachineModule(const Module &M)
     {
       PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
       const MCGNodes &nodes(PCGB.getNodes());

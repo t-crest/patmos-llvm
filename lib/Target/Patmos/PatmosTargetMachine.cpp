@@ -69,20 +69,6 @@ namespace {
       return *getPatmosTargetMachine().getSubtargetImpl();
     }
 
-    /// addModulePass - Add a machine-level module pass to the pass manager and
-    /// ensure that the MachineFunctionAnalysis is preserved/rebuilt.
-    void addModulePass(ModulePass *MP)
-    {
-      // ensure that MachineFunctionAnalysis is preserved across the module pass
-      addPass(createPatmosPreserveFunctionPass());
-
-      // add the module pass
-      addPass(MP);
-
-      // rebuild the MachineFunctionAnalysis
-      addPass(new MachineFunctionAnalysis(getPatmosTargetMachine()));
-    }
-
     virtual bool addInstSelector() {
       addPass(createPatmosISelDag(getPatmosTargetMachine()));
       return false;
@@ -94,7 +80,7 @@ namespace {
     virtual bool addPreEmitPass(){
 
       if (EnableStackCacheAnalysis) {
-        addModulePass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
 
       addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
@@ -105,7 +91,7 @@ namespace {
           addPass(createPatmosExportPass(getPatmosTargetMachine(),
                                          SerializeMachineCode));
         } else {
-          addModulePass(createPatmosModuleExportPass(getPatmosTargetMachine(),
+          addPass(createPatmosModuleExportPass(getPatmosTargetMachine(),
                                          SerializeMachineCode, SerializeRoots));
         }
       }

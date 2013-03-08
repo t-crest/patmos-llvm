@@ -20,6 +20,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/raw_ostream.h"
@@ -446,13 +447,13 @@ namespace llvm {
 
     /// getCallees - get possible callee functions for a call.
     /// If the name of a callee is known but not in this module, it is omitted.
-    virtual MFList getCallees(Module &M, MachineModuleInfo &MMI,
+    virtual MFList getCallees(const Module &M, MachineModuleInfo &MMI,
                               MachineFunction &MF, const MachineInstr *Instr);
 
     virtual MBBList getBranchTargets(MachineFunction &MF,
                                      const MachineInstr *Instr);
 
-    virtual MFList getCalledFunctions(Module &M,
+    virtual MFList getCalledFunctions(const Module &M,
                                       MachineModuleInfo &MMI,
                                       MachineFunction &MF);
   };
@@ -464,9 +465,9 @@ namespace llvm {
 
     virtual ~PMLExport() {}
 
-    virtual void initialize(Module &M) {}
+    virtual void initialize(const Module &M) {}
 
-    virtual void finalize(Module &M) {}
+    virtual void finalize(const Module &M) {}
 
     virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI) =0;
 
@@ -480,9 +481,9 @@ namespace llvm {
 
     virtual ~PMLBitcodeExport() {}
 
-    virtual void initialize(Module &M) {}
+    virtual void initialize(const Module &M) {}
 
-    virtual void finalize(Module &M) {}
+    virtual void finalize(const Module &M) {}
 
     virtual void serialize(const Function &F) =0;
 
@@ -497,9 +498,9 @@ namespace llvm {
 
     virtual ~PMLBitcodeExportAdapter() { if (Exporter) delete Exporter; }
 
-    virtual void initialize(Module &M);
+    virtual void initialize(const Module &M);
 
-    virtual void finalize(Module &M);
+    virtual void finalize(const Module &M);
 
     virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
 
@@ -658,7 +659,7 @@ namespace llvm {
   // TODO this pass is currently implemented to work as machine-code module
   // pass. It should either support running on bitcode only as well, or
   // implement another pass for that.
-  class PMLModuleExportPass : public ModulePass {
+  class PMLModuleExportPass : public MachineModulePass {
 
     static char ID;
 
@@ -699,18 +700,18 @@ namespace llvm {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
 
-    virtual bool runOnModule(Module &M);
+    virtual bool runOnMachineModule(const Module &M);
 
   protected:
 
-    void initialize(Module &M);
+    void initialize(const Module &M);
 
-    void finalize(Module &M);
+    void finalize(const Module &M);
 
-    void addCalleesToQueue(Module &M, MachineModuleInfo &MMI,
+    void addCalleesToQueue(const Module &M, MachineModuleInfo &MMI,
                            MachineFunction &MF);
 
-    void addToQueue(Module &M, MachineModuleInfo &MMI, std::string FnName);
+    void addToQueue(const Module &M, MachineModuleInfo &MMI, std::string FnName);
 
     void addToQueue(MachineFunction *MF);
 
