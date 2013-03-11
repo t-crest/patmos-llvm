@@ -36,8 +36,7 @@ private:
   /// computeLargeFIOffset - Emit an ADDi or ADDl instruction to compute a large 
   /// FI offset.
   /// \note The offset and basePtr arguments are possibly updated!
-  void computeLargeFIOffset(MachineRegisterInfo &MRI,
-                            int &offset, unsigned &basePtr,
+  void computeLargeFIOffset(int &offset, unsigned &basePtr,
                             MachineBasicBlock::iterator II,
                             int shl) const;
 
@@ -70,17 +69,6 @@ public:
   virtual bool hasReservedSpillSlot(const MachineFunction &MF, unsigned Reg,
                                     int &FrameIdx) const;
 
-  /// requiresRegisterScavenging - returns true if the target requires (and can
-  /// make use of) the register scavenger.
-  virtual bool requiresRegisterScavenging(const MachineFunction &MF) const {
-    return true;
-  }
-
-  /// requiresFrameIndexScavenging - returns true if the target requires post
-  /// PEI scavenging of registers for materializing frame index constants.
-  virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const {
-    return true;
-  }
 #if 0
   const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
 #endif

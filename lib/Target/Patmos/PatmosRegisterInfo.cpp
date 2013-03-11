@@ -21,7 +21,6 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
-#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/ADT/BitVector.h"
@@ -158,8 +157,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
 
 void
-PatmosRegisterInfo::computeLargeFIOffset(MachineRegisterInfo &MRI,
-                                         int &offset, unsigned &basePtr,
+PatmosRegisterInfo::computeLargeFIOffset(int &offset, unsigned &basePtr,
                                          MachineBasicBlock::iterator II,
                                          int shl) const {
   MachineBasicBlock &MBB = *II->getParent();
@@ -174,12 +172,11 @@ PatmosRegisterInfo::computeLargeFIOffset(MachineRegisterInfo &MRI,
                                                      Patmos::ADDl;
 
   // emit instruction
-  unsigned scratchReg = MRI.createVirtualRegister(&Patmos::RRegsRegClass);
-  AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode), scratchReg))
+  AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode), Patmos::RTR))
     .addReg(basePtr).addImm(offsetLarge << shl);
 
   // return value
-  basePtr = scratchReg;
+  basePtr = Patmos::RTR;
   offset  = offsetLeft;
 }
 
@@ -254,9 +251,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   const TargetFrameLowering &TFI  = *TM.getFrameLowering();
   const MachineFrameInfo &MFI     = *MF.getFrameInfo();
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
-  MachineRegisterInfo &MRI        = MF.getRegInfo();
 
-  bool computedLargeOffset = false;
 
   //----------------------------------------------------------------------------
   // find position of the FrameIndex object
@@ -319,8 +314,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
       // if needed expand computation of large offsets
       if (!isInt<7>(Offset)) {
-        computeLargeFIOffset(MRI, Offset, BasePtr, II, 2);
-        computedLargeOffset = true;
+        computeLargeFIOffset(Offset, BasePtr, II, 2);
       }
       break;
     case Patmos::LHC: case Patmos::LHM:
@@ -332,8 +326,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
       // if needed expand computation of large offsets
       if (!isInt<7>(Offset)) {
-        computeLargeFIOffset(MRI, Offset, BasePtr, II, 1);
-        computedLargeOffset = true;
+        computeLargeFIOffset(Offset, BasePtr, II, 1);
       }
       break;
     case Patmos::LBC: case Patmos::LBM:
@@ -344,8 +337,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
       // if needed expand computation of large offsets
       if (!isInt<7>(Offset)) {
-        computeLargeFIOffset(MRI, Offset, BasePtr, II, 0);
-        computedLargeOffset = true;
+        computeLargeFIOffset(Offset, BasePtr, II, 0);
       }
       break;
     case Patmos::ADDi:
@@ -364,7 +356,8 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       Offset += FrameDisplacement;
       break;
     default:
-      llvm_unreachable("Unexpected operation with FrameIndex encountered.");
+      assert("Unexpected operation with FrameIndex encountered." && false);
+      abort();
   }
 
   // special handling of pseudo instructions: expand
@@ -388,7 +381,8 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::ADDi: case Patmos::ADDl: case Patmos::DBG_VALUE:
       break;
     default:
-      llvm_unreachable("Unexpected operation with FrameIndex encountered.");
+      assert("Unexpected operation with FrameIndex encountered." && false);
+      abort();
   }
 
   if (isOnStackCache) {
@@ -397,7 +391,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   }
 
   // update the instruction's operands
-  MI.getOperand(i).ChangeToRegister(BasePtr, false, false, computedLargeOffset);
+  MI.getOperand(i).ChangeToRegister(BasePtr, false);
   MI.getOperand(i+1).ChangeToImmediate(Offset);
 }
 
