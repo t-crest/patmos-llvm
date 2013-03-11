@@ -390,8 +390,7 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
     return true;
 
   // don't move loads to the last delay slot for return
-  if (I->mayLoad() && Candidates.empty() &&
-      MI.getOpcode()==Patmos::RET )
+  if (I->mayLoad() && Candidates.empty() && MI->isReturn() )
     return true;
 
   // don't move loads with use immediately afterwards
