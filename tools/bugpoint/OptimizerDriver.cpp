@@ -148,7 +148,13 @@ bool BugDriver::runPasses(Module *Program,
     return 1;
   }
 
-  sys::Path tool = sys::Program::FindProgramByName("opt");
+  // Try searching for a matching version of opt first.
+  sys::Path tool = PrependMainExecutablePath("opt", getToolName(),
+                                             (void*)"opt");
+  if (tool.empty() || !llvm::sys::fs::exists(tool.str())) {
+    // Search in PATH only if we cannot find opt in the same dir as bugpoint.
+    tool = sys::Program::FindProgramByName("opt");
+  }
   if (tool.empty()) {
     errs() << "Cannot find `opt' in PATH!\n";
     return 1;
