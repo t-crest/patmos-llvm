@@ -71,11 +71,11 @@ bool operator==(const Name n1, const Name n2) {
 namespace llvm
 {
 
-void PMLBitcodeExportAdapter::initialize(Module &M) {
+void PMLBitcodeExportAdapter::initialize(const Module &M) {
   Exporter->initialize(M);
 }
 
-void PMLBitcodeExportAdapter::finalize(Module &M) {
+void PMLBitcodeExportAdapter::finalize(const Module &M) {
   Exporter->finalize(M);
 }
 
@@ -106,7 +106,7 @@ PMLInstrInfo::StringList PMLInstrInfo::getCalleeNames(MachineFunction &Caller,
   return Callees;
 }
 
-PMLInstrInfo::MFList PMLInstrInfo::getCallees(Module &M,
+PMLInstrInfo::MFList PMLInstrInfo::getCallees(const Module &M,
                                               MachineModuleInfo &MMI,
                                               MachineFunction &MF,
                                               const MachineInstr *Ins)
@@ -141,7 +141,7 @@ PMLInstrInfo::MBBList PMLInstrInfo::getBranchTargets(
   return targets;
 }
 
-PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(Module &M,
+PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(const Module &M,
                                               MachineModuleInfo &MMI,
                                               MachineFunction &MF)
 {
@@ -854,14 +854,14 @@ char PMLExportPass::ID = 0;
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
                               StringRef filename,
                               ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : ModulePass(id), OutFileName(filename), Roots(roots)
+  : MachineModulePass(id), OutFileName(filename), Roots(roots)
 {
   PII = pii ? pii : new PMLInstrInfo();
 }
 
 PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
                               ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : ModulePass(ID), OutFileName(filename), Roots(roots)
+  : MachineModulePass(ID), OutFileName(filename), Roots(roots)
 {
   PII = pii ? pii : new PMLInstrInfo();
 }
@@ -885,7 +885,7 @@ void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
   ModulePass::getAnalysisUsage(AU);
 }
 
-bool PMLModuleExportPass::runOnModule(Module &M)
+bool PMLModuleExportPass::runOnMachineModule(const Module &M)
 {
   // get the machine-level module information.
   MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
@@ -924,7 +924,7 @@ bool PMLModuleExportPass::runOnModule(Module &M)
   return false;
 }
 
-void PMLModuleExportPass::addCalleesToQueue(Module &M, MachineModuleInfo &MMI,
+void PMLModuleExportPass::addCalleesToQueue(const Module &M, MachineModuleInfo &MMI,
                                             MachineFunction &MF)
 {
   PMLInstrInfo::MFList Callees = PII->getCalledFunctions(M, MMI, MF);
@@ -935,7 +935,7 @@ void PMLModuleExportPass::addCalleesToQueue(Module &M, MachineModuleInfo &MMI,
   }
 }
 
-void PMLModuleExportPass::initialize(Module &M) {
+void PMLModuleExportPass::initialize(const Module &M) {
   for (MCExportList::iterator it = MCExporters.begin(), ie = MCExporters.end();
        it != ie; ++it)
   {
@@ -948,7 +948,7 @@ void PMLModuleExportPass::initialize(Module &M) {
   }
 }
 
-void PMLModuleExportPass::finalize(Module &M) {
+void PMLModuleExportPass::finalize(const Module &M) {
   tool_output_file *OutFile;
   yaml::Output *Output;
   std::string ErrorInfo;
@@ -996,10 +996,10 @@ void PMLModuleExportPass::finalize(Module &M) {
 
 }
 
-void PMLModuleExportPass::addToQueue(Module &M, MachineModuleInfo &MMI,
+void PMLModuleExportPass::addToQueue(const Module &M, MachineModuleInfo &MMI,
                                      std::string FnName)
 {
-  Function *F = M.getFunction(FnName);
+  const Function *F = M.getFunction(FnName);
   if (!F) {
     errs() << "[mc2yml] Could not find function " << FnName << " in module.\n";
     return;

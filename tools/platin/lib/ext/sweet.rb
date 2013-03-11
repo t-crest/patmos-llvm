@@ -12,7 +12,7 @@ begin
 rescue Exception => details
   $stderr.puts "Failed to load library rsec"
   $stderr.puts "  ==> gem1.9.1 install rsec"
-  $stderr.put "Failed to load required ruby libraries"
+  $stderr.puts "Failed to load required ruby libraries"
   exit 1
 end
 

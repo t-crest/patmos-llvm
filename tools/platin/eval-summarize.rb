@@ -306,6 +306,7 @@ EOF
           txt, cat = format_cell(row, col, baseline, overhead)
           bg = case cat
                when 'invalid' then 'cyan'
+               when 'missing' then 'cyan'
                when 'underestimation' then 'red'
                when 'imprecise' then 'yellow'
                when 'ok' then 'lightgreen'

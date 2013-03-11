@@ -38,7 +38,6 @@ namespace llvm {
                                        std::string& filename,
                                        ArrayRef<std::string> roots);
 
-  FunctionPass *createPatmosPreserveFunctionPass();
   ModulePass *createPatmosCallGraphBuilder();
   ModulePass *createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm);
 } // end namespace llvm;
