@@ -28,6 +28,7 @@ void MachineModulePass::preparePassManager(PMStack &PMS) {
   if (MFA) {
     MFA->preserveMF();
   }
+  ModulePass::preparePassManager(PMS);
 }
 
 bool MachineModulePass::runOnModule(Module &M) {

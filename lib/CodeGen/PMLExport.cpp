@@ -882,7 +882,7 @@ void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
   AU.setPreservesAll();
   AU.addRequired<MachineModuleInfo>();
   AU.addRequired<MachineLoopInfo>();
-  ModulePass::getAnalysisUsage(AU);
+  MachineModulePass::getAnalysisUsage(AU);
 }
 
 bool PMLModuleExportPass::runOnMachineModule(const Module &M)
