@@ -706,6 +706,11 @@ Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
   return 0;
 }
 
+void PMTopLevelManager::addImmutablePasses(PMTopLevelManager *TPM) {
+  SmallVectorImpl<ImmutablePass*> &IP = TPM->getImmutablePasses();
+  ImmutablePasses.append(IP.begin(), IP.end());
+}
+
 // Print passes managed by this top level manager.
 void PMTopLevelManager::dumpPasses() const {
 
@@ -1612,6 +1617,8 @@ void MPPassManager::addLowerLevelRequiredPass(Pass *P, Pass *RequiredPass) {
     FPP = new FunctionPassManagerImpl();
     // FPP is the top level manager.
     FPP->setTopLevelManager(FPP);
+
+    FPP->addImmutablePasses(this->TPM);
 
     OnTheFlyManagers[P] = FPP;
   }

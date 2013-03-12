@@ -206,6 +206,9 @@ public:
     ImmutablePasses.push_back(P);
   }
 
+  /// Add immutable passes from top level manager without initializing them.
+  void addImmutablePasses(PMTopLevelManager *TPM);
+
   inline SmallVectorImpl<ImmutablePass *>& getImmutablePasses() {
     return ImmutablePasses;
   }
