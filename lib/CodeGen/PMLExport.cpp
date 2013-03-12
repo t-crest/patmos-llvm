@@ -889,7 +889,6 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
 {
   // get the machine-level module information.
   MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
-  MachineLoopInfo &LI(getAnalysis<MachineLoopInfo>());
 
   // Queue roots
   FoundFunctions.clear();
@@ -905,12 +904,17 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
     MachineFunction *MF = Queue.front();
     Queue.pop_front();
 
-    const Function* F = MF->getFunction();
+    // We need to remove the const for getAnalysis<>(*F), it might modify
+    // F since it will run (analysis) function passes on it.
+    Function* F = const_cast<Function*>(MF->getFunction());
+
     if (F) {
       for (size_t i=0; i < BCExporters.size(); i++) {
         BCExporters[i]->serialize(*F);
       }
     }
+
+    MachineLoopInfo &LI(getAnalysis<MachineLoopInfo>(*F));
 
     for (size_t i=0; i < MCExporters.size(); i++) {
       MCExporters[i]->serialize(*MF, &LI);
