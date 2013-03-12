@@ -224,7 +224,7 @@ public:
   }
 
   // Print passes managed by this top level manager.
-  void dumpPasses() const;
+  void dumpPasses(unsigned Offset = 0) const;
   void dumpArguments() const;
 
   // Active Pass Managers
