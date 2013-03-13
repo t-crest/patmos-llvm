@@ -704,9 +704,9 @@ namespace llvm {
 
   protected:
 
-    void initialize(const Module &M);
+    virtual bool doInitialization(Module &M);
 
-    void finalize(const Module &M);
+    virtual bool doFinalization(Module &M);
 
     void addCalleesToQueue(const Module &M, MachineModuleInfo &MMI,
                            MachineFunction &MF);

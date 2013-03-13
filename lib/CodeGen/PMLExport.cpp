@@ -897,8 +897,6 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
     addToQueue(M, MMI, Roots[i]);
   }
 
-  initialize(M);
-
   // follow roots until no new methods are found
   while (!Queue.empty()) {
     MachineFunction *MF = Queue.front();
@@ -923,8 +921,6 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
     addCalleesToQueue(M, MMI, *MF);
   }
 
-  finalize(M);
-
   return false;
 }
 
@@ -939,7 +935,7 @@ void PMLModuleExportPass::addCalleesToQueue(const Module &M, MachineModuleInfo &
   }
 }
 
-void PMLModuleExportPass::initialize(const Module &M) {
+bool PMLModuleExportPass::doInitialization(Module &M) {
   for (MCExportList::iterator it = MCExporters.begin(), ie = MCExporters.end();
        it != ie; ++it)
   {
@@ -950,9 +946,10 @@ void PMLModuleExportPass::initialize(const Module &M) {
   {
     (*it)->initialize(M);
   }
+  return false;
 }
 
-void PMLModuleExportPass::finalize(const Module &M) {
+bool PMLModuleExportPass::doFinalization(Module &M) {
   tool_output_file *OutFile;
   yaml::Output *Output;
   std::string ErrorInfo;
@@ -962,7 +959,7 @@ void PMLModuleExportPass::finalize(const Module &M) {
     delete OutFile;
     errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
     errs() << "[mc2yml] Reason: " << ErrorInfo;
-    return;
+    return false;
   }
   else {
     Output = new yaml::Output(OutFile->os());
@@ -997,7 +994,7 @@ void PMLModuleExportPass::finalize(const Module &M) {
       BitcodeStream.keep();
     }
   }
-
+  return false;
 }
 
 void PMLModuleExportPass::addToQueue(const Module &M, MachineModuleInfo &MMI,

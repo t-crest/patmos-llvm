@@ -33,6 +33,7 @@ protected:
 
   virtual void preparePassManager(PMStack &);
 
+public:
   /// runOnMachineModule - This method must be overloaded to perform the
   /// desired machine code transformation or analysis.
   ///
@@ -42,6 +43,10 @@ protected:
   /// must call this.
   ///
   virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+
+  virtual bool doInitialization(Module &M) { return false; }
+
+  virtual bool doFinalization(Module &M) { return false; }
 
 private:
   virtual bool runOnModule(Module &F);

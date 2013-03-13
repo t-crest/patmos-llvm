@@ -32,7 +32,15 @@ void MachineModulePass::preparePassManager(PMStack &PMS) {
 }
 
 bool MachineModulePass::runOnModule(Module &M) {
-  return runOnMachineModule(M);
+  bool Changed = false;
+  // This is a temporary workaround: in LLVM 3.2, doInitialization is
+  // only defined and called for FunctionPasses. In LLVM 3.3, this will be
+  // defined and called for all Passes. For now, we emulate LLVM 3.3
+  // behavior to be upstream compatible.
+  Changed |= doInitialization(M);
+  Changed |= runOnMachineModule(M);
+  Changed |= doFinalization(M);
+  return Changed;
 }
 
 void MachineModulePass::getAnalysisUsage(AnalysisUsage &AU) const {
