@@ -41,7 +41,6 @@ MachineFunctionAnalysis::MachineFunctionAnalysis(const TargetMachine &tm) :
 }
 
 MachineFunctionAnalysis::~MachineFunctionAnalysis() {
-  releaseMemory();
   assert(!MF && "MachineFunctionAnalysis left initialized!");
 }
 
@@ -90,8 +89,14 @@ bool MachineFunctionAnalysis::runOnFunction(Function &F) {
       // of persisted functions to calculate the function-number.
       llvm_unreachable(
          "MachineFunction has not been preserved. "
-         "Make to use a MachineModulePass instead of a ModulePass");
+         "Make sure to use MachineModulePasses instead of ModulePasses");
     }
+  }
+  else {
+    // Once we stored the MF, keep it that way. This is a workaround for the
+    // problem that sometimes this pass is created on the fly and thus not
+    // found by MachineModulePass.
+    PreserveMF = true;
   }
 
   return false;

@@ -694,6 +694,23 @@ Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
 
   // Check the immutable passes. Iterate in reverse order so that we find
   // the most recently registered passes first.
+  Pass *IP;
+  if ((IP = getImmutablePass(AID)))
+    return IP;
+
+  // Search inherited pass managers
+  for (SmallVectorImpl<PMTopLevelManager*>::iterator
+      I = InheritedPassManagers.begin(), E = InheritedPassManagers.end();
+      I != E; ++I) {
+    if ((IP = (*I)->getImmutablePass(AID)))
+      return IP;
+  }
+
+  return 0;
+}
+
+Pass *PMTopLevelManager::getImmutablePass(AnalysisID AID) {
+
   for (SmallVector<ImmutablePass *, 8>::reverse_iterator I =
        ImmutablePasses.rbegin(), E = ImmutablePasses.rend(); I != E; ++I) {
     AnalysisID PI = (*I)->getPassID();
@@ -714,11 +731,6 @@ Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
   }
 
   return 0;
-}
-
-void PMTopLevelManager::addImmutablePasses(PMTopLevelManager *TPM) {
-  SmallVectorImpl<ImmutablePass*> &IP = TPM->getImmutablePasses();
-  ImmutablePasses.append(IP.begin(), IP.end());
 }
 
 // Print passes managed by this top level manager.
@@ -1629,7 +1641,7 @@ void MPPassManager::addLowerLevelRequiredPass(Pass *P, Pass *RequiredPass) {
     // FPP is the top level manager.
     FPP->setTopLevelManager(FPP);
 
-    FPP->addImmutablePasses(this->TPM);
+    FPP->inheritFromTopLevelManager(this->TPM);
 
     OnTheFlyManagers[P] = FPP;
   }
