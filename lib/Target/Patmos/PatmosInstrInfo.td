@@ -631,10 +631,10 @@ class PredCombine<bits<4> opcode, string asmop>
               (outs PRegs:$pd), (ins pred:$p, predset:$ps1, predset:$ps2),
               asmop, "$pd = $ps1, $ps2", []>;
 
-def POR:  PredCombine <0b0110, "or">;
-def PAND: PredCombine <0b0111, "and">;
-def PXOR: PredCombine <0b1010, "xor">;
-def PNOR: PredCombine <0b1011, "nor">;
+def POR:  PredCombine <0b0110, "por">;
+def PAND: PredCombine <0b0111, "pand">;
+def PXOR: PredCombine <0b1010, "pxor">;
+def PNOR: PredCombine <0b1011, "pnor">;
 
 
 // Pseudos:
@@ -642,13 +642,13 @@ def PNOR: PredCombine <0b1011, "nor">;
 let isAsCheapAsAMove=1, ps2 = 0b1000 in {
   let neverHasSideEffects = 1 in
   def PMOV: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
-                  "mov", "$pd = $ps1", []>;
+                  "pmov", "$pd = $ps1", []>;
 
   // conditional move, like mov with setable predicate
   // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
   let Constraints = "$old = $pd", isCodeGenOnly = 1 in
   def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, PRegs:$old, PRegs:$new),
-                  "mov", "$pd = $new",
+                  "pmov", "$pd = $new",
                   [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]> 
   {
     bits<4> new;
@@ -659,7 +659,7 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
 //not uses nor opcode (nor Pd = Ps, !p0)
 let ps2 = 0b1000 in
 def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
-                "not", "$pd = $ps1",
+                "pnot", "$pd = $ps1",
                 [(set PRegs:$pd, (not predsel:$ps1))]>;
 
 
@@ -671,13 +671,13 @@ let isAsCheapAsAMove = 1,
   //set uses or opcode (or Pd = p0 | p0)
   let ps1 = 0, ps2 = 0 in
   def PSET: ALUp <0b0110, (outs PRegs:$pd), (ins pred:$p),
-                  "set", "$pd",
+                  "pset", "$pd",
                   [(set PRegs:$pd, (i1 -1))]>;
 
   //clr uses xor opcode (xor Pd = p0 ^ p0)
   let ps1 = 0, ps2 = 0 in
   def PCLR: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p),
-                  "clr", "$pd",
+                  "pclr", "$pd",
                   [(set PRegs:$pd, (i1 0))]>;
 }
 
@@ -741,17 +741,17 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
   }
 }
 
-let ImmShift = 2, ImmSigned = 1 in defm LW  : LoadTyped<0b000, imm7s2, "lw" >;
-let ImmShift = 1, ImmSigned = 1 in defm LH  : LoadTyped<0b001, imm7s1, "lh" >;
-let ImmShift = 0, ImmSigned = 1 in defm LB  : LoadTyped<0b010, imm7  , "lb" >;
-let ImmShift = 1, ImmSigned = 1 in defm LHU : LoadTyped<0b011, imm7s1, "lhu">;
-let ImmShift = 0, ImmSigned = 1 in defm LBU : LoadTyped<0b100, imm7  , "lbu">;
+let ImmShift = 2, ImmSigned = 0 in defm LW  : LoadTyped<0b000, uimm7s2, "lw" >;
+let ImmShift = 1, ImmSigned = 0 in defm LH  : LoadTyped<0b001, uimm7s1, "lh" >;
+let ImmShift = 0, ImmSigned = 0 in defm LB  : LoadTyped<0b010, uimm7  , "lb" >;
+let ImmShift = 1, ImmSigned = 0 in defm LHU : LoadTyped<0b011, uimm7s1, "lhu">;
+let ImmShift = 0, ImmSigned = 0 in defm LBU : LoadTyped<0b100, uimm7  , "lbu">;
 
-let ImmShift = 2, ImmSigned = 1 in defm DLW  : DecoupledLoadTyped<0b1010, imm7s2, "lw" >;
-let ImmShift = 1, ImmSigned = 1 in defm DLH  : DecoupledLoadTyped<0b1011, imm7s1, "lh" >;
-let ImmShift = 0, ImmSigned = 1 in defm DLB  : DecoupledLoadTyped<0b1100, imm7  , "lb" >;
-let ImmShift = 1, ImmSigned = 1 in defm DLHU : DecoupledLoadTyped<0b1101, imm7s1, "lhu">;
-let ImmShift = 0, ImmSigned = 1 in defm DLBU : DecoupledLoadTyped<0b1110, imm7  , "lbu">;
+let ImmShift = 2, ImmSigned = 0 in defm DLW  : DecoupledLoadTyped<0b1010, uimm7s2, "lw" >;
+let ImmShift = 1, ImmSigned = 0 in defm DLH  : DecoupledLoadTyped<0b1011, uimm7s1, "lh" >;
+let ImmShift = 0, ImmSigned = 0 in defm DLB  : DecoupledLoadTyped<0b1100, uimm7  , "lb" >;
+let ImmShift = 1, ImmSigned = 0 in defm DLHU : DecoupledLoadTyped<0b1101, uimm7s1, "lhu">;
+let ImmShift = 0, ImmSigned = 0 in defm DLBU : DecoupledLoadTyped<0b1110, uimm7  , "lbu">;
 
 
 
@@ -786,9 +786,9 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
 }
 
 
-let ImmShift = 2, ImmSigned = 1 in defm SW  : StoreTyped<0b000, imm7s2, "sw">;
-let ImmShift = 1, ImmSigned = 1 in defm SH  : StoreTyped<0b001, imm7s1, "sh">;
-let ImmShift = 0, ImmSigned = 1 in defm SB  : StoreTyped<0b010, imm7  , "sb">;
+let ImmShift = 2, ImmSigned = 0 in defm SW  : StoreTyped<0b000, uimm7s2, "sw">;
+let ImmShift = 1, ImmSigned = 0 in defm SH  : StoreTyped<0b001, uimm7s1, "sh">;
+let ImmShift = 0, ImmSigned = 0 in defm SB  : StoreTyped<0b010, uimm7  , "sb">;
 
 
 //===----------------------------------------------------------------------===//

@@ -162,28 +162,28 @@ class spmLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr), [
 	    }]>;
 
 // feel free to use multiclass if you find out how to make them work ..
-defm LW   : LoadTypedPatterns<LWC , imm7s2, cachedLoad<load>>;
-defm LH   : LoadTypedPatterns<LHC , imm7s1, cachedLoad<sextloadi16>>;
-defm LB   : LoadTypedPatterns<LBC , imm7  , cachedLoad<sextloadi8>>;
-defm LHU  : LoadTypedPatterns<LHUC, imm7s1, cachedLoad<zextloadi16>>;
-defm LBU  : LoadTypedPatterns<LBUC, imm7  , cachedLoad<zextloadi8>>;
-defm LHE  : LoadTypedPatterns<LHUC, imm7s1, cachedLoad<extloadi16>>;
-defm LBE  : LoadTypedPatterns<LBUC, imm7  , cachedLoad<extloadi8>>;
-defm LWM  : LoadTypedPatterns<LWM , imm7s2, uncachedLoad<load>>;
-defm LHM  : LoadTypedPatterns<LHM , imm7s1, uncachedLoad<sextloadi16>>;
-defm LBM  : LoadTypedPatterns<LBM , imm7  , uncachedLoad<sextloadi8>>;
-defm LHUM : LoadTypedPatterns<LHUM, imm7s1, uncachedLoad<zextloadi16>>;
-defm LBUM : LoadTypedPatterns<LBUM, imm7  , uncachedLoad<zextloadi8>>;
-defm LHEM : LoadTypedPatterns<LHUM, imm7s1, uncachedLoad<extloadi16>>;
-defm LBEM : LoadTypedPatterns<LBUM, imm7  , uncachedLoad<extloadi8>>;
+defm LW   : LoadTypedPatterns<LWC , uimm7s2, cachedLoad<load>>;
+defm LH   : LoadTypedPatterns<LHC , uimm7s1, cachedLoad<sextloadi16>>;
+defm LB   : LoadTypedPatterns<LBC , uimm7  , cachedLoad<sextloadi8>>;
+defm LHU  : LoadTypedPatterns<LHUC, uimm7s1, cachedLoad<zextloadi16>>;
+defm LBU  : LoadTypedPatterns<LBUC, uimm7  , cachedLoad<zextloadi8>>;
+defm LHE  : LoadTypedPatterns<LHUC, uimm7s1, cachedLoad<extloadi16>>;
+defm LBE  : LoadTypedPatterns<LBUC, uimm7  , cachedLoad<extloadi8>>;
+defm LWM  : LoadTypedPatterns<LWM , uimm7s2, uncachedLoad<load>>;
+defm LHM  : LoadTypedPatterns<LHM , uimm7s1, uncachedLoad<sextloadi16>>;
+defm LBM  : LoadTypedPatterns<LBM , uimm7  , uncachedLoad<sextloadi8>>;
+defm LHUM : LoadTypedPatterns<LHUM, uimm7s1, uncachedLoad<zextloadi16>>;
+defm LBUM : LoadTypedPatterns<LBUM, uimm7  , uncachedLoad<zextloadi8>>;
+defm LHEM : LoadTypedPatterns<LHUM, uimm7s1, uncachedLoad<extloadi16>>;
+defm LBEM : LoadTypedPatterns<LBUM, uimm7  , uncachedLoad<extloadi8>>;
 
-defm LWL  : LoadTypedPatterns<LWL , imm7s2, spmLoad<load>>;
-defm LHL  : LoadTypedPatterns<LHL , imm7s1, spmLoad<sextloadi16>>;
-defm LBL  : LoadTypedPatterns<LBL , imm7  , spmLoad<sextloadi8>>;
-defm LHUL : LoadTypedPatterns<LHUL, imm7s1, spmLoad<zextloadi16>>;
-defm LBUL : LoadTypedPatterns<LBUL, imm7  , spmLoad<zextloadi8>>;
-defm LHEL : LoadTypedPatterns<LHUL, imm7s1, spmLoad<extloadi16>>;
-defm LBEL : LoadTypedPatterns<LBUL, imm7  , spmLoad<extloadi8>>;
+defm LWL  : LoadTypedPatterns<LWL , uimm7s2, spmLoad<load>>;
+defm LHL  : LoadTypedPatterns<LHL , uimm7s1, spmLoad<sextloadi16>>;
+defm LBL  : LoadTypedPatterns<LBL , uimm7  , spmLoad<sextloadi8>>;
+defm LHUL : LoadTypedPatterns<LHUL, uimm7s1, spmLoad<zextloadi16>>;
+defm LBUL : LoadTypedPatterns<LBUL, uimm7  , spmLoad<zextloadi8>>;
+defm LHEL : LoadTypedPatterns<LHUL, uimm7s1, spmLoad<extloadi16>>;
+defm LBEL : LoadTypedPatterns<LBUL, uimm7  , spmLoad<extloadi8>>;
 
 // store patterns
 
@@ -225,15 +225,15 @@ class spmStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patStore
 	    }]>;
 
 
-defm SW  : StoreTypedPatterns<SWC, imm7s2, cachedStore<store>>;
-defm SH  : StoreTypedPatterns<SHC, imm7s1, cachedStore<truncstorei16>>;
-defm SB  : StoreTypedPatterns<SBC, imm7  , cachedStore<truncstorei8>>;
-defm SWM : StoreTypedPatterns<SWM, imm7s2, uncachedStore<store>>;
-defm SHM : StoreTypedPatterns<SHM, imm7s1, uncachedStore<truncstorei16>>;
-defm SBM : StoreTypedPatterns<SBM, imm7  , uncachedStore<truncstorei8>>;
-defm SWL : StoreTypedPatterns<SWL, imm7s2, spmStore<store>>;
-defm SHL : StoreTypedPatterns<SHL, imm7s1, spmStore<truncstorei16>>;
-defm SBL : StoreTypedPatterns<SBL, imm7  , spmStore<truncstorei8>>;
+defm SW  : StoreTypedPatterns<SWC, uimm7s2, cachedStore<store>>;
+defm SH  : StoreTypedPatterns<SHC, uimm7s1, cachedStore<truncstorei16>>;
+defm SB  : StoreTypedPatterns<SBC, uimm7  , cachedStore<truncstorei8>>;
+defm SWM : StoreTypedPatterns<SWM, uimm7s2, uncachedStore<store>>;
+defm SHM : StoreTypedPatterns<SHM, uimm7s1, uncachedStore<truncstorei16>>;
+defm SBM : StoreTypedPatterns<SBM, uimm7  , uncachedStore<truncstorei8>>;
+defm SWL : StoreTypedPatterns<SWL, uimm7s2, spmStore<store>>;
+defm SHL : StoreTypedPatterns<SHL, uimm7s1, spmStore<truncstorei16>>;
+defm SBL : StoreTypedPatterns<SBL, uimm7  , spmStore<truncstorei8>>;
 
 
 // Branch via JumpTable
