@@ -160,7 +160,9 @@ def imm7     : Operand<i32>, PatLeaf<(imm), [{return isInt <7>(N->getSExtValue()
 def uimm12   : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
 // Negated unsigned 12 bit value (for load negative short immediate)
 def nuimm12  : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(-N->getSExtValue()); }], negate>;
-// Call/Branch/StackCtrl
+// StackCtrl
+def uimm18   : Operand<i32>, PatLeaf<(imm), [{return isUInt<18>(N->getZExtValue());}]>;
+// Call/Branch
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
 
 
@@ -380,9 +382,9 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-def SRES : STC<0b00, (outs), (ins pred:$p, uimm22:$imm), "sres",  "$imm", []>;
-def SENS : STC<0b01, (outs), (ins pred:$p, uimm22:$imm), "sens",  "$imm", []>;
-def SFREE: STC<0b10, (outs), (ins pred:$p, uimm22:$imm), "sfree", "$imm", []>;
+def SRES : STC<0b00, (outs), (ins pred:$p, uimm18:$imm), "sres",  "$imm", []>;
+def SENS : STC<0b01, (outs), (ins pred:$p, uimm18:$imm), "sens",  "$imm", []>;
+def SFREE: STC<0b10, (outs), (ins pred:$p, uimm18:$imm), "sfree", "$imm", []>;
 
 
 //===----------------------------------------------------------------------===//

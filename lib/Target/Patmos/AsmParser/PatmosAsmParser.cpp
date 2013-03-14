@@ -431,7 +431,8 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       if (!MCO.isExpr()) {
         assert(MCO.isImm() && "expected immediate operand for ALUi format");
 
-        if (( ImmSigned && !isInt<22>(MCO.getImm())) ||
+        if ((Format == PatmosII::FrmSTC && !isUInt<18>(MCO.getImm())) ||
+            ( ImmSigned && !isInt<22>(MCO.getImm())) ||
             (!ImmSigned && !isUInt<22>(MCO.getImm()))) {
           return Error(IDLoc, "immediate operand is out of range");
         }

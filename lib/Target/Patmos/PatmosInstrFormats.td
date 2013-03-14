@@ -425,14 +425,15 @@ class STC<bits<2> op,
   : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTC, IIC_STC> {
 
   // unbound fields
-  bits<22> imm;
+  bits<18> imm;
 
   let ImmOpNo  = 2;
   let ImmShift = 2; 
 
-  let Inst{26-24} = 0b011;
-  let Inst{23-22} = op;
-  let Inst{21-0}  = imm;
+  let Inst{26-22} = 0b01100;
+  let Inst{21-20} = op;
+  let Inst{19-18} = 0b00;
+  let Inst{17-0}  = imm;
 }
 
 
