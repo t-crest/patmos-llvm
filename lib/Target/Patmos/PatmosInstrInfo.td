@@ -447,8 +447,6 @@ defm SRA    : BinArithILR   <0b0101, "sra"   , sra>; // FIXME 5 bits
 defm OR     : BinArithILR   <0b0110, "or"    , or,  1>;
 defm AND    : BinArithILR   <0b0111, "and"   , and, 1>;
 // no short immediates:
-defm RL     : BinArithLR    <0b1000, "rl"    , rotl>; // FIXME 5 bits
-defm RR     : BinArithLR    <0b1001, "rr"    , rotr>; // FIXME 5 bits
 defm XOR    : BinArithLR    <0b1010, "xor"   , xor, 1>;
 defm NOR    : BinArithLRpfg <0b1011, "nor"   , nor, 1>;
 defm SHADD  : BinArithLRpfg <0b1100, "shadd ", shadd>;
