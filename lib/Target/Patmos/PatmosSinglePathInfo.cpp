@@ -269,8 +269,8 @@ void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
     for(MachineBasicBlock::succ_iterator SI=MBB->succ_begin(),
                                          SE=MBB->succ_end(); SI!=SE; ++SI) {
       MachineBasicBlock *SMBB = *SI;
-      // exclude edges to post-dominaing successors
-      if (!PDT.dominates(SMBB, MBB)) {
+      // exclude edges to post-dominating non-self successors
+      if (!PDT.dominates(SMBB, MBB) || SMBB==MBB ) {
         // insert the edge MBB->SMBB to all controlled blocks
         for (MachineDomTreeNode *t = PDT[SMBB]; t != ipdom; t = t->getIDom()) {
           CD[t->getBlock()].insert( std::make_pair(MBB,SMBB) );
@@ -536,8 +536,8 @@ void createSPNodeSubtree(MachineLoop *loop, SPNode *parent,
   assert( loop->getExitingBlock() != NULL &&
           "Allow only exactly one exiting edge for loops!" );
   // for now, also:
-  assert( loop->getHeader() == loop->getExitingBlock() &&
-          "Allow only loops with Header == Exiting Block!" );
+  //assert( loop->getHeader() == loop->getExitingBlock() &&
+  //        "Allow only loops with Header == Exiting Block!" );
 
   SPNode *N = new SPNode(parent,
                          loop->getHeader(),
