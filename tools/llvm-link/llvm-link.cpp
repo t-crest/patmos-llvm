@@ -145,6 +145,10 @@ int main(int argc, char **argv) {
   L.addSystemPaths();
   L.addPaths(LibrarySearchPaths);
 
+  if (Verbose) {
+    L.setFlags(Linker::Verbose);
+  }
+
   // Link in modules, archives, and libraries
   std::vector<std::string>::const_iterator FileIt = InputFilenames.begin();
   std::vector<std::string>::const_iterator LibIt = Libraries.begin();
@@ -178,8 +182,6 @@ int main(int argc, char **argv) {
         return 1;
       }
 
-      if (Verbose) errs() << "Linking in '" << P.str() << "'\n";
-      
       bool IsNative;
       if (P.isArchive()) {
         // Link the archive in if it will resolve symbols
@@ -226,8 +228,6 @@ int main(int argc, char **argv) {
 
       bool IsNative;
       if (P.isArchive()) {
-        if (Verbose) errs() << "Linking in '" << P.str() << "'\n";
-      
         if (L.LinkInArchive(P, IsNative))
         {
           errs() << argv[0] << ": error linking archive: '" << P.str() << "'\n";
