@@ -351,7 +351,8 @@ void PatmosSPReduce::insertInitializations(MachineFunction &MF) {
       // find first def/use of GuardsReg
       MachineBasicBlock::iterator MI = Header->begin(),
                                   ME = Header->end();
-      while ( !MI->definesRegister(GuardsReg) && MI!=ME ) ++MI;
+      while ( MI!=ME && !MI->definesRegister(GuardsReg) ) ++MI;
+
       // Initialize Top-level: set all predicates of entry edge to true
       uint32_t imm = getImm32FromBitvector(PSPI.getPredEntryEdge());
       AddDefaultPred(BuildMI(*Header, MI, MI->getDebugLoc(),
