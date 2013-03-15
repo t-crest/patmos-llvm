@@ -59,8 +59,29 @@ namespace llvm {
       typedef std::vector<CD_map_entry_t>                  K_t;
       typedef std::map<const MachineBasicBlock*, unsigned> R_t;
 
-      /// Typedef for MBB -> BitVector map
-      typedef std::map<const MachineBasicBlock*, BitVector> MBB_BV_map_t;
+
+      /// PredDefInfo - TODO
+      class PredDefInfo {
+      private:
+        BitVector TrueEdge;
+        BitVector FalseEdge;
+        const MachineBasicBlock *TBB;
+        const SmallVector<MachineOperand, 2> Cond;
+      public:
+        PredDefInfo(unsigned num_preds, const MachineBasicBlock *tbb,
+                      const SmallVector<MachineOperand, 2> &cond)
+                      : TBB(tbb), Cond(cond) {
+            TrueEdge  = BitVector(num_preds);
+            FalseEdge = BitVector(num_preds);
+        }
+        void define(unsigned pred, const MachineBasicBlock *MBBDst) {
+          BitVector &bv = (MBBDst == TBB) ? TrueEdge : FalseEdge;
+          bv.set(pred);
+        }
+        const BitVector &getTrue() const { return TrueEdge; }
+        const BitVector &getFalse() const { return FalseEdge; }
+        const SmallVector<MachineOperand, 2> &getCond() const { return Cond; }
+      };
 
       const PatmosTargetMachine &TM;
       const PatmosSubtarget &STC;
@@ -82,11 +103,8 @@ namespace llvm {
       /// Map MBBs to predicate they use
       std::map<const MachineBasicBlock*, unsigned> PredUse;
 
-      /// Map MBBs to predicates they set to their true edge
-      MBB_BV_map_t PredDefsT;
-
-      /// Map MBBs to predicates they set to their false edge
-      MBB_BV_map_t PredDefsF;
+      /// PredDefs - Stores predicate define information for each basic block
+      std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
 
       /// Specifies, which predicates are true at the entry edge
       BitVector PredEntryEdge;
@@ -115,6 +133,9 @@ namespace llvm {
       /// PredDefsF
       void collectPredDefs(MachineFunction &MF, const K_t &K);
 
+
+      /// TODO
+      PredDefInfo &getOrCreateDefInfo(const MachineBasicBlock *MBBSrc);
 
     public:
       /// Pass ID
@@ -169,16 +190,19 @@ namespace llvm {
       /// getPredUse - Returns the guarding predicate for an MBB
       BitVector getPredUseBV(const MachineBasicBlock *) const;
 
-      /// getPredDefsT - Returs a bitvector for preds set on the true edge
+      /// getPredDefsT - Returns a bitvector for preds set on the true edge
       BitVector getPredDefsT(const MachineBasicBlock *) const;
 
-      /// getPredDefsF - Returs a bitvector for preds set on the false edge
+      /// getPredDefsF - Returns a bitvector for preds set on the false edge
       BitVector getPredDefsF(const MachineBasicBlock *) const;
 
-      /// getPredDefsBoth - Returs a bitvector for preds set on both edges
+      /// getPredDefsBoth - Returns a bitvector for preds set on both edges
       BitVector getPredDefsBoth(const MachineBasicBlock *) const;
 
-      /// getPredEntryEdge - Returs a bitvector for preds true on entry edge
+      /// getCond - TODO
+      const SmallVector<MachineOperand, 2> *getCond(const MachineBasicBlock *)
+                                                    const;
+      /// getPredEntryEdge - Returns a bitvector for preds true on entry edge
       BitVector getPredEntryEdge() const { return PredEntryEdge; }
 
       /// getInitializees - Return the predicates that need to be initialized
@@ -297,8 +321,6 @@ namespace llvm {
       return N->child_end();
     }
   };
-
-
 
 } // end of namespace llvm
 

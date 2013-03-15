@@ -112,8 +112,7 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
   // clear the state of the pass
   PredCount = 0;
   PredUse.clear();
-  PredDefsT.clear();
-  PredDefsF.clear();
+  PredDefs.clear();
   PredEntryEdge.clear();
   if (Root) {
     delete Root;
@@ -173,8 +172,8 @@ BitVector PatmosSinglePathInfo::getPredUseBV(const MachineBasicBlock *MBB)
 
 BitVector PatmosSinglePathInfo::getPredDefsT(const MachineBasicBlock *MBB)
                                                                     const {
-  if (PredDefsT.count(MBB)) {
-    return PredDefsT.at(MBB);
+  if (PredDefs.count(MBB)) {
+    return PredDefs.at(MBB).getTrue();
   }
   return BitVector(PredCount);
 }
@@ -182,8 +181,8 @@ BitVector PatmosSinglePathInfo::getPredDefsT(const MachineBasicBlock *MBB)
 
 BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB)
                                                                     const {
-  if (PredDefsF.count(MBB)) {
-    return PredDefsF.at(MBB);
+  if (PredDefs.count(MBB)) {
+    return PredDefs.at(MBB).getFalse();
   }
   return BitVector(PredCount);
 }
@@ -191,10 +190,22 @@ BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB)
 BitVector PatmosSinglePathInfo::getPredDefsBoth(const MachineBasicBlock *MBB)
                                                                     const {
   BitVector bv(PredCount);
-  if (PredDefsT.count(MBB)) { bv |= PredDefsT.at(MBB); }
-  if (PredDefsF.count(MBB)) { bv |= PredDefsF.at(MBB); }
+  if (PredDefs.count(MBB)) {
+    bv |= PredDefs.at(MBB).getTrue();
+    bv |= PredDefs.at(MBB).getFalse();
+  }
   return bv;
 }
+
+const SmallVector<MachineOperand, 2> *
+PatmosSinglePathInfo::getCond(const MachineBasicBlock *MBB) const {
+
+  if (PredDefs.count(MBB)) {
+    return &PredDefs.at(MBB).getCond();
+  }
+  return NULL;
+}
+
 
 void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
   assert( Root != NULL );
@@ -227,8 +238,6 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
   DEBUG_TRACE({
     dbgs() << "Number of predicates: " <<  PredCount << "\n";
-    dbgs() << "Defs to T edges in " <<  PredDefsT.size() << " MBBs\n";
-    dbgs() << "Defs to F edges in " <<  PredDefsF.size() << " MBBs\n";
     dbgs() << "Defs T on entry edge: ";
       printBitVector(dbgs(), PredEntryEdge);
       dbgs() << "\n";
@@ -375,33 +384,48 @@ void PatmosSinglePathInfo::collectPredDefs(MachineFunction &MF, const K_t &K) {
         PredEntryEdge.set(i);
         continue;
       }
-      // for AnalyzeBranch
-      MachineBasicBlock *TBB = NULL, *FBB = NULL;
-      SmallVector<MachineOperand, 4> Cond;
-      if (!TII->AnalyzeBranch(*const_cast<MachineBasicBlock*>(MBBSrc),
-                              TBB, FBB, Cond)) {
-        // According to AnalyzeBranch spec, at a conditional branch,
-        // Cond will hold the branch conditions
-        // Further, there are two cases for conditional branches:
-        // 1. conditional+fallthrough:   TBB holds branch target
-        // 2. conditional+unconditional: TBB holds target of conditional branch,
-        //                               FBB the target of the unconditional one
-        // Hence, the branch condition will always refer to the TBB edge.
-        assert( !Cond.empty() && "AnalyzeBranch for SP-IfConversion failed; "
-                                 "could not determine branch condition");
-        MBB_BV_map_t &PredDefs = (MBBDst == TBB) ? PredDefsT : PredDefsF;
-        // if the entry of MBB does not exist yet, create it
-        if (!PredDefs.count(MBBSrc)) {
-          PredDefs[MBBSrc] = BitVector(PredCount);
-        }
-        PredDefs[MBBSrc].set(i);
-      } else {
-        assert(0 && "AnalyzeBranch failed");
-      }
+
+      // get pred definition info of MBBSrc
+      PredDefInfo &PredDef = getOrCreateDefInfo(MBBSrc);
+      // insert definition for predicate i according to MBBDst
+      PredDef.define(i, MBBDst);
     } // end for each definition edge
   }
 
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+PatmosSinglePathInfo::PredDefInfo &
+PatmosSinglePathInfo::getOrCreateDefInfo(const MachineBasicBlock *MBBSrc) {
+
+  if (!PredDefs.count(0)) {
+    // for AnalyzeBranch
+    MachineBasicBlock *TBB = NULL, *FBB = NULL;
+    SmallVector<MachineOperand, 2> Cond;
+    if (!TII->AnalyzeBranch(*const_cast<MachineBasicBlock*>(MBBSrc),
+          TBB, FBB, Cond)) {
+      // According to AnalyzeBranch spec, at a conditional branch,
+      // Cond will hold the branch conditions
+      // Further, there are two cases for conditional branches:
+      // 1. conditional+fallthrough:   TBB holds branch target
+      // 2. conditional+unconditional: TBB holds target of conditional branch,
+      //                               FBB the target of the unconditional one
+      // Hence, the branch condition will always refer to the TBB edge.
+      assert( !Cond.empty() && "AnalyzeBranch for SP-IfConversion failed; "
+          "could not determine branch condition");
+    } else {
+      assert(0 && "AnalyzeBranch failed");
+    }
+
+    // Create new info
+    PredDefs.insert(
+      std::make_pair(MBBSrc, PredDefInfo(PredCount, TBB, Cond)) );
+  }
+
+  return PredDefs.at(MBBSrc);
+}
+
 
 
 ///////////////////////////////////////////////////////////////////////////////

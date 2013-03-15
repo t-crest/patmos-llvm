@@ -32,6 +32,7 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+//#include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -83,7 +84,7 @@ namespace {
 
     /// insertPredSet - Insert predicates set instruction
     void insertPredSet(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
-                       BitVector bits, SmallVector<MachineOperand, 4> &Cond);
+                       BitVector bits, SmallVector<MachineOperand, 2> &Cond);
 
     /// insertPredClr - Insert predicates clear instruction
     void insertPredClr(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
@@ -172,8 +173,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     report_fatal_error("Cannot handle more than 32 Predicates yet!");
   }
 
-  // Note: We are past tracking liveness (past BranchFolding) so we
-  // cannot use RegScavenging
+
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
   // Get the unused predicate registers
@@ -190,22 +190,23 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   PRTmp     = AvailPredRegs.front();
 
 
-
-  // insert predicate definitions
-  insertPredDefinitions(MF);
-
-
   DEBUG( dbgs() << "Linearize MBBs\n" );
   LinearizeWalker W(*this, MF);
   PSPI.walkRoot(W);
 
+  // Insert predicate definitions.
+  insertPredDefinitions(MF);
+
+  // Apply predicates.
+  // This will also predicate the predicate definitions inserted before.
   applyPredicates(MF);
 
+  // Insert initializations, which must not be predicated themselves.
   insertInitializations(MF);
 
-  mergeMBBs(MF);
+  //mergeMBBs(MF);
 
-  MF.RenumberBlocks();
+  //MF.RenumberBlocks();
 }
 
 
@@ -227,11 +228,7 @@ void PatmosSPReduce::insertPredDefinitions(MachineFunction &MF) {
     DEBUG( dbgs() << " - MBB#" << MBB->getNumber() << "\n" );
 
     // get the branch condition
-    MachineBasicBlock *TBB = NULL, *FBB = NULL;
-    SmallVector<MachineOperand, 4> Cond;
-    if (TII->AnalyzeBranch(*MBB, TBB, FBB, Cond) || Cond.empty()) {
-      report_fatal_error("AnalyzeBranch failed");
-    }
+    SmallVector<MachineOperand, 2> Cond(*PSPI.getCond(MBB));
 
     // insert the predicate definitions before any branch at the MBB end
     MachineBasicBlock::iterator firstTI = MBB->getFirstTerminator();
@@ -427,7 +424,7 @@ uint32_t PatmosSPReduce::getImm32FromBitvector(BitVector bv) const {
 void PatmosSPReduce::insertPredSet(MachineBasicBlock *MBB,
                                    MachineBasicBlock::iterator MI,
                                    BitVector bits,
-                                   SmallVector<MachineOperand, 4> &Cond) {
+                                   SmallVector<MachineOperand, 2> &Cond) {
 
   uint32_t imm = getImm32FromBitvector(bits);
   DebugLoc DL(MI->getDebugLoc());
@@ -472,15 +469,17 @@ void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
         SI != MBB->succ_end();
         SI = MBB->removeSuccessor(SI) )
         ; // no body
-    Pass.TII->RemoveBranch(*MBB);
+
+  // remove the branch at the end of MBB
+  Pass.TII->RemoveBranch(*MBB);
 
   if (LastMBB) {
     // add to the last MBB as successor
     LastMBB->addSuccessor(MBB);
-    // Correct the layout and remove the branch instructions
+    // move in the code layout
     MBB->moveAfter(LastMBB);
   }
-  // move forward
+  // keep track of tail
   LastMBB = MBB;
 }
 
@@ -490,11 +489,15 @@ void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
     // insert loop preheader to load loop bound
     MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
     MF.push_back(PrehdrMBB);
-    DebugLoc DL;
+
+    // Create an instruction to load the loop bound
     //FIXME load the actual loop bound
+    DebugLoc DL;
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->begin(), DL,
       Pass.TII->get(Patmos::LIi),
       Patmos::RTR)).addImm(1000);
+
+    // append the preheader
     nextMBB(PrehdrMBB);
   }
 }
@@ -514,7 +517,7 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
   // TODO loop iteration counts
   MachineBasicBlock *BranchMBB = MF.CreateMachineBasicBlock();
   MF.push_back(BranchMBB);
-  // weave in
+  // weave in before inserting the branch (otherwise it'll be removed again)
   nextMBB(BranchMBB);
 
   // fill it
