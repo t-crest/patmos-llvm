@@ -221,6 +221,25 @@ bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
   }
 }
 
+bool PatmosInstrInfo::isSideEffectFreeSRegAccess(const MachineInstr *MI)
+                                                                      const {
+  unsigned opc = MI->getOpcode();
+
+  if  (opc==Patmos::MTS || opc==Patmos::MFS) {
+    // MTS sreg <- r (sreg is operand 0)
+    // MFS r <- sreg (sreg is operand 3)
+    unsigned sreg = MI->getOperand( (opc==Patmos::MFS) ? 3 : 0 ).getReg();
+
+    // check SRegs
+    BitVector safeSRegs(getRegisterInfo().getNumRegs());
+    safeSRegs.set(Patmos::SZ);
+    safeSRegs.set(Patmos::SL);
+    safeSRegs.set(Patmos::SH);
+    if (safeSRegs.test(sreg))
+      return true;
+  }
+  return false;
+}
 
 unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
   assert(MI->mayLoad() || MI->mayStore());

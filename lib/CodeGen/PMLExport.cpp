@@ -71,11 +71,11 @@ bool operator==(const Name n1, const Name n2) {
 namespace llvm
 {
 
-void PMLBitcodeExportAdapter::initialize(Module &M) {
+void PMLBitcodeExportAdapter::initialize(const Module &M) {
   Exporter->initialize(M);
 }
 
-void PMLBitcodeExportAdapter::finalize(Module &M) {
+void PMLBitcodeExportAdapter::finalize(const Module &M) {
   Exporter->finalize(M);
 }
 
@@ -106,7 +106,7 @@ PMLInstrInfo::StringList PMLInstrInfo::getCalleeNames(MachineFunction &Caller,
   return Callees;
 }
 
-PMLInstrInfo::MFList PMLInstrInfo::getCallees(Module &M,
+PMLInstrInfo::MFList PMLInstrInfo::getCallees(const Module &M,
                                               MachineModuleInfo &MMI,
                                               MachineFunction &MF,
                                               const MachineInstr *Ins)
@@ -141,7 +141,7 @@ PMLInstrInfo::MBBList PMLInstrInfo::getBranchTargets(
   return targets;
 }
 
-PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(Module &M,
+PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(const Module &M,
                                               MachineModuleInfo &MMI,
                                               MachineFunction &MF)
 {
@@ -854,14 +854,14 @@ char PMLExportPass::ID = 0;
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
                               StringRef filename,
                               ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : ModulePass(id), OutFileName(filename), Roots(roots)
+  : MachineModulePass(id), OutFileName(filename), Roots(roots)
 {
   PII = pii ? pii : new PMLInstrInfo();
 }
 
 PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
                               ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : ModulePass(ID), OutFileName(filename), Roots(roots)
+  : MachineModulePass(ID), OutFileName(filename), Roots(roots)
 {
   PII = pii ? pii : new PMLInstrInfo();
 }
@@ -882,14 +882,13 @@ void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
   AU.setPreservesAll();
   AU.addRequired<MachineModuleInfo>();
   AU.addRequired<MachineLoopInfo>();
-  ModulePass::getAnalysisUsage(AU);
+  MachineModulePass::getAnalysisUsage(AU);
 }
 
-bool PMLModuleExportPass::runOnModule(Module &M)
+bool PMLModuleExportPass::runOnMachineModule(const Module &M)
 {
   // get the machine-level module information.
   MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
-  MachineLoopInfo &LI(getAnalysis<MachineLoopInfo>());
 
   // Queue roots
   FoundFunctions.clear();
@@ -898,19 +897,22 @@ bool PMLModuleExportPass::runOnModule(Module &M)
     addToQueue(M, MMI, Roots[i]);
   }
 
-  initialize(M);
-
   // follow roots until no new methods are found
   while (!Queue.empty()) {
     MachineFunction *MF = Queue.front();
     Queue.pop_front();
 
-    const Function* F = MF->getFunction();
+    // We need to remove the const for getAnalysis<>(*F), it might modify
+    // F since it will run (analysis) function passes on it.
+    Function* F = const_cast<Function*>(MF->getFunction());
+
     if (F) {
       for (size_t i=0; i < BCExporters.size(); i++) {
         BCExporters[i]->serialize(*F);
       }
     }
+
+    MachineLoopInfo &LI(getAnalysis<MachineLoopInfo>(*F));
 
     for (size_t i=0; i < MCExporters.size(); i++) {
       MCExporters[i]->serialize(*MF, &LI);
@@ -919,12 +921,10 @@ bool PMLModuleExportPass::runOnModule(Module &M)
     addCalleesToQueue(M, MMI, *MF);
   }
 
-  finalize(M);
-
   return false;
 }
 
-void PMLModuleExportPass::addCalleesToQueue(Module &M, MachineModuleInfo &MMI,
+void PMLModuleExportPass::addCalleesToQueue(const Module &M, MachineModuleInfo &MMI,
                                             MachineFunction &MF)
 {
   PMLInstrInfo::MFList Callees = PII->getCalledFunctions(M, MMI, MF);
@@ -935,7 +935,7 @@ void PMLModuleExportPass::addCalleesToQueue(Module &M, MachineModuleInfo &MMI,
   }
 }
 
-void PMLModuleExportPass::initialize(Module &M) {
+bool PMLModuleExportPass::doInitialization(Module &M) {
   for (MCExportList::iterator it = MCExporters.begin(), ie = MCExporters.end();
        it != ie; ++it)
   {
@@ -946,9 +946,10 @@ void PMLModuleExportPass::initialize(Module &M) {
   {
     (*it)->initialize(M);
   }
+  return false;
 }
 
-void PMLModuleExportPass::finalize(Module &M) {
+bool PMLModuleExportPass::doFinalization(Module &M) {
   tool_output_file *OutFile;
   yaml::Output *Output;
   std::string ErrorInfo;
@@ -958,7 +959,7 @@ void PMLModuleExportPass::finalize(Module &M) {
     delete OutFile;
     errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
     errs() << "[mc2yml] Reason: " << ErrorInfo;
-    return;
+    return false;
   }
   else {
     Output = new yaml::Output(OutFile->os());
@@ -993,13 +994,13 @@ void PMLModuleExportPass::finalize(Module &M) {
       BitcodeStream.keep();
     }
   }
-
+  return false;
 }
 
-void PMLModuleExportPass::addToQueue(Module &M, MachineModuleInfo &MMI,
+void PMLModuleExportPass::addToQueue(const Module &M, MachineModuleInfo &MMI,
                                      std::string FnName)
 {
-  Function *F = M.getFunction(FnName);
+  const Function *F = M.getFunction(FnName);
   if (!F) {
     errs() << "[mc2yml] Could not find function " << FnName << " in module.\n";
     return;

@@ -272,6 +272,15 @@ public:
     FPPassManager *FP = static_cast<FPPassManager *>(PassManagers[N]);
     return FP;
   }
+
+  virtual void dumpPassStructure(unsigned Offset) {
+    dbgs().indent(Offset*2) << "FunctionPass Manager Impl\n";
+    for (SmallVector<PMDataManager *, 8>::const_iterator
+           I = PassManagers.begin(),
+           E = PassManagers.end(); I != E; ++I) {
+      (*I)->getAsPass()->dumpPassStructure(Offset + 1);
+    }
+  }
 };
 
 void FunctionPassManagerImpl::anchor() {}
@@ -336,11 +345,12 @@ public:
     llvm::dbgs().indent(Offset*2) << "ModulePass Manager\n";
     for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
       ModulePass *MP = getContainedPass(Index);
-      MP->dumpPassStructure(Offset + 1);
       std::map<Pass *, FunctionPassManagerImpl *>::const_iterator I =
         OnTheFlyManagers.find(MP);
-      if (I != OnTheFlyManagers.end())
-        I->second->dumpPassStructure(Offset + 2);
+      if (I != OnTheFlyManagers.end()) {
+        I->second->dumpPassStructure(Offset + 1);
+      }
+      MP->dumpPassStructure(Offset + 1);
       dumpLastUses(MP, Offset+1);
     }
   }
@@ -684,6 +694,23 @@ Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
 
   // Check the immutable passes. Iterate in reverse order so that we find
   // the most recently registered passes first.
+  Pass *IP;
+  if ((IP = getImmutablePass(AID)))
+    return IP;
+
+  // Search inherited pass managers
+  for (SmallVectorImpl<PMTopLevelManager*>::iterator
+      I = InheritedPassManagers.begin(), E = InheritedPassManagers.end();
+      I != E; ++I) {
+    if ((IP = (*I)->getImmutablePass(AID)))
+      return IP;
+  }
+
+  return 0;
+}
+
+Pass *PMTopLevelManager::getImmutablePass(AnalysisID AID) {
+
   for (SmallVector<ImmutablePass *, 8>::reverse_iterator I =
        ImmutablePasses.rbegin(), E = ImmutablePasses.rend(); I != E; ++I) {
     AnalysisID PI = (*I)->getPassID();
@@ -707,14 +734,14 @@ Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
 }
 
 // Print passes managed by this top level manager.
-void PMTopLevelManager::dumpPasses() const {
+void PMTopLevelManager::dumpPasses(unsigned Offset) const {
 
   if (PassDebugging < Structure)
     return;
 
   // Print out the immutable passes
   for (unsigned i = 0, e = ImmutablePasses.size(); i != e; ++i) {
-    ImmutablePasses[i]->dumpPassStructure(0);
+    ImmutablePasses[i]->dumpPassStructure(Offset);
   }
 
   // Every class that derives from PMDataManager also derives from Pass
@@ -722,8 +749,9 @@ void PMTopLevelManager::dumpPasses() const {
   // between PMDataManager and Pass, so we have to getAsPass to get
   // from a PMDataManager* to a Pass*.
   for (SmallVector<PMDataManager *, 8>::const_iterator I = PassManagers.begin(),
-         E = PassManagers.end(); I != E; ++I)
-    (*I)->getAsPass()->dumpPassStructure(1);
+         E = PassManagers.end(); I != E; ++I) {
+    (*I)->getAsPass()->dumpPassStructure(Offset + 1);
+  }
 }
 
 void PMTopLevelManager::dumpArguments() const {
@@ -1612,6 +1640,8 @@ void MPPassManager::addLowerLevelRequiredPass(Pass *P, Pass *RequiredPass) {
     FPP = new FunctionPassManagerImpl();
     // FPP is the top level manager.
     FPP->setTopLevelManager(FPP);
+
+    FPP->inheritFromTopLevelManager(this->TPM);
 
     OnTheFlyManagers[P] = FPP;
   }

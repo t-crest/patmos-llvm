@@ -50,9 +50,10 @@ public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 
   /// Code Generation virtual methods...
-  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;//XXX
+  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;
 
-  BitVector getReservedRegs(const MachineFunction &MF) const;//XXX
+  BitVector getReservedRegs(const MachineFunction &MF) const;
+
 
   const TargetRegisterClass *
   getMatchingSuperRegClass(const TargetRegisterClass *A,
@@ -73,13 +74,13 @@ public:
   /// requiresRegisterScavenging - returns true if the target requires (and can
   /// make use of) the register scavenger.
   virtual bool requiresRegisterScavenging(const MachineFunction &MF) const {
-    return true;
+    return false; //FIXME
   }
 
   /// requiresFrameIndexScavenging - returns true if the target requires post
   /// PEI scavenging of registers for materializing frame index constants.
   virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const {
-    return true;
+    return false; //FIXME
   }
 #if 0
   const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
@@ -90,10 +91,11 @@ public:
                                      MachineBasicBlock::iterator I) const;
 
   void eliminateFrameIndex(MachineBasicBlock::iterator II,
-                           int SPAdj, RegScavenger *RS = NULL) const;//XXX
+                           int SPAdj, RegScavenger *RS = NULL) const;
 
   // Debug information queries.
-  unsigned getFrameRegister(const MachineFunction &MF) const;//XXX
+  unsigned getFrameRegister(const MachineFunction &MF) const;
+
 };
 
 } // end namespace llvm

@@ -246,10 +246,10 @@ define void @test_loop_rotate_reversed_blocks() {
 ; CHECK: test_loop_rotate_reversed_blocks
 ; CHECK: %entry
 ; Look for a jump into the middle of the loop, and no branches mid-way.
-; CHECK: jmp
+; CHECK: jmp [[LBB:.LBB[0-9]+_[0-9]+]]
 ; CHECK: %loop1
 ; CHECK-NOT: j{{\w*}} .LBB{{.*}}
-; CHECK: %loop1
+; CHECK: [[LBB]]:
 ; CHECK: je
 
 entry:
@@ -347,7 +347,7 @@ define void @unnatural_cfg1() {
 ; CHECK: unnatural_cfg1
 ; CHECK: %entry
 ; CHECK: %loop.body1
-; CHECK: %loop.body2
+; CHECK: in Loop: Header=
 ; CHECK: %loop.body3
 
 entry:
@@ -386,7 +386,7 @@ define void @unnatural_cfg2() {
 ; CHECK: %entry
 ; CHECK: %loop.body1
 ; CHECK: %loop.body2
-; CHECK: %loop.body3
+; CHECK: in Loop: Header=
 ; CHECK: %loop.inner1.begin
 ; The end block is folded with %loop.body3...
 ; CHECK-NOT: %loop.inner1.end
@@ -997,7 +997,7 @@ define void @benchmark_heapsort(i32 %n, double* nocapture %ra) {
 ; CHECK: %while.body
 ; CHECK: %land.lhs.true
 ; CHECK: %if.then19
-; CHECK: %if.then19
+; CHECK: %if.end20
 ; CHECK: %if.then8
 ; CHECK: ret
 

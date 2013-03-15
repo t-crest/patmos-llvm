@@ -19,6 +19,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/GraphWriter.h"
 
@@ -233,7 +234,7 @@ namespace llvm {
 
   /// Pass to construct the call graph at the machine-level of the current
   /// module.
-  class PatmosCallGraphBuilder: public ModulePass {
+  class PatmosCallGraphBuilder: public MachineModulePass {
   private:
     /// A call graph.
     MCallGraph MCG;
@@ -242,7 +243,7 @@ namespace llvm {
     /// Pass ID
     static char ID;
 
-    PatmosCallGraphBuilder() : ModulePass(ID)
+    PatmosCallGraphBuilder() : MachineModulePass(ID)
     {
     }
 
@@ -287,11 +288,11 @@ namespace llvm {
 
     /// visitCallSites - Visit all call-sites of the MachineFunction and append
     /// them to a simple machine-level call graph.
-    void visitCallSites(Module &M, MachineFunction *MF);
+    void visitCallSites(const Module &M, MachineFunction *MF);
 
     /// getMCGNode - Return the call graph node of the function with the given
     /// name.
-    MCGNode *getMCGNode(Module &M, const char *name);
+    MCGNode *getMCGNode(const Module &M, const char *name);
 
     /// markLive_ - Mark the node and all its callees as live.
     void markLive_(MCGNode *N);
@@ -301,7 +302,7 @@ namespace llvm {
 
     /// runOnModule - Construct a simple machine-level call graph from the given
     /// module.
-    virtual bool runOnModule(Module &M);
+    virtual bool runOnMachineModule(const Module &M);
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {

@@ -133,8 +133,8 @@ namespace {
   class DelayHazardInfo {
   public:
 
-    DelayHazardInfo(PatmosDelaySlotFiller &pdsf)
-      : PDSF(pdsf), sawLoad(false), sawStore(false), sawSTC(false) { }
+    DelayHazardInfo(PatmosDelaySlotFiller &pdsf, const MachineInstr &I)
+      : PDSF(pdsf), MI(I), sawLoad(false), sawStore(false), sawSTC(false) { }
 
     void insertDefsUses(MachineInstr *MI);
     bool hasHazard(MachineBasicBlock::iterator candidate);
@@ -147,7 +147,8 @@ namespace {
     bool isRegInSet(const SmallSet<unsigned, 32> &RegSet,
                     unsigned reg) const;
   private:
-    const PatmosDelaySlotFiller& PDSF;
+    const PatmosDelaySlotFiller &PDSF;
+    const MachineInstr &MI;
     bool sawLoad;
     bool sawStore;
     bool sawSTC; // stack control instruction
@@ -222,7 +223,7 @@ void PatmosDelaySlotFiller::
 fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
                     SmallSet<MachineInstr *, 16> &FillerInstrs) {
 
-  DelayHazardInfo DI(*this);
+  DelayHazardInfo DI(*this, *I);
 
   DEBUG( dbgs() << "For: " << *I );
 
@@ -388,6 +389,10 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
       I->getOpcode() == Patmos::MULU)
     return true;
 
+  // don't move loads to the last delay slot for return
+  if (I->mayLoad() && Candidates.empty() && MI.isReturn() )
+    return true;
+
   // don't move loads with use immediately afterwards
   if ( I->mayLoad() && !Candidates.empty() &&
         PDSF.hasDefUseDep(I, Candidates.back()) )
@@ -416,6 +421,11 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
     sawStore = true;
     if (sawLoad) return true;
   }
+
+  // instruction has unmodeled side-effects
+  // check for safe MTS/MFS (which can have side-effects in general)
+  if (I->hasUnmodeledSideEffects() && !TII->isSideEffectFreeSRegAccess(I))
+    return true;
 
   for (MachineInstr::const_mop_iterator MO = I->operands_begin();
        MO != I->operands_end(); ++MO) {

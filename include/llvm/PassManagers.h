@@ -206,9 +206,19 @@ public:
     ImmutablePasses.push_back(P);
   }
 
+  /// Inherit immutable passes from top level manager.
+  inline void inheritFromTopLevelManager(PMTopLevelManager *TPM) {
+    InheritedPassManagers.push_back(TPM);
+  }
+
   inline SmallVectorImpl<ImmutablePass *>& getImmutablePasses() {
     return ImmutablePasses;
   }
+
+  /// Find the immutable pass that implements Analysis AID.
+  /// If desired pass is not found in this manager, then return NULL.
+  /// Inherited pass managers are not searched.
+  Pass *getImmutablePass(AnalysisID AID);
 
   void addPassManager(PMDataManager *Manager) {
     PassManagers.push_back(Manager);
@@ -221,7 +231,7 @@ public:
   }
 
   // Print passes managed by this top level manager.
-  void dumpPasses() const;
+  void dumpPasses(unsigned Offset = 0) const;
   void dumpArguments() const;
 
   // Active Pass Managers
@@ -249,6 +259,9 @@ private:
 
   /// Immutable passes are managed by top level manager.
   SmallVector<ImmutablePass *, 8> ImmutablePasses;
+
+  /// TopLevelManagers from which ImmutablePasses are inherited
+  SmallVector<PMTopLevelManager *, 4> InheritedPassManagers;
 
   DenseMap<Pass *, AnalysisUsage *> AnUsageMap;
 };

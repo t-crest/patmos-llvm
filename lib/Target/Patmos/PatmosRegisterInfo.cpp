@@ -183,7 +183,8 @@ PatmosRegisterInfo::computeLargeFIOffset(MachineRegisterInfo &MRI,
                                                      Patmos::ADDl;
 
   // emit instruction
-  unsigned scratchReg = MRI.createVirtualRegister(&Patmos::RRegsRegClass);
+  //unsigned scratchReg = MRI.createVirtualRegister(&Patmos::RRegsRegClass);
+  unsigned scratchReg = Patmos::RTR;
   AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode), scratchReg))
     .addReg(basePtr).addImm(offsetLarge << shl);
 
@@ -207,13 +208,11 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
   {
     case Patmos::PSEUDO_PREG_SPILL:
       {
-        unsigned st_opc = (isOnStackCache) ? Patmos::SWS : Patmos::SWC;
+        unsigned st_opc = (isOnStackCache) ? Patmos::SBS : Patmos::SBC;
         MachineOperand SrcRegOpnd = PseudoMI.getOperand(2);
         // spilling predicate values is sort of hackish:
         //   we implement it as a predicated store of a non-zero value
         //   followed by a predicated (inverted) store of 0
-        // marker to aid debugging
-        //AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::WAIT) )); //XXX
         BuildMI(MBB, II, DL, TII.get(st_opc))
           .addReg(SrcRegOpnd.getReg()).addImm(0) // predicate
           .addReg(basePtr, false).addImm(offset) // address
@@ -228,20 +227,19 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
 
     case Patmos::PSEUDO_PREG_RELOAD:
       {
-        unsigned ld_opc = (isOnStackCache) ? Patmos::LWS : Patmos::LWC;
+        unsigned ld_opc = (isOnStackCache) ? Patmos::LBS : Patmos::LBC;
         unsigned DestReg = PseudoMI.getOperand(0).getReg();
 
-        // marker to aid debugging
-        //AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::WAIT) )); //XXX
         AddDefaultPred(BuildMI(MBB, II, DL, TII.get(ld_opc), Patmos::RTR))
           .addReg(basePtr, false).addImm(offset); // address
-        AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::CMPNEQ), DestReg))
-          .addReg(Patmos::RTR).addReg(Patmos::R0); // compare with 0
+        AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::MOVrp), DestReg))
+          .addReg(Patmos::RTR); // mov p <- r
       }
       break;
 
     default:
       llvm_unreachable("Unexpected MI in expandPseudoPregInstr()!");
+
   }
 
   DEBUG( dbgs() << "Pseudo PREG instruction expanded: " << PseudoMI );
@@ -320,8 +318,6 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   {
     case Patmos::LWC: case Patmos::LWM:
     case Patmos::SWC: case Patmos::SWM:
-    case Patmos::PSEUDO_PREG_SPILL:
-    case Patmos::PSEUDO_PREG_RELOAD:
       // 9 bit
       assert((Offset & 0x3) == 0);
       Offset = (Offset >> 2) + FrameDisplacement;
@@ -348,6 +344,8 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::LBC: case Patmos::LBM:
     case Patmos::LBUC: case Patmos::LBUM:
     case Patmos::SBC: case Patmos::SBM:
+    case Patmos::PSEUDO_PREG_SPILL:
+    case Patmos::PSEUDO_PREG_RELOAD:
       // 7 bit
       Offset += FrameDisplacement;
 
@@ -429,3 +427,6 @@ bool PatmosRegisterInfo::hasReservedSpillSlot(const MachineFunction &MF,
 
   return false;
 }
+
+
+

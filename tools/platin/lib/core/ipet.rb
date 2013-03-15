@@ -14,15 +14,17 @@ class UnknownVariableException < Exception
   end
 end
 
+
 # Indexed Constraints (normalized, with fast hashing)
 # Terms: Index => Integer != 0
 # Rhs: Integer
 # Invariant: gcd(lhs.map(:second) + [rhs]) == 1
 class IndexedConstraint
-  attr_reader :name, :lhs, :op, :rhs, :key, :hash
-  def initialize(ilp, lhs, op, rhs, name)
+  attr_reader :name, :lhs, :op, :rhs, :key, :hash, :tags
+  def initialize(ilp, lhs, op, rhs, name, tags=[])
     @ilp = ilp
     @name, @lhs, @op, @rhs = name, lhs, op, rhs
+    @tags = tags
     raise Exception.new("add_indexed_constraint: name is nil") unless name
     normalize!
   end
@@ -140,17 +142,6 @@ class ILP
       io.puts " #{ix}: constraint #{c.name}: #{c}"
     end
   end
-  # add a new variable
-  def add_variable(v, vartype=:dst, lb = 0, ub = nil)
-    raise Exception.new("Duplicate variable: #{v}") if @indexmap[v]
-    @variables.push(v)
-    index = @variables.length # starting with 1
-    @indexmap[v] = index
-    @vartype[v] = vartype
-    @eliminated.delete(v)
-    add_bound(v,lb,ub)
-    index
-  end
   # index of a variable
   def index(variable)
     @indexmap[variable] or raise UnknownVariableException.new("unknown variable: #{variable}")
@@ -163,32 +154,39 @@ class ILP
   def reset_cost
     @costs = Hash.new(0)
   end
+  # get cost of variable
   def get_cost(v)
     @costs[v]
   end
-  # add cost to the specified variable
-  def add_cost(variable, cost)
-    # puts "Adding cost #{variable} -> #{cost}"
-    @costs[variable] += cost
-  end
+  # remove all constraints
   def reset_constraints
     @constraints = Set.new
+  end
+  # add cost to the specified variable
+  def add_cost(variable, cost)
+    @costs[variable] += cost
+  end
+  # add a new variable
+  def add_variable(v, vartype=:dst)
+    raise Exception.new("Duplicate variable: #{v}") if @indexmap[v]
+    @variables.push(v)
+    index = @variables.length # starting with 1
+    @indexmap[v] = index
+    @vartype[v] = vartype
+    @eliminated.delete(v)
+    add_indexed_constraint({index => -1},"less-equal",0,"__lower_bound_v#{index}",Set.new([:positive]))
+    index
   end
   # add constraint:
   # terms_lhs .. [ [v,c] ]
   # op        .. "equal" or "less-equal"
   # const_rhs .. integer
-  def add_constraint(terms_lhs,op,const_rhs,name)
+  def add_constraint(terms_lhs,op,const_rhs,name,tag)
     terms_indexed = Hash.new(0)
     terms_lhs.each { |v,c|
       terms_indexed[index(v)] += c
     }
-    add_indexed_constraint(terms_indexed,op,const_rhs,name)
-  end
-  def add_bound(variable,lb=nil,ub=nil)
-    ix = index(variable)
-    add_constraint([[variable,-1]],"less-equal",-lb,"__lower_bound_v#{ix}") if lb
-    add_constraint([[variable,1]],"less-equal",ub,"__upper_bound_v#{ix}") if ub
+    add_indexed_constraint(terms_indexed,op,const_rhs,name,Set.new([tag]))
   end
 
   # Substitution
@@ -246,10 +244,10 @@ class ILP
     if ! e.empty?
       # Substitution if E is non-empty
       # FIXME: hack to avoid callsite constraints (for flow-fact trafo)
-      eq_constr = e.find { |coeff,constr| constr.name !~ /^callsite_/ }
-      eq_constr = e.first unless eq_constr
-      e.delete(eq_constr)
-      e_coeff, e_constr = eq_constr
+      eq_entry = e.find { |coeff,constr| constr.name !~ /^callsite_/ }
+      eq_entry = e.first unless eq_entry
+      e.delete(eq_entry)
+      e_coeff, e_constr = eq_entry
       e_terms, e_rhs = e_constr.lhs, e_constr.rhs
 
       if e_coeff < 0
@@ -267,7 +265,7 @@ class ILP
         e_terms.each { |v,c| terms[v] -= c * coeff }
         rhs -= coeff * e_rhs
         # (3) add new constraint
-        add_indexed_constraint(terms, constr.op, rhs, constr.name)
+        add_indexed_constraint(terms, constr.op, rhs, constr.name, constr.tags + e_constr.tags)
       end
     else
       assert("FM elimination should be disabled for eliminate_weak") { ! weak }
@@ -285,15 +283,16 @@ class ILP
           l_terms.each { |v,c| terms[v] -= u_coeff * c }
           rhs = l_coeff * u_rhs - u_coeff * l_rhs
           name = l_constr.name+"<>"+u_constr.name
-          add_indexed_constraint(terms,l_constr.op,rhs,name)
+          add_indexed_constraint(terms, l_constr.op, rhs, name, l_constr.tags + u_constr.tags)
         end
       end
     end
     @eliminated[var] = true
   end
   private
-  def add_indexed_constraint(terms_indexed,op,const_rhs,name)
-    constr = IndexedConstraint.new(self, terms_indexed, op, const_rhs, name)
+  def add_indexed_constraint(terms_indexed, op, const_rhs, name, tags)
+    terms_indexed.default=0
+    constr = IndexedConstraint.new(self, terms_indexed, op, const_rhs, name, tags)
     return if constr.tautology?
     raise Exception.new("Inconsistent constraint #{name}: #{constr}") if constr.inconsistent?
     @constraints.add(constr)
@@ -383,7 +382,7 @@ class IPETModel
     ipet.add_variable(callsite, level)
     # frequency of call instruction = frequency of block
     lhs = [ [callsite,1] ] + block_frequency(callsite.block,-1)
-    ipet.add_constraint(lhs, "equal", 0, "callsite_#{callsite.qname}")
+    ipet.add_constraint(lhs, "equal", 0, "callsite_#{callsite.qname}",:callsite)
 
     # create call edges (callsite -> f) for each called function f
     # the sum of all calledge frequencies is (less than or) equal to the callsite frequency
@@ -396,7 +395,7 @@ class IPETModel
       calledges.push(calledge)
       lhs.push([calledge, 1])
     end
-    ipet.add_constraint(lhs,"less-equal",0,"calledges_#{callsite.qname}")
+    ipet.add_constraint(lhs,"less-equal",0,"calledges_#{callsite.qname}",:callsite)
 
     # return call edges
     calledges
@@ -404,14 +403,14 @@ class IPETModel
 
   # frequency of analysis entry is 1
   def add_entry_constraint(entry_function)
-    ipet.add_constraint(function_frequency(entry_function),"equal",1,"structural_entry")
+    ipet.add_constraint(function_frequency(entry_function),"equal",1,"structural_entry",:structural)
   end
 
   # frequency of function is equal to sum of all callsite frequencies
   def add_function_constraint(function, calledges)
     lhs = calledges.map { |e| [e,-1] }
     lhs.concat(function_frequency(function,1))
-    ipet.add_constraint(lhs,"equal",0,"callers_#{function}")
+    ipet.add_constraint(lhs,"equal",0,"callers_#{function}",:callsite)
   end
 
   # frequency of incoming is frequency of outgoing edges
@@ -422,17 +421,17 @@ class IPETModel
           else
             lhs = sum_incoming(block,-1) + sum_outgoing(block)
           end
-    ipet.add_constraint(lhs,"equal",0,"structural_#{block.qname}")
+    ipet.add_constraint(lhs,"equal",0,"structural_#{block.qname}",:structural)
   end
 
   # frequency of incoming is frequency of outgoing edges is 0
   def add_infeasible_block(block)
     add_block_constraint(block)
     unless block.predecessors.empty?
-      ipet.add_constraint(sum_incoming(block),"equal",0,"structural_#{block.qname}_0in")
+      ipet.add_constraint(sum_incoming(block),"equal",0,"structural_#{block.qname}_0in",:infeasible)
     end
     unless block.successors.empty?
-      ipet.add_constraint(sum_outgoing(block),"equal",0,"structural_#{block.qname}_0out")
+      ipet.add_constraint(sum_outgoing(block),"equal",0,"structural_#{block.qname}_0out",:infeasible)
     end
   end
 
@@ -615,7 +614,7 @@ class IPETBuilder
     end
     begin
       name = "ff_#{ff['classification']}_#{@ffcount+=1}"
-      ilp.add_constraint(lhs, ff.op, 0, name)
+      ilp.add_constraint(lhs, ff.op, 0, name, :flowfact)
       name
     rescue UnknownVariableException => detail
       $stderr.puts "Skipping constraint: #{detail}" if @options.debug
@@ -664,12 +663,13 @@ private
     end
     rg_edges_of_edge.each do |level,edgemap|
       edgemap.each do |edge,rg_edges|
-        @ilp.add_constraint(rg_edges.map {|rge|[rge,1]}+[[edge,-1]], "equal", 0, "rg_edge_#{edge.qname}")
+        lhs = rg_edges.map { |rge| [rge,1] } + [[edge,-1]]
+        @ilp.add_constraint(lhs, "equal", 0, "rg_edge_#{edge.qname}", :structural)
       end
     end
     rg_edges_by_source.each do |s,edges|
       lhs = edges[:src].map { |e| [e,1] } + edges[:dst].map { |e| [e,-1] }
-      @ilp.add_constraint(lhs, "equal", 0, "rg_progress_#{s.qname}")
+      @ilp.add_constraint(lhs, "equal", 0, "rg_progress_#{s.qname}", :structural)
     end
   end
 
@@ -741,12 +741,10 @@ class FlowFactTransformation
       lhs = constr.named_lhs
       name = constr.name
 
-      interesting = true
-      interesting = false if name =~ /^__lower_bound/ && constr.rhs == 0
-      interesting = false if name =~ /^structural/
-      # interesting = false if name =~ /^rg/
-
-      info "NOT adding (boring) constraint #{name}: #{constr}" if options.debug && ! interesting
+      # Constraint is boring if it was derived from positivity and structural constraints only
+      interesting = ! constr.tags.reject { |tag| tag == :positive || tag == :structural }.empty?
+      info "#{interesting ? 'INTERESTING' : 'BORING'} transformed constraint #{name} "+
+           "#{constr.tags.to_a}: #{constr}" if options.debug
       next unless interesting
 
       # Simplify: edges->block
@@ -770,7 +768,8 @@ class FlowFactTransformation
       # Create flow-fact
       terms = TermList.new(lhs.map { |v,c| Term.new(v.ref,c) })
       scope = entry[target_level]
-      info "Adding transformed constraint #{constr} -> in #{scope} #{terms} #{constr.op} #{constr.rhs}" if options.verbose
+      info "Adding transformed constraint #{constr} -> in #{scope} :" +
+           "#{terms} #{constr.op} #{constr.rhs}" if options.verbose
       ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs)
       new_flowfacts.push(ff)
     end

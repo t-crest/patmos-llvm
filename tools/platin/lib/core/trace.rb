@@ -317,13 +317,15 @@ end
 
 # Utility class to record frequencies when analyzing traces
 class FrequencyRecord
-  attr_reader :cycles, :freqs, :calltargets
+  attr_reader :name, :runs, :cycles, :freqs, :calltargets
   def initialize(name)
     @name = name
+    @runs = 0
     @calltargets = {}
   end
   def start(cycles)
     @cycles_start = cycles
+    @runs += 1
     @current_record = Hash.new(0)
   end
   def increment(bb)

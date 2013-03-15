@@ -16,6 +16,8 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Function.h"
 
 using namespace llvm;
 
@@ -39,7 +41,6 @@ MachineFunctionAnalysis::MachineFunctionAnalysis(const TargetMachine &tm) :
 }
 
 MachineFunctionAnalysis::~MachineFunctionAnalysis() {
-  releaseMemory();
   assert(!MF && "MachineFunctionAnalysis left initialized!");
 }
 
@@ -62,7 +63,7 @@ bool MachineFunctionAnalysis::doInitialization(Module &M) {
 bool MachineFunctionAnalysis::runOnFunction(Function &F) {
   assert(!MF && "MachineFunctionAnalysis already initialized!");
 
-  // check whether a MachineFunction exists for F.
+  // Check whether a MachineFunction exists for F.
   MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
   MF = MMI.getMachineFunction(&F);
 
@@ -73,43 +74,51 @@ bool MachineFunctionAnalysis::runOnFunction(Function &F) {
     MF = 0;
   }
 
-  // no MachineFunction available? create one ...
-  if (!MF && TM) {
-    MF = new MachineFunction(&F, *TM, NextFnNum++, MMI,
-                             getAnalysisIfAvailable<GCModuleInfo>());
+  // No MachineFunction available? create one ...
+  if (!MF) {
+    if (TM) {
+      MF = new MachineFunction(&F, *TM, NextFnNum++, MMI,
+                               getAnalysisIfAvailable<GCModuleInfo>());
+    }
+    else if (!TM) {
+      // Note: We could retrieve the TargetMachine from MMI and pass a flag to the
+      // constructor to force (re-)creation of MFs (this must be set in
+      // LLVMTargetMachine, otherwise JIT recompilation breaks).
+      // However, we need to make sure functions are numbered properly in that
+      // case, so we need to persist the counter as well or use the number
+      // of persisted functions to calculate the function-number.
+      llvm_unreachable(
+         "MachineFunction has not been preserved. "
+         "Make sure to use MachineModulePasses instead of ModulePasses");
+    }
   }
-  else if (!TM) {
-    // Note: We could retrieve the TargetMachine from MMI and pass a flag to the
-    // constructor to force (re-)creation of MFs (this must be set in
-    // LLVMTargetMachine, otherwise JIT recompilation breaks).
-    // However, we need to make sure functions are numbered properly in that
-    // case, so we need to persist the counter as well or use the number
-    // of persisted functions to calculate the function-number.
-    llvm_unreachable(
-       "Creating a MachineFunction after a MachineModulePass is not supported");
+  else {
+    // Once we stored the MF, keep it that way. This is a workaround for the
+    // problem that sometimes this pass is created on the fly and thus not
+    // found by MachineModulePass.
+    PreserveMF = true;
   }
 
   return false;
 }
 
 void MachineFunctionAnalysis::releaseMemory() {
-  // check whether a MachineFunction exists for F.
+  // Check whether a MachineFunction exists for F.
   MachineModuleInfo *MMI = getAnalysisIfAvailable<MachineModuleInfo>();
 
   if (PreserveMF && MMI && MF) {
-    // store the MachineFunction instead of destroying it,
+    // Store the MachineFunction instead of destroying it,
     // but only if MachineFunctionAnalysis has been initialized before
     // It seems that this happens sometimes when this analysis is free'd
-    // but not used before
+    // but not used before.
     MMI->putMachineFunction(MF, MF->getFunction());
   }
-  else if (MMI && MF) {
-    // If we have a MachineModuleInfo, cleanup there as well
-    MMI->removeMachineFunction(MF->getFunction());
-    delete MF;
-  }
   else if (MF) {
-    // No MachineModuleInfo, no need to remove anything
+    if (MMI) {
+      // If we have a MachineModuleInfo, cleanup there as well.
+      MMI->removeMachineFunction(MF->getFunction());
+    }
+    // Not preserving or not MMI, delete the machine function.
     delete MF;
   }
   MF = 0;

@@ -86,11 +86,15 @@ public:
   /// Returns true iff the instruction was rewritten.
   virtual bool fixOpcodeForGuard(MachineInstr *MI) const;
 
-  // isStackControl - Return true if the instruction controls the stack cache.
+  /// isStackControl - Return true if the instruction controls the stack cache.
   virtual bool isStackControl(const MachineInstr *MI) const;
 
-  // getMemType - Return the type for Patmos' typed memory accesses.
-  // MI must be either a load or a store instruction.
+  /// isSideEffectFreeSRegAccess- return true if the instruction is a MTS/MFS
+  /// to/from a special register without side-effects
+  virtual bool isSideEffectFreeSRegAccess(const MachineInstr *MI) const;
+
+  /// getMemType - Return the type for Patmos' typed memory accesses.
+  /// MI must be either a load or a store instruction.
   virtual unsigned getMemType(const MachineInstr *MI) const;
 
 
