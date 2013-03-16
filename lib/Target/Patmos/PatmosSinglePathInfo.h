@@ -47,6 +47,9 @@ namespace llvm {
 
   /// PatmosSinglePathInfo - Single-Path analysis pass
   class PatmosSinglePathInfo : public MachineFunctionPass {
+    public:
+      // forward decl
+      class PredDefInfo;
     private:
       /// Typedefs for control dependence:
       /// CD: MBB -> set of edges
@@ -58,30 +61,6 @@ namespace llvm {
       /// Typedefs for R and K (decomposed CD)
       typedef std::vector<CD_map_entry_t>                  K_t;
       typedef std::map<const MachineBasicBlock*, unsigned> R_t;
-
-
-      /// PredDefInfo - TODO
-      class PredDefInfo {
-      private:
-        BitVector TrueEdge;
-        BitVector FalseEdge;
-        const MachineBasicBlock *TBB;
-        const SmallVector<MachineOperand, 2> Cond;
-      public:
-        PredDefInfo(unsigned num_preds, const MachineBasicBlock *tbb,
-                      const SmallVector<MachineOperand, 2> &cond)
-                      : TBB(tbb), Cond(cond) {
-            TrueEdge  = BitVector(num_preds);
-            FalseEdge = BitVector(num_preds);
-        }
-        void define(unsigned pred, const MachineBasicBlock *MBBDst) {
-          BitVector &bv = (MBBDst == TBB) ? TrueEdge : FalseEdge;
-          bv.set(pred);
-        }
-        const BitVector &getTrue() const { return TrueEdge; }
-        const BitVector &getFalse() const { return FalseEdge; }
-        const SmallVector<MachineOperand, 2> &getCond() const { return Cond; }
-      };
 
       const PatmosTargetMachine &TM;
       const PatmosSubtarget &STC;
@@ -125,17 +104,17 @@ namespace llvm {
       /// computeControlDependence - Compute CD for a given function.
       void computeControlDependence(MachineFunction &MF, CD_map_t &CD) const;
 
-      /// decomposeControlDependence - Decompose CD into K and R
+      /// decomposeControlDependence - Decompose CD into K and R.
       void decomposeControlDependence(MachineFunction &MF, const CD_map_t &CD,
                                       K_t &K, R_t &R) const;
 
-      /// collectPredDefs - Collect definitions in MBBs, in PredDefsT and
-      /// PredDefsF
+      /// collectPredDefs - Create predicate definition information for
+      /// affected MBBs
       void collectPredDefs(MachineFunction &MF, const K_t &K);
 
-
-      /// TODO
-      PredDefInfo &getOrCreateDefInfo(const MachineBasicBlock *MBBSrc);
+      /// getOrCreateDefInfo - Returns a predicate definition info
+      /// for a given MBB.
+      PredDefInfo &getOrCreateDefInfo(const MachineBasicBlock *);
 
     public:
       /// Pass ID
@@ -177,6 +156,36 @@ namespace llvm {
       // accessing main analysis results:
       ////////////////////////////////////
 
+      /// PredDefInfo - Class containing predicate definition information
+      /// of one MachineBasicBlock.
+      /// Instances for MBBs are stored in the PredDefs map.
+      class PredDefInfo {
+      private:
+        BitVector TrueEdge;
+        BitVector FalseEdge;
+        const MachineBasicBlock *TBB;
+        const SmallVector<MachineOperand, 2> Cond;
+      public:
+        PredDefInfo(unsigned num_preds, const MachineBasicBlock *tbb,
+                      const SmallVector<MachineOperand, 2> &cond)
+                      : TBB(tbb), Cond(cond) {
+            TrueEdge  = BitVector(num_preds);
+            FalseEdge = BitVector(num_preds);
+        }
+        void define(unsigned pred, const MachineBasicBlock *MBBDst) {
+          BitVector &bv = (MBBDst == TBB) ? TrueEdge : FalseEdge;
+          bv.set(pred);
+        }
+        const BitVector &getTrue() const { return TrueEdge; }
+        const BitVector &getFalse() const { return FalseEdge; }
+        const BitVector getBoth() const {
+          BitVector both(TrueEdge);
+          both |= FalseEdge;
+          return both;
+        }
+        const SmallVector<MachineOperand, 2> &getCond() const { return Cond; }
+      };
+
       /// isToConvert - Return true if the function should be if-converted
       bool isToConvert(MachineFunction &MF) const;
 
@@ -187,21 +196,10 @@ namespace llvm {
       /// getPredUse - Returns the guarding predicate for an MBB
       int getPredUse(const MachineBasicBlock *) const;
 
-      /// getPredUse - Returns the guarding predicate for an MBB
-      BitVector getPredUseBV(const MachineBasicBlock *) const;
+      /// getDefInfo - Returns a pointer to a predicate definition info for
+      /// a given MBB, or NULL if no pred info exists for the MBB.
+      const PredDefInfo *getDefInfo(const MachineBasicBlock *) const;
 
-      /// getPredDefsT - Returns a bitvector for preds set on the true edge
-      BitVector getPredDefsT(const MachineBasicBlock *) const;
-
-      /// getPredDefsF - Returns a bitvector for preds set on the false edge
-      BitVector getPredDefsF(const MachineBasicBlock *) const;
-
-      /// getPredDefsBoth - Returns a bitvector for preds set on both edges
-      BitVector getPredDefsBoth(const MachineBasicBlock *) const;
-
-      /// getCond - TODO
-      const SmallVector<MachineOperand, 2> *getCond(const MachineBasicBlock *)
-                                                    const;
       /// getPredEntryEdge - Returns a bitvector for preds true on entry edge
       BitVector getPredEntryEdge() const { return PredEntryEdge; }
 

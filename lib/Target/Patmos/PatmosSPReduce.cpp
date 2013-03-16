@@ -218,17 +218,15 @@ void PatmosSPReduce::insertPredDefinitions(MachineFunction &MF) {
   // For each MBB, check PSPI defs
   for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
     MachineBasicBlock *MBB = FI;
-    BitVector bvT(PSPI.getPredDefsT(MBB)),
-              bvF(PSPI.getPredDefsF(MBB));
+    const PatmosSinglePathInfo::PredDefInfo *DI = PSPI.getDefInfo(MBB);
+
     // check for definitions
-    if (bvT.none() && bvF.none()) {
-      continue;
-    }
+    if (!DI) continue;
 
     DEBUG( dbgs() << " - MBB#" << MBB->getNumber() << "\n" );
 
     // get the branch condition
-    SmallVector<MachineOperand, 2> Cond(*PSPI.getCond(MBB));
+    SmallVector<MachineOperand, 2> Cond(DI->getCond());
 
     // insert the predicate definitions before any branch at the MBB end
     MachineBasicBlock::iterator firstTI = MBB->getFirstTerminator();
@@ -236,8 +234,10 @@ void PatmosSPReduce::insertPredDefinitions(MachineFunction &MF) {
     Cond[0].setIsKill(false);
 
     // clear all preds that are going to be defined
-    insertPredClr(MBB, firstTI, PSPI.getPredDefsBoth(MBB));
+    insertPredClr(MBB, firstTI, DI->getBoth());
 
+    BitVector bvT(DI->getTrue()),
+              bvF(DI->getFalse());
     // definitions for the T edge
     if (bvT.any()) {
       insertPredSet(MBB, firstTI, bvT, Cond);

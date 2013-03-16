@@ -160,52 +160,6 @@ int PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) const {
   return -1;
 }
 
-BitVector PatmosSinglePathInfo::getPredUseBV(const MachineBasicBlock *MBB)
-                                                                    const {
-  BitVector bv(PredCount);
-  if (PredUse.count(MBB)) {
-    bv.set(PredUse.at(MBB));
-  }
-  return bv;
-}
-
-
-BitVector PatmosSinglePathInfo::getPredDefsT(const MachineBasicBlock *MBB)
-                                                                    const {
-  if (PredDefs.count(MBB)) {
-    return PredDefs.at(MBB).getTrue();
-  }
-  return BitVector(PredCount);
-}
-
-
-BitVector PatmosSinglePathInfo::getPredDefsF(const MachineBasicBlock *MBB)
-                                                                    const {
-  if (PredDefs.count(MBB)) {
-    return PredDefs.at(MBB).getFalse();
-  }
-  return BitVector(PredCount);
-}
-
-BitVector PatmosSinglePathInfo::getPredDefsBoth(const MachineBasicBlock *MBB)
-                                                                    const {
-  BitVector bv(PredCount);
-  if (PredDefs.count(MBB)) {
-    bv |= PredDefs.at(MBB).getTrue();
-    bv |= PredDefs.at(MBB).getFalse();
-  }
-  return bv;
-}
-
-const SmallVector<MachineOperand, 2> *
-PatmosSinglePathInfo::getCond(const MachineBasicBlock *MBB) const {
-
-  if (PredDefs.count(MBB)) {
-    return &PredDefs.at(MBB).getCond();
-  }
-  return NULL;
-}
-
 
 void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
   assert( Root != NULL );
@@ -244,12 +198,15 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
     for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
               I!=E; ++I) {
-      dbgs() << "MBB#" << I->getNumber() << ": use ";
-      printBitVector(dbgs(), getPredUseBV(I));
-      dbgs() << " defT ";
-      printBitVector(dbgs(), getPredDefsT(I));
-      dbgs() << " defF ";
-      printBitVector(dbgs(), getPredDefsF(I));
+      dbgs() << "MBB#" << I->getNumber() << ": use " << getPredUse(I);
+
+      const PredDefInfo *DI = getDefInfo(I);
+      if (DI) {
+        dbgs() << " defT ";
+        printBitVector(dbgs(), DI->getTrue());
+        dbgs() << " defF ";
+        printBitVector(dbgs(), DI->getFalse());
+      }
       dbgs() << "\n";
     }
   });
@@ -397,13 +354,13 @@ void PatmosSinglePathInfo::collectPredDefs(MachineFunction &MF, const K_t &K) {
 ///////////////////////////////////////////////////////////////////////////////
 
 PatmosSinglePathInfo::PredDefInfo &
-PatmosSinglePathInfo::getOrCreateDefInfo(const MachineBasicBlock *MBBSrc) {
+PatmosSinglePathInfo::getOrCreateDefInfo(const MachineBasicBlock *MBB) {
 
-  if (!PredDefs.count(0)) {
+  if (!PredDefs.count(MBB)) {
     // for AnalyzeBranch
     MachineBasicBlock *TBB = NULL, *FBB = NULL;
     SmallVector<MachineOperand, 2> Cond;
-    if (!TII->AnalyzeBranch(*const_cast<MachineBasicBlock*>(MBBSrc),
+    if (!TII->AnalyzeBranch(*const_cast<MachineBasicBlock*>(MBB),
           TBB, FBB, Cond)) {
       // According to AnalyzeBranch spec, at a conditional branch,
       // Cond will hold the branch conditions
@@ -420,13 +377,21 @@ PatmosSinglePathInfo::getOrCreateDefInfo(const MachineBasicBlock *MBBSrc) {
 
     // Create new info
     PredDefs.insert(
-      std::make_pair(MBBSrc, PredDefInfo(PredCount, TBB, Cond)) );
+      std::make_pair(MBB, PredDefInfo(PredCount, TBB, Cond)) );
   }
 
-  return PredDefs.at(MBBSrc);
+  return PredDefs.at(MBB);
 }
 
 
+const PatmosSinglePathInfo::PredDefInfo *
+PatmosSinglePathInfo::getDefInfo(const MachineBasicBlock *MBB) const {
+
+  if (PredDefs.count(MBB)) {
+    return &PredDefs.at(MBB);
+  }
+  return NULL;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // SPNode methods
