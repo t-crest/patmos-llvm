@@ -456,6 +456,11 @@ namespace llvm {
     virtual MFList getCalledFunctions(const Module &M,
                                       MachineModuleInfo &MMI,
                                       MachineFunction &MF);
+
+    /// get number of bytes this instruction takes
+    /// FIXME: we should rely on getDescr()->getSize(), but this does not
+    /// work for inline assembler at the moment.
+    virtual int getSize(const MachineInstr *Instr);
   };
 
   /// Base class for all exporters
