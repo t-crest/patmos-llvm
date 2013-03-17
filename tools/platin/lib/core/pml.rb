@@ -530,7 +530,11 @@ module PML
       source_loop_index = source.loopnest - loopnest
       source.loops[source_loop_index] == self
     end
-
+    # return true if the block does not contain any actual instructions (labels are ok)
+    # FIXME: blocks are currently also considered to be empty if they only contain inline asm
+    def empty?
+      instructions.empty? || instructions.all? { |i| i.size == 0 }
+    end
     # block predecessors; not ready at initialization time
     def predecessors
       return @predecessors if @predecessors
@@ -594,6 +598,9 @@ module PML
     end
     def function
       block.function
+    end
+    def size
+      data['size']
     end
     def [](k)
       data[k]

@@ -51,6 +51,8 @@ class MachineTraceMonitor < TraceMonitor
     @wp_callreturn_instr = {}
     # return instruction watch points
     @wp_return_instr = {}
+    # empty (zero-size) blocks before the key'ed block
+    @empty_blocks = {}
     build_watchpoints
   end
   # run monitor
@@ -102,6 +104,7 @@ class MachineTraceMonitor < TraceMonitor
 
         # basic block
         assert("Current function does not match block: #{@current_function} != #{b}") { @current_function == b.function }
+        @empty_blocks[b.address].each { |b0| publish(:block, b0, @cycles) } if @empty_blocks[b.address]
         publish(:block, b, @cycles)
       end
 
@@ -179,6 +182,12 @@ class MachineTraceMonitor < TraceMonitor
       # for all basic blocks
       fun.blocks.each do |block|
 
+        # blocks that consist of labels only (used in some benchmarks for flow facts)
+        if block.empty?
+          (@empty_blocks[block.address]||=[]).push(block)
+          next
+        end
+
         # generate basic block event at first instruction
         add_watch(@wp_block_start, block.address, block)
 
@@ -203,11 +212,11 @@ class MachineTraceMonitor < TraceMonitor
       end
     end
   end
-  def add_watch(dict,addr,data)
+  def add_watch(dict, addr, data)
     if ! addr
       warn ("No address for #{data.inspect[0..60]}")
     elsif dict[addr]
-      raise Exception.new("Duplicate watchpoint at address #{addr.inspect}: #{data} / #{dict[addr]}")
+      raise Exception.new("Duplicate watchpoint at address #{addr.inspect}: #{data} already set to #{dict[addr]}")
     else
       @wp[addr] = true
       dict[addr] = data

@@ -18,7 +18,7 @@ module PML
 
   def die(msg)
     $stderr.puts(format_msg("FATAL",msg))
-    $stderr.puts Thread.current.backtrace
+    # $stderr.puts Thread.current.backtrace
     exit 1
   end
 
@@ -99,7 +99,7 @@ module PML
         options.use_relation_graph = true
       }
       add_check { |options|
-        options.flow_fact_types = "all" unless options.flow_fact_types
+        options.flow_fact_selection = "all" unless options.flow_fact_selection
         options.flow_fact_srcs  = "all" unless options.flow_fact_srcs
       }
     end

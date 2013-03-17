@@ -15,6 +15,9 @@ class ExtractSymbols
     @stats_address_count = 0
   end
   def analyze(elf)
+    if ! File.exist?(elf)
+      die "The binary file '#{elf}' does not exist"
+    end
     r = IO.popen("#{@options.objdump} -t '#{elf}'") do |io|
       io.each_line do |line|
         if record = objdump_extract(line.chomp)
@@ -41,6 +44,8 @@ class ExtractSymbols
           # Migh be different from current addr, as subfunctions require the emitter
           # to insert additional text between blocks
           addr = block_addr
+        else
+          warn("No symbol for basic block #{block}") if @options.debug
         end
         block.address = addr
         block.instructions.each do |instruction|
