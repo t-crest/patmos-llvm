@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file contains a Patmos-customized PML export driver and -pass.
-// 
+//
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "patmos-export"
@@ -56,10 +56,11 @@ namespace llvm {
 
   class PatmosPMLInstrInfo : public PMLInstrInfo {
 
+    PatmosTargetMachine &TM;
     MCallGraph *MCG;
 
   public:
-    PatmosPMLInstrInfo() : PMLInstrInfo(), MCG(0) {}
+    PatmosPMLInstrInfo(PatmosTargetMachine &tm) : PMLInstrInfo(), TM(tm), MCG(0) {}
 
     void setCallGraph(MCallGraph *mcg) { MCG = mcg; }
 
@@ -182,6 +183,12 @@ namespace llvm {
       return PMLInstrInfo::getCalledFunctions(M, MMI, MF);
     }
 
+    virtual int getSize(const MachineInstr *Instr)
+    {
+      PatmosInstrInfo PII(TM);
+      return PII.getInstrSize(Instr);
+    }
+
   };
 
   class PatmosFunctionExport : public PMLFunctionExport {
@@ -218,7 +225,7 @@ namespace llvm {
     PatmosPMLInstrInfo PII;
   public:
     PatmosExportPass(PatmosTargetMachine &tm, StringRef filename)
-     : PMLExportPass(ID, tm, filename)
+      : PMLExportPass(ID, tm, filename), PII(tm)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
@@ -252,7 +259,7 @@ namespace llvm {
   public:
     PatmosModuleExportPass(PatmosTargetMachine &tm, StringRef filename,
                            ArrayRef<std::string> roots)
-     : PMLModuleExportPass(ID, tm, filename, roots)
+      : PMLModuleExportPass(ID, tm, filename, roots), PII(tm)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }

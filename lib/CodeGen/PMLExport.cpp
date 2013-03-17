@@ -169,6 +169,10 @@ PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(const Module &M,
   return CalledFunctions;
 }
 
+int PMLInstrInfo::getSize(const MachineInstr *Instr)
+{
+  return Instr->getDesc().getSize();
+}
 
 void PMLFunctionExport::serialize(const Function &Fn)
 {
@@ -274,9 +278,6 @@ void PMLMachineFunctionExport::serialize(MachineFunction &MF,
 
       yaml::GenericMachineInstruction *I = B->addInstruction(
           new yaml::GenericMachineInstruction(Index++));
-      I->Size = Ins->getDesc().getSize();
-      I->Opcode = Ins->getOpcode();
-
       exportInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                         TrueSucc, FalseSucc);
     }
@@ -295,6 +296,9 @@ void PMLMachineFunctionExport::exportInstruction(MachineFunction &MF,
                                  MachineBasicBlock *TrueSucc,
                                  MachineBasicBlock *FalseSucc)
 {
+  I->Opcode = Ins->getOpcode();
+  I->Size = PII->getSize(Ins);
+
   if (Ins->getDesc().isCall()) {
     exportCallInstruction(MF, I, Ins);
   }
