@@ -56,6 +56,8 @@ namespace {
       AU.setPreservesCFG();
       AU.addPreserved<CallGraph>();
     }
+  private:
+    void LoadFromGlobalVariable(const GlobalVariable *GV);
   };
 } // end anonymous namespace
 
@@ -110,6 +112,19 @@ void InternalizePass::LoadFile(const char *Filename) {
   }
 }
 
+void InternalizePass::LoadFromGlobalVariable(const GlobalVariable *GV) {
+  if (!GV || !GV->hasInitializer()) return;
+
+  // Should be an array of 'i8*'.
+  const ConstantArray *InitList = dyn_cast<ConstantArray>(GV->getInitializer());
+  if (InitList == 0) return;
+
+  for (unsigned i = 0, e = InitList->getNumOperands(); i != e; ++i)
+    if (const Function *F =
+          dyn_cast<Function>(InitList->getOperand(i)->stripPointerCasts()))
+      ExternalNames.insert(F->getName());
+}
+
 bool InternalizePass::runOnModule(Module &M) {
   CallGraph *CG = getAnalysisIfAvailable<CallGraph>();
   CallGraphNode *ExternalNode = CG ? CG->getExternalCallingNode() : 0;
@@ -119,6 +134,10 @@ bool InternalizePass::runOnModule(Module &M) {
   // FIXME: We should probably add this (and the __stack_chk_guard) via some
   // type of call-back in CodeGen.
   ExternalNames.insert("__stack_chk_fail");
+
+  // Insert functions in the llvm.used array (but not llvm.compiler.used) into
+  // ExternalNames.
+  LoadFromGlobalVariable(M.getGlobalVariable("llvm.used"));
 
   // Mark all functions not in the api as internal.
   // FIXME: maybe use private linkage?
