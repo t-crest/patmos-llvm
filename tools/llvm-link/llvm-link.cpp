@@ -28,9 +28,36 @@
 #include <memory>
 using namespace llvm;
 
+enum LibraryLinkage { Dynamic, Static };
+
+static cl::list<LibraryLinkage>
+LinkDynamicLibraries("B", cl::Prefix, cl::ZeroOrMore, cl::ValueRequired,
+                     cl::desc("Control library linkage"),
+                     cl::values(
+                      clEnumValN(Dynamic, "dynamic", "Link against shared libraries"),
+                      clEnumValN(Static,  "static",  "Do not link against shared libraries"),
+                      clEnumValEnd));
+
 static cl::list<std::string>
 InputFilenames(cl::Positional, cl::OneOrMore,
                cl::desc("<input bitcode files>"));
+
+static cl::list<std::string>
+LibrarySearchPaths("L", cl::Prefix, cl::ZeroOrMore, 
+                   cl::desc("Library search paths"),
+                   cl::value_desc("dir"));
+
+static cl::alias
+LibrarySearchPathsA("-library-path", cl::desc("Alias for -L"),
+                    cl::value_desc("dir"), cl::aliasopt(LibrarySearchPaths));
+
+static cl::list<std::string>
+Libraries("l", cl::Prefix, cl::ZeroOrMore,
+          cl::desc("Libraries"), cl::value_desc("library"));
+
+static cl::alias
+LibrariesA("-library", cl::desc("Alias for -l"), cl::value_desc("library"),
+           cl::aliasopt(Libraries));
 
 static cl::opt<std::string>
 OutputFilename("o", cl::desc("Override output filename"), cl::init("-"),
@@ -49,29 +76,50 @@ Verbose("v", cl::desc("Print information about actions taken"));
 static cl::opt<bool>
 DumpAsm("d", cl::desc("Print assembly as linked"), cl::Hidden);
 
-// LoadFile - Read the specified bitcode file in and return it.  This routine
-// searches the link path for the specified file to try to find it...
-//
-static inline std::auto_ptr<Module> LoadFile(const char *argv0,
-                                             const std::string &FN, 
-                                             LLVMContext& Context) {
-  sys::Path Filename;
-  if (!Filename.set(FN)) {
-    errs() << "Invalid file name: '" << FN << "'\n";
-    return std::auto_ptr<Module>();
+// Reimplement Linker::FindLib() to search for shared libraries first
+// unless OnlyStatic is true.
+static sys::Path FindLib(StringRef LibName, const std::vector<sys::Path> &Directories,
+                         bool OnlyStatic) {
+  sys::Path FilePath(LibName);
+  if (FilePath.canRead() &&
+      (FilePath.isArchive() || (!OnlyStatic && FilePath.isDynamicLibrary())))
+    return FilePath;
+
+  // Now iterate over the directories
+  for (std::vector<sys::Path>::const_iterator Iter = Directories.begin();
+       Iter != Directories.end(); ++Iter) {
+    sys::Path FullPath(*Iter);
+    FullPath.appendComponent(("lib" + LibName).str());
+    if (!OnlyStatic) {
+      // Try libX.so or libX.dylib
+      FullPath.appendSuffix(sys::Path::GetDLLSuffix());
+      if (FullPath.isDynamicLibrary()) // Native shared library
+        return FullPath;
+      if (FullPath.isBitcodeFile())    // .so containing bitcode
+        return FullPath;
+      
+      // Linker::IsLibrary() now removes the suffix and performs the
+      // dynamic library and bitcode file checks again. This makes no
+      // sense and seems like a bug.
+      FullPath.eraseSuffix();
+    }
+
+    // Either we only want static libraries or we didn't find a
+    // dynamic library so try libX.a
+    FullPath.appendSuffix("a");
+    if (FullPath.isArchive())
+      return FullPath;
+
+    // libX.bca
+    FullPath.eraseSuffix();
+    FullPath.appendSuffix("bca");
+    if (FullPath.isArchive())
+      return FullPath;
   }
 
-  SMDiagnostic Err;
-  if (Verbose) errs() << "Loading '" << Filename.c_str() << "'\n";
-  Module* Result = 0;
-  
-  const std::string &FNStr = Filename.str();
-  Result = ParseIRFile(FNStr, Err, Context);
-  if (Result) return std::auto_ptr<Module>(Result);   // Load successful!
-
-  Err.print(argv0, errs());
-  return std::auto_ptr<Module>();
-}
+  // No libraries were found
+  return sys::Path();
+} 
 
 int main(int argc, char **argv) {
   // Print a stack trace if we signal out.
@@ -82,39 +130,126 @@ int main(int argc, char **argv) {
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
   cl::ParseCommandLineOptions(argc, argv, "llvm linker\n");
 
-  unsigned BaseArg = 0;
-  std::string ErrorMessage;
-
-  std::auto_ptr<Module> Composite(LoadFile(argv[0],
-                                           InputFilenames[BaseArg], Context));
-  if (Composite.get() == 0) {
-    errs() << argv[0] << ": error loading file '"
-           << InputFilenames[BaseArg] << "'\n";
-    return 1;
+  std::string Progname;
+  if (OutputFilename == "-")
+    Progname = "<stdout>";
+  else {
+    sys::Path P(OutputFilename);
+    P.eraseSuffix();
+    Progname = P.str();
   }
 
-  for (unsigned i = BaseArg+1; i < InputFilenames.size(); ++i) {
-    std::auto_ptr<Module> M(LoadFile(argv[0],
-                                     InputFilenames[i], Context));
-    if (M.get() == 0) {
-      errs() << argv[0] << ": error loading file '" <<InputFilenames[i]<< "'\n";
-      return 1;
-    }
 
-    if (Verbose) errs() << "Linking in '" << InputFilenames[i] << "'\n";
+  // Craft a new linker and add in search paths
+  Linker L(Progname, Progname, Context);
+  L.addSystemPaths();
+  L.addPaths(LibrarySearchPaths);
 
-    if (Linker::LinkModules(Composite.get(), M.get(), Linker::DestroySource,
-                            &ErrorMessage)) {
-      errs() << argv[0] << ": link error in '" << InputFilenames[i]
-             << "': " << ErrorMessage << "\n";
-      return 1;
-    }
+  if (Verbose) {
+    L.setFlags(Linker::Verbose);
   }
 
-  // TODO: Iterate over the -l list and link in any modules containing
-  // global symbols that have not been resolved so far.
+  // Link in modules, archives, and libraries
+  std::vector<std::string>::const_iterator FileIt = InputFilenames.begin();
+  std::vector<std::string>::const_iterator LibIt = Libraries.begin();
+  std::vector<LibraryLinkage>::const_iterator LDLIt = LinkDynamicLibraries.begin();
+  bool OnlyStatic = false;
 
-  if (DumpAsm) errs() << "Here's the assembly:\n" << *Composite;
+  while (true) {
+    unsigned int LibPos = -1, FilePos = -1, LDLPos = -1;
+    if (LibIt != Libraries.end())
+      LibPos = Libraries.getPosition(LibIt - Libraries.begin());
+    if (FileIt != InputFilenames.end())
+      FilePos = InputFilenames.getPosition(FileIt - InputFilenames.begin());
+    if (LDLIt != LinkDynamicLibraries.end())
+      LDLPos = LinkDynamicLibraries.getPosition(LDLIt - LinkDynamicLibraries.begin());
+    
+    // If LDLPos is less than both FilePos and LibPos, update
+    // OnlyStatic.
+    if (LDLPos < FilePos && LDLPos < LibPos)
+    {
+      OnlyStatic = *LDLIt++ == Static;
+      continue;
+    }
+
+    // Otherwise, FilePos or LibPos is smaller (or all are -1).
+    if (FilePos < LibPos) {
+      // Link in a module or archive
+      const std::string &FileName = *FileIt++;
+      sys::Path P;
+      if (!P.set(FileName)) {
+        errs() << argv[0] << ": invalid file name: '" << FileName << "'\n";
+        return 1;
+      }
+
+      bool IsNative;
+      if (P.isArchive()) {
+        // Link the archive in if it will resolve symbols
+        if (L.LinkInArchive(P, IsNative))
+        {
+          errs() << argv[0] << ": error linking archive: '" << FileName << "'\n";
+          return 1;
+        }
+      }
+      else if (P.isBitcodeFile()) {
+        // Link the bitcode file in
+        if (L.LinkInFile(P, IsNative)) {
+          errs() << argv[0] << ": error linking bitcode file: '" << FileName << "'\n";
+          return 1;
+        }
+      }
+      else {
+        // Not an archive nor bitcode so attempt to parse it as LLVM
+        // assembly.
+        SMDiagnostic Err;
+        std::auto_ptr<Module> M(ParseIRFile(P.str(), Err, Context));
+        if (M.get() == 0) {
+          errs() << argv[0] << ": error parsing LLVM assembly file: '" << FileName << "'\n";
+          return 1;
+        }
+        std::string ErrMessage;
+        if (L.LinkInModule(M.get(), &ErrMessage)) {
+          errs() << argv[0] << ": link error in '" << FileName
+                 << "': " << ErrMessage << "\n";
+          return 1;
+        }
+      }
+      continue;
+    }
+
+    if (LibPos < FilePos) {
+      // Link in library or archive
+      const std::string &LibName = *LibIt++;
+      sys::Path P = FindLib(LibName, L.getLibPaths(), OnlyStatic);
+      if (P.isEmpty()) {
+        errs() << argv[0] << ": library not found for: '-l" << LibName << "'\n";
+        return 1;
+      }
+
+      bool IsNative;
+      if (P.isArchive()) {
+        if (L.LinkInArchive(P, IsNative))
+        {
+          errs() << argv[0] << ": error linking archive: '" << P.str() << "'\n";
+          return 1;
+        }
+      }
+      else {
+        // If this is not an archive, then it is a dynamic library and
+        // the linker is responsible for linking it in. Ignore it.
+        assert(P.isDynamicLibrary() || P.isBitcodeFile());
+        if (Verbose)
+          errs() << "Not linking in dynamic library '" << P.str() << "'\n";
+      }
+      continue;
+    }
+    // All done
+    assert(LDLPos == (unsigned)-1 && FilePos == (unsigned)-1 && LibPos == (unsigned)-1);
+    break;
+  }
+
+  Module &Composite = *L.getModule();
+  if (DumpAsm) errs() << "Here's the assembly:\n" << Composite;
 
   std::string ErrorInfo;
   tool_output_file Out(OutputFilename.c_str(), ErrorInfo,
@@ -124,19 +259,20 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (verifyModule(*Composite)) {
+  if (verifyModule(Composite)) {
     errs() << argv[0] << ": linked module is broken!\n";
     return 1;
   }
 
   if (Verbose) errs() << "Writing bitcode...\n";
   if (OutputAssembly) {
-    Out.os() << *Composite;
+    Out.os() << Composite;
   } else if (Force || !CheckBitcodeOutputToConsole(Out.os(), true))
-    WriteBitcodeToFile(Composite.get(), Out.os());
+    WriteBitcodeToFile(&Composite, Out.os());
 
   // Declare success.
   Out.keep();
 
   return 0;
 }
+// vim: set sw=2 sts=2 expandtab:

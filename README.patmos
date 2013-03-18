@@ -185,7 +185,6 @@ The following options control the linker default behaviour:
 			     backend, such as software division or memcpy
     -fpatmos-link-object     Link as object, i.e., do not link in any libraries or start code
     -flto                    Link all libraries with gold instead of with llvm-ld
-    -fpatmos-lto-defaultlibs Link all default libraries with gold 
 
 Bitcode file libraries can be created using ar. However, in order to be able to
 link libraries with -flto using gold, the libraries must be created with 
