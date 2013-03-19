@@ -56,9 +56,10 @@ static MCSubtargetInfo *createPatmosMCSubtargetInfo(StringRef TT, StringRef CPU,
 }
 
 static MCCodeGenInfo *createPatmosMCCodeGenInfo(StringRef TT, Reloc::Model RM,
-                                                CodeModel::Model CM, CodeGenOpt::Level L) {
+                                                CodeModel::Model CM,
+                                                CodeGenOpt::Level L) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
-  X->InitMCCodeGenInfo(RM, CM);
+  X->InitMCCodeGenInfo(RM, CM, L);
   return X;
 }
 
