@@ -48,7 +48,6 @@ class ApxExportTool
     opts.add_check { |options|
       die_usage "No apx file specified." if mandatory && ! options.apx_file
       if options.apx_file
-        die_usage "Option --report  is mandatory when generating apx file" unless options.ait_report_file
         die_usage "Option --binary  is mandatory when generating apx file" unless options.binary_file
         die_usage "Option --results is mandatory when generating apx file" unless options.ait_result_file
       end
@@ -63,7 +62,7 @@ class ApxExportTool
       apx_exporter.export_project(options.binary_file,
                                   options.ais_file,
                                   options.ait_result_file,
-                                  options.report_file,
+                                  options.ait_report_file,
                                   options.analysis_entry)
     end
   end

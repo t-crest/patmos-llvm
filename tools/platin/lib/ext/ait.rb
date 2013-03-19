@@ -149,6 +149,16 @@ module PML
       # There is probably a better way to do this .. e.g., use a template file.
       @outfile.puts '<!DOCTYPE APX>'
       @outfile.puts '<project xmlns="http://www.absint.com/apx" target="patmos" version="12.10i">'
+
+      @outfile.puts '<options>'
+      @outfile.puts '<analyses_options>'
+      @outfile.puts '<extract_annotations_from_source_files>true</extract_annotations_from_source_files>'
+      @outfile.puts '</analyses_options>'
+      @outfile.puts '<general_options>'
+      @outfile.puts '<include_path>.</include_path>'
+      @outfile.puts '</general_options>'
+      @outfile.puts '</options>'
+
       @outfile.puts ' <files>'
       @outfile.puts "  <executables>#{File.expand_path binary}</executables>"
       @outfile.puts "  <ais>#{File.expand_path aisfile}</ais>" if aisfile
