@@ -172,6 +172,9 @@ namespace llvm {
             TrueEdge  = BitVector(num_preds);
             FalseEdge = BitVector(num_preds);
         }
+        bool isTrueDest(const MachineBasicBlock *MBBDst) const {
+          return MBBDst == TBB;
+        }
         void define(unsigned pred, const MachineBasicBlock *MBBDst) {
           BitVector &bv = (MBBDst == TBB) ? TrueEdge : FalseEdge;
           bv.set(pred);

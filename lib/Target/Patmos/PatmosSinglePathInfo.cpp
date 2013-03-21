@@ -163,6 +163,7 @@ int PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) const {
 
 void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
   assert( Root != NULL );
+  DEBUG( dbgs() << "Walking SPNode root\n");
   Root->walk(walker);
 }
 
@@ -474,8 +475,12 @@ void SPNode::walk(SPNodeWalker &walker) {
           // to keep predicate life ranges short (not across loops)
           if (HeaderMap.count(succ)) {
             S.push_front(succ);
+            DEBUG_TRACE( dbgs() << "- avail: loop [MBB#"
+                                << succ->getNumber() << "]\n");
           } else {
             S.push_back(succ);
+            DEBUG_TRACE( dbgs() << "- avail: MBB#"
+                                << succ->getNumber() << "\n");
           }
         }
       }
