@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Patmos.h"
+#include "PatmosAsmPrinter.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
@@ -21,6 +22,8 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
+#include "llvm/MC/MCSectionELF.h"
+#include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
 //#include "llvm/Support/Debug.h"
@@ -266,6 +269,33 @@ unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
     default: llvm_unreachable("Unexpected memory access instruction!");
   }
 
+}
+
+unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
+  if (MI->isInlineAsm()) {
+    PatmosTargetMachine& PTM = RI.getTargetMachine();
+    // TODO is there a way to get the current context?
+    MCContext Ctx(*PTM.getMCAsmInfo(),
+                  *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);
+
+    // PIA is deleted by AsmPrinter
+    PatmosInstrAnalyzer *PIA = new PatmosInstrAnalyzer(Ctx);
+
+    // PTM.getTargetLowering()->getObjFileLowering() might not yet be
+    // initialized, so we create a new section object for this temp context
+    const MCSection* TS = Ctx.getELFSection(".text",
+                                            ELF::SHT_PROGBITS, 0,
+                                            SectionKind::getText());
+    PIA->SwitchSection(TS);
+
+    PatmosAsmPrinter PAP(PTM, *PIA);
+    PAP.EmitInlineAsm(MI);
+
+    return PIA->getSize();
+  } else {
+    // trust the desc..
+    return MI->getDesc().getSize();
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

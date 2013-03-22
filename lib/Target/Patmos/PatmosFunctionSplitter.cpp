@@ -110,35 +110,6 @@ namespace llvm {
   class ablock;
   class agraph;
 
-  // TODO move this class into a separate header, track call sites and stack
-  // cache control instructions, use in CallGraphBuilder, ...
-  class PatmosInstrAnalyzer : public MCNullStreamer
-  {
-    const MCInstrInfo &MII;
-    unsigned count;
-    unsigned size;
-  public:
-    PatmosInstrAnalyzer(MCContext &ctx)
-     : MCNullStreamer(ctx), MII(ctx.getInstrInfo()), count(0), size(0)
-    {
-    }
-
-    void reset() {
-      count = 0;
-      size = 0;
-    }
-
-    unsigned getCount() const { return count; }
-
-    unsigned getSize() const { return size; }
-
-    virtual void EmitInstruction(const MCInst &Inst) {
-      const MCInstrDesc &MID = MII.get(Inst.getOpcode());
-      count++;
-      size += MID.getSize();
-    }
-  };
-
   /// aedge - an edge in a transformed copy of the CFG.
   class aedge
   {
@@ -362,29 +333,7 @@ namespace llvm {
 
     static unsigned int getInstrSize(MachineInstr *MI, PatmosTargetMachine &PTM)
     {
-      if (MI->isInlineAsm()) {
-        // TODO is there a way to get the current context?
-        MCContext Ctx(*PTM.getMCAsmInfo(),
-             *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);
-
-        // PIA is deleted by AsmPrinter
-        PatmosInstrAnalyzer *PIA = new PatmosInstrAnalyzer(Ctx);
-
-        // PTM.getTargetLowering()->getObjFileLowering() might not yet be
-        // initialized, so we create a new section object for this temp context
-        const MCSection* TS = Ctx.getELFSection(".text",
-                                                ELF::SHT_PROGBITS, 0,
-                                                SectionKind::getText());
-        PIA->SwitchSection(TS);
-
-        PatmosAsmPrinter PAP(PTM, *PIA);
-        PAP.EmitInlineAsm(MI);
-
-        return PIA->getSize();
-      } else {
-        // trust the desc..
-        return MI->getDesc().Size;
-      }
+      return PTM.getInstrInfo()->getInstrSize(MI);
     }
 
     /// getBBSize - Size of the basic block in bytes.

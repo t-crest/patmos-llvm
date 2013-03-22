@@ -49,6 +49,9 @@ private:
 public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 
+  /// get the associate patmos target machine
+  PatmosTargetMachine& getTargetMachine() const { return TM; }
+
   /// Code Generation virtual methods...
   const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;
 

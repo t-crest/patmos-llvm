@@ -16,6 +16,8 @@
 
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCNullStreamer.h"
 #include "PatmosRegisterInfo.h"
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
@@ -27,6 +29,34 @@
 namespace llvm {
 
 class PatmosTargetMachine;
+
+// TODO move this class into a separate header, track call sites and stack
+// cache control instructions, use in CallGraphBuilder, ...
+class PatmosInstrAnalyzer : public MCNullStreamer {
+  const MCInstrInfo &MII;
+  unsigned count;
+  unsigned size;
+public:
+  PatmosInstrAnalyzer(MCContext &ctx)
+    : MCNullStreamer(ctx), MII(ctx.getInstrInfo()), count(0), size(0)
+    {
+    }
+
+  void reset() {
+    count = 0;
+    size = 0;
+  }
+
+  unsigned getCount() const { return count; }
+
+  unsigned getSize() const { return size; }
+
+  virtual void EmitInstruction(const MCInst &Inst) {
+    const MCInstrDesc &MID = MII.get(Inst.getOpcode());
+    count++;
+    size += MID.getSize();
+  }
+};
 
 class PatmosInstrInfo : public PatmosGenInstrInfo {
   const PatmosRegisterInfo RI;
@@ -98,6 +128,9 @@ public:
   virtual unsigned getMemType(const MachineInstr *MI) const;
 
 
+  /// getInstrSize - get the size of an instruction
+  /// correctly deals with inline assembler
+  unsigned int getInstrSize(const MachineInstr *MI) const;
 
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling

@@ -115,8 +115,10 @@ Linker::LoadObject(const sys::Path &FN) {
 
 // IsLibrary - Determine if "Name" is a library in "Directory". Return
 // a non-empty sys::Path if its found, an empty one otherwise.
+// If OnlyStatic is true, do not check for dynamic library extensions.
 static inline sys::Path IsLibrary(StringRef Name,
-                                  const sys::Path &Directory) {
+                                  const sys::Path &Directory,
+                                  bool OnlyStatic) {
 
   sys::Path FullPath(Directory);
 
@@ -132,21 +134,23 @@ static inline sys::Path IsLibrary(StringRef Name,
   if (FullPath.isArchive())
     return FullPath;
 
-  // Try the libX.so (or .dylib) form
-  FullPath.eraseSuffix();
-  FullPath.appendSuffix(sys::Path::GetDLLSuffix());
-  if (FullPath.isDynamicLibrary())  // Native shared library?
-    return FullPath;
-  if (FullPath.isBitcodeFile())    // .so file containing bitcode?
-    return FullPath;
+  if (!OnlyStatic) {
+    // Try the libX.so (or .dylib) form
+    FullPath.eraseSuffix();
+    FullPath.appendSuffix(sys::Path::GetDLLSuffix());
+    if (FullPath.isDynamicLibrary())  // Native shared library?
+      return FullPath;
+    if (FullPath.isBitcodeFile())    // .so file containing bitcode?
+      return FullPath;
 
-  // Try libX form, to make it possible to add dependency on the
-  // specific version of .so, like liblzma.so.1.0.0
-  FullPath.eraseSuffix();
-  if (FullPath.isDynamicLibrary())  // Native shared library?
-    return FullPath;
-  if (FullPath.isBitcodeFile())    // .so file containing bitcode?
-    return FullPath;
+    // Try libX form, to make it possible to add dependency on the
+    // specific version of .so, like liblzma.so.1.0.0
+    FullPath.eraseSuffix();
+    if (FullPath.isDynamicLibrary())  // Native shared library?
+      return FullPath;
+    if (FullPath.isBitcodeFile())    // .so file containing bitcode?
+      return FullPath;
+  }
 
   // Not found .. fall through
 
@@ -162,7 +166,7 @@ static inline sys::Path IsLibrary(StringRef Name,
 /// Path if no matching file can be found.
 ///
 sys::Path
-Linker::FindLib(StringRef Filename) {
+Linker::FindLib(StringRef Filename, bool OnlyStatic) {
   // Determine if the pathname can be found as it stands.
   sys::Path FilePath(Filename);
   if (FilePath.canRead() &&
@@ -173,7 +177,7 @@ Linker::FindLib(StringRef Filename) {
   // there.
   for (unsigned Index = 0; Index != LibPaths.size(); ++Index) {
     sys::Path Directory(LibPaths[Index]);
-    sys::Path FullPath = IsLibrary(Filename, Directory);
+    sys::Path FullPath = IsLibrary(Filename, Directory, OnlyStatic);
     if (!FullPath.isEmpty())
       return FullPath;
   }

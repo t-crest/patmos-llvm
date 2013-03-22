@@ -59,8 +59,11 @@ module PML
           branches += 1 if ins['branch-type'] && ins['branch-type'] != "none"
           if ins['branch-type'] == 'indirect'
             label = ins.block.label
-	    # instr = "#{dquote(label)} + #{branches} branches"
-            instr = "#{dquote(label)} + #{ins.address - ins.block.address} bytes"
+            instr = if ins.address
+                      "#{dquote(label)} + #{ins.address - ins.block.address} bytes"
+                    else
+                      "#{dquote(label)} + #{branches} branches"
+                    end
             successors = ins['branch-targets'] ? ins['branch-targets'] : mbb['successors']
             targets = successors.uniq.map { |succ_name|
               dquote(Block.get_label(ins.function.name,succ_name))

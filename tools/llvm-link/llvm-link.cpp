@@ -76,50 +76,6 @@ Verbose("v", cl::desc("Print information about actions taken"));
 static cl::opt<bool>
 DumpAsm("d", cl::desc("Print assembly as linked"), cl::Hidden);
 
-// Reimplement Linker::FindLib() to search for shared libraries first
-// unless OnlyStatic is true.
-static sys::Path FindLib(StringRef LibName, const std::vector<sys::Path> &Directories,
-                         bool OnlyStatic) {
-  sys::Path FilePath(LibName);
-  if (FilePath.canRead() &&
-      (FilePath.isArchive() || (!OnlyStatic && FilePath.isDynamicLibrary())))
-    return FilePath;
-
-  // Now iterate over the directories
-  for (std::vector<sys::Path>::const_iterator Iter = Directories.begin();
-       Iter != Directories.end(); ++Iter) {
-    sys::Path FullPath(*Iter);
-    FullPath.appendComponent(("lib" + LibName).str());
-    if (!OnlyStatic) {
-      // Try libX.so or libX.dylib
-      FullPath.appendSuffix(sys::Path::GetDLLSuffix());
-      if (FullPath.isDynamicLibrary()) // Native shared library
-        return FullPath;
-      if (FullPath.isBitcodeFile())    // .so containing bitcode
-        return FullPath;
-      
-      // Linker::IsLibrary() now removes the suffix and performs the
-      // dynamic library and bitcode file checks again. This makes no
-      // sense and seems like a bug.
-      FullPath.eraseSuffix();
-    }
-
-    // Either we only want static libraries or we didn't find a
-    // dynamic library so try libX.a
-    FullPath.appendSuffix("a");
-    if (FullPath.isArchive())
-      return FullPath;
-
-    // libX.bca
-    FullPath.eraseSuffix();
-    FullPath.appendSuffix("bca");
-    if (FullPath.isArchive())
-      return FullPath;
-  }
-
-  // No libraries were found
-  return sys::Path();
-} 
 
 int main(int argc, char **argv) {
   // Print a stack trace if we signal out.
@@ -220,7 +176,7 @@ int main(int argc, char **argv) {
     if (LibPos < FilePos) {
       // Link in library or archive
       const std::string &LibName = *LibIt++;
-      sys::Path P = FindLib(LibName, L.getLibPaths(), OnlyStatic);
+      sys::Path P = L.FindLib(LibName, OnlyStatic);
       if (P.isEmpty()) {
         errs() << argv[0] << ": library not found for: '-l" << LibName << "'\n";
         return 1;

@@ -273,7 +273,7 @@ class Linker {
     /// will be empty (i.e. sys::Path::isEmpty() will return true).
     /// @returns A sys::Path to the found library
     /// @brief Find a library from its short name.
-    sys::Path FindLib(StringRef Filename);
+    sys::Path FindLib(StringRef Filename, bool OnlyStatic = false);
 
   /// @}
   /// @name Implementation
