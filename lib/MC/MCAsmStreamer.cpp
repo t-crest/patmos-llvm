@@ -338,7 +338,10 @@ void MCAsmStreamer::EmitEHSymAttributes(const MCSymbol *Symbol,
 }
 
 void MCAsmStreamer::EmitLabel(MCSymbol *Symbol) {
-  assert(Symbol->isUndefined() && "Cannot define a symbol twice!");
+  if (!Symbol->isUndefined()) {
+    report_fatal_error(("Cannot define a symbol twice: " +
+                         Symbol->getName()).str());
+  }
   MCStreamer::EmitLabel(Symbol);
 
   OS << *Symbol << MAI.getLabelSuffix();
