@@ -162,8 +162,8 @@ void MCELFStreamer::InitSections() {
 
 void MCELFStreamer::EmitLabel(MCSymbol *Symbol) {
   if (!Symbol->isUndefined()) {
-    report_fatal_error(("Cannot define a symbol twice: " +
-                         Symbol->getName()).str());
+    std::string msg = "Cannot define a symbol twice: "+Symbol->getName().str();
+    llvm_unreachable(msg.c_str());
   }
 
   MCObjectStreamer::EmitLabel(Symbol);
