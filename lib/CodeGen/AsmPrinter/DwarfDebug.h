@@ -209,6 +209,9 @@ class DwarfDebug {
   /// Maps MDNode with its corresponding CompileUnit.
   DenseMap <const MDNode *, CompileUnit *> CUMap;
 
+  /// Maps CompileUnits to their IDs
+  DenseMap <unsigned, CompileUnit *> CUIDMap;
+
   /// Maps subprogram MDNode with its corresponding CompileUnit.
   DenseMap <const MDNode *, CompileUnit *> SPMap;
 

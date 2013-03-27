@@ -606,6 +606,17 @@ CompileUnit *DwarfDebug::constructCompileUnit(const MDNode *N) {
   CompilationDir = DIUnit.getDirectory();
   unsigned ID = GetOrCreateSourceID(FN, CompilationDir);
 
+  // TODO this is a hack! We test for multiple metainfo entries for the same
+  // compileunit and reuse the same CU for it. This can happen if we inline from
+  // several files into one bitcode file and then link it with a bitcode file
+  // containing the inlined functions. We do not check all the
+  // attributes if they are the same for now! Maybe replace this with a
+  // module pass that merges CUs (recursively) after bitcode linking, or at
+  // least check if the attributes are the same and merge them here.
+  if (CompileUnit *OldCU = CUIDMap.lookup(ID)) {
+    return OldCU;
+  }
+
   DIE *Die = new DIE(dwarf::DW_TAG_compile_unit);
   CompileUnit *NewCU = new CompileUnit(ID, DIUnit.getLanguage(), Die,
                                        Asm, this);
@@ -640,6 +651,7 @@ CompileUnit *DwarfDebug::constructCompileUnit(const MDNode *N) {
   if (!FirstCU)
     FirstCU = NewCU;
   CUMap.insert(std::make_pair(N, NewCU));
+  CUIDMap.insert(std::make_pair(ID, NewCU));
   return NewCU;
 }
 
