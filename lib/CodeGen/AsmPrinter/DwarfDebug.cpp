@@ -614,6 +614,7 @@ CompileUnit *DwarfDebug::constructCompileUnit(const MDNode *N) {
   // module pass that merges CUs (recursively) after bitcode linking, or at
   // least check if the attributes are the same and merge them here.
   if (CompileUnit *OldCU = CUIDMap.lookup(ID)) {
+    CUMap.insert(std::make_pair(N, OldCU));
     return OldCU;
   }
 
@@ -853,8 +854,8 @@ void DwarfDebug::endModule() {
 
   // Emit DW_AT_containing_type attribute to connect types with their
   // vtable holding type.
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator CUI = CUMap.begin(),
-         CUE = CUMap.end(); CUI != CUE; ++CUI) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator CUI = CUIDMap.begin(),
+         CUE = CUIDMap.end(); CUI != CUE; ++CUI) {
     CompileUnit *TheCU = CUI->second;
     TheCU->constructContainingTypeDIEs();
   }
@@ -919,8 +920,8 @@ void DwarfDebug::endModule() {
   // clean up.
   DeleteContainerSeconds(DeadFnScopeMap);
   SPMap.clear();
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I)
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I)
     delete I->second;
   FirstCU = NULL;  // Reset for the next Module, if any.
 }
@@ -1620,8 +1621,8 @@ DwarfDebug::computeSizeAndOffset(DIE *Die, unsigned Offset, bool Last) {
 /// computeSizeAndOffsets - Compute the size and offset of all the DIEs.
 ///
 void DwarfDebug::computeSizeAndOffsets() {
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I) {
     // Compute size of compile unit header.
     unsigned Offset = 
       sizeof(int32_t) + // Length of Compilation Unit Info
@@ -1758,8 +1759,8 @@ void DwarfDebug::emitDebugInfo() {
   // Start debug info section.
   Asm->OutStreamer.SwitchSection(
                             Asm->getObjFileLowering().getDwarfInfoSection());
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I) {
     CompileUnit *TheCU = I->second;
     DIE *Die = TheCU->getCUDie();
 
@@ -1849,8 +1850,8 @@ void DwarfDebug::emitEndOfLineMatrix(unsigned SectionEnd) {
 void DwarfDebug::emitAccelNames() {
   DwarfAccelTable AT(DwarfAccelTable::Atom(DwarfAccelTable::eAtomTypeDIEOffset,
                                            dwarf::DW_FORM_data4));
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I) {
     CompileUnit *TheCU = I->second;
     const StringMap<std::vector<DIE*> > &Names = TheCU->getAccelNames();
     for (StringMap<std::vector<DIE*> >::const_iterator
@@ -1878,8 +1879,8 @@ void DwarfDebug::emitAccelNames() {
 void DwarfDebug::emitAccelObjC() {
   DwarfAccelTable AT(DwarfAccelTable::Atom(DwarfAccelTable::eAtomTypeDIEOffset,
                                            dwarf::DW_FORM_data4));
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I) {
     CompileUnit *TheCU = I->second;
     const StringMap<std::vector<DIE*> > &Names = TheCU->getAccelObjC();
     for (StringMap<std::vector<DIE*> >::const_iterator
@@ -1907,8 +1908,8 @@ void DwarfDebug::emitAccelObjC() {
 void DwarfDebug::emitAccelNamespaces() {
   DwarfAccelTable AT(DwarfAccelTable::Atom(DwarfAccelTable::eAtomTypeDIEOffset,
                                            dwarf::DW_FORM_data4));
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I) {
     CompileUnit *TheCU = I->second;
     const StringMap<std::vector<DIE*> > &Names = TheCU->getAccelNamespace();
     for (StringMap<std::vector<DIE*> >::const_iterator
@@ -1941,8 +1942,8 @@ void DwarfDebug::emitAccelTypes() {
   Atoms.push_back(DwarfAccelTable::Atom(DwarfAccelTable::eAtomTypeTypeFlags,
                                         dwarf::DW_FORM_data1));
   DwarfAccelTable AT(Atoms);
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I) {
     CompileUnit *TheCU = I->second;
     const StringMap<std::vector<std::pair<DIE*, unsigned > > > &Names
       = TheCU->getAccelTypes();
@@ -1967,8 +1968,8 @@ void DwarfDebug::emitAccelTypes() {
 }
 
 void DwarfDebug::emitDebugPubTypes() {
-  for (DenseMap<const MDNode *, CompileUnit *>::iterator I = CUMap.begin(),
-         E = CUMap.end(); I != E; ++I) {
+  for (DenseMap<unsigned, CompileUnit *>::iterator I = CUIDMap.begin(),
+         E = CUIDMap.end(); I != E; ++I) {
     CompileUnit *TheCU = I->second;
     // Start the dwarf pubtypes section.
     Asm->OutStreamer.SwitchSection(
