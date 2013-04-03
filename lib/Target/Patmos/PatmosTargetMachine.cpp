@@ -74,16 +74,29 @@ namespace {
       return false;
     }
 
-    /// addPreEmitPass - This pass may be implemented by targets that want to run
-    /// passes immediately before machine code is emitted.  This should return
-    /// true if -print-machineinstrs should print out the code after the passes.
-    virtual bool addPreEmitPass(){
+    /// addPreSched2 - This method may be implemented by targets that want to
+    /// run passes after prolog-epilog insertion and before the second instruction
+    /// scheduling pass.  This should return true if -print-machineinstrs should
+    /// print after these passes.
+    virtual bool addPreSched2() {
+      if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
+        addPass(&IfConverterID);
+      }
 
       if (EnableStackCacheAnalysis) {
         addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
+      return true;
+    }
 
+    /// addPreEmitPass - This pass may be implemented by targets that want to run
+    /// passes immediately before machine code is emitted.  This should return
+    /// true if -print-machineinstrs should print out the code after the passes.
+    virtual bool addPreEmitPass(){
       addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
+
+      // All passes at that stage must handle delay slots and bundles correctly.
+
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
       if (!SerializeMachineCode.empty()) {
@@ -96,17 +109,6 @@ namespace {
         }
       }
 
-      return true;
-    }
-
-    /// addPreSched2 - This method may be implemented by targets that want to
-    /// run passes after prolog-epilog insertion and before the second instruction
-    /// scheduling pass.  This should return true if -print-machineinstrs should
-    /// print after these passes.
-    virtual bool addPreSched2() {
-      if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
-        addPass(&IfConverterID);
-      }
       return true;
     }
 
