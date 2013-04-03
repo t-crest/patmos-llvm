@@ -621,7 +621,6 @@ class PredCombine<bits<4> opcode, string asmop>
 def POR:  PredCombine <0b0110, "por">;
 def PAND: PredCombine <0b0111, "pand">;
 def PXOR: PredCombine <0b1010, "pxor">;
-def PNOR: PredCombine <0b1011, "pnor">;
 
 
 // Pseudos:
@@ -643,9 +642,9 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
   }
 }
 
-//not uses nor opcode (nor Pd = Ps, !p0)
-let ps2 = 0b1000 in
-def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
+//not uses nor opcode (xor Pd = Ps, p0)
+let ps2 = 0b0000 in
+def PNOT: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
                 "pnot", "$pd = $ps1",
                 [(set PRegs:$pd, (not predsel:$ps1))]>;
 

@@ -159,8 +159,6 @@ def : Pat<(seteq (and RRegs:$a, uimm5mask:$b), uimm5mask:$b),
 def : Pat<(or  predsel:$ps1, predsel:$ps2), (POR  predsel:$ps1, predsel:$ps2)>;
 def : Pat<(and predsel:$ps1, predsel:$ps2), (PAND predsel:$ps1, predsel:$ps2)>;
 def : Pat<(xor predsel:$ps1, predsel:$ps2), (PXOR predsel:$ps1, predsel:$ps2)>;
-def : Pat<(notcc (or predsel:$ps1, predsel:$ps2)),
-                                            (PNOR predsel:$ps1, predsel:$ps2)>;
 
 
 def : Pat<(setne  predsel:$a, (i1 -1)), (PNOT predsel:$a)>;

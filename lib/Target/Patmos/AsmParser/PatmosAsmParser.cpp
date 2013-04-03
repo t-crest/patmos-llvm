@@ -874,7 +874,7 @@ bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
   // We check if the src op is actually a predicate register later in the
   // parse method
   if (Mnemonic == "por"  || Mnemonic == "pand" ||
-      Mnemonic == "pxor" || Mnemonic == "pnor") return true;
+      Mnemonic == "pxor") return true;
   if (Mnemonic == "pmov" || Mnemonic == "pnot" ||
       Mnemonic == "pset" || Mnemonic == "pclr") return true;
   // Note that mov might actually move between predicate and registers
