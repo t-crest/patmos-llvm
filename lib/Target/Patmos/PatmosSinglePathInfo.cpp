@@ -403,14 +403,14 @@ SPNode::SPNode(SPNode *parent, MachineBasicBlock *header,
                MachineBasicBlock *succ, unsigned int numbe)
                : Parent(parent), SuccMBB(succ), NumBackedges(numbe),
                  LoopBound(-1) {
-  Level = 0;
+  Depth = 0;
   if (Parent) {
     // add to parent's child list
     Parent->HeaderMap[header] = this;
     Parent->Children.push_back(this);
     // add to parent's block list as well
     Parent->addMBB(header);
-    Level = Parent->Level + 1;
+    Depth = Parent->Depth + 1;
   }
   // add header also to this SPNode's block list
   Blocks.push_back(header);
@@ -491,13 +491,13 @@ void SPNode::walk(SPNodeWalker &walker) {
   walker.exitSubnode(this);
 }
 
-static void indent(unsigned level) {
-  for(unsigned i=0; i<level; i++)
+static void indent(unsigned depth) {
+  for(unsigned i=0; i<depth; i++)
     dbgs() << "  ";
 }
 
 void SPNode::dump() const {
-  indent(Level);
+  indent(Depth);
   dbgs() <<  "[BB#" << Blocks.front()->getNumber() << "]";
   if (SuccMBB) {
     dbgs() << " -> BB#" << SuccMBB->getNumber();
@@ -509,7 +509,7 @@ void SPNode::dump() const {
     if (HeaderMap.count(MBB)) {
       HeaderMap.at(MBB)->dump();
     } else {
-      indent(Level+1);
+      indent(Depth+1);
       dbgs() <<  " BB#" << MBB->getNumber() << "\n";
     }
   }

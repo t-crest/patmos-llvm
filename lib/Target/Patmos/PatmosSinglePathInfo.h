@@ -242,8 +242,8 @@ namespace llvm {
       /// getSuccMBB - Get the single successor MBB
       MachineBasicBlock *getSuccMBB() const { return SuccMBB; }
 
-      /// getLevel - Get the nesting level of the SPNode
-      unsigned int getLevel() const { return Level; }
+      /// getDepth - Get the nesting depth of the SPNode
+      unsigned int getDepth() const { return Depth; }
 
       /// isTopLevel - Returs true if the SPNode is the top-level SPNode
       /// (not a loop)
@@ -287,8 +287,8 @@ namespace llvm {
       // sub-nodes
       std::vector<SPNode*> Children;
 
-      // nesting level
-      unsigned int Level;
+      // nesting depth
+      unsigned int Depth;
 
     public:
       /// child_begin - Iterator begin for subloops
