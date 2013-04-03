@@ -221,10 +221,6 @@ def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
 
 // Patterns to match machine instructions that are more than simple SDNodes
 
-// sub with rhs-lhs
-def rsub   :  PatFrag<(ops node:$lhs, node:$rhs),
-                      (sub node:$rhs, node:$lhs)>;
-
 // shift-add, for address computations
 def shadd  : PatFrag<(ops node:$reg, node:$offs),
                      (add (shl node:$reg, (i32 1)), node:$offs)>;
@@ -442,7 +438,8 @@ multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommut
 // with short immediates:
 defm ADD    : BinArithILR   <0b0000, "add"   , add, 1>;
 defm SUB    : BinArithILR   <0b0001, "sub"   , sub>;
-defm RSUB   : BinArithILRpfg<0b0010, "rsub"  , rsub>;
+// TODO dont forget to update PatmosInstrInfo.h:276
+//defm MUL    : BinArithILRpfg<0b0010, "mul"   , mul>;
 defm SL     : BinArithILR   <0b0011, "sl"    , shl>; // FIXME 5 bits
 defm SR     : BinArithILR   <0b0100, "sr"    , srl>; // FIXME 5 bits
 defm SRA    : BinArithILR   <0b0101, "sra"   , sra>; // FIXME 5 bits
@@ -568,16 +565,6 @@ def ZEXT16 : ALUu <0b0010,
               (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
               "zext16", "$rd = $rs",
               [(set RRegs:$rd, (and RRegs:$rs, (i32 0xffff)))]>;
-
-
-// TODO experimental: other lowerings?
-// TODO does the add overflow do any harm?
-def ABS    : ALUu <0b0011,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "abs", "$rd = $rs",
-              [(set RRegs:$rd, (xor (add RRegs:$rs, (sra RRegs:$rs, (i32 31))), (sra RRegs:$rs, (i32 31))))]>;
-
-
 
 
 
