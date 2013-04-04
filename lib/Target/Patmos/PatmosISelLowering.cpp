@@ -130,6 +130,19 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Expand);
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
 
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i8,  Expand);
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i16, Expand);
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i32, Expand);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::i8,  Expand);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::i16, Expand);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::i32, Expand);
+  setOperationAction(ISD::ANY_EXTEND,  MVT::i8, Expand);
+  setOperationAction(ISD::ANY_EXTEND,  MVT::i16, Expand);
+  setOperationAction(ISD::ANY_EXTEND,  MVT::i32, Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i8,  Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i16, Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i32, Expand);
+
   setOperationAction(ISD::ROTL , MVT::i32, Expand);
   setOperationAction(ISD::ROTR , MVT::i32, Expand);
 

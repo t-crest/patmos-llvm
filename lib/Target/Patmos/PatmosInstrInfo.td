@@ -506,14 +506,6 @@ def CLR : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p),
                  "clr", "$rd", []>;
 
 
-// zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
-let imm = 0xff, ImmOpNo = 0 in
-def ZEXT8 : ALUi <0b0111,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
-              "zext8", "$rd = $rs1",
-              [(set RRegs:$rd, (and RRegs:$rs1, (i32 0xff)))]>;
-
-
 
 let rs1 = 0,
     ImmOpNo = 3,
@@ -545,27 +537,6 @@ let rs1 = 0,
 		     "li", "$rd = $imm", []>;
   }
 }
-
-
-
-/********/
-// Unary Arithmetic
-
-def SEXT8  : ALUu <0b0000,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "sext8", "$rd = $rs",
-              [(set RRegs:$rd, (sext_inreg RRegs:$rs, i8))]>;
-
-def SEXT16 : ALUu <0b0001,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-               "sext16", "$rd = $rs",
-              [(set RRegs:$rd, (sext_inreg RRegs:$rs, i16))]>;
-
-def ZEXT16 : ALUu <0b0010,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "zext16", "$rd = $rs",
-              [(set RRegs:$rd, (and RRegs:$rs, (i32 0xffff)))]>;
-
 
 
 // Multiply

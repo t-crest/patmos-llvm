@@ -205,24 +205,6 @@ class ALUr<bits<4> func,
 }
 
 
-
-
-// ALUu - Unary
-//
-class ALUu<bits<4> func,
-      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, FOther, IIC_ALU> {
-
-  let Opc = 0b001;
-
-  // unbound fields
-  bits<5> rd;
-  bits<5> rs;
-
-  let Inst{21-17} = rd;
-  let Inst{16-12} = rs;
-}
-
 // ALUm - Multiply
 //
 class ALUm<bits<4> func,
