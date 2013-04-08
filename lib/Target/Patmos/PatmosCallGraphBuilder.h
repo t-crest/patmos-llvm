@@ -33,6 +33,7 @@ namespace llvm {
   class MCGSite;
   class MCGNode;
   class MCallGraph;
+  class MCallSubGraph;
 
   /// A vector of call sites.
   typedef std::vector<MCGSite*> MCGSites;
@@ -45,6 +46,7 @@ namespace llvm {
   {
     friend class MCallGraph;
     friend struct GraphTraits<MCallGraph>;
+    friend struct GraphTraits<MCallSubGraph>;
   private:
     /// The MachineFunction represented by this call graph node, or NULL.
     MachineFunction *MF;
@@ -226,10 +228,32 @@ namespace llvm {
     void dump() const;
 
     /// view - show a DOT dump of the call graph.
-    void view();
+    void view() const;
 
     /// Free the call graph and all its nodes and call sites.
     virtual ~MCallGraph();
+  };
+
+  /// A sub-graph of a call graph for DOT dumps only.
+  class MCallSubGraph
+  {
+    friend class GraphTraits<MCallSubGraph>;
+    friend class DOTGraphTraits<MCallSubGraph>;
+  private:
+    const MCallGraph &G;
+    const MCGNodes Nodes;
+
+  public:
+    MCallSubGraph(const MCallGraph &g, MCGNodes &nodes) : G(g), Nodes(nodes) { }
+
+    /// isNodeHidden - Callback from DOTGraphTraits, check if node is in 
+    /// sub-graph.
+    bool isNodeHidden(const MCGNode *N) const {
+      return std::find(Nodes.begin(), Nodes.end(), N) == Nodes.end();
+    }
+
+    /// view - show a DOT dump of the call graph.
+    void view();
   };
 
   /// Pass to construct the call graph at the machine-level of the current
@@ -308,7 +332,6 @@ namespace llvm {
     virtual const char *getPassName() const {
       return "Patmos Call Graph Builder";
     }
-
   };
 }
 
@@ -333,7 +356,16 @@ namespace llvm {
         return I != a.I;
       }
 
+      bool operator==(ChildIteratorType a) {
+        return I == a.I;
+      }
+
       ChildIteratorType operator++() {
+        I++;
+        return *this;
+      }
+
+      ChildIteratorType operator++(int) {
         ChildIteratorType tmp(I);
         I++;
         return tmp;
@@ -356,6 +388,12 @@ namespace llvm {
     }
 
     static NodeType *getEntryNode(const MCallGraph &G) {
+      for(MCGNodes::const_iterator i(G.Nodes.begin()), ie(G.Nodes.end());
+          i != ie; i++) {
+        if ((*i)->getMF() && (*i)->getMF()->getFunction()->getName() == "main")
+          return *i;
+      }
+
       return G.Nodes.front();
     }
 
@@ -383,7 +421,7 @@ namespace llvm {
     }
 
     template<typename T>
-    static bool isNodeHidden(const T) {
+    static bool isNodeHidden(const T, const MCallGraph &G) {
       return false;
     }
 
@@ -400,6 +438,113 @@ namespace llvm {
 
     static std::string getNodeAttributes(const MCGNode *N,
                                          const MCallGraph &G) {
+      return N->isDead() ? "color=\"red\"" : "";
+    }
+  };
+
+
+  template <> struct GraphTraits<MCallSubGraph> {
+    typedef MCGNode NodeType;
+    class ChildIteratorType
+    {
+      MCGSites::iterator I;
+
+    public:
+      typedef MCGSites::iterator::iterator_category iterator_category;
+      typedef MCGSites::iterator::difference_type difference_type;
+      typedef MCGSites::iterator::pointer pointer;
+      typedef MCGSites::iterator::reference reference;
+      typedef NodeType value_type;
+
+      ChildIteratorType(MCGSites::iterator i) : I(i) {
+      }
+
+      bool operator!=(ChildIteratorType a) {
+        return I != a.I;
+      }
+
+      bool operator==(ChildIteratorType a) {
+        return I == a.I;
+      }
+
+      ChildIteratorType operator++() {
+        I++;
+        return *this;
+      }
+
+      ChildIteratorType operator++(int) {
+        ChildIteratorType tmp(I);
+        I++;
+        return tmp;
+      }
+
+      difference_type operator-(ChildIteratorType &a) {
+        return I - a.I;
+      }
+
+      NodeType *operator*() {
+        return (*I)->getCallee();
+      }
+    };
+
+    static inline ChildIteratorType child_begin(NodeType *N) {
+      return N->Sites.begin();
+    }
+    static inline ChildIteratorType child_end(NodeType *N) {
+      return N->Sites.end();
+    }
+
+    static NodeType *getEntryNode(const MCallSubGraph &G) {
+      for(MCGNodes::const_iterator i(G.Nodes.begin()), ie(G.Nodes.end());
+          i != ie; i++) {
+        if ((*i)->getMF() && (*i)->getMF()->getFunction()->getName() == "main")
+          return *i;
+      }
+
+      return G.Nodes.front();
+    }
+
+    // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
+    typedef MCGNodes::const_iterator nodes_iterator;
+    static nodes_iterator nodes_begin(const MCallSubGraph &G) {
+      return G.Nodes.begin();
+    }
+    static nodes_iterator nodes_end  (const MCallSubGraph &G) {
+      return G.Nodes.end();
+    }
+    static unsigned       size       (const MCallSubGraph &G)  {
+      return G.Nodes.size();
+    }
+  };
+
+  template<>
+  struct DOTGraphTraits<MCallSubGraph> : public DefaultDOTGraphTraits {
+    typedef MCGSites::const_iterator EdgeIteratorType;
+
+    DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
+
+    static std::string getGraphName(const MCallSubGraph &G) {
+      return "xxx";
+    }
+
+    template<typename T>
+    static bool isNodeHidden(const T N, const MCallSubGraph &G) {
+      return G.isNodeHidden(N);
+    }
+
+    std::string getNodeLabel(const MCGNode *N, const MCallSubGraph &G) {
+      if (N->isUnknown()) {
+        std::string tmp;
+        raw_string_ostream s(tmp);
+        s << "<UNKNOWN-" << *N->getType() << ">";
+        return s.str();
+      }
+      else
+        return N->getMF()->getFunction()->getName();
+    }
+
+    static std::string getNodeAttributes(const MCGNode *N,
+                                         const MCallSubGraph &G) {
       return N->isDead() ? "color=\"red\"" : "";
     }
   };
