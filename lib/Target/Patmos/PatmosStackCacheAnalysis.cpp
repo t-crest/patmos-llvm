@@ -262,7 +262,7 @@ namespace llvm {
     static char ID;
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
-        MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>())
+        MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
         TII(*tm.getInstrInfo()), BI(BoundsFile)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
