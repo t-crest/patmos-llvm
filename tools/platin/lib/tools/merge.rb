@@ -11,17 +11,7 @@ include PML
 
 class MergeTool
   def MergeTool.run(files)
-    stream = []
-    files.each do |f|
-      data = if f.kind_of?(String)
-               File.open(f) { |fh| YAML::load_stream(fh) }
-             else
-               YAML::load_stream(f)
-             end
-      data = data.documents if data.respond_to?(:documents) # ruby 1.8 compat
-      stream.concat(data)
-    end
-    PMLDoc.new(stream)
+    PMLDoc.from_files(files)
   end
 end
 

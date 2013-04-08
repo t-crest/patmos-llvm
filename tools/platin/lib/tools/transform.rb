@@ -146,5 +146,5 @@ EOF
     opts.writes_pml
     RelationGraphTransformTool.add_options(opts)
   end
-  RelationGraphTransformTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  RelationGraphTransformTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
 end

@@ -7,7 +7,49 @@
 #
 module PML
 
+  # FIXME: move the utility stuff to a file on its own
   RE_HEX=/[0-9A-Fa-f]/
+
+  # Mixin for entities which are identified by a qualified name (qname), and use this
+  # identifier for comparison and hashing
+  module QNameObject
+    def qname
+      assert("QNameObject: @qname not set (fatal)") { @qname }
+      @qname
+    end
+    def ==(other)
+      return false if other.nil?
+      return false unless other.respond_to?(:qname)
+      qname == other.qname
+    end
+    def eql?(other); self == other ; end
+    def hash
+      return @hash if @hash
+      @hash=qname.hash
+    end
+    def <=>(other)
+      qname <=> other.qname
+    end
+  end
+
+  require 'set'
+  class WorkList
+    def initialize(queue = nil)
+      @todo = queue || Array.new
+      @done = Set.new
+    end
+    def enqueue(item)
+      @todo.push(item) unless @done.include?(item)
+    end
+    def process
+      while ! @todo.empty?
+        item = @todo.pop
+        next if @done.include?(item)
+        @done.add(item)
+        yield item
+      end
+    end
+  end
 
   def assert(msg)
     unless yield
@@ -52,16 +94,9 @@ module PML
   class PMLDoc
     attr_reader :data, :arch, :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
 
-    def initialize(data_or_io)
-      stream = if data_or_io.kind_of?(Array)
-                 data_or_io
-               elsif data_or_io.kind_of?(IO)
-                 stream = YAML::load_stream(data_or_io)
-                 stream = stream.documents if stream.respond_to?(:documents) # ruby 1.8 compat
-                 stream
-               elsif
-                 [data_or_io]
-               end
+    # constructor expects a YAML document or a list of YAML documents
+    def initialize(stream)
+      stream = [stream] unless stream.kind_of?(Array)
       if stream.length == 1
         @data = stream[0]
       else
@@ -85,7 +120,7 @@ module PML
     end
 
     def dump_to_file(filename)
-      if filename.nil?
+      if filename.nil? || filename == '-'
         dump($>)
       else
         File.open(filename, "w") do |fh|
@@ -113,8 +148,20 @@ module PML
         %w{memcpy memmove memset}
     end
 
-    def PMLDoc.from_file(filename)
-      File.open(filename) { |fh| PMLDoc.new(fh) }
+    def PMLDoc.from_files(filenames)
+      streams = filenames.inject([]) { |list,f|
+        begin
+          fstream = File.open(f) { |fh|
+            stream = YAML::load_stream(fh)
+            stream.documents if stream.respond_to?(:documents) # ruby 1.8 compat
+            stream
+          }
+          list + fstream
+        rescue Exception => detail
+          die("Failed to load PML document: #{detail}")
+        end
+      }
+      PMLDoc.new(streams)
     end
 
     def PMLDoc.merge_stream(stream)
@@ -204,29 +251,6 @@ module PML
       end
       dict[key] = val
     end
-  end
-
-  # Mixin for entities which are identified by a qualified name (qname), and use this
-  # identifier for comparison and hashing
-  module QNameObject
-    def qname
-      assert("QNameObject: @qname not set (fatal)") { @qname }
-      @qname
-    end
-    def ==(other)
-      return false if other.nil?
-      return false unless other.respond_to?(:qname)
-      qname == other.qname
-    end
-    def eql?(other); self == other ; end
-    def hash
-      return @hash if @hash
-      @hash=qname.hash
-    end
-    def <=>(other)
-      qname <=> other.qname
-    end
-
   end
 
   # Lists where elements can be queried by name and qualified name
@@ -452,6 +476,10 @@ module PML
     def address=(value)
       data['address']=value
     end
+  end
+
+  # PML call graph
+  class Callgraph < PMLObject
   end
 
   #  PML function wrapper
@@ -702,6 +730,7 @@ module PML
     end
   end
 
+
   # Flow fact selector
   class FlowFactSelection
     MINIMAL_FLOWFACT_TYPES = %w{loop-local calltargets-global infeasible-global}
@@ -794,10 +823,32 @@ module PML
     end
   end
 
+  # Callstring
+  class Callstring < PMLObject
+    attr_reader :callsites
+    def initialize(callsites,data=nil)
+      @callsites = callsites
+      set_data(data)
+    end
+    def length
+      @callsites.length
+    end
+    def to_s
+      @callsite.join("->")
+    end
+    def to_pml
+      @callsites.map { |cs| cs.to_pml }
+    end
+    def Callstring.from_pml(mod,data)
+      cs = data.map { |ref| Reference.from_pml(mod,ref) }
+      CallString.new(cs, data)
+    end
+  end
+
   # Term (ProgramPoint, Factor)
   class Term < PMLObject
     attr_reader :ppref, :factor
-    def initialize(ppref,factor)
+    def initialize(ppref,factor,data=nil)
       assert("Term#initialize: not a reference: #{ppref}") { ppref.kind_of?(Reference) }
       @ppref,@factor = ppref,factor
       set_data(data)

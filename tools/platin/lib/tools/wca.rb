@@ -17,7 +17,7 @@ class WcaTool
     WcaTool.add_config_options(opts)
     opts.analysis_entry
     opts.flow_fact_selection
-    opts.calculates_wcet
+    opts.calculates_wcet('wca-unknown')
   end
 
   def WcaTool.run(pml,options)
@@ -132,5 +132,5 @@ EOF
     opts.writes_pml
     WcaTool.add_options(opts)
   end
-  WcaTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  WcaTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
 end

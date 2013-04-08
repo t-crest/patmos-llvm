@@ -21,6 +21,7 @@ class Visualizer
   def generate(object,outfile)
     g = visualize(object)
     $dbgs.puts outfile if options.debug
+    puts g.to_s
     g.output( :png => "#{outfile}" )
     $stderr.puts "#{outfile} ok" if options.verbose
   end
@@ -142,6 +143,6 @@ EOF
   options, args = PML::optparse([:input],"FILE.pml", SYNOPSIS) do |opts|
     VisualizeTool.add_options(opts)
   end
-  VisualizeTool.run(PMLDoc.from_file(args.first), options)
+  VisualizeTool.run(PMLDoc.from_files([options.input]), options)
 end
 

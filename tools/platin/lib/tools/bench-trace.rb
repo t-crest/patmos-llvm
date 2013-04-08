@@ -133,5 +133,5 @@ EOF
   options, args = PML::optparse([:input], "program.elf.pml", SYNOPSIS) do |opts|
     BenchTool.add_options(opts)
   end
-  BenchTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  BenchTool.run(PMLDoc.from_files([options.input]), options).dump_to_file(options.output)
 end

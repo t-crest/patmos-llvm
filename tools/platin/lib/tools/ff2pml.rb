@@ -111,5 +111,5 @@ EOF
     opts.writes_pml
     SweetImportTool.add_options(opts, [:sweet_flowfact_file])
   end
-  SweetImportTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  SweetImportTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
 end

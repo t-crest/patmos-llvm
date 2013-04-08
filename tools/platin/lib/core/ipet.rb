@@ -1,5 +1,5 @@
 #
-# PSK tool set
+# platin tool set
 #
 # ILP/IPET/FM module
 #

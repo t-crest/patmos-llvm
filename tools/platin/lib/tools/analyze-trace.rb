@@ -40,9 +40,9 @@ class AnalyzeTraceTool
     end
 
     unless entry.blocks.first.address
-      warn("No addresses in PML file, trying to extract from ELF file and updating input PML")
+      warn("No addresses in PML file, trying to extract from ELF file")
       pml = ExtractSymbolsTool.run(pml,options)
-      pml.dump_to_file(options.input)
+      pml.dump_to_file(options.input.first) if options.input.size == 1
     end
     trace = pml.arch.simulator_trace(options)
     tm = MachineTraceMonitor.new(pml, trace, options.trace_entry)
@@ -180,6 +180,6 @@ EOF
     opts.writes_pml
     AnalyzeTraceTool.add_options(opts)
   end
-  pml = AnalyzeTraceTool.run(PMLDoc.from_file(options.input), options)
+  pml = AnalyzeTraceTool.run(PMLDoc.from_files(options.input), options)
   pml.dump_to_file(options.output) if options.output
 end
