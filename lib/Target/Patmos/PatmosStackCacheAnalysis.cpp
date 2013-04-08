@@ -12,25 +12,202 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "patmos-stack-cache-analysis"
+#undef PATMOS_TRACE_REMOVE
+#undef PATMOS_TRACE_LOCAL_USAGE
+#undef PATMOS_PRINT_USER_BOUNDS
+#undef PATMOS_TRACE_GLOBAL_VISITS
+#undef PATMOS_TRACE_CALLFREES
+#undef PATMOS_TRACE_GLOBAL_USAGE
+#undef PATMOS_TRACE_ILP
 
 #include "Patmos.h"
 #include "PatmosCallGraphBuilder.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Program.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <map>
 #include <set>
+#include <fstream>
 
 using namespace llvm;
+
+/// This is expected to be a program that takes one argument specifying the name
+/// of a LP file to solve and generate a file with the same name and an appended
+/// suffix .sol containing the numeric value of the integer solution of the LP.
+static cl::opt<std::string> Solve_ilp(
+  "mpatmos-ilp-solver",
+  cl::init("solve_ilp"),
+  cl::desc("Path to an ILP solver."),
+  cl::Hidden);
+
+/// Option to specify a file containing user-supplied bounds when solving ILP
+/// problems (for regions of the call graph with recursion).
+static cl::opt<std::string> BoundsFile(
+  "mpatmos-stack-cache-analysis-bounds",
+  cl::desc("File containing bounds for the stack cache analysis."),
+  cl::Hidden);
 
 namespace llvm {
   STATISTIC(RemovedSENS, "Useless SENS instructions removed.");
   STATISTIC(RemainingSENS, "SENS instructions remaining.");
+
+  /// Information concerning a specific SCC.
+  struct SCCInfo {
+    /// Text fragment to be inserted right after the objective function.
+    std::string ObjectiveFunction;
+
+    /// Text fragment to be inserted right after the constraints.
+    std::string Constraints;
+
+    /// Text fragment to be inserted right after the variable definition.
+    std::string Variables;
+  };
+
+  typedef std::map<std::string, SCCInfo> SCCInfos;
+
+  /// Class to parse bounds specifications constraining paths through SCCs in
+  /// the call graph during ILP solving.
+  class BoundsInformation {
+    /// Information specific to specific SCCs.
+    SCCInfos Infos;
+
+    /// appendDefaultConstraitns - append some default constraints, e.g., for 
+    /// the vfprintf function.
+    void appendDefaultConstraitns()
+    {
+      /// the vfprintf function calls itself, but only once.
+      SCCInfo vfprintf = {"",
+                          "usr:     + X_vfprintf_r <= 2\n",
+                          ""};
+      Infos["_vfprintf_r"] = vfprintf;
+    }
+
+    /// parseBoundsFile - read user defined bounds for the ILP solving from a
+    /// file.
+    /// The expected file format is based on lines, each line should look 
+    /// something like this:
+    /// [name]: {[text]}{[text]}{[text]} \n
+    void parseBoundsFile(const std::string &boundsfile) {
+      // nothing to read?
+      if (boundsfile.empty())
+        return;
+
+      // open file
+      std::ifstream IS(boundsfile.c_str());
+
+      // worked?
+      if (!IS.good()) {
+        errs() << "Error: Failed to read from file '" << boundsfile << "'.\n";
+      }
+
+      // read one line at a time
+      while(IS.good()) {
+        std::string line;
+        std::getline(IS, line, ';');
+
+        if (IS.eof())
+          continue;
+
+        // the format of a line is:
+        // [name]: {[text]} {[text]} {[text]} \n
+        std::size_t name_start = line.find_first_not_of(" \t\n");
+        std::size_t name_end = line.find_first_of(':', name_start);
+
+        std::size_t objective_start = line.find_first_of('{', name_end);
+        std::size_t objective_end = line.find_first_of('}', objective_start);
+
+        std::size_t constraint_start = line.find_first_of('{', objective_end);
+        std::size_t constraint_end = line.find_first_of('}', constraint_start);
+
+        std::size_t variables_start = line.find_first_of('{', constraint_end);
+        std::size_t variables_end = line.find_first_of('}', variables_start);
+
+        if (name_start == std::string::npos || name_end == std::string::npos ||
+            objective_start == std::string::npos ||
+            objective_end == std::string::npos ||
+            constraint_start == std::string::npos ||
+            constraint_end == std::string::npos ||
+            variables_start == std::string::npos ||
+            variables_end == std::string::npos) {
+          errs() << "Error: Invalid line in ILP bounds file: " << line << ".\n";
+        }
+        else {
+          // extract bounds information
+          std::string name(line.substr(name_start, name_end - name_start));
+          std::string objective(line.substr(objective_start + 1,
+                                          objective_end - objective_start - 1));
+          std::string constraint(line.substr(constraint_start + 1,
+                                        constraint_end - constraint_start - 1));
+          std::string variables(line.substr(variables_start + 1,
+                                          variables_end - variables_start - 1));
+
+          // debug output
+#ifdef PATMOS_PRINT_USER_BOUNDS
+          dbgs() << "bounds: " << name << ": [" << objective << "]["
+                                                << constraint << "]["
+                                                << variables <<"]\n";
+#endif // PATMOS_PRINT_USER_BOUNDS
+
+          // add bounds information
+          SCCInfo tmp = {objective, constraint, variables};
+          Infos[name] = tmp;
+        }
+      }
+    }
+  public:
+    /// Parse the bounds specification from a file.
+    BoundsInformation(const std::string &boundsfile)
+    {
+      parseBoundsFile(boundsfile);
+      appendDefaultConstraitns();
+    }
+
+    /// getInfo - Retrieve information for a specific SCC.
+    const SCCInfo &getInfo(const MCGNodes &SCC) const {
+      for(MCGNodes::const_iterator i(SCC.begin()), ie(SCC.end()); i != ie;
+          i++) {
+        // TODO: maybe add support for unknown functions.
+        if (!(*i)->isUnknown() &&
+            hasInfo((*i)->getMF()->getFunction()->getName()))
+          return getInfo((*i)->getMF()->getFunction()->getName());
+      }
+
+      dbgs() << "Error: Missing bounds for SCC: ";
+      (*SCC.begin())->dump();
+      dbgs() << "\n";
+      for (SCCInfos::const_iterator i(Infos.begin()), ie(Infos.end()); i != ie;
+           i++) {
+        dbgs() << "'" << i->first << "' ";
+      }
+      dbgs() << "\n";
+      assert(false && "Missing bounds for SCC during stack cache analysis.");
+      abort();
+    }
+
+    /// getInfo - Retrieve information for a specific SCC represented by a
+    /// function.
+    const SCCInfo &getInfo(const std::string &function) const {
+      SCCInfos::const_iterator tmp(Infos.find(function));
+      assert(tmp != Infos.end());
+      return tmp->second;
+    }
+
+    /// hasInfo - Check if information for a specific SCC represented by a
+    /// function is available.
+    bool hasInfo(const std::string &function) const {
+      SCCInfos::const_iterator tmp(Infos.find(function));
+      return tmp != Infos.end();
+    }
+  };
 
   /// Pass to analyze the usage of Patmos' stack cache.
   class PatmosStackCacheAnalysis : public MachineModulePass {
@@ -38,8 +215,24 @@ namespace llvm {
     /// Work list of basic blocks.
     typedef std::set<MachineBasicBlock*> MBBs;
 
+    /// Set of call graph nodes.
+    typedef std::set<MCGNode*> MCGNodeSet;
+
+    /// List of call graph SCCs and a flag indicating whether the SCC actually 
+    /// contains loops.
+    typedef std::vector<std::pair<MCGNodes, bool> > MCGNSCCs;
+
+    /// Map call graph nodes to booleans.
+    typedef std::map<MCGNode*, bool> MCGNodeBool;
+
     /// Map basic blocks to local stack access usage information.
     typedef std::map<MachineBasicBlock*, unsigned int> MBBUInt;
+
+    /// Map basic blocks to a boolean.
+    typedef std::map<MachineBasicBlock*, bool> MBBBool;
+
+    /// Map call graph nodes to their (potentially trivial SCC).
+    typedef std::map<MCGNode*, std::pair<MCGNodes, bool>*> MCGNodeSCC;
 
     /// Map call graph nodes to stack usage information.
     typedef std::map<MCGNode*, unsigned int> MCGNodeUInt;
@@ -53,14 +246,24 @@ namespace llvm {
     /// Track for each call graph node the max. stack usage.
     MCGNodeUInt MaxStackUse;
 
+    /// Track functions with call-free paths in them.
+    MCGNodeBool IsCallFree;
+
     /// Subtarget information (stack cache block size)
     const PatmosSubtarget &STC;
+
+    /// Instruction information
+    const TargetInstrInfo &TII;
+
+    /// Bounds to solve ILPs during stack cache analysis.
+    const BoundsInformation BI;
   public:
     /// Pass ID
     static char ID;
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
         MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>())
+        TII(*tm.getInstrInfo()), BI(BoundsFile)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
@@ -114,13 +317,28 @@ namespace llvm {
 
     /// computeMaxUsage - Visit all children in the call graph and find the 
     /// maximal amount of  space allocated by any of them (and their children).
-    void computeMaxUsage(MCGNode *Node, MCGNodeUInt &succCount, MCGNodes &WL)
+    void computeMaxUsage(MCGNodeSCC &SCCMap, MCGNode *Node,
+                         MCGNodeUInt &succCount, MCGNodes &WL)
     {
       // get the stack usage of the call graph node and all its children
       unsigned int maxChildUse = 0;
       unsigned int nodeUse = getStackUse(Node);
+
+#ifdef PATMOS_TRACE_GLOBAL_VISITS
+      DEBUG(Node->dump(); dbgs() << "\n");
+#endif // PATMOS_TRACE_GLOBAL_VISITS
+
+      // ok, dead nodes don't do anything
       if (Node->isDead()) {
         maxChildUse = 0;
+        return;
+      }
+      else if (SCCMap[Node]->second) {
+        // the node is in an SCC! -> make an ILP
+        // note: we know here that all successors of the entire SCC have been
+        // handled
+        maxChildUse = computeMaxUsageILP(SCCMap[Node]->first, Node);
+        assert(maxChildUse > nodeUse);
       }
       else {
         // check all called functions
@@ -131,57 +349,123 @@ namespace llvm {
           maxChildUse = std::max(maxChildUse,
                                  getMaxStackUsage((*i)->getCallee()));
         }
+
+        // include the current function's stack space:
+        maxChildUse += nodeUse;
       }
 
       // compute the call graph node's stack use
-      MaxStackUse[Node] = std::min(STC.getStackCacheSize(),
-                                   maxChildUse + nodeUse);
+      MaxStackUse[Node] = std::min(STC.getStackCacheSize(), maxChildUse);
 
       // update the work list
+      MCGNodeSet preds;
       const MCGSites &callingSites(Node->getCallingSites());
       for(MCGSites::const_iterator i(callingSites.begin()),
           ie(callingSites.end()); i != ie; i++) {
-        MCGNode *Caller = (*i)->getCaller();
-        if (--succCount[Caller] == 0) {
-          WL.push_back(Caller);
+        MCGNode *caller = (*i)->getCaller();
+        // do not consider dead functions and functions in the same SCC her
+        if (!caller->isDead() && SCCMap[caller] != SCCMap[Node]) {
+          const MCGNodes &predSCC(SCCMap[caller]->first);
+          preds.insert(predSCC.begin(), predSCC.end());
         }
       }
+
+      for(MCGNodeSet::const_iterator i(preds.begin()), ie(preds.end()); i != ie;
+          i++) {
+        assert(succCount[*i] > 0);
+        if (--succCount[*i] == 0)
+          WL.push_back(*i);
+
+#ifdef PATMOS_TRACE_GLOBAL_VISITS
+        (*i)->dump(); dbgs() << "(" << succCount[*i] << ") ";
+#endif // PATMOS_TRACE_GLOBAL_VISITS
+      }
+#ifdef PATMOS_TRACE_GLOBAL_VISITS
+      dbgs() << "\n";
+#endif // PATMOS_TRACE_GLOBAL_VISITS
     }
 
     /// computeMaxUsage - Visit all children in the call graph and find the
     /// maximal amount of  space allocated by any of them (and their children).
-    void computeMaxUsage(const MCGNodes &Nodes)
+    void computeMaxUsage(const MCallGraph &G)
     {
+      /// List of SCCs in the call graph
+      MCGNSCCs SCCs;
+      MCGNodeSCC SCCMap;
+      const MCGNodes &nodes(G.getNodes());
+
+      // make sure we have enough space for all SCCs without re-allocation
+      SCCs.reserve(nodes.size());
+
+      // get SCCs
+      typedef scc_iterator<MCallGraph> PCGSCC_iterator;
+      for(PCGSCC_iterator s(scc_begin(G)); !s.isAtEnd(); s++) {
+
+        // keep track of call graph nodes and their SCCs.
+        SCCs.push_back(std::make_pair(*s, s.hasLoop()));
+        for(MCGNodes::iterator n((*s).begin()), ne((*s).end()); n != ne; n++) {
+          SCCMap[*n] = &SCCs.back();
+        }
+
+      }
+
       // initialize the work list
       MCGNodeUInt succCount;
       MCGNodes WL;
-      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+      for(MCGNSCCs::const_iterator i(SCCs.begin()), ie(SCCs.end()); i != ie;
           i++) {
-        size_t succs = (*i)->getSites().size();
+        // get info of the current SCC
+        const MCGNodes *SCC = &i->first;
 
-        if (succs == 0)
-          WL.push_back(*i);
-        else
-          succCount[*i] = succs;
+        // get the number of successors of the SCC that are not in that SCC.
+        MCGNodeSet succs;
+        for(MCGNodes::const_iterator j(SCC->begin()), je(SCC->end()); j != je;
+            j++) {
+          for(MCGSites::const_iterator k((*j)->getSites().begin()),
+              ke((*j)->getSites().end()); k != ke; k++) {
+            // check if the two are in the same SCC
+            if (&SCCMap[(*k)->getCallee()]->first != SCC) {
+              succs.insert((*k)->getCallee());
+            }
+          }
+        }
+
+        // be sure to keep all nodes within an SCC off the WL for now
+        for(MCGNodes::const_iterator j(SCC->begin()), je(SCC->end()); j != je;
+            j++) {
+          if (succs.size() == 0)
+            WL.push_back(*j);
+          else
+            succCount[*j] = succs.size();
+        }
       }
 
       // process nodes in topological order
+#ifdef PATMOS_TRACE_GLOBAL_VISITS
+      DEBUG(dbgs() << "====================================\n";);
+#endif // PATMOS_TRACE_GLOBAL_VISITS
+
       while(!WL.empty()) {
         // pop some node from the work list
         MCGNode *tmp = WL.back();
         WL.pop_back();
 
         // compute its stack usage
-        computeMaxUsage(tmp, succCount, WL);
+        computeMaxUsage(SCCMap, tmp, succCount, WL);
       }
 
+#ifdef PATMOS_TRACE_GLOBAL_USAGE
       DEBUG(
-        for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+        for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
             i++) {
-          (*i)->dump();
-          dbgs() << ": " << getMaxStackUsage(*i) << "\n";
+          if (!(*i)->isDead()) {
+            (*i)->dump();
+            dbgs() << ": " << getMaxStackUsage(*i)
+                   << " (" << getStackUse(*i) << ")\n";
+          }
         }
       );
+#endif // PATMOS_TRACE_GLOBAL_USAGE
     }
 
     /// getStackUsage - Bound the address accessed by the instruction wrt. the 
@@ -276,10 +560,12 @@ namespace llvm {
     /// e.g., by loads and stores, upwards trough the CFG to ensure
     /// instructions. This information can be used to downsize or remove
     /// ensures.
-    void propagateStackUse(const MCGNodes &Nodes)
+    void propagateStackUse(const MCallGraph &G)
     {
+      const MCGNodes &nodes(G.getNodes());
+
       // visit all functions
-      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+      for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
           i++) {
         if (!(*i)->isUnknown()) {
           MBBs WL;
@@ -311,6 +597,7 @@ namespace llvm {
             i->first->getOperand(2).setImm(i->second);
           }
 
+#ifdef PATMOS_TRACE_LOCAL_USAGE
           DEBUG(
             dbgs() << "*************************** "
                    << MF->getFunction()->getName() << "\n";
@@ -321,6 +608,7 @@ namespace llvm {
                     << ": " << i->second << "\n";
             }
           );
+#endif // PATMOS_TRACE_LOCAL_USAGE
         }
       }
     }
@@ -387,10 +675,12 @@ namespace llvm {
     /// removeEnsures - Does what it says. SENS instructions can be removed if
     /// the preceding call plus the current frame on the stack cache fit into
     /// the stack cache.
-    void removeEnsures(const MCGNodes &Nodes)
+    void removeEnsures(const MCallGraph &G)
     {
+      const MCGNodes &nodes(G.getNodes());
+
       // visit all functions
-      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+      for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
           i++) {
         if (!(*i)->isUnknown()) {
           MBBs WL;
@@ -428,6 +718,7 @@ namespace llvm {
             }
           }
 
+#ifdef PATMOS_TRACE_REMOVE
           DEBUG(
             dbgs() << "########################### "
                    << MF->getFunction()->getName() << "\n";
@@ -438,7 +729,360 @@ namespace llvm {
                     << ": " << i->second << "\n";
             }
           );
+#endif // PATMOS_TRACE_REMOVE
         }
+      }
+    }
+
+    /// ilp_name - make a name for a node suitable for the LP file.
+    static std::string ilp_name(const MCGNode *N)
+    {
+      std::string tmps;
+      raw_string_ostream tmp(tmps);
+      if (N->isUnknown()) {
+        tmp << "U" << (void*)N;
+      }
+      else
+        tmp << "X" << N->getMF()->getFunction()->getName();
+      return tmp.str();
+    }
+
+    /// ilp_name - make a name for a call site suitable for the LP file.
+    static std::string ilp_name(const MCGSite *S)
+    {
+      std::string tmps;
+      raw_string_ostream tmp(tmps);
+      tmp << "S" << (void*)S;
+      return tmp.str();
+    }
+
+    /// solve_ilp - solve the ILP problem.
+    static unsigned int solve_ilp(const char *LPname)
+    {
+      unsigned int result = std::numeric_limits<unsigned int>::max();
+
+      std::vector<const char*> args;
+      args.push_back(Solve_ilp.c_str());
+      args.push_back(LPname);
+      args.push_back(0);
+
+      std::string ErrMsg;
+      if (sys::Program::ExecuteAndWait(sys::Path(Solve_ilp),
+                                       &args[0],0,0,0,0,&ErrMsg)) {
+        errs() << "Error: " << ErrMsg << "\n";
+      }
+      else {
+        // read solution
+        // construct name of solution
+        sys::Path SOLname(LPname);
+        SOLname.appendSuffix("sol");
+
+        std::ifstream IS(SOLname.c_str());
+        if (!IS.good()) {
+          errs() << "Error: Failed to read ILP solution.\n";
+        }
+        else {
+          double tmp;
+          IS >> tmp;
+          result = tmp;
+        }
+
+        SOLname.eraseFromDisk();
+      }
+
+      return result;
+    }
+
+    /// computeMaxUsageILP - construct an ILP problem, write it to an LP file, 
+    /// and solve it.
+    unsigned int computeMaxUsageILP(const MCGNodes &SCC, const MCGNode *N)
+    {
+      assert(std::find(SCC.begin(), SCC.end(), N) != SCC.end());
+
+      // get bounds to solve the ILP.
+      const SCCInfo &BInfo(BI.getInfo(SCC));
+
+      // open LP file.
+      std::string ErrMsg;
+      sys::Path LPname(sys::Path::GetTemporaryDirectory(&ErrMsg));
+      if (LPname.isEmpty()) {
+        errs() << "Error: " << ErrMsg << "\n";
+        return STC.getStackCacheSize();
+      }
+
+      LPname.appendComponent("scc.lp");
+      raw_fd_ostream OS(LPname.c_str(), ErrMsg);
+      if (!ErrMsg.empty()) {
+        errs() << "Error: Failed to open file '" << LPname.str()
+               << "' for writing!\n";
+        return STC.getStackCacheSize();
+      }
+
+      // find entry and exit call sites
+      typedef std::set<MCGSite*> MCGSiteSet;
+      MCGSiteSet entries, exits;
+      for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
+          n++) {
+        // look for call sites exiting the SCC
+        for(MCGSites::const_iterator cs((*n)->getSites().begin()),
+          cse((*n)->getSites().end()); cs != cse; cs++) {
+          MCGNode *d = (*cs)->getCallee();
+
+          if (std::find(SCC.begin(), SCC.end(), d) == SCC.end())
+            exits.insert(*cs);
+        }
+
+        // look for call sites entering the SCC
+        for(MCGSites::const_iterator cs((*n)->getCallingSites().begin()),
+          cse((*n)->getCallingSites().end()); cs != cse; cs++) {
+          MCGNode *s = (*cs)->getCaller();
+
+          if (std::find(SCC.begin(), SCC.end(), s) == SCC.end())
+            entries.insert(*cs);
+        }
+      }
+
+      //************************************************************************
+      // objective function
+
+      OS << "Maximize";
+
+      // nodes in the SCC
+      for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
+          n++) {
+        OS << "\n + " << getStackUse(*n) << " " << ilp_name(*n);
+      }
+
+      // exit sites
+      for(MCGSiteSet::iterator n(exits.begin()), ne(exits.end()); n != ne;
+          n++) {
+        OS << "\n + " << getMaxStackUsage((*n)->getCallee()) << "\t"
+           << ilp_name(*n);
+
+        if (!(*n)->getCallee()->isUnknown())
+          OS << "\t\\ " << (*n)->getCallee()->getMF()->getFunction()->getName();
+      }
+
+      // entries do not matter here
+
+      // add user defined parts of objective function
+      OS << BInfo.ObjectiveFunction;
+
+      //************************************************************************
+      // constraints
+      OS << "\nSubject To\n";
+      unsigned int cnt = 0;
+
+      // force path over N
+      OS << "path:\t" << ilp_name(N) << " >= 1\n";
+
+      // constraints on in-flow of nodes in SCC
+      for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
+          n++) {
+        OS << "if" << cnt << ":\t";
+
+        const MCGSites &CS((*n)->getCallingSites());
+        for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
+            cs++) {
+          OS << " + " << ilp_name(*cs);
+        }
+
+        OS << " - " << ilp_name(*n) << " = 0\n";
+        cnt++;
+      }
+
+      // constraints on out-flow of nodes in SCC
+      cnt = 0;
+      for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
+          n++) {
+        OS << "of" << cnt << ":\t";
+
+        const MCGSites &CS((*n)->getSites());
+        for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
+            cs++) {
+          OS << " + " << ilp_name(*cs);
+        }
+
+        // handle function containing at least one call-free path
+        if (IsCallFree[*n]) {
+          OS << " + OF" << ilp_name(*n);
+        }
+
+        OS << " - " << ilp_name(*n) << " = 0\n";
+        cnt++;
+      }
+
+      // constraint on out-flow of entry nodes
+      OS << "en:\t";
+      for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
+          cs != cse; cs++) {
+        OS << " + " << ilp_name(*cs);;
+      }
+      OS << " = 1\n";
+
+      // constraint on in-flow of exit nodes
+      OS << "ex:\t";
+      bool ex_printed = false;
+      for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end());
+          cs != cse; cs++) {
+        OS << " + " << ilp_name(*cs);
+        ex_printed = true;
+      }
+
+      // handle exits through function containing at least one call-free path
+      for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
+          n++) {
+        if (IsCallFree[*n]) {
+          OS << " + OF" << ilp_name(*n);
+          ex_printed = true;
+        }
+      }
+
+      assert(ex_printed);
+      OS << " = 1\n";
+
+      // add user defined constraints
+      OS << BInfo.Constraints;
+
+      //************************************************************************
+      // variable domains
+      OS << "Generals\n";
+
+      // nodes and call sites in SCC
+      for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
+          n++) {
+        OS << ilp_name(*n) << "\n";
+
+        // handle functions with at least one call-free path
+        if (IsCallFree[*n]) {
+          OS << "OF" << ilp_name(*n) << "\n";
+        }
+
+        const MCGSites &CS((*n)->getCallingSites());
+        for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
+            cs++) {
+          // skip entry sites
+          if(entries.find(*cs) == entries.end())
+            OS << ilp_name(*cs) << "\n";
+        }
+      }
+
+      // entries
+      for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
+          cs != cse; cs++) {
+        OS << ilp_name(*cs) << "\n";
+      }
+
+      // exits
+      for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end()); 
+          cs != cse; cs++) {
+        OS << ilp_name(*cs) << "\n";
+      }
+
+      // add user defined variable definitions
+      OS << BInfo.Variables;
+
+      OS << "End\n";
+
+      OS.close();
+
+      // solve the ILP
+      unsigned int result = solve_ilp(LPname.c_str());
+
+#ifdef PATMOS_TRACE_ILP
+      dbgs() << "ILP: ";
+      N->dump();
+      dbgs() << ": " << result << "\n";
+#endif // PATMOS_TRACE_ILP
+
+      // remove LP file
+      LPname.eraseFromDisk();
+
+      return std::min(STC.getStackCacheSize(), result);
+    }
+
+    /// checkCallFreePaths - Check whether functions have call free paths.
+    /// see below.
+    void checkCallFreePaths(MBBs &WL, MBBBool &OUTs, MachineBasicBlock *MBB)
+    {
+      // see if a successor contains a call-free path to a sink
+      bool is_call_free = OUTs[MBB];
+
+      for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
+          ie(MBB->succ_end()); i != ie && is_call_free; i++) {
+        is_call_free |= OUTs[*i];
+      }
+
+      // see if the block contains a call
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie && is_call_free; i++) {
+        if (i->isCall() && !TII.isPredicated(i))
+          is_call_free = false;
+      }
+
+      // simply put all predecessors on the work list -- this may happen only
+      // once.
+      if (is_call_free != OUTs[MBB]) {
+        WL.insert(MBB->pred_begin(), MBB->pred_end());
+      }
+
+      OUTs[MBB] = is_call_free;
+    }
+
+    /// checkCallFreePaths - Check whether functions have call free paths. In 
+    /// the data flow problem, we propagate whether a basic block and some path 
+    /// from it to a sink do not contain a call instruction.
+    void checkCallFreePaths(const MCallGraph &G)
+    {
+      const MCGNodes &nodes(G.getNodes());
+
+#ifdef PATMOS_TRACE_CALLFREES
+      dbgs() << "///////////////////////////\n";
+#endif // PATMOS_TRACE_CALLFREES
+
+      // visit all functions
+      for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
+          i++) {
+
+        bool is_call_free = false;
+
+        // ignore unknown functions here
+        if (!(*i)->isUnknown()) {
+          MBBs WL;
+          MBBBool OUTs;
+          MachineFunction *MF = (*i)->getMF();
+
+          // initialize work list -- initially we assume
+          for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
+              i++) {
+            WL.insert(i);
+
+            // initially assume the basic block does not contain a call and a
+            // path to a sink exists without any calls.
+            OUTs[i] = true;
+          }
+
+          // process until the work list becomes empty
+          while (!WL.empty()) {
+            // get some basic block
+            MachineBasicBlock *MBB = *WL.begin();
+            WL.erase(WL.begin());
+
+            // update the basic block's information, potentially putting any of
+            // its predecessors on the work list.
+            checkCallFreePaths(WL, OUTs, MBB);
+          }
+
+          // see if the entry node contains a call-free path
+          is_call_free = OUTs[MF->begin()];
+        }
+
+        IsCallFree[*i] = is_call_free;
+
+#ifdef PATMOS_TRACE_CALLFREES
+        (*i)->dump();
+        dbgs() << ": " << is_call_free << "\n";
+#endif // PATMOS_TRACE_CALLFREES
       }
     }
 
@@ -446,17 +1090,20 @@ namespace llvm {
     virtual bool runOnMachineModule(const Module &M)
     {
       PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
-      const MCGNodes &nodes(PCGB.getNodes());
+      const MCallGraph &G(*PCGB.getCallGraph());
+
+      // find out whether a call free path exists in each function
+      checkCallFreePaths(G);
 
       // find for each ensure instruction the amount of stack content actually 
       // used after its execution.
-      propagateStackUse(nodes);
+      propagateStackUse(G);
 
-      // compute call-graph-level information on maximual stack cache usage
-      computeMaxUsage(nodes);
+      // compute call-graph-level information on maximal stack cache usage
+      computeMaxUsage(G);
 
       // remove useless SENS instructions
-      removeEnsures(nodes);
+      removeEnsures(G);
 
       return false;
     }
