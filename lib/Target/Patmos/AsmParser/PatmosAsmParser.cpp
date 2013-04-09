@@ -524,10 +524,10 @@ ParseRegister(unsigned &RegNo, bool Required) {
     // Handle alternative register names
     if (!RegNo) {
       RegNo = StringSwitch<unsigned>(RegName)
-        .Case("s1", Patmos::SM)
-        .Case("s2", Patmos::SL)
-        .Case("s3", Patmos::SH)
-        .Case("s6", Patmos::ST)
+        .Case("sm", Patmos::SM)
+        .Case("sl", Patmos::SL)
+        .Case("sh", Patmos::SH)
+        .Case("st", Patmos::ST)
         .Default(0);
     }
 

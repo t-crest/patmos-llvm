@@ -92,14 +92,14 @@ def P7  : PatmosPRED<7, "p7">, DwarfRegNum<[57]>;
 //def SZ  : PatmosSPRWithSubRegs< 0,  "sz", [PRF]>;
 
 let Aliases = [P0, P1, P2, P3, P4, P5, P6, P7] in
-def SZ  : PatmosSPR< 0,  "s0">, DwarfRegNum<[0]>; // zero
+def S0  : PatmosSPR< 0,  "s0">, DwarfRegNum<[0]>; // zero
 
-def SM  : PatmosSPR< 1,  "sm">, DwarfRegNum<[32]>;
-def SL  : PatmosSPR< 2,  "sl">, DwarfRegNum<[33]>;
-def SH  : PatmosSPR< 3,  "sh">, DwarfRegNum<[34]>;
+def SM  : PatmosSPR< 1,  "s1">, DwarfRegNum<[32]>;
+def SL  : PatmosSPR< 2,  "s2">, DwarfRegNum<[33]>;
+def SH  : PatmosSPR< 3,  "s3">, DwarfRegNum<[34]>;
 def S4  : PatmosSPR< 4,  "s4">, DwarfRegNum<[35]>;
 def S5  : PatmosSPR< 5,  "s5">, DwarfRegNum<[36]>;
-def ST  : PatmosSPR< 6,  "st">, DwarfRegNum<[37]>;
+def ST  : PatmosSPR< 6,  "s6">, DwarfRegNum<[37]>;
 def S7  : PatmosSPR< 7,  "s7">, DwarfRegNum<[38]>;
 def S8  : PatmosSPR< 8,  "s8">, DwarfRegNum<[39]>;
 def S9  : PatmosSPR< 9,  "s9">, DwarfRegNum<[40]>;
@@ -136,7 +136,7 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    RFB, RFO)>;
 
 def SRegs : RegisterClass<"Patmos", [i32], 32,
-  (add SZ, SM, SL, SH, S4, S5, ST, S7,
+  (add S0, SM, SL, SH, S4, S5, ST, S7,
    S8, S9, S10, S11, S12, S13, S14, S15)>;
 
 let Size = 8 in {

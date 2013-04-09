@@ -249,7 +249,7 @@ bool PatmosInstrInfo::isSideEffectFreeSRegAccess(const MachineInstr *MI)
 
     // check SRegs
     BitVector safeSRegs(getRegisterInfo().getNumRegs());
-    safeSRegs.set(Patmos::SZ);
+    safeSRegs.set(Patmos::S0);
     safeSRegs.set(Patmos::SL);
     safeSRegs.set(Patmos::SH);
     if (safeSRegs.test(sreg))
