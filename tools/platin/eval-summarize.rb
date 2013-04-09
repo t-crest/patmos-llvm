@@ -220,7 +220,7 @@ EOF
     name = File.basename(fn,'.pml')
     values = {}
     File.open(fn) { |fh|
-      pml = PMLDoc.new(fh)
+      pml = PMLDoc.new(YAML::load_stream(fh))
       row = tab.add_row
       row.add("name",name)
 

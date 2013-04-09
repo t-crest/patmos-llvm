@@ -11,6 +11,20 @@ require 'set'
 $dbgs = $stderr
 
 module PML
+  def file_open(path,mode="r")
+    internal_error "file_open: nil" unless path
+    if(path=="-")
+      case mode
+      when "r" ; $stdin
+      when "w" ; $stdout
+      else ; die "Cannot open stdout in mode #{mode}"
+      end
+    else
+      File.open(path,mode) { |fh|
+        yield fh
+      }
+    end
+  end
 
   def internal_error(msg)
     raise Exception.new(format_msg("INTERNAL ERROR", msg))

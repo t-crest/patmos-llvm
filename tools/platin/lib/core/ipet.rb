@@ -466,7 +466,8 @@ class IPETModel
 
   # returns all edges, plus all return blocks
   def each_edge(function)
-    function.blocks.each do |bb|
+    function.blocks.each_with_index do |bb,ix|
+      next if ix != 0 && bb.predecessors.empty? # data block
       bb.successors.each do |bb2|
         yield IPETEdge.new(bb,bb2,level)
       end
@@ -533,7 +534,8 @@ class IPETBuilder
     mf_function_callers = {}
     mf_functions.each do |f|
       add_bitcode_constraints(f) if @bc_model
-      f.blocks.each do |block|
+      f.blocks.each_with_index do |block,ix|
+        next if block.predecessors.empty? && ix != 0 # exclude data blocks (for e.g. ARM)
         if @mc_model.infeasible.include?(block)
           @mc_model.add_infeasible_block(block)
           next

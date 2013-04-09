@@ -1,8 +1,8 @@
 #!/bin/bash
 # Customizable Variables
 ###############################################################################
-: ${BENCH:=trace}                   # benchmark script, one out of {trace,sweet}
-: ${SETS:=basic}                    # IFS-separated list of benchmark sets
+: ${BENCH:=sweet}                   # benchmark script, one out of {trace,sweet}
+: ${SETS:=basic}                 # IFS-separated list of benchmark sets {basic,mrtc_ext}
 : ${OPTS:=0 1 2}                    # IFS-separated list of optimization levels
 : ${CLANG:=patmos-clang}            # patmos-clang tool
 : ${PLATIN:=./platin}               # PLATIN tool
@@ -36,7 +36,7 @@ for SET in ${SETS} ; do
             OUTPML_FILE=${FILEBASE}.out/${M}.pml
 
             ${CLANG} ${OPT_FLAGS} -o "${ELF_FILE}" -mpatmos-preemit-bitcode="${ELFBC_FILE}" \
-                -mpatmos-serialize="${INPML_FILE}" "${BCFILE}"  2>&1 | tee ${LOGFILE}
+                -mserialize="${INPML_FILE}" "${BCFILE}"  2>&1 | tee ${LOGFILE}
             ${PLATIN} bench-${BENCH} --bitcode "${ELFBC_FILE}" --outdir "${FILEBASE}.out" \
                 --binary ${ELF_FILE} -o ${OUTPML_FILE} ${INPML_FILE} 2>&1 | tee ${LOGFILE}
         done >/dev/null # > ${FILEBASE}.log

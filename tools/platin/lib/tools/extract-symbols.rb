@@ -1,7 +1,7 @@
 #
-# PSK - Toolchain: extract-symbols
+# platin toolchain: extract-symbols
 #
-# Tool to extract addresses from a patmos ELF file
+# Tool to extract addresses from a ELF file
 #
 require 'platin'
 include PML
@@ -57,7 +57,7 @@ class ExtractSymbols
     @pml
   end
   private
-  RE_PATMOS_LABEL = %r{
+  RE_OBJDUMP_LABEL = %r{
     ( #{RE_HEX}{8} ) # address
     . {9}            # .ignore
     ( \S+ ) \s+      # section
@@ -65,14 +65,14 @@ class ExtractSymbols
     ( \S+ ) # label
   }x
   def objdump_extract(line)
-    return nil unless line =~ /\A#{RE_PATMOS_LABEL}$/
+    return nil unless line =~ /\A#{RE_OBJDUMP_LABEL}$/
     OpenStruct.new(:address => Integer("0x#{$1}"), :section => $2, :value => 3, :label => $4)
   end
 end
 
 class ExtractSymbolsTool
   def ExtractSymbolsTool.add_config_options(opts)
-    opts.on("--objdump-command FILE", "path to 'patmos-llvm-objdump'")   { |f| opts.options.objdump = f }
+    opts.on("--objdump-command FILE", "path to 'llvm-objdump'")   { |f| opts.options.objdump = f }
     opts.on("--text-sections SECTION,..", "list of code sections (=.text)")  { |s| opts.options.text_sections = s.split(/\s*,\s*/) }
     opts.add_check do |options|
       options.objdump = "patmos-llvm-objdump" unless options.objdump

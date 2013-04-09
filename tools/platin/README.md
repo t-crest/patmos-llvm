@@ -31,7 +31,7 @@ $ patmos-clang -emit-llvm -S -o src/jumptable.bc examples/jumptable.c
 
 $ patmos-clang -o bin/jumptable.elf \
                -mpatmos-preemit-bitcode=bin/jumptable.elf.bc \
-               -mpatmos-serialize=bin/jumptable.elf.pml src/jumptable.bc
+               -mserialize=bin/jumptable.elf.pml src/jumptable.bc
 
 (3) Trace Analysis Demo (platin trace analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
 
@@ -71,8 +71,47 @@ mrtc/whet -O0:      Needs math libraries => problem with atan function
 mrtc/adpcm -O0:     120s
 mrtc/st -O0:        ...
 
+LLVM Integration
+================
+
+Options
+-------
+CodeGen/Passes: -mserialize, -mserialize-roots
+Patmos specific: -mpatmos-preemit-bitcode
 
 Block Mapping Modifications
 ---------------------------
 * BranchFolder: when merging the tails of two basic blocks, delete the associated bitcode BB
 * BranchFolder: when merging a basic block and its successor, use one of the labels if it is defined
+
+Architectures
+=============
+
+ARM:
+    # Install ARM crosscompiler (Ubuntu)
+    #   sudo aptitude install gcc-arm-linux-gnueabi  libc6-dev-armel-cross
+    #
+    # Install ARM simulator (Ubuntu)
+    #   hg clone http://repo.gem5.org/gem5-stable
+    #   cd gem5-stable
+    #   emacs src/arch/arm/linux/process.cc # change linux version in line 69 to '2.6.35'
+    #   scons build/ARM/gem5.opt
+    #   GEM5_HOME=`pwd`
+
+    # Demo
+    # source = src/$1.c
+    mkdir -p bin out
+
+    # Compile using clang
+    patmos-clang -O1 -target arm-linux-gnueabi -marm -Xclang -backend-option -Xclang -mserialize=bin/$1.pml \
+                     -c -o bin/$1.o  src/$1.c
+
+    # Link using arm-linux-gnueabi-gcc
+    arm-linux-gnueabi-gcc  -static bin/$1.o -o bin/$1.elf
+
+    # Simulate using GEM5
+    $GEM5_HOME/build/ARM/gem5.opt --debug-flags=Exec,-ExecMicro,ExecMacro --trace-file=$1.trace \
+                                  $GEM5_HOME/configs/example/se.py -c bin/$1.elf
+
+    # Analyze using platin
+    platin bench-trace --disable-ait --trace-file m5out/$1.trace --outdir out -o out/$1.pml --binary bin/$1.elf bin/$1.pml

@@ -43,13 +43,15 @@ class BenchToolSweet
 
     step("Analyze MC Traces", true)              { AnalyzeTraceTool.run(pml,options) }
 
-    step("Running SWEET analysis analysis and trace generation")  {
+    sweet_ok = step("Running SWEET analysis analysis and trace generation")  {
       opts = options.dup
       opts.sweet_ignore_volatiles = true
       opts.sweet_generate_trace = true
       SweetAnalyzeTool.run(pml, opts)
     }
-    step("Import SWEET flow facts")        { SweetImportTool.run(pml, options) }
+    step("Import SWEET flow facts") {
+      SweetImportTool.run(pml, options)
+    } if sweet_ok
 
     step("Validate Relation Graph")        {
       begin
@@ -57,7 +59,7 @@ class BenchToolSweet
       rescue Exception => detail
         $stderr.puts ("RG Validation failed: #{detail}")
       end
-    }
+    } if sweet_ok
 
     ["all", "local"].each do |selection|
 
@@ -78,7 +80,7 @@ class BenchToolSweet
         ApxExportTool.run(pml,opts)
         AitAnalyzeTool.run(pml, opts)
         AitImportTool.run(pml,opts)
-      }
+      } unless options.disable_ait
 
       step("Running WCA (relation graph - SWEET facts)")   {
         opts = options.dup
@@ -93,7 +95,7 @@ class BenchToolSweet
         opts.use_relation_graph = true
         opts.timing_output = "wca-sweet-#{selection}"
         WcaTool.run(pml, opts)
-      }
+      } if sweet_ok
     end
 
     step("Results: ") {
@@ -111,6 +113,7 @@ class BenchToolSweet
     opts.analysis_entry
     opts.binary_file(true)
     opts.bitcode_file(true)
+    opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d}
     TOOLS.each { |toolclass| toolclass.add_config_options(opts) }
   end
@@ -123,5 +126,5 @@ EOF
   options, args = PML::optparse([:input], "program.elf.pml", SYNOPSIS) do |opts|
     BenchToolSweet.add_options(opts)
   end
-  BenchToolSweet.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
+  BenchToolSweet.run(PMLDoc.from_files([options.input]), options).dump_to_file(options.output)
 end

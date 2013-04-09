@@ -23,13 +23,15 @@ class BenchTool
       yield
       t2 = Time.now
       $stderr.puts("- #{descr.ljust(35)} #{((t2-t1)*1000).to_i} ms")
+      return true
     rescue Exception => detail
       if exit_on_error
         $stderr.puts(detail.backtrace)
         die(detail.to_s)
       else
-        warn("Analysis failed: #{detail.to_s}")
+        warn("Analysis failed with exception: #{detail.to_s}")
         $stderr.puts detail.backtrace
+        return false
       end
     end
   end
@@ -73,7 +75,7 @@ class BenchTool
         ApxExportTool.run(pml,opts)
         AitAnalyzeTool.run(pml, opts)
         AitImportTool.run(pml,opts)
-      }
+      } unless options.disable_ait
 
       step("Copy trace flow facts which are cannnot covered by bitcode facts (compiler-rt)") {
         opts = options.dup
@@ -122,6 +124,7 @@ class BenchTool
     opts.binary_file(true)
     opts.bitcode_file(false)
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d}
+    opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
     TOOLS.each { |toolclass| toolclass.add_config_options(opts) }
   end
 end
