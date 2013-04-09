@@ -83,6 +83,12 @@ static cl::opt<bool> PrintGCInfo("print-gc", cl::Hidden,
 static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
     cl::desc("Verify generated machine code"),
     cl::init(getenv("LLVM_VERIFY_MACHINEINSTRS")!=NULL));
+static cl::opt<std::string> SerializeMachineCode("mserialize",
+   cl::desc("Export PML specification of generated machine code to FILE"),
+   cl::init(""));
+static cl::list<std::string>SerializeRoots("mserialize-roots",
+   cl::desc("Export only methods reachable from given functions"),
+   cl::Hidden);
 static cl::opt<std::string>
 PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
                    cl::desc("Print machine instrs"),
@@ -523,8 +529,16 @@ void TargetPassConfig::addMachinePasses() {
     printAndVerify("After PreEmit passes");
 
   // Serialize machine code
-  // if (! SerializeMachineCode.empty())
-  //    PM->add(createPMLExportPass(SerializeMachineCode, TM));
+  if (! SerializeMachineCode.empty())
+    addSerializePass(SerializeMachineCode, SerializeRoots);
+}
+
+/// Add standard serialization to PML format
+/// XXX: roots is ignored
+bool TargetPassConfig::addSerializePass(std::string& OutFile, ArrayRef<std::string> roots)
+{
+  addPass(createPMLExportPass(*TM, OutFile));
+  return true;
 }
 
 /// Add passes that optimize machine instructions in SSA form.

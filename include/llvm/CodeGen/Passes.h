@@ -17,6 +17,7 @@
 
 #include "llvm/Pass.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/ADT/ArrayRef.h"
 #include <string>
 
 namespace llvm {
@@ -154,6 +155,10 @@ public:
   virtual bool addInstSelector() {
     return true;
   }
+
+  /// addSerializePass - Install a pass that serializes the internal representation
+  /// of the compiler to PML format
+  virtual bool addSerializePass(std::string& OutFile, ArrayRef<std::string> Roots);
 
   /// Add the complete, standard set of LLVM CodeGen passes.
   /// Fully developed targets will not generally override this.

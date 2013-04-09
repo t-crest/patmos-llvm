@@ -1,4 +1,4 @@
-//===- lib/Support/PMLExport.h -----------------------------------------===//
+//===- lib/CodeGen/PMLExport.h -----------------------------------------===//
 //
 //               YAML definitions for exporting LLVM datastructures
 //
