@@ -61,6 +61,9 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setIntDivIsCheap(false);
   // Select is not
   setSelectIsExpensive(false);
+  // Jump is Expensive. Don't create extra control flow for 'and', 'or'
+  // condition branches.
+  setJumpIsExpensive(true);
 
   setStackPointerRegisterToSaveRestore(Patmos::RSP);
   setBooleanContents(ZeroOrOneBooleanContent);
