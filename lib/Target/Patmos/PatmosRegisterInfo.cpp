@@ -90,7 +90,7 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Patmos::SL);
   Reserved.set(Patmos::SH);
   Reserved.set(Patmos::S4);
-  Reserved.set(Patmos::S5);
+  Reserved.set(Patmos::SS);
   Reserved.set(Patmos::ST);
   Reserved.set(Patmos::S7);
   Reserved.set(Patmos::S8);

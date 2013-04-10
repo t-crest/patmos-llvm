@@ -527,6 +527,7 @@ ParseRegister(unsigned &RegNo, bool Required) {
         .Case("sm", Patmos::SM)
         .Case("sl", Patmos::SL)
         .Case("sh", Patmos::SH)
+        .Case("ss", Patmos::SS)
         .Case("st", Patmos::ST)
         .Default(0);
     }

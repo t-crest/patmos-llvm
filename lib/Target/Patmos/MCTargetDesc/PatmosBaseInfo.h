@@ -145,7 +145,7 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case R2:  case SL:  case P2:  return 2;
   case R3:  case SH:  case P3:  return 3;
   case R4:  case S4:  case P4:  return 4;
-  case R5:  case S5:  case P5:  return 5;
+  case R5:  case SS:  case P5:  return 5;
   case R6:  case ST:  case P6:  return 6;
   case R7:  case S7:  case P7:  return 7;
   case R8:  case S8:  return 8;
