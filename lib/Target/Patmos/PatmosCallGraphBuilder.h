@@ -237,8 +237,8 @@ namespace llvm {
   /// A sub-graph of a call graph for DOT dumps only.
   class MCallSubGraph
   {
-    friend class GraphTraits<MCallSubGraph>;
-    friend class DOTGraphTraits<MCallSubGraph>;
+    friend struct GraphTraits<MCallSubGraph>;
+    friend struct DOTGraphTraits<MCallSubGraph>;
   private:
     const MCallGraph &G;
     const MCGNodes Nodes;
