@@ -679,8 +679,12 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 
     }
   }
-
-  // Handle '{}'
+  // Handle '{$<regname>}'
+  if (Constraint.size() > 2 && Constraint[0] == '{' && Constraint[1] == '$') {
+    std::string Stripped = "{" + Constraint.substr(2);
+    return TargetLowering::getRegForInlineAsmConstraint(Stripped, VT);
+  }
+  // Handle everything else ('{<regname}, ..)
   return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
 }
 

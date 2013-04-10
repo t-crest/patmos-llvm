@@ -219,8 +219,8 @@ bool PatmosAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
 
   // Print operand for inline-assembler. Basically the same code as in
   // PatmosInstPrinter::printOperand, but for MachineOperand and for
-  // inline-assembly. No need for pretty formatting of default ops, output is for
-  // AsmParser only.
+  // inline-assembly. No need for pretty formatting of default ops, output is
+  // for AsmParser only.
 
   // TODO any special handling of predicates (flags) or anything?
 
