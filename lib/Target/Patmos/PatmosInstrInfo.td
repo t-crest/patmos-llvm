@@ -439,14 +439,13 @@ multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommut
 defm ADD    : BinArithILR   <0b0000, "add"   , add, 1>;
 defm SUB    : BinArithILR   <0b0001, "sub"   , sub>;
 // TODO dont forget to update PatmosInstrInfo.h:276
-//defm MUL    : BinArithILRpfg<0b0010, "mul"   , mul>;
+defm XOR    : BinArithILR   <0b0010, "xor"   , xor, 1>;
 defm SL     : BinArithILR   <0b0011, "sl"    , shl>; // FIXME 5 bits
 defm SR     : BinArithILR   <0b0100, "sr"    , srl>; // FIXME 5 bits
 defm SRA    : BinArithILR   <0b0101, "sra"   , sra>; // FIXME 5 bits
 defm OR     : BinArithILR   <0b0110, "or"    , or,  1>;
 defm AND    : BinArithILR   <0b0111, "and"   , and, 1>;
 // no short immediates:
-defm XOR    : BinArithLR    <0b1010, "xor"   , xor, 1>;
 defm NOR    : BinArithLRpfg <0b1011, "nor"   , nor, 1>;
 defm SHADD  : BinArithLRpfg <0b1100, "shadd ", shadd>;
 defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;

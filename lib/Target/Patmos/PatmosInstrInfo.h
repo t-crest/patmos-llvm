@@ -273,7 +273,7 @@ bool HasALUlVariant(unsigned Opcode, unsigned &ALUlOpcode) {
   switch (Opcode) {
   case ADDi:  ALUlOpcode = ADDl;  return true;
   case SUBi:  ALUlOpcode = SUBl;  return true;
-  //case MULi:  ALUlOpcode = MULl;  return true;
+  case XORi:  ALUlOpcode = XORl;  return true;
   // No need for ALUl versions of SL, SR, SRA: they only use 5bit immediates anyway
   case ORi:   ALUlOpcode = ORl;   return true;
   case ANDi:  ALUlOpcode = ANDl;  return true;
