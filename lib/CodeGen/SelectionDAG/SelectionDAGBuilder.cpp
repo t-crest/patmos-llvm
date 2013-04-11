@@ -6360,16 +6360,10 @@ void SelectionDAGBuilder::visitInlineAsm(ImmutableCallSite CS) {
     case InlineAsm::isClobber: {
       // Add the clobbered value to the operand list, so that the register
       // allocator is aware that the physreg got clobbered.
-      if (!OpInfo.AssignedRegs.Regs.empty()) {
+      if (!OpInfo.AssignedRegs.Regs.empty())
         OpInfo.AssignedRegs.AddInlineAsmOperands(InlineAsm::Kind_Clobber,
                                                  false, 0, DAG,
                                                  AsmNodeOperands);
-      } else {
-        LLVMContext &Ctx = *DAG.getContext();
-        Ctx.emitError(CS.getInstruction(),
-                      "couldn't allocate clobber reg for constraint '" +
-                      Twine(OpInfo.ConstraintCode) + "'");
-      }
       break;
     }
     }
