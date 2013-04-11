@@ -384,6 +384,10 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
 
   const PatmosInstrInfo *TII = PDSF.TII;
 
+  // for calls, allow only single-issue and 32bit instructions
+  if (MI.isCall() && TII->getInstrSize(I) == 8)
+    return true;
+
   // don't move long latency/split MUL into delay slot
   if (I->getOpcode() == Patmos::MUL ||
       I->getOpcode() == Patmos::MULU)
