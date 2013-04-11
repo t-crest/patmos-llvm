@@ -426,12 +426,12 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       }
     }
 
-    if (Format == PatmosII::FrmCFLb || Format == PatmosII::FrmSTC) {
+    if (Format == PatmosII::FrmCFLb || Format == PatmosII::FrmSTCi) {
       const MCOperand &MCO = Inst.getOperand(ImmOpNo);
       if (!MCO.isExpr()) {
         assert(MCO.isImm() && "expected immediate operand for ALUi format");
 
-        if ((Format == PatmosII::FrmSTC && !isUInt<18>(MCO.getImm())) ||
+        if ((Format == PatmosII::FrmSTCi && !isUInt<18>(MCO.getImm())) ||
             ( ImmSigned && !isInt<22>(MCO.getImm())) ||
             (!ImmSigned && !isUInt<22>(MCO.getImm()))) {
           return Error(IDLoc, "immediate operand is out of range");

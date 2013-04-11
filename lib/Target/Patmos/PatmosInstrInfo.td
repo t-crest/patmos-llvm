@@ -378,9 +378,12 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-def SRES : STC<0b00, (outs), (ins pred:$p, uimm18:$imm), "sres",  "$imm", []>;
-def SENS : STC<0b01, (outs), (ins pred:$p, uimm18:$imm), "sens",  "$imm", []>;
-def SFREE: STC<0b10, (outs), (ins pred:$p, uimm18:$imm), "sfree", "$imm", []>;
+def SRESi  : STCi<0b00, (outs), (ins pred:$p, uimm18:$imm), "sres",   "$imm", []>;
+def SENSi  : STCi<0b01, (outs), (ins pred:$p, uimm18:$imm), "sens",   "$imm", []>;
+def SFREEi : STCi<0b10, (outs), (ins pred:$p, uimm18:$imm), "sfree",  "$imm", []>;
+def SSPILLi: STCi<0b11, (outs), (ins pred:$p, uimm18:$imm), "sspill", "$imm", []>;
+def SENSr  : STCr<0b01, (outs), (ins pred:$p, RRegs:$rs), "sens",   "$rs", []>;
+def SSPILLr: STCr<0b11, (outs), (ins pred:$p, RRegs:$rs), "sspill", "$rs", []>;
 
 
 //===----------------------------------------------------------------------===//

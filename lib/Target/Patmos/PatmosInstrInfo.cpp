@@ -229,10 +229,9 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
 
 bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
   unsigned opc = MI->getOpcode();
-  switch (opc) {
-    case Patmos::SENS:
-    case Patmos::SRES:
-    case Patmos::SFREE:
+  switch (getPatmosFormat(MI->getDesc().TSFlags)) {
+    case PatmosII::FrmSTCi:
+    case PatmosII::FrmSTCr:
       return true;
     default: return false;
   }

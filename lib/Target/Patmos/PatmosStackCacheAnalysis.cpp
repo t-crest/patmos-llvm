@@ -510,6 +510,7 @@ namespace llvm {
     /// e.g., by loads and stores, upwards trough the CFG to ensure 
     /// instructions. This information can be used to downsize or remove 
     /// ensures.
+    // TODO: check for STCr
     void propagateStackUse(MBBs &WL, MBBUInt &INs, SIZEs &ENSs,
                            MachineBasicBlock *MBB)
     {
@@ -521,7 +522,7 @@ namespace llvm {
           ie(MBB->instr_rend()); i != ie; i++) {
 
         // check for ensures
-        if (i->getOpcode() == Patmos::SENS) {
+        if (i->getOpcode() == Patmos::SENSi) {
           assert(i->getOperand(2).isImm());
 
           // compute actual space to ensure here
@@ -618,6 +619,7 @@ namespace llvm {
     /// the stack cache.
     // TODO: take care of predication, i.e., predicated SENS/CALL instructions
     // might be mangled and they might no match one to one.
+    // TODO: check for STCr
     void removeEnsures(MBBs &WL, MBBUInt &INs, ENSUREs &ENSs, MCGNode *Node,
                        MachineBasicBlock *MBB)
     {
@@ -636,7 +638,7 @@ namespace llvm {
 
           childUse = std::max(childUse, getMaxStackUsage(site->getCallee()));
         }
-        else if (i->getOpcode() == Patmos::SENS) {
+        else if (i->getOpcode() == Patmos::SENSi) {
           unsigned int ensure = i->getOperand(2).getImm() *
                                 STC.getStackCacheBlockSize();
 

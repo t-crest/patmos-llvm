@@ -70,14 +70,17 @@ namespace PatmosII {
     /// FrmSTT - This format is for memory store instructions with 7bit offset.
     FrmSTT      = 7,
 
-    /// FrmSTC - This form is for instructions of the STC format (stack control, 22bit immediate).
-    FrmSTC      = 8,
+    /// FrmSTCi - This form is for instructions of the STC format (stack control, 22bit immediate).
+    FrmSTCi     = 8,
+
+    /// FrmSTCr - This form is for instructions of the STC format (stack control, register).
+    FrmSTCr     = 9,
 
     /// FrmCFLb - This form is for instructions of the CFLb format (flow control, 22bit immediate).
-    FrmCFLb     = 9,
+    FrmCFLb     = 10,
 
     /// FrmCFLb - This form is for instructions of the CFLi format (flow control, indirect).
-    FrmCFLi     = 10,
+    FrmCFLi     = 11,
 
     FormMask    = 0x0F
   };
@@ -90,6 +93,10 @@ namespace PatmosII {
     MEM_C = 2, // data cache
     MEM_M = 3  // main memory (bypass caches)
   };
+}
+
+inline static unsigned getPatmosFormat(uint64_t TSFlags) {
+  return (TSFlags & PatmosII::FormMask);
 }
 
 inline static unsigned getPatmosImmediateOpNo(uint64_t TSFlags) {
@@ -123,7 +130,7 @@ inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
   case PatmosII::FrmLDT:  return 7;
   case PatmosII::FrmSTT:  return 7;
   case PatmosII::FrmALUi: return 12;
-  case PatmosII::FrmSTC:  return 22;
+  case PatmosII::FrmSTCi: return 22;
   case PatmosII::FrmCFLb: return 22;
   case PatmosII::FrmALUl: return 32;
   }

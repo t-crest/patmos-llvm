@@ -247,7 +247,7 @@ void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
       // a call site?
       if (j->isCall()) {
         MachineBasicBlock::iterator p(next(j));
-        emitSTC(MF, *i, p, Patmos::SENS);
+        emitSTC(MF, *i, p, Patmos::SENSi);
       }
     }
   }
@@ -281,7 +281,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   if (!DisableStackCache) {
     // emit a reserve instruction
-    emitSTC(MF, MBB, MBBI, Patmos::SRES);
+    emitSTC(MF, MBB, MBBI, Patmos::SRESi);
 
     // patch all call sites
     patchCallSites(MF);
@@ -317,7 +317,7 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
   // Handle Stack Cache
 
   // emit a free instruction
-  emitSTC(MF, MBB, MBBI, Patmos::SFREE);
+  emitSTC(MF, MBB, MBBI, Patmos::SFREEi);
 
   //----------------------------------------------------------------------------
   // Handle Shadow Stack

@@ -22,9 +22,10 @@ def FALUc   : Format<4>;  // Compare of registers
 def FALUp   : Format<5>;  // Combine predicates
 def FLDT    : Format<6>;  // Memory ops with 7bit offset
 def FSTT    : Format<7>;  // Memory ops with 7bit offset
-def FSTC    : Format<8>;  // Stack control with 22bit immediate
-def FCFLb   : Format<9>;  // Program flow control with 22bit immediate
-def FCFLi   : Format<10>; // Program flow control indirect
+def FSTCi   : Format<8>;  // Stack control with 22bit immediate
+def FSTCr   : Format<9>;  // Stack control with register
+def FCFLb   : Format<10>; // Program flow control with 22bit immediate
+def FCFLi   : Format<11>; // Program flow control indirect
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -400,11 +401,11 @@ class STT<bits<3> ty, bits<2> td,
 
 
 
-// STC - Stack Control
+// STCi - Stack Control Immediate
 //
-class STC<bits<2> op,
+class STCi<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTC, IIC_STC> {
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTCi, IIC_STC> {
 
   // unbound fields
   bits<18> imm;
@@ -416,6 +417,24 @@ class STC<bits<2> op,
   let Inst{21-20} = op;
   let Inst{19-18} = 0b00;
   let Inst{17-0}  = imm;
+}
+
+// STCr - Stack Control Register
+//
+class STCr<bits<2> op,
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTCr, IIC_STC> {
+
+  // unbound fields
+  bits<5> rs;
+
+  let ImmOpNo  = 2;
+  let ImmShift = 2; 
+
+  let Inst{26-22} = 0b01100;
+  let Inst{21-20} = op;
+  let Inst{19-18} = 0b01;
+  let Inst{16-12} = rs;
 }
 
 
