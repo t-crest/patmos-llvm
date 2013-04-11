@@ -372,11 +372,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     // Mark the special registers of the method cache to be used when calls exist.
     MRI.setPhysRegUsed(Patmos::RFB);
     MRI.setPhysRegUsed(Patmos::RFO);
-  } else {
-    MRI.setPhysRegUnused(Patmos::RFB);
-    MRI.setPhysRegUnused(Patmos::RFO);
   }
-
 
 
   if (TRI->requiresRegisterScavenging(MF)) {

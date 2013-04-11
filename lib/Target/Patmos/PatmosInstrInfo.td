@@ -436,9 +436,9 @@ multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommut
 // kept consistent with HasALUlVariant() in PatmosInstrInfo.h
 
 // with short immediates:
+// dont forget to update PatmosInstrInfo.h:276
 defm ADD    : BinArithILR   <0b0000, "add"   , add, 1>;
 defm SUB    : BinArithILR   <0b0001, "sub"   , sub>;
-// TODO dont forget to update PatmosInstrInfo.h:276
 defm XOR    : BinArithILR   <0b0010, "xor"   , xor, 1>;
 defm SL     : BinArithILR   <0b0011, "sl"    , shl>; // FIXME 5 bits
 defm SR     : BinArithILR   <0b0100, "sr"    , srl>; // FIXME 5 bits
