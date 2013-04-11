@@ -213,7 +213,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         //   followed by a predicated (inverted) store of 0
         BuildMI(MBB, II, DL, TII.get(st_opc))
           .addReg(SrcRegOpnd.getReg()).addImm(0) // predicate
-          .addReg(basePtr, false).addImm(offset) // address
+          .addReg(basePtr, false).addImm(offset) // adress
           .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
         BuildMI(MBB, II, DL, TII.get(st_opc))
           .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
@@ -423,8 +423,19 @@ bool PatmosRegisterInfo::hasReservedSpillSlot(const MachineFunction &MF,
   if (Patmos::PRegsRegClass.contains(Reg))
     return true;
 
+  const PatmosMachineFunctionInfo &PMFI =
+                  *MF.getInfo<PatmosMachineFunctionInfo>();
+
+  if (Reg == Patmos::S0 && PMFI.getS0SpillReg())
+    return true;
+
   return false;
 }
 
+bool
+PatmosRegisterInfo::requiresRegisterScavenging(const MachineFunction &MF) const
+{
+  return false; //FIXME
+}
 
 

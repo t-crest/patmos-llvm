@@ -228,7 +228,6 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
 }
 
 bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
-  unsigned opc = MI->getOpcode();
   switch (getPatmosFormat(MI->getDesc().TSFlags)) {
     case PatmosII::FrmSTCi:
     case PatmosII::FrmSTCr:

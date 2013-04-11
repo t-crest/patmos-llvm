@@ -374,6 +374,30 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     MRI.setPhysRegUsed(Patmos::RFO);
   }
 
+  // If we need to spill S0, try to find an unused scratch register that we can
+  // use instead. This only works if we do not have calls that may clobber
+  // the register though.
+  if (MRI.isPhysRegUsed(Patmos::S0) && !MF.getFrameInfo()->hasCalls()) {
+    unsigned SpillReg = 0;
+    BitVector Reserved = MRI.getReservedRegs();
+    BitVector CalleeSaved(TRI->getNumRegs());
+    const uint16_t *saved = TRI->getCalleeSavedRegs(&MF);
+    while (*saved) {
+      CalleeSaved.set(*saved++);
+    }
+    for (TargetRegisterClass::iterator i = Patmos::RRegsRegClass.begin(),
+         e = Patmos::RRegsRegClass.end(); i != e; ++i) {
+      if (MRI.isPhysRegUsed(*i) || *i == Patmos::R9) continue;
+      if (Reserved[*i] || CalleeSaved[*i]) continue;
+      //SpillReg = *i;
+      break;
+    }
+    if (SpillReg) {
+      // Remember the register for the prologe-emitter and mark as used
+      PMFI.setS0SpillReg(SpillReg);
+      MRI.setPhysRegUsed(SpillReg);
+    }
+  }
 
   if (TRI->requiresRegisterScavenging(MF)) {
     const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
@@ -395,6 +419,8 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   const TargetInstrInfo &TII = *TM.getInstrInfo();
+  PatmosMachineFunctionInfo &PMFI =
+                       *MBB.getParent()->getInfo<PatmosMachineFunctionInfo>();
 
   unsigned spilledSize = 0;
   for (unsigned i = CSI.size(); i != 0; --i) {
@@ -406,6 +432,13 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
     // a spill of SZ
     if (Patmos::PRegsRegClass.contains(Reg))
       continue;
+
+    // Spill S0 to a register instead to a slot if there is a free register
+    if (Reg == Patmos::S0 && PMFI.getS0SpillReg()) {
+      TII.copyPhysReg(MBB, MI, DL, PMFI.getS0SpillReg(), Reg, true);
+      continue;
+    }
+
     // copy to R register first, then spill
     if (Patmos::SRegsRegClass.contains(Reg)) {
       TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Reg, true);
@@ -437,6 +470,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *TM.getInstrInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   // if framepointer enabled, first restore the stack pointer.
   if (hasFP(MF)) {
@@ -455,6 +489,12 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
     // SZ is aliased with PRegs
     if (Patmos::PRegsRegClass.contains(Reg))
         continue;
+
+    // Spill S0 to a register instead to a slot if there is a free register
+    if (Reg == Patmos::S0 && PMFI.getS0SpillReg()) {
+      TII.copyPhysReg(MBB, MI, DL, Reg, PMFI.getS0SpillReg(), true);
+      continue;
+    }
 
     // copy to special register after reloading
     if (Patmos::SRegsRegClass.contains(Reg))
