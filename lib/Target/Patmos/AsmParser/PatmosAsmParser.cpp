@@ -397,10 +397,10 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
           }
           else if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
             Inst.setOpcode(ALUlOpcode);
-            // ALUl counts as two operations
-            BundleCounter++;
+            // ALUl is implicitly bundled and resets the bundle status
+            BundleCounter = 0;
 
-            if (!isInt<32>(MCO.getImm()) || !isInt<32>(MCO.getImm())) {
+            if (!isInt<32>(MCO.getImm()) && !isUInt<32>(MCO.getImm())) {
               return Error(IDLoc, "immediate operand too large for ALUl format");
             }
           }
@@ -414,13 +414,13 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       }
     }
     else if (Format == PatmosII::FrmALUl) {
-      // ALUl counts as two operations
-      BundleCounter++;
+      // ALUl is implicitly bundled and resets the bundle status
+      BundleCounter = 0;
 
       MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
       // No immediates larger than 32bit allowed ..
-      if (MCO.isImm() && (!isInt<32>(MCO.getImm()) || !isInt<32>(MCO.getImm())))
+      if (MCO.isImm() && !isInt<32>(MCO.getImm()) && !isUInt<32>(MCO.getImm()))
       {
         return Error(IDLoc, "immediate operand too large for ALUl format");
       }
