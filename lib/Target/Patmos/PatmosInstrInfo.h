@@ -278,7 +278,7 @@ bool HasALUlVariant(unsigned Opcode, unsigned &ALUlOpcode) {
   case ORi:   ALUlOpcode = ORl;   return true;
   case ANDi:  ALUlOpcode = ANDl;  return true;
   case LIi:   ALUlOpcode = LIl;   return true;
-  case CLIi:  ALUlOpcode = CLIl;  return true;
+  case CADDi: ALUlOpcode = CADDl; return true;
   default: return false;
   }
 }

@@ -456,12 +456,15 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 
 // Pseudo Instructions using binary arithmetic opcodes
 
-// conditional add: add something only if predicate is set
-let Constraints = "$rs1 = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in
-def CADDi : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
-                 "add", "$rd = $rs1, $imm",
-                 []>;
-
+// conditional addil/subi: add immediate only if predicate is set
+let Constraints = "$rs1 = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in {
+  def CADDi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
+                   "add", "$rd = $rs1, $imm", []>;
+  def CSUBi  : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
+                   "sub", "$rd = $rs1, $imm", []>;
+  def CADDl  : ALUl<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, i32imm:$imm),
+                   "add", "$rd = $rs1, $imm", []>;
+}
 
 // move instructions
 let isAsCheapAsAMove = 1, imm = 0, ImmOpNo = 0 in {
@@ -528,15 +531,6 @@ let rs1 = 0,
     def LIl  : ALUl<0b0000, (outs RRegs:$rd), (ins pred:$p, i32imm:$imm),
                     "li", "$rd = $imm",
                     [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
-  }
-  // conditional load immediates
-  let isCodeGenOnly = 1, neverHasSideEffects = 1 in {
-    def CLIi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, uimm12:$imm),
-		     "li", "$rd = $imm", []>;
-    def CLIin : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, nuimm12:$imm),
-		     "li", "$rd = $imm", []>;
-    def CLIl  : ALUl<0b0000, (outs RRegs:$rd), (ins predset:$p, i32imm:$imm),
-		     "li", "$rd = $imm", []>;
   }
 }
 

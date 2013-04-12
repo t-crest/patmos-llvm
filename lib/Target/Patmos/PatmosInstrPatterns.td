@@ -40,6 +40,7 @@ def : Pat<(sub predsel:$p1, predsel:$p2), (PXOR predsel:$p1, predsel:$p2)>;
 
 //def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;
 
+
 def : Pat<(select predsel:$p, RRegs:$new, uimm12:$imm), (CMOV predsel:$p, (LIi uimm12:$imm), RRegs:$new)>;
 def : Pat<(select predsel:$p, RRegs:$new, nuimm12:$imm), (CMOV predsel:$p, (LIin nuimm12:$imm), RRegs:$new)>;
 def : Pat<(select predsel:$p, RRegs:$new, (i32 imm:$imm)), (CMOV predsel:$p, (LIl (i32 imm:$imm)), RRegs:$new)>;
@@ -52,9 +53,11 @@ def : Pat<(add RRegs:$rs, nuimm12:$imm), (SUBi RRegs:$rs, nuimm12:$imm)>;
 
 // p={0|1} * sth = (p) LI/MOV sth
 def : Pat<(mul (zext (i1 predsel:$p)), uimm12:$imm),
-          (CLIi predsel:$p, uimm12:$imm)>;
+          (CADDi predsel:$p, (CLR), uimm12:$imm)>;
+def : Pat<(mul (zext (i1 predsel:$p)), nuimm12:$imm),
+          (CSUBi predsel:$p, (CLR), nuimm12:$imm)>;
 def : Pat<(mul (zext (i1 predsel:$p)), (i32 imm:$imm)),
-          (CLIl predsel:$p, (i32 imm:$imm))>;
+          (CADDl predsel:$p, (CLR), (i32 imm:$imm))>;
 def : Pat<(mul (zext (i1 predsel:$p)), RRegs:$rs),
           (CMOV predsel:$p, (CLR), RRegs:$rs)>;
 
