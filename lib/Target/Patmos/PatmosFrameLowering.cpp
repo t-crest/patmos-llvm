@@ -81,6 +81,10 @@ void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
   for(std::vector<CalleeSavedInfo>::const_iterator i(CSI.begin()),
       ie(CSI.end()); i != ie; i++)
   {
+    if (i->getReg() == Patmos::S0 && PMFI.getS0SpillReg()) continue;
+    // Predicates are handled via aliasing to S0. They appear here when we
+    // skip assigning s0 to a stack slot, not really sure why.
+    if (Patmos::PRegsRegClass.contains(i->getReg())) continue;
     SCFIs[i->getFrameIdx()] = true;
   }
 
@@ -369,9 +373,14 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     // load long immediate: current function symbol into RFB
     AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::LIl), Patmos::RFB))
       .addGlobalAddress(MF.getFunction());
-    // Mark the special registers of the method cache to be used when calls exist.
+    // If we have calls, we need to spill the call link registers
     MRI.setPhysRegUsed(Patmos::RFB);
     MRI.setPhysRegUsed(Patmos::RFO);
+  } else {
+    // If we do not have calls, we keep r30/r31 in registers. They are marked
+    // as reserved, so they are not used by the register allocator.
+    MRI.setPhysRegUnused(Patmos::RFB);
+    MRI.setPhysRegUnused(Patmos::RFO);
   }
 
   // If we need to spill S0, try to find an unused scratch register that we can
@@ -389,7 +398,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
          e = Patmos::RRegsRegClass.end(); i != e; ++i) {
       if (MRI.isPhysRegUsed(*i) || *i == Patmos::R9) continue;
       if (Reserved[*i] || CalleeSaved[*i]) continue;
-      //SpillReg = *i;
+      SpillReg = *i;
       break;
     }
     if (SpillReg) {
