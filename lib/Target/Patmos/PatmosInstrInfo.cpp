@@ -45,11 +45,11 @@ bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
                                             unsigned &SrcOpIdx2) const {
   switch (MI->getOpcode())
   {
-    case Patmos::ADDr:
-    case Patmos::ORr:
-    case Patmos::ANDr:
-    case Patmos::XORr:
-    case Patmos::NORr:
+    case Patmos::ADDr: case Patmos::ADDr_ow:
+    case Patmos::ORr:  case Patmos::ORr_ow:
+    case Patmos::ANDr: case Patmos::ANDr_ow:
+    case Patmos::XORr: case Patmos::XORr_ow:
+    case Patmos::NORr: case Patmos::NORr_ow:
       SrcOpIdx1 = 3;
       SrcOpIdx2 = 4;
       return true;

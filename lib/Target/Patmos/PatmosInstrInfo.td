@@ -401,6 +401,16 @@ multiclass BinArithLR<bits<4> func, string asmop, SDNode opnode, bit isrCommutab
   def r : ALUr <func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
                 asmop, "$rd = $rs1, $rs2",
                 [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
+
+  // overwrite variants
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in {
+    def l_ow : ALUl<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, i32imm:$imm, RRegs:$rold),
+                 asmop, "$rd = $rs1, $imm", []>;
+
+    let isCommutable = isrCommutable in
+    def r_ow : ALUr<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2, RRegs:$rold),
+                 asmop, "$rd = $rs1, $rs2", []>;
+  }
 }
 
 // also support short immediates
@@ -408,6 +418,10 @@ multiclass BinArithILR<bits<4> func, string asmop, SDNode opnode, bit isrCommuta
   def i : ALUi<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
+
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in
+  def i_ow : ALUi<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm, RRegs:$rold),
+               asmop, "$rd = $rs1, $imm", []>;
   // also L and R
   defm NAME : BinArithLR<func, asmop, opnode, isrCommutable>;
 }
@@ -422,12 +436,26 @@ multiclass BinArithLRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommuta
   def r : ALUr<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
                asmop, "$rd = $rs1, $rs2",
                [(set RRegs:$rd, (pfg RRegs:$rs1, RRegs:$rs2))]>;
+
+  // overwrite variants
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in {
+    def l_ow : ALUl<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, i32imm:$imm, RRegs:$rold),
+                 asmop, "$rd = $rs1, $imm", []>;
+
+    let isCommutable = isrCommutable in
+    def r_ow : ALUr<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2, RRegs:$rold),
+                 asmop, "$rd = $rs1, $rs2", []>;
+  }
 }
 
 multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommutable=0> {
   def i : ALUi<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (pfg RRegs:$rs1, uimm12:$imm))]>;
+
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in
+  def i_ow : ALUi<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm, RRegs:$rold),
+               asmop, "$rd = $rs1, $imm", []>;
   // also L and R
   defm NAME : BinArithLRpfg<func, asmop, pfg>;
 }
