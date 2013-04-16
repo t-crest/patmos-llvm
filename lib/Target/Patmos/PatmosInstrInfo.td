@@ -463,7 +463,7 @@ multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommut
 
 // Binary Arithmetic instructions
 
-// NOTE: the list of instructions (including pseudos) that have ALUi and ALUl format must be 
+// NOTE: the list of instructions (including pseudos) that have ALUi and ALUl format must be
 // kept consistent with HasALUlVariant() in PatmosInstrInfo.h
 
 // with short immediates:
@@ -596,7 +596,7 @@ def BTEST  : Compare <"btest" , 0b0110>;
 let rs2 = 0 in
 def ISODD : ALUc <0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1),
                   "isodd", "$pd = $rs1",
-                  [(set PRegs:$pd, (setne (and RRegs:$rs1, (i32 1)), (i32 1)))]>;
+                  [(set PRegs:$pd, (i1 (trunc RRegs:$rs1)))]>;
 
 // Pseudo mov Pd <- Rs uses cmpneq with r0
 let rs2 = 0 in
@@ -630,19 +630,17 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
   let Constraints = "$old = $pd", isCodeGenOnly = 1 in
   def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, PRegs:$old, PRegs:$new),
                   "pmov", "$pd = $new",
-                  [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]> 
+                  [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]>
   {
     bits<4> new;
     let ps1 = new;
   }
 }
 
-//not uses nor opcode (xor Pd = Ps, p0)
+//pnot uses pxor opcode (pxor Pd = Ps, p0)
 let ps2 = 0b0000 in
 def PNOT: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
-                "pnot", "$pd = $ps1",
-                [(set PRegs:$pd, (not predsel:$ps1))]>;
-
+                "pnot", "$pd = $ps1", [(set PRegs:$pd, (not predsel:$ps1))]>;
 
 
 let isAsCheapAsAMove = 1,

@@ -222,6 +222,10 @@ def : Pat<(PatmosCall texternalsym:$sym), (CALL texternalsym:$sym)>;
 
 def : Pat<(PatmosReturn ), (RET RFB, RFO)>;
 
+// inverted branch condition
+def : Pat<(brcond (notcc predselinv:$p), bb:$target), (BR predselinv:$p, bb:$target)>;
+
+
 // multiplication (requiring only low part)
 def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
           (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
@@ -241,12 +245,17 @@ def : Pat<(setge  RRegs:$b, RRegs:$a), (CMPLE  RRegs:$a, RRegs:$b)>;
 def : Pat<(setugt RRegs:$b, RRegs:$a), (CMPULT RRegs:$a, RRegs:$b)>;
 def : Pat<(setuge RRegs:$b, RRegs:$a), (CMPULE RRegs:$a, RRegs:$b)>;
 
+// FIXME DP:
+// we would also need a pattern for == 0, and invert the use of the result
+// but I have no clue how to achieve that in an elegant way.
 def : Pat<(setne (and RRegs:$a, (shl (i32 1), RRegs:$b)), (i32 0)),
           (BTEST RRegs:$a, RRegs:$b)>;
+/* following saves only for a btest imm variant
 def : Pat<(setne (and RRegs:$a, uimm5mask:$b), (i32 0)),
-          (BTEST RRegs:$a, (LIi uimm5mask:$b))>;
+          (BTEST RRegs:$a, uimm5mask:$b)>;
 def : Pat<(seteq (and RRegs:$a, uimm5mask:$b), uimm5mask:$b),
-          (BTEST RRegs:$a, (LIi uimm5mask:$b))>;
+          (BTEST RRegs:$a, uimm5mask:$b)>;
+*/
 
 // Predicate Combine patterns
 
@@ -254,10 +263,25 @@ def : Pat<(or  predsel:$ps1, predsel:$ps2), (POR  predsel:$ps1, predsel:$ps2)>;
 def : Pat<(and predsel:$ps1, predsel:$ps2), (PAND predsel:$ps1, predsel:$ps2)>;
 def : Pat<(xor predsel:$ps1, predsel:$ps2), (PXOR predsel:$ps1, predsel:$ps2)>;
 
+// negated operands
+def : Pat<(or  (not predselinv:$ps1), predsel:$ps2), (POR predselinv:$ps1, predsel:$ps2)>;
+def : Pat<(or  predsel:$ps1, (not predselinv:$ps2)), (POR predsel:$ps1, predselinv:$ps2)>;
+def : Pat<(or  (not predselinv:$ps1), (not predselinv:$ps2)), (POR predselinv:$ps1, predselinv:$ps2)>;
+def : Pat<(and (not predselinv:$ps1), predsel:$ps2), (PAND predselinv:$ps1, predsel:$ps2)>;
+def : Pat<(and predsel:$ps1, (not predselinv:$ps2)), (PAND predsel:$ps1, predselinv:$ps2)>;
+def : Pat<(and (not predselinv:$ps1), (not predselinv:$ps2)), (PAND predselinv:$ps1, predselinv:$ps2)>;
+def : Pat<(xor (not predselinv:$ps1), predsel:$ps2), (PXOR predselinv:$ps1, predsel:$ps2)>;
+def : Pat<(xor predsel:$ps1, (not predselinv:$ps2)), (PXOR predsel:$ps1, predselinv:$ps2)>;
+def : Pat<(xor (not predselinv:$ps1), (not predselinv:$ps2)), (PXOR predselinv:$ps1, predselinv:$ps2)>;
 
-def : Pat<(setne  predsel:$a, (i1 -1)), (PNOT predsel:$a)>;
+// laws of DeMorgan
+def : Pat<(notcc (or  predselinv:$ps1, predselinv:$ps2)), (PAND predselinv:$ps1, predselinv:$ps2)>;
+def : Pat<(notcc (and predselinv:$ps1, predselinv:$ps2)), (POR  predselinv:$ps1, predselinv:$ps2)>;
 
-def : Pat<(i1 (trunc RRegs:$a)), (ISODD RRegs:$a)>;
+// invert condition
+def : Pat<(notcc predsel:$ps1), (PNOT predsel:$ps1)>;
+
+
 
 
 // inst_C: instruction to use for data load
