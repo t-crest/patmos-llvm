@@ -38,7 +38,7 @@ class AitImportTool
     opts.on("--analyze", "run a3patmos") { opts.options.run_ait = true }
     AitAnalyzeTool.add_options(opts, false)
     opts.analysis_entry
-    opts.calculates_wcet
+    opts.calculates_wcet('aiT-unknown')
     opts.ait_result_file
   end
   def AitImportTool.run(pml,options)
@@ -50,7 +50,8 @@ class AitImportTool
     scope = pml.machine_functions.by_label(options.analysis_entry).ref
     entry = TimingEntry.new(scope,
                             cycles,
-                            'level' => 'machinecode', 'origin' => options.timing_output || 'aiT-unknown')
+                            'level' => 'machinecode',
+                            'origin' => options.timing_output)
     pml.timing.add(entry)
     statistics("imported results from aiT result file" => 1) if options.stats
     pml
@@ -66,5 +67,5 @@ EOF
     opts.writes_pml
     AitImportTool.add_options(opts)
   end
-  AitImportTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  AitImportTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
 end

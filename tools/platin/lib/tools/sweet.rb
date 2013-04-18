@@ -126,5 +126,5 @@ EOF
     opts.needs_pml
     SweetAnalyzeTool.add_options(opts)
   end
-  SweetAnalyzeTool.run(PMLDoc.from_file(options.input), options)
+  SweetAnalyzeTool.run(PMLDoc.from_files(options.input), options)
 end

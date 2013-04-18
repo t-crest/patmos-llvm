@@ -40,7 +40,9 @@ class LpSolveILP < ILP
     lp.set_verbose(0)
 
     self.dump($stderr) if options.debug
+    start = Time.now
     r = lp.solve
+    @solvertime += (Time.now - start)
 
     # read solution
     lp.print_solution(-1) if options.lp_debug

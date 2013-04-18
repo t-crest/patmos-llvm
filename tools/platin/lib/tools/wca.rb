@@ -17,7 +17,7 @@ class WcaTool
     WcaTool.add_config_options(opts)
     opts.analysis_entry
     opts.flow_fact_selection
-    opts.calculates_wcet
+    opts.calculates_wcet('wca-unknown')
   end
 
   def WcaTool.run(pml,options)
@@ -94,30 +94,10 @@ class WcaTool
     end
 
     # report result
-    report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => builder.ilp.constraints.length,
+    report = TimingEntry.new(machine_entry.ref, cycles, 'num_constraints' => builder.ilp.constraints.length,
+                             'solvertime' => builder.ilp.solvertime,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)
-
-    # # XXX: playing: fourier-motzkin elimination
-    # cycles = nil
-    # if options.use_relation_graph
-    #   ilp = builder.ilp
-    #   ilp.variables.each do |var|
-    #     if ilp.vartype[var] != :dst
-    #       ilp.eliminate(var)
-    #       if options.debug
-    #         puts ilp
-    #         old_cycles = cycles
-    #         cycles,freqs = ilp.solve_max
-    #         raise Exception.new("Error eliminating #{var}") if old_cycles && cycles != old_cycles
-    #       end
-    #     end
-    #   end
-    #   cycles,freqs = ilp.solve_max
-    #   report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => ilp.constraints.length,'level' => 'machinecode',
-    #                            'origin' => (options.timing_output || 'platin')+"-fm")
-    #   pml.timing.add(report)
-    # end
 
     pml
   end
@@ -132,5 +112,5 @@ EOF
     opts.writes_pml
     WcaTool.add_options(opts)
   end
-  WcaTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  WcaTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
 end

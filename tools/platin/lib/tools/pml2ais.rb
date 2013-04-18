@@ -76,7 +76,7 @@ EOF
     AisExportTool.add_options(opts)
     ApxExportTool.add_options(opts, false)
   end
-  pml = PMLDoc.from_file(args.first)
+  pml = PMLDoc.from_files([options.input])
   AisExportTool.run(pml, options)
 
   # TODO make this available as separate platin-tool to to generate only the APX file!?

@@ -71,24 +71,38 @@ class BenchToolSweet
         WcaTool.run(pml, opts)
       }
 
-      step("Export/Analyze aiT (machine code - trace facts - #{selection})")  {
-        opts = options.dup
-        opts.flow_fact_selection = selection
-        opts.timing_output = "aiT-trace-#{selection}"
-        opts.flow_fact_srcs = ["trace"]
-        AisExportTool.run(pml,opts)
-        ApxExportTool.run(pml,opts)
-        AitAnalyzeTool.run(pml, opts)
-        AitImportTool.run(pml,opts)
-      } unless options.disable_ait
-
-      step("Running WCA (relation graph - SWEET facts)")   {
+      step("Copy trace flow facts which are cannnot covered by bitcode facts (compiler-rt)") {
         opts = options.dup
         opts.transform_action = "copy"
         opts.flow_fact_srcs   = ["trace"]
         opts.flow_fact_selection  = "rt-support-#{selection}"
         opts.flow_fact_output = "trace.support.#{selection}"
         RelationGraphTransformTool.run(pml,opts)
+      }
+
+      step("Running WCA-bitcode (bitcode - transformed trace facts - #{selection})") {
+        opts = options.dup
+
+        opts.flow_fact_srcs = ["trace"]
+        opts.flow_fact_selection = selection
+        opts.flow_fact_output = "trace.bitcode.#{selection}"
+        opts.transform_action = "up"
+        RelationGraphTransformTool.run(pml,opts)
+
+        opts.flow_fact_srcs = ["trace.bitcode.#{selection}","trace.support.#{selection}"]
+        opts.flow_fact_selection = "all" # already selected, and we only have global trafo atm
+        opts.flow_fact_output = "trace.transformed.#{selection}"
+        opts.transform_action = "down"
+        RelationGraphTransformTool.run(pml,opts)
+
+        opts.timing_output = "wca-uptrace-#{selection}"
+        opts.flow_fact_selection = "all" # already selected and we only have global trafo atm
+        opts.flow_fact_srcs = ["trace.transformed.#{selection}", "trace.support.#{selection}"]
+        WcaTool.run(pml, opts)
+      }
+
+      step("Running WCA (relation graph - SWEET facts)")   {
+        opts = options.dup
 
         opts.flow_fact_srcs = ["sweet","trace.support.#{selection}"]
         opts.flow_fact_selection = selection
@@ -113,7 +127,6 @@ class BenchToolSweet
     opts.analysis_entry
     opts.binary_file(true)
     opts.bitcode_file(true)
-    opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d}
     TOOLS.each { |toolclass| toolclass.add_config_options(opts) }
   end
@@ -121,7 +134,7 @@ end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
-PSK benchmark run: extract symbols, analyze trace, run aiT"
+platin relation-graph benchmark: analyze with trace flow facts, roundtrip trace flow facts and sweet flow facts"
 EOF
   options, args = PML::optparse([:input], "program.elf.pml", SYNOPSIS) do |opts|
     BenchToolSweet.add_options(opts)

@@ -11,6 +11,20 @@ require 'set'
 $dbgs = $stderr
 
 module PML
+  def file_open(path,mode="r")
+    internal_error "file_open: nil" unless path
+    if(path=="-")
+      case mode
+      when "r" ; $stdin
+      when "w" ; $stdout
+      else ; die "Cannot open stdout in mode #{mode}"
+      end
+    else
+      File.open(path,mode) { |fh|
+        yield fh
+      }
+    end
+  end
 
   def internal_error(msg)
     raise Exception.new(format_msg("INTERNAL ERROR", msg))
@@ -72,7 +86,9 @@ module PML
     end
     # tool needs input PML option
     def needs_pml
-      self.on("-i", "--input FILE", "Input PML File") { |f| options.input = f }
+      self.on("-i", "--input FILE", "Input PML File (can be specified multiple times)") { |f|
+        (options.input||=[]).push(f)
+      }
       needs(:input, "No input PML file specified")
     end
     # tool writes PML file (stdout or --output FILE)
@@ -84,8 +100,9 @@ module PML
       self.on("--flow-fact-output NAME", "Name of the flow fact generator") { |n| options.flow_fact_output = n }
     end
     # tool generates WCET results
-    def calculates_wcet
+    def calculates_wcet(default_name = nil)
       self.on("--timing-output NAME", "Name of the WCET information generator") { |n| options.timing_output = n }
+      add_check { |options| options.timing_output = default_name unless options.timing_output } if default_name
     end
     # user should specify selection of flow facts
     def flow_fact_selection

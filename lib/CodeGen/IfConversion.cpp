@@ -1536,7 +1536,8 @@ void IfConverter::CopyAndPredicateBlock(BBInfo &ToBBI, BBInfo &FromBBI,
 
   ToBBI.ClobbersPred |= FromBBI.ClobbersPred;
   ToBBI.IsAnalyzed = false;
-
+  // remove mapping from dupped block (no longer unique)
+  FromBBI.BB->setBasicBlock(0);
   ++NumDupBBs;
 }
 
@@ -1583,4 +1584,6 @@ void IfConverter::MergeBlocks(BBInfo &ToBBI, BBInfo &FromBBI, bool AddEdges) {
   ToBBI.HasFallThrough = FromBBI.HasFallThrough;
   ToBBI.IsAnalyzed = false;
   FromBBI.IsAnalyzed = false;
+  // remove mapping from merged block
+  FromBBI.BB->setBasicBlock(0);
 }

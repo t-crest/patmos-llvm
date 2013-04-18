@@ -1,4 +1,4 @@
-//===-- YAMLExportPass.cpp -----------------------------------------------===//
+//===-- PMLExport.cpp -----------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// YAMLExportPass implementation.
+// Export Internal Compiler Information to PML
 //
 //===----------------------------------------------------------------------===//
 
@@ -31,8 +31,6 @@
 #include "llvm/Target/TargetInstrInfo.h"
 
 using namespace llvm;
-
-
 
 /// Unfortunately, the interface for accessing successors differs
 /// between machine block and bitcode block, therefore we need tis
@@ -298,11 +296,12 @@ void PMLMachineFunctionExport::exportInstruction(MachineFunction &MF,
 {
   I->Opcode = Ins->getOpcode();
   I->Size = PII->getSize(Ins);
-
   if (Ins->getDesc().isCall()) {
-    exportCallInstruction(MF, I, Ins);
+     exportCallInstruction(MF, I, Ins);
   }
-
+  if (Ins->getDesc().isReturn()) {
+     I->IsReturn = true;
+  }
   if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
@@ -310,6 +309,10 @@ void PMLMachineFunctionExport::exportInstruction(MachineFunction &MF,
   else {
     I->BranchType = yaml::branch_none;
   }
+  // XXX: maybe a good idea (descriptions)
+  // raw_string_ostream ss(I->Descr);
+  // Ins->print(ss);
+  // ss.flush();
 }
 
 void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
@@ -465,16 +468,18 @@ expandProgressNode(yaml::RelationGraph *RG,
   typedef yaml::FlowGraphTrait<Block> Trait;
   std::vector<std::pair<yaml::RelationNode*, Block*> > Queue;
   std::map<Block*, yaml::RelationNode*> Created;
-  std::set<Block*> Visited;
+  std::set<Block*> Visited, Black;
   Queue.push_back(std::make_pair(ProgressNode, StartBlock));
   while (!Queue.empty()) {
     // expand unexpanded, queued items
     std::pair<yaml::RelationNode*, Block*> Item = Queue.back();
-    Queue.pop_back();
     yaml::RelationNode* RN = Item.first;
     Block* BB = Item.second;
-    if (Visited.count(BB) > 0)
+    if (Visited.count(BB) > 0) { // visited before
+      Black.insert(BB); // black: all successors done
+      Queue.pop_back();
       continue;
+    }
     Visited.insert(BB);
     for (typename Trait::succ_iterator I = Trait::succ_begin(BB), E =
         Trait::succ_end(BB); I != E; ++I) {
@@ -493,7 +498,14 @@ expandProgressNode(yaml::RelationGraph *RG,
         }
         yaml::RelationNode *RN2 = Created[BB2];
         RN->addSuccessor(RN2, type == yaml::rnt_src);
-        Queue.push_back(std::make_pair(RN2, BB2));
+        if(Visited.count(BB2) > 0) {
+          if(Black.count(BB2) == 0) {
+            // Detected cycle without progress
+            RG->Status = yaml::rg_status_loop;
+          }
+        } else {
+          Queue.push_back(std::make_pair(RN2, BB2));
+        }
       }
       else {
         // successor generates event -> queue event
@@ -662,6 +674,7 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
       EventQueueMap<const BasicBlock*> IEvents;
       EventQueueMap<MachineBasicBlock*> MEvents;
 
+      DEBUG(errs() << "Expanding node " << IBB->getName() << " / " << MBB->getNumber() << "\n");
       /// Expand both at the bitcode and machine level (starting with IBB and MBB, resp.),
       /// which results in new src/dst nodes being created, and two bitcode and machinecode-level maps from events
       /// to a list of (bitcode/machine block, list of RG predecessor blocks) pairs
@@ -1032,14 +1045,15 @@ char PMLModuleExportPass::ID = 0;
 
 /// Returns a newly-created PML export pass.
 MachineFunctionPass *
-createPMLExportPass(TargetMachine &TM, std::string& FileName)
+createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFileName)
 {
   PMLExportPass *PEP = new PMLExportPass(TM, FileName);
 
   PEP->addExporter( new PMLFunctionExport(TM) );
   PEP->addExporter( new PMLMachineFunctionExport(TM) );
   PEP->addExporter( new PMLRelationGraphExport(TM) );
-
+  if (! BitcodeFileName.empty())
+    PEP->writeBitcode(BitcodeFileName);
   return PEP;
 }
 
