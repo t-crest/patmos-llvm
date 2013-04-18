@@ -95,16 +95,15 @@ namespace {
       return false;
     }
 
+
     /// addPreEmitPass - This pass may be implemented by targets that want to run
     /// passes immediately before machine code is emitted.  This should return
     /// true if -print-machineinstrs should print out the code after the passes.
     virtual bool addPreEmitPass(){
-
-      if (EnableStackCacheAnalysis) {
-        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
-      }
-
       addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
+
+      // All passes at that stage must handle delay slots and bundles correctly.
+
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
       if (!SerializeMachineCode.empty()) {
@@ -135,6 +134,7 @@ namespace {
       return false;
     }
 
+
     /// addPreSched2 - This method may be implemented by targets that want to
     /// run passes after prolog-epilog insertion and before the second instruction
     /// scheduling pass.  This should return true if -print-machineinstrs should
@@ -148,6 +148,11 @@ namespace {
           addPass(&IfConverterID);
         }
       }
+
+      if (EnableStackCacheAnalysis) {
+        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+      }
+
       return true;
     }
 

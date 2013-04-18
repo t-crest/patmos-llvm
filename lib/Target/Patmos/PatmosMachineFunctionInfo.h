@@ -43,6 +43,9 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// RegScavengingFI - FrameIndex for an emergency spill slot.
   int RegScavengingFI;
 
+  /// Register used to spill s0 to instead of the stack cache.
+  unsigned S0SpillReg;
+
   /// Set of entry blocks to code regions that are potentially cached by the
   /// method cache.
   std::set<const MachineBasicBlock*> MethodCacheRegionEntries;
@@ -51,7 +54,8 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   PatmosMachineFunctionInfo() {}
 public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
-    StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0) {
+    StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0),
+    S0SpillReg(0) {
   }
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
@@ -106,6 +110,14 @@ public:
   /// setRegScavengingFI - Set the FI used to access the emergency spill slot.
   void setRegScavengingFI(int newFI) {
     RegScavengingFI = newFI;
+  }
+
+  unsigned getS0SpillReg() const {
+    return S0SpillReg;
+  }
+
+  void setS0SpillReg(unsigned Reg) {
+    S0SpillReg = Reg;
   }
 
   /// addMethodCacheRegionEntry - Add the block to the set of method cache

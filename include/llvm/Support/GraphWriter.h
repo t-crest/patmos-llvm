@@ -149,7 +149,7 @@ public:
   }
 
   bool isNodeHidden(NodeType *Node) {
-    return DTraits.isNodeHidden(Node);
+    return DTraits.isNodeHidden(Node, G);
   }
 
   void writeNode(NodeType& Node) {
@@ -216,10 +216,10 @@ public:
     child_iterator EI = GTraits::child_begin(Node);
     child_iterator EE = GTraits::child_end(Node);
     for (unsigned i = 0; EI != EE && i != 64; ++EI, ++i)
-      if (!DTraits.isNodeHidden(*EI))
+      if (!DTraits.isNodeHidden(*EI, G))
         writeEdge(Node, i, EI);
     for (; EI != EE; ++EI)
-      if (!DTraits.isNodeHidden(*EI))
+      if (!DTraits.isNodeHidden(*EI, G))
         writeEdge(Node, 64, EI);
   }
 

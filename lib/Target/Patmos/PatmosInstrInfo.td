@@ -221,10 +221,6 @@ def notcc  : PatFrag<(ops node:$in), (i1 (setne node:$in, (i1 -1)))>;
 
 // Patterns to match machine instructions that are more than simple SDNodes
 
-// sub with rhs-lhs
-def rsub   :  PatFrag<(ops node:$lhs, node:$rhs),
-                      (sub node:$rhs, node:$lhs)>;
-
 // shift-add, for address computations
 def shadd  : PatFrag<(ops node:$reg, node:$offs),
                      (add (shl node:$reg, (i32 1)), node:$offs)>;
@@ -395,9 +391,12 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-def SRES : STC<0b00, (outs), (ins pred:$p, uimm18:$imm), "sres",  "$imm", []>;
-def SENS : STC<0b01, (outs), (ins pred:$p, uimm18:$imm), "sens",  "$imm", []>;
-def SFREE: STC<0b10, (outs), (ins pred:$p, uimm18:$imm), "sfree", "$imm", []>;
+def SRESi  : STCi<0b00, (outs), (ins pred:$p, uimm18:$imm), "sres",   "$imm", []>;
+def SENSi  : STCi<0b01, (outs), (ins pred:$p, uimm18:$imm), "sens",   "$imm", []>;
+def SFREEi : STCi<0b10, (outs), (ins pred:$p, uimm18:$imm), "sfree",  "$imm", []>;
+def SSPILLi: STCi<0b11, (outs), (ins pred:$p, uimm18:$imm), "sspill", "$imm", []>;
+def SENSr  : STCr<0b01, (outs), (ins pred:$p, RRegs:$rs), "sens",   "$rs", []>;
+def SSPILLr: STCr<0b11, (outs), (ins pred:$p, RRegs:$rs), "sspill", "$rs", []>;
 
 
 //===----------------------------------------------------------------------===//
@@ -415,6 +414,16 @@ multiclass BinArithLR<bits<4> func, string asmop, SDNode opnode, bit isrCommutab
   def r : ALUr <func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
                 asmop, "$rd = $rs1, $rs2",
                 [(set RRegs:$rd, (opnode RRegs:$rs1, RRegs:$rs2))]>;
+
+  // overwrite variants
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in {
+    def l_ow : ALUl<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, i32imm:$imm, RRegs:$rold),
+                 asmop, "$rd = $rs1, $imm", []>;
+
+    let isCommutable = isrCommutable in
+    def r_ow : ALUr<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2, RRegs:$rold),
+                 asmop, "$rd = $rs1, $rs2", []>;
+  }
 }
 
 // also support short immediates
@@ -422,6 +431,10 @@ multiclass BinArithILR<bits<4> func, string asmop, SDNode opnode, bit isrCommuta
   def i : ALUi<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (opnode RRegs:$rs1, (i32 uimm12:$imm)))]>;
+
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in
+  def i_ow : ALUi<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm, RRegs:$rold),
+               asmop, "$rd = $rs1, $imm", []>;
   // also L and R
   defm NAME : BinArithLR<func, asmop, opnode, isrCommutable>;
 }
@@ -436,12 +449,26 @@ multiclass BinArithLRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommuta
   def r : ALUr<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, RRegs:$rs2),
                asmop, "$rd = $rs1, $rs2",
                [(set RRegs:$rd, (pfg RRegs:$rs1, RRegs:$rs2))]>;
+
+  // overwrite variants
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in {
+    def l_ow : ALUl<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, i32imm:$imm, RRegs:$rold),
+                 asmop, "$rd = $rs1, $imm", []>;
+
+    let isCommutable = isrCommutable in
+    def r_ow : ALUr<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, RRegs:$rs2, RRegs:$rold),
+                 asmop, "$rd = $rs1, $rs2", []>;
+  }
 }
 
 multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommutable=0> {
   def i : ALUi<func, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm12:$imm),
                asmop, "$rd = $rs1, $imm",
                [(set RRegs:$rd, (pfg RRegs:$rs1, uimm12:$imm))]>;
+
+  let Constraints = "$rold = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in
+  def i_ow : ALUi<func, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm, RRegs:$rold),
+               asmop, "$rd = $rs1, $imm", []>;
   // also L and R
   defm NAME : BinArithLRpfg<func, asmop, pfg>;
 }
@@ -449,20 +476,20 @@ multiclass BinArithILRpfg<bits<4> func, string asmop, PatFrag pfg, bit isrCommut
 
 // Binary Arithmetic instructions
 
-// NOTE: the list of instructions (including pseudos) that have ALUi and ALUl format must be 
+// NOTE: the list of instructions (including pseudos) that have ALUi and ALUl format must be
 // kept consistent with HasALUlVariant() in PatmosInstrInfo.h
 
 // with short immediates:
+// dont forget to update PatmosInstrInfo.h:276
 defm ADD    : BinArithILR   <0b0000, "add"   , add, 1>;
 defm SUB    : BinArithILR   <0b0001, "sub"   , sub>;
-defm RSUB   : BinArithILRpfg<0b0010, "rsub"  , rsub>;
+defm XOR    : BinArithILR   <0b0010, "xor"   , xor, 1>;
 defm SL     : BinArithILR   <0b0011, "sl"    , shl>; // FIXME 5 bits
 defm SR     : BinArithILR   <0b0100, "sr"    , srl>; // FIXME 5 bits
 defm SRA    : BinArithILR   <0b0101, "sra"   , sra>; // FIXME 5 bits
 defm OR     : BinArithILR   <0b0110, "or"    , or,  1>;
 defm AND    : BinArithILR   <0b0111, "and"   , and, 1>;
 // no short immediates:
-defm XOR    : BinArithLR    <0b1010, "xor"   , xor, 1>;
 defm NOR    : BinArithLRpfg <0b1011, "nor"   , nor, 1>;
 defm SHADD  : BinArithLRpfg <0b1100, "shadd ", shadd>;
 defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
@@ -470,12 +497,15 @@ defm SHADD2 : BinArithLRpfg <0b1101, "shadd2", shadd2>;
 
 // Pseudo Instructions using binary arithmetic opcodes
 
-// conditional add: add something only if predicate is set
-let Constraints = "$rs1 = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in
-def CADDi : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
-                 "add", "$rd = $rs1, $imm",
-                 []>;
-
+// conditional addil/subi: add immediate only if predicate is set
+let Constraints = "$rs1 = $rd", isCodeGenOnly=1, neverHasSideEffects = 1 in {
+  def CADDi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
+                   "add", "$rd = $rs1, $imm", []>;
+  def CSUBi  : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, uimm12:$imm),
+                   "sub", "$rd = $rs1, $imm", []>;
+  def CADDl  : ALUl<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$rs1, i32imm:$imm),
+                   "add", "$rd = $rs1, $imm", []>;
+}
 
 // move instructions
 let isAsCheapAsAMove = 1, imm = 0, ImmOpNo = 0 in {
@@ -522,14 +552,6 @@ def CLR : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p),
                  "clr", "$rd", []>;
 
 
-// zext8 Rd = (uin8_t)Rs ... and Rd = Rs & 0xff
-let imm = 0xff, ImmOpNo = 0 in
-def ZEXT8 : ALUi <0b0111,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
-              "zext8", "$rd = $rs1",
-              [(set RRegs:$rd, (and RRegs:$rs1, (i32 0xff)))]>;
-
-
 
 let rs1 = 0,
     ImmOpNo = 3,
@@ -551,47 +573,7 @@ let rs1 = 0,
                     "li", "$rd = $imm",
                     [(set RRegs:$rd, (add R0, (i32 imm:$imm)))]>;
   }
-  // conditional load immediates
-  let isCodeGenOnly = 1, neverHasSideEffects = 1 in {
-    def CLIi  : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, uimm12:$imm),
-		     "li", "$rd = $imm", []>;
-    def CLIin : ALUi<0b0001, (outs RRegs:$rd), (ins predset:$p, nuimm12:$imm),
-		     "li", "$rd = $imm", []>;
-    def CLIl  : ALUl<0b0000, (outs RRegs:$rd), (ins predset:$p, i32imm:$imm),
-		     "li", "$rd = $imm", []>;
-  }
 }
-
-
-
-/********/
-// Unary Arithmetic
-
-def SEXT8  : ALUu <0b0000,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "sext8", "$rd = $rs",
-              [(set RRegs:$rd, (sext_inreg RRegs:$rs, i8))]>;
-
-def SEXT16 : ALUu <0b0001,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-               "sext16", "$rd = $rs",
-              [(set RRegs:$rd, (sext_inreg RRegs:$rs, i16))]>;
-
-def ZEXT16 : ALUu <0b0010,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "zext16", "$rd = $rs",
-              [(set RRegs:$rd, (and RRegs:$rs, (i32 0xffff)))]>;
-
-
-// TODO experimental: other lowerings?
-// TODO does the add overflow do any harm?
-def ABS    : ALUu <0b0011,
-              (outs RRegs:$rd), (ins pred:$p, RRegs:$rs),
-              "abs", "$rd = $rs",
-              [(set RRegs:$rd, (xor (add RRegs:$rs, (sra RRegs:$rs, (i32 31))), (sra RRegs:$rs, (i32 31))))]>;
-
-
-
 
 
 // Multiply
@@ -627,7 +609,7 @@ def BTEST  : Compare <"btest" , 0b0110>;
 let rs2 = 0 in
 def ISODD : ALUc <0b0110, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1),
                   "isodd", "$pd = $rs1",
-                  [(set PRegs:$pd, (setne (and RRegs:$rs1, (i32 1)), (i32 1)))]>;
+                  [(set PRegs:$pd, (i1 (trunc RRegs:$rs1)))]>;
 
 // Pseudo mov Pd <- Rs uses cmpneq with r0
 let rs2 = 0 in
@@ -647,7 +629,6 @@ class PredCombine<bits<4> opcode, string asmop>
 def POR:  PredCombine <0b0110, "por">;
 def PAND: PredCombine <0b0111, "pand">;
 def PXOR: PredCombine <0b1010, "pxor">;
-def PNOR: PredCombine <0b1011, "pnor">;
 
 
 // Pseudos:
@@ -675,12 +656,10 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
                   "mov", "$pd = $ps1", []>;
 }
 
-//not uses nor opcode (nor Pd = Ps, !p0)
-let ps2 = 0b1000 in
-def PNOT: ALUp <0b1011, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
-                "pnot", "$pd = $ps1",
-                [(set PRegs:$pd, (not predsel:$ps1))]>;
-
+//pnot uses pxor opcode (pxor Pd = Ps, p0)
+let ps2 = 0b0000 in
+def PNOT: ALUp <0b1010, (outs PRegs:$pd), (ins pred:$p, predset:$ps1),
+                "pnot", "$pd = $ps1", [(set PRegs:$pd, (not predsel:$ps1))]>;
 
 
 let isAsCheapAsAMove = 1,

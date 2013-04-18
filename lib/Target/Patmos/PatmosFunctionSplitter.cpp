@@ -1417,7 +1417,7 @@ namespace llvm {
     }
 
     template<typename T>
-    static bool isNodeHidden(const T) {
+    static bool isNodeHidden(const T, const agraph &G) {
       return false;
     }
 

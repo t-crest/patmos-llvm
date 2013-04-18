@@ -397,10 +397,10 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
           }
           else if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
             Inst.setOpcode(ALUlOpcode);
-            // ALUl counts as two operations
-            BundleCounter++;
+            // ALUl is implicitly bundled and resets the bundle status
+            BundleCounter = 0;
 
-            if (!isInt<32>(MCO.getImm()) || !isInt<32>(MCO.getImm())) {
+            if (!isInt<32>(MCO.getImm()) && !isUInt<32>(MCO.getImm())) {
               return Error(IDLoc, "immediate operand too large for ALUl format");
             }
           }
@@ -414,24 +414,24 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       }
     }
     else if (Format == PatmosII::FrmALUl) {
-      // ALUl counts as two operations
-      BundleCounter++;
+      // ALUl is implicitly bundled and resets the bundle status
+      BundleCounter = 0;
 
       MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
       // No immediates larger than 32bit allowed ..
-      if (MCO.isImm() && (!isInt<32>(MCO.getImm()) || !isInt<32>(MCO.getImm())))
+      if (MCO.isImm() && !isInt<32>(MCO.getImm()) && !isUInt<32>(MCO.getImm()))
       {
         return Error(IDLoc, "immediate operand too large for ALUl format");
       }
     }
 
-    if (Format == PatmosII::FrmCFLb || Format == PatmosII::FrmSTC) {
+    if (Format == PatmosII::FrmCFLb || Format == PatmosII::FrmSTCi) {
       const MCOperand &MCO = Inst.getOperand(ImmOpNo);
       if (!MCO.isExpr()) {
         assert(MCO.isImm() && "expected immediate operand for ALUi format");
 
-        if ((Format == PatmosII::FrmSTC && !isUInt<18>(MCO.getImm())) ||
+        if ((Format == PatmosII::FrmSTCi && !isUInt<18>(MCO.getImm())) ||
             ( ImmSigned && !isInt<22>(MCO.getImm())) ||
             (!ImmSigned && !isUInt<22>(MCO.getImm()))) {
           return Error(IDLoc, "immediate operand is out of range");
@@ -524,10 +524,11 @@ ParseRegister(unsigned &RegNo, bool Required) {
     // Handle alternative register names
     if (!RegNo) {
       RegNo = StringSwitch<unsigned>(RegName)
-        .Case("s1", Patmos::SM)
-        .Case("s2", Patmos::SL)
-        .Case("s3", Patmos::SH)
-        .Case("s6", Patmos::ST)
+        .Case("sm", Patmos::SM)
+        .Case("sl", Patmos::SL)
+        .Case("sh", Patmos::SH)
+        .Case("ss", Patmos::SS)
+        .Case("st", Patmos::ST)
         .Default(0);
     }
 
@@ -874,7 +875,7 @@ bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
   // We check if the src op is actually a predicate register later in the
   // parse method
   if (Mnemonic == "por"  || Mnemonic == "pand" ||
-      Mnemonic == "pxor" || Mnemonic == "pnor") return true;
+      Mnemonic == "pxor") return true;
   if (Mnemonic == "pmov" || Mnemonic == "pnot" ||
       Mnemonic == "pset" || Mnemonic == "pclr") return true;
   // Note that mov might actually move between predicate and registers

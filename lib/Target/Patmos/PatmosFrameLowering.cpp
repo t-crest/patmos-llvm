@@ -82,6 +82,10 @@ void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
   for(std::vector<CalleeSavedInfo>::const_iterator i(CSI.begin()),
       ie(CSI.end()); i != ie; i++)
   {
+    if (i->getReg() == Patmos::S0 && PMFI.getS0SpillReg()) continue;
+    // Predicates are handled via aliasing to S0. They appear here when we
+    // skip assigning s0 to a stack slot, not really sure why.
+    if (Patmos::PRegsRegClass.contains(i->getReg())) continue;
     SCFIs[i->getFrameIdx()] = true;
   }
 
@@ -248,7 +252,7 @@ void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
       // a call site?
       if (j->isCall()) {
         MachineBasicBlock::iterator p(next(j));
-        emitSTC(MF, *i, p, Patmos::SENS);
+        emitSTC(MF, *i, p, Patmos::SENSi);
       }
     }
   }
@@ -282,7 +286,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   if (!DisableStackCache) {
     // emit a reserve instruction
-    emitSTC(MF, MBB, MBBI, Patmos::SRES);
+    emitSTC(MF, MBB, MBBI, Patmos::SRESi);
 
     // patch all call sites
     patchCallSites(MF);
@@ -318,7 +322,7 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
   // Handle Stack Cache
 
   // emit a free instruction
-  emitSTC(MF, MBB, MBBI, Patmos::SFREE);
+  emitSTC(MF, MBB, MBBI, Patmos::SFREEi);
 
   //----------------------------------------------------------------------------
   // Handle Shadow Stack
@@ -371,24 +375,50 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
     AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL,
           TII->get(Patmos::LIl), Patmos::RFB))
       .addGlobalAddress(MF.getFunction());
-    // Mark the special registers of the method cache to be used when calls exist.
+    // If we have calls, we need to spill the call link registers
     MRI.setPhysRegUsed(Patmos::RFB);
     MRI.setPhysRegUsed(Patmos::RFO);
   } else {
+    // If we do not have calls, we keep r30/r31 in registers. They are marked
+    // as reserved, so they are not used by the register allocator.
     MRI.setPhysRegUnused(Patmos::RFB);
     MRI.setPhysRegUnused(Patmos::RFO);
   }
 
   // mark all predicate registers as used, for single path support
-  // SZ is saved/restored as whole anyway
+  // S0 is saved/restored as whole anyway
   if (PatmosSinglePathInfo::isEnabled()) {
     // TODO allocate predicate spill slots
     // const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
     // MFI.CreateSpillStackObject(RC->getSize(), RC->getAlignment());
-    MRI.setPhysRegUsed(Patmos::SZ);
+    MRI.setPhysRegUsed(Patmos::S0);
     MRI.setPhysRegUsed(Patmos::R26); // FIXME
   }
 
+  // If we need to spill S0, try to find an unused scratch register that we can
+  // use instead. This only works if we do not have calls that may clobber
+  // the register though.
+  if (MRI.isPhysRegUsed(Patmos::S0) && !MF.getFrameInfo()->hasCalls()) {
+    unsigned SpillReg = 0;
+    BitVector Reserved = MRI.getReservedRegs();
+    BitVector CalleeSaved(TRI->getNumRegs());
+    const uint16_t *saved = TRI->getCalleeSavedRegs(&MF);
+    while (*saved) {
+      CalleeSaved.set(*saved++);
+    }
+    for (TargetRegisterClass::iterator i = Patmos::RRegsRegClass.begin(),
+         e = Patmos::RRegsRegClass.end(); i != e; ++i) {
+      if (MRI.isPhysRegUsed(*i) || *i == Patmos::R9) continue;
+      if (Reserved[*i] || CalleeSaved[*i]) continue;
+      SpillReg = *i;
+      break;
+    }
+    if (SpillReg) {
+      // Remember the register for the prologe-emitter and mark as used
+      PMFI.setS0SpillReg(SpillReg);
+      MRI.setPhysRegUsed(SpillReg);
+    }
+  }
 
   if (TRI->requiresRegisterScavenging(MF)) {
     const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
@@ -410,6 +440,8 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
   const TargetInstrInfo &TII = *TM.getInstrInfo();
+  PatmosMachineFunctionInfo &PMFI =
+                       *MBB.getParent()->getInfo<PatmosMachineFunctionInfo>();
 
   unsigned spilledSize = 0;
   for (unsigned i = CSI.size(); i != 0; --i) {
@@ -417,10 +449,17 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
     // Add the callee-saved register as live-in. It's killed at the spill.
     MBB.addLiveIn(Reg);
 
-    // as all PRegs are aliased with SZ, a spill of a Preg will cause
-    // a spill of SZ
+    // as all PRegs are aliased with S0, a spill of a Preg will cause
+    // a spill of S0
     if (Patmos::PRegsRegClass.contains(Reg))
       continue;
+
+    // Spill S0 to a register instead to a slot if there is a free register
+    if (Reg == Patmos::S0 && PMFI.getS0SpillReg()) {
+      TII.copyPhysReg(MBB, MI, DL, PMFI.getS0SpillReg(), Reg, true);
+      continue;
+    }
+
     // copy to R register first, then spill
     if (Patmos::SRegsRegClass.contains(Reg)) {
       TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Reg, true);
@@ -452,6 +491,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *TM.getInstrInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   // if framepointer enabled, first restore the stack pointer.
   if (hasFP(MF)) {
@@ -470,6 +510,12 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
     // SZ is aliased with PRegs
     if (Patmos::PRegsRegClass.contains(Reg))
         continue;
+
+    // Spill S0 to a register instead to a slot if there is a free register
+    if (Reg == Patmos::S0 && PMFI.getS0SpillReg()) {
+      TII.copyPhysReg(MBB, MI, DL, Reg, PMFI.getS0SpillReg(), true);
+      continue;
+    }
 
     // copy to special register after reloading
     if (Patmos::SRegsRegClass.contains(Reg))

@@ -40,10 +40,100 @@ def : Pat<(sub predsel:$p1, predsel:$p2), (PXOR predsel:$p1, predsel:$p2)>;
 
 //def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;
 
+
 def : Pat<(select predsel:$p, RRegs:$new, uimm12:$imm), (CMOV predsel:$p, (LIi uimm12:$imm), RRegs:$new)>;
 def : Pat<(select predsel:$p, RRegs:$new, nuimm12:$imm), (CMOV predsel:$p, (LIin nuimm12:$imm), RRegs:$new)>;
 def : Pat<(select predsel:$p, RRegs:$new, (i32 imm:$imm)), (CMOV predsel:$p, (LIl (i32 imm:$imm)), RRegs:$new)>;
 
+
+// Conditional overwriting patterns //////////////////////////////////////////
+
+/*
+These patterns are optimizations with predicated instructions
+by generalizing conditional move, such that they conditionally overwrite
+a value computed before:
+
+    rd := ... old ...
+(p) rd := ... new op...
+
+achieved by  rd := sel (p), (new op), old
+with constraint rd = old.
+
+We have to treat old=0 as special case, because this will match R0
+and regalloc will fail upon the constraint.
+*/
+
+// short immediate
+multiclass pat_i_ow<string I, SDPatternOperator op> {
+  // special case 0
+  def : Pat<(select predsel:$p, (op RRegs:$rs1, (i32 uimm12:$imm)), 0),
+            (!cast<PatmosInst>(I#i_ow) predsel:$p, RRegs:$rs1, (i32 uimm12:$imm), (CLR))>;
+  def : Pat<(select predselinv:$p, 0, (op RRegs:$rs1, (i32 uimm12:$imm))),
+            (!cast<PatmosInst>(I#i_ow) predselinv:$p, RRegs:$rs1, (i32 uimm12:$imm), (CLR))>;
+  // usual case
+  def : Pat<(select predsel:$p, (op RRegs:$rs1, (i32 uimm12:$imm)), RRegs:$old),
+            (!cast<PatmosInst>(I#i_ow) predsel:$p, RRegs:$rs1, (i32 uimm12:$imm), RRegs:$old)>;
+  def : Pat<(select predselinv:$p, RRegs:$old, (op RRegs:$rs1, (i32 uimm12:$imm))),
+            (!cast<PatmosInst>(I#i_ow) predselinv:$p, RRegs:$rs1, (i32 uimm12:$imm), RRegs:$old)>;
+}
+
+// long immediate
+multiclass pat_l_ow<string I, SDPatternOperator op> {
+  // special case 0
+  def : Pat<(select predsel:$p, (op RRegs:$rs1, (i32 imm:$imm)), 0),
+            (!cast<PatmosInst>(I#l_ow) predsel:$p, RRegs:$rs1, (i32 imm:$imm), (CLR))>;
+  def : Pat<(select predselinv:$p, 0, (op RRegs:$rs1, (i32 imm:$imm))),
+            (!cast<PatmosInst>(I#l_ow) predselinv:$p, RRegs:$rs1, (i32 imm:$imm), (CLR))>;
+  // usual case
+  def : Pat<(select predsel:$p, (op RRegs:$rs1, (i32 imm:$imm)), RRegs:$old),
+            (!cast<PatmosInst>(I#l_ow) predsel:$p, RRegs:$rs1, (i32 imm:$imm), RRegs:$old)>;
+  def : Pat<(select predselinv:$p, RRegs:$old, (op RRegs:$rs1, (i32 imm:$imm))),
+            (!cast<PatmosInst>(I#l_ow) predselinv:$p, RRegs:$rs1, (i32 imm:$imm), RRegs:$old)>;
+}
+
+// register
+multiclass pat_r_ow<string I, SDPatternOperator op> {
+  // special case 0
+  def : Pat<(select predsel:$p, (op RRegs:$rs1, RRegs:$rs2), 0),
+            (!cast<PatmosInst>(I#r_ow) predsel:$p, RRegs:$rs1, RRegs:$rs2, (CLR))>;
+  def : Pat<(select predselinv:$p, 0, (op RRegs:$rs1, RRegs:$rs2)),
+            (!cast<PatmosInst>(I#r_ow) predselinv:$p, RRegs:$rs1, RRegs:$rs2, (CLR))>;
+  // usual case
+  def : Pat<(select predsel:$p, (op RRegs:$rs1, RRegs:$rs2), RRegs:$old),
+            (!cast<PatmosInst>(I#r_ow) predsel:$p, RRegs:$rs1, RRegs:$rs2, RRegs:$old)>;
+  def : Pat<(select predselinv:$p, RRegs:$old, (op RRegs:$rs1, RRegs:$rs2)),
+            (!cast<PatmosInst>(I#r_ow) predselinv:$p, RRegs:$rs1, RRegs:$rs2, RRegs:$old)>;
+}
+
+
+multiclass pat_ilr_ow<string I, SDPatternOperator op> {
+  defm  : pat_i_ow<I, op>;
+  defm  : pat_l_ow<I, op>;
+  defm  : pat_r_ow<I, op>;
+}
+
+multiclass pat_lr_ow<string I, SDPatternOperator op> {
+  defm  : pat_l_ow<I, op>;
+  defm  : pat_r_ow<I, op>;
+}
+
+multiclass pat_ir_ow<string I, SDPatternOperator op> {
+  defm  : pat_i_ow<I, op>;
+  defm  : pat_r_ow<I, op>;
+}
+
+// with short immediates:
+defm : pat_ilr_ow<"ADD", add>;
+defm : pat_ilr_ow<"SUB", sub>;
+defm : pat_ilr_ow<"XOR", xor>;
+defm : pat_ir_ow <"SL" , shl>;
+defm : pat_ir_ow <"SR" , srl>;
+defm : pat_ir_ow <"SRA", sra>;
+defm : pat_ilr_ow<"AND", and>;
+// no short immediates:
+defm : pat_lr_ow <"NOR"   , nor   >;
+defm : pat_lr_ow <"SHADD" , shadd >;
+defm : pat_lr_ow <"SHADD2", shadd2>;
 
 
 // Arithmetic optimizations //////////////////////////////////////////////////
@@ -52,12 +142,16 @@ def : Pat<(add RRegs:$rs, nuimm12:$imm), (SUBi RRegs:$rs, nuimm12:$imm)>;
 
 // p={0|1} * sth = (p) LI/MOV sth
 def : Pat<(mul (zext (i1 predsel:$p)), uimm12:$imm),
-          (CLIi predsel:$p, uimm12:$imm)>;
+          (CADDi predsel:$p, (CLR), uimm12:$imm)>;
+def : Pat<(mul (zext (i1 predsel:$p)), nuimm12:$imm),
+          (CSUBi predsel:$p, (CLR), nuimm12:$imm)>;
 def : Pat<(mul (zext (i1 predsel:$p)), (i32 imm:$imm)),
-          (CLIl predsel:$p, (i32 imm:$imm))>;
+          (CADDl predsel:$p, (CLR), (i32 imm:$imm))>;
 def : Pat<(mul (zext (i1 predsel:$p)), RRegs:$rs),
           (CMOV predsel:$p, (CLR), RRegs:$rs)>;
 
+
+// TODO nor patterns, with immediates
 
 // shadd/shadd2 instead of mul 3/5
 def : Pat<(mul RRegs:$r, (i32 3)), (SHADDr RRegs:$r, RRegs:$r)>;
@@ -128,6 +222,10 @@ def : Pat<(PatmosCall texternalsym:$sym), (CALL texternalsym:$sym)>;
 
 def : Pat<(PatmosReturn ), (RET RFB, RFO)>;
 
+// inverted branch condition
+def : Pat<(brcond (notcc predselinv:$p), bb:$target), (BR predselinv:$p, bb:$target)>;
+
+
 // multiplication (requiring only low part)
 def : Pat<(mul RRegs:$rs1, RRegs:$rs2),
           (COPY_TO_REGCLASS (MUL RRegs:$rs1, RRegs:$rs2), RRegs)>;
@@ -147,25 +245,43 @@ def : Pat<(setge  RRegs:$b, RRegs:$a), (CMPLE  RRegs:$a, RRegs:$b)>;
 def : Pat<(setugt RRegs:$b, RRegs:$a), (CMPULT RRegs:$a, RRegs:$b)>;
 def : Pat<(setuge RRegs:$b, RRegs:$a), (CMPULE RRegs:$a, RRegs:$b)>;
 
+// FIXME DP:
+// we would also need a pattern for == 0, and invert the use of the result
+// but I have no clue how to achieve that in an elegant way.
 def : Pat<(setne (and RRegs:$a, (shl (i32 1), RRegs:$b)), (i32 0)),
           (BTEST RRegs:$a, RRegs:$b)>;
+/* following saves only for a btest imm variant
 def : Pat<(setne (and RRegs:$a, uimm5mask:$b), (i32 0)),
-          (BTEST RRegs:$a, (LIi uimm5mask:$b))>;
+          (BTEST RRegs:$a, uimm5mask:$b)>;
 def : Pat<(seteq (and RRegs:$a, uimm5mask:$b), uimm5mask:$b),
-          (BTEST RRegs:$a, (LIi uimm5mask:$b))>;
+          (BTEST RRegs:$a, uimm5mask:$b)>;
+*/
 
 // Predicate Combine patterns
 
 def : Pat<(or  predsel:$ps1, predsel:$ps2), (POR  predsel:$ps1, predsel:$ps2)>;
 def : Pat<(and predsel:$ps1, predsel:$ps2), (PAND predsel:$ps1, predsel:$ps2)>;
 def : Pat<(xor predsel:$ps1, predsel:$ps2), (PXOR predsel:$ps1, predsel:$ps2)>;
-def : Pat<(notcc (or predsel:$ps1, predsel:$ps2)),
-                                            (PNOR predsel:$ps1, predsel:$ps2)>;
+
+// negated operands
+def : Pat<(or  (not predselinv:$ps1), predsel:$ps2), (POR predselinv:$ps1, predsel:$ps2)>;
+def : Pat<(or  predsel:$ps1, (not predselinv:$ps2)), (POR predsel:$ps1, predselinv:$ps2)>;
+def : Pat<(or  (not predselinv:$ps1), (not predselinv:$ps2)), (POR predselinv:$ps1, predselinv:$ps2)>;
+def : Pat<(and (not predselinv:$ps1), predsel:$ps2), (PAND predselinv:$ps1, predsel:$ps2)>;
+def : Pat<(and predsel:$ps1, (not predselinv:$ps2)), (PAND predsel:$ps1, predselinv:$ps2)>;
+def : Pat<(and (not predselinv:$ps1), (not predselinv:$ps2)), (PAND predselinv:$ps1, predselinv:$ps2)>;
+def : Pat<(xor (not predselinv:$ps1), predsel:$ps2), (PXOR predselinv:$ps1, predsel:$ps2)>;
+def : Pat<(xor predsel:$ps1, (not predselinv:$ps2)), (PXOR predsel:$ps1, predselinv:$ps2)>;
+def : Pat<(xor (not predselinv:$ps1), (not predselinv:$ps2)), (PXOR predselinv:$ps1, predselinv:$ps2)>;
+
+// laws of DeMorgan
+def : Pat<(notcc (or  predselinv:$ps1, predselinv:$ps2)), (PAND predselinv:$ps1, predselinv:$ps2)>;
+def : Pat<(notcc (and predselinv:$ps1, predselinv:$ps2)), (POR  predselinv:$ps1, predselinv:$ps2)>;
+
+// invert condition
+def : Pat<(notcc predsel:$ps1), (PNOT predsel:$ps1)>;
 
 
-def : Pat<(setne  predsel:$a, (i1 -1)), (PNOT predsel:$a)>;
-
-def : Pat<(i1 (trunc RRegs:$a)), (ISODD RRegs:$a)>;
 
 
 // inst_C: instruction to use for data load
