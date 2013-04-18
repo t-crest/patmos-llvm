@@ -46,12 +46,6 @@ static cl::opt<bool> SkipSerializeInstructions (
   cl::Hidden, cl::CommaSeparated);
 
 
-static cl::opt<std::string> DumpPreEmitBitcode(
-  "mpatmos-preemit-bitcode",
-  cl::desc("Write the final bitcode representation (before emit) to FILE"),
-  cl::init(""));
-
-
 namespace llvm {
 
   class PatmosPMLInstrInfo : public PMLInstrInfo {
@@ -211,7 +205,7 @@ namespace llvm {
 
     virtual bool doExportInstruction(const MachineInstr *Ins) {
       if (SkipSerializeInstructions) {
-        if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch())
+        if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() && !Ins->getDesc().isReturn())
           return false;
       }
       return true;
@@ -289,37 +283,37 @@ namespace llvm {
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass
-  FunctionPass *createPatmosExportPass(PatmosTargetMachine &tm,
-                                       std::string& filename)
+  FunctionPass *createPatmosExportPass(PatmosTargetMachine &TM,
+                                       std::string& Filename,
+                                       std::string& BitcodeFilename)
   {
-    PatmosExportPass *PEP = new PatmosExportPass(tm, filename);
+    PatmosExportPass *PEP = new PatmosExportPass(TM, Filename);
 
     // Add our own export passes
-    PEP->addExporter( new PatmosMachineFunctionExport(tm, PEP->getInstrInfo()));
-    PEP->addExporter( new PatmosFunctionExport(tm) );
-    PEP->addExporter( new PMLRelationGraphExport(tm) );
-
-    if (! DumpPreEmitBitcode.empty())
-      PEP->writeBitcode(DumpPreEmitBitcode);
+    PEP->addExporter( new PatmosMachineFunctionExport(TM, PEP->getInstrInfo()));
+    PEP->addExporter( new PatmosFunctionExport(TM) );
+    PEP->addExporter( new PMLRelationGraphExport(TM) );
+    if (! BitcodeFilename.empty())
+      PEP->writeBitcode(BitcodeFilename);
     return PEP;
   }
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass
-  ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &tm,
-                                           std::string& filename,
-                                           ArrayRef<std::string> roots)
+  ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
+                                           std::string& Filename,
+                                           std::string& BitcodeFilename,
+                                           ArrayRef<std::string> Roots)
   {
     PatmosModuleExportPass *PEP =
-                      new PatmosModuleExportPass(tm, filename, roots);
+                      new PatmosModuleExportPass(TM, Filename, Roots);
 
     // Add our own export passes
-    PEP->addExporter( new PatmosMachineFunctionExport(tm, PEP->getInstrInfo()));
-    PEP->addExporter( new PatmosFunctionExport(tm) );
-    PEP->addExporter( new PMLRelationGraphExport(tm) );
-    
-    if (! DumpPreEmitBitcode.empty())
-      PEP->writeBitcode(DumpPreEmitBitcode);
+    PEP->addExporter( new PatmosMachineFunctionExport(TM, PEP->getInstrInfo()));
+    PEP->addExporter( new PatmosFunctionExport(TM) );
+    PEP->addExporter( new PMLRelationGraphExport(TM) );
+    if (! BitcodeFilename.empty())
+      PEP->writeBitcode(BitcodeFilename);
     return PEP;
   }
 

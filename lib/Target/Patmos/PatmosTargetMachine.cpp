@@ -81,13 +81,14 @@ namespace {
     /// addSerializePass - Install a pass that serializes the internal representation
     /// of the compiler to PML format
     virtual bool addSerializePass(std::string& OutFile,
-                                  ArrayRef<std::string> Roots) {
+                                  ArrayRef<std::string> Roots,
+                                  std::string &BitcodeFile) {
       if (OutFile.empty())
         return false;
       if (Roots.empty()) {
-        addPass(createPatmosExportPass(getPatmosTargetMachine(), OutFile));
+        addPass(createPatmosExportPass(getPatmosTargetMachine(), OutFile, BitcodeFile));
       } else {
-        addPass(createPatmosModuleExportPass(getPatmosTargetMachine(), OutFile, Roots));
+        addPass(createPatmosModuleExportPass(getPatmosTargetMachine(), OutFile, BitcodeFile, Roots));
       }
       return true;
     }

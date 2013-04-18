@@ -89,6 +89,9 @@ static cl::opt<std::string> SerializeMachineCode("mserialize",
 static cl::list<std::string>SerializeRoots("mserialize-roots",
    cl::desc("Export only methods reachable from given functions"),
    cl::Hidden);
+static cl::opt<std::string> SerializePreemitBitcode("mpreemit-bitcode",
+  cl::desc("Write the final bitcode representation (before emit) to FILE"),
+  cl::init(""));
 static cl::opt<std::string>
 PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
                    cl::desc("Print machine instrs"),
@@ -98,9 +101,6 @@ PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
 static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
     cl::desc("Run live interval analysis earlier in the pipeline"));
 
-//static cl::opt<std::string> SerializeMachineCode("serialize",
-//  cl::desc("Export specification of generated machine code to FILE"),
-//  cl::init(""));
 
 /// Allow standard passes to be disabled by command line options. This supports
 /// simple binary flags that either suppress the pass or do nothing.
@@ -530,14 +530,14 @@ void TargetPassConfig::addMachinePasses() {
 
   // Serialize machine code
   if (! SerializeMachineCode.empty())
-    addSerializePass(SerializeMachineCode, SerializeRoots);
+    addSerializePass(SerializeMachineCode, SerializeRoots, SerializePreemitBitcode);
 }
 
 /// Add standard serialization to PML format
 /// XXX: roots is ignored
-bool TargetPassConfig::addSerializePass(std::string& OutFile, ArrayRef<std::string> roots)
+bool TargetPassConfig::addSerializePass(std::string& OutFile, ArrayRef<std::string> Roots, std::string &BitcodeFile)
 {
-  addPass(createPMLExportPass(*TM, OutFile));
+  addPass(createPMLExportPass(*TM, OutFile, BitcodeFile));
   return true;
 }
 

@@ -77,6 +77,7 @@
 namespace llvm {
 namespace yaml {
 
+
 /// A string representing an identifier (string,index,address)
 struct Name {
   // String representation
@@ -138,6 +139,7 @@ struct ScalarEnumerationTraits<ReprLevel> {
 struct Instruction {
   uint64_t Index;
   int64_t Opcode;
+  // std::string Descr;
   std::vector<Name> Callees;
   Instruction(uint64_t index) : Index(index), Opcode(0) {}
   void addCallee(const StringRef function) {
@@ -153,6 +155,8 @@ struct MappingTraits<Instruction> {
     io.mapRequired("index",   Ins.Index);
     io.mapOptional("opcode",  Ins.Opcode, (int64_t) -1);
     io.mapOptional("callees", Ins.Callees);
+    // StringRef InsDescr(Ins.Descr);
+    // io.mapOptional("description", InsDescr, StringRef(""));
   }
 };
 IS_PTR_SEQUENCE_VECTOR(Instruction)
@@ -172,10 +176,11 @@ struct ScalarEnumerationTraits<BranchType> {
 };
 struct GenericMachineInstruction : Instruction {
   uint64_t Size;
+  bool IsReturn;
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
   GenericMachineInstruction(uint64_t Index) :
-    Instruction(Index), Size(0), BranchType(branch_none) {}
+  Instruction(Index), Size(0), IsReturn(false), BranchType(branch_none) {}
 };
 template <>
 struct MappingTraits<GenericMachineInstruction> {
@@ -183,6 +188,7 @@ struct MappingTraits<GenericMachineInstruction> {
     MappingTraits<Instruction>::mapping(io,Ins);
     io.mapOptional("size",          Ins.Size);
     io.mapOptional("branch-type",   Ins.BranchType, branch_none);
+    io.mapOptional("is-return",     Ins.IsReturn, false);
     io.mapOptional("branch-targets",Ins.BranchTargets, std::vector<Name>());
   }
 };
@@ -318,9 +324,10 @@ struct MappingTraits< RelationScope > {
 
 /// Relation Graph construction status (everything except 'valid' is a bug)
 /// valid: no problems during construction
+/// loop: construction worked fine, but CFRG contains  no-progress loop
 /// corrected: initial mapping did not include all path, but tabu list corrected the problem
 /// incomplete: no sensible mapping that includes all paths from both graphs was found
-enum RelationGraphStatus { rg_status_valid, rg_status_corrected, rg_status_incomplete };
+enum RelationGraphStatus { rg_status_valid, rg_status_loop, rg_status_corrected, rg_status_incomplete };
 template <>
 struct ScalarEnumerationTraits<RelationGraphStatus> {
   static void enumeration(IO &io, RelationGraphStatus& status) {
