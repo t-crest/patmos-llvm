@@ -1,61 +1,115 @@
 #!/bin/bash
 # Customizable Variables
-###############################################################################
-: ${BENCH:=sweet}                   # benchmark script, one out of {trace,sweet}
-: ${SETS:=basic}                 # IFS-separated list of benchmark sets {basic,mrtc_ext}
-: ${OPTS:=0 1 2}                    # IFS-separated list of optimization levels
-: ${CLANG:=patmos-clang}            # patmos-clang tool
+#################################################################################
+: ${BENCH:=rg}                     # benchmark script, one out of {trace,sweet}
+: ${SET:=mrtc_ext}                  # benchmark set
+# : ${LD_FLAGS:=-lm}                  # Linker flags
+: ${ARCH:=patmos}                   # architecture, one out of {patmos,armv4t,armv7a}
+: ${OPTS:=2 2-if-in}  # IFS-separated list of optimization levels {0,1,2}_suffix
+                                    # Optimization suffixes: -if => disable ifcvt
+                                    #                        -in => disable inlining
+: ${CLANG:=patmos-clang}            # clang tool
 : ${PLATIN:=./platin}               # PLATIN tool
-: ${BENCHMARKS_ROOT:=examples}      # benchmarks are in $BENCHMARKS_ROOT/$SET/*.bc
-: ${OUTPUT_ROOT:=examples/${BENCH}} # generated files go to ${OUTPUT_ROOT}-${SET}/*
-###############################################################################
+: ${BENCHMARKS_ROOT:=examples}      # benchmarks are in     ${BENCHMARKS_ROOT}/${SET}/${ARCH}/*.bc
+: ${OUTPUT_ROOT:=results}           # generated files go to ${OUTPUT_ROOT}/${SET}-${BENCH}/${ARCH}
 
-ARCH=patmos
-for SET in ${SETS} ; do
-    if [ -e "${BENCHMARKS_ROOT}/${SET}/Makefile" ] ; then
-        make -C "${BENCHMARKS_ROOT}/${SET}"
+: ${GEM5_HOME:=/home/benedikt/gem5-stable}
+##################################################################################
+# set -x
+set -e
+
+# reads: CLANG, OPT_FLAGS, BINPREFIX, BCFILE, LOGFILE
+function compile() {
+    case "${OPT}" in
+        0*) OPT_FLAGS="-O0" ;;
+        1*) OPT_FLAGS="-O1" ;;
+        2*) OPT_FLAGS="-O2" ;;
+        *) echo "Bad optimization setting ${OPT}" >&2; exit 1 ;;
+    esac
+    if [[ "${OPT}" =~ '-in' ]]; then
+        OPT_FLAGS="-Wl,-disable-inlining ${OPT_FLAGS}"
     fi
-    mkdir -p "${OUTPUT_ROOT}-${SET}"
-    HTMLFILE=${OUTPUT_ROOT}-${SET}/results.html
-    YMLFILE=${OUTPUT_ROOT}-${SET}/results.yml
-    rm -f ${HTMLFILE} ${YMLFILE}
-    ruby -Ilib eval-summarize.rb --html=$HTMLFILE --html-prolog
-    for OPT in ${OPTS}; do
-        FILEBASE=${OUTPUT_ROOT}-${SET}/"${ARCH}"-O${OPT}
-        OPT_FLAGS="-O${OPT}"
-        mkdir -p ${FILEBASE}.{bin,out}
-        for BCFILE in ${BENCHMARKS_ROOT}/${SET}/*.bc ; do
-            LOGFILE=${FILEBASE}.out/$(basename ${BCFILE} .bc).log
-            echo '* '"Evaluating ${SET}: $(basename $BCFILE .bc) -O${OPT} [$LOGFILE]" >&2
-            echo '=====' ${BCFILE} '=====' | tee ${LOGFILE}
+    case "${ARCH}" in
+        patmos)
+            if [[ "${OPT}" =~ '-if' ]]; then
+                OPT_FLAGS="-mpatmos-disable-ifcvt ${OPT_FLAGS}"
+            fi
+            ${CLANG} ${OPT_FLAGS} -o "${BINPREFIX}.elf" -mpreemit-bitcode="${BINPREFIX}.elf.bc" \
+                -mserialize="${BINPREFIX}.elf.pml" "${BCFILE}" "${LD_FLAGS}" 2>&1 | tee -a "${LOGFILE}" ;;
+        arm*)
+            if [[ "${OPT}" =~ '-if' ]]; then
+                OPT_FLAGS="-Xclang -backend-option -Xclang -ifcvt-limit=0 ${OPT_FLAGS}"
+            fi
+            ${CLANG} ${OPT_FLAGS} -march="${ARCH}" -target arm-linux-gnueabi \
+                -Xclang -backend-option -Xclang -mserialize="${BINPREFIX}.elf.pml" \
+                -Xclang -backend-option -Xclang -mpreemit-bitcode="${BINPREFIX}.elf.bc" \
+                "${LD_FLAGS}" -c -o "${BINPREFIX}".o  "${BCFILE}" ;
+              arm-linux-gnueabi-gcc -static "${BINPREFIX}".o -o "${BINPREFIX}".elf ;;
+        *) echo "Bad architecture ${ARCH}" >&2; exit 1 ;;
+    esac
+}
 
-            M=$(basename "${BCFILE}" .bc)
-            ELF_FILE=${FILEBASE}.bin/${M}.elf
-            ELFBC_FILE=${FILEBASE}.bin/${M}.elf.bc
-            INPML_FILE=${FILEBASE}.bin/${M}.elf.pml
-            OUTPML_FILE=${FILEBASE}.out/${M}.pml
+function analyze() {
+    rm -f "${OUTPREFIX}.pml"
+    case "${ARCH}" in
+        patmos)  ${PLATIN} bench-${BENCH} --bitcode "${BINPREFIX}.elf.bc" --outdir "${OUTDIR}" \
+                --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
+        arm*) $GEM5_HOME/build/ARM/gem5.opt --debug-flags=Exec,-ExecMicro,ExecMacro --trace-file=trace $GEM5_HOME/configs/example/se.py -c "${BINPREFIX}.elf" ;
+              ${PLATIN} bench-${BENCH} --disable-ait  --bitcode "${BINPREFIX}.elf.bc" --trace-file=m5out/trace  --outdir "${OUTDIR}" \
+                --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
+        *) echo "Bad architecture ${ARCH}" >&2; exit 1 ;;
+    esac
+    # if something failed, at least copy the files, so we see there is data missing
+    if [ ! -e "${OUTPREFIX}.pml" ] ; then
+        cp "${BINPREFIX}.elf.pml" "${OUTPREFIX}.pml"
+        touch "${OUTPREFIX}.pml"
+    fi
+}
 
-            ${CLANG} ${OPT_FLAGS} -o "${ELF_FILE}" -mpatmos-preemit-bitcode="${ELFBC_FILE}" \
-                -mserialize="${INPML_FILE}" "${BCFILE}"  2>&1 | tee ${LOGFILE}
-            ${PLATIN} bench-${BENCH} --bitcode "${ELFBC_FILE}" --outdir "${FILEBASE}.out" \
-                --binary ${ELF_FILE} -o ${OUTPML_FILE} ${INPML_FILE} 2>&1 | tee ${LOGFILE}
-        done >/dev/null # > ${FILEBASE}.log
+SRCDIR="${BENCHMARKS_ROOT}/${SET}/${ARCH}"
+RESULTDIR="${OUTPUT_ROOT}/${SET}-${BENCH}/${ARCH}"
+# Recompile bitcode if necessary
+if [ -e "${SRCDIR}/Makefile" ] ; then
+    make -C "${SRCDIR}"
+fi
 
-        ruby -Ilib eval-summarize.rb "${FILEBASE}".out/*.pml --verbose --logdir="${ARCH}-O${OPT}.out" \
-             --html="${HTMLFILE}" --name="${BENCH}-${SET}-O${OPT}" >> $YMLFILE
-    done
-    ruby -Ilib eval-summarize.rb --html-epilog --html=${HTMLFILE}
+# Initialize RESULTDIR
+mkdir -p "${RESULTDIR}"
+HTMLFILE="${RESULTDIR}"/results.html
+YMLFILE="${RESULTDIR}"/results.yml
+rm -f ${HTMLFILE} ${YMLFILE}
+ruby -Ilib eval-summarize.rb --html=${HTMLFILE} --html-prolog
+
+# For all optimization settings
+for OPT in ${OPTS}; do
+    FILEBASE="${RESULTDIR}/OPT-${OPT}"
+    BINDIR="${FILEBASE}/bin"
+    OUTDIR="${FILEBASE}/out"
+    mkdir -p ${BINDIR} ${OUTDIR}
+    # For all benchmarks
+    for BCFILE in ${SRCDIR}/jumptable.bc ; do
+        # set logfile
+        M=$(basename "${BCFILE}" .bc)
+        LOGFILE=${OUTDIR}/${M}.log
+        echo '* '"Evaluating ${SET}: $(basename $BCFILE .bc) -O${OPT} [$LOGFILE]" >&2
+        echo '=====' ${BCFILE} '=====' | tee ${LOGFILE}
+
+        BINPREFIX=${BINDIR}/${M}
+        compile
+        OUTPREFIX=${OUTDIR}/${M}
+        analyze
+    done >/dev/null # > ${FILEBASE}.log
+    ruby -Ilib eval-summarize.rb "${OUTDIR}"/*.pml --verbose --logdir="${OUTDIR}" \
+        --html="${HTMLFILE}" --name="${BENCH}-${SET}-O${OPT}" >> $YMLFILE
 done
 
-for SET in ${SETS} ; do
-    echo "* ${SET}"
-    echo " HTML report: ${OUTPUT_ROOT}-${SET}/results.html"
-    YMLFILE=${OUTPUT_ROOT}-${SET}/results.yml
-    echo " YML raw data: ${YMLFILE}"
-    if [ -e "${YMLFILE}".expect ] ; then
-        if ! diff -q "${YMLFILE}".expect "${YMLFILE}" ; then
-            echo " WARNING: Results changed (compared to ${YMLFILE}.expect)"
-        fi
+ruby -Ilib eval-summarize.rb --html-epilog --html=${HTMLFILE}
+YMLFILE=${RESULTDIR}/results.yml
+echo "* ${SET}"
+echo " HTML report: ${RESULTDIR}/results.html"
+echo " YML raw data: ${YMLFILE}"
+if [ -e "${YMLFILE}".expect ] ; then
+    if ! diff -q "${YMLFILE}".expect "${YMLFILE}" ; then
+        echo " WARNING: Results changed (compared to ${YMLFILE}.expect)"
     fi
-done
-
+fi

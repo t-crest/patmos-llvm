@@ -17,10 +17,10 @@ include PML
 title = "PLATIN evaluation: trace flow-facts + platin-wca + platin-transform + aiT"
 
 # the tming entry we compare everything else against
-baseline = "trace"
+baseline = "wca-trace-all"
 
 # correction term for baseline measurement
-overhead = -1
+overhead = 0 # -1
 
 # columns (in order), and labels for columns
 column_labels = [ [ 'name'      , 'Name' ],
@@ -259,7 +259,7 @@ EOF
   def relative_change(value,base)
     return nil if ! base || ! value || value <= 0
     rel = ((value.to_f/base) - 1) * 100
-    return [0, "0"] if rel==0
+    return [0, "+0"] if rel==0
     return [rel, sprintf("%s%.2f\%",rel>0?"+":"-",rel.abs)]
   end
 
