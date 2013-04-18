@@ -141,7 +141,7 @@ module PML
     end
 
     def machine_code_only_functions
-      %w{_start _exit exit abort __ashldi3 __adddf3 __addsf3 __divsi3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2} +
+      %w{_start _exit exit abort __ashldi3 __adddf3 __addsf3 __divsi3 __udivsi3 __divdf3 __divsf3 __eqdf2 __eqsf2 __extendsfdf2} +
         %w{__fixdfdi __fixdfsi __fixsfdi __fixsfsi __fixunsdfdi __fixunsdfsi __fixunssfdi __fixunssfsi __floatdidf __floatdisf} +
         %w{__floatsidf __floatsisf __floatundidf __floatundisf __floatunsidf __floatunsisf __gedf2 __gesf2 __gtdf2 __gtsf2} +
         %w{__ledf2 __lesf2 __lshrdi3 __ltdf2 __ltsf2 __muldf3 __mulsf3 __nedf2 __nesf2 __subdf3 __subsf3 __truncdfsf2 __unorddf2 __unordsf2} +
@@ -515,6 +515,9 @@ module PML
     def label
       data['label'] || data['mapsto'] || blocks.first.label
     end
+    def instructions
+      blocks.inject([]) { |insns,b| insns.concat(b.instructions) }
+    end
     def each_callsite
       blocks.each do |block|
         block.callsites.each do |cs|
@@ -573,6 +576,9 @@ module PML
       return @successors if @successors
       @successors = (data['successors']||[]).map { |s| function.blocks.by_name(s) }.uniq.freeze
     end
+    def next
+      (successors.length == 1) ? successors.first : nil
+    end
     def ref
       BlockRef.new(self)
     end
@@ -615,6 +621,9 @@ module PML
       @name = index
       @qname = "#{block.qname}/#{@name}"
     end
+    def index
+      data['index']
+    end
     def ref
       InstructionRef.new(self)
     end
@@ -624,21 +633,23 @@ module PML
     def unresolved_call?
       callees.include?("__any__")
     end
+    def returns?
+      data['is-return'] || false
+    end
     def function
       block.function
-    end
-    def size
-      data['size']
     end
     def [](k)
       data[k]
     end
+    def next
+      block.instructions[index+1] || (block.next ? block.next.instructions.first : nil)
+    end
     def to_s
       "#{function['mapsto']}/#{qname}"
     end
-    def index
-      data['index']
-    end
+    def size   ; data['size'] ; end
+    def opcode ; data['opcode'] ; end
   end
 
   # List of relation graphs (unmodifiable)
@@ -1050,6 +1061,9 @@ module PML
       @cycles = cycles
       @context = context
       set_data(data)
+    end
+    def [](key)
+      data[key]
     end
     def origin
       data['origin']

@@ -94,30 +94,10 @@ class WcaTool
     end
 
     # report result
-    report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => builder.ilp.constraints.length,
+    report = TimingEntry.new(machine_entry.ref, cycles, 'num_constraints' => builder.ilp.constraints.length,
+                             'solvertime' => builder.ilp.solvertime,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)
-
-    # # XXX: playing: fourier-motzkin elimination
-    # cycles = nil
-    # if options.use_relation_graph
-    #   ilp = builder.ilp
-    #   ilp.variables.each do |var|
-    #     if ilp.vartype[var] != :dst
-    #       ilp.eliminate(var)
-    #       if options.debug
-    #         puts ilp
-    #         old_cycles = cycles
-    #         cycles,freqs = ilp.solve_max
-    #         raise Exception.new("Error eliminating #{var}") if old_cycles && cycles != old_cycles
-    #       end
-    #     end
-    #   end
-    #   cycles,freqs = ilp.solve_max
-    #   report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => ilp.constraints.length,'level' => 'machinecode',
-    #                            'origin' => (options.timing_output || 'platin')+"-fm")
-    #   pml.timing.add(report)
-    # end
 
     pml
   end

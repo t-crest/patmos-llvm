@@ -10,6 +10,7 @@ module PML
 
 require 'arch/patmos'
 
+
 # Class to monitor traces and generate events
 # should implement a 'run' method
 class TraceMonitor
@@ -34,6 +35,9 @@ end
 # Generated events: block, function, ret, loop{enter,exit,cont}, eof
 #
 class MachineTraceMonitor < TraceMonitor
+  def __dbg
+    # puts("[DEBUG] #{yield}")
+  end
   def initialize(pml,trace,program_start = "main")
     super()
     @pml = pml
@@ -47,12 +51,12 @@ class MachineTraceMonitor < TraceMonitor
     @wp_block_start = {}
     # call instruction watch points
     @wp_call_instr = {}
-    # instructions which the callee returns to
-    @wp_callreturn_instr = {}
     # return instruction watch points
     @wp_return_instr = {}
     # empty (zero-size) blocks before the key'ed block
     @empty_blocks = {}
+    # Playground: Learn about instruction costs
+    # @wp_instr = {}
     build_watchpoints
   end
   # run monitor
@@ -61,7 +65,8 @@ class MachineTraceMonitor < TraceMonitor
     @callstack = []
     @loopstack = nil
     @current_function = nil
-
+    @last_ins  = [nil,0] # XXX: playing
+    @inscost   = {}  # XXX: playing
     pending_return, pending_call = nil, nil
     @trace.each do |pc,cycles|
 
@@ -69,16 +74,45 @@ class MachineTraceMonitor < TraceMonitor
       next unless @started
 
       @executed_instructions += 1
+
+      # Playground: Learn about instruction costs
+      # @inscost[@last_ins.first] = merge_ranges(cycles - @last_ins[1],@inscost[@last_ins.first]) if @last_ins.first # XXX: playing start
+      # @last_ins = [@wp_instr[pc],cycles]
+      # __dbg { "pc: #{pc} [t=#{cycles}]" }
+
       next unless @wp[pc] || pending_return
 
       @cycles = cycles
+      # Handle Return (TODO)
+      if pending_return && pending_return[1] + @delay_slots + 1 == @executed_instructions
+        __dbg { "Return from #{pending_return.first} -> #{@callstack[-1]}" }
+        # If we there was no change of control-flow since the return instruction,  the pending return
+        # was not executed (predicated). This is a heuristic, and should not be used for simulators
+        # with better information available (it fails if the recursive function returns to next instruction,
+        # which is unlikely, but possible)
+        fallthrough_instruction = pending_return.first
+        (@delay_slots+1).times do
+          fallthrough_instruction = fallthrough_instruction.next
+          break unless fallthrough_instruction
+        end
+        if fallthrough_instruction && pc == fallthrough_instruction.address
+          __dbg { "Predicated return!" }
+        else
+          if ! handle_return(*pending_return)
+            @inscost.each do |op,cycs|
+              puts "COST #{op} #{cycs}"
+            end
+            break
+          end
+          pending_return = nil
+        end
+      end
 
       # Handle Basic Block
       if b = @wp_block_start[pc]
-
+        __dbg { "#{pc}: Block: #{b} / #{b.address}" }
         # function entry
         if b.address == b.function.address
-
           # call
           if pending_call
             handle_call(*pending_call) if pending_call
@@ -92,6 +126,7 @@ class MachineTraceMonitor < TraceMonitor
 
           # set current function
           @current_function = b.function
+          __dbg { "change function to #{b.function}" }
           @loopstack = []
           publish(:function, b.function, @callstack[-1], @cycles)
         end
@@ -110,18 +145,15 @@ class MachineTraceMonitor < TraceMonitor
 
       # Handle Call
       if c = @wp_call_instr[pc]
+        __dbg { "#{pc}: Call: #{c}, #{@executed_instructions} in #{@current_function}" }
+        assert("Call instruction #{c} does not match current function #{@current_function}") { c.function == @current_function }
         pending_call = [c, @executed_instructions]
       end
 
       # Handle Return Block (TODO: in order to handle predicated returns, we need to know where return instructions are)
       if r = @wp_return_instr[pc]
+        __dbg { "Scheduling return at #{r}" }
         pending_return = [r,@executed_instructions]
-      end
-      # Execute return
-      if pending_return && pending_return[1] + @delay_slots == @executed_instructions
-        #puts "Return from #{pending_return.first} -> #{@callstack[-1]}"
-        break unless handle_return(*pending_return)
-        pending_return = nil
       end
     end
 
@@ -149,6 +181,7 @@ class MachineTraceMonitor < TraceMonitor
       call_pc + 1 + @delay_slots == @executed_instructions
     }
     @callstack.push(c)
+    __dbg { "Call from #{@callstack.inspect}" }
   end
 
   def handle_return(r, ret_pc)
@@ -161,6 +194,7 @@ class MachineTraceMonitor < TraceMonitor
     return nil if(r.function == @program_entry)
     assert("Callstack empty at return (inconsistent callstack)") { ! @callstack.empty? }
     c = @callstack.pop
+    __dbg { "Return to #{c}" }
     @loopstack = c.block.loops.reverse
     @current_function = c.function
   end
@@ -191,21 +225,19 @@ class MachineTraceMonitor < TraceMonitor
         # generate basic block event at first instruction
         add_watch(@wp_block_start, block.address, block)
 
-        # generate return event at return instruction
-        # FIXME: does not work for predicated return instructions now,
-        # it would be helpful if return instructions where marked in PML
-        if block.successors.empty?
-          return_ins = block.instructions[-1 - @delay_slots]
-          add_watch(@wp_return_instr,return_ins['address'],return_ins)
-        end
-
         block.instructions.each do |instruction|
-          if call_return_instr[abs_instr_index]
-            add_watch(@wp_callreturn_instr,instruction['address'],instruction)
+          # Playground: Learn about instruction costs
+          # @wp_instr[instruction.address] = instruction
+
+          # trigger return-instruction event at return instruction
+          # CAVEAT: delay slots and predicated returns
+          if instruction.returns?
+            add_watch(@wp_return_instr,instruction.address,instruction)
           end
+          # trigger call-instruction event at call instructions
+          # CAVEAT: delay slots and predicated calls
           if ! instruction.callees.empty?
             add_watch(@wp_call_instr,instruction['address'],instruction)
-            call_return_instr[abs_instr_index + 1 +@delay_slots]=true
           end
           abs_instr_index += 1
         end
@@ -443,5 +475,6 @@ class ProgressTraceRecorder
   def eof ; end
   def method_missing(event, *args); end
 end
+
 
 end # module pml

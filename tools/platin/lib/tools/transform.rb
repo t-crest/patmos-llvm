@@ -8,13 +8,17 @@ require 'platin'
 require 'ext/sweet'
 include PML
 
+# FIXME: it might happen that calls are moved to other nodes
+# This is not a problem for our model, but validation fails (ndes)
 class RelationGraphValidation
-  SHOW_ERROR_TRACE=10
+  SHOW_ERROR_TRACE=3
   def initialize(pml, options)
     @pml, @options = pml, options
   end
   def validate(pt1, pt2)
     tsrc, tdst = pt1.trace, pt2.trace
+    errors = []
+    # first, we extract a hierarchical trace
     ix_src, ix_dst = 0,0
     while ix_src < tsrc.length && ix_dst < tdst.length
       while is_machine_only_node(tdst[ix_dst],tsrc[ix_src])
@@ -26,7 +30,7 @@ class RelationGraphValidation
       p1, p2 = tsrc[ix_src], tdst[ix_dst]
       if p1!= p2
         if SHOW_ERROR_TRACE > 0
-          info("Progress Trace Validation Mismatch")
+          info("Progress Trace Validation Mismatch: #{p1} vs #{p2}")
           info("Trace to SRC:")
           (-SHOW_ERROR_TRACE..SHOW_ERROR_TRACE).each do |off|
             is,id = [0,ix_src+off].max, [0,ix_dst+off].max
@@ -36,15 +40,27 @@ class RelationGraphValidation
             pt2.internal_preds[id].each { |n|
               $stderr.puts "        #{" "*30} #{n}"
             }
-            $stderr.puts "    #{off.to_s.rjust(3)} #{tsrc[is].to_s.ljust(30)} #{tdst[is]}"
+            $stderr.puts "    #{off.to_s.rjust(3)} #{tsrc[is].to_s.ljust(30)} #{tdst[id]}"
           end
         end
-        raise Exception.new("Progress trace validation failed: #{p1} != #{p2}") if p1 != p2
+        # If we have an off by one error, we try to continue, collecting the errors
+        if (p1 == tdst[ix_dst+1])
+          errors.push([p1,p2])
+          ix_dst+=1
+        elsif (tsrc[ix_src+1] == p2)
+          errors.push([p1,p2])
+          ix_src+=1
+        else
+          raise Exception.new("Progress trace validation failed: #{p1} != #{p2}")
+        end
+      else
+        #$dbgs.puts "Match: #{p2.data.inspect}" if @options.debug
+        ix_src,ix_dst = ix_src+1, ix_dst+1
       end
-      #$dbgs.puts "Match: #{p2.data.inspect}" if @options.debug
-      ix_src,ix_dst = ix_src+1, ix_dst+1
     end
-
+    if ! errors.empty?
+      raise Exception.new("Progress trace validation failed: #{errors.inspect}")
+    end
     statistics("progress trace length (src)" => pt1.trace.length,
                "progress trace length (dst)" => pt2.trace.length) if @options.stats
   end

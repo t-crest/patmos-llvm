@@ -112,9 +112,10 @@ end
 
 # ILP base class
 class ILP
-  attr_reader :variables, :constraints, :costs, :options, :vartype
+  attr_reader :variables, :constraints, :costs, :options, :vartype, :solvertime
   # variables ... array of distinct, comparable items
   def initialize(options = nil)
+    @solvertime = 0
     @options = options || OpenStruct.new(:verbose=>false,:debug=>false)
     @variables = []
     @indexmap = {}

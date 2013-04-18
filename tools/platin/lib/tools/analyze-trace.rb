@@ -56,8 +56,7 @@ class AnalyzeTraceTool
     tm.run
 
     if(global.results.freqs.nil?)
-      $stderr.puts("Analysis entry '#{options.analysis_entry}' (pc: #{entry.address}) never executed")
-      exit 1
+      die "Analysis entry '#{options.analysis_entry}' (pc: #{entry.address}) never executed"
     end
     # Collect executed and infeasible blocks
     executed_functions = Set.new
