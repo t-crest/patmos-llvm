@@ -61,6 +61,9 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setIntDivIsCheap(false);
   // Select is not
   setSelectIsExpensive(false);
+  // Jump is Expensive. Don't create extra control flow for 'and', 'or'
+  // condition branches.
+  setJumpIsExpensive(true);
 
   setStackPointerRegisterToSaveRestore(Patmos::RSP);
   setBooleanContents(ZeroOrOneBooleanContent);
@@ -129,6 +132,19 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Expand);
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Expand);
   setOperationAction(ISD::CTPOP, MVT::i32, Expand);
+
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i8,  Expand);
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i16, Expand);
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i32, Expand);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::i8,  Expand);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::i16, Expand);
+  setOperationAction(ISD::ZERO_EXTEND, MVT::i32, Expand);
+  setOperationAction(ISD::ANY_EXTEND,  MVT::i8, Expand);
+  setOperationAction(ISD::ANY_EXTEND,  MVT::i16, Expand);
+  setOperationAction(ISD::ANY_EXTEND,  MVT::i32, Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i8,  Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i16, Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i32, Expand);
 
   setOperationAction(ISD::ROTL , MVT::i32, Expand);
   setOperationAction(ISD::ROTR , MVT::i32, Expand);
@@ -663,8 +679,12 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
 
     }
   }
-
-  // Handle '{}'
+  // Handle '{$<regname>}'
+  if (Constraint.size() > 2 && Constraint[0] == '{' && Constraint[1] == '$') {
+    std::string Stripped = "{" + Constraint.substr(2);
+    return TargetLowering::getRegForInlineAsmConstraint(Stripped, VT);
+  }
+  // Handle everything else ('{<regname}, ..)
   return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
 }
 

@@ -244,7 +244,7 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
     FixupKind = HasPCRELImmediate(MI.getOpcode(), MID) ? FK_Patmos_PCrel :
                                                          FK_Patmos_abs_CFLb;
     break;
-  case PatmosII::FrmSTC:
+  case PatmosII::FrmSTCi:
     FixupKind = FK_Patmos_stc;
     break;
   case PatmosII::FrmALUl:

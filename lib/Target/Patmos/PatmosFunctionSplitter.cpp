@@ -333,8 +333,7 @@ namespace llvm {
 
     static unsigned int getInstrSize(MachineInstr *MI, PatmosTargetMachine &PTM)
     {
-      PatmosInstrInfo PII(PTM);
-      return PII.getInstrSize(MI);
+      return PTM.getInstrInfo()->getInstrSize(MI);
     }
 
     /// getBBSize - Size of the basic block in bytes.
@@ -1418,7 +1417,7 @@ namespace llvm {
     }
 
     template<typename T>
-    static bool isNodeHidden(const T) {
+    static bool isNodeHidden(const T, const agraph &G) {
       return false;
     }
 

@@ -76,9 +76,7 @@ public:
 
   /// requiresRegisterScavenging - returns true if the target requires (and can
   /// make use of) the register scavenger.
-  virtual bool requiresRegisterScavenging(const MachineFunction &MF) const {
-    return false; //FIXME
-  }
+  virtual bool requiresRegisterScavenging(const MachineFunction &MF) const;
 
   /// requiresFrameIndexScavenging - returns true if the target requires post
   /// PEI scavenging of registers for materializing frame index constants.

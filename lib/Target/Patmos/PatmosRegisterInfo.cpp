@@ -48,7 +48,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   //const Function* F = MF->getFunction();
   static const uint16_t CalleeSavedRegs[] = {
     // Special regs
-    Patmos::SZ,
+    Patmos::S0,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26,
@@ -61,7 +61,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   };
   static const uint16_t CalleeSavedRegsFP[] = {
     // Special regs
-    Patmos::SZ,
+    Patmos::S0,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
     Patmos::R25, Patmos::R26,
@@ -85,12 +85,12 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Patmos::P0);
 
   // All the special registers are reserved
-  Reserved.set(Patmos::SZ);
+  Reserved.set(Patmos::S0);
   Reserved.set(Patmos::SM);
   Reserved.set(Patmos::SL);
   Reserved.set(Patmos::SH);
   Reserved.set(Patmos::S4);
-  Reserved.set(Patmos::S5);
+  Reserved.set(Patmos::SS);
   Reserved.set(Patmos::ST);
   Reserved.set(Patmos::S7);
   Reserved.set(Patmos::S8);
@@ -213,7 +213,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         //   followed by a predicated (inverted) store of 0
         BuildMI(MBB, II, DL, TII.get(st_opc))
           .addReg(SrcRegOpnd.getReg()).addImm(0) // predicate
-          .addReg(basePtr, false).addImm(offset) // address
+          .addReg(basePtr, false).addImm(offset) // adress
           .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
         BuildMI(MBB, II, DL, TII.get(st_opc))
           .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
@@ -417,14 +417,25 @@ bool PatmosRegisterInfo::hasReservedSpillSlot(const MachineFunction &MF,
                                           unsigned Reg, int &FrameIdx) const {
 
   // We don't want to create a stack frame object for PRegs, they are handled
-  // by SZ, as they're aliased
+  // by S0, as they're aliased
   // Simply return true - this prevents creation of a stack frame object,
   // and PRegs are not spilled on their own so the FrameIdx is not queried
   if (Patmos::PRegsRegClass.contains(Reg))
     return true;
 
+  const PatmosMachineFunctionInfo &PMFI =
+                  *MF.getInfo<PatmosMachineFunctionInfo>();
+
+  if (Reg == Patmos::S0 && PMFI.getS0SpillReg())
+    return true;
+
   return false;
 }
 
+bool
+PatmosRegisterInfo::requiresRegisterScavenging(const MachineFunction &MF) const
+{
+  return false; //FIXME
+}
 
 

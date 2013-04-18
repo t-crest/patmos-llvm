@@ -265,7 +265,7 @@ namespace llvm {
     }
   }
 
-  void MCallGraph::view()
+  void MCallGraph::view() const
   {
     ViewGraph(*this, "MCallGraph");
   }
@@ -283,7 +283,14 @@ namespace llvm {
     }
   }
 
-  //----------------------------------------------------------------------------rk
+  //----------------------------------------------------------------------------
+
+  void MCallSubGraph::view()
+  {
+    ViewGraph(*this, "MCallSubGraph");
+  }
+
+  //----------------------------------------------------------------------------
 
   void PatmosCallGraphBuilder::visitCallSites(const Module &M, MachineFunction *MF)
   {

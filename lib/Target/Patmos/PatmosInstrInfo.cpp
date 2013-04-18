@@ -45,11 +45,11 @@ bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
                                             unsigned &SrcOpIdx2) const {
   switch (MI->getOpcode())
   {
-    case Patmos::ADDr:
-    case Patmos::ORr:
-    case Patmos::ANDr:
-    case Patmos::XORr:
-    case Patmos::NORr:
+    case Patmos::ADDr: case Patmos::ADDr_ow:
+    case Patmos::ORr:  case Patmos::ORr_ow:
+    case Patmos::ANDr: case Patmos::ANDr_ow:
+    case Patmos::XORr: case Patmos::XORr_ow:
+    case Patmos::NORr: case Patmos::NORr_ow:
       SrcOpIdx1 = 3;
       SrcOpIdx2 = 4;
       return true;
@@ -99,16 +99,25 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
 
 void PatmosInstrInfo::
 storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
-                    unsigned SrcReg, bool isKill, int FrameIndex,
+                    unsigned SrcReg, bool isKill, int FrameIdx,
                     const TargetRegisterClass *RC,
                     const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
+  MachineFunction &MF = *MBB.getParent();
+  MachineFrameInfo &MFI = *MF.getFrameInfo();
+  MachineMemOperand *MMO =
+  MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(FrameIdx),
+                          MachineMemOperand::MOStore,
+                          MFI.getObjectSize(FrameIdx),
+                          MFI.getObjectAlignment(FrameIdx));
+
   if (RC == &Patmos::RRegsRegClass) {
     AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::SWC)))
-      .addFrameIndex(FrameIndex).addImm(0) // address
-      .addReg(SrcReg, getKillRegState(isKill)); // value to store
+      .addFrameIndex(FrameIdx).addImm(0) // address
+      .addReg(SrcReg, getKillRegState(isKill)) // value to store
+      .addMemOperand(MMO);
   }
   else if (RC == &Patmos::PRegsRegClass) {
     // As clients of this function (esp. InlineSpiller, foldMemoryOperands)
@@ -119,8 +128,9 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
     // We work around this restriction by using a pseudo-inst that
     // is expanded in PatmosRegisterInfo::eliminateFrameIndex()
     BuildMI(MBB, MI, DL, get(Patmos::PSEUDO_PREG_SPILL))
-      .addFrameIndex(FrameIndex).addImm(0) // address
-      .addReg(SrcReg, getKillRegState(isKill)); // predicate register
+      .addFrameIndex(FrameIdx).addImm(0) // address
+      .addReg(SrcReg, getKillRegState(isKill)) // predicate register
+      .addMemOperand(MMO);
   }
   else llvm_unreachable("Register class not handled!");
 }
@@ -133,16 +143,26 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
+  MachineFunction &MF = *MBB.getParent();
+  MachineFrameInfo &MFI = *MF.getFrameInfo();
+  MachineMemOperand *MMO =
+  MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(FrameIdx),
+                          MachineMemOperand::MOLoad,
+                          MFI.getObjectSize(FrameIdx),
+                          MFI.getObjectAlignment(FrameIdx));
+
   if (RC == &Patmos::RRegsRegClass) {
     AddDefaultPred(BuildMI(MBB, MI, DL, get(Patmos::LWC), DestReg))
-      .addFrameIndex(FrameIdx).addImm(0); // address
+      .addFrameIndex(FrameIdx).addImm(0) // address
+      .addMemOperand(MMO);
   }
   else if (RC == &Patmos::PRegsRegClass) {
     // Clients assume the last instruction inserted to be a load instruction.
     // Again, we work around this with a pseudo instruction that is expanded
     // during FrameIndex elimination.
     BuildMI(MBB, MI, DL, get(Patmos::PSEUDO_PREG_RELOAD), DestReg)
-      .addFrameIndex(FrameIdx).addImm(0); // address
+      .addFrameIndex(FrameIdx).addImm(0) // address
+      .addMemOperand(MMO);
   }
   else llvm_unreachable("Register class not handled!");
 }
@@ -208,11 +228,9 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
 }
 
 bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
-  unsigned opc = MI->getOpcode();
-  switch (opc) {
-    case Patmos::SENS:
-    case Patmos::SRES:
-    case Patmos::SFREE:
+  switch (getPatmosFormat(MI->getDesc().TSFlags)) {
+    case PatmosII::FrmSTCi:
+    case PatmosII::FrmSTCr:
       return true;
     default: return false;
   }
@@ -229,7 +247,7 @@ bool PatmosInstrInfo::isSideEffectFreeSRegAccess(const MachineInstr *MI)
 
     // check SRegs
     BitVector safeSRegs(getRegisterInfo().getNumRegs());
-    safeSRegs.set(Patmos::SZ);
+    safeSRegs.set(Patmos::S0);
     safeSRegs.set(Patmos::SL);
     safeSRegs.set(Patmos::SH);
     if (safeSRegs.test(sreg))

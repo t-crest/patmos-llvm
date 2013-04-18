@@ -76,6 +76,10 @@ Verbose("v", cl::desc("Print information about actions taken"));
 static cl::opt<bool>
 DumpAsm("d", cl::desc("Print assembly as linked"), cl::Hidden);
 
+static cl::opt<bool>
+NoStdLib("nostdlib",
+         cl::desc("Only search directories specified on the command line."));
+
 
 int main(int argc, char **argv) {
   // Print a stack trace if we signal out.
@@ -98,8 +102,10 @@ int main(int argc, char **argv) {
 
   // Craft a new linker and add in search paths
   Linker L(Progname, Progname, Context);
-  L.addSystemPaths();
   L.addPaths(LibrarySearchPaths);
+  if (!NoStdLib) {
+    L.addSystemPaths();
+  }
 
   if (Verbose) {
     L.setFlags(Linker::Verbose);

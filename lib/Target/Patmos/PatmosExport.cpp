@@ -185,8 +185,7 @@ namespace llvm {
 
     virtual int getSize(const MachineInstr *Instr)
     {
-      PatmosInstrInfo PII(TM);
-      return PII.getInstrSize(Instr);
+      return TM.getInstrInfo()->getInstrSize(Instr);
     }
 
   };
