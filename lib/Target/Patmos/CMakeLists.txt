@@ -32,6 +32,7 @@ add_llvm_target(PatmosCodeGen
   PatmosStackCacheAnalysis.cpp
   PatmosExport.cpp
   PatmosSinglePathInfo.cpp
+  PatmosSPPrepare.cpp
   PatmosSPReduce.cpp
   )
 

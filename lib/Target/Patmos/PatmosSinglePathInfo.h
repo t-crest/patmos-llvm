@@ -66,10 +66,6 @@ namespace llvm {
       const PatmosSubtarget &STC;
       const PatmosInstrInfo *TII;
 
-      /// Set of functions to be converted
-      const std::set<std::string> Funcs;
-
-
       /// Set of functions yet to be analyzed
       std::set<std::string> FuncsRemain;
 
@@ -123,6 +119,10 @@ namespace llvm {
       /// isEnabled - Return true if there are functions specified to
       /// to be converted to single-path code.
       static bool isEnabled();
+
+      /// isEnabled - Return true if a particular function is specified to
+      /// to be converted to single-path code.
+      static bool isEnabled(MachineFunction &MF);
 
       /// PatmosSinglePathInfo - Constructor
       PatmosSinglePathInfo(const PatmosTargetMachine &tm);
@@ -195,6 +195,10 @@ namespace llvm {
       /// getNumPredicates - Returns the number of predicates required for
       /// this function
       unsigned getNumPredicates() const { return PredCount; }
+
+      /// getNumPredicates - Returns the number of predicates required for
+      /// a particular SPNode
+      unsigned getNumPredicates(const SPNode *N) const;
 
       /// getPredUse - Returns the guarding predicate for an MBB
       int getPredUse(const MachineBasicBlock *) const;

@@ -31,6 +31,7 @@ namespace llvm {
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
   FunctionPass *createPatmosSinglePathInfoPass(const PatmosTargetMachine &tm);
+  FunctionPass *createPatmosSPPreparePass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosSPReducePass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
   FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);

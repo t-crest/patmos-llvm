@@ -131,6 +131,8 @@ namespace {
     /// prolog-epilog insertion.  This should return true if -print-machineinstrs
     /// should print after these passes.
     virtual bool addPostRegAlloc() {
+      addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+      addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
       return false;
     }
 

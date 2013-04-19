@@ -19,6 +19,7 @@
 
 #include <limits>
 #include <set>
+#include <vector>
 
 namespace llvm {
 
@@ -57,6 +58,9 @@ public:
     StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0),
     S0SpillReg(0) {
   }
+
+  /// FIs to spill predicates during SinglePath conversion
+  std::vector<int> SinglePathSpillFIs;
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
   /// stack cache.

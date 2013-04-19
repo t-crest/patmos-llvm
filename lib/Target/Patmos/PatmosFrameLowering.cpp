@@ -387,7 +387,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
 
   // mark all predicate registers as used, for single path support
   // S0 is saved/restored as whole anyway
-  if (PatmosSinglePathInfo::isEnabled()) {
+  if (PatmosSinglePathInfo::isEnabled(MF)) {
     // TODO allocate predicate spill slots
     // const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
     // MFI.CreateSpillStackObject(RC->getSize(), RC->getAlignment());

@@ -140,7 +140,7 @@ namespace {
       PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
       bool changed = false;
       // only convert function if specified on command line
-      if ( PSPI.isToConvert(MF) ) {
+      if ( PSPI.isEnabled(MF) ) {
         DEBUG( dbgs() << "[Single-Path] Reducing "
                       << MF.getFunction()->getName() << "\n" );
         doReduceFunction(MF);
@@ -485,21 +485,42 @@ void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
 
 
 void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
-  if (N->hasLoopBound()) {
-    // insert loop preheader to load loop bound
-    MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
-    MF.push_back(PrehdrMBB);
+  // We don't create a preheader for entry.
+  if (N->isTopLevel()) return;
 
+  const TargetRegisterInfo *TRI = Pass.TM.getRegisterInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
+
+  // insert loop preheader to spill predicates / load loop bound
+  MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
+  MF.push_back(PrehdrMBB);
+
+  // FIXME translation to proper stack FI, stack cache!
+  DebugLoc DL;
+  int fi = PMFI.SinglePathSpillFIs[N->getDepth()-1];
+  unsigned tmpReg = Patmos::R26;
+  Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
+                        tmpReg, Patmos::S0, false);
+  MachineInstr *storeMI =
+    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+          Pass.TII->get(Patmos::SBC)))
+    .addFrameIndex(fi).addImm(0) // address
+    .addReg(tmpReg);
+
+  TRI->eliminateFrameIndex(storeMI, 0, NULL);
+
+  if (N->hasLoopBound()) {
     // Create an instruction to load the loop bound
     //FIXME load the actual loop bound
     DebugLoc DL;
-    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->begin(), DL,
+    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
       Pass.TII->get(Patmos::LIi),
       Patmos::RTR)).addImm(1000);
 
-    // append the preheader
-    nextMBB(PrehdrMBB);
   }
+
+  // append the preheader
+  nextMBB(PrehdrMBB);
 }
 
 
@@ -529,6 +550,8 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
     .addReg(Pass.PReg).addImm(0)
     .addMBB(Header);
   BranchMBB->addSuccessor(Header);
+
+  // TODO create a post-loop MBB to restore the spill predicates
 }
 
 

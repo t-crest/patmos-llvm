@@ -67,18 +67,25 @@ bool PatmosSinglePathInfo::isEnabled() {
   return !SPFuncList.empty();
 }
 
+bool PatmosSinglePathInfo::isEnabled(MachineFunction &MF) {
+  for(unsigned long i=0; i<SPFuncList.size(); i++) {
+    if ( SPFuncList[i] == MF.getFunction()->getName() ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 
 PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm)
   : MachineFunctionPass(ID), TM(tm),
     STC(tm.getSubtarget<PatmosSubtarget>()),
-    TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
-    Funcs(SPFuncList.begin(), SPFuncList.end()), Root(0)   {}
+    TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())), Root(0) {}
 
 
 bool PatmosSinglePathInfo::doInitialization(Module &M) {
   // fill the set of functions to convert as specified on command line
-  FuncsRemain.insert( Funcs.begin(), Funcs.end() );
+  FuncsRemain.insert( SPFuncList.begin(), SPFuncList.end() );
   return false;
 }
 
@@ -120,7 +127,7 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
   }
   // only consider function if specified on command line
   std::string curfunc = MF.getFunction()->getName();
-  if ( isToConvert(MF) ) {
+  if ( isEnabled(MF) ) {
     DEBUG( dbgs() << "[Single-Path] Analyze '" << curfunc << "'\n" );
     analyzeFunction(MF);
     FuncsRemain.erase(curfunc);
@@ -146,11 +153,6 @@ void PatmosSinglePathInfo::dump() const {
   print(dbgs());
 }
 #endif
-
-
-bool PatmosSinglePathInfo::isToConvert(MachineFunction &MF) const {
-  return Funcs.count(MF.getFunction()->getName()) > 0;
-}
 
 
 int PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) const {
@@ -320,8 +322,16 @@ void PatmosSinglePathInfo::decomposeControlDependence(MachineFunction &MF,
 }
 
 
+unsigned PatmosSinglePathInfo::getNumPredicates(const SPNode *N) const {
+  BitVector bv = getInitializees(N);
+  // we count the header node as well, which is not included in the
+  // initializees.
+  return bv.count() + 1;
+}
+
 BitVector PatmosSinglePathInfo::getInitializees(const SPNode *N) const {
   BitVector bv(PredCount);
+  // we exclude the header node at index 0
   for (unsigned i=1; i<N->Blocks.size(); i++) {
     bv.set(PredUse.at(N->Blocks[i]));
   }
