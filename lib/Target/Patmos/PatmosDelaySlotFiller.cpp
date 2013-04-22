@@ -53,8 +53,11 @@ using namespace llvm;
 STATISTIC( FilledSlots, "Number of delay slots filled");
 STATISTIC( FilledNOPs,  "Number of delay slots filled with NOPs");
 
+STATISTIC( SkippedLoadNOPs, "Number of loads not requiring a NOP");
 STATISTIC( InsertedLoadNOPs, "Number of NOPs inserted after loads");
 
+STATISTIC( SkippedMulNOPs, "Number of muls not requiring a NOP");
+STATISTIC( InsertedMulNOPs, "Number of NOPs inserted after muls");
 
 
 static cl::opt<bool> DisableDelaySlotFiller(
@@ -118,6 +121,11 @@ namespace {
     /// insertAfterLoad - Insert a NOP after a load instruction, if the
     /// successor instruction uses the loaded value.
     bool insertAfterLoad(MachineBasicBlock &MBB,
+                         const MachineBasicBlock::iterator I);
+
+    /// insertAfterMul - Insert a NOP after a mul instruction, if the
+    /// successor instructions use the result value.
+    bool insertAfterMul(MachineBasicBlock &MBB,
                          const MachineBasicBlock::iterator I);
 
     /// fillSlotForCtrlFlow - Fills the delay slots of instruction I in MBB.
@@ -204,11 +212,7 @@ bool PatmosDelaySlotFiller::insertNOPs(MachineBasicBlock &MBB) {
   for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
     unsigned opc = I->getOpcode();
     if (opc==Patmos::MUL || opc==Patmos::MULU) {
-      MachineBasicBlock::iterator J = next(I);
-      TII->insertNoop(MBB, J);
-      TII->insertNoop(MBB, J);
-      TII->insertNoop(MBB, J);
-      Changed = true; // pass result
+      Changed |= insertAfterMul(MBB, I);
     } else if (I->mayLoad()) {
       // if the instruction is a load instruction, and the next instruction
       // reads a register defined by the load, we insert a NOP.
@@ -315,6 +319,10 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
     DEBUG( dbgs() << "NOP inserted after load: " << *I );
     DEBUG( dbgs() << "                 before: " << *J );
     return true;
+  } else if ( J != MBB.end() ) {
+    // no dependency in next cycle
+    ++SkippedLoadNOPs;
+    return false;
   }
 
   // the load is the last instruction of the block;
@@ -337,6 +345,8 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
           inserted = true;
         }
         DEBUG(   dbgs() << "          (succ) before: " << *FirstMI );
+      } else {
+        ++SkippedLoadNOPs;
       }
     }
     return inserted;
@@ -344,6 +354,42 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
   return false;
 }
 
+bool PatmosDelaySlotFiller::
+insertAfterMul(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
+
+  int Latency = 3;
+
+  MachineBasicBlock::iterator J = next(I);
+
+  while (Latency > 0) {
+
+    // Check if this is a dependency
+    if (J == MBB.end() || J->getOpcode() == Patmos::MFS ) {
+
+      // TODO We do not look over BB boundaries for now
+      unsigned Reg = J != MBB.end() ? J->getOperand(3).getReg() : Patmos::SL;
+
+      if (Reg == Patmos::SL || Reg == Patmos::SH) {
+        while (Latency > 0) {
+          TII->insertNoop(MBB, next(I));
+          InsertedMulNOPs++;
+          Latency--;
+        }
+
+        return true;
+      }
+    }
+
+    // TODO we should check for bundles here
+    Latency--;
+
+    SkippedMulNOPs++;
+
+    J = next(J);
+  }
+
+  return false;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // DelayHazardInfo methods
