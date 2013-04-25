@@ -488,12 +488,10 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
       .addReg(Patmos::RFP);
   }
 
-  // restore the calle saved register
+  // restore the callee saved registers
   for (unsigned i = CSI.size(); i != 0; --i) {
     unsigned Reg = CSI[i-1].getReg();
     unsigned tmpReg = Reg;
-    // Add the callee-saved register as live-in. It's killed at the spill.
-    MBB.addLiveIn(Reg);
 
     // SZ is aliased with PRegs
     if (Patmos::PRegsRegClass.contains(Reg))
