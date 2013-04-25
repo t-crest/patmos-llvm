@@ -253,6 +253,14 @@ namespace llvm {
       /// (not a loop)
       bool isTopLevel() const { return (NULL == Parent); }
 
+      /// isMember - Returns true if the specified MBB is a member of this
+      /// SPNode, (non-recursively)
+      bool isMember(MachineBasicBlock *MBB) const;
+
+      /// isSubHeader - Returns true if the specified MBB is header of a
+      /// subnode of this node
+      bool isSubHeader(MachineBasicBlock *MBB) const;
+
       /// hasLoopBound - Returs true if the SPNode is a loop and has a bound
       /// to be accounted for
       bool hasLoopBound() const { return (-1 != LoopBound); }

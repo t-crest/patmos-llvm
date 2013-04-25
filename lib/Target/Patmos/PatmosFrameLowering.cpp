@@ -94,6 +94,11 @@ void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
     SCFIs[PMFI.getRegScavengingFI()] = true;
   }
 
+  // Spill slots / storage introduced for single path conversion
+  for(unsigned FI = 0; FI < PMFI.SinglePathSpillFIs.size(); FI++) {
+    SCFIs[FI] = true;
+  }
+
   // find all FIs that are spill slots
   for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI != FIe; FI++) {
     if (MFI.isDeadObjectIndex(FI))
@@ -398,7 +403,10 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   // If we need to spill S0, try to find an unused scratch register that we can
   // use instead. This only works if we do not have calls that may clobber
   // the register though.
-  if (MRI.isPhysRegUsed(Patmos::S0) && !MF.getFrameInfo()->hasCalls()) {
+  // It also makes no sense if we single-path convert the function,
+  // because the SP converter introduces spill slots anyway.
+  if (MRI.isPhysRegUsed(Patmos::S0) && !MF.getFrameInfo()->hasCalls()
+      && !PatmosSinglePathInfo::isEnabled(MF)) {
     unsigned SpillReg = 0;
     BitVector Reserved = MRI.getReservedRegs();
     BitVector CalleeSaved(TRI->getNumRegs());

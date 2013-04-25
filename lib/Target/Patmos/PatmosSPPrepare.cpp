@@ -68,6 +68,8 @@ namespace {
     /// doPrepareFunction - Reduce a given MachineFunction
     void doPrepareFunction(MachineFunction &MF);
 
+    unsigned getNumUnusedPRegs(MachineFunction &MF) const;
+
   public:
     /// PatmosSPPrepare - Initialize with PatmosTargetMachine
     PatmosSPPrepare(const PatmosTargetMachine &tm) :
@@ -147,25 +149,53 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     }
   }
 
-  for(unsigned i=0; i<requiredPreds.size(); i++) {
-    int fi;
-    DEBUG( dbgs() << "[" << i << "]: " << requiredPreds[i] << "\n");
-    // create a stack slot for S0 (7 assignable predicates) + each additional
-    // started 32 bit predicates:
-
-    fi = MFI.CreateStackObject(8, 1, false);
+  // create for each nesting level but the innermost one a byte-sized
+  // spill slot for S0 in use
+  for(unsigned i=0; i<requiredPreds.size()-1; i++) {
+    int fi = MFI.CreateStackObject(1, 1, false);
     PMFI.SinglePathSpillFIs.push_back(fi);
-
-    const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
-    for (unsigned j=0; j<(requiredPreds[i]+25)/32; j++) {
-      fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
-      PMFI.SinglePathSpillFIs.push_back(fi);
-    }
-
   }
 
+  // compute the required number of spill bits, depending on the number
+  // of allocatable pred regs
+  int numAllocatablePRegs = getNumUnusedPRegs(MF);
+  int numSpillSlotsReq = 0;
+  for(unsigned i=0; i<requiredPreds.size(); i++) {
+    DEBUG( dbgs() << "[" << i << "]: " << requiredPreds[i] << "\n");
+
+    int cnt = requiredPreds[i] - numAllocatablePRegs;
+    if (cnt>0) {
+      numSpillSlotsReq += cnt;
+    }
+  }
+
+  const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
+  DEBUG( dbgs() << "Computed number of allocatable PRegs: "
+                << numAllocatablePRegs
+                << "\nRequired predicate spill slots (bits): "
+                << numSpillSlotsReq << "\n");
+
+  // create them as multiples of RRegs size
+  for (unsigned j=0;
+       j <= (numSpillSlotsReq+31)/(8*RC->getSize());
+       j++) {
+    int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
+    PMFI.SinglePathSpillFIs.push_back(fi);
+  }
 }
 
 
+unsigned PatmosSPPrepare::getNumUnusedPRegs(MachineFunction &MF) const {
+  MachineRegisterInfo &RegInfo = MF.getRegInfo();
+  unsigned count = 0;
+  // Get the unused predicate registers
+  for (TargetRegisterClass::iterator I=Patmos::PRegsRegClass.begin(),
+      E=Patmos::PRegsRegClass.end(); I!=E; ++I ) {
+    if (RegInfo.reg_empty(*I) && *I!=Patmos::P0) {
+      count++;
+    }
+  }
+  return count;
+}
 ///////////////////////////////////////////////////////////////////////////////
 

@@ -44,6 +44,7 @@
 #include "PatmosSinglePathInfo.h"
 
 #include <map>
+#include <algorithm>
 #include <sstream>
 #include <iostream>
 
@@ -93,10 +94,16 @@ namespace {
     /// exractPReg - Extract the corect pred to PReg at the beginning of MBB
     void extractPReg(MachineBasicBlock *MBB, unsigned pred);
 
+    /// hasLiveOutPReg - Check if an unavailable PReg must be preserved
+    /// in S0 during predicate allocation SPNode on exiting the SPNode
+    bool hasLiveOutPReg(const SPNode *N) const;
+
     // predicate registers
-    /// AvailPredRegs - Predicate registers unused in the function,
-    /// which are used for allocation here
+    // Predicate registers un-/used in the function,
+    // which are un-/available for allocation here
     std::vector<unsigned> AvailPredRegs;
+    std::vector<unsigned> UnavailPredRegs;
+
     unsigned GuardsReg; // RReg to hold all predicates
     unsigned PReg;      // current PReg
     unsigned PRTmp;     // temporary PReg
@@ -104,13 +111,47 @@ namespace {
     // walker
     class LinearizeWalker : public SPNodeWalker {
       private:
+        typedef std::map<unsigned, std::pair<int,int> > LiveRange;
+        struct RAInfo {
+          SPNode *Node;
+          std::vector<MachineBasicBlock *> MBBs;
+          LiveRange LRs;
+          explicit RAInfo(SPNode *N) : Node(N) {}
+          void addDef(unsigned p, int def) {
+            // if it has already been defined, it must be the header
+            assert( !LRs.count(p) || def==0 );
+            if(!LRs.count(p)) {
+              LRs[p] = std::make_pair(def,-1);
+            }
+          }
+          void addUse(unsigned p, int use) {
+            if (LRs.count(p)) {
+              LRs[p].second = use;
+            } else {
+              // if no def for a use -> it's a livein!
+              LRs[p] = std::make_pair(-1,use);
+            }
+          }
+          // comparator for predicates, based on their live range
+          bool operator()(int left, int right) {
+            std::pair<int,int> le(LRs[left]), re(LRs[right]);
+            if (le.first == re.first) {
+              return le.second < re.second;
+            }
+            return le.first < re.first;
+          }
+        };
         virtual void nextMBB(MachineBasicBlock *);
         virtual void enterSubnode(SPNode *);
         virtual void exitSubnode(SPNode *);
+        void updateRAInfo(MachineBasicBlock *, bool onlyUse=false);
+        void allocatePRegs(void);
+
         PatmosSPReduce &Pass;
         MachineFunction &MF;
 
         MachineBasicBlock *LastMBB;
+        std::vector<RAInfo> RAInfos;
       public:
         explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
           : Pass(pass), MF(mf), LastMBB(NULL) {}
@@ -181,8 +222,10 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
       E=Patmos::PRegsRegClass.end(); I!=E; ++I ) {
     if (RegInfo.reg_empty(*I) && *I!=Patmos::P0) {
       AvailPredRegs.push_back(*I);
-      DEBUG( dbgs() << "PReg " << PrintReg(*I,TM.getRegisterInfo())
+      DEBUG( dbgs() << "PReg " << TM.getRegisterInfo()->getName(*I)
                     << " available\n" );
+    } else {
+      UnavailPredRegs.push_back(*I);
     }
   }
   GuardsReg = Patmos::R26;
@@ -438,6 +481,7 @@ void PatmosSPReduce::insertPredSet(MachineBasicBlock *MBB,
     .addImm(imm);
 }
 
+
 void PatmosSPReduce::insertPredClr(MachineBasicBlock *MBB,
                                    MachineBasicBlock::iterator MI,
                                    BitVector bits) {
@@ -446,6 +490,7 @@ void PatmosSPReduce::insertPredClr(MachineBasicBlock *MBB,
         TII->get(Patmos::ANDl), GuardsReg))
     .addReg(GuardsReg).addImm(~imm); // bitwise negated imm
 }
+
 
 void PatmosSPReduce::extractPReg(MachineBasicBlock *MBB, unsigned pred) {
   DebugLoc DL;
@@ -459,10 +504,23 @@ void PatmosSPReduce::extractPReg(MachineBasicBlock *MBB, unsigned pred) {
 }
 
 
+
+bool PatmosSPReduce::hasLiveOutPReg(const SPNode *N) const {
+  MachineBasicBlock *SuccMBB = N->getSuccMBB();
+  for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
+    if (SuccMBB->isLiveIn(UnavailPredRegs[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
   DEBUG_TRACE( dbgs() << "| MBB#" << MBB->getNumber() << "\n" );
+
+  updateRAInfo(MBB);
 
   // remove all successors
   for ( MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
@@ -485,6 +543,14 @@ void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
 
 
 void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
+
+  // if we step into the node, don't forget to account for its live-ranges in
+  // the containing node.
+  if (!N->isTopLevel())
+    updateRAInfo(N->getHeader(), true);
+
+  RAInfos.push_back(RAInfo(N));
+
   // We don't create a preheader for entry.
   if (N->isTopLevel()) return;
 
@@ -495,7 +561,15 @@ void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
   MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
   MF.push_back(PrehdrMBB);
 
-  // FIXME translation to proper stack FI, stack cache!
+  // TODO optimization:
+  // if # required preds in N + in parent <= |AvailPredRegs|,
+  // then we do not need to spill/restore.
+  // As this should be done from innermosts to outermost,
+  // it's probaly best to analyse and mark SPNodes for which this applies
+  // in a preceding step.
+
+  // we create a SBC instruction here; TRI->eliminateFrameIndex() will
+  // convert it to a stack cache access, if the stack cache is enabled.
   DebugLoc DL;
   int fi = PMFI.SinglePathSpillFIs[N->getDepth()-1];
   unsigned tmpReg = Patmos::R26;
@@ -526,6 +600,10 @@ void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
 
 void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
 
+  allocatePRegs();
+
+  RAInfos.pop_back();
+
   PatmosSinglePathInfo &PSPI = Pass.getAnalysis<PatmosSinglePathInfo>();
 
   MachineBasicBlock *Header = N->getHeader();
@@ -533,6 +611,9 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
                 <<  ", MBB#" <<  LastMBB->getNumber() << "]\n" );
 
   if (N->isTopLevel()) return;
+
+  const TargetRegisterInfo *TRI = Pass.TM.getRegisterInfo();
+  PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   // insert backwards branch to header at the last block
   // TODO loop iteration counts
@@ -551,9 +632,75 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
     .addMBB(Header);
   BranchMBB->addSuccessor(Header);
 
-  // TODO create a post-loop MBB to restore the spill predicates
+  // FIXME in master: why do we add callee saved regs at restoreSpillRegs
+  // as liveins???
+  //assert(!Pass.hasLiveOutPReg(N) &&
+  //        "Unimplemented: handling of live-out PRegs of loops");
+
+  // create a post-loop MBB to restore the spill predicates
+  MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
+  MF.push_back(PostMBB);
+  // we create a LBC instruction here; TRI->eliminateFrameIndex() will
+  // convert it to a stack cache access, if the stack cache is enabled.
+  int fi = PMFI.SinglePathSpillFIs[N->getDepth()-1];
+  unsigned tmpReg = Patmos::R26;
+  MachineInstr *loadMI =
+    AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
+          Pass.TII->get(Patmos::LBC), tmpReg))
+    .addFrameIndex(fi).addImm(0); // address
+
+  TRI->eliminateFrameIndex(loadMI, 0, NULL);
+  // assign to S0
+  Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
+                        Patmos::S0, tmpReg, true);
+  nextMBB(PostMBB);
 }
 
+void PatmosSPReduce::LinearizeWalker::updateRAInfo(MachineBasicBlock *MBB,
+                                                   bool onlyUse) {
 
+  PatmosSinglePathInfo &PSPI = Pass.getAnalysis<PatmosSinglePathInfo>();
+
+  // update LiveRanges in current node
+  RAInfo &RI = RAInfos.back();
+  if ( RI.Node->isMember(MBB) ) {
+    unsigned curpos = RI.MBBs.size(); // this captures the current "time"
+    RI.MBBs.push_back(MBB);
+    // update uses
+    RI.addUse(PSPI.getPredUse(MBB), curpos);
+    // insert defs
+    if (!onlyUse) {
+      const PatmosSinglePathInfo::PredDefInfo *DI = PSPI.getDefInfo(MBB);
+      if (DI) {
+        for (int r = DI->getBoth().find_first(); r != -1;
+            r = DI->getBoth().find_next(r)) {
+          RI.addDef(r, curpos);
+        }
+      }
+    }
+  }
+}
+
+void PatmosSPReduce::LinearizeWalker::allocatePRegs() {
+  RAInfo &RI = RAInfos.back();
+
+  std::vector<unsigned> order;
+  for(LiveRange::iterator I=RI.LRs.begin(), E=RI.LRs.end(); I!=E; ++I) {
+    // adjust LiveRange of liveins
+    if (I->second.first == -1)
+      I->second.second = RI.MBBs.size()-1;
+    order.push_back(I->first);
+  }
+  std::sort(order.begin(), order.end(), RI);
+  for(unsigned i=0; i<order.size(); i++) {
+    unsigned pred = order[i];
+    std::pair<int,int> LR = RI.LRs[pred];
+    DEBUG( dbgs() << "LR(p" << pred << ") = [MBB#"
+               << ((LR.first != -1) ? RI.MBBs[LR.first]->getNumber() : -1 )
+               << ",MBB#"
+               << ((LR.second != -1) ? RI.MBBs[LR.second]->getNumber() : -1 )
+               << "]\n");
+  }
+}
 ///////////////////////////////////////////////////////////////////////////////
 

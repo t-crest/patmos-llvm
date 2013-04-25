@@ -441,6 +441,16 @@ void SPNode::addMBB(MachineBasicBlock *MBB) {
   }
 }
 
+bool SPNode::isMember(MachineBasicBlock *MBB) const {
+  for (unsigned i=0; i<Blocks.size(); i++) {
+    if (Blocks[i] == MBB) return true;
+  }
+  return false;
+}
+
+bool SPNode::isSubHeader(MachineBasicBlock *MBB) const {
+  return HeaderMap.count(MBB) > 0;
+}
 
 void SPNode::walk(SPNodeWalker &walker) {
   std::deque<MachineBasicBlock *> S;
