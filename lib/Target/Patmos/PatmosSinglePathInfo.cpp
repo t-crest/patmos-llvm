@@ -165,14 +165,20 @@ int PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) const {
 
 void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
   assert( Root != NULL );
-  DEBUG( dbgs() << "Walking SPNode root\n");
   Root->walk(walker);
 }
 
 
 void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
+
+  // build the SPNode tree
   Root = createSPNodeTree(MF);
+  // topologically sort the blocks and subnodes of each SPNode
+  for (df_iterator<SPNode*> I = df_begin(Root), E = df_end(Root); I!=E; ++I) {
+    SPNode *N = *I;
+    N->topoSort();
+  }
   DEBUG( Root->dump() );
 
 
@@ -223,8 +229,10 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
 void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
                                                     CD_map_t &CD) const {
+
   // for CD, we need the Postdom-Tree
   MachinePostDominatorTree &PDT = getAnalysis<MachinePostDominatorTree>();
+
   assert(PDT.getRoots().size()==1 && "Function must have a single exit node!");
 
   DEBUG_TRACE( dbgs() << "Post-dominator tree:\n" );
@@ -273,8 +281,6 @@ void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
     }
   });
 }
-
-
 
 void PatmosSinglePathInfo::decomposeControlDependence(MachineFunction &MF,
                                                       const CD_map_t &CD,
@@ -448,16 +454,18 @@ bool SPNode::isMember(MachineBasicBlock *MBB) const {
   return false;
 }
 
+
 bool SPNode::isSubHeader(MachineBasicBlock *MBB) const {
   return HeaderMap.count(MBB) > 0;
 }
 
-void SPNode::walk(SPNodeWalker &walker) {
+
+void SPNode::topoSort(void) {
   std::deque<MachineBasicBlock *> S;
   std::vector<MachineBasicBlock *> succs;
   std::map<MachineBasicBlock *, int> deps;
   // for each block in SPNode excluding header,
-  // store the number of preds
+  // store the number of predecessors
   for (unsigned i=1; i<Blocks.size(); i++) {
     MachineBasicBlock *MBB = Blocks[i];
     deps[MBB] = MBB->pred_size();
@@ -467,22 +475,20 @@ void SPNode::walk(SPNodeWalker &walker) {
     }
   }
 
-  walker.enterSubnode(this);
-
+  DEBUG_TRACE( dbgs() << "Toposort [MBB#"
+                      << Blocks.front()->getNumber() << "]\n");
   S.push_back(Blocks.front());
-  while(!S.empty()) {
+  Blocks.clear();
+  while (!S.empty()) {
     MachineBasicBlock *n = S.back();
+    Blocks.push_back(n); // re-append
     S.pop_back();
     // n is either a subloop header or a simple block of this SPNode
     if (HeaderMap.count(n)) {
-      // subloop header
-      SPNode *subnode = HeaderMap[n];
-      subnode->walk(walker);
-      succs.push_back(subnode->getSuccMBB());
+      succs.push_back(HeaderMap[n]->getSuccMBB());
     } else {
       // simple block
       succs.insert( succs.end(), n->succ_begin(), n->succ_end() );
-      walker.nextMBB(n);
     }
 
     for (unsigned i=0; i<succs.size(); i++) {
@@ -491,7 +497,7 @@ void SPNode::walk(SPNodeWalker &walker) {
       if (succ != getHeader()) {
         deps[succ]--;
         if (deps[succ] == 0) {
-          // heurisic: loops have lower priority
+          // heuristic: loops have lower priority
           // to keep predicate life ranges short (not across loops)
           if (HeaderMap.count(succ)) {
             S.push_front(succ);
@@ -507,7 +513,18 @@ void SPNode::walk(SPNodeWalker &walker) {
     }
     succs.clear();
   }
+}
 
+void SPNode::walk(SPNodeWalker &walker) {
+  walker.enterSubnode(this);
+  for (unsigned i=0; i<Blocks.size(); i++) {
+    MachineBasicBlock *MBB = Blocks[i];
+    if (HeaderMap.count(MBB)) {
+      HeaderMap[MBB]->walk(walker);
+    } else {
+      walker.nextMBB(MBB);
+    }
+  }
   walker.exitSubnode(this);
 }
 

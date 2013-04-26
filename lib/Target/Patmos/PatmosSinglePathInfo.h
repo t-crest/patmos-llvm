@@ -271,6 +271,9 @@ namespace llvm {
       /// walk - Walk this SPNode recursively
       void walk(SPNodeWalker &walker);
 
+      /// topoSort - sort blocks of this SPNode topologically
+      void topoSort(void);
+
       // dump() - Dump state of this SP node and the subtree
       void dump() const;
 
