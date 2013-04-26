@@ -10,12 +10,6 @@
 //===----------------------------------------------------------------------===//
 // Patmos functional units.
 //===----------------------------------------------------------------------===//
-def IF : FuncUnit;
-def DR : FuncUnit;
-def EX : FuncUnit;
-def MW : FuncUnit;
-
-
 def FU_ALU0 : FuncUnit;
 def FU_ALU1 : FuncUnit;
 def FU_MUL  : FuncUnit;
@@ -49,22 +43,6 @@ def IIC_Pseudo : InstrItinClass;
 //===----------------------------------------------------------------------===//
 // <FUs, bypasses, InstrItinData for each class>
 def PatmosGenericItineraries : ProcessorItineraries<
-  [FU_ALU0], [], [
-    InstrItinData<IIC_ALU,    [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_ALUl,   [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_ALUm,   [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_LD,     [ InstrStage<1, [FU_ALU0]> ], [2,0]>,
-    InstrItinData<IIC_ST,     [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_LDs,    [ InstrStage<1, [FU_ALU0]> ], [2,0]>,
-    InstrItinData<IIC_STs,    [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_STC,    [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_SPCn,   [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_SPCw,   [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_CFL,    [ InstrStage<1, [FU_ALU0]> ]>,
-    InstrItinData<IIC_Pseudo, [ InstrStage<1, [FU_ALU0]> ]>
-  ]>;
-
-def PatmosDualItineraries : ProcessorItineraries<
   [FU_ALU0, FU_ALU1, FU_MUL], [], [
     InstrItinData<IIC_ALU,    [ InstrStage<1, [FU_ALU0, FU_ALU1]> ]>,
     InstrItinData<IIC_ALUl,   [ InstrStage<1, [FU_ALU0], 0>,
@@ -81,3 +59,11 @@ def PatmosDualItineraries : ProcessorItineraries<
     InstrItinData<IIC_CFL,    [ InstrStage<1, [FU_ALU0]> ]>,
     InstrItinData<IIC_Pseudo, [ InstrStage<0, [FU_ALU0]> ]>
   ]>;
+
+def PatmosGenericModel : SchedMachineModel {
+    let IssueWidth = 2;
+    let Itineraries = PatmosGenericItineraries;
+    // TODO check?
+    let LoadLatency = 1;
+}
+
