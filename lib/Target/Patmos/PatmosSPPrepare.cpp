@@ -134,7 +134,7 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
   for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
     SPNode *N = *I;
     MachineBasicBlock *Header = N->getHeader();
-    unsigned preds = PSPI.getNumPredicates(N);
+    unsigned preds = N->getNumPredicates();
     unsigned d = N->getDepth();
 
     DEBUG( dbgs() << "[MBB#" << Header->getNumber()

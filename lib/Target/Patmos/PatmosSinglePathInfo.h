@@ -21,6 +21,7 @@
 #include <llvm/Module.h>
 #include <llvm/ADT/BitVector.h>
 #include <llvm/CodeGen/MachineFunctionPass.h>
+#include "llvm/CodeGen/MachinePostDominators.h"
 
 #include <vector>
 #include <set>
@@ -44,12 +45,10 @@ namespace llvm {
   // forward decl
   class SPNode;
   class SPNodeWalker;
+  class PredDefInfo;
 
   /// PatmosSinglePathInfo - Single-Path analysis pass
   class PatmosSinglePathInfo : public MachineFunctionPass {
-    public:
-      // forward decl
-      class PredDefInfo;
     private:
       /// Typedefs for control dependence:
       /// CD: MBB -> set of edges
@@ -69,24 +68,8 @@ namespace llvm {
       /// Set of functions yet to be analyzed
       std::set<std::string> FuncsRemain;
 
-
-      ////////// state of the pass
-
-      /// Number of predicates used
-      unsigned PredCount;
-
-      /// Map MBBs to predicate they use
-      std::map<const MachineBasicBlock*, unsigned> PredUse;
-
-      /// PredDefs - Stores predicate define information for each basic block
-      std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
-
-      /// Specifies, which predicates are true at the entry edge
-      BitVector PredEntryEdge;
-
       /// Root SPNode
       SPNode *Root;
-
 
 
       /// Analyze a given MachineFunction
@@ -97,20 +80,22 @@ namespace llvm {
       /// by deleting the root node.
       SPNode *createSPNodeTree(MachineFunction &MF) const;
 
-      /// computeControlDependence - Compute CD for a given function.
-      void computeControlDependence(MachineFunction &MF, CD_map_t &CD) const;
+      /// computeControlDependence - Compute CD for a given SPNode
+      void computeControlDependence(SPNode &N,
+                                    MachinePostDominatorTree &PDT,
+                                    CD_map_t &CD) const;
 
       /// decomposeControlDependence - Decompose CD into K and R.
-      void decomposeControlDependence(MachineFunction &MF, const CD_map_t &CD,
+      void decomposeControlDependence(SPNode &N, const CD_map_t &CD,
                                       K_t &K, R_t &R) const;
 
-      /// collectPredDefs - Create predicate definition information for
-      /// affected MBBs
-      void collectPredDefs(MachineFunction &MF, const K_t &K);
+      /// assignPredInfo - Set the predicate information of an SPNode
+      void assignPredInfo(SPNode &N, const K_t &K, const R_t &R) const;
 
       /// getOrCreateDefInfo - Returns a predicate definition info
       /// for a given MBB.
-      PredDefInfo &getOrCreateDefInfo(const MachineBasicBlock *);
+      PredDefInfo &getOrCreateDefInfo(SPNode &, const MachineBasicBlock *)
+                                      const;
 
     public:
       /// Pass ID
@@ -152,73 +137,49 @@ namespace llvm {
       virtual void dump() const;
 #endif
 
-      ////////////////////////////////////
-      // accessing main analysis results:
-      ////////////////////////////////////
-
-      /// PredDefInfo - Class containing predicate definition information
-      /// of one MachineBasicBlock.
-      /// Instances for MBBs are stored in the PredDefs map.
-      class PredDefInfo {
-      private:
-        BitVector TrueEdge;
-        BitVector FalseEdge;
-        const MachineBasicBlock *TBB;
-        const SmallVector<MachineOperand, 2> Cond;
-      public:
-        PredDefInfo(unsigned num_preds, const MachineBasicBlock *tbb,
-                      const SmallVector<MachineOperand, 2> &cond)
-                      : TBB(tbb), Cond(cond) {
-            TrueEdge  = BitVector(num_preds);
-            FalseEdge = BitVector(num_preds);
-        }
-        bool isTrueDest(const MachineBasicBlock *MBBDst) const {
-          return MBBDst == TBB;
-        }
-        void define(unsigned pred, const MachineBasicBlock *MBBDst) {
-          BitVector &bv = (MBBDst == TBB) ? TrueEdge : FalseEdge;
-          bv.set(pred);
-        }
-        const BitVector &getTrue() const { return TrueEdge; }
-        const BitVector &getFalse() const { return FalseEdge; }
-        const BitVector getBoth() const {
-          BitVector both(TrueEdge);
-          both |= FalseEdge;
-          return both;
-        }
-        const SmallVector<MachineOperand, 2> &getCond() const { return Cond; }
-      };
-
       /// isToConvert - Return true if the function should be if-converted
       bool isToConvert(MachineFunction &MF) const;
-
-      /// getNumPredicates - Returns the number of predicates required for
-      /// this function
-      unsigned getNumPredicates() const { return PredCount; }
-
-      /// getNumPredicates - Returns the number of predicates required for
-      /// a particular SPNode
-      unsigned getNumPredicates(const SPNode *N) const;
-
-      /// getPredUse - Returns the guarding predicate for an MBB
-      int getPredUse(const MachineBasicBlock *) const;
-
-      /// getDefInfo - Returns a pointer to a predicate definition info for
-      /// a given MBB, or NULL if no pred info exists for the MBB.
-      const PredDefInfo *getDefInfo(const MachineBasicBlock *) const;
-
-      /// getPredEntryEdge - Returns a bitvector for preds true on entry edge
-      BitVector getPredEntryEdge() const { return PredEntryEdge; }
-
-      /// getInitializees - Return the predicates that need to be initialized
-      /// for a given SPNode
-      BitVector getInitializees(const SPNode *N) const;
 
       /// getRootNode - Return the Root SPNode for this function
       SPNode *getRootNode() const { return Root; }
 
       /// walkRoot - Walk the top-level SPNode
       void walkRoot(SPNodeWalker &walker) const;
+  };
+
+///////////////////////////////////////////////////////////////////////////////
+
+/// PredDefInfo - Class containing predicate definition information
+/// of one MachineBasicBlock.
+/// Instances for MBBs are stored in the PredDefs map.
+  class PredDefInfo {
+    private:
+      BitVector TrueEdge;
+      BitVector FalseEdge;
+      const MachineBasicBlock *TBB;
+      const SmallVector<MachineOperand, 2> Cond;
+    public:
+      PredDefInfo(unsigned num_preds, const MachineBasicBlock *tbb,
+          const SmallVector<MachineOperand, 2> &cond)
+        : TBB(tbb), Cond(cond) {
+          TrueEdge  = BitVector(num_preds);
+          FalseEdge = BitVector(num_preds);
+        }
+      bool isTrueDest(const MachineBasicBlock *MBBDst) const {
+        return MBBDst == TBB;
+      }
+      void define(unsigned pred, const MachineBasicBlock *MBBDst) {
+        BitVector &bv = (MBBDst == TBB) ? TrueEdge : FalseEdge;
+        bv.set(pred);
+      }
+      const BitVector &getTrue() const { return TrueEdge; }
+      const BitVector &getFalse() const { return FalseEdge; }
+      const BitVector getBoth() const {
+        BitVector both(TrueEdge);
+        both |= FalseEdge;
+        return both;
+      }
+      const SmallVector<MachineOperand, 2> &getCond() const { return Cond; }
   };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -271,11 +232,22 @@ namespace llvm {
       /// walk - Walk this SPNode recursively
       void walk(SPNodeWalker &walker);
 
-      /// topoSort - sort blocks of this SPNode topologically
-      void topoSort(void);
+      /// getNumPredicates - Returns the number of predicates required for
+      /// this function
+      unsigned getNumPredicates() const { return PredCount; }
+
+      /// getPredUse - Returns the guarding predicate for an MBB
+      int getPredUse(const MachineBasicBlock *) const;
+
+      /// getDefInfo - Returns a pointer to a predicate definition info for
+      /// a given MBB, or NULL if no pred info exists for the MBB.
+      const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
 
       // dump() - Dump state of this SP node and the subtree
       void dump() const;
+
+      /// iterator - Type for iterator through MBBs
+      typedef std::vector<MachineBasicBlock*>::iterator iterator;
 
       /// child_iterator - Type for child iterator
       typedef std::vector<SPNode*>::iterator child_iterator;
@@ -305,7 +277,25 @@ namespace llvm {
       // nesting depth
       unsigned int Depth;
 
+      /// Number of predicates used
+      unsigned PredCount;
+
+      /// Map MBBs to predicate they use
+      std::map<const MachineBasicBlock*, unsigned> PredUse;
+
+      /// PredDefs - Stores predicate define information for each basic block
+      std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
+
+      /// topoSort - sort blocks of this SPNode topologically
+      void topoSort(void);
+
     public:
+      /// begin - Iterator begin for MBBs
+      iterator begin() { return Blocks.begin(); }
+
+      /// child_end - Iterator end for MBBs
+      iterator end() { return Blocks.end(); }
+
       /// child_begin - Iterator begin for subloops
       child_iterator child_begin() { return Children.begin(); }
 

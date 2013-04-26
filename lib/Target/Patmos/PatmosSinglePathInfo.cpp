@@ -25,7 +25,6 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
-#include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -116,11 +115,6 @@ void PatmosSinglePathInfo::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
-  // clear the state of the pass
-  PredCount = 0;
-  PredUse.clear();
-  PredDefs.clear();
-  PredEntryEdge.clear();
   if (Root) {
     delete Root;
     Root = NULL;
@@ -155,13 +149,6 @@ void PatmosSinglePathInfo::dump() const {
 #endif
 
 
-int PatmosSinglePathInfo::getPredUse(const MachineBasicBlock *MBB) const {
-  if (PredUse.count(MBB)) {
-    return PredUse.at(MBB);
-  }
-  return -1;
-}
-
 
 void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
   assert( Root != NULL );
@@ -171,34 +158,34 @@ void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
 
 void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
+  // for CD, we need the Postdom-Tree
+  MachinePostDominatorTree &PDT = getAnalysis<MachinePostDominatorTree>();
+
+  assert(PDT.getRoots().size()==1 && "Function must have a single exit node!");
+
+  DEBUG_TRACE( dbgs() << "Post-dominator tree:\n" );
+  DEBUG_TRACE( PDT.print(dbgs(), MF.getFunction()->getParent()) );
 
   // build the SPNode tree
   Root = createSPNodeTree(MF);
-  // topologically sort the blocks and subnodes of each SPNode
   for (df_iterator<SPNode*> I = df_begin(Root), E = df_end(Root); I!=E; ++I) {
     SPNode *N = *I;
+    // topologically sort the blocks and subnodes of each SPNode
     N->topoSort();
+
+    CD_map_t CD;
+    computeControlDependence(*N, PDT, CD);
+
+    K_t K;
+    R_t R;
+    decomposeControlDependence(*N, CD, K, R);
+
+    assignPredInfo(*N, K, R);
   }
   DEBUG( Root->dump() );
 
 
-  // CD: MBB -> set of edges
-  CD_map_t CD;
-  computeControlDependence(MF, CD);
-
-  // decompose CD
-  K_t K;
-  R_t R;
-  decomposeControlDependence(MF, CD, K, R);
-
-
-  // Properly assign the Uses/Defs
-  PredCount = K.size();
-  PredUse = R;
-  // collect PredDefsT, PredDefsF
-  collectPredDefs(MF, K);
-
-
+#if 0
   DEBUG_TRACE({
     dbgs() << "Number of predicates: " <<  PredCount << "\n";
     dbgs() << "Defs T on entry edge: ";
@@ -219,6 +206,7 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
       dbgs() << "\n";
     }
   });
+#endif
 
   // XXX for debugging
   //MF.viewCFGOnly();
@@ -227,27 +215,23 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
 
 
-void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
-                                                    CD_map_t &CD) const {
+void PatmosSinglePathInfo::computeControlDependence(SPNode &N,
+                                              MachinePostDominatorTree &PDT,
+                                              CD_map_t &CD) const {
 
-  // for CD, we need the Postdom-Tree
-  MachinePostDominatorTree &PDT = getAnalysis<MachinePostDominatorTree>();
-
-  assert(PDT.getRoots().size()==1 && "Function must have a single exit node!");
-
-  DEBUG_TRACE( dbgs() << "Post-dominator tree:\n" );
-  DEBUG_TRACE( PDT.print(dbgs(), MF.getFunction()->getParent()) );
-
-  // build control dependence
-  for (MachineFunction::iterator FI=MF.begin(), FE=MF.end(); FI!=FE; ++FI) {
-    MachineBasicBlock *MBB = FI;
+  // build control dependence information
+  for (unsigned i=0; i<N.Blocks.size(); i++) {
+    MachineBasicBlock *MBB = N.Blocks[i];
     MachineDomTreeNode *ipdom = PDT[MBB]->getIDom();
 
     for(MachineBasicBlock::succ_iterator SI=MBB->succ_begin(),
                                          SE=MBB->succ_end(); SI!=SE; ++SI) {
       MachineBasicBlock *SMBB = *SI;
-      // exclude edges to post-dominating non-self successors
-      if (!PDT.dominates(SMBB, MBB) || SMBB==MBB ) {
+      // only consider members
+      if (!N.isMember(SMBB))
+        continue;
+      // exclude edges to post-dominating successors
+      if (!PDT.dominates(SMBB, MBB)) {
         // insert the edge MBB->SMBB to all controlled blocks
         for (MachineDomTreeNode *t = PDT[SMBB]; t != ipdom; t = t->getIDom()) {
           CD[t->getBlock()].insert( std::make_pair(MBB,SMBB) );
@@ -257,8 +241,8 @@ void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
   } // end for each MBB
 
   // add control dependence for entry edge NULL -> BB0
-  {
-    MachineBasicBlock *entryMBB = &MF.front();
+  if (N.isTopLevel()) {
+    MachineBasicBlock *entryMBB = N.getHeader();
     for (MachineDomTreeNode *t = PDT[entryMBB]; t != NULL; t = t->getIDom() ) {
       CD[t->getBlock()].insert( std::make_pair(
                                   (MachineBasicBlock*)NULL, entryMBB)
@@ -282,12 +266,13 @@ void PatmosSinglePathInfo::computeControlDependence(MachineFunction &MF,
   });
 }
 
-void PatmosSinglePathInfo::decomposeControlDependence(MachineFunction &MF,
+
+void PatmosSinglePathInfo::decomposeControlDependence(SPNode &N,
                                                       const CD_map_t &CD,
                                                       K_t &K, R_t &R) const {
   int p = 0;
-  for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
-    MachineBasicBlock *MBB = FI;
+  for (unsigned i=0; i<N.Blocks.size(); i++) {
+    MachineBasicBlock *MBB = N.Blocks[i];
     CD_map_entry_t t = CD.at(MBB);
     int q=-1;
     // try to lookup the control dependence
@@ -328,25 +313,12 @@ void PatmosSinglePathInfo::decomposeControlDependence(MachineFunction &MF,
 }
 
 
-unsigned PatmosSinglePathInfo::getNumPredicates(const SPNode *N) const {
-  BitVector bv = getInitializees(N);
-  // we count the header node as well, which is not included in the
-  // initializees.
-  return bv.count() + 1;
-}
+void PatmosSinglePathInfo::assignPredInfo(SPNode &N, const K_t &K,
+                                          const R_t &R) const {
+  // Properly assign the Uses/Defs
+  N.PredCount = K.size();
+  N.PredUse = R;
 
-BitVector PatmosSinglePathInfo::getInitializees(const SPNode *N) const {
-  BitVector bv(PredCount);
-  // we exclude the header node at index 0
-  for (unsigned i=1; i<N->Blocks.size(); i++) {
-    bv.set(PredUse.at(N->Blocks[i]));
-  }
-  return bv;
-}
-
-void PatmosSinglePathInfo::collectPredDefs(MachineFunction &MF, const K_t &K) {
-  // Initialize entry predicates
-  PredEntryEdge = BitVector(PredCount);
   // For each predicate, compute defs
   for (unsigned int i=0; i<K.size(); i++) {
     // for each definition edge
@@ -354,26 +326,24 @@ void PatmosSinglePathInfo::collectPredDefs(MachineFunction &MF, const K_t &K) {
               EI!=EE; ++EI) {
       const MachineBasicBlock *MBBSrc = EI->first, *MBBDst = EI->second;
       if (!MBBSrc) {
-        // top-level entry edge
-        PredEntryEdge.set(i);
         continue;
       }
 
       // get pred definition info of MBBSrc
-      PredDefInfo &PredDef = getOrCreateDefInfo(MBBSrc);
+      PredDefInfo &PredDef = getOrCreateDefInfo(N, MBBSrc);
       // insert definition for predicate i according to MBBDst
       PredDef.define(i, MBBDst);
     } // end for each definition edge
   }
-
+//TODO
 }
-
 ///////////////////////////////////////////////////////////////////////////////
 
-PatmosSinglePathInfo::PredDefInfo &
-PatmosSinglePathInfo::getOrCreateDefInfo(const MachineBasicBlock *MBB) {
+PredDefInfo &
+PatmosSinglePathInfo::getOrCreateDefInfo(SPNode &N,
+                                         const MachineBasicBlock *MBB) const {
 
-  if (!PredDefs.count(MBB)) {
+  if (!N.PredDefs.count(MBB)) {
     // for AnalyzeBranch
     MachineBasicBlock *TBB = NULL, *FBB = NULL;
     SmallVector<MachineOperand, 2> Cond;
@@ -393,22 +363,13 @@ PatmosSinglePathInfo::getOrCreateDefInfo(const MachineBasicBlock *MBB) {
     }
 
     // Create new info
-    PredDefs.insert(
-      std::make_pair(MBB, PredDefInfo(PredCount, TBB, Cond)) );
+    N.PredDefs.insert(
+      std::make_pair(MBB, PredDefInfo(N.PredCount, TBB, Cond)) );
   }
 
-  return PredDefs.at(MBB);
+  return N.PredDefs.at(MBB);
 }
 
-
-const PatmosSinglePathInfo::PredDefInfo *
-PatmosSinglePathInfo::getDefInfo(const MachineBasicBlock *MBB) const {
-
-  if (PredDefs.count(MBB)) {
-    return &PredDefs.at(MBB);
-  }
-  return NULL;
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 // SPNode methods
@@ -550,6 +511,21 @@ void SPNode::dump() const {
       dbgs() <<  " BB#" << MBB->getNumber() << "\n";
     }
   }
+}
+
+int SPNode::getPredUse(const MachineBasicBlock *MBB) const {
+  if (PredUse.count(MBB)) {
+    return PredUse.at(MBB);
+  }
+  return -1;
+}
+
+const PredDefInfo *SPNode::getDefInfo( const MachineBasicBlock *MBB) const {
+
+  if (PredDefs.count(MBB)) {
+    return &PredDefs.at(MBB);
+  }
+  return NULL;
 }
 
 

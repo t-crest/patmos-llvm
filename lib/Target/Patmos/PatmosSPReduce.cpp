@@ -68,13 +68,13 @@ namespace {
     void doReduceFunction(MachineFunction &MF);
 
     /// insertPredDefinitions - Insert predicate register definitions
-    void insertPredDefinitions(MachineFunction &MF);
+    void insertPredDefinitions(SPNode &N);
 
     /// applyPredicates - Predicate instructions of MBBs
-    void applyPredicates(MachineFunction &MF);
+    void applyPredicates(SPNode &N);
 
-    /// insertInitializations - Insert initializations in headers
-    void insertInitializations(MachineFunction &MF);
+    /// insertInitializations - Insert initializations in header
+    void insertInitializations(SPNode &N);
 
     /// mergeMBBs - Merge the linear sequence of MBBs as possible
     void mergeMBBs(MachineFunction &MF);
@@ -210,11 +210,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
 
-  if (PSPI.getNumPredicates() > 32) {
-    report_fatal_error("Cannot handle more than 32 Predicates yet!");
-  }
-
-
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
   // Get the unused predicate registers
@@ -237,15 +232,22 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   LinearizeWalker W(*this, MF);
   PSPI.walkRoot(W);
 
-  // Insert predicate definitions.
-  insertPredDefinitions(MF);
+  SPNode *root = PSPI.getRootNode();
 
-  // Apply predicates.
-  // This will also predicate the predicate definitions inserted before.
-  applyPredicates(MF);
+  // for all (sub-)SPNodes
+  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+    SPNode *N = *I;
 
-  // Insert initializations, which must not be predicated themselves.
-  insertInitializations(MF);
+    // Insert predicate definitions.
+    insertPredDefinitions(*N);
+
+    // Apply predicates.
+    // This will also predicate the predicate definitions inserted before.
+    applyPredicates(*N);
+
+    // Insert initializations, which must not be predicated themselves.
+    insertInitializations(*N);
+  }
 
   //mergeMBBs(MF);
 
@@ -253,15 +255,13 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 }
 
 
-void PatmosSPReduce::insertPredDefinitions(MachineFunction &MF) {
+void PatmosSPReduce::insertPredDefinitions(SPNode &N) {
   DEBUG( dbgs() << "Insert Predicate Definitions\n" );
 
-  PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
-
-  // For each MBB, check PSPI defs
-  for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
-    MachineBasicBlock *MBB = FI;
-    const PatmosSinglePathInfo::PredDefInfo *DI = PSPI.getDefInfo(MBB);
+  // For each MBB, check defs
+  for (SPNode::iterator I=N.begin(), E=N.end(); I!=E; ++I) {
+    MachineBasicBlock *MBB = *I;
+    const PredDefInfo *DI = N.getDefInfo(MBB);
 
     // check for definitions
     if (!DI) continue;
@@ -299,16 +299,14 @@ void PatmosSPReduce::insertPredDefinitions(MachineFunction &MF) {
 
 
 
-void PatmosSPReduce::applyPredicates(MachineFunction &MF) {
+void PatmosSPReduce::applyPredicates(SPNode &N) {
   DEBUG( dbgs() << "Applying predicates to MBBs\n" );
 
-  PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
-
   // for each MBB
-  for (MachineFunction::iterator FI=MF.begin(); FI!=MF.end(); ++FI) {
-    MachineBasicBlock *MBB = FI;
+  for (SPNode::iterator I=N.begin(), E=N.end(); I!=E; ++I) {
+    MachineBasicBlock *MBB = *I;
 
-    int pred = PSPI.getPredUse(MBB);
+    int pred = N.getPredUse(MBB);
     // check for use predicate
     // TODO avoid hardcoding of p0
     if (pred <= 0) {
@@ -372,39 +370,35 @@ void PatmosSPReduce::applyPredicates(MachineFunction &MF) {
 
 
 
-void PatmosSPReduce::insertInitializations(MachineFunction &MF) {
+void PatmosSPReduce::insertInitializations(SPNode &N) {
   DEBUG( dbgs() << "Insert Initializations\n" );
 
-  PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
   //MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
-  SPNode *root = PSPI.getRootNode();
+  MachineBasicBlock *Header = N.getHeader();
 
-  // for all (sub-)SPNodes
-  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
-    SPNode *N = *I;
-    MachineBasicBlock *Header = N->getHeader();
+  DEBUG( dbgs() << "- [MBB#" << Header->getNumber() << "]\n");
 
-    DEBUG( dbgs() << "- [MBB#" << Header->getNumber() << "]\n");
-    // for the top level, we don't need to insert a new block
-    if (N->isTopLevel()) {
-      // find first def/use of GuardsReg
-      MachineBasicBlock::iterator MI = Header->begin(),
-                                  ME = Header->end();
-      while ( MI!=ME && !MI->definesRegister(GuardsReg) ) ++MI;
+  //FIXME
+#if 0
+  // for the top level, we don't need to insert a new block
+  if (N.isTopLevel()) {
+    // find first def/use of GuardsReg
+    MachineBasicBlock::iterator MI = Header->begin(),
+      ME = Header->end();
+    while ( MI!=ME && !MI->definesRegister(GuardsReg) ) ++MI;
 
-      // Initialize Top-level: set all predicates of entry edge to true
-      uint32_t imm = getImm32FromBitvector(PSPI.getPredEntryEdge());
-      AddDefaultPred(BuildMI(*Header, MI, MI->getDebugLoc(),
-            TII->get( (isUInt<12>(imm))? Patmos::LIi : Patmos::LIl),
-            GuardsReg)).addImm(imm);
-    } else {
-      // insert initialization at top of header
-      MachineBasicBlock::iterator MI = Header->begin();
-      insertPredClr(Header, MI, PSPI.getInitializees(N));
-    }
+    // Initialize Top-level: set all predicates of entry edge to true
+    uint32_t imm = getImm32FromBitvector(PSPI.getPredEntryEdge());
+    AddDefaultPred(BuildMI(*Header, MI, MI->getDebugLoc(),
+          TII->get( (isUInt<12>(imm))? Patmos::LIi : Patmos::LIl),
+          GuardsReg)).addImm(imm);
+  } else {
+    // insert initialization at top of header
+    MachineBasicBlock::iterator MI = Header->begin();
+    insertPredClr(Header, MI, PSPI.getInitializees(N));
   }
-
+#endif
 }
 
 
@@ -604,8 +598,6 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
 
   RAInfos.pop_back();
 
-  PatmosSinglePathInfo &PSPI = Pass.getAnalysis<PatmosSinglePathInfo>();
-
   MachineBasicBlock *Header = N->getHeader();
   DEBUG_TRACE( dbgs() << "NodeRange [MBB#" <<  N->getHeader()->getNumber()
                 <<  ", MBB#" <<  LastMBB->getNumber() << "]\n" );
@@ -625,7 +617,7 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
   // fill it
   DebugLoc DL;
   // extract the header predicate
-  Pass.extractPReg(BranchMBB, PSPI.getPredUse(Header));
+  Pass.extractPReg(BranchMBB, N->getPredUse(Header));
   // insert branch
   BuildMI(*BranchMBB, BranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
     .addReg(Pass.PReg).addImm(0)
@@ -659,18 +651,16 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
 void PatmosSPReduce::LinearizeWalker::updateRAInfo(MachineBasicBlock *MBB,
                                                    bool onlyUse) {
 
-  PatmosSinglePathInfo &PSPI = Pass.getAnalysis<PatmosSinglePathInfo>();
-
   // update LiveRanges in current node
   RAInfo &RI = RAInfos.back();
   if ( RI.Node->isMember(MBB) ) {
     unsigned curpos = RI.MBBs.size(); // this captures the current "time"
     RI.MBBs.push_back(MBB);
     // update uses
-    RI.addUse(PSPI.getPredUse(MBB), curpos);
+    RI.addUse(RI.Node->getPredUse(MBB), curpos);
     // insert defs
     if (!onlyUse) {
-      const PatmosSinglePathInfo::PredDefInfo *DI = PSPI.getDefInfo(MBB);
+      const PredDefInfo *DI = RI.Node->getDefInfo(MBB);
       if (DI) {
         for (int r = DI->getBoth().find_first(); r != -1;
             r = DI->getBoth().find_next(r)) {
