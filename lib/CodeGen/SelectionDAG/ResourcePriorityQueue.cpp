@@ -266,6 +266,7 @@ bool ResourcePriorityQueue::isResourceAvailable(SUnit *SU) {
     case TargetOpcode::SUBREG_TO_REG:
     case TargetOpcode::REG_SEQUENCE:
     case TargetOpcode::IMPLICIT_DEF:
+    case TargetOpcode::COPY_TO_REGCLASS:
         break;
     }
 
@@ -306,6 +307,7 @@ void ResourcePriorityQueue::reserveResources(SUnit *SU) {
     case TargetOpcode::SUBREG_TO_REG:
     case TargetOpcode::REG_SEQUENCE:
     case TargetOpcode::IMPLICIT_DEF:
+    case TargetOpcode::COPY_TO_REGCLASS:
       break;
     }
     Packet.push_back(SU);
