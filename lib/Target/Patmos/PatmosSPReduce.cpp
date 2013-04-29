@@ -56,10 +56,17 @@ using namespace llvm;
 // anonymous namespace
 namespace {
 
+  class RegAllocWalker;
+  class LinearizeWalker;
+  struct RAInfo;
+
   class PatmosSPReduce : public MachineFunctionPass {
   private:
     /// Pass ID
     static char ID;
+
+    friend class RegAllocWalker;
+    friend class LinearizeWalker;
 
     const PatmosTargetMachine &TM;
     const PatmosSubtarget &STC;
@@ -95,9 +102,6 @@ namespace {
     /// exractPReg - Extract the correct pred to PReg at the beginning of MBB
     void extractPReg(MachineBasicBlock *MBB, unsigned pred);
 
-    /// computeNoSpillNodes - Compute NoSpillNodes
-    void computeNoSpillNodes(SPNode *root);
-
     /// hasLiveOutPReg - Check if an unavailable PReg must be preserved
     /// in S0 during predicate allocation SPNode on exiting the SPNode
     bool hasLiveOutPReg(const SPNode *N) const;
@@ -114,59 +118,6 @@ namespace {
     unsigned GuardsReg; // RReg to hold all predicates
     unsigned PReg;      // current PReg
     unsigned PRTmp;     // temporary PReg
-
-    // walker
-    class RegAllocWalker : public SPNodeWalker {
-      private:
-        typedef std::pair<int,int> LiveRange;
-        struct RAInfo {
-          SPNode *Node;
-          std::vector<LiveRange> LRs;
-          std::vector<MachineBasicBlock *> MBBs;
-          explicit RAInfo(SPNode *N) :
-              Node(N),
-              LRs(N->getNumPredicates(), std::make_pair(INT_MAX,-1)) {}
-          void addDef(unsigned p, int def) {
-            LRs[p].first = std::min(LRs[p].first, def);
-          }
-          void addUse(unsigned p, int use) {
-            LRs[p].second = std::max(LRs[p].second, use);
-          }
-          // comparator for predicates, based on their live range
-          bool operator()(int left, int right) {
-            std::pair<int,int> le(LRs[left]), re(LRs[right]);
-            if (le.first == re.first) {
-              return le.second < re.second;
-            }
-            return le.first < re.first;
-          }
-        };
-        virtual void nextMBB(MachineBasicBlock *);
-        virtual void enterSubnode(SPNode *);
-        virtual void exitSubnode(SPNode *);
-        void updateRAInfo(MachineBasicBlock *);
-        void allocatePRegs(void);
-
-        std::vector<RAInfo> RAInfos;
-      public:
-        explicit RegAllocWalker(void) {}
-    };
-
-    // walker
-    class LinearizeWalker : public SPNodeWalker {
-      private:
-        virtual void nextMBB(MachineBasicBlock *);
-        virtual void enterSubnode(SPNode *);
-        virtual void exitSubnode(SPNode *);
-
-        PatmosSPReduce &Pass;
-        MachineFunction &MF;
-
-        MachineBasicBlock *LastMBB;
-      public:
-        explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
-          : Pass(pass), MF(mf), LastMBB(NULL) {}
-    };
 
   public:
     /// PatmosSPReduce - Initialize with PatmosTargetMachine
@@ -202,8 +153,93 @@ namespace {
     }
   };
 
+///////////////////////////////////////////////////////////////////////////////
+
+  class RegAllocWalker : public SPNodeWalker {
+    private:
+      virtual void nextMBB(MachineBasicBlock *);
+      virtual void enterSubnode(SPNode *);
+      virtual void exitSubnode(SPNode *);
+
+      RAInfo *createRAInfo(SPNode *N);
+      void updateRAInfo(MachineBasicBlock *);
+
+      std::map<const SPNode *, RAInfo> RAInfos;
+      std::vector<RAInfo*> RAStack;
+    public:
+      explicit RegAllocWalker(void) {}
+      void computeNoSpills(SPNode *root, unsigned numPhyRegs);
+  };
+
+///////////////////////////////////////////////////////////////////////////////
+
+  class LinearizeWalker : public SPNodeWalker {
+    private:
+      virtual void nextMBB(MachineBasicBlock *);
+      virtual void enterSubnode(SPNode *);
+      virtual void exitSubnode(SPNode *);
+
+      PatmosSPReduce &Pass;
+      MachineFunction &MF;
+
+      MachineBasicBlock *LastMBB;
+    public:
+      explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
+        : Pass(pass), MF(mf), LastMBB(NULL) {}
+  };
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+  typedef std::pair<int,int> LiveRange;
+
+  struct RAInfo {
+
+    SPNode *Node;
+    std::vector<LiveRange> LRs;
+    std::vector<int> Assignment;
+    std::vector<MachineBasicBlock *> MBBs;
+    unsigned NumLocs, CumLocs, Offset;
+
+    explicit RAInfo(SPNode *N) :
+      Node(N),
+      LRs(N->getNumPredicates(), std::make_pair(INT_MAX,-1)),
+      Assignment(N->getNumPredicates(), -1),
+      NumLocs(0), CumLocs(0), Offset(0) {}
+
+    void addDef(unsigned p, int def) {
+      LRs[p].first = std::min(LRs[p].first, def);
+    }
+
+    void addUse(unsigned p, int use) {
+      LRs[p].second = std::max(LRs[p].second, use);
+    }
+
+    // comparator for predicates, based on their live range
+    bool operator()(int left, int right) {
+      std::pair<int,int> le(LRs[left]), re(LRs[right]);
+      if (le.first == re.first) {
+        return le.second < re.second;
+      }
+      return le.first < re.first;
+    }
+
+    bool needsSpill(void) {
+      return (Offset == 0);
+    }
+
+    void scanAssign(void);
+
+    void dump(void) const;
+  };
+
+
   char PatmosSPReduce::ID = 0;
+
 } // end of anonymous namespace
+
+
+
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -240,11 +276,10 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   SPNode *root = PSPI.getRootNode();
 
-  computeNoSpillNodes(root);
-
   DEBUG( dbgs() << "RegAlloc\n" );
   RegAllocWalker RAW;
   PSPI.walkRoot(RAW);
+  RAW.computeNoSpills(root, AvailPredRegs.size());
 
   // for all (sub-)SPNodes
   for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
@@ -264,6 +299,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   DEBUG( dbgs() << "Linearize MBBs\n" );
   LinearizeWalker LW(*this, MF);
   PSPI.walkRoot(LW);
+
   //mergeMBBs(MF);
 
   //MF.RenumberBlocks();
@@ -524,61 +560,116 @@ bool PatmosSPReduce::hasLiveOutPReg(const SPNode *N) const {
   return false;
 }
 
-void PatmosSPReduce::computeNoSpillNodes(SPNode *root) {
 
-  std::map<SPNode *, unsigned> cumulativePredNum;
-  for (po_iterator<SPNode*> I = po_begin(root), E = po_end(root); I!=E; ++I) {
-    SPNode *N = *I;
-    unsigned maxChildPreds = 0;
-    for(SPNode::child_iterator CI = N->child_begin(), CE = N->child_end();
-        CI != CE; ++CI) {
-      SPNode *CN = *CI;
-      maxChildPreds = std::max(cumulativePredNum[CN], maxChildPreds);
-    }
-    cumulativePredNum[N] = N->getNumPredicates() + maxChildPreds;
-    // check if we must spill the PRegs
-    if (!N->isTopLevel()) {
-      // Parent.num + N.cum > size  --> spill
-      if (N->getParent()->getNumPredicates() + cumulativePredNum[N]
-                                                  <= AvailPredRegs.size()) {
-        NoSpillNodes.insert(N);
+///////////////////////////////////////////////////////////////////////////////
+//  RAInfo methods
+///////////////////////////////////////////////////////////////////////////////
+
+void RAInfo::dump() const {
+  for(unsigned i=0; i<LRs.size(); i++) {
+    std::pair<int,int> LR = LRs[i];
+    dbgs() << "  LR(p" << i << ") = [MBB#"
+           << ((LR.first != -1) ? MBBs[LR.first]->getNumber() : -1 )
+           << ",MBB#"
+           << ((LR.second != -1) ? MBBs[LR.second]->getNumber() : -1 )
+           << "] -> " << Assignment[i] << "\n";
+  }
+
+  dbgs() << "  NumLocs: " << NumLocs << "\n"
+            "  CumLocs: " << CumLocs << "\n"
+            "  Offset:  " << Offset  << "\n";
+
+}
+
+
+void RAInfo::scanAssign() {
+  // adjust LiveRange of header
+  LRs[0].first  = -1;
+  LRs[0].second = MBBs.size()-1;
+
+  // sort live ranges lexically
+  std::vector<unsigned> order;
+  for(unsigned i=0; i<LRs.size(); i++)
+    order.push_back(i);
+  std::sort(order.begin(), order.end(), *this);
+
+  DEBUG( dbgs() << "[MBB#"     << Node->getHeader()->getNumber()
+                <<  "] depth=" << Node->getDepth() << "\n");
+
+  // linear scan
+  unsigned pos = 0;
+  std::set<unsigned> active;
+  for(unsigned i=0; i<order.size(); i++) {
+    unsigned pred = order[i];
+    std::pair<int,int> LR = LRs[pred];
+    int curtime = LR.first;
+    // check all in active for retirement
+    for (std::set<unsigned>::iterator I=active.begin(), E=active.end();
+            I!=E; ++I) {
+      if (LRs[*I].second <= curtime) {
+        active.erase(I);
+        pos--;
       }
     }
-  }
-  for (std::set<SPNode *>::iterator I=NoSpillNodes.begin(),
-                                    E=NoSpillNodes.end(); I!=E; ++I) {
-    DEBUG( dbgs() << "NOSPILL [MBB#"
-                  << (*I)->getHeader()->getNumber() << "]\n" );
+    // assign new live range
+    active.insert(pred);
+    Assignment[pred] = pos++;
+    NumLocs = std::max(pos, NumLocs);
   }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+//  RegAllocWalker methods
+///////////////////////////////////////////////////////////////////////////////
 
-
-void PatmosSPReduce::RegAllocWalker::nextMBB(MachineBasicBlock *MBB) {
+void RegAllocWalker::nextMBB(MachineBasicBlock *MBB) {
   updateRAInfo(MBB);
 }
 
 
-void PatmosSPReduce::RegAllocWalker::enterSubnode(SPNode *N) {
+void RegAllocWalker::enterSubnode(SPNode *N) {
 
   // if we step into the node, don't forget to account for its live-ranges in
   // the containing node.
   if (!N->isTopLevel()) {
     updateRAInfo(N->getHeader());
   }
-  RAInfos.push_back(RAInfo(N));
+  RAStack.push_back(createRAInfo(N));
 }
 
 
-void PatmosSPReduce::RegAllocWalker::exitSubnode(SPNode *N) {
-  allocatePRegs();
-  RAInfos.pop_back();
+void RegAllocWalker::exitSubnode(SPNode *N) {
+  RAInfo &RI = *RAStack.back();
+
+  // we have built all live ranges in N, now it is time to
+  // perform a linear scan and assign (abstract) locations
+  RI.scanAssign();
+
+  // we have already visited all children,
+  // synthesize cumulative # of locations
+  unsigned maxChildPreds = 0;
+  for(SPNode::child_iterator CI = N->child_begin(), CE = N->child_end();
+      CI != CE; ++CI) {
+    SPNode *CN = *CI;
+    maxChildPreds = std::max(RAInfos.at(CN).CumLocs, maxChildPreds);
+  }
+  RI.CumLocs = RI.NumLocs + maxChildPreds;
+
+  DEBUG( RI.dump() );
+
+  // pop off info for N as we proceed in the parent
+  RAStack.pop_back();
 }
 
-void PatmosSPReduce::RegAllocWalker::updateRAInfo(MachineBasicBlock *MBB) {
+RAInfo *RegAllocWalker::createRAInfo(SPNode *N) {
+  RAInfos.insert( std::make_pair(N, RAInfo(N)) );
+  return &RAInfos.at(N);
+}
+
+
+void RegAllocWalker::updateRAInfo(MachineBasicBlock *MBB) {
   // update LiveRanges in current node
-  RAInfo &RI = RAInfos.back();
+  RAInfo &RI = *RAStack.back();
   if ( RI.Node->isMember(MBB) ) {
     unsigned curpos = RI.MBBs.size(); // this captures the current "time"
     RI.MBBs.push_back(MBB);
@@ -595,54 +686,40 @@ void PatmosSPReduce::RegAllocWalker::updateRAInfo(MachineBasicBlock *MBB) {
   }
 }
 
-void PatmosSPReduce::RegAllocWalker::allocatePRegs() {
-  RAInfo &RI = RAInfos.back();
 
-  // adjust LiveRange of header
-  RI.LRs[0].first  = -1;
-  RI.LRs[0].second = RI.MBBs.size()-1;
+void RegAllocWalker::computeNoSpills(SPNode *root, unsigned numPhyRegs) {
 
-  std::vector<unsigned> order;
-  for(unsigned i=0; i<RI.LRs.size(); i++)
-    order.push_back(i);
-  std::sort(order.begin(), order.end(), RI);
+  // for all (sub-)SPNodes
+  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+    SPNode *N = *I;
 
-  DEBUG( dbgs() << "[MBB#" << RI.Node->getHeader()->getNumber()
-                <<  "] depth=" << RI.Node->getDepth() << "\n");
+    if (N->isTopLevel())
+      continue;
 
-  // register assignment
-  std::vector<int> assignment(RI.LRs.size(), -1);
-
-  // linear scan
-  unsigned pos = 0;
-  std::set<unsigned> active;
-  for(unsigned i=0; i<order.size(); i++) {
-    unsigned pred = order[i];
-    std::pair<int,int> LR = RI.LRs[pred];
-    int curtime = LR.first;
-    // check all in active for retirement
-    for (std::set<unsigned>::iterator I=active.begin(), E=active.end();
-            I!=E; ++I) {
-      if (RI.LRs[*I].second <= curtime) {
-        active.erase(I);
-        pos--;
+    RAInfo &RI = RAInfos.at(N),
+           &RP = RAInfos.at(N->getParent());
+    // check if we must spill the PRegs
+    // Parent.num + N.cum <= size  --> no spill!
+    if ( RP.NumLocs + RI.CumLocs <= numPhyRegs ) {
+      // compute offset
+      RI.Offset = RP.NumLocs + RP.Offset;
+      // recalculate assignments
+      for (unsigned i=0; i<RI.Assignment.size(); i++) {
+        RI.Assignment[i] += RI.Offset;
       }
     }
-    // assign new live range
-    active.insert(pred);
-    assignment[pred] = pos++;
+    DEBUG( dbgs() << "Compute NoSpills:\n" );
+    DEBUG( RI.dump() );
+  } // end df
 
-    DEBUG( dbgs() << "LR(p" << pred << ") = [MBB#"
-               << ((LR.first != -1) ? RI.MBBs[LR.first]->getNumber() : -1 )
-               << ",MBB#"
-               << ((LR.second != -1) ? RI.MBBs[LR.second]->getNumber() : -1 )
-               << "]: " << assignment[pred] << "\n");
-  }
 }
 
+
+///////////////////////////////////////////////////////////////////////////////
+//  LinearizeWalker methods
 ///////////////////////////////////////////////////////////////////////////////
 
-void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
+void LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
   DEBUG_TRACE( dbgs() << "| MBB#" << MBB->getNumber() << "\n" );
 
   // remove all successors
@@ -665,7 +742,7 @@ void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
 }
 
 
-void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
+void LinearizeWalker::enterSubnode(SPNode *N) {
 
   // We don't create a preheader for entry.
   if (N->isTopLevel()) return;
@@ -676,13 +753,6 @@ void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
   // insert loop preheader to spill predicates / load loop bound
   MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
   MF.push_back(PrehdrMBB);
-
-  // TODO optimization:
-  // if # required preds in N + in parent <= |AvailPredRegs|,
-  // then we do not need to spill/restore.
-  // As this should be done from innermosts to outermost,
-  // it's probaly best to analyse and mark SPNodes for which this applies
-  // in a preceding step.
 
   // we create a SBC instruction here; TRI->eliminateFrameIndex() will
   // convert it to a stack cache access, if the stack cache is enabled.
@@ -714,7 +784,7 @@ void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
 }
 
 
-void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
+void LinearizeWalker::exitSubnode(SPNode *N) {
 
   MachineBasicBlock *Header = N->getHeader();
   DEBUG_TRACE( dbgs() << "NodeRange [MBB#" <<  N->getHeader()->getNumber()
