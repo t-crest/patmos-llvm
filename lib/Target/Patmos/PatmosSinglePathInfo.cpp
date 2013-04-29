@@ -48,6 +48,7 @@ static cl::list<std::string> SPFuncList(
     cl::Hidden);
 
 
+
 ///////////////////////////////////////////////////////////////////////////////
 
 char PatmosSinglePathInfo::ID = 0;
@@ -138,9 +139,9 @@ static void printBitVector(raw_ostream &OS, BitVector B) {
 }
 
 void PatmosSinglePathInfo::print(raw_ostream &OS, const Module *M) const {
-  // TODO implement
+  assert(Root);
+  Root->dump();
 }
-
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 void PatmosSinglePathInfo::dump() const {
@@ -182,31 +183,8 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
     assignPredInfo(*N, K, R);
   }
-  DEBUG( Root->dump() );
 
-
-#if 0
-  DEBUG_TRACE({
-    dbgs() << "Number of predicates: " <<  PredCount << "\n";
-    dbgs() << "Defs T on entry edge: ";
-      printBitVector(dbgs(), PredEntryEdge);
-      dbgs() << "\n";
-
-    for (MachineFunction::const_iterator I = MF.begin(), E = MF.end();
-              I!=E; ++I) {
-      dbgs() << "MBB#" << I->getNumber() << ": use " << getPredUse(I);
-
-      const PredDefInfo *DI = getDefInfo(I);
-      if (DI) {
-        dbgs() << " defT ";
-        printBitVector(dbgs(), DI->getTrue());
-        dbgs() << " defF ";
-        printBitVector(dbgs(), DI->getFalse());
-      }
-      dbgs() << "\n";
-    }
-  });
-#endif
+  DEBUG( print(dbgs()) );
 
   // XXX for debugging
   //MF.viewCFGOnly();
@@ -494,13 +472,30 @@ static void indent(unsigned depth) {
     dbgs() << "  ";
 }
 
+static void printUDInfo(const SPNode &N, const MachineBasicBlock *MBB) {
+  dbgs() << "  u=" << N.getPredUse(MBB);
+
+  const PredDefInfo *DI = N.getDefInfo(MBB);
+  if (DI) {
+    dbgs() << " dT=";
+    printBitVector(dbgs(), DI->getTrue());
+    dbgs() << " dF=";
+    printBitVector(dbgs(), DI->getFalse());
+  }
+  dbgs() << "\n";
+}
+
 void SPNode::dump() const {
   indent(Depth);
   dbgs() <<  "[BB#" << Blocks.front()->getNumber() << "]";
+  if (Parent) {
+    dbgs() << " u=" << Parent->getPredUse(Blocks.front());
+  }
   if (SuccMBB) {
     dbgs() << " -> BB#" << SuccMBB->getNumber();
   }
-  dbgs() << "\n";
+  dbgs() << " |P|=" <<  PredCount;
+  printUDInfo(*this, Blocks.front());
 
   for (unsigned i=1; i<Blocks.size(); i++) {
     MachineBasicBlock *MBB = Blocks[i];
@@ -508,7 +503,8 @@ void SPNode::dump() const {
       HeaderMap.at(MBB)->dump();
     } else {
       indent(Depth+1);
-      dbgs() <<  " BB#" << MBB->getNumber() << "\n";
+      dbgs() <<  " BB#" << MBB->getNumber();
+      printUDInfo(*this, MBB);
     }
   }
 }
