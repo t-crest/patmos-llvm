@@ -44,6 +44,7 @@
 #include "PatmosSinglePathInfo.h"
 
 #include <map>
+#include <set>
 #include <algorithm>
 #include <sstream>
 #include <iostream>
@@ -91,8 +92,11 @@ namespace {
     void insertPredClr(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
                        BitVector bits);
 
-    /// exractPReg - Extract the corect pred to PReg at the beginning of MBB
+    /// exractPReg - Extract the correct pred to PReg at the beginning of MBB
     void extractPReg(MachineBasicBlock *MBB, unsigned pred);
+
+    /// computeNoSpillNodes - Compute NoSpillNodes
+    void computeNoSpillNodes(SPNode *root);
 
     /// hasLiveOutPReg - Check if an unavailable PReg must be preserved
     /// in S0 during predicate allocation SPNode on exiting the SPNode
@@ -104,33 +108,29 @@ namespace {
     std::vector<unsigned> AvailPredRegs;
     std::vector<unsigned> UnavailPredRegs;
 
+    // set of nodes for which we do not need to spill PRegs (S0) before
+    std::set<SPNode *> NoSpillNodes;
+
     unsigned GuardsReg; // RReg to hold all predicates
     unsigned PReg;      // current PReg
     unsigned PRTmp;     // temporary PReg
 
     // walker
-    class LinearizeWalker : public SPNodeWalker {
+    class RegAllocWalker : public SPNodeWalker {
       private:
-        typedef std::map<unsigned, std::pair<int,int> > LiveRange;
+        typedef std::pair<int,int> LiveRange;
         struct RAInfo {
           SPNode *Node;
+          std::vector<LiveRange> LRs;
           std::vector<MachineBasicBlock *> MBBs;
-          LiveRange LRs;
-          explicit RAInfo(SPNode *N) : Node(N) {}
+          explicit RAInfo(SPNode *N) :
+              Node(N),
+              LRs(N->getNumPredicates(), std::make_pair(INT_MAX,-1)) {}
           void addDef(unsigned p, int def) {
-            // if it has already been defined, it must be the header
-            assert( !LRs.count(p) || def==0 );
-            if(!LRs.count(p)) {
-              LRs[p] = std::make_pair(def,-1);
-            }
+            LRs[p].first = std::min(LRs[p].first, def);
           }
           void addUse(unsigned p, int use) {
-            if (LRs.count(p)) {
-              LRs[p].second = use;
-            } else {
-              // if no def for a use -> it's a livein!
-              LRs[p] = std::make_pair(-1,use);
-            }
+            LRs[p].second = std::max(LRs[p].second, use);
           }
           // comparator for predicates, based on their live range
           bool operator()(int left, int right) {
@@ -144,14 +144,25 @@ namespace {
         virtual void nextMBB(MachineBasicBlock *);
         virtual void enterSubnode(SPNode *);
         virtual void exitSubnode(SPNode *);
-        void updateRAInfo(MachineBasicBlock *, bool onlyUse=false);
+        void updateRAInfo(MachineBasicBlock *);
         void allocatePRegs(void);
+
+        std::vector<RAInfo> RAInfos;
+      public:
+        explicit RegAllocWalker(void) {}
+    };
+
+    // walker
+    class LinearizeWalker : public SPNodeWalker {
+      private:
+        virtual void nextMBB(MachineBasicBlock *);
+        virtual void enterSubnode(SPNode *);
+        virtual void exitSubnode(SPNode *);
 
         PatmosSPReduce &Pass;
         MachineFunction &MF;
 
         MachineBasicBlock *LastMBB;
-        std::vector<RAInfo> RAInfos;
       public:
         explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
           : Pass(pass), MF(mf), LastMBB(NULL) {}
@@ -227,12 +238,13 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   PReg      = AvailPredRegs.back();
   PRTmp     = AvailPredRegs.front();
 
-
-  DEBUG( dbgs() << "Linearize MBBs\n" );
-  LinearizeWalker W(*this, MF);
-  PSPI.walkRoot(W);
-
   SPNode *root = PSPI.getRootNode();
+
+  computeNoSpillNodes(root);
+
+  DEBUG( dbgs() << "RegAlloc\n" );
+  RegAllocWalker RAW;
+  PSPI.walkRoot(RAW);
 
   // for all (sub-)SPNodes
   for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
@@ -249,6 +261,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     insertInitializations(*N);
   }
 
+  DEBUG( dbgs() << "Linearize MBBs\n" );
+  LinearizeWalker LW(*this, MF);
+  PSPI.walkRoot(LW);
   //mergeMBBs(MF);
 
   //MF.RenumberBlocks();
@@ -509,12 +524,126 @@ bool PatmosSPReduce::hasLiveOutPReg(const SPNode *N) const {
   return false;
 }
 
+void PatmosSPReduce::computeNoSpillNodes(SPNode *root) {
+
+  std::map<SPNode *, unsigned> cumulativePredNum;
+  for (po_iterator<SPNode*> I = po_begin(root), E = po_end(root); I!=E; ++I) {
+    SPNode *N = *I;
+    unsigned maxChildPreds = 0;
+    for(SPNode::child_iterator CI = N->child_begin(), CE = N->child_end();
+        CI != CE; ++CI) {
+      SPNode *CN = *CI;
+      maxChildPreds = std::max(cumulativePredNum[CN], maxChildPreds);
+    }
+    cumulativePredNum[N] = N->getNumPredicates() + maxChildPreds;
+    // check if we must spill the PRegs
+    if (!N->isTopLevel()) {
+      // Parent.num + N.cum > size  --> spill
+      if (N->getParent()->getNumPredicates() + cumulativePredNum[N]
+                                                  <= AvailPredRegs.size()) {
+        NoSpillNodes.insert(N);
+      }
+    }
+  }
+  for (std::set<SPNode *>::iterator I=NoSpillNodes.begin(),
+                                    E=NoSpillNodes.end(); I!=E; ++I) {
+    DEBUG( dbgs() << "NOSPILL [MBB#"
+                  << (*I)->getHeader()->getNumber() << "]\n" );
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+
+void PatmosSPReduce::RegAllocWalker::nextMBB(MachineBasicBlock *MBB) {
+  updateRAInfo(MBB);
+}
+
+
+void PatmosSPReduce::RegAllocWalker::enterSubnode(SPNode *N) {
+
+  // if we step into the node, don't forget to account for its live-ranges in
+  // the containing node.
+  if (!N->isTopLevel()) {
+    updateRAInfo(N->getHeader());
+  }
+  RAInfos.push_back(RAInfo(N));
+}
+
+
+void PatmosSPReduce::RegAllocWalker::exitSubnode(SPNode *N) {
+  allocatePRegs();
+  RAInfos.pop_back();
+}
+
+void PatmosSPReduce::RegAllocWalker::updateRAInfo(MachineBasicBlock *MBB) {
+  // update LiveRanges in current node
+  RAInfo &RI = RAInfos.back();
+  if ( RI.Node->isMember(MBB) ) {
+    unsigned curpos = RI.MBBs.size(); // this captures the current "time"
+    RI.MBBs.push_back(MBB);
+    // insert defs
+    const PredDefInfo *DI = RI.Node->getDefInfo(MBB);
+    if (DI) {
+      for (int r = DI->getBoth().find_first(); r != -1;
+          r = DI->getBoth().find_next(r)) {
+        RI.addDef(r, curpos);
+      }
+    }
+    // update uses
+    RI.addUse(RI.Node->getPredUse(MBB), curpos);
+  }
+}
+
+void PatmosSPReduce::RegAllocWalker::allocatePRegs() {
+  RAInfo &RI = RAInfos.back();
+
+  // adjust LiveRange of header
+  RI.LRs[0].first  = -1;
+  RI.LRs[0].second = RI.MBBs.size()-1;
+
+  std::vector<unsigned> order;
+  for(unsigned i=0; i<RI.LRs.size(); i++)
+    order.push_back(i);
+  std::sort(order.begin(), order.end(), RI);
+
+  DEBUG( dbgs() << "[MBB#" << RI.Node->getHeader()->getNumber()
+                <<  "] depth=" << RI.Node->getDepth() << "\n");
+
+  // register assignment
+  std::vector<int> assignment(RI.LRs.size(), -1);
+
+  // linear scan
+  unsigned pos = 0;
+  std::set<unsigned> active;
+  for(unsigned i=0; i<order.size(); i++) {
+    unsigned pred = order[i];
+    std::pair<int,int> LR = RI.LRs[pred];
+    int curtime = LR.first;
+    // check all in active for retirement
+    for (std::set<unsigned>::iterator I=active.begin(), E=active.end();
+            I!=E; ++I) {
+      if (RI.LRs[*I].second <= curtime) {
+        active.erase(I);
+        pos--;
+      }
+    }
+    // assign new live range
+    active.insert(pred);
+    assignment[pred] = pos++;
+
+    DEBUG( dbgs() << "LR(p" << pred << ") = [MBB#"
+               << ((LR.first != -1) ? RI.MBBs[LR.first]->getNumber() : -1 )
+               << ",MBB#"
+               << ((LR.second != -1) ? RI.MBBs[LR.second]->getNumber() : -1 )
+               << "]: " << assignment[pred] << "\n");
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
   DEBUG_TRACE( dbgs() << "| MBB#" << MBB->getNumber() << "\n" );
-
-  updateRAInfo(MBB);
 
   // remove all successors
   for ( MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
@@ -537,13 +666,6 @@ void PatmosSPReduce::LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
 
 
 void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
-
-  // if we step into the node, don't forget to account for its live-ranges in
-  // the containing node.
-  if (!N->isTopLevel())
-    updateRAInfo(N->getHeader(), true);
-
-  RAInfos.push_back(RAInfo(N));
 
   // We don't create a preheader for entry.
   if (N->isTopLevel()) return;
@@ -593,10 +715,6 @@ void PatmosSPReduce::LinearizeWalker::enterSubnode(SPNode *N) {
 
 
 void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
-
-  allocatePRegs();
-
-  RAInfos.pop_back();
 
   MachineBasicBlock *Header = N->getHeader();
   DEBUG_TRACE( dbgs() << "NodeRange [MBB#" <<  N->getHeader()->getNumber()
@@ -648,49 +766,5 @@ void PatmosSPReduce::LinearizeWalker::exitSubnode(SPNode *N) {
   nextMBB(PostMBB);
 }
 
-void PatmosSPReduce::LinearizeWalker::updateRAInfo(MachineBasicBlock *MBB,
-                                                   bool onlyUse) {
-
-  // update LiveRanges in current node
-  RAInfo &RI = RAInfos.back();
-  if ( RI.Node->isMember(MBB) ) {
-    unsigned curpos = RI.MBBs.size(); // this captures the current "time"
-    RI.MBBs.push_back(MBB);
-    // update uses
-    RI.addUse(RI.Node->getPredUse(MBB), curpos);
-    // insert defs
-    if (!onlyUse) {
-      const PredDefInfo *DI = RI.Node->getDefInfo(MBB);
-      if (DI) {
-        for (int r = DI->getBoth().find_first(); r != -1;
-            r = DI->getBoth().find_next(r)) {
-          RI.addDef(r, curpos);
-        }
-      }
-    }
-  }
-}
-
-void PatmosSPReduce::LinearizeWalker::allocatePRegs() {
-  RAInfo &RI = RAInfos.back();
-
-  std::vector<unsigned> order;
-  for(LiveRange::iterator I=RI.LRs.begin(), E=RI.LRs.end(); I!=E; ++I) {
-    // adjust LiveRange of liveins
-    if (I->second.first == -1)
-      I->second.second = RI.MBBs.size()-1;
-    order.push_back(I->first);
-  }
-  std::sort(order.begin(), order.end(), RI);
-  for(unsigned i=0; i<order.size(); i++) {
-    unsigned pred = order[i];
-    std::pair<int,int> LR = RI.LRs[pred];
-    DEBUG( dbgs() << "LR(p" << pred << ") = [MBB#"
-               << ((LR.first != -1) ? RI.MBBs[LR.first]->getNumber() : -1 )
-               << ",MBB#"
-               << ((LR.second != -1) ? RI.MBBs[LR.second]->getNumber() : -1 )
-               << "]\n");
-  }
-}
 ///////////////////////////////////////////////////////////////////////////////
 
