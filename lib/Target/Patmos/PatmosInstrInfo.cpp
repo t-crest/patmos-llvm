@@ -16,6 +16,7 @@
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosHazardRecognizer.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -38,7 +39,7 @@ using namespace llvm;
 
 PatmosInstrInfo::PatmosInstrInfo(PatmosTargetMachine &tm)
   : PatmosGenInstrInfo(Patmos::ADJCALLSTACKDOWN, Patmos::ADJCALLSTACKUP),
-    RI(tm, *this) {}
+    PTM(tm), RI(tm, *this) {}
 
 bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
                                             unsigned &SrcOpIdx1,
@@ -176,6 +177,46 @@ void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
 }
 
 
+bool PatmosInstrInfo::isSchedulingBoundary(const MachineInstr *MI,
+                                            const MachineBasicBlock *MBB,
+                                            const MachineFunction &MF) const {
+  // Debug info is never a scheduling boundary.
+  if (MI->isDebugValue())
+    return false;
+
+  // Terminators and labels can't be scheduled around.
+  if (MI->getDesc().isTerminator() || MI->isLabel())
+    return true;
+
+  // TODO check if we have any other scheduling boundaries (STCs,..)
+  //      Ideally, we would like to schedule even over branches and calls
+  //      and model everything else as hazards and dependencies.
+
+  return false;
+}
+
+ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetHazardRecognizer(
+                              const TargetMachine *TM,
+                              const ScheduleDAG *DAG) const
+{
+  const InstrItineraryData *II = TM->getInstrItineraryData();
+  return new PatmosHazardRecognizer(PTM, II, DAG);
+}
+
+ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetMIHazardRecognizer(
+                                const InstrItineraryData *II,
+                                const ScheduleDAG *DAG) const
+{
+  return new PatmosHazardRecognizer(PTM, II, DAG);
+}
+
+ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetPostRAHazardRecognizer(
+                                const InstrItineraryData *II,
+                                const ScheduleDAG *DAG) const
+{
+  return new PatmosHazardRecognizer(PTM, II, DAG);
+}
+
 DFAPacketizer *PatmosInstrInfo::
 CreateTargetScheduleState(const TargetMachine *TM,
                            const ScheduleDAG *DAG) const {
@@ -283,6 +324,14 @@ unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
 
 }
 
+const MachineInstr *PatmosInstrInfo::getFirstMI(const MachineInstr *MI) const {
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator I = MI;
+    return next(I);
+  }
+  return MI;
+}
+
 unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
   if (MI->isInlineAsm()) {
     PatmosTargetMachine& PTM = RI.getTargetMachine();
@@ -304,7 +353,17 @@ unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
     PAP.EmitInlineAsm(MI);
 
     return PIA->getSize();
-  } else {
+  }
+  else if (MI->isBundle()) {
+    const MachineBasicBlock *MBB = MI->getParent();
+    MachineBasicBlock::const_instr_iterator I = MI, E = MBB->instr_end();
+    unsigned Size = 0;
+    while ((++I != E) && I->isInsideBundle()) {
+      Size += getInstrSize(I);
+    }
+    return Size;
+  }
+  else {
     // trust the desc..
     return MI->getDesc().getSize();
   }
