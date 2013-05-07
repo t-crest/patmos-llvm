@@ -21,7 +21,6 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -296,9 +295,13 @@ void PatmosSinglePathInfo::assignPredInfo(SPNode &N, const K_t &K,
   // Properly assign the Uses/Defs
   N.PredCount = K.size();
   N.PredUse = R;
+  // initialize number of defining edges to 0 for all predicates
+  N.NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
 
   // For each predicate, compute defs
   for (unsigned int i=0; i<K.size(); i++) {
+    // store number of defining edges
+    N.NumPredDefEdges[i] = K[i].size();
     // for each definition edge
     for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
               EI!=EE; ++EI) {
@@ -386,7 +389,7 @@ void SPNode::addMBB(MachineBasicBlock *MBB) {
   }
 }
 
-bool SPNode::isMember(MachineBasicBlock *MBB) const {
+bool SPNode::isMember(const MachineBasicBlock *MBB) const {
   for (unsigned i=0; i<Blocks.size(); i++) {
     if (Blocks[i] == MBB) return true;
   }
@@ -414,8 +417,6 @@ void SPNode::topoSort(void) {
     }
   }
 
-  DEBUG_TRACE( dbgs() << "Toposort [MBB#"
-                      << Blocks.front()->getNumber() << "]\n");
   S.push_back(Blocks.front());
   Blocks.clear();
   while (!S.empty()) {
@@ -434,20 +435,8 @@ void SPNode::topoSort(void) {
       MachineBasicBlock *succ = succs[i];
       // successors for which all preds were visited become available
       if (succ != getHeader()) {
-        deps[succ]--;
-        if (deps[succ] == 0) {
-          // heuristic: loops have lower priority
-          // to keep predicate life ranges short (not across loops)
-          if (HeaderMap.count(succ)) {
-            S.push_front(succ);
-            DEBUG_TRACE( dbgs() << "- avail: loop [MBB#"
-                                << succ->getNumber() << "]\n");
-          } else {
-            S.push_back(succ);
-            DEBUG_TRACE( dbgs() << "- avail: MBB#"
-                                << succ->getNumber() << "\n");
-          }
-        }
+        if (--deps[succ] == 0)
+          S.push_back(succ);
       }
     }
     succs.clear();

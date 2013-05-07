@@ -195,9 +195,6 @@ namespace llvm {
       /// destructor - free the child nodes first, cleanup
       ~SPNode();
 
-      /// addMBB - Add an MBB to the SP node
-      void addMBB(MachineBasicBlock *MBB);
-
       /// getParent
       const SPNode *getParent() const { return Parent; }
 
@@ -216,7 +213,7 @@ namespace llvm {
 
       /// isMember - Returns true if the specified MBB is a member of this
       /// SPNode, (non-recursively)
-      bool isMember(MachineBasicBlock *MBB) const;
+      bool isMember(const MachineBasicBlock *MBB) const;
 
       /// isSubHeader - Returns true if the specified MBB is header of a
       /// subnode of this node
@@ -242,6 +239,18 @@ namespace llvm {
       /// getDefInfo - Returns a pointer to a predicate definition info for
       /// a given MBB, or NULL if no pred info exists for the MBB.
       const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
+
+      /// getNumDefEdges - Returns the number of definition edges for a given
+      /// predicate.
+      unsigned getNumDefEdges(unsigned pred) const {
+        return NumPredDefEdges.at(pred);
+      }
+
+      /// getBlocks - Returns the list of basic blocks in this SPNode,
+      /// in topological order.
+      const std::vector<MachineBasicBlock*> &getBlocks() const {
+        return Blocks;
+      }
 
       // dump() - Dump state of this SP node and the subtree
       void dump() const;
@@ -285,6 +294,12 @@ namespace llvm {
 
       /// PredDefs - Stores predicate define information for each basic block
       std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
+
+      // number of defining edges for each predicate
+      std::vector<unsigned> NumPredDefEdges;
+
+      /// addMBB - Add an MBB to the SP node
+      void addMBB(MachineBasicBlock *MBB);
 
       /// topoSort - sort blocks of this SPNode topologically
       void topoSort(void);
