@@ -187,7 +187,6 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
   // XXX for debugging
   //MF.viewCFGOnly();
-
 }
 
 
@@ -207,8 +206,10 @@ void PatmosSinglePathInfo::computeControlDependence(SPNode &N,
       // only consider members
       if (!N.isMember(SMBB))
         continue;
-      // exclude edges to post-dominating successors
-      if (!PDT.dominates(SMBB, MBB)) {
+      // exclude edges to post-dominating (single) successors;
+      // the second case catches the single-node loop case
+      // (i==0 -> MBB is header, control dependent on itself)
+      if (!PDT.dominates(SMBB, MBB) || (i==0 && SMBB==MBB)) {
         // insert the edge MBB->SMBB to all controlled blocks
         for (MachineDomTreeNode *t = PDT[SMBB]; t != ipdom; t = t->getIDom()) {
           CD[t->getBlock()].insert( std::make_pair(MBB,SMBB) );
@@ -249,7 +250,7 @@ void PatmosSinglePathInfo::decomposeControlDependence(SPNode &N,
                                                       K_t &K, R_t &R) const {
   int p = 0;
   for (unsigned i=0; i<N.Blocks.size(); i++) {
-    MachineBasicBlock *MBB = N.Blocks[i];
+    const MachineBasicBlock *MBB = N.Blocks[i];
     CD_map_entry_t t = CD.at(MBB);
     int q=-1;
     // try to lookup the control dependence
