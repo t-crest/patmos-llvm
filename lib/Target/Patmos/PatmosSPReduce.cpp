@@ -1023,10 +1023,8 @@ void LinearizeWalker::exitSubnode(SPNode *N) {
   BranchMBB->addSuccessor(HeaderMBB);
 
 
-  // FIXME in master: why do we add callee saved regs at restoreSpillRegs
-  // as liveins???
-  //assert(!Pass.hasLiveOutPReg(N) &&
-  //        "Unimplemented: handling of live-out PRegs of loops");
+  assert(!Pass.hasLiveOutPReg(N) &&
+         "Unimplemented: handling of live-out PRegs of loops");
 
   // create a post-loop MBB to restore the spill predicates, if necessary
   if (RI.needsSpill()) {
