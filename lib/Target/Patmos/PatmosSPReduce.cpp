@@ -39,6 +39,7 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/DOTGraphTraits.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "PatmosSinglePathInfo.h"
@@ -58,7 +59,9 @@ namespace {
 
   class RegAllocWalker;
   class LinearizeWalker;
-  struct RAInfo;
+  class RAInfo;
+
+  typedef std::map<const SPNode*, RAInfo> RAInfoMap;
 
   class PatmosSPReduce : public MachineFunctionPass {
   private:
@@ -75,14 +78,20 @@ namespace {
     /// doReduceFunction - Reduce a given MachineFunction
     void doReduceFunction(MachineFunction &MF);
 
+    /// computeRegAlloc - Compute RAInfo for each SPNode of the tree
+    void computeRegAlloc(SPNode *root, RAInfoMap &RAInfos, const unsigned R);
+
     /// insertPredDefinitions - Insert predicate register definitions
-    void insertPredDefinitions(SPNode &N);
+    void insertPredDefinitions(RAInfo &R);
+
+    void insertDefsForBV(MachineBasicBlock &MBB,
+                         MachineBasicBlock::iterator MI,
+                         const RAInfo &R,
+                         const BitVector &bv,
+                         const SmallVectorImpl<MachineOperand> &Cond);
 
     /// applyPredicates - Predicate instructions of MBBs
-    void applyPredicates(SPNode &N);
-
-    /// insertInitializations - Insert initializations in header
-    void insertInitializations(SPNode &N);
+    void applyPredicates(RAInfo &R);
 
     /// mergeMBBs - Merge the linear sequence of MBBs as possible
     void mergeMBBs(MachineFunction &MF);
@@ -90,10 +99,6 @@ namespace {
     /// getImm32FromBitvector - Returns an Imm32 mask for bits set in bv
     /// NB: for now, bv.size() <= 32
     uint32_t getImm32FromBitvector(BitVector bv) const;
-
-    /// insertPredSet - Insert predicates set instruction
-    void insertPredSet(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
-                       BitVector bits, SmallVector<MachineOperand, 2> &Cond);
 
     /// insertPredClr - Insert predicates clear instruction
     void insertPredClr(MachineBasicBlock *MBB, MachineBasicBlock::iterator MI,
@@ -112,11 +117,11 @@ namespace {
     std::vector<unsigned> AvailPredRegs;
     std::vector<unsigned> UnavailPredRegs;
 
-    // set of nodes for which we do not need to spill PRegs (S0) before
-    std::set<SPNode *> NoSpillNodes;
+    // set of MachineInstrs which should not be predicated in predicate-apply
+    // phase
+    std::set<MachineInstr *> NoPredApply;
 
     unsigned GuardsReg; // RReg to hold all predicates
-    unsigned PReg;      // current PReg
     unsigned PRTmp;     // temporary PReg
 
   public:
@@ -155,24 +160,6 @@ namespace {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  class RegAllocWalker : public SPNodeWalker {
-    private:
-      virtual void nextMBB(MachineBasicBlock *);
-      virtual void enterSubnode(SPNode *);
-      virtual void exitSubnode(SPNode *);
-
-      RAInfo *createRAInfo(SPNode *N);
-      void updateRAInfo(MachineBasicBlock *);
-
-      std::map<const SPNode *, RAInfo> RAInfos;
-      std::vector<RAInfo*> RAStack;
-    public:
-      explicit RegAllocWalker(void) {}
-      void computeNoSpills(SPNode *root, unsigned numPhyRegs);
-  };
-
-///////////////////////////////////////////////////////////////////////////////
-
   class LinearizeWalker : public SPNodeWalker {
     private:
       virtual void nextMBB(MachineBasicBlock *);
@@ -183,54 +170,146 @@ namespace {
       MachineFunction &MF;
 
       MachineBasicBlock *LastMBB;
+      const RAInfoMap &RAInfos;
     public:
-      explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
-        : Pass(pass), MF(mf), LastMBB(NULL) {}
+      explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf,
+                               const RAInfoMap &rainfos)
+        : Pass(pass), MF(mf), LastMBB(NULL), RAInfos(rainfos) {}
   };
 
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  typedef std::pair<int,int> LiveRange;
-
-  struct RAInfo {
-
-    SPNode *Node;
-    std::vector<LiveRange> LRs;
-    std::vector<int> Assignment;
-    std::vector<MachineBasicBlock *> MBBs;
-    unsigned NumLocs, CumLocs, Offset;
-
-    explicit RAInfo(SPNode *N) :
-      Node(N),
-      LRs(N->getNumPredicates(), std::make_pair(INT_MAX,-1)),
-      Assignment(N->getNumPredicates(), -1),
-      NumLocs(0), CumLocs(0), Offset(0) {}
-
-    void addDef(unsigned p, int def) {
-      LRs[p].first = std::min(LRs[p].first, def);
+  class LiveRange {
+  friend class RAInfo;
+  private:
+    uint64_t uses, defs;
+    unsigned len;
+    void addUse(int pos) { uses |= (1 << pos); }
+    void addDef(int pos) { defs |= (1 << pos); }
+  public:
+    LiveRange(unsigned length) : uses(0), defs(0), len(length) {
+      assert(length <= 64 && "Not yet implemented");
     }
-
-    void addUse(unsigned p, int use) {
-      LRs[p].second = std::max(LRs[p].second, use);
+    bool isUse(int pos) const { return uses & (1 << pos); }
+    bool isDef(int pos) const { return defs & (1 << pos); }
+    bool lastUse(int pos) const { return (uses >> (pos+1)) == 0; }
+    bool hasDefBefore(int pos) const { return (defs & ((1 << pos)-1)) != 0; }
+    bool pastFirstUse(int pos) const {
+      return (uses & ((1 << (pos+1))-1)) != 0;
     }
-
-    // comparator for predicates, based on their live range
-    bool operator()(int left, int right) {
-      std::pair<int,int> le(LRs[left]), re(LRs[right]);
-      if (le.first == re.first) {
-        return le.second < re.second;
+    bool hasNextUseBefore(int pos, const LiveRange &other) const {
+      return llvm::CountTrailingZeros_64(uses >> pos)
+                < llvm::CountTrailingZeros_64(other.uses >> pos);
+    }
+    std::string str(void) const {
+      std::stringbuf buf;
+      char kind[] = { '-', 'u', 'd', 'x' };
+      for (unsigned i=0; i<len; i++) {
+        int x = 0;
+        if (uses & (1 << i)) x += 1;
+        if (defs & (1 << i)) x += 2;
+        buf.sputc(kind[x]);
       }
-      return le.first < re.first;
+      return buf.str();
     }
+  };
 
-    bool needsSpill(void) {
-      return (Offset == 0);
-    }
 
-    void scanAssign(void);
+  class RAInfo {
+    private:
+      SPNode *Node;
+      const std::vector<MachineBasicBlock*> &MBBs;
+      std::vector<LiveRange> LRs;
+      std::vector<int> DefLocs; // Pred -> loc
+      std::set<unsigned> FreeLocs;
 
-    void dump(void) const;
+      // comparator for predicates, furthest next use
+      struct FurthestNextUseComparator {
+        RAInfo &RI;
+        int pos;
+        bool operator()(int a, int b) {
+          return RI.LRs[a].hasNextUseBefore(pos, RI.LRs[b]);
+        }
+        FurthestNextUseComparator(RAInfo &ri, int p) : RI(ri), pos(p) {}
+      };
+
+      // store the last location in the loop of the header, if different from
+      // its use location.
+      void setLastHeaderLoc(int loc) {
+        UseLoc &ul = UseLocs[Node->getHeader()];
+        if (ul.loc != loc) {
+          ul.load = loc;
+        }
+      }
+
+      int getLoc(void) {
+        if (!FreeLocs.empty()) {
+          std::set<unsigned>::iterator it = FreeLocs.begin();
+          FreeLocs.erase(it);
+          return *it;
+        }
+        // create a new location
+        return NumLocs++;
+      }
+
+      void freeLoc(unsigned loc) {
+        assert(!FreeLocs.count(loc));
+        FreeLocs.insert(loc);
+      }
+
+      bool hasFreePhys(unsigned numPhysRegs) {
+        return (!FreeLocs.empty() && (*FreeLocs.begin() < numPhysRegs) )
+          || (NumLocs < numPhysRegs);
+      }
+
+    public:
+      struct UseLoc {
+        int loc, load, spill;
+        UseLoc(void) : loc(-1), load(-1), spill(-1) {}
+      };
+      std::map<const MachineBasicBlock*, UseLoc> UseLocs; // MBB -> loc
+      unsigned NumLocs, CumLocs, Offset;
+
+
+      explicit RAInfo(SPNode *N) :
+        Node(N), MBBs(N->getBlocks()),
+        LRs(N->getNumPredicates(), LiveRange(N->getBlocks().size()+1)),
+        DefLocs(N->getNumPredicates(),-1),
+        NumLocs(0), CumLocs(0), Offset(0) {}
+
+
+      SPNode *getNode(void) const { return Node; }
+
+      void createLiveRanges(void);
+
+      void assignLocations(unsigned R);
+
+      bool needsSpill(void) const {
+        return (Offset == 0);
+      }
+
+      bool isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
+        for(unsigned i=0; i<MBBs.size(); i++) {
+          if (MBBs[i] == MBB) {
+            return !LRs[pred].hasDefBefore(i);
+          }
+        }
+        return false;
+      }
+
+      int getUseLoc(const MachineBasicBlock *MBB) const {
+        if (UseLocs.count(MBB)) {
+          return UseLocs.at(MBB).loc + Offset;
+        }
+        return -1;
+      }
+
+      int getDefLoc(unsigned pred) const {
+        return DefLocs[pred] + Offset;
+      }
+
+      void dump(void) const;
   };
 
 
@@ -271,43 +350,108 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     }
   }
   GuardsReg = Patmos::R26;
-  PReg      = AvailPredRegs.back();
-  PRTmp     = AvailPredRegs.front();
+  PRTmp     = AvailPredRegs.back();
+  AvailPredRegs.pop_back();
+
+  const unsigned R = AvailPredRegs.size();
+  // harness:
+  //const unsigned R = 1;
+
+  /// Map to hold RA infos for each SPNode
+  RAInfoMap RAInfos;
 
   SPNode *root = PSPI.getRootNode();
 
-  DEBUG( dbgs() << "RegAlloc\n" );
-  RegAllocWalker RAW;
-  PSPI.walkRoot(RAW);
-  RAW.computeNoSpills(root, AvailPredRegs.size());
+  computeRegAlloc(root, RAInfos, R);
 
+
+  // Okay, now actually insert code.
   // for all (sub-)SPNodes
   for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
     SPNode *N = *I;
+    RAInfo &R = RAInfos.at(N);
 
     // Insert predicate definitions.
-    insertPredDefinitions(*N);
+    insertPredDefinitions(R);
 
     // Apply predicates.
-    // This will also predicate the predicate definitions inserted before.
-    applyPredicates(*N);
+    // This will also predicate the predicate definitions inserted before,
+    // with exceptions. TODO maybe reorder, predicate in insertPredDef...
+    applyPredicates(R);
 
-    // Insert initializations, which must not be predicated themselves.
-    insertInitializations(*N);
   }
 
   DEBUG( dbgs() << "Linearize MBBs\n" );
-  LinearizeWalker LW(*this, MF);
+  LinearizeWalker LW(*this, MF, RAInfos);
   PSPI.walkRoot(LW);
 
-  //mergeMBBs(MF);
 
-  //MF.RenumberBlocks();
+  // Following function merges MBBs in the linearized CFG in order to
+  // simplify it
+  mergeMBBs(MF);
+
+  // Finally, we assign numbers in ascending order to MBBs again.
+  MF.RenumberBlocks();
 }
 
+void PatmosSPReduce::computeRegAlloc(SPNode *root, RAInfoMap &RAInfos,
+                                     const unsigned R) {
+  DEBUG( dbgs() << "RegAlloc\n" );
 
-void PatmosSPReduce::insertPredDefinitions(SPNode &N) {
+  // perform reg-allocation in post-order to compute cumulative location
+  // numbers in one go
+  for (po_iterator<SPNode*> I = po_begin(root), E = po_end(root); I!=E; ++I) {
+    SPNode *N = *I;
+    // create RAInfo for SPNode
+    RAInfos.insert( std::make_pair(N, RAInfo(N)) );
+    RAInfo &RI = RAInfos.at(N);
+
+    RI.createLiveRanges();
+
+    // we have built all live ranges in N, now it is time to perform a linear
+    // scan and assign (abstract) locations for predicates at each block
+    RI.assignLocations(R);
+
+    // we have already visited all children (in the PO traversal),
+    // synthesize cumulative # of locations
+    unsigned maxChildPreds = 0;
+    for(SPNode::child_iterator CI = N->child_begin(), CE = N->child_end();
+        CI != CE; ++CI) {
+      SPNode *CN = *CI;
+      maxChildPreds = std::max(RAInfos.at(CN).CumLocs, maxChildPreds);
+    }
+    RI.CumLocs = RI.NumLocs + maxChildPreds;
+
+  } // end of PO traversal for RegAlloc
+
+
+  // Visit all nodes in DF order to compute offsets
+  // (Offset is inherited during traversal)
+  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+    SPNode *N = *I;
+
+    RAInfo &RI = RAInfos.at(N);
+
+    if (!N->isTopLevel()) {
+      RAInfo &RP = RAInfos.at(N->getParent());
+      // check if we must spill the PRegs
+      // Parent.num + N.cum <= size  --> no spill!
+      if ( RP.NumLocs + RI.CumLocs <= R ) {
+        // compute offset
+        RI.Offset = RP.NumLocs + RP.Offset;
+      }
+    }
+
+    DEBUG( RI.dump() );
+  } // end df
+
+
+}
+
+void PatmosSPReduce::insertPredDefinitions(RAInfo &R) {
   DEBUG( dbgs() << "Insert Predicate Definitions\n" );
+
+  SPNode &N = *R.getNode();
 
   // For each MBB, check defs
   for (SPNode::iterator I=N.begin(), E=N.end(); I!=E; ++I) {
@@ -324,23 +468,19 @@ void PatmosSPReduce::insertPredDefinitions(SPNode &N) {
 
     // insert the predicate definitions before any branch at the MBB end
     MachineBasicBlock::iterator firstTI = MBB->getFirstTerminator();
+
     bool condKill = Cond[0].isKill(); // store kill flag
     Cond[0].setIsKill(false);
 
-    // clear all preds that are going to be defined
-    insertPredClr(MBB, firstTI, DI->getBoth());
+    // copy branch condition to true edge definitions
+    insertDefsForBV(*MBB, firstTI, R, DI->getTrue(), Cond);
 
-    BitVector bvT(DI->getTrue()),
-              bvF(DI->getFalse());
-    // definitions for the T edge
-    if (bvT.any()) {
-      insertPredSet(MBB, firstTI, bvT, Cond);
-    }
-    // definitions for the F edge
-    if (bvF.any()) {
-      TII->ReverseBranchCondition(Cond);
-      insertPredSet(MBB, firstTI, bvF, Cond);
-    }
+    // reverse Cond in place
+    TII->ReverseBranchCondition(Cond);
+
+    // copy reversed branch condition to false edge definitions
+    insertDefsForBV(*MBB, firstTI, R, DI->getFalse(), Cond);
+
     // restore kill flag at the last use
     prior(firstTI)->findRegisterUseOperand(Cond[0].getReg())
                   ->setIsKill(condKill);
@@ -348,32 +488,111 @@ void PatmosSPReduce::insertPredDefinitions(SPNode &N) {
   } // end for each MBB
 }
 
+void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator MI,
+                                const RAInfo &R,
+                                const BitVector &bv,
+                                const SmallVectorImpl<MachineOperand> &Cond) {
 
+  DebugLoc DL(MI->getDebugLoc());
 
-void PatmosSPReduce::applyPredicates(SPNode &N) {
+  // get the pred reg for the current block
+  int useloc = R.getUseLoc(&MBB);
+  assert(useloc < (int)AvailPredRegs.size() && "Use loc must be a register");
+
+  // If we encounter a definition of the predicate that is used for this MBB,
+  // we need to place this definition as last instruction of the MBB
+  // in order to stay semantically correct (for following definitions).
+  // This pointer will be assigned, to such an instruction.
+  MachineInstr *DefUseMI = NULL;
+
+  for (int r=bv.find_first(); r!=-1; r=bv.find_next(r)) {
+    int loc = R.getDefLoc(r);
+    assert(loc != -1);
+    assert(loc < (int)AvailPredRegs.size() && "Not yet implemented");
+
+    MachineInstr *DefMI;
+
+    if (R.getNode()->getNumDefEdges(r) > 1) {
+      // if this is the first definition, we unconditionally need to
+      // initialize it to false
+      // we can skip this, if useloc==-1 (i.e. P0=true) anyway
+      if (R.isFirstDef(&MBB, r) && !(useloc == -1)) {
+        DebugLoc DL;
+        MachineInstr *InitMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+            TII->get(Patmos::PCLR), AvailPredRegs[loc]));
+        // the PCLR instruction must not be predicated
+        NoPredApply.insert(InitMI);
+      }
+      DefMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+            TII->get(Patmos::PMOV), AvailPredRegs[loc]))
+          .addOperand(Cond[0]).addOperand(Cond[1]);
+    } else {
+      DefMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+            TII->get(Patmos::PAND),  AvailPredRegs[loc]))
+        .addReg( (useloc!=-1) ? AvailPredRegs[useloc] : Patmos::P0)
+        .addImm(0) // current pred
+        .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+
+      // the PAND instruction must not be predicated
+      NoPredApply.insert(DefMI);
+
+    }
+
+    // remember this instruction if it has to be the last one
+    if (useloc == loc) {
+      DefUseMI = DefMI;
+    }
+  }
+  // We have seen a definition of the currently in use predicate,
+  // let's move this right to the end
+  if (DefUseMI && !(static_cast<MachineInstr*>(prior(MI))==DefUseMI)) {
+    MBB.splice(MI, &MBB, DefUseMI);
+  }
+
+}
+
+void PatmosSPReduce::applyPredicates(RAInfo &R) {
   DEBUG( dbgs() << "Applying predicates to MBBs\n" );
 
+  SPNode &N = *R.getNode();
   // for each MBB
   for (SPNode::iterator I=N.begin(), E=N.end(); I!=E; ++I) {
     MachineBasicBlock *MBB = *I;
 
-    int pred = N.getPredUse(MBB);
+    // Subheaders are treated in "their" SPNode.
+    // The necessary glue code (copy predicates etc) is done in the linearize
+    // walk.
+    if (N.isSubHeader(MBB))
+      continue;
+
+    int loc = R.getUseLoc(MBB);
+    assert(loc != -1 || N.isTopLevel());
+    assert(loc < (int)AvailPredRegs.size() && "Not yet implemented");
+
     // check for use predicate
     // TODO avoid hardcoding of p0
-    if (pred <= 0) {
+    if (loc==-1) {
       DEBUG_TRACE( dbgs() << "  skip: no guard for MBB#" << MBB->getNumber()
                     << "\n" );
       continue;
     }
 
-    DEBUG_TRACE( dbgs() << "  applying pred #" << pred << " to MBB#"
-                  << MBB->getNumber() << "\n" );
+    unsigned use_preg = AvailPredRegs[loc];
+    DEBUG_TRACE( dbgs() << "  applying "
+                        << TM.getRegisterInfo()->getName(use_preg)
+                        << " to MBB#" << MBB->getNumber() << "\n" );
 
     // apply predicate to all instructions in block
-    for( MachineBasicBlock::iterator MI = MBB->begin(), ME = MBB->end();
-                                                          MI != ME; ++MI) {
+    for( MachineBasicBlock::iterator MI = MBB->begin(),
+                                     ME = MBB->getFirstTerminator();
+                                     MI != ME; ++MI) {
       assert(!MI->isBundle() &&
              "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
+
+      // skip MIs in the tabu set
+      if (NoPredApply.count(MI))
+        continue;
 
       // check for terminators - return? //TODO
       if (MI->isReturn()) {
@@ -391,7 +610,7 @@ void PatmosSPReduce::applyPredicates(SPNode &N) {
           MachineOperand &PO2 = MI->getOperand(i+1);
           assert(PO1.isReg() && PO2.isImm() &&
                  "Unexpected Patmos predicate operand");
-          PO1.setReg(PReg); // FIXME better, no hardcoded allocation
+          PO1.setReg(use_preg);
           PO2.setImm(0);
         } else {
           //TODO handle already predicated instructions better?
@@ -402,62 +621,26 @@ void PatmosSPReduce::applyPredicates(SPNode &N) {
           assert(i != -1);
           MachineOperand &PO1 = MI->getOperand(i);
           MachineOperand &PO2 = MI->getOperand(i+1);
-          // build a new predicate := Preg & old pred
+          // build a new predicate := use_preg & old pred
           AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
                               TII->get(Patmos::PAND), PRTmp))
-                .addReg(PReg).addImm(0)
+                .addReg(use_preg).addImm(0)
                 .addOperand(PO1).addOperand(PO2);
           PO1.setReg(PRTmp); // FIXME
           PO2.setImm(0);
         }
       }
     } // for each instruction in MBB
-
-    // extract PReg (unconditionally)
-    extractPReg(MBB, pred);
-
   } // end for each MBB
 }
 
-
-
-void PatmosSPReduce::insertInitializations(SPNode &N) {
-  DEBUG( dbgs() << "Insert Initializations\n" );
-
-  //MachineRegisterInfo &RegInfo = MF.getRegInfo();
-
-  MachineBasicBlock *Header = N.getHeader();
-
-  DEBUG( dbgs() << "- [MBB#" << Header->getNumber() << "]\n");
-
-  //FIXME
-#if 0
-  // for the top level, we don't need to insert a new block
-  if (N.isTopLevel()) {
-    // find first def/use of GuardsReg
-    MachineBasicBlock::iterator MI = Header->begin(),
-      ME = Header->end();
-    while ( MI!=ME && !MI->definesRegister(GuardsReg) ) ++MI;
-
-    // Initialize Top-level: set all predicates of entry edge to true
-    uint32_t imm = getImm32FromBitvector(PSPI.getPredEntryEdge());
-    AddDefaultPred(BuildMI(*Header, MI, MI->getDebugLoc(),
-          TII->get( (isUInt<12>(imm))? Patmos::LIi : Patmos::LIl),
-          GuardsReg)).addImm(imm);
-  } else {
-    // insert initialization at top of header
-    MachineBasicBlock::iterator MI = Header->begin();
-    insertPredClr(Header, MI, PSPI.getInitializees(N));
-  }
-#endif
-}
 
 
 
 void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
   DEBUG( dbgs() << "Merge MBBs\n" );
 
-  // first, obtain the sequence of MBBs in DF order
+  // first, obtain the sequence of MBBs in DF order (as copy!)
   std::vector<MachineBasicBlock*> order(df_begin(&MF.front()),
                                         df_end(  &MF.front()));
 
@@ -497,6 +680,10 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
   order.clear();
 }
 
+
+
+
+
 uint32_t PatmosSPReduce::getImm32FromBitvector(BitVector bv) const {
   assert( bv.size() <= 32);
   uint32_t res = 0;
@@ -508,23 +695,6 @@ uint32_t PatmosSPReduce::getImm32FromBitvector(BitVector bv) const {
   return res;
 }
 
-
-void PatmosSPReduce::insertPredSet(MachineBasicBlock *MBB,
-                                   MachineBasicBlock::iterator MI,
-                                   BitVector bits,
-                                   SmallVector<MachineOperand, 2> &Cond) {
-
-  uint32_t imm = getImm32FromBitvector(bits);
-  DebugLoc DL(MI->getDebugLoc());
-  // (cond) OR $Guards, $Guards, bitmask
-  // i.e., if (cond) Guards |= bitmask
-  BuildMI(*MBB, MI, DL,
-      TII->get( (isUInt<12>(imm))? Patmos::ORi : Patmos::ORl),
-      GuardsReg)
-    .addOperand(Cond[0]).addOperand(Cond[1])
-    .addReg(GuardsReg)
-    .addImm(imm);
-}
 
 
 void PatmosSPReduce::insertPredClr(MachineBasicBlock *MBB,
@@ -539,6 +709,7 @@ void PatmosSPReduce::insertPredClr(MachineBasicBlock *MBB,
 
 void PatmosSPReduce::extractPReg(MachineBasicBlock *MBB, unsigned pred) {
   DebugLoc DL;
+  unsigned PReg = 0;
   MachineBasicBlock::iterator MI = MBB->begin();
   // LI $rtr, pred
   AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::LIi),
@@ -565,154 +736,170 @@ bool PatmosSPReduce::hasLiveOutPReg(const SPNode *N) const {
 //  RAInfo methods
 ///////////////////////////////////////////////////////////////////////////////
 
-void RAInfo::dump() const {
-  for(unsigned i=0; i<LRs.size(); i++) {
-    std::pair<int,int> LR = LRs[i];
-    dbgs() << "  LR(p" << i << ") = [MBB#"
-           << ((LR.first != -1) ? MBBs[LR.first]->getNumber() : -1 )
-           << ",MBB#"
-           << ((LR.second != -1) ? MBBs[LR.second]->getNumber() : -1 )
-           << "] -> " << Assignment[i] << "\n";
+
+
+void RAInfo::createLiveRanges(void) {
+  // create live range infomation for each predicate
+  for (unsigned i=0, e=MBBs.size(); i<e; i++) {
+    MachineBasicBlock *MBB = MBBs[i];
+    // insert use
+    LRs[Node->getPredUse(MBB)].addUse(i);
+    // insert defs
+    const PredDefInfo *DI = Node->getDefInfo(MBB);
+    if (DI) {
+      for (int r = DI->getBoth().find_first(); r != -1;
+          r = DI->getBoth().find_next(r)) {
+        LRs[r].addDef(i);
+      }
+    }
   }
+  // add a use for header predicate
+  if (!Node->isTopLevel()) {
+    LRs[0].addUse(MBBs.size());
+  }
+}
+
+
+void RAInfo::assignLocations(unsigned R) {
+  // vector to keep track of locations during the scan
+  std::vector<int> curLocs(Node->getNumPredicates(),-1);
+
+  for (unsigned i=0, e=MBBs.size(); i<e; i++) {
+    MachineBasicBlock *MBB = MBBs[i];
+
+    // (1) handle use
+    unsigned usePred = Node->getPredUse(MBB);
+    // for the top-level entry, we don't need to assign a location,
+    // as we will use p0 - TODO: interprocedural handling
+    if (!(usePred==0 && Node->isTopLevel())) {
+      UseLoc UL;
+
+      int &curUseLoc = curLocs[usePred];
+
+      assert( MBB == Node->getHeader() || i>0 );
+
+      if ( MBB != Node->getHeader() ) {
+        // each use must be preceded by a location assignment
+        assert( curUseLoc >= 0 );
+        // if previous location was not a register, we have to allocate
+        // a register and/or possibly spill
+        if ( curUseLoc >= (int)R ) {
+          if (hasFreePhys(R)) {
+            UL.load = curUseLoc;
+            UL.loc = getLoc(); // gets a register
+            // reassign
+            curUseLoc = UL.loc;
+          } else {
+            // spill and reassign
+            // order predicates wrt furthest next use
+            std::vector<unsigned> order;
+            for(unsigned j=0; j<LRs.size(); j++) {
+              if (curLocs[j] < (int)R) {
+                assert(curLocs[j] > -1);
+                order.push_back(j);
+              }
+            }
+            std::sort(order.begin(), order.end(),
+                FurthestNextUseComparator(*this,i));
+            unsigned furthestPred = order.back();
+            int stackLoc = getLoc(); // new stack loc
+            assert( stackLoc >= (int)R );
+            freeLoc( curUseLoc );
+            UL.load  = curUseLoc;
+            UL.loc   = curLocs[furthestPred];
+            // differentiate between already used and not yet used
+            if (LRs[furthestPred].pastFirstUse(i)) {
+              UL.spill = stackLoc;
+            } else {
+              DefLocs[furthestPred] = stackLoc;
+            }
+            curUseLoc = curLocs[furthestPred];
+            curLocs[furthestPred] = stackLoc;
+          }
+        } else {
+          // everything stays as is
+          UL.loc = curUseLoc;
+        }
+      } else {
+        assert(usePred == 0);
+        // we get a loc for the header predicate
+        curLocs[0] = DefLocs[0] = UL.loc = getLoc();
+        assert(UL.loc == 0);
+      }
+
+      // (2) retire locations
+      if (LRs[usePred].lastUse(i)) {
+        freeLoc( curUseLoc );
+        curUseLoc = -1;
+      }
+      UseLocs[MBB] = UL;
+    }
+
+    // (3) handle definitions in this basic block.
+    //     if we need to get new locations for predicates (loc==-1),
+    //     assign new ones in nearest-next-use order
+    const PredDefInfo *DI = Node->getDefInfo(MBB);
+    if (DI) {
+      std::vector<unsigned> order;
+      for (int r = DI->getBoth().find_first(); r != -1;
+          r = DI->getBoth().find_next(r)) {
+        if (curLocs[r] == -1) {
+          // need to get a new loc for predicate r
+          order.push_back(r);
+        }
+      }
+      std::sort(order.begin(), order.end(),
+          FurthestNextUseComparator(*this,i));
+      // nearest use is in front
+      for (unsigned j=0; j<order.size(); j++) {
+        unsigned pred = order[j];
+        curLocs[pred] = DefLocs[pred] = getLoc();
+      }
+    }
+
+    //for (unsigned j=0; j<curLocs.size(); j++) {
+    //  DEBUG( dbgs() << " " << curLocs[j] );
+    //}
+  }
+  // What is the location of the header predicate after handling all blocks?
+  // We store this location, as it is where the next iteration has to get it
+  // from.
+  setLastHeaderLoc(curLocs[0]);
+}
+
+
+void RAInfo::dump() const {
+  dbgs() << "[MBB#"     << Node->getHeader()->getNumber()
+         <<  "] depth=" << Node->getDepth() << "\n";
+
+  for(unsigned i=0; i<LRs.size(); i++) {
+    const LiveRange &LR = LRs[i];
+    dbgs() << "  LR(p" << i << ") = [" << LR.str() << "]\n";
+  }
+
+  for (unsigned i=0, e=MBBs.size(); i<e; i++) {
+    MachineBasicBlock *MBB = MBBs[i];
+
+    dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
+    if (UseLocs.count(MBB)) {
+      const UseLoc &UL = UseLocs.at(MBB);
+      dbgs() << "  loc=" << UL.loc << " load=" << UL.load
+          << " spill=" << UL.spill;
+    }
+    dbgs() << "\n";
+  }
+
+  dbgs() << "  DefLocs: ";
+  for (unsigned j=0; j<DefLocs.size(); j++) {
+    dbgs() << " p" << j << "=" << DefLocs[j];
+  }
+  dbgs() << "\n";
 
   dbgs() << "  NumLocs: " << NumLocs << "\n"
             "  CumLocs: " << CumLocs << "\n"
             "  Offset:  " << Offset  << "\n";
-
 }
 
-
-void RAInfo::scanAssign() {
-  // adjust LiveRange of header
-  LRs[0].first  = -1;
-  LRs[0].second = MBBs.size()-1;
-
-  // sort live ranges lexically
-  std::vector<unsigned> order;
-  for(unsigned i=0; i<LRs.size(); i++)
-    order.push_back(i);
-  std::sort(order.begin(), order.end(), *this);
-
-  DEBUG( dbgs() << "[MBB#"     << Node->getHeader()->getNumber()
-                <<  "] depth=" << Node->getDepth() << "\n");
-
-  // linear scan
-  unsigned pos = 0;
-  std::set<unsigned> active;
-  for(unsigned i=0; i<order.size(); i++) {
-    unsigned pred = order[i];
-    std::pair<int,int> LR = LRs[pred];
-    int curtime = LR.first;
-    // check all in active for retirement
-    for (std::set<unsigned>::iterator I=active.begin(), E=active.end();
-            I!=E; ++I) {
-      if (LRs[*I].second <= curtime) {
-        active.erase(I);
-        pos--;
-      }
-    }
-    // assign new live range
-    active.insert(pred);
-    Assignment[pred] = pos++;
-    NumLocs = std::max(pos, NumLocs);
-  }
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//  RegAllocWalker methods
-///////////////////////////////////////////////////////////////////////////////
-
-void RegAllocWalker::nextMBB(MachineBasicBlock *MBB) {
-  updateRAInfo(MBB);
-}
-
-
-void RegAllocWalker::enterSubnode(SPNode *N) {
-
-  // if we step into the node, don't forget to account for its live-ranges in
-  // the containing node.
-  if (!N->isTopLevel()) {
-    updateRAInfo(N->getHeader());
-  }
-  RAStack.push_back(createRAInfo(N));
-}
-
-
-void RegAllocWalker::exitSubnode(SPNode *N) {
-  RAInfo &RI = *RAStack.back();
-
-  // we have built all live ranges in N, now it is time to
-  // perform a linear scan and assign (abstract) locations
-  RI.scanAssign();
-
-  // we have already visited all children,
-  // synthesize cumulative # of locations
-  unsigned maxChildPreds = 0;
-  for(SPNode::child_iterator CI = N->child_begin(), CE = N->child_end();
-      CI != CE; ++CI) {
-    SPNode *CN = *CI;
-    maxChildPreds = std::max(RAInfos.at(CN).CumLocs, maxChildPreds);
-  }
-  RI.CumLocs = RI.NumLocs + maxChildPreds;
-
-  DEBUG( RI.dump() );
-
-  // pop off info for N as we proceed in the parent
-  RAStack.pop_back();
-}
-
-RAInfo *RegAllocWalker::createRAInfo(SPNode *N) {
-  RAInfos.insert( std::make_pair(N, RAInfo(N)) );
-  return &RAInfos.at(N);
-}
-
-
-void RegAllocWalker::updateRAInfo(MachineBasicBlock *MBB) {
-  // update LiveRanges in current node
-  RAInfo &RI = *RAStack.back();
-  if ( RI.Node->isMember(MBB) ) {
-    unsigned curpos = RI.MBBs.size(); // this captures the current "time"
-    RI.MBBs.push_back(MBB);
-    // insert defs
-    const PredDefInfo *DI = RI.Node->getDefInfo(MBB);
-    if (DI) {
-      for (int r = DI->getBoth().find_first(); r != -1;
-          r = DI->getBoth().find_next(r)) {
-        RI.addDef(r, curpos);
-      }
-    }
-    // update uses
-    RI.addUse(RI.Node->getPredUse(MBB), curpos);
-  }
-}
-
-
-void RegAllocWalker::computeNoSpills(SPNode *root, unsigned numPhyRegs) {
-
-  // for all (sub-)SPNodes
-  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
-    SPNode *N = *I;
-
-    if (N->isTopLevel())
-      continue;
-
-    RAInfo &RI = RAInfos.at(N),
-           &RP = RAInfos.at(N->getParent());
-    // check if we must spill the PRegs
-    // Parent.num + N.cum <= size  --> no spill!
-    if ( RP.NumLocs + RI.CumLocs <= numPhyRegs ) {
-      // compute offset
-      RI.Offset = RP.NumLocs + RP.Offset;
-      // recalculate assignments
-      for (unsigned i=0; i<RI.Assignment.size(); i++) {
-        RI.Assignment[i] += RI.Offset;
-      }
-    }
-    DEBUG( dbgs() << "Compute NoSpills:\n" );
-    DEBUG( RI.dump() );
-  } // end df
-
-}
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -754,25 +941,42 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
   MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
   MF.push_back(PrehdrMBB);
 
-  // we create a SBC instruction here; TRI->eliminateFrameIndex() will
-  // convert it to a stack cache access, if the stack cache is enabled.
-  DebugLoc DL;
-  int fi = PMFI.SinglePathSpillFIs[N->getDepth()-1];
-  unsigned tmpReg = Patmos::R26;
-  Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
-                        tmpReg, Patmos::S0, false);
-  MachineInstr *storeMI =
-    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-          Pass.TII->get(Patmos::SBC)))
-    .addFrameIndex(fi).addImm(0) // address
-    .addReg(tmpReg);
 
-  TRI->eliminateFrameIndex(storeMI, 0, NULL);
+  const RAInfo &RI = RAInfos.at(N),
+               &RP = RAInfos.at(N->getParent());
+
+  DebugLoc DL;
+  if (RI.needsSpill()) {
+    // we create a SBC instruction here; TRI->eliminateFrameIndex() will
+    // convert it to a stack cache access, if the stack cache is enabled.
+    int fi = PMFI.SinglePathSpillFIs[N->getDepth()-1];
+    unsigned tmpReg = Patmos::R26;
+    Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
+        tmpReg, Patmos::S0, false);
+    MachineInstr *storeMI =
+      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+            Pass.TII->get(Patmos::SBC)))
+      .addFrameIndex(fi).addImm(0) // address
+      .addReg(tmpReg);
+
+    TRI->eliminateFrameIndex(storeMI, 0, NULL);
+  }
+
+  // copy the header predicate for the subloop
+  const MachineBasicBlock *HeaderMBB = N->getHeader();
+  int outerloc = RP.getUseLoc(HeaderMBB),
+      innerloc = RI.getUseLoc(HeaderMBB);
+  // TODO handle load from stack slot? (once enabled in regalloc)
+  if (outerloc != innerloc) {
+    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+          Pass.TII->get(Patmos::PMOV), Pass.AvailPredRegs[innerloc]))
+      .addReg( (outerloc!=-1) ? Pass.AvailPredRegs[outerloc] : Patmos::P0 )
+      .addImm(0);
+  }
 
   if (N->hasLoopBound()) {
     // Create an instruction to load the loop bound
     //FIXME load the actual loop bound
-    DebugLoc DL;
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
       Pass.TII->get(Patmos::LIi),
       Patmos::RTR)).addImm(1000);
@@ -786,8 +990,8 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
 
 void LinearizeWalker::exitSubnode(SPNode *N) {
 
-  MachineBasicBlock *Header = N->getHeader();
-  DEBUG_TRACE( dbgs() << "NodeRange [MBB#" <<  N->getHeader()->getNumber()
+  MachineBasicBlock *HeaderMBB = N->getHeader();
+  DEBUG_TRACE( dbgs() << "NodeRange [MBB#" <<  HeaderMBB->getNumber()
                 <<  ", MBB#" <<  LastMBB->getNumber() << "]\n" );
 
   if (N->isTopLevel()) return;
@@ -802,38 +1006,47 @@ void LinearizeWalker::exitSubnode(SPNode *N) {
   // weave in before inserting the branch (otherwise it'll be removed again)
   nextMBB(BranchMBB);
 
-  // fill it
+  // now we can fill the MBB with instructions:
+
+
+  const RAInfo &RI = RAInfos.at(N);
+
   DebugLoc DL;
-  // extract the header predicate
-  Pass.extractPReg(BranchMBB, N->getPredUse(Header));
+
+  // get the header predicate and create a branch to the header
+  int headerloc = RI.getUseLoc(HeaderMBB);
+  // TODO get from stack slot
   // insert branch
   BuildMI(*BranchMBB, BranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
-    .addReg(Pass.PReg).addImm(0)
-    .addMBB(Header);
-  BranchMBB->addSuccessor(Header);
+    .addReg(Pass.AvailPredRegs[headerloc]).addImm(0)
+    .addMBB(HeaderMBB);
+  BranchMBB->addSuccessor(HeaderMBB);
+
 
   // FIXME in master: why do we add callee saved regs at restoreSpillRegs
   // as liveins???
   //assert(!Pass.hasLiveOutPReg(N) &&
   //        "Unimplemented: handling of live-out PRegs of loops");
 
-  // create a post-loop MBB to restore the spill predicates
-  MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
-  MF.push_back(PostMBB);
-  // we create a LBC instruction here; TRI->eliminateFrameIndex() will
-  // convert it to a stack cache access, if the stack cache is enabled.
-  int fi = PMFI.SinglePathSpillFIs[N->getDepth()-1];
-  unsigned tmpReg = Patmos::R26;
-  MachineInstr *loadMI =
-    AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
-          Pass.TII->get(Patmos::LBC), tmpReg))
-    .addFrameIndex(fi).addImm(0); // address
+  // create a post-loop MBB to restore the spill predicates, if necessary
+  if (RI.needsSpill()) {
+    MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
+    MF.push_back(PostMBB);
+    // we create a LBC instruction here; TRI->eliminateFrameIndex() will
+    // convert it to a stack cache access, if the stack cache is enabled.
+    int fi = PMFI.SinglePathSpillFIs[N->getDepth()-1];
+    unsigned tmpReg = Pass.GuardsReg;
+    MachineInstr *loadMI =
+      AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
+            Pass.TII->get(Patmos::LBC), tmpReg))
+      .addFrameIndex(fi).addImm(0); // address
 
-  TRI->eliminateFrameIndex(loadMI, 0, NULL);
-  // assign to S0
-  Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
-                        Patmos::S0, tmpReg, true);
-  nextMBB(PostMBB);
+    TRI->eliminateFrameIndex(loadMI, 0, NULL);
+    // assign to S0
+    Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
+                          Patmos::S0, tmpReg, true);
+    nextMBB(PostMBB);
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
