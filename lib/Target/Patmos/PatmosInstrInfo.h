@@ -59,6 +59,7 @@ public:
 };
 
 class PatmosInstrInfo : public PatmosGenInstrInfo {
+  PatmosTargetMachine &PTM;
   const PatmosRegisterInfo RI;
 public:
   explicit PatmosInstrInfo(PatmosTargetMachine &TM);
@@ -106,6 +107,31 @@ public:
   /// anything was changed.
   virtual bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const;
 
+  /// isSchedulingBoundary - Test if the given instruction should be
+  /// considered a scheduling boundary.
+  virtual bool isSchedulingBoundary(const MachineInstr *MI,
+                                              const MachineBasicBlock *MBB,
+                                              const MachineFunction &MF) const;
+
+  /// CreateTargetHazardRecognizer - Return the hazard recognizer to use for
+  /// this target when scheduling the DAG.
+  virtual ScheduleHazardRecognizer *
+  CreateTargetHazardRecognizer(const TargetMachine *TM,
+                               const ScheduleDAG *DAG) const;
+
+  /// CreateTargetMIHazardRecognizer - Allocate and return a hazard recognizer
+  /// to use for this target when scheduling the machine instructions before
+  /// register allocation.
+  virtual ScheduleHazardRecognizer*
+  CreateTargetMIHazardRecognizer(const InstrItineraryData*,
+                                 const ScheduleDAG *DAG) const;
+
+  /// CreateTargetPostRAHazardRecognizer - Return the postRA hazard recognizer
+  /// to use for this target when scheduling the DAG.
+  virtual ScheduleHazardRecognizer *
+  CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
+                                     const ScheduleDAG *DAG) const;
+
   virtual DFAPacketizer*
   CreateTargetScheduleState(const TargetMachine *TM,
                             const ScheduleDAG *DAG) const;
@@ -127,6 +153,8 @@ public:
   /// MI must be either a load or a store instruction.
   virtual unsigned getMemType(const MachineInstr *MI) const;
 
+  // getFirstMI - Return MI or the first 'real' instruction if MI is a bundle.
+  const MachineInstr* getFirstMI(const MachineInstr *MI) const;
 
   /// getInstrSize - get the size of an instruction
   /// correctly deals with inline assembler

@@ -23,6 +23,7 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCSubtargetInfo.h"
 #include "MCTargetDesc/PatmosMCAsmInfo.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -41,8 +42,13 @@ class PatmosAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
   OwningPtr<MCInstrInfo> MII;
 
+  // Remember if we are inside of a bundle marker
+  bool InBundle;
+
   // keep track of the bundle bit of the last instructions
   unsigned BundleCounter;
+
+  unsigned IssueWidth;
 
   PrintBytesLevel ParseBytes;
 
@@ -57,11 +63,15 @@ class PatmosAsmParser : public MCTargetAsmParser {
 
 public:
   PatmosAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser)
-    : MCTargetAsmParser(), Parser(parser), MII(), BundleCounter(0)
+    : MCTargetAsmParser(), Parser(parser), MII(),
+      InBundle(false), BundleCounter(0)
   {
     // This is a nasty workaround for LLVM interface limitations
-    const Target &T = static_cast<const PatmosMCAsmInfo*>(&parser.getContext().getAsmInfo())->getTarget();
+    const Target &T = static_cast<const PatmosMCAsmInfo*>(
+                                &parser.getContext().getAsmInfo())->getTarget();
     MII.reset(T.createMCInstrInfo());
+
+    IssueWidth = sti.getSchedModel()->IssueWidth;
 
     switch (parser.getAssemblerDialect()) {
     case 0: ParseBytes = PrintAsEncoded; break;
@@ -327,29 +337,14 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 			bool MatchingInlineAsm) {
   MCInst Inst;
   SMLoc ErrorLoc;
-  bool isBundled = false;
 
-  PatmosOperand *Op = (PatmosOperand*)Operands.back();
-  if (Op->isToken() && Op->getToken() == ";") {
-    isBundled = true;
-    Operands.pop_back();
-
-    if (isBundled && BundleCounter >= 1) {
-      Error(Op->getStartLoc(), "an instruction can consist of at most two separate operations");
-      delete Op;
-      return true;
-    }
-    delete Op;
-  }
-
-  BundleCounter = isBundled ? BundleCounter + 1 : 0;
-
-  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm, 0)) {
+  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm, 0))
+  {
   default: break;
   case Match_Success:
   {
     // Add bundle marker
-    Inst.addOperand(MCOperand::CreateImm(isBundled));
+    Inst.addOperand(MCOperand::CreateImm(InBundle));
 
     // If we have an ALUi immediate instruction and the immediate does not fit
     // 12bit, use ALUl version of instruction
@@ -375,10 +370,10 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     if (Format == PatmosII::FrmALUi && HasImm) {
       MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
-      if (MCO.isExpr() && !isBundled) {
+      if (MCO.isExpr()) {
         // If we have an expression, use ALUl, but only if this is
         // not a bundled op
-        if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
+        if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode) && !InBundle) {
           Inst.setOpcode(ALUlOpcode);
           // ALUl counts as two operations
           BundleCounter++;
@@ -392,30 +387,36 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
             MCO.setImm(-MCO.getImm());
             Inst.setOpcode(Patmos::LIin);
           }
-          else if (isBundled) {
-            return Error(IDLoc, "immediate operand too large for bundled ALUi instruction");
-          }
           else if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)) {
+            if (InBundle || BundleCounter) {
+              return Error(IDLoc, "immediate size requires ALUl but ALUl must "
+                                  "not appear inside bundles");
+            }
             Inst.setOpcode(ALUlOpcode);
-            // ALUl is implicitly bundled and resets the bundle status
-            BundleCounter = 0;
+            // ALUl counts as two operations
+            BundleCounter++;
 
             if (!isInt<32>(MCO.getImm()) && !isUInt<32>(MCO.getImm())) {
-              return Error(IDLoc, "immediate operand too large for ALUl format");
+              return Error(IDLoc,"immediate operand too large for ALUl format");
             }
           }
           else {
-            return Error(IDLoc, "immediate operand too large for ALUi format and ALUl is not used for this opcode");
+            return Error(IDLoc, "immediate operand too large for ALUi format "
+                                "and ALUl is not available for this opcode");
           }
         }
       }
-      if (BundleCounter > 1) {
-        return Error(IDLoc, "operand size requires ALUl instruction, it cannot be bundled with the previous operation");
+      if (BundleCounter > IssueWidth) {
+        return Error(IDLoc, "operand size required ALUl instruction, but this "
+                            "makes the bundle too large");
       }
     }
     else if (Format == PatmosII::FrmALUl) {
-      // ALUl is implicitly bundled and resets the bundle status
-      BundleCounter = 0;
+      if (InBundle || BundleCounter) {
+        return Error(IDLoc, "ALUl instruction cannot be bundled");
+      }
+      // ALUl counts as two instructions
+      BundleCounter++;
 
       MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
@@ -450,6 +451,13 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
         }
       }
     }
+
+    if (BundleCounter >= IssueWidth) {
+      Error(IDLoc, "the bundle consists of too many instructions");
+      return true;
+    }
+
+    BundleCounter = InBundle ? BundleCounter + 1 : 0;
 
     Opcode = Inst.getOpcode();
 
@@ -670,7 +678,9 @@ bool PatmosAsmParser::ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Opera
   }
 }
 
-bool PatmosAsmParser::ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands, AsmToken::TokenKind Kind) {
+bool PatmosAsmParser::ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                                 AsmToken::TokenKind Kind)
+{
   MCAsmLexer &Lexer = getLexer();
 
   if (Lexer.isNot(Kind)) {
@@ -685,8 +695,37 @@ bool PatmosAsmParser::ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
 
 
 bool PatmosAsmParser::
-ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool &HasPrefix) {
+ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+    bool &HasPrefix)
+{
   MCAsmLexer &Lexer = getLexer();
+
+  if (Lexer.is(AsmToken::RCurly)) {
+    // Try to recover..
+    InBundle = false;
+    BundleCounter = 0;
+    // TODO we either need to go back to the previous instruction (but
+    // that one might already be emitted and deleted!) or handle this earlier.
+    return Error(Lexer.getLoc(), "Closing bracket must appear immediately "
+           "after the instruction (for now).");
+  }
+
+  // Check if we start a new bundle
+  if (Lexer.is(AsmToken::LCurly)) {
+    if (InBundle) {
+      return Error(Lexer.getLoc(), "previous bundle has not been closed.");
+    }
+    InBundle = true;
+    Lexer.Lex();
+
+    // Allow newline(s) following '{'
+    while (Lexer.is(AsmToken::EndOfStatement) &&
+           Lexer.getTok().getString() != ";")
+    {
+      // TODO accept # comments
+      Lexer.Lex();
+    }
+  }
 
   // If it starts with '(', assume this is a guard, and try to parse it, otherwise skip
   if (Lexer.isNot(AsmToken::LParen)) {
@@ -720,7 +759,8 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
   // if we do not find a match (if we actually have instructions that have no guard).
   if (Operands.size() == 1) {
     Operands.push_back(PatmosOperand::CreateReg(Patmos::P0, NameLoc, NameLoc));
-    Operands.push_back(PatmosOperand::CreateFlag(false, NameLoc, NameLoc, getParser().getContext()));
+    Operands.push_back(PatmosOperand::CreateFlag(false, NameLoc, NameLoc,
+                                                 getParser().getContext()));
   }
 
   unsigned OpNo = 0;
@@ -730,19 +770,16 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
   // If there are no more operands then finish
   while (Lexer.isNot(AsmToken::EndOfStatement)) {
 
-    // we have a bundled operation?
-    if (Lexer.is(AsmToken::Semicolon)) {
-      // handle bundle marker by adding it as last operand
-      if (ParseToken(Operands, AsmToken::Semicolon)) {
-        return true;
+    // last instruction in a bundle?
+    if (Lexer.is(AsmToken::RCurly)) {
+      if (!InBundle) {
+        SMLoc TokLoc = Lexer.getLoc();
+        EatToEndOfStatement();
+        return Error(TokLoc, "found bundle end marker without a matching "
+                             "start marker");
       }
-      // Disallow ;; directly after ;
-      // We could also undo the ';' in this case but then the behaviour of \n and # would
-      // make the syntax a bit too complicated to understand.
-      // TODO get the SeparatorString from MCAsmInfo
-      if (Lexer.is(AsmToken::EndOfStatement) && Lexer.getTok().getString() == ";;") {
-        return Error(Lexer.getLoc(), "unexpected bundle separator after bundled instruction separator");
-      }
+      InBundle = false;
+      Lexer.Lex();
       return false;
     }
 
@@ -888,17 +925,14 @@ bool PatmosAsmParser::isPredSrcOperand(StringRef Mnemonic, unsigned OpNo)
 void PatmosAsmParser::EatToEndOfStatement() {
   MCAsmLexer &Lexer = getLexer();
   while (Lexer.isNot(AsmToken::EndOfStatement) &&
-         Lexer.isNot(AsmToken::Semicolon) &&
+         Lexer.isNot(AsmToken::LCurly) &&
          Lexer.isNot(AsmToken::Eof)) {
     Lexer.Lex();
   }
 }
 
 
-extern "C" void LLVMInitializePatmosAsmLexer();
-
 extern "C" void LLVMInitializePatmosAsmParser() {
   RegisterMCAsmParser<PatmosAsmParser> X(ThePatmosTarget);
-  LLVMInitializePatmosAsmLexer();
 }
 

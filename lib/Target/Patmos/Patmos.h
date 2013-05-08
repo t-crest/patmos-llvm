@@ -33,10 +33,11 @@ namespace llvm {
   FunctionPass *createPatmosSinglePathInfoPass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosSPPreparePass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosSPReducePass(const PatmosTargetMachine &tm);
-  FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
+  FunctionPass *createPatmosDelaySlotFillerPass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);
   FunctionPass *createPatmosExportPass(PatmosTargetMachine &tm,
                                        std::string& filename);
+  FunctionPass *createPatmosPacketizer(PatmosTargetMachine &tm);
   ModulePass   *createPatmosModuleExportPass(PatmosTargetMachine &tm,
                                        std::string& filename,
                                        ArrayRef<std::string> roots);

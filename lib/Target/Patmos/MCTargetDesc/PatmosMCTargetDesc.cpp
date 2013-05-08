@@ -51,6 +51,12 @@ static MCRegisterInfo *createPatmosMCRegisterInfo(StringRef TT) {
 static MCSubtargetInfo *createPatmosMCSubtargetInfo(StringRef TT, StringRef CPU,
                                                     StringRef FS) {
   MCSubtargetInfo *X = new MCSubtargetInfo();
+  if (CPU.empty()) {
+    // TODO since we do not create a PatmosSubtarget here (for some registration
+    // issues it seems), we need to take care about the default CPU model here
+    // as well, otherwise we have no SchedModel.
+    CPU = "generic";
+  }
   InitPatmosMCSubtargetInfo(X, TT, CPU, FS);
   return X;
 }
