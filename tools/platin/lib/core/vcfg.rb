@@ -421,21 +421,36 @@ end
 
 # Stacks with bounded memory
 class BoundedStack
+  # fly-weight, to get cheaper comparisons (profile hotspot)
+  @@repository = {}
   attr_reader :stack
+  def BoundedStack.create(stack)
+    bs = @@repository[stack]
+    if ! bs
+      bs = @@repository[stack] = BoundedStack.new(stack)
+    end
+    bs
+  end
   def initialize(elems)
     @stack = elems
+    @cache = {}
   end
   def BoundedStack.initial(length)
-    BoundedStack.new([])
+    BoundedStack.create([])
   end
   def push(elem, maxlength)
     return if maxlength == 0
-    return BoundedStack.new([elem]) if maxlength==1
-    r = if stack.length < maxlength
-      BoundedStack.new(stack + [elem])
+    return BoundedStack.create([elem]) if maxlength==1
+    if stack.length < maxlength
+      BoundedStack.create(stack + [elem])
     else
-      BoundedStack.new(stack[1..-1] + [elem])
+      BoundedStack.create(stack[1..-1] + [elem])
     end
+  end
+  def pop
+    newstack = stack.dup
+    newstack.pop
+    BoundedStack.create(newstack)
   end
   def top
     @stack[-1]
@@ -444,39 +459,19 @@ class BoundedStack
     newstack = stack.dup
     newelem = yield newstack.pop
     newstack.push(newelem)
-    BoundedStack.new(newstack)
-  end
-  def pop
-    newstack = stack.dup
-    newstack.pop
-    BoundedStack.new(newstack)
-  end
-  def suffix_of?(other)   # performance bottleneck
-    return true if stack.size == 0
-    offset = other.stacklength - self.stacklength
-    return false if offset < 0
-    stack == other.stack[offset..-1]
+    BoundedStack.create(newstack)
   end
   def to_s
     return "[]" if @stack.empty?
     @stack.map { |n| n.to_s }.join("-")
   end
-  def ==(other)
-    return false if other.nil?
-    return false unless other.kind_of?(BoundedStack)
-    @stack == other.stack
-  end
-  def eql?(other); self == other ; end
+  # unique objects - can use pointer equality (== defined as equals?) per default
   def hash
     return @hash if @hash
     @hash = stack.hash
   end
   def <=>(other)
     hash <=> other.hash
-  end
-private
-  def stacklength
-    @stack.length
   end
 end
 
@@ -601,7 +596,7 @@ class Context
   def eql?(other); self == other ; end
   def hash
     return @hash if @hash
-    @hash=@callstring.hash ^ @loopcontext.hash
+    @hash= [@callstring,@loopcontext].hash
   end
   def <=>(other)
     hash <=> other.hash
