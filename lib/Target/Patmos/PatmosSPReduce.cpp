@@ -8,6 +8,26 @@
 //===----------------------------------------------------------------------===//
 //
 // This pass reduces functions marked for single-path conversion.
+// It operates on the information regarding SPNodes and (abstract) predicates
+// obtained from PatmosSinglePathInfo, in following phases:
+// (1) Predicate register allocation is performed with the predicate
+//     registers unused in this function, the information is stored in an
+//     RAInfo object for every SPNode.
+// (2) Code for predicate definitions/spill/load is inserted in MBBs for
+//     every SPNode, and instructions of their basic blocks are predicated.
+// (3) The CFG is actually "reduced" or linearized, by putting alternatives
+//     in sequence. This is done by a walk over the SPNode tree, which also
+//     inserts MBBs around loops for predicate spilling/restoring,
+//     setting/loading loop bounds, etc.
+// (4) MBBs are merged and renumbered, as finalization step.
+//
+// TODO: It is desirable to have an optimization pass before (4) to
+//       remove unnecessary loads/stores to spill slots introduced in (2)-(3).
+//
+// TODO: No actual loop bounds are loaded, as this information is not
+//       available yet
+//
+// TODO: Single-Path conversion is not interprocedural yet!
 //
 //===----------------------------------------------------------------------===//
 
@@ -23,6 +43,7 @@
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -53,6 +74,11 @@
 
 using namespace llvm;
 
+STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
+STATISTIC( InsertedInstrs,      "Number of instructions inserted");
+
+STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
+STATISTIC( NoSpillNodes,  "Number of SPNodes (loops) where S0 spill can be omitted");
 
 // anonymous namespace
 namespace {
@@ -72,6 +98,9 @@ namespace {
     const PatmosInstrInfo *TII;
     const TargetRegisterInfo *TRI;
 
+    // The pointer to the PatmosMachinFunctionInfo is set upon running on a
+    // particular function. It contains information about stack slots for
+    // predicate spilling and loop bounds.
     const PatmosMachineFunctionInfo *PMFI;
 
     /// doReduceFunction - Reduce a given MachineFunction
@@ -80,23 +109,30 @@ namespace {
     /// computeRegAlloc - Compute RAInfo for each SPNode of the tree
     void computeRegAlloc(SPNode *root);
 
-    /// createRAInfo - Create a new RAInfo for an SPNode
+    /// createRAInfo - Helper function to create a new RAInfo for an SPNode
+    /// and insert it in the RAInfos map of the pass.
+    /// Returns a reference to the newly created RAInfo.
     RAInfo &createRAInfo(SPNode *N);
 
     /// insertPredDefinitions - Insert predicate register definitions
+    /// to MBBs of the given SPNode.
     void insertPredDefinitions(SPNode *N);
 
+    /// insertDefsForBV - Helper function to insert definitions for all
+    /// predicates contained in the bitvector bv in MBB at MI, which are
+    /// control dependent on condition Cond.
+    /// Uses RAInfo R to determine locations, including spill slots.
     void insertDefsForBV(MachineBasicBlock &MBB,
                          MachineBasicBlock::iterator MI,
                          const RAInfo &R,
                          const BitVector &bv,
                          const SmallVectorImpl<MachineOperand> &Cond);
 
-    /// applyPredicates - Predicate instructions of MBBs
+    /// applyPredicates - Predicate instructions of MBBs in the given SPNode.
     void applyPredicates(SPNode *N);
 
     /// insertUseSpillLoad - Insert Spill/Load code at the beginning of the
-    /// given MBB
+    /// given MBB, according to R.
     void insertUseSpillLoad(const RAInfo &R, MachineBasicBlock *MBB);
 
     /// insertPredicateLoad - Insert code to load from a spill stack slot to
@@ -168,16 +204,20 @@ namespace {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+  /// LinearizeWalker - Class to linearize the CFG during a walk of the SPNode
+  /// tree.
   class LinearizeWalker : public SPNodeWalker {
     private:
       virtual void nextMBB(MachineBasicBlock *);
       virtual void enterSubnode(SPNode *);
       virtual void exitSubnode(SPNode *);
 
+      // reference to the pass, to get e.g. RAInfos
       PatmosSPReduce &Pass;
+      // reference to the machine function, for inserting MBBs
       MachineFunction &MF;
 
-      MachineBasicBlock *LastMBB;
+      MachineBasicBlock *LastMBB; // state: last MBB re-inserted
     public:
       explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
         : Pass(pass), MF(mf), LastMBB(NULL) {}
@@ -186,6 +226,8 @@ namespace {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+  /// LiveRange - Class to hold live range information for a predicate in
+  /// an RAInfo object.
   class LiveRange {
   friend class RAInfo;
   private:
@@ -223,6 +265,7 @@ namespace {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+  /// RAInfo - Class to hold register allocation information for a SPNode
   class RAInfo {
     public:
       // the SPNode this RAInfo belongs to
@@ -236,15 +279,28 @@ namespace {
       std::vector<LiveRange> LRs;
       // each predicate has one definition location (index = predicate number)
       std::vector<int> DefLocs; // Pred -> loc
+      // set of unused locations, managed during the
       std::set<unsigned> FreeLocs;
-      unsigned NumLocs, CumLocs, Offset, SpillOffset;
+      // various attributes regarding locations
+      unsigned NumLocs, // Total number of locations in this SPNode
+               CumLocs, // Cumulative number of locations synthesized up the
+                        //   tree: NumLocs + max. CumLocs over the children
+               Offset,  // S0 does not need to be spilled around this node,
+                        //   this is the offset to the available registers
+               SpillOffset; // Starting offset for this node's spill locations
+      // UseLoc - Record to hold predicate use information for a MBB
+      // - loc:   which location to use (a register)
+      // - spill: where to spill loc first (spill location)
+      // - load:  where to load loc before using it (spill location)
       struct UseLoc {
         int loc, load, spill;
         UseLoc(void) : loc(-1), load(-1), spill(-1) {}
       };
-      std::map<const MachineBasicBlock*, UseLoc> UseLocs; // MBB -> loc
+      // Map of MBB -> UseLoc, for an SPNode
+      std::map<const MachineBasicBlock*, UseLoc> UseLocs;
 
-      // comparator for predicates, furthest next use
+      // Comparator for predicates, furthest next use;
+      // used in assignLocations()
       struct FurthestNextUseComparator {
         RAInfo &RI;
         int pos;
@@ -254,18 +310,15 @@ namespace {
         FurthestNextUseComparator(RAInfo &ri, int p) : RI(ri), pos(p) {}
       };
 
+      // createLiveRanges - Helper function to initially create the live ranges
+      // for all predicates used in this SPNode
       void createLiveRanges(void);
+
+      // assignLocations - Performs a linear scan allocation over the MBBs
+      // of the SPNode to assign locations
       void assignLocations(void);
 
-      // store the last location in the loop of the header, if different from
-      // its use location.
-      void setLastHeaderLoc(int loc) {
-        UseLoc &ul = UseLocs[Node->getHeader()];
-        if (ul.loc != loc) {
-          ul.load = loc;
-        }
-      }
-
+      // get an available location
       int getLoc(void) {
         if (!FreeLocs.empty()) {
           std::set<unsigned>::iterator it = FreeLocs.begin();
@@ -276,14 +329,15 @@ namespace {
         return NumLocs++;
       }
 
+      // make a location available again
       void freeLoc(unsigned loc) {
         assert(!FreeLocs.count(loc));
         FreeLocs.insert(loc);
       }
-
-      bool hasFreePhys(unsigned numPhysRegs) {
-        return (!FreeLocs.empty() && (*FreeLocs.begin() < numPhysRegs) )
-          || (NumLocs < numPhysRegs);
+      // returns true if there is a register (color) available atm.
+      bool hasFreePhys(void) {
+        return (!FreeLocs.empty() && (*FreeLocs.begin() < NumColors) )
+          || (NumLocs < NumColors);
       }
 
     public:
@@ -296,12 +350,18 @@ namespace {
           assignLocations();
         }
 
+      // getCumLocs - Get the number of cumulative locations
       unsigned getCumLocs(void) const { return CumLocs; }
+
+      // setCumLocs - Set the number of cumulative locations, given the
+      // maximum CumLocs of the children.
+      // Naturally called in a post-order traversal.
       void setCumLocs(unsigned maxFromChildren) {
         CumLocs = NumLocs + maxFromChildren;
       }
 
-
+      // computePhysOffset - Compute the offset into the available colors,
+      // given the parent RAInfo. Naturally called in a pre-order traversal.
       void computePhysOffset(const RAInfo &ParentRI) {
         // check if we must spill the PRegs
         // Parent.num + N.cum <= size  --> no spill!
@@ -313,6 +373,7 @@ namespace {
 
       // assignSpillOffset - Stores the offset provided as spill offset,
       // and updates the offset by adding the number of spilled predicates.
+      // Traversal order is not important for this function.
       void assignSpillOffset(unsigned &spillOffset) {
         // assign the spill offset, increment
         if (NumLocs > NumColors) {
@@ -321,10 +382,14 @@ namespace {
         }
       }
 
+      // needsNodeSpill - Returns true if S0 must be spilled/restored
+      // upon entry/exit of this SPNode.
       bool needsNodeSpill(void) const {
         return (Offset == 0);
       }
 
+      // isFirstDef - Returns true if the given MBB contains the first
+      // definition of the given predicate.
       bool isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
         for(unsigned i=0; i<MBBs.size(); i++) {
           if (MBBs[i] == MBB) {
@@ -334,6 +399,9 @@ namespace {
         return false;
       }
 
+      // hasSpillLoad - Returns true if the use location of the given MBB
+      // requires the predicate register to be first spilled and/or loaded
+      // to/from a spill location.
       bool hasSpillLoad(const MachineBasicBlock *MBB) const {
         if (UseLocs.count(MBB)) {
           const UseLoc &ul = UseLocs.at(MBB);
@@ -342,6 +410,8 @@ namespace {
         return false;
       }
 
+      /// getUseLoc - Get the use location, which is a register location,
+      /// for the given MBB, if any. Returns -1 otherwise.
       int getUseLoc(const MachineBasicBlock *MBB) const {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).loc + Offset;
@@ -351,6 +421,9 @@ namespace {
         return -1;
       }
 
+      /// getLoadLoc - Get the load location, which is a spill location,
+      /// for the given MBB. Returns -1 if the predicate does not need to be
+      /// loaded from a spill slot.
       int getLoadLoc(const MachineBasicBlock *MBB) const {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).load;
@@ -362,6 +435,9 @@ namespace {
         return -1;
       }
 
+      /// getSpillLoc - Get the spill location, i.e. the location where the use
+      /// register has to be spilled first, for the given MBB.
+      /// Returns -1 if it does not need to be spilled.
       int getSpillLoc(const MachineBasicBlock *MBB) const {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).spill;
@@ -375,7 +451,7 @@ namespace {
 
       /// getDefLoc - get the definition location for a given predicate.
       /// The location is stored in loc, the function returns true if the
-      // location is a physical register.
+      /// location is a physical register.
       bool getDefLoc(unsigned &loc, unsigned pred) const {
         int dloc = DefLocs[pred];
         assert(dloc != -1);
@@ -388,6 +464,7 @@ namespace {
         return isreg;
       }
 
+      // Dump this RAInfo to dbgs().
       void dump(void) const;
   };
 
@@ -407,8 +484,15 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
   return new PatmosSPReduce(tm);
 }
 
-///////////////////////////////////////////////////////////////////////////////
 
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  PatmosSPReduce methods
+///////////////////////////////////////////////////////////////////////////////
 
 
 void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
@@ -420,16 +504,18 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   RAInfos.clear();
 
   // Get the unused predicate registers
+  DEBUG( dbgs() << "Available PRegs:" );
   for (TargetRegisterClass::iterator I=Patmos::PRegsRegClass.begin(),
       E=Patmos::PRegsRegClass.end(); I!=E; ++I ) {
     if (RegInfo.reg_empty(*I) && *I!=Patmos::P0) {
       AvailPredRegs.push_back(*I);
-      DEBUG( dbgs() << "PReg " << TRI->getName(*I)
-                    << " available\n" );
+      DEBUG( dbgs() << " " << TRI->getName(*I) );
     } else {
       UnavailPredRegs.push_back(*I);
     }
   }
+  DEBUG( dbgs() << "\n" );
+
   GuardsReg = Patmos::R26;
   // Get a temporary predicate register, which must not be used for allocation
   PRTmp     = AvailPredRegs.back();
@@ -443,6 +529,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Okay, now actually insert code, handling nodes in no particular order
   for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
     SPNode *N = *I;
+
+    DEBUG( dbgs() << "Insert code in [MBB#" << N->getHeader()->getNumber()
+                  << "]\n");
 
     // Predicate the instructions of blocks in N, also inserting spill/load
     // of predicates not in registers.
@@ -502,6 +591,7 @@ void PatmosSPReduce::computeRegAlloc(SPNode *root) {
     // compute offset for physically available registers
     if (!N->isTopLevel()) {
       RI.computePhysOffset( RAInfos.at(N->getParent()) );
+      if (!RI.needsNodeSpill()) NoSpillNodes++; // STATISTIC
     }
     // assign and update spillLocCnt
     RI.assignSpillOffset(spillLocCnt);
@@ -509,6 +599,7 @@ void PatmosSPReduce::computeRegAlloc(SPNode *root) {
     DEBUG( RI.dump() );
   } // end df
 
+  PredSpillLocs += spillLocCnt; // STATISTIC
 
 }
 
@@ -525,7 +616,7 @@ RAInfo& PatmosSPReduce::createRAInfo(SPNode *N) {
 
 
 void PatmosSPReduce::insertPredDefinitions(SPNode *N) {
-  DEBUG( dbgs() << "Insert Predicate Definitions\n" );
+  DEBUG( dbgs() << " Insert Predicate Definitions\n" );
 
   RAInfo &R = RAInfos.at(N);
 
@@ -560,6 +651,7 @@ void PatmosSPReduce::insertPredDefinitions(SPNode *N) {
     // restore kill flag at the last use
     //prior(firstTI)->findRegisterUseOperand(Cond[0].getReg())
     //              ->setIsKill(condKill);
+    // To this end, we search the instruction in which it was last used.
     for (MachineBasicBlock::iterator lastMI = prior(firstTI),
                                      firstMI = MBB->begin();
                                      lastMI != firstMI; --lastMI) {
@@ -608,12 +700,14 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
           // the PCLR instruction must not be predicated
           AddDefaultPred(BuildMI(MBB, MI, DL,
                 TII->get(Patmos::PCLR), AvailPredRegs[loc]));
+          InsertedInstrs++; // STATISTIC
         }
         DefMI = BuildMI(MBB, MI, DL,
             TII->get(Patmos::PMOV), AvailPredRegs[loc])
           // guard operand
           .addReg(use_preg).addImm(0)
           .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+        InsertedInstrs++; // STATISTIC
       } else {
         // the PAND instruction must not be predicated
         DefMI = AddDefaultPred(BuildMI(MBB, MI, DL,
@@ -621,6 +715,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
           // current guard as source
           .addReg(use_preg).addImm(0)
           .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+        InsertedInstrs++; // STATISTIC
       }
 
       // remember this instruction if it has to be the last one
@@ -643,6 +738,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
         // R &= ~(1 << loc)
         AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::ANDl), tmpReg))
           .addReg(tmpReg).addImm( ~or_bitmask );
+        InsertedInstrs++; // STATISTIC
       }
       // FIXME use new instruction for next two steps
       // compute combined predicate (guard && condition)
@@ -663,6 +759,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
         .addFrameIndex(fi).addImm(0) // address
         .addReg(tmpReg);
       TRI->eliminateFrameIndex(storeMI, 0, NULL);
+      InsertedInstrs += 4; // STATISTIC
     }
   }
 
@@ -675,7 +772,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
 
 
 void PatmosSPReduce::applyPredicates(SPNode *N) {
-  DEBUG( dbgs() << "Applying predicates to MBBs\n" );
+  DEBUG( dbgs() << " Applying predicates to MBBs\n" );
 
   const RAInfo &R = RAInfos.at(N);
 
@@ -744,6 +841,7 @@ void PatmosSPReduce::applyPredicates(SPNode *N) {
                 .addOperand(PO1).addOperand(PO2);
           PO1.setReg(PRTmp); // FIXME
           PO2.setImm(0);
+          InsertedInstrs++; // STATISTIC
         }
       }
     } // for each instruction in MBB
@@ -813,6 +911,7 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
         .addFrameIndex(fi).addImm(0) // address
         .addReg(GuardsReg);
       TRI->eliminateFrameIndex(storeMI, 0, NULL);
+      InsertedInstrs += 4; // STATISTIC
     }
 
     // insert load code
@@ -840,6 +939,7 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
   // BTEST $Guards, $rtr
   AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::BTEST),
         target_preg)).addReg(GuardsReg).addReg(Patmos::RTR);
+  InsertedInstrs += 3; // STATISTIC
 }
 
 
@@ -899,11 +999,12 @@ bool PatmosSPReduce::hasLiveOutPReg(const SPNode *N) const {
 }
 
 
+
+
+
 ///////////////////////////////////////////////////////////////////////////////
 //  RAInfo methods
 ///////////////////////////////////////////////////////////////////////////////
-
-
 
 void RAInfo::createLiveRanges(void) {
   // create live range infomation for each predicate
@@ -951,7 +1052,7 @@ void RAInfo::assignLocations(void) {
         // if previous location was not a register, we have to allocate
         // a register and/or possibly spill
         if ( curUseLoc >= (int)NumColors ) {
-          if (hasFreePhys(NumColors)) {
+          if (hasFreePhys()) {
             UL.load = curUseLoc;
             UL.loc = getLoc(); // gets a register
             // reassign
@@ -1028,10 +1129,15 @@ void RAInfo::assignLocations(void) {
     //  DEBUG( dbgs() << " " << curLocs[j] );
     //}
   }
+
   // What is the location of the header predicate after handling all blocks?
   // We store this location, as it is where the next iteration has to get it
-  // from.
-  setLastHeaderLoc(curLocs[0]);
+  // from (if different from its use location)
+  UseLoc &ul = UseLocs[Node->getHeader()];
+  if (ul.loc != curLocs[0]) {
+    ul.load = curLocs[0];
+  }
+
 }
 
 
@@ -1070,6 +1176,7 @@ void RAInfo::dump() const {
 
 
 
+
 ///////////////////////////////////////////////////////////////////////////////
 //  LinearizeWalker methods
 ///////////////////////////////////////////////////////////////////////////////
@@ -1084,7 +1191,8 @@ void LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
         ; // no body
 
   // remove the branch at the end of MBB
-  Pass.TII->RemoveBranch(*MBB);
+  // (update statistic counter)
+  RemovedBranchInstrs += Pass.TII->RemoveBranch(*MBB);
 
   if (LastMBB) {
     // add to the last MBB as successor
@@ -1125,6 +1233,7 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
       .addReg(tmpReg);
 
     Pass.TRI->eliminateFrameIndex(storeMI, 0, NULL);
+    InsertedInstrs += 2; // STATISTIC
   }
 
   // copy the header predicate for the subloop
@@ -1137,6 +1246,7 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
           Pass.TII->get(Patmos::PMOV), inner_preg))
       .addReg( outer_preg ).addImm(0);
+    InsertedInstrs++; // STATISTIC
   }
 
   if (N->hasLoopBound()) {
@@ -1145,7 +1255,7 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
       Pass.TII->get(Patmos::LIi),
       Patmos::RTR)).addImm(1000);
-
+    InsertedInstrs++; // STATISTIC
   }
 
   // append the preheader
@@ -1213,6 +1323,7 @@ void LinearizeWalker::exitSubnode(SPNode *N) {
     Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
                           Patmos::S0, tmpReg, true);
     nextMBB(PostMBB);
+    InsertedInstrs += 2; // STATISTIC
   }
 }
 
