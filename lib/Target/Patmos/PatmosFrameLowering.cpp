@@ -393,11 +393,8 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   // mark all predicate registers as used, for single path support
   // S0 is saved/restored as whole anyway
   if (PatmosSinglePathInfo::isEnabled(MF)) {
-    // TODO allocate predicate spill slots
-    // const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
-    // MFI.CreateSpillStackObject(RC->getSize(), RC->getAlignment());
     MRI.setPhysRegUsed(Patmos::S0);
-    MRI.setPhysRegUsed(Patmos::R26); // FIXME
+    MRI.setPhysRegUsed(Patmos::R26);
   }
 
   // If we need to spill S0, try to find an unused scratch register that we can

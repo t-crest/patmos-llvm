@@ -56,11 +56,18 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
 public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
     StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0),
-    S0SpillReg(0) {
-  }
+    S0SpillReg(0),
+    SinglePathSpillSlotOffset(0), SinglePathLoopCntOffset(0)
+    {}
 
   /// FIs to spill predicates during SinglePath conversion
   std::vector<int> SinglePathSpillFIs;
+
+  // Index to the SinglePathSpillFIs where the excess spill slots begin
+  unsigned SinglePathSpillSlotOffset;
+
+  // Index to the SinglePathSpillFIs where the loop counters begin
+  unsigned SinglePathLoopCntOffset;
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
   /// stack cache.

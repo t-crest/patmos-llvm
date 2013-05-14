@@ -156,6 +156,10 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     PMFI.SinglePathSpillFIs.push_back(fi);
   }
 
+  // store the start index of the excess spill slots
+  PMFI.SinglePathSpillSlotOffset = PMFI.SinglePathSpillFIs.size();
+
+
   // compute the required number of spill bits, depending on the number
   // of allocatable pred regs
   int numAllocatablePRegs = getNumUnusedPRegs(MF);
@@ -165,7 +169,9 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
 
     int cnt = requiredPreds[i] - numAllocatablePRegs;
     if (cnt>0) {
-      numSpillSlotsReq += cnt;
+      // for exchanging locations, we might need an additional
+      // temporary location
+      numSpillSlotsReq += (cnt+1);
     }
   }
 
