@@ -1198,9 +1198,15 @@ namespace llvm {
       unsigned int curr_size = 12;
       unsigned int i_count = 0;
       unsigned int total_size = 0;
-      for(MachineBasicBlock::iterator i(MBB->begin()),
-          ie(MBB->end()); i != ie; i++)
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie; i++)
       {
+        // skip over instructions inside bundles
+        if (i->isInsideBundle()) {
+          i_count++;
+          continue;
+        }
+
         // get instruction size
         unsigned int i_size = agraph::getInstrSize(i, PTM);
 
@@ -1225,15 +1231,12 @@ namespace llvm {
           MachineBasicBlock *newBB = splitBlockAtStart(MBB);
 
           // copy instructions over from the original block.
-          while(i_count--)
-          {
-            newBB->push_back(MBB->front().removeFromParent());
-          }
+          newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
 
           // start anew
           i_count = 1;
           curr_size = 12 + i_size; // may fall through!
-          i = MBB->begin();
+          i = MBB->instr_begin();
         }
       }
 

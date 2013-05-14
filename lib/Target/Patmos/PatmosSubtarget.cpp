@@ -50,7 +50,7 @@ static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
                               "(default 1024)"));
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
-	             cl::init(true),
+	             cl::init(false),
 		     cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
@@ -112,6 +112,22 @@ bool PatmosSubtarget::usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
 bool PatmosSubtarget::usePostRAMIScheduler(CodeGenOpt::Level OptLevel) const {
   return hasPostRAScheduler(OptLevel) && !DisableMIPostRA;
 }
+
+
+bool PatmosSubtarget::canIssueInSlot(unsigned SchedClass, unsigned Slot) const {
+  const InstrStage* IS = InstrItins.beginStage(SchedClass);
+  unsigned FuncUnits = IS->getUnits();
+
+  switch (Slot) {
+  case 0:
+    return FuncUnits & PatmosGenericItinerariesFU::FU_ALU0;
+  case 1:
+    return FuncUnits & PatmosGenericItinerariesFU::FU_ALU1;
+  default:
+    return false;
+  }
+}
+
 
 unsigned PatmosSubtarget::getStackCacheSize() const {
   return StackCacheSize;

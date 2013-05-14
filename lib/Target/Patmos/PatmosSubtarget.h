@@ -71,6 +71,13 @@ public:
   /// Return the number of delay slot cycles of control flow instructions
   unsigned getCFLDelaySlotCycles() const { return 2; }
 
+  /// Return the latency of MUL instructions
+  unsigned getMULLatency() const { return 3; }
+
+  /// Check if a given schedule class can be issued in a given slot.
+  /// @see PatmosInstrInfo::canIssueInSlot
+  bool canIssueInSlot(unsigned SchedClass, unsigned Slot) const;
+
   unsigned getStackCacheSize() const;
 
   unsigned getStackCacheBlockSize() const;
