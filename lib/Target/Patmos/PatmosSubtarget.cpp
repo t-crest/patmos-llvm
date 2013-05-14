@@ -50,7 +50,7 @@ static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
                               "(default 1024)"));
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
-	             cl::init(false),
+	             cl::init(true),
 		     cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
