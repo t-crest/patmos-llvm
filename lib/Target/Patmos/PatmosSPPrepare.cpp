@@ -126,6 +126,8 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
+  const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
+
   SPNode *root = PSPI.getRootNode();
 
   std::vector<unsigned> requiredPreds;
@@ -136,6 +138,11 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     MachineBasicBlock *Header = N->getHeader();
     unsigned preds = N->getNumPredicates();
     unsigned d = N->getDepth();
+
+    if (N->hasLoopBound()) {
+      int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
+      PMFI.addSinglePathFI(fi);
+    }
 
     DEBUG( dbgs() << "[MBB#" << Header->getNumber()
                   << "]: d=" << d << ", " << preds << "\n");
@@ -149,15 +156,18 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     }
   }
 
+  // store the start index of the S0 spill slots
+  PMFI.startSinglePathS0Spill();
+
   // create for each nesting level but the innermost one a byte-sized
   // spill slot for S0 in use
   for(unsigned i=0; i<requiredPreds.size()-1; i++) {
     int fi = MFI.CreateStackObject(1, 1, false);
-    PMFI.SinglePathSpillFIs.push_back(fi);
+    PMFI.addSinglePathFI(fi);
   }
 
   // store the start index of the excess spill slots
-  PMFI.SinglePathSpillSlotOffset = PMFI.SinglePathSpillFIs.size();
+  PMFI.startSinglePathExcessSpill();
 
 
   // compute the required number of spill bits, depending on the number
@@ -175,7 +185,6 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     }
   }
 
-  const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
   DEBUG( dbgs() << "Computed number of allocatable PRegs: "
                 << numAllocatablePRegs
                 << "\nRequired predicate spill slots (bits): "
@@ -186,7 +195,7 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
        j <= (numSpillSlotsReq+31)/(8*RC->getSize());
        j++) {
     int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
-    PMFI.SinglePathSpillFIs.push_back(fi);
+    PMFI.addSinglePathFI(fi);
   }
 }
 

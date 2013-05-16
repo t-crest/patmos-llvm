@@ -724,8 +724,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
       }
     } else {
       // The definition location of the predicate is a spill location.
-      int fi = PMFI->SinglePathSpillFIs[PMFI->SinglePathSpillSlotOffset
-        + (loc/32)];
+      int fi = PMFI->getSinglePathExcessSpillFI(loc/32);
       unsigned tmpReg = GuardsReg;
       uint32_t or_bitmask = 1 << (loc%32);
       // load from stack slot
@@ -884,8 +883,7 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
 
     // insert spill code
     if (spill != -1) {
-      int fi = PMFI->SinglePathSpillFIs[PMFI->SinglePathSpillSlotOffset
-        + (spill/32)];
+      int fi = PMFI->getSinglePathExcessSpillFI(spill/32);
       // load from stack slot
       MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, firstMI, DL,
             TII->get(Patmos::LWC), GuardsReg))
@@ -926,7 +924,7 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
                                          int loc, unsigned target_preg) {
   assert(loc != -1);
   DebugLoc DL;
-  int fi = PMFI->SinglePathSpillFIs[PMFI->SinglePathSpillSlotOffset+(loc/32)];
+  int fi = PMFI->getSinglePathExcessSpillFI(loc/32);
   // load from stack slot
   MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, MI, DL,
         TII->get(Patmos::LWC), GuardsReg))
@@ -1222,7 +1220,7 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
   if (RI.needsNodeSpill()) {
     // we create a SBC instruction here; TRI->eliminateFrameIndex() will
     // convert it to a stack cache access, if the stack cache is enabled.
-    int fi = Pass.PMFI->SinglePathSpillFIs[N->getDepth()-1];
+    int fi = Pass.PMFI->getSinglePathS0SpillFI(N->getDepth()-1);
     unsigned tmpReg = Pass.GuardsReg;
     Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
         tmpReg, Patmos::S0, false);
@@ -1311,7 +1309,7 @@ void LinearizeWalker::exitSubnode(SPNode *N) {
     MF.push_back(PostMBB);
     // we create a LBC instruction here; TRI->eliminateFrameIndex() will
     // convert it to a stack cache access, if the stack cache is enabled.
-    int fi = Pass.PMFI->SinglePathSpillFIs[N->getDepth()-1];
+    int fi = Pass.PMFI->getSinglePathS0SpillFI(N->getDepth()-1);
     unsigned tmpReg = Pass.GuardsReg;
     MachineInstr *loadMI =
       AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,

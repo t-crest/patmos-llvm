@@ -95,8 +95,9 @@ void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
   }
 
   // Spill slots / storage introduced for single path conversion
-  for(unsigned FI = 0; FI < PMFI.SinglePathSpillFIs.size(); FI++) {
-    SCFIs[FI] = true;
+  const std::vector<int> &SinglePathFIs = PMFI.getSinglePathFIs();
+  for(unsigned i=0; i<SinglePathFIs.size(); i++) {
+    SCFIs[SinglePathFIs[i]] = true;
   }
 
   // find all FIs that are spill slots

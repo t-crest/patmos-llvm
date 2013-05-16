@@ -47,6 +47,16 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// Register used to spill s0 to instead of the stack cache.
   unsigned S0SpillReg;
 
+  /// FIs created for SinglePath conversion
+  /// | LoopCnts | S0Spills | ExcessSpills |
+  std::vector<int> SinglePathFIs;
+
+  // Index to the SinglePathFIs where the S0 spill slots start
+  unsigned SPS0SpillOffset;
+
+  // Index to the SinglePathFIs where the excess spill slots start
+  unsigned SPExcessSpillOffset;
+
   /// Set of entry blocks to code regions that are potentially cached by the
   /// method cache.
   std::set<const MachineBasicBlock*> MethodCacheRegionEntries;
@@ -57,17 +67,8 @@ public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
     StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0),
     S0SpillReg(0),
-    SinglePathSpillSlotOffset(0), SinglePathLoopCntOffset(0)
+    SPS0SpillOffset(0), SPExcessSpillOffset(0)
     {}
-
-  /// FIs to spill predicates during SinglePath conversion
-  std::vector<int> SinglePathSpillFIs;
-
-  // Index to the SinglePathSpillFIs where the excess spill slots begin
-  unsigned SinglePathSpillSlotOffset;
-
-  // Index to the SinglePathSpillFIs where the loop counters begin
-  unsigned SinglePathLoopCntOffset;
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
   /// stack cache.
@@ -143,6 +144,34 @@ public:
   /// \see MethodCacheRegionEntries
   bool isMethodCacheRegionEntry(const MachineBasicBlock *MBB) const {
     return MethodCacheRegionEntries.find(MBB) != MethodCacheRegionEntries.end();
+  }
+
+  void addSinglePathFI(int fi) {
+    SinglePathFIs.push_back(fi);
+  }
+
+  void startSinglePathS0Spill(void) {
+    SPS0SpillOffset = SinglePathFIs.size();
+  }
+
+  void startSinglePathExcessSpill(void) {
+    SPExcessSpillOffset = SinglePathFIs.size();
+  }
+
+  int getSinglePathLoopCntFI(unsigned num) const {
+    return SinglePathFIs[0 + num];
+  }
+
+  int getSinglePathS0SpillFI(unsigned num) const {
+    return SinglePathFIs[SPS0SpillOffset + num];
+  }
+
+  int getSinglePathExcessSpillFI(unsigned num) const {
+    return SinglePathFIs[SPExcessSpillOffset + num];
+  }
+
+  const std::vector<int>& getSinglePathFIs(void) const {
+    return SinglePathFIs;
   }
 };
 
