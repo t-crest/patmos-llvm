@@ -172,7 +172,9 @@ namespace {
       STC(tm.getSubtarget<PatmosSubtarget>()),
       TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
       TRI(tm.getRegisterInfo())
-    {}
+    {
+      (void) TM; // silence "unused"-warning
+    }
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {
@@ -287,7 +289,8 @@ namespace {
                         //   tree: NumLocs + max. CumLocs over the children
                Offset,  // S0 does not need to be spilled around this node,
                         //   this is the offset to the available registers
-               SpillOffset; // Starting offset for this node's spill locations
+               SpillOffset,   // Starting offset for this node's spill locations
+               LoopCntOffset; // Loop counter stack location offset
       // UseLoc - Record to hold predicate use information for a MBB
       // - loc:   which location to use (a register)
       // - spill: where to spill loc first (spill location)
@@ -345,7 +348,7 @@ namespace {
         Node(N), NumColors(numcolors), MBBs(N->getBlocks()),
         LRs(N->getNumPredicates(), LiveRange(N->getBlocks().size()+1)),
         DefLocs(N->getNumPredicates(),-1),
-        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0) {
+        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0), LoopCntOffset(0) {
           createLiveRanges();
           assignLocations();
         }
@@ -358,6 +361,21 @@ namespace {
       // Naturally called in a post-order traversal.
       void setCumLocs(unsigned maxFromChildren) {
         CumLocs = NumLocs + maxFromChildren;
+      }
+
+      // setLoopCntOffset - Set the offset to access the stack location
+      // for the loop counter.
+      // Traversal order is not important for this function, depth-first
+      // makes sense though.
+      void setLoopCntOffset(unsigned num) {
+        assert(Node->hasLoopBound());
+        LoopCntOffset = num;
+      }
+
+      // getLoopCntOffset - Get the offset to access the stack location
+      // for the loop counter.
+      unsigned getLoopCntOffset(void) const {
+        return LoopCntOffset;
       }
 
       // computePhysOffset - Compute the offset into the available colors,
@@ -581,8 +599,10 @@ void PatmosSPReduce::computeRegAlloc(SPNode *root) {
 
   // Visit all nodes in depth-first order to compute offsets:
   // - Offset is inherited during traversal
-  // - SpillOffset is assigned increased from left to right
-  unsigned spillLocCnt = 0;
+  // - SpillOffset is assigned increased depth-first, from left to right
+  // - LoopCntOffset as well
+  unsigned spillLocCnt   = 0,
+           loopCntOffset = 0;
   for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
     SPNode *N = *I;
 
@@ -595,6 +615,11 @@ void PatmosSPReduce::computeRegAlloc(SPNode *root) {
     }
     // assign and update spillLocCnt
     RI.assignSpillOffset(spillLocCnt);
+
+    // assign a loop counter offset for the stack location
+    if (N->hasLoopBound()) {
+      RI.setLoopCntOffset(loopCntOffset++);
+    }
 
     DEBUG( RI.dump() );
   } // end df
@@ -1247,13 +1272,26 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
     InsertedInstrs++; // STATISTIC
   }
 
+  // Initialize the loop bound and store it to the stack slot
   if (N->hasLoopBound()) {
+    unsigned tmpReg = Pass.GuardsReg;
+    int loop = N->getLoopBound();
     // Create an instruction to load the loop bound
-    //FIXME load the actual loop bound
+    // TODO try to find an unused register
+    // FIXME load or copy the actual loop bound
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-      Pass.TII->get(Patmos::LIi),
-      Patmos::RTR)).addImm(1000);
-    InsertedInstrs++; // STATISTIC
+          Pass.TII->get( (isUInt<12>(loop)) ? Patmos::LIi : Patmos::LIl),
+          tmpReg))
+      .addImm(loop); // the loop bound
+
+    int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
+    MachineInstr *storeMI =
+      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+            Pass.TII->get(Patmos::SWC)))
+      .addFrameIndex(fi).addImm(0) // address
+      .addReg(tmpReg, RegState::Kill);
+    Pass.TRI->eliminateFrameIndex(storeMI, 0, NULL);
+    InsertedInstrs += 2; // STATISTIC
   }
 
   // append the preheader
@@ -1269,39 +1307,70 @@ void LinearizeWalker::exitSubnode(SPNode *N) {
 
   if (N->isTopLevel()) return;
 
+  const RAInfo &RI = Pass.RAInfos.at(N);
+  DebugLoc DL;
+
   // insert backwards branch to header at the last block
-  // TODO loop iteration counts
   MachineBasicBlock *BranchMBB = MF.CreateMachineBasicBlock();
   MF.push_back(BranchMBB);
   // weave in before inserting the branch (otherwise it'll be removed again)
   nextMBB(BranchMBB);
 
   // now we can fill the MBB with instructions:
+  // load the branch predicate
+  unsigned branch_preg = Patmos::NoRegister;
+  if (N->hasLoopBound()) {
+    // load the loop counter, decrement it by one, and if it is not (yet)
+    // zero, we enter the loop again.
+    // TODO is the loop counter in a register?!
+    int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
+    unsigned tmpReg = Pass.GuardsReg;
+    MachineInstr *loadMI =
+      AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+            Pass.TII->get(Patmos::LWC), tmpReg))
+      .addFrameIndex(fi).addImm(0); // address
+    Pass.TRI->eliminateFrameIndex(loadMI, 0, NULL);
 
-
-  const RAInfo &RI = Pass.RAInfos.at(N);
-
-  DebugLoc DL;
-
-  // get the header predicate and create a branch to the header
-  unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
-  assert(header_preg != Patmos::NoRegister);
-  // get from stack slot, if necessary
-  int loadloc = RI.getLoadLoc(HeaderMBB);
-  if (loadloc != -1) {
+    // decrement
+    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+            Pass.TII->get(Patmos::SUBi), tmpReg))
+      .addReg(tmpReg).addImm(1);
+    // compare with 0, PRTmp as predicate register
+    branch_preg = Pass.PRTmp;
+    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+            Pass.TII->get(Patmos::CMPNEQ), branch_preg))
+      .addReg(Patmos::R0).addReg(tmpReg);
+    // store back
+    MachineInstr *storeMI =
+      AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+            Pass.TII->get(Patmos::SWC)))
+      .addFrameIndex(fi).addImm(0) // address
+      .addReg(tmpReg, RegState::Kill);
+    Pass.TRI->eliminateFrameIndex(storeMI, 0, NULL);
+    InsertedInstrs += 4; // STATISTIC
+  } else {
+    // get the header predicate
+    branch_preg = Pass.getUsePReg(RI, HeaderMBB);
+    // get from stack slot, if necessary
+    int loadloc = RI.getLoadLoc(HeaderMBB);
+    if (loadloc != -1) {
       Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
-                               loadloc, header_preg);
+          loadloc, branch_preg);
+    }
+    // TODO copy between pregs?
   }
-  // TODO copy between pregs?
-  // insert branch
+  // insert branch to header
+  assert(branch_preg != Patmos::NoRegister);
   BuildMI(*BranchMBB, BranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
-    .addReg(header_preg).addImm(0)
+    .addReg(branch_preg).addImm(0)
     .addMBB(HeaderMBB);
   BranchMBB->addSuccessor(HeaderMBB);
+  InsertedInstrs++; // STATISTIC
 
 
   assert(!Pass.hasLiveOutPReg(N) &&
          "Unimplemented: handling of live-out PRegs of loops");
+
 
   // create a post-loop MBB to restore the spill predicates, if necessary
   if (RI.needsNodeSpill()) {
