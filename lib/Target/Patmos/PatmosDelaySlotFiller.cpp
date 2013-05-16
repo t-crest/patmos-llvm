@@ -281,6 +281,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
         DEBUG_TRACE( dbgs() << " -- skip: " << *J );
         continue;
       }
+
       // Found a filler, add to candidates
       DI.appendCandidate(J);
       DEBUG_TRACE( dbgs() << " -- candidate: " << *J );
@@ -462,6 +463,10 @@ void DelayHazardInfo::insertDefsUses(MachineInstr *MI) {
 bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
                                 MachineBasicBlock::iterator I) {
 
+  // for calls, allow only single-issue and 32bit instructions
+  if (MI.isCall() && PDSF.TII->getInstrSize(I) != 4)
+    return true;
+
   if (I->isBundle()) {
     MachineBasicBlock::instr_iterator II = *I; ++II;
 
@@ -478,10 +483,6 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
   assert(!I->isKill() && !I->hasDelaySlot());
 
   const PatmosInstrInfo *TII = PDSF.TII;
-
-  // for calls, allow only single-issue and 32bit instructions
-  if (MI.isCall() && TII->getInstrSize(I) != 4)
-    return true;
 
   // don't move long latency/split MUL into delay slot
   if (I->getOpcode() == Patmos::MUL ||
