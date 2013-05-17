@@ -5,6 +5,7 @@
 # Simple visualizer (should be expanded to do proper report generation)
 #
 require 'platin.rb'
+require 'core/vcfg'
 include PML
 
 begin
@@ -18,8 +19,7 @@ end
 
 class Visualizer
   attr_reader :options
-  def generate(object,outfile)
-    g = visualize(object)
+  def generate(g,outfile)
     $dbgs.puts outfile if options.debug
     puts g.to_s
     g.output( :png => "#{outfile}" )
@@ -27,8 +27,45 @@ class Visualizer
   end
 end
 class FlowGraphVisualizer < Visualizer
-  def initialize(options) ; @options = options ; end
-  def visualize(function)
+  def initialize(pml, options) ; @pml, @options = pml, options ; end
+  def visualize_vcfg(function, delay_slots)
+    g = GraphViz.new( :G, :type => :digraph )
+    g.node[:shape] = "rectangle"
+    vcfg = VCFG.new(function, :delay_slots => delay_slots)
+    name = function['name'].to_s
+    name << "/#{function['mapsto']}" if function['mapsto']
+    g[:label] = "CFG for " + name
+    nodes = {}
+    vcfg.nodes.each do |node|
+      nid = node.nid
+      label = ""
+      if node.kind_of?(EntryNode)
+        label = "START"
+      elsif node.kind_of?(ExitNode)
+        label = "END"
+      elsif node.kind_of?(CallNode)
+        label = "CALL #{node.callsite.callees.map { |c| "#{c}()" }.join(",")}"
+      elsif node.kind_of?(BlockSliceNode)
+        block = node.block
+        label = "#{block.name}"
+        label << "(#{block['mapsto']})" if block['mapsto']
+        label << " [#{node.first_index}..#{node.last_index}]"
+      elsif node.kind_of?(LoopStateNode)
+        label = "LOOP #{node.action} #{node.loop.name}"
+      end
+      #    block['instructions'].each do |ins|
+      #      label << "\n#{ins['opcode']} #{ins['size']}"
+      #    end
+      nodes[nid] = g.add_nodes(nid.to_s, :label => label)
+    end
+    vcfg.nodes.each do |node|
+      node.successors.each do |s|
+        g.add_edges(nodes[node.nid],nodes[s.nid])
+      end
+    end
+    g
+  end
+  def visualize_cfg(function)
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
     name = function['name'].to_s
@@ -102,25 +139,27 @@ class VisualizeTool
     outdir = options.outdir || "."
     targets.each do |target|
       # Visualize the bitcode, machine code and relation graphs
-      fgv = FlowGraphVisualizer.new(options)
+      fgv = FlowGraphVisualizer.new(pml, options)
       begin
         bf = pml.bitcode_functions.by_name(target)
-        fgv.generate(bf,File.join(outdir, target + ".bc" + ".png")) 
+        fgv.generate(fgv.visualize_cfg(bf),File.join(outdir, target + ".bc" + ".png")) 
       rescue Exception => detail
         puts "Failed to visualize bitcode function #{target}: #{detail}"
         raise detail
       end
       begin
         mf = pml.machine_functions.by_label(target)
-        fgv.generate(mf,File.join(outdir, target + ".mc" + ".png"))
+        graph = fgv.visualize_vcfg(mf, pml.arch.delay_slots)
+        fgv.generate(graph ,File.join(outdir, target + ".mc" + ".png"))
       rescue Exception => detail
         puts "Failed to visualize machinecode function #{target}: #{detail}"
+        puts detail.backtrace
       end
       begin
         rgv = RelationGraphVisualizer.new(options)
         rg = pml.data['relation-graphs'].find { |f| f['src']['function'] ==target or f['dst']['function'] == target }
         raise Exception.new("Relation Graph not found") unless rg
-        rgv.generate(rg,File.join(outdir, target + ".rg" + ".png"))
+        rgv.generate(rgv.visualize(rg),File.join(outdir, target + ".rg" + ".png"))
       rescue Exception => detail
         puts "Failed to visualize relation graph of #{target}: #{detail}"
       end

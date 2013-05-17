@@ -449,7 +449,7 @@ class ProgressTraceRecorder
     # find matching successor progress node
     succs = @node.successors_matching(bb, @level)
     if succs.length == 0
-      raise Exception.new("progress trace: no matching successor")
+      raise Exception.new("progress trace: no matching successor: at #{@node}, following #{@node.get_block(@level)}->#{bb} in (#{@level})")
     elsif succs.length > 1
       raise Exception.new("progress trace: indeterministic successor choice: #{@node} via #{bb}: #{succs}")
     else

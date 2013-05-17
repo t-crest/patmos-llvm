@@ -627,6 +627,9 @@ module PML
     def ref
       InstructionRef.new(self)
     end
+    def calls?
+      ! callees.empty?
+    end
     def callees
       data['callees'] || []
     end

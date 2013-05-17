@@ -128,6 +128,7 @@ class BenchToolSweet
     opts.binary_file(true)
     opts.bitcode_file(true)
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d}
+    opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
     TOOLS.each { |toolclass| toolclass.add_config_options(opts) }
   end
 end

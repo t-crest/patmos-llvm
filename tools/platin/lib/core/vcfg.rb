@@ -33,6 +33,17 @@ class ControlFlowModel
   def initialize(function_list, entry, ctx_manager, opts)
     @function_list, @entry, @ctx_manager, @opts = function_list, entry, ctx_manager, opts
     @vcfgs = { @entry => VCFG.new(@entry, opts) }
+    @locations, @scope_entries, @scope_exist = {}, {}, {}
+    ip = Interpreter.new(ReachabilitySemantics.new, self)
+    ip.interpret(get_entry_node(entry), true)
+    ip.stats($stdout)
+    ip.inputs_by_node.each do |node,ctxs|
+      ctxs.keys.each do |ctx|
+        node.add_context(ctx)
+      end
+      puts node
+      node.context_tree.dump($stdout,1)
+    end
   end
   #
   # return the entry node for the given function
@@ -44,18 +55,54 @@ class ControlFlowModel
     end
     vcfg.entry
   end
+
   #
-  # return VCFGs of functions possible called at this location
+  # get VCFG by label of the represented function
   #
-  def each_callee(loc)
-    # puts "CALLSITE: #{loc.node.callsite.inspect}"
-    if loc.node.callsite.unresolved_call?
-      raise Exception.new("Indirect calls not yet supported: #{loc.node.callsite}")
-    end
-    loc.node.callsite.callees.each { |flabel|
-      yield get_entry_node(@function_list.by_label(flabel)).vcfg
-    }
+  def by_label(label)
+    get_entry_node(@function_list.by_label(flabel)).vcfg
   end
+
+
+  #
+  # get location object (unique)
+  #
+  def location(node, ctx)
+    (@locations[node]||={})[ctx]||=Location.new(self, node,ctx)
+  end
+
+  #
+  # record scope entry (lazy scope-graph construction)
+  #
+  # - scope_node is the VCFG node which represents the scope
+  # - scope_context_before is the scope-related part of the context before entering the scope
+  # - scope_context_entry is the scope-related part of the context after entering the scope
+  #
+  # Example for functions:
+  #   Callnode<f:4> , Context<Call(main:3);Loop(main:1/1);Predecessor(f:3)>: call g
+  #     scope_node           := g.entry
+  #     scope_context_before := Context<Call(main:3);Loop(main:1/1);\top>
+  #     scope_context_entry  := Context<Call(f:4);Loop(main:1/1);\top>
+  # Example for loops:
+  #   LoopEnter<f:4>, Context<Call(main:3);Loop(main:1/1);Predecessor(f:3)>:
+  #     scope_node:          := LoopEnter<f:4>
+  #     scope_context_before := Context<Call(main:3);Loop(main:1/1);\top>
+  #     scope_context_entry  := Context<Call(main:3);Loop(f:4/1);\top>
+  #
+  def record_scope_entry(scope_node, scope_context_entry, scope_context_before)
+    dict = (@scope_entries[scope_node] ||= {})
+    (dict[scope_context_entry] ||= Set.new).add(scope_context_before)
+  end
+
+  #
+  # record known scope exits (lazy scope-graph construction)
+  #
+  def record_scope_exit(scope_node, scope_context_entry, exit_location)
+    dict = (@scope_exits[scope_node] ||= {})
+    dict[scope_context_entry] ||= Set.new
+    dict[scope_context_entry].add(exit_location)
+  end
+
 end
 
 #
@@ -157,30 +204,38 @@ private
   end
 end
 
-# VCFG Nodes
-# Identified by ID unique to the VCFG
-class CfgNode
-  #
-  #  For efficiency reasons, we do not use qnames here
-  #  That is, objects are compared by pointer equality
-  #
-  #  include QNameObject
 
-  # intra-procedural control-flow successors
-  attr_reader :vcfg, :nid, :successors, :predecessors
+# VCFG Nodes
+#  For efficiency reasons, we do not use qnames here
+#  That is, CfgNodes are compared by pointer equality
+class CfgNode
+
+  attr_reader :vcfg, :nid, :successors, :predecessors, :context_tree
+
   def initialize(vcfg)
     @vcfg, @nid, @successors, @predecessors = vcfg, vcfg.nodes.size, [], []
 #    @qname = "#{@vcfg.qname}/#{@nid}"
     @vcfg.nodes.push(self)
+    @context_tree = ContextNode.new(:root)
   end
 
   def add_successor(node)
     @successors.push(node)
     node.predecessors.push(self)
   end
+
   def set_index(ix)
     @nid = ix
   end
+
+  def add_context(ctx)
+    node = @context_tree
+    ctx.each_item do |item|
+      node = node.add_child(item)
+    end
+  end
+  # if this is a scope entry (call, loop-enter), matching scope exits in the given context
+  def matching_scope_exits(cfmodel, location); [] ; end
   def callnode? ; false ; end
   def instructions ; [] ; end
   def entry? ; false ; end
@@ -193,13 +248,10 @@ class EntryNode < CfgNode
   def to_s
     "#<EntryNode #{vcfg.function}>"
   end
-end
-
-class ExitNode < CfgNode
-  def initialize(vcfg) ; super(vcfg) ; end
-  def exit? ; true ; end
-  def to_s
-    "#<ExitNode #{vcfg.function}>"
+  def successors_with_context(cfmodel, location)
+    Enumerator.new do |ss|
+      @successors.each { |s| ss << cfmodel.location(s, location.context) }
+    end
   end
 end
 
@@ -210,11 +262,101 @@ class BlockSliceNode < CfgNode
     super(vcfg)
     @block, @first_index, @last_index = block, first_ins, last_ins
   end
+  def successors_with_context(cfmodel, location)
+    Enumerator.new do |ss|
+      @successors.each { |s| ss << cfmodel.location(s, cfmodel.ctx_manager.blockslice(location.context, self)) }
+    end
+  end
   def instructions
     @block.instructions[@first..@last]
   end
   def to_s
     "#<BlockSliceNode #{block} #{first_index} #{last_index}>"
+  end
+end
+
+class CallNode < CfgNode
+  attr_reader :callsite
+  def initialize(vcfg, callsite)
+    super(vcfg)
+    @callsite = callsite
+  end
+
+  # Note: call nodes change scope
+  # scope node: entry of the called function's vcfg
+  # scope entry scope-context: scope part of (context + callsite)
+  def successors_with_context(cfmodel, location)
+    Enumerator.new do |ss|
+      # add call to context
+      callee_context = cfmodel.ctx_manager.push_call(location.context, self)
+
+      # yield locations at callee's entries
+      @cfmodel.each_callee(location) { |vcfg|
+        cfmodel.record_scope_entry(vcfg.entry, callee_context.scope_context, location.context)
+        ss << cfmodel.location(vcfg.entry, callee_context)
+      }
+    end
+  end
+
+  # Enumerations locations which exit the scope entered at this location
+  #
+  def matching_scope_exits(cfmodel, location)
+    Enumerator.new do |ss|
+      # add call to context
+      scope_entry_context = cfmodel.ctx_manager.push_call(location.context, self).scope_context
+
+      @cfmodel.each_callee(location) { |vcfg|
+        cmodel.matching_scope_exits(vcfg.entry, scope_entry_context).each { |location|
+          ss << location
+        }
+      }
+    end
+  end
+
+  #
+  # return VCFGs of functions possible called at this location
+  #
+  def callees(cfmodel, location)
+    if loc.node.callsite.unresolved_call?
+      raise Exception.new("Indirect calls not yet supported: #{loc.node.callsite}")
+    end
+    Enumerator.new do |ss|
+      callsite.callees.each { |flabel|
+        ss << cfmodel.by_label(flabel)
+      }
+    end
+  end
+
+  def callnode? ; true; end
+  def to_s
+    "#<CallNode #{callsite}>"
+  end
+end
+
+class ExitNode < CfgNode
+  def initialize(vcfg) ; super(vcfg) ; end
+  def exit? ; true ; end
+  def successors_with_context(cfmodel, location)
+    Enumerator.new do |ss|
+
+      # get return context
+      return_context, callnode = cfmodel.ctx_manager.pop_call(loc.context)
+
+      # handle program exit
+      next if ! return_context
+
+      # record scope exit
+      cfmodel.record_scope_exit(vcfg.entry, return_context.scope_context, location)
+
+      # for all registered scope entry contexts
+      cfmodel.context_entries(vcfg.entry, return_context.scope_context).each { |call_context|
+        refined_context = return_context.with_scope_context(call_context)
+        callnode.successors.each { |s| ss << cfmodel.location(s, refined_context) }
+      }
+    end
+  end
+  def to_s
+    "#<ExitNode #{vcfg.function}>"
   end
 end
 
@@ -225,180 +367,70 @@ class LoopStateNode < CfgNode
     super(vcfg)
     @loop, @action = loop, action
   end
-  def to_s
-    "#<LoopStateNode #{loop} #{action}>"
-  end
-end
-class CallNode < CfgNode
-  attr_reader :callsite
-  def initialize(vcfg, callsite)
-    super(vcfg)
-    @callsite = callsite
-  end
-  def callnode? ; true; end
-  def to_s
-    "#<CallNode #{callsite}>"
-  end
-end
 
-#
-# Simple abstract interpretation on flat, inter-procedural control-flow model
-# Following state-of-the-art AI frameworks, we separate abstract values and
-# locations (which are an abstract of program counter and history) for efficiency
-# reasons
-#
-class Interpreter
-  attr_reader :steps
-  def initialize(semantics, cfmodel)
-    @semantics, @cfmodel, @ctx_manager = semantics, cfmodel, cfmodel.ctx_manager
-    @steps = 0
-  end
-  def interpret(initial_node, start_value)
-    @in, @out, @contexts = {}, {}, {}
-    @callcontexts, @returncontexts, @loopcontexts = {}, {}, {}
-    initial_loc = Location.new(initial_node, @ctx_manager.initial)
-    @in[initial_loc] = start_value
-    @queue = [initial_loc]
-    while ! @queue.empty?
-      @steps += 1
-      loc = @queue.pop
-      inval = @in[loc]
-      outval  = @semantics.transfer_value(loc.node, inval)
-      compute_successors(loc, outval)
-    end
-  end
-  def compute_successors(loc, outval)
-    @contexts[loc.node] ||= Set.new
-    @contexts[loc.node].add(loc.context)
-
-    case loc.node
-    when EntryNode
-      loc.node.successors.each { |s| process_successor(s, loc.context, outval) }
-    when BlockSliceNode
-      next_context = @ctx_manager.blockslice(loc.context, loc.node)
-      loc.node.successors.each { |s| process_successor(s, next_context, outval) }
-    when CallNode
-      # add call to context
-      callee_context = @ctx_manager.push_call(loc.context, loc.node)
-
-      # remember the call-context part of the current context as candidate for returns
-      call_return_context = record_call_return(loc.context, callee_context)
-
-      # yield locations at callee's entries
-      @cfmodel.each_callee(loc) { |f|
-
-        process_successor(f.entry, callee_context, outval)
-
-        # back-propagate results from matching return contexts (in case this function was already analyzed)
-        @returncontexts[loc.node][call_return_context].each { |callee_context_at_return|
-          retval = @in[Location.new(f.exit,callee_context_at_return)]
-          if ! retval
-            raise Exception.new("No return value for #{callee_context_at_return} matching #{call_return_context}")
-          end
-          return_context, callnode = @ctx_manager.pop_call(callee_context_at_return)
-          refined_context = return_context.with_caller_context(loc.context)
-          loc.node.successors.each { |n| process_successor(n, refined_context, retval) }
-        }
-      }
-    when ExitNode
-      # Contexts [example] [example]
-      # loc.context    ... context at exit                                      [main,f1,g2]+x  [f1,g2,h3]+x    [f1,g2,h3]+x
-      # return_context ... context at exit with topmost callstack entry popped  [main,f1]+x     [f1,g2]+x       [f1,g2]+x
-      # call_context   ... context at callsite to function                      [main,f1]+y     [main,f1,g2]+y  [main,f2,g2]+y
-      # refined_context .. return_context with refined call context             [main,f1]+x     [main,f1,g2]+x  NONE
-
-      # get return context
-      return_context, callnode = @ctx_manager.pop_call(loc.context)
-      # handle program exit
-      return if ! callnode
-
-      # get call/return context
-      call_return_context = return_context.call_context_slice
-      @returncontexts[callnode][call_return_context].add(loc.context)
-
-      # refine call contexts and yield call successors
-      @callcontexts[callnode][call_return_context].each { |call_context|
-        refined_context = return_context.with_caller_context(call_context)
-        callnode.successors.each { |s| process_successor(s, refined_context, outval) }
-      }
-    when LoopStateNode
-      case loc.node.action
+  def successors_with_context(cfmodel, location)
+    Enumerator.new do |ss|
+      case action
+      when :enter
+        next_context = @ctx_manager.enter_loop(location.context, self)
+        cfmodel.record_loop(self, location.context, next_context)
+        loc.node.successors.each { |s| process_successor(s, next_context, outval) }
+      when :cont
+        next_context = @ctx_manager.continue_loop(loc.context, loc.node.loop);
+        loc.node.successors.each { |s| process_successor(s, next_context, outval) }
       when :exit
-        return_context, loopnode = @ctx_manager.exit_loop(loc.context, loc.node.loop)
+        return_context, loopnode = cfmodel.ctx_manager.exit_loop(loc.context, loc.node.loop)
         if loopnode
-          @loopcontexts[loopnode][return_context.call_context_slice].each { |enter_context|
+          @loopcontexts[loopnode][return_context.scope_context].each { |enter_context|
             refined_context = return_context.with_caller_context(enter_context)
             loc.node.successors.each { |s| process_successor(s, refined_context, outval) }
           }
         else
           loc.node.successors.each { |s| process_successor(s, return_context, outval) }
         end
-      when :enter
-        next_context = @ctx_manager.enter_loop(loc.context, loc.node)
-        record_loop(loc.node.loop, loc.context, next_context)
-        loc.node.successors.each { |s| process_successor(s, next_context, outval) }
-      when :cont
-        next_context = @ctx_manager.continue_loop(loc.context, loc.node.loop);
-        loc.node.successors.each { |s| process_successor(s, next_context, outval) }
       else raise Exception.new("Bad loop state action")
       end
-    else
-      raise Exception.new("Bad VCFG node type #{loc.node.class}")
     end
   end
-
-  def process_successor(node, context, val)
-    loc = Location.new(node, context)
-    if change = @semantics.merge(@in[loc],val)
-      @in[loc] = change[1]
-      @queue.push(loc)
-    end
+  def matching_scope_exits(cfmodel, location)
+    return [] unless @action == :enter
+    cfmodel.scope_exits(loopnode, exit_context)
   end
-  def stats(io=$stdout)
-    io.puts "Nodes: #{@cfmodel.vcfgs.values.map { |cfg| cfg.nodes.length }.inject(0,:+)}"
-    io.puts "Locations: #{@contexts.values.map { |ctx| ctx.size }.inject(0,:+)}"
-    io.puts "Steps: #{steps}"
-  end
-  def dump(io=$stdout)
-    @contexts.each do |node, ctxs|
-      io.puts " NODE: #{node} #{node.qname}#{" #{node.block}" if node.respond_to?(:block)}"
-      ctxs.each do |ctx|
-        loc = Location.new(node, ctx)
-        io.puts "  CONTEXT: #{ctx}"
-        io.puts "  VALUE: #{@in[loc]}"
-      end
-    end
-  end
-private
-  def record_loop(loop, entry_context, loop_start_context)
-    return_context, loopnode = @ctx_manager.exit_loop(loop_start_context, loop)
-    return unless loopnode
-    call_return_context = return_context.call_context_slice
-    dict = (@loopcontexts[loopnode] ||= {})
-    dict[call_return_context] ||= Set.new
-    dict[call_return_context].add(entry_context)
-  end
-  def record_call_return(callsite_context, callee_context)
-    return_context, callnode = @ctx_manager.pop_call(callee_context)
-    call_return_context = return_context.call_context_slice
-    dict = (@callcontexts[callnode] ||= {})
-    dict[call_return_context] ||= Set.new
-    dict[call_return_context].add(callsite_context)
-    rdict = (@returncontexts[callnode] ||= {})
-    rdict[call_return_context] ||= Set.new
-    call_return_context
+  def to_s
+    "#<LoopStateNode #{loop} #{action}>"
   end
 end
 
-# Top / Bottom
-TOP=:top
-BOTTOM=:bottom
+
+# Context node for storing context-sensitive information
+class ContextNode
+  def initialize(item)
+    @item, @children = item, {}
+  end
+  def add_child(item)
+    if c = @children[item]
+      c
+    else
+      @children[item] = ContextNode.new(item)
+    end
+  end
+  def dump(io=$stdout, level = 0)
+    io.puts " "*(level*2) + @item.to_s
+    @children.each { |key,node| node.dump(io, level+1) }
+  end
+end
 
 # Locations are pairs of VCFG nodes and context
 class Location
   attr_reader :node, :context
-  def initialize(node, context)
-    @node, @context = node, context
+  def initialize(cfmodel, node, context)
+    @cfmodel, @node, @context = cfmodel, node, context
+  end
+  def successors
+    @node.successors_with_context(@cfmodel, self)
+  end
+  def matching_scope_exits
+    @node.matching_scope_exits(@cfmodel, self)
   end
   def to_s
     "#<Location #{@node} #{@context}>"
@@ -417,6 +449,70 @@ class Location
     hash <=> other.hash
   end
 end
+
+#
+# Simple abstract interpretation on flat, inter-procedural control-flow model
+# Following state-of-the-art AI frameworks, we separate abstract values and
+# locations (which are an abstract of program counter and history) for efficiency
+# reasons
+#
+class Interpreter
+  attr_reader :steps
+  def initialize(semantics, cfmodel)
+    @semantics, @cfmodel, @ctx_manager = semantics, cfmodel, cfmodel.ctx_manager
+    @steps = 0
+  end
+  def interpret(initial_node, start_value)
+    @in = {}
+    @callcontexts, @returncontexts, @loopcontexts = {}, {}, {}
+    initial_loc = Location.new(@cfmodel, initial_node, @ctx_manager.initial)
+    @in[initial_loc] = start_value
+    @queue = [initial_loc]
+    while ! @queue.empty?
+      @steps += 1
+      loc = @queue.pop
+      inval = @in[loc]
+      outval  = @semantics.transfer_value(loc.node, inval)
+      loc.successors.each { |loc| process_successor_location(loc,outval) }
+      # enqueue matching scope exit nodes (lazy construction of context-sensitive callgraph)
+      loc.matching_scope_exits { |loc| @queue.push(loc) }
+    end
+    @in
+  end
+
+  def process_successor_location(loc, val)
+    if change = @semantics.merge(@in[loc],val)
+      @in[loc] = change[1]
+      @queue.push(loc)
+    end
+  end
+
+  def inputs_by_node
+    by_node= {}
+    @in.each { |loc,value| (by_node[loc.node] ||={})[loc.context] = value }
+    by_node
+  end
+
+  def stats(io=$stdout)
+    io.puts "Nodes: #{@cfmodel.vcfgs.values.map { |cfg| cfg.nodes.length }.inject(0,:+)}"
+    io.puts "Locations: #{@in.keys.size}"
+    io.puts "Steps: #{steps}"
+  end
+
+  def dump(io=$stdout)
+    inputs_by_node.each do |node,ctxs|
+      io.puts " NODE: #{node}#{" #{node.block}" if node.respond_to?(:block)}"
+      ctxs.each do |ctx,val|
+        io.puts "  CONTEXT: #{ctx}"
+        io.puts "  VALUE: #{val}"
+      end
+    end
+  end
+end
+
+# Top / Bottom
+TOP=:top
+BOTTOM=:bottom
 
 
 # Stacks with bounded memory
@@ -569,6 +665,10 @@ class Context
   def Context.initial(calldepth, loopdepth)
     Context.new(BoundedStack.initial(calldepth), BoundedStack.initial(loopdepth))
   end
+  def each_item
+    @callstring.stack.reverse.each { |s| yield [:callsite,s] }
+    @loopcontext.stack.reverse.each { |s| yield [:loopcontext,s] }
+  end
   def with_callstring
     callstring_new = yield @callstring
     Context.new(callstring_new, @loopcontext)
@@ -577,8 +677,8 @@ class Context
     loopcontext_new = yield @loopcontext
     Context.new(@callstring, loopcontext_new)
   end
-  def call_context_slice
-    # no trace context atm
+  def scope_context
+    # no dynamic context at the moment
     self
   end
   def with_caller_context(caller_context)
@@ -596,7 +696,7 @@ class Context
   def eql?(other); self == other ; end
   def hash
     return @hash if @hash
-    @hash= [@callstring,@loopcontext].hash
+    @hash = @callstring.hash ^ @loopcontext.hash
   end
   def <=>(other)
     hash <=> other.hash

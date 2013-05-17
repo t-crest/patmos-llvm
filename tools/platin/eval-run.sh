@@ -4,8 +4,8 @@
 : ${BENCH:=rg}                     # benchmark script, one out of {trace,sweet}
 : ${SET:=mrtc_ext}                  # benchmark set
 # : ${LD_FLAGS:=-lm}                  # Linker flags
-: ${ARCH:=patmos}                   # architecture, one out of {patmos,armv4t,armv7a}
-: ${OPTS:=2 2-if-in}  # IFS-separated list of optimization levels {0,1,2}_suffix
+: ${ARCH:=armv7a}                   # architecture, one out of {patmos,armv4t,armv7a}
+: ${OPTS:=0 2 2-if-in}              # IFS-separated list of optimization levels {0,1,2}_suffix
                                     # Optimization suffixes: -if => disable ifcvt
                                     #                        -in => disable inlining
 : ${CLANG:=patmos-clang}            # clang tool
@@ -55,7 +55,8 @@ function analyze() {
         patmos)  ${PLATIN} bench-${BENCH} --bitcode "${BINPREFIX}.elf.bc" --outdir "${OUTDIR}" \
                 --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
         arm*) $GEM5_HOME/build/ARM/gem5.opt --debug-flags=Exec,-ExecMicro,ExecMacro --trace-file=trace $GEM5_HOME/configs/example/se.py -c "${BINPREFIX}.elf" ;
-              ${PLATIN} bench-${BENCH} --disable-ait  --bitcode "${BINPREFIX}.elf.bc" --trace-file=m5out/trace  --outdir "${OUTDIR}" \
+              cp m5out/trace "${OUTPREFIX}.mtf"
+              ${PLATIN} bench-${BENCH} --disable-ait  --bitcode "${BINPREFIX}.elf.bc" --trace-file="${OUTPREFIX}.mtf"  --outdir "${OUTDIR}" \
                 --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
         *) echo "Bad architecture ${ARCH}" >&2; exit 1 ;;
     esac
@@ -87,7 +88,7 @@ for OPT in ${OPTS}; do
     OUTDIR="${FILEBASE}/out"
     mkdir -p ${BINDIR} ${OUTDIR}
     # For all benchmarks
-    for BCFILE in ${SRCDIR}/jumptable.bc ; do
+    for BCFILE in ${SRCDIR}/*.bc ; do
         # set logfile
         M=$(basename "${BCFILE}" .bc)
         LOGFILE=${OUTDIR}/${M}.log

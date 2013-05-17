@@ -38,6 +38,11 @@ class WcaTool
                                      ["machinecode","bitcode"])
     ff_levels = if options.use_relation_graph then ["bitcode","machinecode"] else ["machinecode"] end
 
+    # PLAYING: VCFGs
+    ctxm = ContextManager.new(1,1,1,2)
+    cf = ControlFlowModel.new(pml.machine_functions, machine_entry, ctxm, :delay_slots => pml.arch.delay_slots)
+    exit(0)
+
     # Refine Control-Flow Model
     builder.refine(entry, flowfacts)
 
