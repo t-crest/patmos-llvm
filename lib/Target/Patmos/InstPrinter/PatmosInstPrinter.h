@@ -23,10 +23,12 @@ namespace llvm {
   class PatmosInstPrinter : public MCInstPrinter {
     PrintBytesLevel PrintBytes;
 
+    bool InBundle;
+
   public:
     PatmosInstPrinter(const MCAsmInfo &mai, const MCInstrInfo &mii,
 	                    const MCRegisterInfo &mri)
-        : MCInstPrinter(mai, mii, mri)
+        : MCInstPrinter(mai, mii, mri), InBundle(false)
     {
       switch (mai.getAssemblerDialect()) {
       case 0: PrintBytes = PrintAsEncoded; break;
@@ -35,10 +37,9 @@ namespace llvm {
       }
     }
 
-
     void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot);
 
-    void printGuard(const MCInst *MI, raw_ostream &O);
+    void printInstPrefix(const MCInst *MI, raw_ostream &O);
 
     void printOperand(const MCInst *MI, unsigned OpNo,
                       raw_ostream &O, const char *Modifier = 0);
@@ -55,6 +56,9 @@ namespace llvm {
     void printInstruction(const MCInst *MI, raw_ostream &O);
 
     static const char *getRegisterName(unsigned RegNo);
+
+  private:
+    bool isBundled(const MCInst *MI) const;
   };
 }
 

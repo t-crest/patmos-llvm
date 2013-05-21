@@ -16,6 +16,7 @@
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosHazardRecognizer.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -38,7 +39,7 @@ using namespace llvm;
 
 PatmosInstrInfo::PatmosInstrInfo(PatmosTargetMachine &tm)
   : PatmosGenInstrInfo(Patmos::ADJCALLSTACKDOWN, Patmos::ADJCALLSTACKUP),
-    RI(tm, *this) {}
+    PTM(tm), RI(tm, *this), PST(*tm.getSubtargetImpl()) {}
 
 bool PatmosInstrInfo::findCommutedOpIndices(MachineInstr *MI,
                                             unsigned &SrcOpIdx1,
@@ -176,6 +177,46 @@ void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
 }
 
 
+bool PatmosInstrInfo::isSchedulingBoundary(const MachineInstr *MI,
+                                            const MachineBasicBlock *MBB,
+                                            const MachineFunction &MF) const {
+  // Debug info is never a scheduling boundary.
+  if (MI->isDebugValue())
+    return false;
+
+  // Terminators and labels can't be scheduled around.
+  if (MI->getDesc().isTerminator() || MI->isLabel())
+    return true;
+
+  // TODO check if we have any other scheduling boundaries (STCs,..)
+  //      Ideally, we would like to schedule even over branches and calls
+  //      and model everything else as hazards and dependencies.
+
+  return false;
+}
+
+ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetHazardRecognizer(
+                              const TargetMachine *TM,
+                              const ScheduleDAG *DAG) const
+{
+  const InstrItineraryData *II = TM->getInstrItineraryData();
+  return new PatmosHazardRecognizer(PTM, II, DAG, false);
+}
+
+ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetMIHazardRecognizer(
+                                const InstrItineraryData *II,
+                                const ScheduleDAG *DAG) const
+{
+  return new PatmosHazardRecognizer(PTM, II, DAG, false);
+}
+
+ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetPostRAHazardRecognizer(
+                                const InstrItineraryData *II,
+                                const ScheduleDAG *DAG) const
+{
+  return new PatmosHazardRecognizer(PTM, II, DAG, true);
+}
+
 DFAPacketizer *PatmosInstrInfo::
 CreateTargetScheduleState(const TargetMachine *TM,
                            const ScheduleDAG *DAG) const {
@@ -259,6 +300,16 @@ bool PatmosInstrInfo::isSideEffectFreeSRegAccess(const MachineInstr *MI)
 unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
   assert(MI->mayLoad() || MI->mayStore());
 
+  if (MI->isBundle()) {
+    // find mem instruction in bundle (does not need to be the first
+    // instruction, they might be sorted later!)
+    MachineBasicBlock::const_instr_iterator II = MI; ++II;
+    while (II->isInsideBundle() && !II->mayLoad() && !II->mayStore()) {
+      ++II;
+    }
+    return getMemType(II);
+  }
+
   // FIXME: Maybe there is a better way to get this info directly from
   //        the instruction definitions in the .td files
   using namespace Patmos;
@@ -283,6 +334,47 @@ unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
 
 }
 
+bool PatmosInstrInfo::isPseudo(const MachineInstr *MI) const {
+  if (MI->isDebugValue())
+    return true;
+
+  // We must emit inline assembly
+  if (MI->isInlineAsm())
+    return false;
+
+  // We check if MI has any functional units mapped to it.
+  // If it doesn't, we ignore the instruction.
+  const MCInstrDesc& TID = MI->getDesc();
+  unsigned SchedClass = TID.getSchedClass();
+  const InstrStage* IS = PST.getInstrItineraryData().beginStage(SchedClass);
+  unsigned FuncUnits = IS->getUnits();
+  return !FuncUnits;
+}
+
+const MachineInstr *PatmosInstrInfo::hasOpcode(const MachineInstr *MI,
+                                               int Opcode) const {
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator II = MI; ++II;
+
+    while (II->isInsideBundle()) {
+      if (II->getOpcode() == Opcode) return II;
+      II++;
+    }
+
+    return 0;
+  } else {
+    return MI->getOpcode() == Opcode ? MI : 0;
+  }
+}
+
+const MachineInstr *PatmosInstrInfo::getFirstMI(const MachineInstr *MI) const {
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator I = MI;
+    return next(I);
+  }
+  return MI;
+}
+
 unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
   if (MI->isInlineAsm()) {
     PatmosTargetMachine& PTM = RI.getTargetMachine();
@@ -304,11 +396,27 @@ unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
     PAP.EmitInlineAsm(MI);
 
     return PIA->getSize();
-  } else {
+  }
+  else if (MI->isBundle()) {
+    const MachineBasicBlock *MBB = MI->getParent();
+    MachineBasicBlock::const_instr_iterator I = MI, E = MBB->instr_end();
+    unsigned Size = 0;
+    while ((++I != E) && I->isInsideBundle()) {
+      Size += getInstrSize(I);
+    }
+    return Size;
+  }
+  else {
     // trust the desc..
     return MI->getDesc().getSize();
   }
 }
+
+bool PatmosInstrInfo::canIssueInSlot(const MCInstrDesc &MID,
+                                     unsigned Slot) const {
+  return PST.canIssueInSlot(MID.getSchedClass(), Slot);
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -474,6 +582,19 @@ bool PatmosInstrInfo::isUnpredicatedTerminator(const MachineInstr *MI) const {
   return !isPredicated(MI);
 }
 
+bool PatmosInstrInfo::haveDisjointPredicates(const MachineInstr* MI1,
+                                             const MachineInstr* MI2) const
+{
+  if (!MI1->getDesc().isPredicable() || !MI2->getDesc().isPredicable()) {
+    return false;
+  }
+
+  unsigned Pos1 = MI1->getDesc().getNumDefs();
+  unsigned Pos2 = MI2->getDesc().getNumDefs();
+
+  return MI1->getOperand(Pos1).getReg() == MI2->getOperand(Pos2).getReg() &&
+         MI1->getOperand(Pos1+1).getImm() != MI2->getOperand(Pos2+1).getImm();
+}
 
 
 bool PatmosInstrInfo::

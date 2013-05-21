@@ -30,11 +30,14 @@ namespace llvm {
   void initializePatmosCallGraphBuilderPass(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
-  FunctionPass *createPatmosDelaySlotFillerPass(TargetMachine &tm);
+  FunctionPass *createPatmosDelaySlotFillerPass(PatmosTargetMachine &tm,
+                                                bool ForceDisable);
   FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);
   FunctionPass *createPatmosExportPass(PatmosTargetMachine &TM,
                                        std::string& Filename,
                                        std::string& BitcodeFilename);
+  FunctionPass *createPatmosPacketizer(PatmosTargetMachine &tm);
+  FunctionPass *createPatmosBundleSanitizer(PatmosTargetMachine &tm);
   ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
                                            std::string& Filename,
                                            std::string& BitcodeFilename,

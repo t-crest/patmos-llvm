@@ -156,15 +156,46 @@ bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB) const {
 
 
 void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
-  MCInst TmpInst;
-  MCInstLowering.Lower(MI, TmpInst);
 
-  // TODO Handle bundles (mark the first instruction after a bundle marker as bundled)
-  bool isBundled = false;
+  SmallVector<const MachineInstr*, 2> BundleMIs;
+  unsigned Size = 1;
 
-  TmpInst.addOperand(MCOperand::CreateImm(isBundled));
+  // Unpack BUNDLE instructions
+  if (MI->isBundle()) {
 
-  OutStreamer.EmitInstruction(TmpInst);
+    const MachineBasicBlock *MBB = MI->getParent();
+    MachineBasicBlock::const_instr_iterator MII = MI;
+    ++MII;
+    unsigned int IgnoreCount = 0;
+    while (MII != MBB->end() && MII->isInsideBundle()) {
+      const MachineInstr *MInst = MII;
+      if (MInst->getOpcode() == TargetOpcode::DBG_VALUE ||
+          MInst->getOpcode() == TargetOpcode::IMPLICIT_DEF) {
+          IgnoreCount++;
+          ++MII;
+          continue;
+      }
+      BundleMIs.push_back(MInst);
+      ++MII;
+    }
+    Size = BundleMIs.size();
+    assert((Size+IgnoreCount) == MI->getBundleSize() && "Corrupt Bundle!");
+  }
+  else {
+    BundleMIs.push_back(MI);
+  }
+
+  // Emit all instructions in the bundle.
+  for (unsigned Index = 0; Index < Size; Index++) {
+    MCInst MCI;
+    MCInstLowering.Lower(BundleMIs[Index], MCI);
+
+    // Set bundle marker
+    bool isBundled = (Index < Size - 1);
+    MCI.addOperand(MCOperand::CreateImm(isBundled));
+
+    OutStreamer.EmitInstruction(MCI);
+  }
 }
 
 

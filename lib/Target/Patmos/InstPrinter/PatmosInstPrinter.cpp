@@ -29,28 +29,40 @@ using namespace llvm;
 // Include the auto-generated portion of the assembly writer.
 #include "PatmosGenAsmWriter.inc"
 
+bool PatmosInstPrinter::isBundled(const MCInst *MI) const {
+  return MI->getOperand(MI->getNumOperands()-1).getImm() > 0;
+}
+
 void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                                  StringRef Annot) {
+                                  StringRef Annot)
+{
+  // This prints the bundle start marker and the guard using printInstPrefix.
   printInstruction(MI, O);
 
-  // if we are in a bundle, print the bundle separator (';')
-  // We use an additional operand at the end of the op-list for this information
-  bool isBundled = MI->getOperand(MI->getNumOperands()-1).getImm() > 0;
-
-  if (isBundled) {
-    O << "\t; ";
+  // Last instruction in bundle must not have the bundle bit set.
+  if (!isBundled(MI) && InBundle) {
+    O << " }";
+    InBundle = false;
   }
 
   printAnnotation(O, Annot);
 }
 
-void PatmosInstPrinter::printGuard(const MCInst *MI, raw_ostream &O) {
-  // Print the predicate register first.
+void PatmosInstPrinter::printInstPrefix(const MCInst *MI, raw_ostream &O) {
+
+  // First instruction in bundle?
+  if (isBundled(MI) && !InBundle) {
+    O << "{ ";
+    InBundle = true;
+  } else {
+    O << "  ";
+  }
+
+  // Print the predicate register.
   // This is a workaround. The guard cannot be printed before the mnemonic by
   // tablegen, otherwise we would not be able to generate matcher tables.
   // We therefore skip printing the guard in the AsmString and print it here
   // as a prefix instead.
-
   const MCInstrDesc &Desc = MII.get(MI->getOpcode());
 
   if (Desc.isPredicable()) {

@@ -45,7 +45,7 @@ def PatmosInstrInfo : InstrInfo;
 def PatmosInstPrinter : AsmWriter {
   let AsmWriterClassName  = "InstPrinter";
   let isMCAsmWriter = 1;
-  let PrintPrefixMethod = "printGuard";
+  let PrintPrefixMethod = "printInstPrefix";
 }
 
 //===----------------------------------------------------------------------===//
@@ -60,7 +60,7 @@ def FeatureMethodCache : SubtargetFeature<"methodcache", "HasMethodCache", "true
 //===----------------------------------------------------------------------===//
 // Patmos supported processors.
 //===----------------------------------------------------------------------===//
-def : Processor<"generic", PatmosGenericItineraries, [FeatureMethodCache]>;
+def : ProcessorModel<"generic", PatmosGenericModel, [FeatureMethodCache]>;
 
 //===----------------------------------------------------------------------===//
 // Target Declaration

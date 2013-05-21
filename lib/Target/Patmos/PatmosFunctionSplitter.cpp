@@ -344,6 +344,7 @@ namespace llvm {
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
+        if (i->isBundle()) continue;
         size += getInstrSize(i, PTM);
       }
 
@@ -1200,16 +1201,21 @@ namespace llvm {
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
+        // skip over instructions inside bundles
+        if (i->isInsideBundle()) {
+          i_count++;
+          continue;
+        }
+
         // get instruction size
         unsigned int i_size = agraph::getInstrSize(i, PTM);
 
         // ensure that delay slots are respected
         unsigned int delay_slot_margin = i->hasDelaySlot() ? 20 : 0;
 
-        assert(!isPatmosCFL(i->getOpcode(), i->getDesc().TSFlags) ||
-               (delay_slot_margin > 0));
-
-        // TODO avoid splitting inside of bundles, check for bundle flags!
+        const MachineInstr *FirstMI = PTM.getInstrInfo()->getFirstMI(i);
+        assert(!isPatmosCFL(FirstMI->getOpcode(), FirstMI->getDesc().TSFlags)
+               || (delay_slot_margin > 0));
 
         // check block + instruction size
         if (curr_size + i_size + delay_slot_margin < MCSize)
@@ -1225,10 +1231,7 @@ namespace llvm {
           MachineBasicBlock *newBB = splitBlockAtStart(MBB);
 
           // copy instructions over from the original block.
-          while(i_count--)
-          {
-            newBB->push_back(MBB->front().removeFromParent());
-          }
+          newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
 
           // start anew
           i_count = 1;

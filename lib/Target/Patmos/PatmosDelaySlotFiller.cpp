@@ -18,14 +18,24 @@
 // As a post-processing step, NOPs are inserted after loads again, where
 // necessary.
 //
-// FIXME: Also 3 NOPs are inserted after MUL/MULU - this needs to be considered
-//        in the scheduler.
+// FIXME: This pass must check for bundles. It may skip moving bundles around,
+//        but it must calculate the latencies correctly and insert NOPs
+//        correctly.
+//        This will become a fall-back pass to fill up any hazards and delay
+//        slots with NOPs in case scheduling has been disabled. If scheduling
+//        is enabled, it must be assumed that delay slots are already filled,
+//        but the pass should still check and insert NOPs for hazards as
+//        belt-and-braces-pass.
+//
+// FIXME: We should also check for other latencies, like mfs after STC. Use
+//        the hazard detector for this!
 //
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "delay-slot-filler"
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
+#include "PatmosTargetMachine.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Target/TargetMachine.h"
@@ -53,8 +63,11 @@ using namespace llvm;
 STATISTIC( FilledSlots, "Number of delay slots filled");
 STATISTIC( FilledNOPs,  "Number of delay slots filled with NOPs");
 
+STATISTIC( SkippedLoadNOPs, "Number of loads not requiring a NOP");
 STATISTIC( InsertedLoadNOPs, "Number of NOPs inserted after loads");
 
+STATISTIC( SkippedMulNOPs, "Number of muls not requiring a NOP");
+STATISTIC( InsertedMulNOPs, "Number of NOPs inserted after muls");
 
 
 static cl::opt<bool> DisableDelaySlotFiller(
@@ -63,25 +76,25 @@ static cl::opt<bool> DisableDelaySlotFiller(
   cl::desc("Disable the Patmos delay slot filler."),
   cl::Hidden);
 
-/// Number of delay slots for control-flow instructions
-static const unsigned CTRL_DELAY_SLOTS = 2;
-
 namespace {
 
   class DelayHazardInfo;
 
   class PatmosDelaySlotFiller : public MachineFunctionPass {
+  private:
+    bool ForceDisableFiller;
+
+    static char ID;
   public:
     /// Target machine description which we query for reg. names, data
     /// layout, etc.
     ///
-    TargetMachine &TM;
+    PatmosTargetMachine &TM;
     const PatmosInstrInfo *TII;
     const TargetRegisterInfo *TRI;
 
-    static char ID;
-    PatmosDelaySlotFiller(TargetMachine &tm)
-      : MachineFunctionPass(ID), TM(tm),
+    PatmosDelaySlotFiller(PatmosTargetMachine &tm, bool disable)
+      : MachineFunctionPass(ID), ForceDisableFiller(disable), TM(tm),
         TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
         TRI(tm.getRegisterInfo()) { }
 
@@ -89,17 +102,18 @@ namespace {
       return "Patmos Delay Slot Filler";
     }
 
-    bool runOnMachineBasicBlock(MachineBasicBlock &MBB);
     bool runOnMachineFunction(MachineFunction &F) {
       bool Changed = false;
       DEBUG( dbgs() << "\n[DelaySlotFiller] "
                     << F.getFunction()->getName() << "\n" );
+
+      // FIXME: check if Post-RA scheduler is enabled (by option or Subtarget),
+      //        skip this loop (delay slot filling) in this case.
       for (MachineFunction::iterator FI = F.begin(), FE = F.end();
            FI != FE; ++FI)
-        Changed |= runOnMachineBasicBlock(*FI);
+        Changed |= fillDelaySlots(*FI);
 
       // insert NOPs after other instructions, if necessary
-      // FIXME: This should eventually be handled in the scheduler.
       for (MachineFunction::iterator FI = F.begin(), FE = F.end();
            FI != FE; ++FI)
         Changed |= insertNOPs(*FI);
@@ -120,12 +134,27 @@ namespace {
     bool insertAfterLoad(MachineBasicBlock &MBB,
                          const MachineBasicBlock::iterator I);
 
+    /// insertAfterMul - Insert a NOP after a mul instruction, if the
+    /// successor instructions use the result value.
+    bool insertAfterMul(MachineBasicBlock &MBB,
+                         const MachineBasicBlock::iterator I);
+
+    /// fillDelaySlots - Fill in delay slots for the given basic block.
+    /// We assume there is only one delay slot per delayed instruction.
+    ///
+    bool fillDelaySlots(MachineBasicBlock &MBB);
+
     /// fillSlotForCtrlFlow - Fills the delay slots of instruction I in MBB.
     /// \param FillerInstrs  A reference to instructions already used as
     ///                      fillers in the current MBB
     void fillSlotForCtrlFlow(MachineBasicBlock &MBB,
                     const MachineBasicBlock::iterator I,
                     SmallSet<MachineInstr*, 16> &FillerInstrs);
+
+    /// insertNOPAfter - Insert a nop after an instruction I, or split the
+    /// bundle I.
+    void insertNOPAfter(MachineBasicBlock &MBB,
+                        const MachineBasicBlock::iterator I);
   };
 
   /// Information used throughout finding a delay filler for an instruction
@@ -137,7 +166,8 @@ namespace {
       : PDSF(pdsf), MI(I), sawLoad(false), sawStore(false), sawSTC(false) { }
 
     void insertDefsUses(MachineInstr *MI);
-    bool hasHazard(MachineBasicBlock::iterator candidate);
+    bool hasHazard(MachineBasicBlock &MBB,
+                   MachineBasicBlock::iterator candidate);
 
     unsigned getNumCandidates() const { return Candidates.size(); }
     MachineInstr *getCandidate(unsigned idx) { return Candidates[idx]; }
@@ -164,15 +194,13 @@ namespace {
 /// createPatmosDelaySlotFillerPass - Returns a pass that fills in delay
 /// slots in Patmos MachineFunctions
 ///
-FunctionPass *llvm::createPatmosDelaySlotFillerPass(TargetMachine &tm) {
-  return new PatmosDelaySlotFiller(tm);
+FunctionPass *llvm::createPatmosDelaySlotFillerPass(PatmosTargetMachine &tm,
+                                                    bool ForceDisable) {
+  return new PatmosDelaySlotFiller(tm, ForceDisable);
 }
 
 
-/// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
-/// We assume there is only one delay slot per delayed instruction.
-///
-bool PatmosDelaySlotFiller::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
+bool PatmosDelaySlotFiller::fillDelaySlots(MachineBasicBlock &MBB) {
   bool Changed = false;
   // Instructions already used to fill delay slots,
   // this info needs to survive for the whole MBB
@@ -202,13 +230,9 @@ bool PatmosDelaySlotFiller::insertNOPs(MachineBasicBlock &MBB) {
 
   DEBUG( dbgs() << "Inserting NOPs in " << MBB.getName() << "\n" );
   for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
-    unsigned opc = I->getOpcode();
-    if (opc==Patmos::MUL || opc==Patmos::MULU) {
-      MachineBasicBlock::iterator J = next(I);
-      TII->insertNoop(MBB, J);
-      TII->insertNoop(MBB, J);
-      TII->insertNoop(MBB, J);
-      Changed = true; // pass result
+
+    if (TII->hasOpcode(I, Patmos::MUL) || TII->hasOpcode(I, Patmos::MULU)) {
+      Changed |= insertAfterMul(MBB, I);
     } else if (I->mayLoad()) {
       // if the instruction is a load instruction, and the next instruction
       // reads a register defined by the load, we insert a NOP.
@@ -227,7 +251,9 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
   DEBUG( dbgs() << "For: " << *I );
 
-  if (!DisableDelaySlotFiller) {
+  unsigned CFLDelaySlots = TM.getSubtargetImpl()->getCFLDelaySlotCycles();
+
+  if (!DisableDelaySlotFiller && !ForceDisableFiller) {
 
     // initialize sets
     DI.insertDefsUses(I);
@@ -239,7 +265,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
       // we can't / don't need to scan backward further
       if ( J->hasDelaySlot() || FillerInstrs.count(J) ||
-           DI.getNumCandidates() == CTRL_DELAY_SLOTS ||
+           DI.getNumCandidates() == CFLDelaySlots ||
            J->isInlineAsm() || J->isLabel() ) {
         DEBUG_TRACE( dbgs() << " -- break at: " << *J );
         break;
@@ -249,12 +275,13 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
       if (J->isImplicitDef()) continue;
 
       // skip upon hazard
-      if (DI.hasHazard(J)) {
+      if (DI.hasHazard(MBB, J)) {
         // update dependencies
         DI.insertDefsUses(J);
         DEBUG_TRACE( dbgs() << " -- skip: " << *J );
         continue;
       }
+
       // Found a filler, add to candidates
       DI.appendCandidate(J);
       DEBUG_TRACE( dbgs() << " -- candidate: " << *J );
@@ -263,7 +290,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
   // move instructions / insert NOPs
   MachineBasicBlock::iterator NI = next(I);
-  for (unsigned i=0; i<CTRL_DELAY_SLOTS; i++) {
+  for (unsigned i=0; i<CFLDelaySlots; i++) {
     if (i < DI.getNumCandidates()) {
       MachineInstr *FillMI = DI.getCandidate(i);
       MBB.splice(next(I), &MBB, FillMI);
@@ -272,7 +299,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
       DEBUG( dbgs() << " -- filler: " << *FillMI );
     } else {
       // we add the NOPs before the next instruction
-      TII->insertNoop(MBB, NI);
+      insertNOPAfter(MBB, I);
       FillerInstrs.insert(prior(NI));
       ++FilledNOPs;  // update statistics
       DEBUG( dbgs() << " -- filler: NOP\n" );
@@ -281,10 +308,23 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
 }
 
+void PatmosDelaySlotFiller::insertNOPAfter(MachineBasicBlock &MBB,
+                    const MachineBasicBlock::iterator I)
+{
+  // We just insert a NOP. We let the PatmosBundleCleanup pass split bundles
+  // to remove the NOPs where required.
+  MachineBasicBlock::iterator NI = next(I);
+  TII->insertNoop(MBB, NI);
+}
 
 
 bool PatmosDelaySlotFiller::hasDefUseDep(const MachineInstr *D,
                                          const MachineInstr *U) const {
+
+  // TODO check for mutually exclusive predicates, using
+  // PatmosInstrInfo.hasDisjointPredicates. In this case, check only if
+  // one instruction defines the guard of the other instruction.
+
   // If U is a call or return, just examine the explicit non-variadic operands.
   const MCInstrDesc& MCID = U->getDesc();
   unsigned e = (U->isCall() || U->isReturn()) ? MCID.getNumOperands() :
@@ -315,6 +355,10 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
     DEBUG( dbgs() << "NOP inserted after load: " << *I );
     DEBUG( dbgs() << "                 before: " << *J );
     return true;
+  } else if ( J != MBB.end() ) {
+    // no dependency in next cycle
+    ++SkippedLoadNOPs;
+    return false;
   }
 
   // the load is the last instruction of the block;
@@ -337,6 +381,8 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
           inserted = true;
         }
         DEBUG(   dbgs() << "          (succ) before: " << *FirstMI );
+      } else {
+        ++SkippedLoadNOPs;
       }
     }
     return inserted;
@@ -344,6 +390,42 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
   return false;
 }
 
+bool PatmosDelaySlotFiller::
+insertAfterMul(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
+
+  int Latency = TM.getSubtargetImpl()->getMULLatency();
+
+  MachineBasicBlock::iterator J = next(I);
+
+  while (Latency > 0) {
+
+    // Check if this is a dependency
+    const MachineInstr *MI;
+    if (J == MBB.end() || (MI = TII->hasOpcode(J, Patmos::MFS)) ) {
+
+      // TODO We do not look over BB boundaries for now
+      unsigned Reg = J != MBB.end() ? MI->getOperand(3).getReg() : Patmos::SL;
+
+      if (Reg == Patmos::SL || Reg == Patmos::SH) {
+        while (Latency > 0) {
+          insertNOPAfter(MBB, I);
+          InsertedMulNOPs++;
+          Latency--;
+        }
+
+        return true;
+      }
+    }
+
+    Latency--;
+
+    SkippedMulNOPs++;
+
+    J = next(J);
+  }
+
+  return false;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // DelayHazardInfo methods
@@ -354,8 +436,8 @@ void DelayHazardInfo::insertDefsUses(MachineInstr *MI) {
 
   // If MI is a call or return, just examine the explicit non-variadic operands.
   const MCInstrDesc& MCID = MI->getDesc();
-  unsigned e = (MI->isCall() || MI->isReturn()) ? MCID.getNumOperands() :
-                                                  MI->getNumOperands();
+  unsigned e = (MI->isCall() || MI->isReturn(MachineInstr::AllInBundle))
+                      ? MCID.getNumOperands() : MI->getNumOperands();
 
   DEBUG_TRACE(dbgs() << " ---- regs: [");
   for (unsigned i = 0; i != e; ++i) {
@@ -378,15 +460,29 @@ void DelayHazardInfo::insertDefsUses(MachineInstr *MI) {
 }
 
 
-bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
+bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator I) {
+
+  // for calls, allow only single-issue and 32bit instructions
+  if (MI.isCall() && PDSF.TII->getInstrSize(I) != 4)
+    return true;
+
+  if (I->isBundle()) {
+    MachineBasicBlock::instr_iterator II = *I; ++II;
+
+    for (; II != MBB.instr_end() && II->isInsideBundle(); ++II) {
+      // skip debug value
+      if (II->isDebugValue()) continue;
+      if (II->isImplicitDef()) continue;
+
+      if (hasHazard(MBB, II)) return true;
+    }
+    return false;
+  }
 
   assert(!I->isKill() && !I->hasDelaySlot());
 
   const PatmosInstrInfo *TII = PDSF.TII;
-
-  // for calls, allow only single-issue and 32bit instructions
-  if (MI.isCall() && TII->getInstrSize(I) == 8)
-    return true;
 
   // don't move long latency/split MUL into delay slot
   if (I->getOpcode() == Patmos::MUL ||

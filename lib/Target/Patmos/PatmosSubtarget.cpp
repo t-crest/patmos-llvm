@@ -49,6 +49,22 @@ static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
                      cl::desc("Total size of the instruction cache in bytes "
                               "(default 1024)"));
 
+static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
+	             cl::init(true),
+		     cl::desc("Schedule instructions only in first slot."));
+
+static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
+                     cl::init(true),
+                     cl::desc("Disable any pre-RA MI scheduler."));
+
+static cl::opt<bool> DisablePostRA("mpatmos-disable-post-ra",
+                     cl::init(true),
+                     cl::desc("Disable any post-RA scheduling."));
+
+static cl::opt<bool> DisableMIPostRA("mpatmos-disable-post-ra-misched",
+                     cl::init(true),
+                     cl::desc("Use the standard LLVM post-RA scheduler instead "
+                              "of the new MI scheduler."));
 
 
 PatmosSubtarget::PatmosSubtarget(const std::string &TT,
@@ -64,6 +80,54 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
 
   InstrItins = getInstrItineraryForCPU(CPUName);
 }
+
+bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
+                                   TargetSubtargetInfo::AntiDepBreakMode& Mode,
+                                   RegClassVector& CriticalPathRCs) const {
+  return hasPostRAScheduler(OptLevel) && !usePostRAMIScheduler(OptLevel);
+}
+
+bool PatmosSubtarget::enableBundling(CodeGenOpt::Level OptLevel) const {
+  return !DisableVLIW;
+}
+
+bool PatmosSubtarget::hasPostRAScheduler(CodeGenOpt::Level OptLevel) const {
+
+  // TargetPassConfig does not add the PostRA pass for -O0!
+  if (OptLevel == CodeGenOpt::None) return false;
+
+  // TODO there are also -disable-post-ra and -post-RA-scheduler flags,
+  // which override the default postRA scheduler behavior, be basically ignore
+  // them for now.
+  return !DisablePostRA;
+}
+
+bool PatmosSubtarget::usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
+
+  if (OptLevel == CodeGenOpt::None) return false;
+
+  return !DisableMIPreRA;
+}
+
+bool PatmosSubtarget::usePostRAMIScheduler(CodeGenOpt::Level OptLevel) const {
+  return hasPostRAScheduler(OptLevel) && !DisableMIPostRA;
+}
+
+
+bool PatmosSubtarget::canIssueInSlot(unsigned SchedClass, unsigned Slot) const {
+  const InstrStage* IS = InstrItins.beginStage(SchedClass);
+  unsigned FuncUnits = IS->getUnits();
+
+  switch (Slot) {
+  case 0:
+    return FuncUnits & PatmosGenericItinerariesFU::FU_ALU0;
+  case 1:
+    return FuncUnits & PatmosGenericItinerariesFU::FU_ALU1;
+  default:
+    return false;
+  }
+}
+
 
 unsigned PatmosSubtarget::getStackCacheSize() const {
   return StackCacheSize;

@@ -48,10 +48,35 @@ public:
 
   bool hasMethodCache() { return HasMethodCache; }
 
+  virtual bool enablePostRAScheduler(CodeGenOpt::Level OptLevel,
+                                    TargetSubtargetInfo::AntiDepBreakMode& Mode,
+                                    RegClassVector& CriticalPathRCs) const;
+
+  /// return true if bundles should be emitted.
+  bool enableBundling(CodeGenOpt::Level OptLevel) const;
+
+  /// return true if any Post-RA scheduler should be used.
+  bool hasPostRAScheduler(CodeGenOpt::Level OptLevel) const;
+
+  /// Return true if the MI Pre-RA Scheduler should be used.
+  bool usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const;
+
+  /// Return true if the MI Scheduler should be used instead of the default 
+  /// Post-RA scheduler.
+  bool usePostRAMIScheduler(CodeGenOpt::Level OptLevel) const;
+
   /////////////////////////////////////////////////////////////////////////////
   // Patmos specific architecture parameters (cache sizes, types, features,..)
-  // TODO move this into / configure from SubtargetImpl ??
-  // TODO use config-file to read configuration from (in addition to options)
+
+  /// Return the number of delay slot cycles of control flow instructions
+  unsigned getCFLDelaySlotCycles() const { return 2; }
+
+  /// Return the latency of MUL instructions
+  unsigned getMULLatency() const { return 3; }
+
+  /// Check if a given schedule class can be issued in a given slot.
+  /// @see PatmosInstrInfo::canIssueInSlot
+  bool canIssueInSlot(unsigned SchedClass, unsigned Slot) const;
 
   unsigned getStackCacheSize() const;
 

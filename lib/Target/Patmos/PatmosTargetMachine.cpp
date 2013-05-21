@@ -13,6 +13,7 @@
 
 #include "Patmos.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosMachineScheduler.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
@@ -29,6 +30,15 @@ extern "C" void LLVMInitializePatmosTarget() {
   // Register the target.
   RegisterTargetMachine<PatmosTargetMachine> X(ThePatmosTarget);
 }
+
+static ScheduleDAGInstrs *createPatmosVLIWMachineSched(MachineSchedContext *C) {
+  return new VLIWMachineScheduler(C, new ConvergingVLIWScheduler());
+}
+
+static MachineSchedRegistry
+SchedCustomRegistry("patmos", "Run Patmos's custom scheduler",
+                    createPatmosVLIWMachineSched);
+
 
 namespace {
   /// EnableStackCacheAnalysis - Option to enable the analysis of Patmos' stack
@@ -48,7 +58,19 @@ namespace {
   class PatmosPassConfig : public TargetPassConfig {
   public:
     PatmosPassConfig(PatmosTargetMachine *TM, PassManagerBase &PM)
-      : TargetPassConfig(TM, PM) {}
+     : TargetPassConfig(TM, PM)
+    {
+      // Enable preRA MI scheduler.
+      if (TM->getSubtargetImpl()->usePreRAMIScheduler(getOptLevel())) {
+        enablePass(&MachineSchedulerID);
+        MachineSchedRegistry::setDefault(createPatmosVLIWMachineSched);
+      }
+      if (TM->getSubtargetImpl()->usePostRAMIScheduler(getOptLevel())) {
+        // TODO setup MI scheduler as post-RA scheduler
+        // (substitute PostRASchdeulerID)
+
+      }
+    }
 
     PatmosTargetMachine &getPatmosTargetMachine() const {
       return getTM<PatmosTargetMachine>();
@@ -82,9 +104,27 @@ namespace {
     /// passes immediately before machine code is emitted.  This should return
     /// true if -print-machineinstrs should print out the code after the passes.
     virtual bool addPreEmitPass(){
-      addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
 
-      // All passes at that stage must handle delay slots and bundles correctly.
+      // Post-RA MI Scheduler does bundling and delay slots itself. Otherwise,
+      // add passes to handle them.
+      if (!getPatmosSubtarget().usePostRAMIScheduler(getOptLevel())) {
+
+        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
+          addPass(createPatmosPacketizer(getPatmosTargetMachine()));
+        }
+
+        // disable the filler if we have bundles, the filler does not handle
+        // them properly at the moment.
+        addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
+                                                false));
+      }
+
+      if (getPatmosSubtarget().enableBundling(getOptLevel())) {
+        addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
+      }
+
+      // All passes below this line must handle delay slots and bundles
+      // correctly.
 
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 

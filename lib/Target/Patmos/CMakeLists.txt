@@ -31,6 +31,10 @@ add_llvm_target(PatmosCodeGen
   PatmosCallGraphBuilder.cpp
   PatmosStackCacheAnalysis.cpp
   PatmosExport.cpp
+  PatmosHazardRecognizer.cpp
+  PatmosMachineScheduler.cpp
+  PatmosVLIWPacketizer.cpp
+  PatmosBundleSanitizer.cpp
   )
 
 add_dependencies(LLVMPatmosCodeGen intrinsics_gen)
