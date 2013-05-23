@@ -251,7 +251,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
   DEBUG( dbgs() << "For: " << *I );
 
-  unsigned CFLDelaySlots = TM.getSubtargetImpl()->getCFLDelaySlotCycles();
+  unsigned CFLDelaySlots = TM.getSubtargetImpl()->getCFLDelaySlotCycles(I);
 
   if (!DisableDelaySlotFiller && !ForceDisableFiller) {
 
@@ -344,7 +344,7 @@ bool PatmosDelaySlotFiller::hasDefUseDep(const MachineInstr *D,
 bool PatmosDelaySlotFiller::
 insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
 
-  MachineBasicBlock::iterator J = next(I);
+  MachineBasicBlock::iterator J = TII->nextNonPseudo(MBB, I);
 
   // "usual" case, the load is in the middle of an MBB
   if (J!=MBB.end() && hasDefUseDep(I,J)) {
@@ -395,7 +395,7 @@ insertAfterMul(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
 
   int Latency = TM.getSubtargetImpl()->getMULLatency();
 
-  MachineBasicBlock::iterator J = next(I);
+  MachineBasicBlock::iterator J = TII->nextNonPseudo(MBB, I);
 
   while (Latency > 0) {
 
@@ -421,7 +421,7 @@ insertAfterMul(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
 
     SkippedMulNOPs++;
 
-    J = next(J);
+    J = TII->nextNonPseudo(MBB, J);
   }
 
   return false;
