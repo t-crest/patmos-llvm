@@ -41,29 +41,43 @@ namespace llvm {
     return NULL;
   }
 
+  std::string MCGNode::getLabel() const
+  {
+    std::string tmps;
+    raw_string_ostream tmp(tmps);
+
+    if (isUnknown())
+      tmp << "<UNKNOWN-"<< *T << ">";
+    else
+      tmp << MF->getFunction()->getName();
+
+    return tmps;
+  }
+
   void MCGNode::dump() const
   {
-    if (isUnknown())
-      dbgs() << "<UNKNOWN-"<< *T << ">";
-    else
-      dbgs() << MF->getFunction()->getName();
+    dbgs() << getLabel();
   }
 
   //----------------------------------------------------------------------------
 
-  void MCGSite::dump() const
+  void MCGSite::dump(bool short_format) const
   {
-    dbgs() << "  MCGSite: ";
+    if (MI) {
+      MachineBasicBlock *MBB = MI->getParent();
+      dbgs() << "BB#" << MBB->getNumber() << ":"
+             << std::distance(MBB->instr_begin(),
+                              MachineBasicBlock::instr_iterator(MI)) << ":";
+    }
+
     Caller->dump();
     dbgs() << " --> ";
     Callee->dump();
 
-    if (MI) {
+    if (!short_format && MI) {
       dbgs() << "\t";
       MI->dump();
     }
-    else
-      dbgs() << "\n";
   }
 
   //----------------------------------------------------------------------------
@@ -261,7 +275,9 @@ namespace llvm {
   {
     for(MCGSites::const_iterator i(Sites.begin()), ie(Sites.end()); i != ie;
         i++) {
-      (*i)->dump();
+      dbgs() << "  ";
+      (*i)->dump(false);
+      dbgs() << "\n";
     }
   }
 

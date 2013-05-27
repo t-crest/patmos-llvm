@@ -12,13 +12,14 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "patmos-stack-cache-analysis"
-#undef PATMOS_TRACE_REMOVE
-#undef PATMOS_TRACE_LOCAL_USAGE
 #undef PATMOS_PRINT_USER_BOUNDS
-#undef PATMOS_TRACE_GLOBAL_VISITS
-#undef PATMOS_TRACE_CALLFREES
-#undef PATMOS_TRACE_GLOBAL_USAGE
-#undef PATMOS_TRACE_ILP
+#undef PATMOS_TRACE_SENS_REMOVAL
+#undef PATMOS_TRACE_BB_LIVEAREA
+#undef PATMOS_TRACE_CG_OCCUPANCY
+#undef PATMOS_TRACE_CG_OCCUPANCY_ILP
+#undef PATMOS_TRACE_WORST_SITE_OCCUPANCY
+#undef PATMOS_TRACE_PATH_OCCUPANCY
+#define PATMOS_DUMP_DOT_OCCUPANCY
 
 #include "Patmos.h"
 #include "PatmosCallGraphBuilder.h"
@@ -57,8 +58,325 @@ static cl::opt<std::string> BoundsFile(
   cl::Hidden);
 
 namespace llvm {
+  /// Count the number of SENS instructions removed.
   STATISTIC(RemovedSENS, "Useless SENS instructions removed.");
+
+  /// Count the number of SENS instructions that could not be removed.
   STATISTIC(RemainingSENS, "SENS instructions remaining.");
+
+  // forward definition.
+  class SCANode;
+  class SCAEdge;
+  class SpillCostAnalysisGraph;
+  bool operator <(const SCAEdge &a, const SCAEdge &b);
+
+  /// Set of SCANodes.
+  typedef std::set<SCANode*> SCANodeSet;
+
+  /// Set of SCAEdges.
+  typedef std::set<SCAEdge> SCAEdgeSet;
+
+  /// Map call graph nodes to spill cost information.
+  typedef std::map<std::pair<MCGNode*, unsigned int>, SCANode*> MCGSCANodeMap;
+
+  /// Link context-sensitive information on the spill costs at a call graph 
+  /// nodes to calling contexts.
+  class SCAEdge
+  {
+  private:
+    /// The calling context's node.
+    SCANode *Caller;
+
+    /// The called context's node.
+    SCANode *Callee;
+
+    /// The corresponding call site.
+    MCGSite *Site;
+  public:
+    SCAEdge(SCANode *caller, SCANode *callee, MCGSite *site) :
+        Caller(caller), Callee(callee), Site(site)
+    {
+    }
+
+    /// Return the calling context's node.
+    SCANode *getCaller() const
+    {
+      return Caller;
+    }
+
+    /// Return the called context's node.
+    SCANode *getCallee() const
+    {
+      return Callee;
+    }
+
+    /// Return the calling site.
+    MCGSite *getSite() const
+    {
+      return Site;
+    }
+  };
+
+  /// Context-sensitive information on the spill costs at a call graph node.
+  class SCANode
+  {
+  private:
+    /// Call graph node associated with spill costs.
+    MCGNode *Node;
+
+    /// Number of bytes occupied in the stack cache before entering the 
+    /// function.
+    unsigned int Occupancy;
+
+    /// The maximum stack occupancy of the node.
+    /// \see PatmosStackCacheAnalysis::computeMinMaxOccupancy
+    unsigned int MaxOccupancy;
+
+    /// Occupancy remaining from some parent.
+    /// This is for debugging purposes only.
+    unsigned int RemainingOccupancy;
+
+    /// Cost associated with spilling at this node.
+    unsigned int SpillCost;
+
+    /// Flag indicating whether the CFG of the corresponding function contains
+    /// a path without calls.
+    bool HasCallFreePath;
+
+    /// The parent calling contexts of this node.
+    SCAEdgeSet Parents;
+
+    /// The calling contexts originating from this node.
+    SCAEdgeSet Children;
+
+    /// Flag indicating whether this node should be visualized in DOT dumps.
+    bool IsVisible;
+
+    /// Flag indicating whether this node is valid. A node is valid when a path
+    /// from the root node to the node exists that fits into the root node's 
+    /// maximum occupancy (which is not limited by the stack cache size).
+    bool IsValid;
+  public:
+    SCANode(MCGNode *node, unsigned int occupancy, unsigned int maxoccupancy,
+            unsigned int spillcost, bool hascallfreepath) :
+        Node(node), Occupancy(occupancy), MaxOccupancy(maxoccupancy), 
+        RemainingOccupancy(0), SpillCost(spillcost), 
+        HasCallFreePath(hascallfreepath), IsVisible(false), IsValid(false)
+    {
+    }
+
+    /// Returns the associated call graph node.
+    MCGNode *getMCGNode() const
+    {
+      return Node;
+    }
+
+    /// Return the stack cache occupancy associated with the node.
+    unsigned int getOccupancy() const
+    {
+      return Occupancy;
+    }
+
+    /// Return the spill cost associated with the node.
+    unsigned int getSpillCost() const
+    {
+      return SpillCost;
+    }
+
+    /// Return the remaining occupancy wrt. the root node's maximum stack
+    /// occupancy.
+    unsigned int getRemainingOccupancy() const
+    {
+      return RemainingOccupancy;
+    }
+
+    /// Set the remaining occupancy wrt. the root node's maximum stack
+    /// occupancy.
+    void setRemainingOccupancy(unsigned int remainingoccupancy)
+    {
+      RemainingOccupancy = remainingoccupancy;
+    }
+
+    /// Return the maximum stack occupancy for this node.
+    unsigned int getMaxOccupancy() const
+    {
+      return MaxOccupancy;
+    }
+
+    /// Return whether the node's CFG contains at least one call-free path.
+    bool hasCallFreePath() const
+    {
+      return HasCallFreePath;
+    }
+
+    /// Set the node's visible flag to and propagate it to all its parents.
+    /// Nodes that are not valid are automatically marked not to be visible.
+    void setVisible()
+    {
+      if (!IsVisible && IsValid) {
+        IsVisible = true;
+
+        /// propagate to parents
+        for(SCAEdgeSet::const_iterator i(Parents.begin()), ie(Parents.end());
+            i != ie; i++) {
+          i->getCaller()->setVisible();
+        }
+      }
+    }
+
+    /// Return whether this node should be visualized in DOT graph dumps.
+    bool isVisible() const
+    {
+      return IsVisible;
+    }
+
+    /// The the valid flag of this node.
+    void setValid()
+    {
+      IsValid = true;
+    }
+
+    /// Return whether this node is valid.
+    /// \see IsValid
+    bool isValid() const
+    {
+      return IsValid;
+    }
+
+    /// addParent - Create a link between this node and its parent.
+    void addParent(SCANode *parent, MCGSite *site)
+    {
+      SCAEdge newEdge(parent, this, site);
+
+      parent->Children.insert(newEdge);
+      Parents.insert(newEdge);
+    }
+
+    /// Return the parents of this node.
+    SCAEdgeSet &getParents()
+    {
+      return Parents;
+    }
+
+    /// Return the parents of this node.
+    const SCAEdgeSet &getParents() const
+    {
+      return Parents;
+    }
+
+    /// Return the children of this node.
+    SCAEdgeSet &getChildren()
+    {
+      return Children;
+    }
+
+    /// Return the children of this node.
+    const SCAEdgeSet &getChildren() const
+    {
+      return Children;
+    }
+  };
+
+  /// A graph representing context-sensitive information on the spill costs at
+  /// call graph nodes -- aka SCA graph or SC-SCA graph.
+  class SpillCostAnalysisGraph
+  {
+  private:
+    /// Spill cost information available for individual call graph nodes and
+    /// calling contexts.
+    MCGSCANodeMap Nodes;
+
+    /// The root node of the spill cost graph.
+    SCANode *Root;
+  public:
+    /// makeRoot - Construct the root node of the SCA graph.
+    SCANode *makeRoot(MCGNode *node, unsigned int maxoccupancy,
+                      bool hascallfreepath)
+    {
+      assert(Nodes.empty());
+
+      // create the root node.
+      Root = new SCANode(node, 0, maxoccupancy, 0, hascallfreepath);
+
+      // store the root node.
+      Nodes[std::make_pair(node, 0)] = Root;
+
+      return Root;
+    }
+
+    /// makeNode - Construct a new SCA node or return an already existing one.
+    /// Returns true when the node was newly created, false otherwise. The node
+    /// itself is returned using the argument result.
+    bool makeNode(MCGNode *node, unsigned int occupancy, unsigned int spillcost,
+                  unsigned int maxoccupancy, bool hascallfreepath,
+                  SCANode *&result)
+    {
+      MCGSCANodeMap::iterator tmp(Nodes.find(std::make_pair(node, occupancy)));
+
+      result = NULL;
+      if (tmp == Nodes.end()) {
+        // create a new node
+        result = new SCANode(node, occupancy, maxoccupancy, spillcost,
+                             hascallfreepath);
+
+        // store the newly created node
+        Nodes[std::make_pair(node, occupancy)] = result;
+
+        return true;
+      }
+      else {
+        // use the existing node
+        result = tmp->second;
+
+        return false;
+      }
+    }
+
+    /// deleteNode - Free the node and remove it from the node list as well as
+    /// parent/children lists.
+    void deleteNode(SCANode *N)
+    {
+      // remove the node from the node list
+      Nodes.erase(std::make_pair(N->getMCGNode(), N->getOccupancy()));
+
+      // remove all edges leading to the node in its parent's children lists
+      for(SCAEdgeSet::const_iterator i(N->getParents().begin()),
+          ie(N->getParents().end()); i != ie; i++) {
+        i->getCaller()->getChildren().erase(*i);
+      }
+
+      // remove all edges originating from the node in its children's parents
+      // lists
+      for(SCAEdgeSet::const_iterator i(N->getChildren().begin()),
+          ie(N->getChildren().end()); i != ie; i++) {
+        i->getCallee()->getParents().erase(*i);
+      }
+
+      delete N;
+    }
+
+    /// Return the graph's root node.
+    SCANode *getRoot() const
+    {
+      return Root;
+    }
+
+    /// getNodes - Return the nodes of the SCA graph.
+    /// @return The nodes of the SCA graph.
+    const MCGSCANodeMap &getNodes() const
+    {
+      return Nodes;
+    }
+
+    /// Free all SCA nodes associated with this graph.
+    ~SpillCostAnalysisGraph()
+    {
+      for(MCGSCANodeMap::iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+          i++) {
+        delete i->second;
+      }
+    }
+  };
 
   /// Information concerning a specific SCC.
   struct SCCInfo {
@@ -72,6 +390,7 @@ namespace llvm {
     std::string Variables;
   };
 
+  /// Map function names to SCC infos.
   typedef std::map<std::string, SCCInfo> SCCInfos;
 
   /// Class to parse bounds specifications constraining paths through SCCs in
@@ -181,9 +500,14 @@ namespace llvm {
           return getInfo((*i)->getMF()->getFunction()->getName());
       }
 
-      dbgs() << "Error: Missing bounds for SCC: ";
-      (*SCC.begin())->dump();
-      dbgs() << "\n";
+      dbgs() << "Error: Missing bounds for SCC: (";
+      for (MCGNodes::const_iterator i(SCC.begin()), ie(SCC.end()); i != ie;
+           i++) {
+        dbgs() << "'";
+        (*i)->dump();
+        dbgs() << "' ";
+      }
+      dbgs() << ")\n";
       for (SCCInfos::const_iterator i(Infos.begin()), ie(Infos.end()); i != ie;
            i++) {
         dbgs() << "'" << i->first << "' ";
@@ -209,7 +533,7 @@ namespace llvm {
     }
   };
 
-  /// Pass to analyze the usage of Patmos' stack cache.
+  /// Pass to analyze the occupancy and displacement of Patmos' stack cache.
   class PatmosStackCacheAnalysis : public MachineModulePass {
   private:
     /// Work list of basic blocks.
@@ -218,36 +542,53 @@ namespace llvm {
     /// Set of call graph nodes.
     typedef std::set<MCGNode*> MCGNodeSet;
 
+    /// Set of call graph sites.
+    typedef std::set<MCGSite*> MCGSiteSet;
+
     /// List of call graph SCCs and a flag indicating whether the SCC actually 
     /// contains loops.
     typedef std::vector<std::pair<MCGNodes, bool> > MCGNSCCs;
 
-    /// Map call graph nodes to booleans.
-    typedef std::map<MCGNode*, bool> MCGNodeBool;
-
-    /// Map basic blocks to local stack access usage information.
+    /// Map basic blocks to an unsigned integer.
     typedef std::map<MachineBasicBlock*, unsigned int> MBBUInt;
 
     /// Map basic blocks to a boolean.
     typedef std::map<MachineBasicBlock*, bool> MBBBool;
 
+    /// Map call graph nodes to booleans.
+    typedef std::map<MCGNode*, bool> MCGNodeBool;
+
     /// Map call graph nodes to their (potentially trivial SCC).
     typedef std::map<MCGNode*, std::pair<MCGNodes, bool>*> MCGNodeSCC;
 
-    /// Map call graph nodes to stack usage information.
+    /// Map call graph nodes to an unsigned integer.
     typedef std::map<MCGNode*, unsigned int> MCGNodeUInt;
+
+    /// Map call sites to an unsigned integer.
+    typedef std::map<MCGSite*, unsigned int> MCGSiteUInt;
 
     /// List of ensures to be removed/not removed.
     typedef std::map<MachineInstr*, bool> ENSUREs;
 
-    /// List of ensures and their respective sizes.
+    /// List of ensures and their effective sizes.
     typedef std::map<MachineInstr*, unsigned int> SIZEs;
 
-    /// Track for each call graph node the max. stack usage.
-    MCGNodeUInt MaxStackUse;
+    /// Track for each call graph node the maximum stack occupancy.
+    MCGNodeUInt MaxOccupancy;
+
+    /// Track for each call graph node the minimum stack occupancy.
+    MCGNodeUInt MinOccupancy;
+
+    /// Track the worst-case stack occupancy before every call site, assuming
+    /// a full stack cache on function entry.
+    MCGSiteUInt WorstCaseSiteOccupancy;
 
     /// Track functions with call-free paths in them.
     MCGNodeBool IsCallFree;
+
+    /// Summarize the stack cache analysis results for reserve instructions as
+    /// a spill cost graph.
+    SpillCostAnalysisGraph SCAGraph;
 
     /// Subtarget information (stack cache block size)
     const PatmosSubtarget &STC;
@@ -268,8 +609,7 @@ namespace llvm {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
 
-    /// getAnalysisUsage - Inform the pass manager that nothing is modified
-    /// here.
+    /// getAnalysisUsage - Inform the pass manager that nothing is modified.
     virtual void getAnalysisUsage(AnalysisUsage &AU) const
     {
       AU.setPreservesAll();
@@ -278,25 +618,37 @@ namespace llvm {
       ModulePass::getAnalysisUsage(AU);
     }
 
-    /// getMaxStackUsage - Find the computed maximal stack usage for the node,
-    /// including all its children in the call graph.
-    /// \see computeMaxUsage 
-    /// \see getStackUse
-    unsigned int getMaxStackUsage(MCGNode *Node) const {
-      MCGNodeUInt::const_iterator nodeUse(MaxStackUse.find(Node));
+    /// getMinMaxOccupancy - Find the minimum/maximum stack occupancy for a call
+    /// graph node, including all its children in the call graph.
+    /// \see computeMinMaxOccupancy
+    /// \see getBytesReserved
+    unsigned int getMinMaxOccupancy(MCGNode *Node, bool Maximize) const {
+      const MCGNodeUInt &map(Maximize ? MaxOccupancy : MinOccupancy);
+      MCGNodeUInt::const_iterator nodeOccupancy(map.find(Node));
 
-      // handle those nodes in an SCC of the call graph, i.e., recursion
       if (Node->isDead())
         return 0;
-      else if (nodeUse == MaxStackUse.end())
-        return STC.getStackCacheSize();
+      else if (nodeOccupancy == map.end())
+        return Maximize ? std::numeric_limits<unsigned int>::max() : 0;
       else
-        return nodeUse->second;
+        return nodeOccupancy->second;
     }
 
-    /// getStackUse - Determine the stack cache usage of the call graph node. 
-    /// Returns 0 for the unknown node.
-    unsigned int getStackUse(MCGNode *Node)
+    /// getMinOccupancy - Find the computed minimum stack occupancy for a call
+    /// graph node, including all its children in the call graph.
+    unsigned int getMinOccupancy(MCGNode *Node) const {
+      return std::min(STC.getStackCacheSize(), getMinMaxOccupancy(Node, false));
+    }
+
+    /// getMaxOccupancy - Find the computed maximum stack occupancy for a call
+    /// graph node, including all its children in the call graph.
+    unsigned int getMaxOccupancy(MCGNode *Node) const {
+      return std::min(STC.getStackCacheSize(), getMinMaxOccupancy(Node, true));
+    }
+
+    /// getBytesReserved - Get the number of bytes reserved at the entry of a
+    /// call graph node. Returns 0 for UNKNOWN nodes.
+    unsigned int getBytesReserved(const MCGNode *Node)
     {
       if (Node->isUnknown())
         return 0;
@@ -308,90 +660,113 @@ namespace llvm {
         assert(PMFI->getStackCacheReservedBytes() %
                STC.getStackCacheBlockSize() == 0);
 
-	// TODO a function might contain inline asm code that might use SRES/SFREE,
-	// we should check for that.
+        // TODO a function might contain inline asm code that might use 
+        // SRES/SFREE, we should check for that.
 
         return PMFI->getStackCacheReservedBytes();
       }
     }
 
-    /// computeMaxUsage - Visit all children in the call graph and find the 
-    /// maximal amount of  space allocated by any of them (and their children).
-    void computeMaxUsage(MCGNodeSCC &SCCMap, MCGNode *Node,
-                         MCGNodeUInt &succCount, MCGNodes &WL)
+    /// computeMinMaxOccupancy - Visit a call graph node and determine its 
+    /// minimum/maximum stack occupancy, including all its children in the call 
+    /// graph.
+    void computeMinMaxOccupancy(MCGNodeSCC &SCCMap, MCGNode *Node,
+                                MCGNodeUInt &succCount, MCGNodes &WL,
+                                bool Maximize)
     {
-      // get the stack usage of the call graph node and all its children
-      unsigned int maxChildUse = 0;
-      unsigned int nodeUse = getStackUse(Node);
+      // keep track of the total occupancy of the node and its children
+      unsigned int totalOccupancy;
 
-#ifdef PATMOS_TRACE_GLOBAL_VISITS
-      DEBUG(Node->dump(); dbgs() << "\n");
-#endif // PATMOS_TRACE_GLOBAL_VISITS
+      // get the local stack occupancy of the call graph node
+      unsigned int nodeOccupancy = getBytesReserved(Node);
 
-      // ok, dead nodes don't do anything
+      // handle some cases:
+      // (1) dead functions (2) SCCs, and (3) regular nodes
       if (Node->isDead()) {
-        maxChildUse = 0;
+        // ok, dead nodes don't do anything
         return;
       }
       else if (SCCMap[Node]->second) {
         // the node is in an SCC! -> make an ILP
         // note: we know here that all successors of the entire SCC have been
         // handled
-        maxChildUse = computeMaxUsageILP(SCCMap[Node]->first, Node);
-        assert(maxChildUse > nodeUse);
+        totalOccupancy = computeMinMaxOccupancyILP(SCCMap[Node]->first, Node,
+                                                   Maximize);
+        assert(totalOccupancy >= nodeOccupancy);
       }
       else {
+        // keep track of the occupancy of children in the call graph
+        unsigned int childOccupancy = (Maximize || IsCallFree[Node]) ? 0 :
+                                       std::numeric_limits<unsigned int>::max();
+
         // check all called functions
         const MCGSites &callSites(Node->getSites());
         for(MCGSites::const_iterator i(callSites.begin()), ie(callSites.end());
             i != ie; i++) {
-          // get the child's stack usage
-          maxChildUse = std::max(maxChildUse,
-                                 getMaxStackUsage((*i)->getCallee()));
+          // get the child's stack occupancy
+          if (Maximize) {
+            childOccupancy = std::max(childOccupancy,
+                                      getMaxOccupancy((*i)->getCallee()));
+          }
+          else {
+            childOccupancy = std::min(childOccupancy,
+                                      getMinOccupancy((*i)->getCallee()));
+          }
         }
 
-        // include the current function's stack space:
-        maxChildUse += nodeUse;
+        // include the current function's stack occupancy
+        totalOccupancy = childOccupancy + nodeOccupancy;
       }
 
-      // compute the call graph node's stack use
-      MaxStackUse[Node] = std::min(STC.getStackCacheSize(), maxChildUse);
+      // store the call graph node's stack occupancy
+      if (Maximize)
+        MaxOccupancy[Node] = totalOccupancy;
+      else
+        MinOccupancy[Node] = totalOccupancy;
 
-      // update the work list
+      // get unique predecessors in the call graph, excluding dead functions and
+      // predecessors within the same SCC
       MCGNodeSet preds;
       const MCGSites &callingSites(Node->getCallingSites());
       for(MCGSites::const_iterator i(callingSites.begin()),
           ie(callingSites.end()); i != ie; i++) {
         MCGNode *caller = (*i)->getCaller();
-        // do not consider dead functions and functions in the same SCC her
+        // do not consider dead functions and functions in the same SCC here
         if (!caller->isDead() && SCCMap[caller] != SCCMap[Node]) {
           const MCGNodes &predSCC(SCCMap[caller]->first);
           preds.insert(predSCC.begin(), predSCC.end());
         }
       }
 
+      // update the work list by checking the predecessor list
       for(MCGNodeSet::const_iterator i(preds.begin()), ie(preds.end()); i != ie;
           i++) {
         assert(succCount[*i] > 0);
         if (--succCount[*i] == 0)
           WL.push_back(*i);
-
-#ifdef PATMOS_TRACE_GLOBAL_VISITS
-        (*i)->dump(); dbgs() << "(" << succCount[*i] << ") ";
-#endif // PATMOS_TRACE_GLOBAL_VISITS
       }
-#ifdef PATMOS_TRACE_GLOBAL_VISITS
-      dbgs() << "\n";
-#endif // PATMOS_TRACE_GLOBAL_VISITS
     }
 
-    /// computeMaxUsage - Visit all children in the call graph and find the
-    /// maximal amount of  space allocated by any of them (and their children).
-    void computeMaxUsage(const MCallGraph &G)
+    /// computeMinMaxOccupancy - Visit all nodes of the call graph and compute
+    /// the minimum/maximum stack occupancy for each of them (including their
+    /// respective children in the call graph).
+    ///
+    /// The algorithm uses a simple work list (and successor counters) to 
+    /// traverse the call graph in some topological order. During the traversal 
+    /// the minimum/maximum occupancy is propagated from children upwards to the 
+    /// root(s) of the call graph.
+    ///
+    /// Note that SCCs are considered as if they were collapsed into a single 
+    /// node. Within SCCs an ILP formulation is used to bound the occupancy.
+    /// 
+    /// \see computeMinMaxOccupancyILP
+    void computeMinMaxOccupancy(const MCallGraph &G, bool Maximize)
     {
-      /// List of SCCs in the call graph
+      // list of SCCs in the call graph and mapping to/from call graph nodes
       MCGNSCCs SCCs;
       MCGNodeSCC SCCMap;
+
+      // get all call graph nodes
       const MCGNodes &nodes(G.getNodes());
 
       // make sure we have enough space for all SCCs without re-allocation
@@ -409,7 +784,7 @@ namespace llvm {
 
       }
 
-      // initialize the work list
+      // initialize the work list and successor counters
       MCGNodeUInt succCount;
       MCGNodes WL;
       for(MCGNSCCs::const_iterator i(SCCs.begin()), ie(SCCs.end()); i != ie;
@@ -441,36 +816,35 @@ namespace llvm {
       }
 
       // process nodes in topological order
-#ifdef PATMOS_TRACE_GLOBAL_VISITS
-      DEBUG(dbgs() << "====================================\n";);
-#endif // PATMOS_TRACE_GLOBAL_VISITS
-
       while(!WL.empty()) {
         // pop some node from the work list
         MCGNode *tmp = WL.back();
         WL.pop_back();
 
-        // compute its stack usage
-        computeMaxUsage(SCCMap, tmp, succCount, WL);
+        // compute its stack occupancy
+        computeMinMaxOccupancy(SCCMap, tmp, succCount, WL, Maximize);
       }
 
-#ifdef PATMOS_TRACE_GLOBAL_USAGE
+#ifdef PATMOS_TRACE_CG_OCCUPANCY
+      DEBUG(dbgs() << (Maximize ? ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n" :
+                                  "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n"););
       DEBUG(
         for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
             i++) {
           if (!(*i)->isDead()) {
             (*i)->dump();
-            dbgs() << ": " << getMaxStackUsage(*i)
-                   << " (" << getStackUse(*i) << ")\n";
+            dbgs() << ": " << getMinMaxOccupancy(*i, Maximize)
+                   << " (" << getBytesReserved(*i) << ")\n";
           }
         }
       );
-#endif // PATMOS_TRACE_GLOBAL_USAGE
+#endif // PATMOS_TRACE_CG_OCCUPANCY
     }
 
-    /// getStackUsage - Bound the address accessed by the instruction wrt. the 
-    /// stack cache.
-    unsigned int getStackUsage(MachineInstr *MI)
+    /// getLiveAreaSize - Bound the address accessed by the instruction wrt.
+    /// the stack cache, i.e., get the size of the area within the stack cache 
+    /// that contains live data.
+    unsigned int getLiveAreaSize(MachineInstr *MI)
     {
       unsigned int scale = 1;
       switch(MI->getOpcode())
@@ -506,16 +880,16 @@ namespace llvm {
       }
     }
 
-    /// propagateStackUse - Propagate information on the use of the stack cache
-    /// e.g., by loads and stores, upwards trough the CFG to ensure 
-    /// instructions. This information can be used to downsize or remove 
-    /// ensures.
+    /// propagateLiveArea - Propagate information on the live data within the 
+    /// stack cache, e.g., accessed by loads and stores, upwards trough the CFG 
+    /// to ensure instructions. This information can be used to downsize or 
+    /// remove ensures.
     // TODO: check for STCr
-    void propagateStackUse(MBBs &WL, MBBUInt &INs, SIZEs &ENSs,
+    void propagateLiveArea(MBBs &WL, MBBUInt &INs, SIZEs &ENSs,
                            MachineBasicBlock *MBB)
     {
-      // get max. stack usage from CFG successors.
-      unsigned int stackUsage = INs[MBB];
+      // get the size of the live stack area from the CFG successors
+      unsigned int liveAreaSize = INs[MBB];
 
       // propagate within the basic block
       for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
@@ -526,55 +900,54 @@ namespace llvm {
           assert(i->getOperand(2).isImm());
 
           // compute actual space to ensure here
-          unsigned int ensure = 
-             std::ceil((float)stackUsage / (float)STC.getStackCacheBlockSize());
+          unsigned int ensure = std::ceil((float)liveAreaSize /
+                                           (float)STC.getStackCacheBlockSize());
 
           // update the ensure to reserve only the space actually used.
           ENSs[&*i] = std::min(ensure, (unsigned int)i->getOperand(2).getImm());
 
-          // If we encounter an ensure, we can reset the stackUsage counter to 0
+          // If we encounter an ensure, we can reset the liveAreaSize to 0
           // since all following accesses will be served by this ensure. This
           // also applies when this ensure is eliminated.
-          stackUsage = 0;
+          liveAreaSize = 0;
         }
         else {
-          // get the instruction's local stack usage
-          unsigned int instructionUsage = getStackUsage(&*i);
-
-          stackUsage = std::max(stackUsage, instructionUsage);
+          // compute the size of the live area before the current instruction
+          liveAreaSize = std::max(liveAreaSize, getLiveAreaSize(&*i));
         }
       }
 
       // propagate to CFG predecessors
       for(MachineBasicBlock::pred_iterator i(MBB->pred_begin()),
           ie(MBB->pred_end()); i != ie; i++) {
-        // check if the new stack usage is larger than what was known previously
-        if (INs[*i] < stackUsage) {
-          // update the predecessor's stack usage and put it on the work list
-          INs[*i] = stackUsage;
+        // check if the new live area size is larger than what was known 
+        // previously for this predecessor
+        if (INs[*i] < liveAreaSize) {
+          // update the predecessor's live area size and put it on the work list
+          INs[*i] = liveAreaSize;
           WL.insert(*i);
         }
       }
     }
 
-    /// propagateStackUse - Propagate information on the use of the stack cache
-    /// e.g., by loads and stores, upwards trough the CFG to ensure
-    /// instructions. This information can be used to downsize or remove
-    /// ensures.
-    void propagateStackUse(const MCallGraph &G)
+    /// propagateLiveArea - Propagate information on the live data within the
+    /// stack cache, e.g., accessed by loads and stores, upwards trough the CFG
+    /// to ensure instructions. This information can be used to downsize or
+    /// remove ensures.
+    void propagateLiveArea(const MCallGraph &G)
     {
       const MCGNodes &nodes(G.getNodes());
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
           i++) {
-        if (!(*i)->isUnknown()) {
+        if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           SIZEs ENSs;
           MBBUInt INs;
           MachineFunction *MF = (*i)->getMF();
 
-          // initialize work list (yeah, reverse-reverse post order would be 
+          // initialize work list (yeah, reverse-reverse post order would be
           // optimal, but this works too).
           for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
               i++) {
@@ -589,7 +962,7 @@ namespace llvm {
 
             // update the basic block's information, potentially putting any of
             // its predecessors on the work list.
-            propagateStackUse(WL, INs, ENSs, MBB);
+            propagateLiveArea(WL, INs, ENSs, MBB);
           }
 
           // actually update the sizes of the ensure instructions.
@@ -598,7 +971,7 @@ namespace llvm {
             i->first->getOperand(2).setImm(i->second);
           }
 
-#ifdef PATMOS_TRACE_LOCAL_USAGE
+#ifdef PATMOS_TRACE_BB_LIVEAREA
           DEBUG(
             dbgs() << "*************************** "
                    << MF->getFunction()->getName() << "\n";
@@ -609,26 +982,25 @@ namespace llvm {
                     << ": " << i->second << "\n";
             }
           );
-#endif // PATMOS_TRACE_LOCAL_USAGE
+#endif // PATMOS_TRACE_BB_LIVEAREA
         }
       }
     }
 
     /// removeEnsures - Does what it says. SENS instructions can be removed if
-    /// the preceding call plus the current frame on the stack cache fit into
+    /// the preceding calls plus the current frame on the stack cache fit into
     /// the stack cache.
     // TODO: take care of predication, i.e., predicated SENS/CALL instructions
-    // might be mangled and they might no match one to one.
+    // might be mangled and they might not match one to one.
     // TODO: check for STCr
     void removeEnsures(MBBs &WL, MBBUInt &INs, ENSUREs &ENSs, MCGNode *Node,
                        MachineBasicBlock *MBB)
     {
-      // track maximum stack usage of children in the call graph -- initialize
-      // from predecessors in the CFG.
-      unsigned int childUse = INs[MBB];
+      // track maximum stack occupancy of children in the call graph -- 
+      // initialize from predecessors in the CFG.
+      unsigned int childOccupancy = INs[MBB];
 
-      // propagate maximum stack usage of call graph children within the basic
-      // block
+      // propagate maximum stack occupancy through the basic block
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++) {
         if (i->isCall()) {
@@ -636,7 +1008,8 @@ namespace llvm {
           MCGSite *site = Node->findSite(i);
           assert(site);
 
-          childUse = std::max(childUse, getMaxStackUsage(site->getCallee()));
+          childOccupancy = std::max(childOccupancy,
+                                    getMaxOccupancy(site->getCallee()));
         }
         else if (i->getOpcode() == Patmos::SENSi) {
           unsigned int ensure = i->getOperand(2).getImm() *
@@ -644,20 +1017,16 @@ namespace llvm {
 
           // does the content of the ensure and all the children in the call
           // graph fit into the stack cache?
-          bool remove = (ensure + childUse) <= STC.getStackCacheSize();
+          bool remove = (ensure + childOccupancy) <= STC.getStackCacheSize();
 
           if (ensure == 0) assert(remove);
 
           // if all fits, the SENS can be removed.
           ENSs[i] = remove;
 
-          if (!remove && (i->getOperand(0).getReg() == Patmos::NoRegister ||
-                          i->getOperand(0).getReg() == Patmos::P0)) {
-            // update the current usage of the stack cache.
-            if (childUse >= ensure)
-              childUse -= ensure;
-            else
-              childUse = 0;
+          if (!remove && !TII.isPredicated(i)) {
+            childOccupancy = std::min(childOccupancy,
+                                      STC.getStackCacheSize() - ensure);
           }
         }
       }
@@ -665,17 +1034,18 @@ namespace llvm {
       // propagate to CFG successors
       for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
           ie(MBB->succ_end()); i != ie; i++) {
-        // check if the new stack usage is larger than what was known previously
-        if (INs[*i] < childUse) {
-          // update the successors's stack usage and put it on the work list
-          INs[*i] = childUse;
+        // check if the new stack occupancy is larger than what was known 
+        // previously for this successor
+        if (INs[*i] < childOccupancy) {
+          // update the successor’s stack occupancy and put it on the work list
+          INs[*i] = childOccupancy;
           WL.insert(*i);
         }
       }
     }
 
     /// removeEnsures - Does what it says. SENS instructions can be removed if
-    /// the preceding call plus the current frame on the stack cache fit into
+    /// the preceding calls plus the current frame on the stack cache fit into
     /// the stack cache.
     void removeEnsures(const MCallGraph &G)
     {
@@ -684,13 +1054,13 @@ namespace llvm {
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
           i++) {
-        if (!(*i)->isUnknown()) {
+        if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           ENSUREs ENSs;
           MBBUInt INs;
           MachineFunction *MF = (*i)->getMF();
 
-          // initialize work list (yeah, reverse post order would be optimal, 
+          // initialize work list (yeah, reverse post order would be optimal,
           // but this works too).
           for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je;
               j++) {
@@ -720,7 +1090,7 @@ namespace llvm {
             }
           }
 
-#ifdef PATMOS_TRACE_REMOVE
+#ifdef PATMOS_TRACE_SENS_REMOVAL
           DEBUG(
             dbgs() << "########################### "
                    << MF->getFunction()->getName() << "\n";
@@ -731,7 +1101,7 @@ namespace llvm {
                     << ": " << i->second << "\n";
             }
           );
-#endif // PATMOS_TRACE_REMOVE
+#endif // PATMOS_TRACE_SENS_REMOVAL
         }
       }
     }
@@ -759,9 +1129,10 @@ namespace llvm {
     }
 
     /// solve_ilp - solve the ILP problem.
-    static unsigned int solve_ilp(const char *LPname)
+    static unsigned int solve_ilp(const char *LPname, bool Maximize)
     {
-      unsigned int result = std::numeric_limits<unsigned int>::max();
+      unsigned int result = Maximize ? std::numeric_limits<unsigned int>::max():
+                                       std::numeric_limits<unsigned int>::min();
 
       std::vector<const char*> args;
       args.push_back(Solve_ilp.c_str());
@@ -795,13 +1166,15 @@ namespace llvm {
       return result;
     }
 
-    /// computeMaxUsageILP - construct an ILP problem, write it to an LP file, 
-    /// and solve it.
-    unsigned int computeMaxUsageILP(const MCGNodes &SCC, const MCGNode *N)
+    /// computeMinMaxOccupancyILP - Construct an ILP modeling the stack 
+    /// occupancy of an SCC within the call graph, write it to an LP file, and 
+    /// solve it.
+    unsigned int computeMinMaxOccupancyILP(const MCGNodes &SCC,
+                                           const MCGNode *N, bool Maximize)
     {
       assert(std::find(SCC.begin(), SCC.end(), N) != SCC.end());
 
-      // get bounds to solve the ILP.
+      // get user-supplied bounds to solve the ILP.
       const SCCInfo &BInfo(BI.getInfo(SCC));
 
       // open LP file.
@@ -809,7 +1182,7 @@ namespace llvm {
       sys::Path LPname(sys::Path::GetTemporaryDirectory(&ErrMsg));
       if (LPname.isEmpty()) {
         errs() << "Error: " << ErrMsg << "\n";
-        return STC.getStackCacheSize();
+        return std::numeric_limits<unsigned int>::max();
       }
 
       LPname.appendComponent("scc.lp");
@@ -817,7 +1190,7 @@ namespace llvm {
       if (!ErrMsg.empty()) {
         errs() << "Error: Failed to open file '" << LPname.str()
                << "' for writing!\n";
-        return STC.getStackCacheSize();
+        return std::numeric_limits<unsigned int>::max();
       }
 
       // find entry and exit call sites
@@ -847,19 +1220,19 @@ namespace llvm {
       //************************************************************************
       // objective function
 
-      OS << "Maximize";
+      OS << (Maximize ? "Maximize" : "Minimize");
 
       // nodes in the SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
           n++) {
-        OS << "\n + " << getStackUse(*n) << " " << ilp_name(*n);
+        OS << "\n + " << getBytesReserved(*n) << " " << ilp_name(*n);
       }
 
       // exit sites
       for(MCGSiteSet::iterator n(exits.begin()), ne(exits.end()); n != ne;
           n++) {
-        OS << "\n + " << getMaxStackUsage((*n)->getCallee()) << "\t"
-           << ilp_name(*n);
+        OS << "\n + " << getMinMaxOccupancy((*n)->getCallee(), Maximize)
+           << "\t" << ilp_name(*n);
 
         if (!(*n)->getCallee()->isUnknown())
           OS << "\t\\ " << (*n)->getCallee()->getMF()->getFunction()->getName();
@@ -867,7 +1240,7 @@ namespace llvm {
 
       // entries do not matter here
 
-      // add user defined parts of objective function
+      // add user-defined parts of objective function
       OS << BInfo.ObjectiveFunction;
 
       //************************************************************************
@@ -875,7 +1248,7 @@ namespace llvm {
       OS << "\nSubject To\n";
       unsigned int cnt = 0;
 
-      // force path over N
+      // force path over the call graph node N
       OS << "path:\t" << ilp_name(N) << " >= 1\n";
 
       // constraints on in-flow of nodes in SCC
@@ -931,7 +1304,7 @@ namespace llvm {
         ex_printed = true;
       }
 
-      // handle exits through function containing at least one call-free path
+      // handle exits through functions containing at least one call-free path
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
           n++) {
         if (IsCallFree[*n]) {
@@ -943,7 +1316,7 @@ namespace llvm {
       assert(ex_printed);
       OS << " = 1\n";
 
-      // add user defined constraints
+      // add user-defined constraints
       OS << BInfo.Constraints;
 
       //************************************************************************
@@ -981,7 +1354,7 @@ namespace llvm {
         OS << ilp_name(*cs) << "\n";
       }
 
-      // add user defined variable definitions
+      // add user-defined variable definitions
       OS << BInfo.Variables;
 
       OS << "End\n";
@@ -989,18 +1362,18 @@ namespace llvm {
       OS.close();
 
       // solve the ILP
-      unsigned int result = solve_ilp(LPname.c_str());
+      unsigned int result = solve_ilp(LPname.c_str(), Maximize);
 
-#ifdef PATMOS_TRACE_ILP
+#ifdef PATMOS_TRACE_CG_OCCUPANCY_ILP
       dbgs() << "ILP: ";
       N->dump();
       dbgs() << ": " << result << "\n";
-#endif // PATMOS_TRACE_ILP
+#endif // PATMOS_TRACE_CG_OCCUPANCY_ILP
 
       // remove LP file
       LPname.eraseFromDisk();
 
-      return std::min(STC.getStackCacheSize(), result);
+      return result;
     }
 
     /// checkCallFreePaths - Check whether functions have call free paths.
@@ -1038,10 +1411,6 @@ namespace llvm {
     {
       const MCGNodes &nodes(G.getNodes());
 
-#ifdef PATMOS_TRACE_CALLFREES
-      dbgs() << "///////////////////////////\n";
-#endif // PATMOS_TRACE_CALLFREES
-
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
           i++) {
@@ -1049,7 +1418,7 @@ namespace llvm {
         bool is_call_free = false;
 
         // ignore unknown functions here
-        if (!(*i)->isUnknown()) {
+        if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           MBBBool OUTs;
           MachineFunction *MF = (*i)->getMF();
@@ -1080,12 +1449,313 @@ namespace llvm {
         }
 
         IsCallFree[*i] = is_call_free;
-
-#ifdef PATMOS_TRACE_CALLFREES
-        (*i)->dump();
-        dbgs() << ": " << is_call_free << "\n";
-#endif // PATMOS_TRACE_CALLFREES
       }
+    }
+
+    /// propagateWorstCaseOccupancyAtSite - Propagate, locally within a 
+    /// function, the worst-case stack occupancy at call sites.
+    ///
+    /// We assume that the stack cache is full at function entry and then 
+    /// propagate the worst-case occupancy at call sites through the function. 
+    /// We use the minimum displacement caused by the functions called along 
+    /// a path to get the worst-case occupancy.
+    void propagateWorstCaseOccupancyAtSite(MBBs &WL, MBBUInt &INs,
+                                           MCGNode *Node,
+                                           MachineBasicBlock *MBB)
+    {
+      // track the worst-case stack occupancy across call sites accounting for
+      // children in the call graph and fills due to ensures, assuming a full 
+      // stack cache at function entry -- 
+      // initialize from predecessors in the CFG.
+      unsigned int worstOccupancy = INs[MBB];
+
+      // propagate the worst-case stack occupancy through the basic block
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie; i++) {
+        if (i->isCall()) {
+          // find call site
+          MCGSite *site = Node->findSite(i);
+          assert(site);
+
+          // store the worst-case occupancy before the call site, i.e., for the
+          // functions potentially entered through calls from this site
+          WorstCaseSiteOccupancy[site] = worstOccupancy;
+
+          if (!TII.isPredicated(i)) {
+            // get the worst-case occupancy after the call
+            unsigned int worstCallOccupancy =
+                   STC.getStackCacheSize() - getMinOccupancy(site->getCallee());
+
+            // update the worst-case occupancy
+            worstOccupancy = std::min(worstOccupancy, worstCallOccupancy);
+          }
+        }
+        else if (i->getOpcode() == Patmos::SENS && !TII.isPredicated(i)) {
+          unsigned int ensure = i->getOperand(2).getImm() *
+                                STC.getStackCacheBlockSize();
+          worstOccupancy = std::max(ensure, worstOccupancy);
+        }
+      }
+
+      // propagate to CFG successors
+      for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
+          ie(MBB->succ_end()); i != ie; i++) {
+        // propagate the worst-case occupancy to the successors and put them on 
+        // the work list
+        if (INs[*i] < worstOccupancy) {
+          INs[*i] = worstOccupancy;
+          WL.insert(*i);
+        }
+      }
+    }
+
+    /// propagateWorstCaseOccupancyAtSite - Propagate, locally within a
+    /// function, the worst-case stack occupancy at call sites.
+    ///
+    /// We assume that the stack cache is full at function entry and then
+    /// propagate the worst-case occupancy at call sites through the function.
+    /// We use the minimum displacement caused by the functions called along
+    /// a path to get the worst-case occupancy.
+    void propagateWorstCaseOccupancyAtSite(const MCallGraph &G)
+    {
+      const MCGNodes &nodes(G.getNodes());
+
+      // visit all functions
+      for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
+          i++) {
+        if ((*i)->isUnknown()) {
+          // ensure that incoming values later, when the call graph is processed 
+          // globally, are simply propagated onward through UNKNOWN nodes
+          for(MCGSites::const_iterator j((*i)->getSites().begin()),
+              je((*i)->getSites().end()); j != je; j++) {
+            WorstCaseSiteOccupancy[*j] = STC.getStackCacheSize();
+          }
+        }
+        else if (!(*i)->isDead()) {
+          MBBs WL;
+          MBBUInt INs;
+          MachineFunction *MF = (*i)->getMF();
+
+          // initialize work list.
+          INs[MF->begin()] = STC.getStackCacheSize();
+          WL.insert(MF->begin());
+
+          // process until the work list becomes empty
+          while (!WL.empty()) {
+            // get some basic block
+            MachineBasicBlock *MBB = *WL.begin();
+            WL.erase(WL.begin());
+
+            // update the basic block's information, potentially putting any of
+            // its successors on the work list.
+            propagateWorstCaseOccupancyAtSite(WL, INs, *i, MBB);
+          }
+
+#ifdef PATMOS_TRACE_WORST_SITE_OCCUPANCY
+          DEBUG(
+            dbgs() << "\\\\\\\\\\\\\\\\\\\\\\\\\\\\ "
+                   << MF->getFunction()->getName()
+                   << " (" << getBytesReserved(*i) << ")\n";
+            for(MCGSiteUInt::const_iterator j(WorstCaseSiteOccupancy.begin()),
+                je(WorstCaseSiteOccupancy.end()); j != je; j++) {
+              dbgs() << "  ";
+              j->first->dump();
+              dbgs() << ": " << j->second
+                     << " (" << getMinOccupancy(j->first->getCallee()) << ")\n";
+            }
+          );
+#endif // PATMOS_TRACE_WORST_SITE_OCCUPANCY
+        }
+      }
+    }
+
+    /// pruneNodes - Find nodes that lead to impossible stack cache states.
+    /// Nodes are marked valid during a depth first traversal whenever the node
+    /// is reachable from the root node such that it remains in the maximum 
+    /// stack occupancy computed before.
+    /// \see computeMinMaxOccupancy
+    void pruneNodes(SCANode *N, unsigned int parentOccupancy)
+    {
+
+      // This node is already valid, so skip it.
+      if (!N->isValid()) {
+        unsigned int nodeReserved = getBytesReserved(N->getMCGNode());
+        bool isValid = (parentOccupancy >= nodeReserved);
+
+        if (isValid) {
+          // mark the node as valid.
+          N->setValid();
+          N->setRemainingOccupancy(parentOccupancy);
+
+          // compute the stack occupancy remaining for the children.
+          unsigned int remainingOccupancy =
+                            std::min(parentOccupancy - nodeReserved,
+                                     getMinMaxOccupancy(N->getMCGNode(), true));
+
+          // visit the children in the graph
+          for(SCAEdgeSet::iterator i(N->getChildren().begin()),
+              ie(N->getChildren().end()); i != ie; i++) {
+            pruneNodes(i->getCallee(), remainingOccupancy);
+          }
+        }
+      }
+    }
+
+    /// pruneSCAGraph - Hide nodes in the graph that are not relevant for the
+    /// analysis, i.e., those that neither spill nor lead to a context that
+    /// spills, or that do not lead to a valid stack cache state.
+    void pruneSCAGraph()
+    {
+      const MCGSCANodeMap &nodes(SCAGraph.getNodes());
+
+      // eliminate UNKNOWN nodes from the graph
+      SCANodeSet cleanup;
+      for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
+          i != ie; i++) {
+        MCGNode *mcgNode = i->second->getMCGNode();
+        if (mcgNode->isUnknown()) {
+          cleanup.insert(i->second);
+          // remove the node and redirect its parent/child relations
+          for(SCAEdgeSet::iterator j(i->second->getChildren().begin()),
+              je(i->second->getChildren().end()); j != je; j++) {
+
+            SCANode *calleeNode = j->getCallee();
+
+            for(SCAEdgeSet::const_iterator k(i->second->getParents().begin()),
+                ke(i->second->getParents().end()); k != ke; k++) {
+
+              SCANode *callerNode = k->getCaller();
+
+              SCAEdge newEdge(callerNode, calleeNode, k->getSite());
+              calleeNode->getParents().insert(newEdge);
+              callerNode->getChildren().insert(newEdge);
+            }
+          }
+        }
+      }
+
+      // remove the UNKNOWN nodes from the graph and free them
+      std::for_each(cleanup.begin(), cleanup.end(),
+                 std::bind1st(std::mem_fun(&SpillCostAnalysisGraph::deleteNode),
+                             &SCAGraph));
+
+      // eliminate nodes whose shortest path to a leaf is longer than the
+      // previously analyzed maximum occupancy
+      pruneNodes(SCAGraph.getRoot(),
+                 getMinMaxOccupancy(SCAGraph.getRoot()->getMCGNode(), true));
+
+      // mark only those nodes visible that have non-zero spill costs or have a
+      // descendent with non-zero spill costs.
+      for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
+          i != ie; i++) {
+        if (i->second->getSpillCost()) {
+          i->second->setVisible();
+        }
+      }
+    }
+
+    /// propagateMaxOccupancy - propagate the maximum stack occupancy on the
+    /// call graph and analyze the worst-case spilling of reserves.
+    ///
+    /// The main idea is to associate each call graph node with a set of calling 
+    /// contexts, which are in turn associated with a maximum stack occupancy.
+    /// The occupancy is then propagated onwards to children in the call graph
+    /// through calls sites, considering the worst-case occupancy computed 
+    /// before.
+    ///
+    /// We know that there are only two options:
+    /// (1) either we propagate the stack occupancy of the current context,
+    ///     adding the stack space reserved by the current function or
+    /// (2) we propagate the worst-case occupancy of the site onward.
+    ///
+    /// We only need to propagate the minimum of the two.
+    ///
+    /// \see propagateWorstCaseOccupancyAtSite
+    void propagateMaxOccupancy(SCANode *Node, SCANodeSet &WL)
+    {
+      // get the call graph node and occupancy
+      MCGNode *mcgNode = Node->getMCGNode();
+
+      // get the stack occupancy of the current calling context and add the
+      // space allocated by the current function to it.
+      unsigned int nodeOccupancy = std::min(STC.getStackCacheSize(),
+                              Node->getOccupancy() + getBytesReserved(mcgNode));
+
+      // propagate to call sites
+      for(MCGSites::const_iterator j(mcgNode->getSites().begin()),
+          je(mcgNode->getSites().end()); j != je; j++) {
+        // get the site's stack worst-case occupancy
+        MCGSite *site = *j;
+        MCGNode *callee = site->getCallee();
+        unsigned int worstSiteOccupancy = WorstCaseSiteOccupancy[site];
+
+        // compute the occupancy and spill cost at the callee
+        unsigned int childOccupancy = std::min(nodeOccupancy,
+                                               worstSiteOccupancy);
+
+        unsigned int totalChildOccupancy = getBytesReserved(callee) +
+                                            childOccupancy;
+
+        unsigned int spillCost =
+            totalChildOccupancy <= STC.getStackCacheSize() ? 0 :
+                                  totalChildOccupancy - STC.getStackCacheSize();
+
+        // propagate to calling contexts at callee
+        SCANode *calleeSCANode;
+        bool isNewNode = SCAGraph.makeNode(callee, childOccupancy, spillCost,
+                                           getMaxOccupancy(callee),
+                                           IsCallFree[callee], calleeSCANode);
+
+        // make a link to the parent context
+        calleeSCANode->addParent(Node, site);
+
+        // if the node did not exist before, append it to the work list
+        if (isNewNode) {
+          WL.insert(calleeSCANode);
+        }
+      }
+    }
+
+    /// propagateMaxOccupancy - propagate the maximum stack occupancy on the
+    /// call graph and analyze the worst-case spilling of reserves.
+    ///
+    /// The main idea is to associate each call graph node with a set of calling
+    /// contexts, which are in turn associated with a maximum stack occupancy.
+    /// The occupancy is then propagated onwards to children in the call graph
+    /// through calls sites, considering the worst-case occupancy computed
+    /// before.
+    ///
+    /// We know that there are only two options:
+    /// (1) either we propagate the stack occupancy of the current context,
+    ///     adding the stack space reserved by the current function or
+    /// (2) we propagate the worst-case occupancy of the site onward.
+    ///
+    /// We only need to propagate the minimum of the two.
+    ///
+    /// \see propagateWorstCaseOccupancyAtSite
+    void propagateMaxOccupancy(const MCallGraph &G, MCGNode *main)
+    {
+      // initialize the work list and calling context information
+      SCANodeSet WL;
+      WL.insert(SCAGraph.makeRoot(main, getMaxOccupancy(main),
+                                  IsCallFree[main]));
+      while (!WL.empty()) {
+        // pop current call graph node
+        SCANode *Node =  *WL.begin();
+        WL.erase(Node);
+
+        // propagate to callees through call sites
+        if (!Node->getMCGNode()->isDead()) {
+          propagateMaxOccupancy(Node, WL);
+        }
+      }
+
+      // prune graph, i.e., hide nodes not relevant for the analysis
+      pruneSCAGraph();
+
+#ifdef PATMOS_DUMP_DOT_OCCUPANCY
+      ViewGraph(SCAGraph, "xxx");
+#endif // PATMOS_DUMP_DOT_OCCUPANCY
     }
 
     /// runOnModule - determine the state of the stack cache for each call site.
@@ -1093,19 +1763,30 @@ namespace llvm {
     {
       PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
       const MCallGraph &G(*PCGB.getCallGraph());
+      MCGNode *main = PCGB.getMCGNode(M, "main");
 
       // find out whether a call free path exists in each function
       checkCallFreePaths(G);
 
-      // find for each ensure instruction the amount of stack content actually 
-      // used after its execution.
-      propagateStackUse(G);
+      // find the amount of live stack content after each ensure instruction
+      propagateLiveArea(G);
 
-      // compute call-graph-level information on maximal stack cache usage
-      computeMaxUsage(G);
+      // compute call-graph-level information on maximal stack cache occupancy
+      computeMinMaxOccupancy(G, true);
 
       // remove useless SENS instructions
       removeEnsures(G);
+
+      // compute call-graph-level information on minimal stack cache occupancy
+      computeMinMaxOccupancy(G, false);
+
+      // propagate the worst-case stack occupancy at call sites locally within 
+      // functions, assuming a full stack cache at function entry.
+      propagateWorstCaseOccupancyAtSite(G);
+
+      // propagate the maximum stack occupancy on the call graph and analyze 
+      // the worst-case spilling at reserves.
+      propagateMaxOccupancy(G, main);
 
       return false;
     }
@@ -1122,4 +1803,185 @@ namespace llvm {
 /// createPatmosStackCacheAnalysis - Returns a new PatmosStackCacheAnalysis.
 ModulePass *llvm::createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm){
   return new PatmosStackCacheAnalysis(tm);
+}
+
+namespace llvm {
+  bool operator <(const SCAEdge &a, const SCAEdge &b)
+  {
+    if (a.getCaller() != b.getCaller())
+      return (a.getCaller() < b.getCaller());
+    else if (a.getCallee() != b.getCallee())
+      return (a.getCallee() < b.getCallee());
+    else
+      return (a.getSite() < b.getSite());
+  }
+
+  template <> struct GraphTraits<SpillCostAnalysisGraph> {
+    typedef SCANode NodeType;
+    class ChildIteratorType
+    {
+      SCAEdgeSet::const_iterator I;
+
+    public:
+      typedef SCAEdgeSet::const_iterator::iterator_category iterator_category;
+      typedef SCAEdgeSet::const_iterator::difference_type difference_type;
+      typedef SCAEdgeSet::const_iterator::pointer pointer;
+      typedef SCAEdgeSet::const_iterator::reference reference;
+      typedef NodeType value_type;
+
+      ChildIteratorType(SCAEdgeSet::const_iterator i) : I(i)
+      {
+      }
+
+      bool operator!=(ChildIteratorType a) 
+      {
+        return I != a.I;
+      }
+
+      ChildIteratorType operator++() 
+      {
+        ChildIteratorType tmp(I);
+        I++;
+        return tmp;
+      }
+
+      NodeType *operator*() 
+      {
+        return I->getCallee();
+      }
+
+      MachineInstr *getMI()
+      {
+        return I->getSite()->getMI();
+      }
+    };
+
+    static inline ChildIteratorType child_begin(NodeType *N)
+    {
+      return N->getChildren().begin();
+    }
+
+    static inline ChildIteratorType child_end(NodeType *N)
+    {
+      return N->getChildren().end();
+    }
+
+    static NodeType *getEntryNode(const SpillCostAnalysisGraph &G)
+    {
+      return G.getRoot();
+    }
+
+    class nodes_iterator
+    {
+      MCGSCANodeMap::const_iterator I;
+
+    public:
+      typedef MCGSCANodeMap::const_iterator::iterator_category iterator_category;
+      typedef MCGSCANodeMap::const_iterator::difference_type difference_type;
+      typedef MCGSCANodeMap::const_iterator::pointer pointer;
+      typedef MCGSCANodeMap::const_iterator::reference reference;
+
+      nodes_iterator(MCGSCANodeMap::const_iterator i) : I(i) 
+      {
+      }
+
+      bool operator!=(nodes_iterator a) 
+      {
+        return I != a.I;
+      }
+
+      nodes_iterator operator++() 
+      {
+        nodes_iterator tmp(I);
+        I++;
+        return tmp;
+      }
+
+      NodeType *operator*() 
+      {
+        return I->second;
+      }
+    };
+
+    static nodes_iterator nodes_begin(const SpillCostAnalysisGraph &G) 
+    {
+      return G.getNodes().begin();
+    }
+    static nodes_iterator nodes_end (const SpillCostAnalysisGraph &G)
+    {
+      return G.getNodes().end();
+    }
+    static unsigned size (const SpillCostAnalysisGraph &G)
+    {
+      return G.getNodes().size();
+    }
+  };
+
+  template<>
+  struct DOTGraphTraits<SpillCostAnalysisGraph> : public DefaultDOTGraphTraits {
+    DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
+
+    static std::string getGraphName(const SpillCostAnalysisGraph &G) 
+    {
+      return "xxx";
+    }
+
+    static bool isNodeHidden(const SCANode *N, const SpillCostAnalysisGraph &G)
+    {
+      return !N->isVisible();
+    }
+
+    static std::string getEdgeAttributes(const void *,
+                       GraphTraits<SpillCostAnalysisGraph>::ChildIteratorType e,
+                       const SpillCostAnalysisGraph &G)
+    {
+      std::string tmp;
+      raw_string_ostream s(tmp);
+
+      MachineInstr *MI = e.getMI();
+
+      s << "label=\"";
+
+      if (MI) {
+        MachineBasicBlock *MBB = MI->getParent();
+        s << "BB#" << MBB->getNumber() << ":"
+          << std::distance(MBB->instr_begin(),
+                           MachineBasicBlock::instr_iterator(MI));
+      }
+
+      s << "\"";
+
+      return s.str();
+    }
+
+    std::string getNodeLabel(const SCANode *N,
+                             const SpillCostAnalysisGraph &G) 
+    {
+      MCGNode *mcgNode = N->getMCGNode();
+      std::string tmp;
+      raw_string_ostream s(tmp);
+
+      if (mcgNode->isUnknown())
+        s << "<UNKNOWN-" << *mcgNode->getType() << ">";
+      else {
+        s << mcgNode->getMF()->getFunction()->getName();
+      }
+
+      s << (N->hasCallFreePath() ? "* (occ:" : " (occ:")
+        << N->getOccupancy() << ", spill:" << N->getSpillCost() << ")\n"
+        << "[rem:" << N->getRemainingOccupancy()
+        << ", maxocc:" << N->getMaxOccupancy() << "]";
+
+      return s.str();
+    }
+
+    static std::string getNodeAttributes(const SCANode *N,
+                                         const SpillCostAnalysisGraph &G)
+    {
+      if (!N->isValid())
+        return "style=filled, fillcolor=\"violet\"";
+      else
+        return N->getSpillCost() ? "style=filled, fillcolor=\"red\"" : "";
+    }
+  };
 }
