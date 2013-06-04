@@ -141,13 +141,13 @@ public:
       // PatmosFixupKinds.h.
       //
       // name                    offset  bits  flags
-      { "FK_Patmos_BO_7" ,       25,      7,   0 }, // 0 bit shifted, signed (byte aligned)
-      { "FK_Patmos_SO_7" ,       25,      7,   0 }, // 1 bit shifted, signed (half-word aligned)
-      { "FK_Patmos_WO_7" ,       25,      7,   0 }, // 2 bit shifted, signed (word aligned)
+      { "FK_Patmos_BO_7" ,       25,      7,   0 }, // 0 bit shifted, unsigned (byte aligned)
+      { "FK_Patmos_SO_7" ,       25,      7,   0 }, // 1 bit shifted, unsigned (half-word aligned)
+      { "FK_Patmos_WO_7" ,       25,      7,   0 }, // 2 bit shifted, unsigned (word aligned)
       { "FK_Patmos_abs_ALUi",    20,     12,   0 }, // ALU immediate, unsigned
       { "FK_Patmos_abs_CFLb",    10,     22,   0 }, // 2 bit shifted, unsigned, for call
       { "FK_Patmos_abs_ALUl",    32,     32,   0 }, // ALU immediate, unsigned
-      { "FK_Patmos_stc",         10,     22,   0 }, // 2 bit shifted, unsigned, for stack control
+      { "FK_Patmos_stc",         14,     18,   0 }, // 2 bit shifted, unsigned, for stack control
       { "FK_Patmos_PCrel",       10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, PC relative
     };
 
