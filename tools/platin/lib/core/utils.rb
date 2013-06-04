@@ -93,7 +93,8 @@ module PML
     end
     # tool writes PML file (stdout or --output FILE)
     def writes_pml
-      self.on("-o", "--output FILE", "Output PML File (=stdout)") { |f| options.output = f }
+      self.on("-o", "--output FILE", "PML output File") { |f| options.output = f }
+      self.on("--diff", "Only write new information to PML output file") { options.output_diff = true }
     end
     # tool calculates flowfacts
     def generates_flowfacts

@@ -92,7 +92,7 @@ module PML
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc
-    attr_reader :data, :arch, :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
+    attr_reader :data, :triple, :arch, :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
 
     # constructor expects a YAML document or a list of YAML documents
     def initialize(stream)
@@ -102,7 +102,7 @@ module PML
       else
         @data = PMLDoc.merge_stream(stream)
       end
-      triple = @data['triple'].split('-')
+      @triple = @data['triple'].split('-')
       @arch = Architecture.from_triple(triple)
       @bitcode_functions = FunctionList.new(@data['bitcode-functions'] || [])
       @machine_functions = FunctionList.new(@data['machine-functions'] || [])
@@ -112,6 +112,13 @@ module PML
       @flowfacts = FlowFactList.from_pml(self, @data['flowfacts'])
       @data['timing'] ||= []
       @timing = TimingList.from_pml(self, @data['timing'])
+    end
+
+    def clone_empty
+      data = {}
+      data['format'] = @data['format']
+      data['triple'] = @data['triple']
+      PMLDoc.new(data)
     end
 
     def to_s
@@ -635,6 +642,12 @@ module PML
     end
     def unresolved_call?
       callees.include?("__any__")
+    end
+    def branches?
+      ! branch_targets.empty?
+    end
+    def branch_targets
+      data['branch-targets'] || []
     end
     def returns?
       data['is-return'] || false

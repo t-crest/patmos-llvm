@@ -338,7 +338,10 @@ class IPETEdge
       EdgeRef.new(source, target)
     end
   end
-  def to_s ; @qname ; end
+  def to_s
+    arrow  = @level == :src ? "~>" : "->"
+    "#{@source}#{arrow}#{:exit == @target ? 'exit' : @target}"
+  end
   def hash;  @qname.hash ; end
   def ==(other); qname == other.qname ; end
   def eql?(other); self == other; end
