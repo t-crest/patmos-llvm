@@ -279,6 +279,9 @@ To setup Eclipse with C++ and GDB support for developing LLVM, follow those step
 	- Do not use 'Location', causes nullpointer exception on file save
       This avoids bombing the indexer with stresstest files.
       Make sure Indexer does not run before you create the filters!
+    - Delete the [Targets] and [Subprojects] directories (or whatever they are called)
+      Otherwise Eclipse will open your files multiple times and you will loose some of 
+      your changes if you are not careful!
     - Setup project settings:
         - Setup coding style to new derivative from GNU, edit line-breaks settings
         - Setup Project Include-path settings: add following paths and defines:

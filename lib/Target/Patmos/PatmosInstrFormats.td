@@ -22,7 +22,7 @@ def FALUc   : Format<4>;  // Compare of registers
 def FALUp   : Format<5>;  // Combine predicates
 def FLDT    : Format<6>;  // Memory ops with 7bit offset
 def FSTT    : Format<7>;  // Memory ops with 7bit offset
-def FSTCi   : Format<8>;  // Stack control with 22bit immediate
+def FSTCi   : Format<8>;  // Stack control with 18bit immediate
 def FSTCr   : Format<9>;  // Stack control with register
 def FCFLb   : Format<10>; // Program flow control with 22bit immediate
 def FCFLi   : Format<11>; // Program flow control indirect

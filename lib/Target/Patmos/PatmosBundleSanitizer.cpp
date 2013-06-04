@@ -46,10 +46,8 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &Fn);
   private:
-    void skipPseudos(MachineBasicBlock *MBB,
-                     MachineBasicBlock::instr_iterator &II);
 
-    bool orderBundleOps(MachineBasicBlock *MBB,
+    bool orderBundleOps(MachineBasicBlock &MBB,
                         MachineBasicBlock::iterator &MI);
 
     bool tryRemoveNOP(MachineBasicBlock *MBB, MachineBasicBlock::iterator &MI);
@@ -72,7 +70,7 @@ bool PatmosBundleSanitizer::runOnMachineFunction(MachineFunction &Fn) {
       // TODO track delay slots and latencies
 
       if (II->isBundle()) {
-        modified |= orderBundleOps(MBB, II);
+        modified |= orderBundleOps(*MBB, II);
       } else if (II->getOpcode() == Patmos::NOP) {
         modified |= tryRemoveNOP(MBB, II);
       }
@@ -82,20 +80,13 @@ bool PatmosBundleSanitizer::runOnMachineFunction(MachineFunction &Fn) {
   return modified;
 }
 
-void PatmosBundleSanitizer::skipPseudos(MachineBasicBlock *MBB,
-                            MachineBasicBlock::instr_iterator &II) {
-  while (PII.isPseudo(II) && II != MBB->instr_end()) {
-    II++;
-  }
-}
-
-bool PatmosBundleSanitizer::orderBundleOps(MachineBasicBlock *MBB,
+bool PatmosBundleSanitizer::orderBundleOps(MachineBasicBlock &MBB,
                                            MachineBasicBlock::iterator &MI)
 {
   MachineBasicBlock::instr_iterator II = *MI;
 
   ++II;
-  skipPseudos(MBB, II);
+  PII.skipPseudos(MBB, II);
   if (!II->isInsideBundle()) {
     report_fatal_error("Empty bundle found.");
   }
@@ -103,7 +94,7 @@ bool PatmosBundleSanitizer::orderBundleOps(MachineBasicBlock *MBB,
   MachineBasicBlock::instr_iterator FirstMI = II;
 
   ++II;
-  skipPseudos(MBB, II);
+  PII.skipPseudos(MBB, II);
   if (!II->isInsideBundle()) {
     return false;
   }
@@ -117,7 +108,7 @@ bool PatmosBundleSanitizer::orderBundleOps(MachineBasicBlock *MBB,
 
     // swap operations in bundle
     FirstMI->removeFromParent();
-    MBB->insert(next(II), FirstMI);
+    MBB.insert(next(II), FirstMI);
 
     return true;
   }

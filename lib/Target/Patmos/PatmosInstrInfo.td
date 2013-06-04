@@ -164,6 +164,7 @@ def nuimm12  : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(-N->getSExtValue
 def uimm18   : Operand<i32>, PatLeaf<(imm), [{return isUInt<18>(N->getZExtValue());}]>;
 // Call/Branch
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
+def imm22    : Operand<i32>, PatLeaf<(imm), [{return isInt <22>(N->getSExtValue());}]>;
 
 
 // 32-bit bitmask transformed to a bit number
@@ -192,6 +193,17 @@ def imm7s2 : Operand<i32>, PatLeaf<(imm), [{
 }], shrTwo>;
 def uimm7s2 : Operand<i32>, PatLeaf<(imm), [{
  return isUInt<7>(N->getZExtValue() >> 2) && ((N->getZExtValue() & 0x03) == 0);
+}], shrTwo>;
+// 18 bit value, shifted by two bits (for STC)
+def uimm18s2 : Operand<i32>, PatLeaf<(imm), [{
+ return isUInt<18>(N->getZExtValue() >> 2) && ((N->getZExtValue() & 0x03) == 0);
+}], shrTwo>;
+// 22 bit value, shifted by two bits (for direct calls and branches)
+def uimm22s2 : Operand<i32>, PatLeaf<(imm), [{
+ return isUInt<22>(N->getZExtValue() >> 2) && ((N->getZExtValue() & 0x03) == 0);
+}], shrTwo>;
+def imm22s2  : Operand<i32>, PatLeaf<(imm), [{
+ return isInt<22>(N->getSExtValue() >> 2) && ((N->getSExtValue() & 0x03) == 0);
 }], shrTwo>;
 
 // Transform all FrameIndex objects into TargetFrameIndex objects and define a
@@ -359,8 +371,8 @@ let isCall=1, hasDelaySlot=1,
 
   // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
-  def CALL : CFLb<0b00  , (outs), (ins pred:$p, uimm22:$target),
-                  "call", "$target", [(PatmosCall uimm22:$target)]>;
+  def CALL : CFLb<0b00  , (outs), (ins pred:$p, uimm22s2:$target),
+                  "call", "$target", [(PatmosCall uimm22s2:$target)]>;
 
   def CALLR: CFLi<0b0000, (outs), (ins pred:$p, RRegs:$rs),
                   "call", "$rs", [(PatmosCall RRegs:$rs)]>;
@@ -378,10 +390,10 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-def SRESi  : STCi<0b00, (outs), (ins pred:$p, uimm18:$imm), "sres",   "$imm", []>;
-def SENSi  : STCi<0b01, (outs), (ins pred:$p, uimm18:$imm), "sens",   "$imm", []>;
-def SFREEi : STCi<0b10, (outs), (ins pred:$p, uimm18:$imm), "sfree",  "$imm", []>;
-def SSPILLi: STCi<0b11, (outs), (ins pred:$p, uimm18:$imm), "sspill", "$imm", []>;
+def SRESi  : STCi<0b00, (outs), (ins pred:$p, uimm18s2:$imm), "sres",   "$imm", []>;
+def SENSi  : STCi<0b01, (outs), (ins pred:$p, uimm18s2:$imm), "sens",   "$imm", []>;
+def SFREEi : STCi<0b10, (outs), (ins pred:$p, uimm18s2:$imm), "sfree",  "$imm", []>;
+def SSPILLi: STCi<0b11, (outs), (ins pred:$p, uimm18s2:$imm), "sspill", "$imm", []>;
 def SENSr  : STCr<0b01, (outs), (ins pred:$p, RRegs:$rs), "sens",   "$rs", []>;
 def SSPILLr: STCr<0b11, (outs), (ins pred:$p, RRegs:$rs), "sspill", "$rs", []>;
 

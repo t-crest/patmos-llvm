@@ -32,7 +32,8 @@ extern "C" void LLVMInitializePatmosTarget() {
 }
 
 static ScheduleDAGInstrs *createPatmosVLIWMachineSched(MachineSchedContext *C) {
-  return new VLIWMachineScheduler(C, new ConvergingVLIWScheduler());
+  ScheduleDAGMI *PS = new PatmosVLIWScheduler(C, new PatmosVLIWSchedStrategy());
+  return PS;
 }
 
 static MachineSchedRegistry

@@ -351,6 +351,34 @@ bool PatmosInstrInfo::isPseudo(const MachineInstr *MI) const {
   return !FuncUnits;
 }
 
+void PatmosInstrInfo::skipPseudos(MachineBasicBlock &MBB,
+    MachineBasicBlock::instr_iterator &II) const
+{
+  while (isPseudo(II) && II != MBB.instr_end()) {
+    II++;
+  }
+}
+
+void PatmosInstrInfo::skipPseudos(MachineBasicBlock &MBB,
+    MachineBasicBlock::iterator &II) const
+{
+  // TODO we should check if a bundle contains only pseudos (optionally).
+  while (!II->isBundle() && isPseudo(II) && II != MBB.instr_end()) {
+    II++;
+  }
+}
+
+/// nextNonPseudo - Get the next non-pseudo instruction or bundle.
+MachineBasicBlock::iterator PatmosInstrInfo::nextNonPseudo(
+                                  MachineBasicBlock &MBB,
+                                  const MachineBasicBlock::iterator &II) const
+{
+  MachineBasicBlock::iterator J = next(II);
+  skipPseudos(MBB, J);
+  return J;
+}
+
+
 const MachineInstr *PatmosInstrInfo::hasOpcode(const MachineInstr *MI,
                                                int Opcode) const {
   if (MI->isBundle()) {

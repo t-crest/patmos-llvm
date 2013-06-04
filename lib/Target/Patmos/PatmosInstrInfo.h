@@ -150,6 +150,21 @@ public:
   /// if the instruction is either inline asm or has some FU assigned to it.
   bool isPseudo(const MachineInstr *MI) const;
 
+  /// skipPseudos - Increment II to the next non-pseudo instruction if II is a
+  /// pseudo instruction.
+  void skipPseudos(MachineBasicBlock &MBB,
+                   MachineBasicBlock::instr_iterator &II) const;
+
+  /// skipPseudos - Increment II to the next non-pseudo instruction if II is a
+  /// pseudo instruction. This assumes that bundles contain at least one
+  /// non-pseudo instruction.
+  void skipPseudos(MachineBasicBlock &MBB,
+                   MachineBasicBlock::iterator &II) const;
+
+  /// nextNonPseudo - Get the next non-pseudo instruction or bundle.
+  MachineBasicBlock::iterator nextNonPseudo(MachineBasicBlock &MBB,
+                   const MachineBasicBlock::iterator &II) const;
+
   /// hasOpcode - check if the given instruction has the given opcode, or if
   /// the bundle contains an instruction with the opcode if this is a bundle.
   /// Returns either the first instruction in the bundle matching the opcode,
