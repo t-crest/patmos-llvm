@@ -312,7 +312,8 @@ class cachedLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr)
 	    }]>;
 
 class uncachedLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr), [{
-		return cast<MemSDNode>(N)->getAddressSpace() == 0 && cast<MemSDNode>(N)->isNonTemporal();
+		return (cast<MemSDNode>(N)->getAddressSpace() == 0 && cast<MemSDNode>(N)->isNonTemporal()) ||
+		        cast<MemSDNode>(N)->getAddressSpace() == 3;
 	    }]>;
 
 class spmLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr), [{
@@ -375,7 +376,8 @@ class cachedStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patSt
 	    }]>;
 
 class uncachedStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patStore node:$val, node:$ptr), [{
-		return cast<MemSDNode>(N)->getAddressSpace() == 0 && cast<MemSDNode>(N)->isNonTemporal();
+		return (cast<MemSDNode>(N)->getAddressSpace() == 0 && cast<MemSDNode>(N)->isNonTemporal()) ||
+		        cast<MemSDNode>(N)->getAddressSpace() == 3;
 	    }]>;
 
 class spmStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patStore node:$val, node:$ptr), [{
