@@ -13,6 +13,9 @@
 // Patmos Return Value Calling Convention
 //===----------------------------------------------------------------------===//
 def RetCC_Patmos : CallingConv<[
+  // Promote i1/i8/i16 arguments to i32
+  CCIfType<[i1, i8, i16], CCPromoteToType<i32>>,
+
   // i32 are returned in registers R1, R2
   CCIfType<[i32], CCAssignToReg<[R1, R2]>>
   // TODO return i64 in R1 and R2
@@ -22,10 +25,8 @@ def RetCC_Patmos : CallingConv<[
 // Patmos Argument Calling Conventions
 //===----------------------------------------------------------------------===//
 def CC_Patmos : CallingConv<[
-  // Promote i8 arguments to i32.
-  CCIfType<[i8], CCPromoteToType<i32>>,
-  // Promote i16 arguments to i32.
-  CCIfType<[i16], CCPromoteToType<i32>>,
+  // Promote i1/i8/i16 arguments to i32.
+  CCIfType<[i1, i8, i16], CCPromoteToType<i32>>,
 
   // The first 6 integer arguments of non-varargs functions are passed in
   // integer registers.
