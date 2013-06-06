@@ -206,7 +206,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
   {
     case Patmos::PSEUDO_PREG_SPILL:
       {
-        unsigned st_opc = (isOnStackCache) ? Patmos::SBS : Patmos::SBC;
+        unsigned st_opc = (isOnStackCache) ? Patmos::SWS : Patmos::SWC;
         MachineOperand SrcRegOpnd = PseudoMI.getOperand(2);
         // spilling predicate values is sort of hackish:
         //   we implement it as a predicated store of a non-zero value
@@ -225,7 +225,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
 
     case Patmos::PSEUDO_PREG_RELOAD:
       {
-        unsigned ld_opc = (isOnStackCache) ? Patmos::LBS : Patmos::LBC;
+        unsigned ld_opc = (isOnStackCache) ? Patmos::LWS : Patmos::LWC;
         unsigned DestReg = PseudoMI.getOperand(0).getReg();
 
         AddDefaultPred(BuildMI(MBB, II, DL, TII.get(ld_opc), Patmos::RTR))
