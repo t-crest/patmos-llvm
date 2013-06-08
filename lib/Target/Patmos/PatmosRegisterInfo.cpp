@@ -316,6 +316,8 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   {
     case Patmos::LWC: case Patmos::LWM:
     case Patmos::SWC: case Patmos::SWM:
+    case Patmos::PSEUDO_PREG_SPILL:
+    case Patmos::PSEUDO_PREG_RELOAD:
       // 9 bit
       assert((Offset & 0x3) == 0);
       Offset = (Offset >> 2) + FrameDisplacement;
@@ -342,8 +344,6 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::LBC: case Patmos::LBM:
     case Patmos::LBUC: case Patmos::LBUM:
     case Patmos::SBC: case Patmos::SBM:
-    case Patmos::PSEUDO_PREG_SPILL:
-    case Patmos::PSEUDO_PREG_RELOAD:
       // 7 bit
       Offset += FrameDisplacement;
 
