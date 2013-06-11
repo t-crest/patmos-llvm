@@ -73,6 +73,7 @@ class SubtargetEmitter {
   void FormItineraryBypassString(const std::string &Names,
                                  Record *ItinData,
                                  std::string &ItinString, unsigned NOperandCycles);
+  void EmitFunctionalUnits(raw_ostream &OS);
   void EmitStageAndOperandCycleData(raw_ostream &OS,
                                     std::vector<std::vector<InstrItinerary> >
                                       &ProcItinLists);
@@ -367,15 +368,9 @@ void SubtargetEmitter::FormItineraryBypassString(const std::string &Name,
   }
 }
 
-//
-// EmitStageAndOperandCycleData - Generate unique itinerary stages and operand
-// cycle tables. Create a list of InstrItinerary objects (ProcItinLists) indexed
-// by CodeGenSchedClass::Index.
-//
-void SubtargetEmitter::
-EmitStageAndOperandCycleData(raw_ostream &OS,
-                             std::vector<std::vector<InstrItinerary> >
-                               &ProcItinLists) {
+void SubtargetEmitter::EmitFunctionalUnits(raw_ostream &OS) {
+
+  if (!SchedModels.hasItineraryClasses()) return;
 
   // Multiple processor models may share an itinerary record. Emit it once.
   SmallPtrSet<Record*, 8> ItinsDefSet;
@@ -414,6 +409,18 @@ EmitStageAndOperandCycleData(raw_ostream &OS,
       OS << "}\n";
     }
   }
+
+}
+
+//
+// EmitStageAndOperandCycleData - Generate unique itinerary stages and operand
+// cycle tables. Create a list of InstrItinerary objects (ProcItinLists) indexed
+// by CodeGenSchedClass::Index.
+//
+void SubtargetEmitter::
+EmitStageAndOperandCycleData(raw_ostream &OS,
+                             std::vector<std::vector<InstrItinerary> >
+                               &ProcItinLists) {
 
   // Begin stages table
   std::string StageTable = "\nextern const llvm::InstrStage " + Target +
@@ -1337,6 +1344,7 @@ void SubtargetEmitter::run(raw_ostream &OS) {
 
   OS << "namespace llvm {\n";
   Enumeration(OS, "SubtargetFeature", true);
+  EmitFunctionalUnits(OS);
   OS << "} // End llvm namespace \n";
   OS << "#endif // GET_SUBTARGETINFO_ENUM\n\n";
 

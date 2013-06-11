@@ -23,13 +23,13 @@ namespace Patmos {
   // in PatmosAsmBackend.cpp.
   //
   enum Fixups {
-    /// Memory offset, 7 bit signed immediate byte offset, resulting in R_PATMOS_MEMB_ABS
+    /// Memory offset, 7 bit unsigned immediate byte offset, resulting in R_PATMOS_MEMB_ABS
     FK_Patmos_BO_7 = FirstTargetFixupKind,
 
-    /// Memory offset, 7 bit signed immediate half-word offset, resulting in R_PATMOS_MEMH_ABS
+    /// Memory offset, 7 bit unsigned immediate half-word offset, resulting in R_PATMOS_MEMH_ABS
     FK_Patmos_HO_7,
 
-    /// Memory offset, 7 bit signed immediate word offset, resulting in R_PATMOS_MEMW_ABS
+    /// Memory offset, 7 bit unsigned immediate word offset, resulting in R_PATMOS_MEMW_ABS
     FK_Patmos_WO_7,
 
     /// ALU 12 bit immediate data/absolute byte address fixup, unsigned, resulting in R_PATMOS_ALUI_ABS.
@@ -42,10 +42,10 @@ namespace Patmos {
     /// (same as FK_Data_4, but with 4 byte offset)
     FK_Patmos_abs_ALUl,
 
-    /// Stack control fixup, 22bit immediate unsigned absolute word size, emitted as immediate
+    /// Stack control fixup, 18bit immediate unsigned absolute word size, emitted as immediate
     FK_Patmos_stc,
 
-    /// Function relative word addresses, 22 bit immediate, resulting in R_PATMOS_CFLB_PCREL
+    /// PC relative word addresses, 22 bit immediate, resulting in R_PATMOS_CFLB_PCREL
     FK_Patmos_PCrel,
 
     // Marker

@@ -29,6 +29,7 @@
 namespace llvm {
 
 class PatmosTargetMachine;
+class PatmosSubtarget;
 
 // TODO move this class into a separate header, track call sites and stack
 // cache control instructions, use in CallGraphBuilder, ...
@@ -61,6 +62,7 @@ public:
 class PatmosInstrInfo : public PatmosGenInstrInfo {
   PatmosTargetMachine &PTM;
   const PatmosRegisterInfo RI;
+  const PatmosSubtarget &PST;
 public:
   explicit PatmosInstrInfo(PatmosTargetMachine &TM);
 
@@ -153,12 +155,44 @@ public:
   /// MI must be either a load or a store instruction.
   virtual unsigned getMemType(const MachineInstr *MI) const;
 
+  /// isPseudo - check if the given machine instruction is emitted, i.e.,
+  /// if the instruction is either inline asm or has some FU assigned to it.
+  bool isPseudo(const MachineInstr *MI) const;
+
+  /// skipPseudos - Increment II to the next non-pseudo instruction if II is a
+  /// pseudo instruction.
+  void skipPseudos(MachineBasicBlock &MBB,
+                   MachineBasicBlock::instr_iterator &II) const;
+
+  /// skipPseudos - Increment II to the next non-pseudo instruction if II is a
+  /// pseudo instruction. This assumes that bundles contain at least one
+  /// non-pseudo instruction.
+  void skipPseudos(MachineBasicBlock &MBB,
+                   MachineBasicBlock::iterator &II) const;
+
+  /// nextNonPseudo - Get the next non-pseudo instruction or bundle.
+  MachineBasicBlock::iterator nextNonPseudo(MachineBasicBlock &MBB,
+                   const MachineBasicBlock::iterator &II) const;
+
+  /// hasOpcode - check if the given instruction has the given opcode, or if
+  /// the bundle contains an instruction with the opcode if this is a bundle.
+  /// Returns either the first instruction in the bundle matching the opcode,
+  /// the instruction itself, or 0 if no instruction matches the opcode.
+  const MachineInstr *hasOpcode(const MachineInstr *MI, int Opcode) const;
+
   // getFirstMI - Return MI or the first 'real' instruction if MI is a bundle.
   const MachineInstr* getFirstMI(const MachineInstr *MI) const;
 
-  /// getInstrSize - get the size of an instruction
-  /// correctly deals with inline assembler
+  /// getInstrSize - get the size of an instruction.
+  /// Correctly deals with inline assembler and bundles.
   unsigned int getInstrSize(const MachineInstr *MI) const;
+
+  /// Check if we can issue an instruction in a given slot
+  bool canIssueInSlot(const MCInstrDesc &MID, unsigned Slot) const;
+
+  bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const {
+    return canIssueInSlot(MI->getDesc(), Slot);
+  }
 
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling
@@ -217,6 +251,11 @@ public:
   ///            they are an exception
   virtual bool isUnpredicatedTerminator(const MachineInstr *MI) const;
 
+  /// haveDisjointPredicates - check if the predicates of the two instructions
+  /// can never be true at the same time (but they might be false at the same
+  /// time).
+  bool haveDisjointPredicates(const MachineInstr* MI1,
+                              const MachineInstr* MI2) const;
 
 
   /// PredicateInstruction - Convert the instruction into a predicated

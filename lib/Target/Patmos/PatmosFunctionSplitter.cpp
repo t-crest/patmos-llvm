@@ -349,7 +349,8 @@ namespace llvm {
       }
 
       // add some bytes in case we need to fix-up the fall-through
-      return size + (mayFallThrough(MBB) ? 12 : 0);
+      return size + (mayFallThrough(MBB) ?
+                  PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false) * 4 : 0);
     }
 
     /// hasCall - Check whether the basic block contains a call instruction.
@@ -893,10 +894,11 @@ namespace llvm {
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                DebugLoc(), TII.get(Patmos::BRu))).addMBB(target);
-        AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::NOP)));
-        AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::NOP)));
+        for (unsigned i = 0;
+             i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false); i++) {
+          AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
+                                 DebugLoc(), TII.get(Patmos::NOP)));
+        }
 
         block->FallthroughTarget = NULL;
 
@@ -979,6 +981,13 @@ namespace llvm {
       if (rewrite) {
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         BR->setDesc(TII.get(opcode));
+
+        MachineBasicBlock::iterator II = BR; II++;
+        for (unsigned i = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
+             i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false); i++) {
+          AddDefaultPred(BuildMI(*BR->getParent(), II,
+                                 DebugLoc(), TII.get(Patmos::NOP)));
+        }
       }
     }
 
@@ -1198,14 +1207,23 @@ namespace llvm {
       unsigned int curr_size = 12;
       unsigned int i_count = 0;
       unsigned int total_size = 0;
-      for(MachineBasicBlock::iterator i(MBB->begin()),
-          ie(MBB->end()); i != ie; i++)
+      // Note: we need to use an instr_iterator here, otherwise splice fails
+      // horribly for some mysterious ilist bug.
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie; i++)
       {
+        // skip over instructions inside bundles
+        if (i->isInsideBundle()) {
+          i_count++;
+          continue;
+        }
+
         // get instruction size
         unsigned int i_size = agraph::getInstrSize(i, PTM);
 
         // ensure that delay slots are respected
-        unsigned int delay_slot_margin = i->hasDelaySlot() ? 20 : 0;
+        unsigned int delay_slot_margin = i->hasDelaySlot()
+                      ? PTM.getSubtargetImpl()->getMaxDelaySlotCodeSize(i) : 0;
 
         const MachineInstr *FirstMI = PTM.getInstrInfo()->getFirstMI(i);
         assert(!isPatmosCFL(FirstMI->getOpcode(), FirstMI->getDesc().TSFlags)
@@ -1225,15 +1243,13 @@ namespace llvm {
           MachineBasicBlock *newBB = splitBlockAtStart(MBB);
 
           // copy instructions over from the original block.
-          while(i_count--)
-          {
-            newBB->push_back(MBB->front().removeFromParent());
-          }
+          newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
 
           // start anew
           i_count = 1;
-          curr_size = 12 + i_size; // may fall through!
-          i = MBB->begin();
+          curr_size = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false) * 8
+                      + 4 + i_size; // may fall through!
+          i = MBB->instr_begin();
         }
       }
 

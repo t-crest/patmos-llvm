@@ -113,6 +113,22 @@ bool PatmosSubtarget::usePostRAMIScheduler(CodeGenOpt::Level OptLevel) const {
   return hasPostRAScheduler(OptLevel) && !DisableMIPostRA;
 }
 
+
+bool PatmosSubtarget::canIssueInSlot(unsigned SchedClass, unsigned Slot) const {
+  const InstrStage* IS = InstrItins.beginStage(SchedClass);
+  unsigned FuncUnits = IS->getUnits();
+
+  switch (Slot) {
+  case 0:
+    return FuncUnits & PatmosGenericItinerariesFU::FU_ALU0;
+  case 1:
+    return FuncUnits & PatmosGenericItinerariesFU::FU_ALU1;
+  default:
+    return false;
+  }
+}
+
+
 unsigned PatmosSubtarget::getStackCacheSize() const {
   return StackCacheSize;
 }

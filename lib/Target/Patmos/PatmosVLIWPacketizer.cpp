@@ -24,13 +24,9 @@
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/CodeGen/ScheduleDAGInstrs.h"
-#include "llvm/CodeGen/LatencyPriorityQueue.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
-#include "llvm/CodeGen/MachineFrameInfo.h"
-#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
-#include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
@@ -44,6 +40,7 @@
 #include "Patmos.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosRegisterInfo.h"
+#include "PatmosInstrInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosMachineFunctionInfo.h"
 
@@ -53,10 +50,13 @@ using namespace llvm;
 
 namespace {
   class PatmosPacketizer : public MachineFunctionPass {
-
-  public:
+  private:
     static char ID;
-    PatmosPacketizer() : MachineFunctionPass(ID) {}
+
+    PatmosTargetMachine &PTM;
+  public:
+    PatmosPacketizer(PatmosTargetMachine &PTM)
+    : MachineFunctionPass(ID), PTM(PTM) {}
 
     void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesCFG();
@@ -77,17 +77,10 @@ namespace {
 
   class PatmosPacketizerList : public VLIWPacketizerList {
   private:
-    // Check if there is a dependence between some instruction already in this
-    // packet and this instruction.
-    bool Dependence;
-
-    // Only check for dependence if there are resources available to schedule
-    // this instruction.
-    bool FoundSequentialDependence;
-
+    const PatmosInstrInfo &PII;
   public:
-    PatmosPacketizerList(MachineFunction &MF, MachineLoopInfo &MLI,
-                          MachineDominatorTree &MDT);
+    PatmosPacketizerList(PatmosTargetMachine &PTM, MachineFunction &MF,
+                         MachineLoopInfo &MLI, MachineDominatorTree &MDT);
 
     // initPacketizerState - initialize some internal flags.
     virtual void initPacketizerState();
@@ -102,10 +95,6 @@ namespace {
     // isLegalToPacketizeTogether - Is it legal to packetize SUI and SUJ
     // together.
     virtual bool isLegalToPacketizeTogether(SUnit *SUI, SUnit *SUJ);
-
-    // isLegalToPruneDependencies - Is it legal to prune dependece between SUI
-    // and SUJ.
-    virtual bool isLegalToPruneDependencies(SUnit *SUI, SUnit *SUJ);
   };
 }
 
@@ -115,7 +104,7 @@ bool PatmosPacketizer::runOnMachineFunction(MachineFunction &Fn) {
   MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
 
   // Instantiate the packetizer.
-  PatmosPacketizerList Packetizer(Fn, MLI, MDT);
+  PatmosPacketizerList Packetizer(PTM, Fn, MLI, MDT);
 
   // DFA state table should not be empty.
   assert(Packetizer.getResourceTracker() && "Empty DFA table!");
@@ -181,37 +170,20 @@ bool PatmosPacketizer::runOnMachineFunction(MachineFunction &Fn) {
 }
 
 
-PatmosPacketizerList::PatmosPacketizerList(
+PatmosPacketizerList::PatmosPacketizerList(PatmosTargetMachine &PTM,
   MachineFunction &MF, MachineLoopInfo &MLI,MachineDominatorTree &MDT)
-  : VLIWPacketizerList(MF, MLI, MDT, true), Dependence(false),
-    FoundSequentialDependence(false)
+  : VLIWPacketizerList(MF, MLI, MDT, true), PII(*PTM.getInstrInfo())
 {
   // TODO this initializes a DefaultVLIWScheduler. Should we overwrite it?
 }
 
 void PatmosPacketizerList::initPacketizerState() {
-  Dependence = false;
-  FoundSequentialDependence = false;
 }
 
 // ignorePseudoInstruction - Ignore bundling of pseudo instructions.
 bool PatmosPacketizerList::ignorePseudoInstruction(MachineInstr *MI,
                                                     MachineBasicBlock *MBB) {
-  if (MI->isDebugValue())
-    return true;
-
-  // We must print out inline assembly
-  if (MI->isInlineAsm())
-    return false;
-
-  // We check if MI has any functional units mapped to it.
-  // If it doesn't, we ignore the instruction.
-  const MCInstrDesc& TID = MI->getDesc();
-  unsigned SchedClass = TID.getSchedClass();
-  const InstrStage* IS =
-                    ResourceTracker->getInstrItins()->beginStage(SchedClass);
-  unsigned FuncUnits = IS->getUnits();
-  return !FuncUnits;
+  return PII.isPseudo(MI);
 }
 
 // isSoloInstruction: - Returns true for instructions that must be
@@ -221,46 +193,90 @@ bool PatmosPacketizerList::isSoloInstruction(MachineInstr *MI) {
   if (MI->isInlineAsm())
     return true;
 
-  if (MI->isEHLabel())
+  if (MI->isEHLabel() || MI->isLabel())
     return true;
 
-  return false;
+  // we do not bundle nops, we assume there is a reason that they are there
+  // in the first place.
+  if (MI->getOpcode() == Patmos::NOP) {
+    return true;
+  }
+
+  switch (getPatmosFormat(MI->getDesc().TSFlags)) {
+
+  // call instructions must be scheduled as solo instruction due to the
+  // fixed delay slot size restriction.
+  case PatmosII::FrmCFLb:
+    return MI->getOpcode() == Patmos::CALL;
+  case PatmosII::FrmCFLi:
+    return MI->getOpcode() == Patmos::CALLR;
+
+  // 64bit instructions cannot be bundled with other instructions.
+  case PatmosII::FrmALUl:
+    return true;
+
+  // all other instructions can be bundled
+  default:
+    return false;
+  }
 }
 
 bool PatmosPacketizerList::isLegalToPacketizeTogether(SUnit *SUI, SUnit *SUJ) {
+  // I is the new instruction, J is an instruction already inside the bundle
   MachineInstr *I = SUI->getInstr();
   MachineInstr *J = SUJ->getInstr();
   assert(I && J && "Unable to packetize null instruction!");
 
-  const MCInstrDesc &MCIDI = I->getDesc();
-  const MCInstrDesc &MCIDJ = J->getDesc();
+  // Note: we do not care in which slot the instruction goes. The
+  // DFAPacketizer makes sure we only bundle allowed instructions, the
+  // isSoloInstruction check makes sure we do not bundle calls and ALUl, and
+  // the BundleSanitizer pass ensures the proper operation order.
 
-  MachineBasicBlock::iterator II = I;
-
-  const PatmosRegisterInfo* PRI =
-                      (const PatmosRegisterInfo *) TM.getRegisterInfo();
   const PatmosInstrInfo *PII = (const PatmosInstrInfo *) TII;
 
-  // Inline asm cannot go in the packet.
-  if (I->getOpcode() == Patmos::INLINEASM)
-    llvm_unreachable("Should not meet inline asm here!");
-
-  if (isSoloInstruction(I))
-    llvm_unreachable("Should not meet solo instr here!");
-
-
-  return false;
-}
-
-bool PatmosPacketizerList::isLegalToPruneDependencies(SUnit *SUI, SUnit *SUJ) {
-  MachineInstr *I = SUI->getInstr();
-  assert(I && SUJ->getInstr() && "Unable to packetize null instruction!");
-
-  if (Dependence) {
-
-
-    return false;
+  // We only have at most two instructions in a bundle, and we do not
+  // allow to bundle an instruction that uses a predicate with an
+  // instruction that is guarded with that predicate, so it is always safe to
+  // bundle instructions with disjoint guards.
+  if (PII->haveDisjointPredicates(I, J)) {
+    return true;
   }
+
+  if (SUJ->isSucc(SUI)) {
+    for (unsigned i = 0; i < SUJ->Succs.size(); ++i) {
+
+      // Iterate over all successive uses of I by J
+      if (SUJ->Succs[i].getSUnit() != SUI) {
+        continue;
+      }
+
+      SDep::Kind DepType = SUJ->Succs[i].getKind();
+
+      if (DepType == SDep::Data) {
+        // Cannot have data dependent instructions in same bundle.
+        return false;
+      }
+      else if (DepType == SDep::Order) {
+        // Ignore order dependence, if there is no other dependency.
+      }
+      else if (DepType == SDep::Output) {
+        // DepReg is the register that's responsible for the dependence.
+        unsigned DepReg = SUJ->Succs[i].getReg();
+
+        // Check if I and J really defines DepReg.
+        if (I->definesRegister(DepReg) || J->definesRegister(DepReg)) {
+          // Do not write to the same register in one bundle, may be undefined?
+          return false;
+        }
+      }
+      // Skip over anti-dependences. Two instructions that are
+      // anti-dependent can share a packet
+      else if (DepType != SDep::Anti) {
+        return false;
+      }
+    }
+  }
+
   return true;
 }
 
@@ -270,6 +286,6 @@ bool PatmosPacketizerList::isLegalToPruneDependencies(SUnit *SUI, SUnit *SUJ) {
 //===----------------------------------------------------------------------===//
 
 FunctionPass *llvm::createPatmosPacketizer(PatmosTargetMachine &tm) {
-  return new PatmosPacketizer();
+  return new PatmosPacketizer(tm);
 }
 

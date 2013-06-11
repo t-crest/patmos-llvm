@@ -15,21 +15,20 @@
 #define PATMOSHAZARDRECOGNIZER_H
 
 #include "PatmosTargetMachine.h"
-#include "llvm/CodeGen/ScoreboardHazardRecognizer.h"
+#include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 
 namespace llvm {
 
 /// PatmosHazardRecognizer handles special constraints that are not expressed in
 /// the scheduling itinerary.
-class PatmosHazardRecognizer : public ScoreboardHazardRecognizer {
+class PatmosHazardRecognizer : public ScheduleHazardRecognizer {
 private:
   PatmosTargetMachine &PTM;
 
 public:
   PatmosHazardRecognizer(PatmosTargetMachine &tm,
                          const InstrItineraryData *ItinData,
-                         const ScheduleDAG *DAG) :
-    ScoreboardHazardRecognizer(ItinData, DAG, "schedule"), PTM(tm) {}
+                         const ScheduleDAG *DAG, bool PostRA);
 
   virtual HazardType getHazardType(SUnit *SU, int Stalls);
   virtual void Reset();

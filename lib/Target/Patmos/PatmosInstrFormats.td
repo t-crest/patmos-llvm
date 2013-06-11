@@ -22,7 +22,7 @@ def FALUc   : Format<4>;  // Compare of registers
 def FALUp   : Format<5>;  // Combine predicates
 def FLDT    : Format<6>;  // Memory ops with 7bit offset
 def FSTT    : Format<7>;  // Memory ops with 7bit offset
-def FSTCi   : Format<8>;  // Stack control with 22bit immediate
+def FSTCi   : Format<8>;  // Stack control with 18bit immediate
 def FSTCr   : Format<9>;  // Stack control with register
 def FCFLb   : Format<10>; // Program flow control with 22bit immediate
 def FCFLi   : Format<11>; // Program flow control indirect
@@ -117,7 +117,7 @@ class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 //
 class ALUi<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FALUi, IIC_ALU> {
+  : PatmosInst<outs, ins, op, asmstr, pattern, FALUi, IIC_ALUi> {
 
   // unbound fields
   bits<5> rd;
@@ -191,7 +191,7 @@ class ALU<bits<4> func,
 //
 class ALUr<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, FOther, IIC_ALU> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FOther, IIC_ALUr> {
 
   let Opc = 0b000;
 
@@ -226,7 +226,7 @@ class ALUm<bits<4> func,
 //
 class ALUc<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, FALUc, IIC_ALU> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FALUc, IIC_ALUc> {
 
   let Opc = 0b011;
 
@@ -244,7 +244,7 @@ class ALUc<bits<4> func,
 //
 class ALUp<bits<4> func,
       dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : ALU<func, outs, ins, op, asmstr, pattern, FALUp, IIC_ALU> {
+  : ALU<func, outs, ins, op, asmstr, pattern, FALUp, IIC_ALUp> {
 
   let Opc = 0b100;
 
@@ -277,20 +277,6 @@ class SPC<dag outs, dag ins, string op, string asmstr, list<dag> pattern, InstrI
 }
 
 
-// SPCn - NOP
-//
-class SPCn<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, op, asmstr, pattern, IIC_SPCn> {
-
-  let Opc = 0b000;
-
-  // unbound fields
-  bits<4> imm;
-
-  let Inst{3-0}  = imm;
-}
-
-
 // SPCw - Wait
 //
 class SPCw<bits<4> func,
@@ -306,7 +292,7 @@ class SPCw<bits<4> func,
 // SPCt - Move To Special
 //
 class SPCt<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, op, asmstr, pattern, IIC_ALU> {
+  : SPC<outs, ins, op, asmstr, pattern, IIC_SPCt> {
 
   let Opc = 0b010;
 
@@ -321,7 +307,7 @@ class SPCt<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 // SPCf - Move From Special
 //
 class SPCf<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, op, asmstr, pattern, IIC_ALU> {
+  : SPC<outs, ins, op, asmstr, pattern, IIC_SPCf> {
 
   let Opc = 0b011;
 
@@ -405,7 +391,7 @@ class STT<bits<3> ty, bits<2> td,
 //
 class STCi<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTCi, IIC_STC> {
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTCi, IIC_STCi> {
 
   // unbound fields
   bits<18> imm;
@@ -423,7 +409,7 @@ class STCi<bits<2> op,
 //
 class STCr<bits<2> op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTCr, IIC_STC> {
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FSTCr, IIC_STCr> {
 
   // unbound fields
   bits<5> rs;
@@ -443,8 +429,9 @@ class STCr<bits<2> op,
 
 // CFL - Program Flow
 //
-class CFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format form>
-  : PatmosInst<outs, ins, op, asmstr, pattern, form, IIC_CFL> {
+class CFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, 
+      Format form, InstrItinClass itin>
+  : PatmosInst<outs, ins, op, asmstr, pattern, form, itin> {
 
   bits<2> CFLOp;
 
@@ -455,7 +442,7 @@ class CFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, Format
 // CFLb - Call / Branch
 //
 class CFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : CFL<outs, ins, op, asmstr, pattern, FCFLb> {
+  : CFL<outs, ins, op, asmstr, pattern, FCFLb, IIC_CFLb> {
 
   let CFLOp = pflop;
 
@@ -472,7 +459,7 @@ class CFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag>
 //
 class CFLi<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFL<outs, ins, asmop, asmstr, pattern, FCFLi> {
+  : CFL<outs, ins, asmop, asmstr, pattern, FCFLi, IIC_CFLi> {
 
   let CFLOp = 0b00;
 
@@ -488,7 +475,7 @@ class CFLi<bits<4>op,
 //
 class CFLr<bits<4>op,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFL<outs, ins, asmop, asmstr, pattern, FOther> {
+  : CFL<outs, ins, asmop, asmstr, pattern, FOther, IIC_CFLr> {
 
   let CFLOp = 0b10;
 

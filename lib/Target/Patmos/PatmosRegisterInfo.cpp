@@ -208,7 +208,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
   {
     case Patmos::PSEUDO_PREG_SPILL:
       {
-        unsigned st_opc = (isOnStackCache) ? Patmos::SBS : Patmos::SBC;
+        unsigned st_opc = (isOnStackCache) ? Patmos::SWS : Patmos::SWC;
         MachineOperand SrcRegOpnd = PseudoMI.getOperand(2);
         // spilling predicate values is sort of hackish:
         //   we implement it as a predicated store of a non-zero value
@@ -227,7 +227,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
 
     case Patmos::PSEUDO_PREG_RELOAD:
       {
-        unsigned ld_opc = (isOnStackCache) ? Patmos::LBS : Patmos::LBC;
+        unsigned ld_opc = (isOnStackCache) ? Patmos::LWS : Patmos::LWC;
         unsigned DestReg = PseudoMI.getOperand(0).getReg();
 
         AddDefaultPred(BuildMI(MBB, II, DL, TII.get(ld_opc), Patmos::RTR))
@@ -318,6 +318,8 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   {
     case Patmos::LWC: case Patmos::LWM:
     case Patmos::SWC: case Patmos::SWM:
+    case Patmos::PSEUDO_PREG_SPILL:
+    case Patmos::PSEUDO_PREG_RELOAD:
       // 9 bit
       assert((Offset & 0x3) == 0);
       Offset = (Offset >> 2) + FrameDisplacement;
@@ -344,8 +346,6 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     case Patmos::LBC: case Patmos::LBM:
     case Patmos::LBUC: case Patmos::LBUM:
     case Patmos::SBC: case Patmos::SBM:
-    case Patmos::PSEUDO_PREG_SPILL:
-    case Patmos::PSEUDO_PREG_RELOAD:
       // 7 bit
       Offset += FrameDisplacement;
 

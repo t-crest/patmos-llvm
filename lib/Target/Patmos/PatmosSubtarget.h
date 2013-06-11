@@ -14,7 +14,9 @@
 #ifndef _LLVM_TARGET_PATMOS_SUBTARGET_H_
 #define _LLVM_TARGET_PATMOS_SUBTARGET_H_
 
+#include "PatmosInstrInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
+#include "llvm/CodeGen/MachineInstr.h"
 
 #define GET_SUBTARGETINFO_HEADER
 #include "PatmosGenSubtargetInfo.inc"
@@ -69,7 +71,47 @@ public:
   // Patmos specific architecture parameters (cache sizes, types, features,..)
 
   /// Return the number of delay slot cycles of control flow instructions
-  unsigned getCFLDelaySlotCycles() const { return 2; }
+  /// \param LocalBranch if true, return the cycles for a local branch,
+  ///              otherwise return the cycles for instructions with cache fill.
+  unsigned getCFLDelaySlotCycles(bool LocalBranch) const {
+    return LocalBranch ? 2 : 3;
+  }
+
+  /// Return the number of delay slot cycles of control flow instructions
+  unsigned getCFLDelaySlotCycles(MachineInstr *MI) const {
+    if (MI->isCall() || MI->isReturn() ||
+            MI->getOpcode() == Patmos::BRCFu ||
+            MI->getOpcode() == Patmos::BRCF ||
+            MI->getOpcode() == Patmos::BRCFRu ||
+            MI->getOpcode() == Patmos::BRCFR ||
+            MI->getOpcode() == Patmos::BRCFTu ||
+            MI->getOpcode() == Patmos::BRCFT)
+    {
+      return getCFLDelaySlotCycles(false);
+    }
+    else if (MI->isBranch()) {
+      return getCFLDelaySlotCycles(true);
+    } else {
+      return 0;
+    }
+  }
+
+  /// Get the maximum number of bytes an instruction can have in the delay slots
+  /// (excluding the second slot of this instruction)
+  unsigned getMaxDelaySlotCodeSize(MachineInstr *MI) const {
+    if (MI->isCall()) {
+      // No instructions issued in second slots
+      return 4 * getCFLDelaySlotCycles(false);
+    }
+    return getCFLDelaySlotCycles(MI) * 4;
+  }
+
+  /// Return the latency of MUL instructions
+  unsigned getMULLatency() const { return 3; }
+
+  /// Check if a given schedule class can be issued in a given slot.
+  /// @see PatmosInstrInfo::canIssueInSlot
+  bool canIssueInSlot(unsigned SchedClass, unsigned Slot) const;
 
   unsigned getStackCacheSize() const;
 

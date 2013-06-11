@@ -76,14 +76,15 @@ static cl::opt<bool> DisableDelaySlotFiller(
   cl::desc("Disable the Patmos delay slot filler."),
   cl::Hidden);
 
-/// Number of delay slots for control-flow instructions
-static const unsigned CTRL_DELAY_SLOTS = 2;
-
 namespace {
 
   class DelayHazardInfo;
 
   class PatmosDelaySlotFiller : public MachineFunctionPass {
+  private:
+    bool ForceDisableFiller;
+
+    static char ID;
   public:
     /// Target machine description which we query for reg. names, data
     /// layout, etc.
@@ -92,9 +93,8 @@ namespace {
     const PatmosInstrInfo *TII;
     const TargetRegisterInfo *TRI;
 
-    static char ID;
-    PatmosDelaySlotFiller(const PatmosTargetMachine &tm)
-      : MachineFunctionPass(ID), TM(tm),
+    PatmosDelaySlotFiller(const PatmosTargetMachine &tm, bool disable)
+      : MachineFunctionPass(ID), ForceDisableFiller(disable), TM(tm),
         TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
         TRI(tm.getRegisterInfo()) { }
 
@@ -166,7 +166,8 @@ namespace {
       : PDSF(pdsf), MI(I), sawLoad(false), sawStore(false), sawSTC(false) { }
 
     void insertDefsUses(MachineInstr *MI);
-    bool hasHazard(MachineBasicBlock::iterator candidate);
+    bool hasHazard(MachineBasicBlock &MBB,
+                   MachineBasicBlock::iterator candidate);
 
     unsigned getNumCandidates() const { return Candidates.size(); }
     MachineInstr *getCandidate(unsigned idx) { return Candidates[idx]; }
@@ -194,8 +195,9 @@ namespace {
 /// slots in Patmos MachineFunctions
 ///
 FunctionPass *llvm::
-createPatmosDelaySlotFillerPass(const PatmosTargetMachine &tm) {
-  return new PatmosDelaySlotFiller(tm);
+createPatmosDelaySlotFillerPass(const PatmosTargetMachine &tm,
+                                bool ForceDisable) {
+  return new PatmosDelaySlotFiller(tm, ForceDisable);
 }
 
 
@@ -230,9 +232,7 @@ bool PatmosDelaySlotFiller::insertNOPs(MachineBasicBlock &MBB) {
   DEBUG( dbgs() << "Inserting NOPs in " << MBB.getName() << "\n" );
   for (MachineBasicBlock::iterator I = MBB.begin(); I != MBB.end(); ++I) {
 
-    // FIXME I could be a bundle, look inside for MUL/MULU!
-    unsigned opc = I->getOpcode();
-    if (opc==Patmos::MUL || opc==Patmos::MULU) {
+    if (TII->hasOpcode(I, Patmos::MUL) || TII->hasOpcode(I, Patmos::MULU)) {
       Changed |= insertAfterMul(MBB, I);
     } else if (I->mayLoad()) {
       // if the instruction is a load instruction, and the next instruction
@@ -252,7 +252,9 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
   DEBUG( dbgs() << "For: " << *I );
 
-  if (!DisableDelaySlotFiller) {
+  unsigned CFLDelaySlots = TM.getSubtargetImpl()->getCFLDelaySlotCycles(I);
+
+  if (!DisableDelaySlotFiller && !ForceDisableFiller) {
 
     // initialize sets
     DI.insertDefsUses(I);
@@ -264,7 +266,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
       // we can't / don't need to scan backward further
       if ( J->hasDelaySlot() || FillerInstrs.count(J) ||
-           DI.getNumCandidates() == CTRL_DELAY_SLOTS ||
+           DI.getNumCandidates() == CFLDelaySlots ||
            J->isInlineAsm() || J->isLabel() ) {
         DEBUG_TRACE( dbgs() << " -- break at: " << *J );
         break;
@@ -273,18 +275,14 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
       if (J->isDebugValue()) continue;
       if (J->isImplicitDef()) continue;
 
-      // Skip bundles. Bundles should be finalized here, so we will (only) see
-      // the BUNDLE instruction when iterating over bundled instructions.
-      // FIXME check if this works with bundles
-      if (J->isBundle()) continue;
-
       // skip upon hazard
-      if (DI.hasHazard(J)) {
+      if (DI.hasHazard(MBB, J)) {
         // update dependencies
         DI.insertDefsUses(J);
         DEBUG_TRACE( dbgs() << " -- skip: " << *J );
         continue;
       }
+
       // Found a filler, add to candidates
       DI.appendCandidate(J);
       DEBUG_TRACE( dbgs() << " -- candidate: " << *J );
@@ -293,7 +291,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
   // move instructions / insert NOPs
   MachineBasicBlock::iterator NI = next(I);
-  for (unsigned i=0; i<CTRL_DELAY_SLOTS; i++) {
+  for (unsigned i=0; i<CFLDelaySlots; i++) {
     if (i < DI.getNumCandidates()) {
       MachineInstr *FillMI = DI.getCandidate(i);
       MBB.splice(next(I), &MBB, FillMI);
@@ -314,7 +312,8 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 void PatmosDelaySlotFiller::insertNOPAfter(MachineBasicBlock &MBB,
                     const MachineBasicBlock::iterator I)
 {
-  // TODO split bundle instead if I is a bundle and return false
+  // We just insert a NOP. We let the PatmosBundleCleanup pass split bundles
+  // to remove the NOPs where required.
   MachineBasicBlock::iterator NI = next(I);
   TII->insertNoop(MBB, NI);
 }
@@ -322,6 +321,11 @@ void PatmosDelaySlotFiller::insertNOPAfter(MachineBasicBlock &MBB,
 
 bool PatmosDelaySlotFiller::hasDefUseDep(const MachineInstr *D,
                                          const MachineInstr *U) const {
+
+  // TODO check for mutually exclusive predicates, using
+  // PatmosInstrInfo.hasDisjointPredicates. In this case, check only if
+  // one instruction defines the guard of the other instruction.
+
   // If U is a call or return, just examine the explicit non-variadic operands.
   const MCInstrDesc& MCID = U->getDesc();
   unsigned e = (U->isCall() || U->isReturn()) ? MCID.getNumOperands() :
@@ -341,7 +345,7 @@ bool PatmosDelaySlotFiller::hasDefUseDep(const MachineInstr *D,
 bool PatmosDelaySlotFiller::
 insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
 
-  MachineBasicBlock::iterator J = next(I);
+  MachineBasicBlock::iterator J = TII->nextNonPseudo(MBB, I);
 
   // "usual" case, the load is in the middle of an MBB
   if (J!=MBB.end() && hasDefUseDep(I,J)) {
@@ -370,7 +374,6 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
             SMBB!=MBB.succ_end(); ++SMBB) {
       MachineInstr *FirstMI = (*SMBB)->begin();
       if ((*SMBB)->empty() || hasDefUseDep(I, FirstMI)) {
-        // TODO handle bundled I and J here
         TII->insertNoop(**SMBB, (*SMBB)->begin()); // insert before first instruction
         // stats and debug output
         ++InsertedLoadNOPs;
@@ -391,18 +394,18 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
 bool PatmosDelaySlotFiller::
 insertAfterMul(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
 
-  int Latency = 3;
+  int Latency = TM.getSubtargetImpl()->getMULLatency();
 
-  MachineBasicBlock::iterator J = next(I);
+  MachineBasicBlock::iterator J = TII->nextNonPseudo(MBB, I);
 
   while (Latency > 0) {
 
     // Check if this is a dependency
-    // FIXME J could be a bundle, look inside for MFS!
-    if (J == MBB.end() || J->getOpcode() == Patmos::MFS ) {
+    const MachineInstr *MI;
+    if (J == MBB.end() || (MI = TII->hasOpcode(J, Patmos::MFS)) ) {
 
       // TODO We do not look over BB boundaries for now
-      unsigned Reg = J != MBB.end() ? J->getOperand(3).getReg() : Patmos::SL;
+      unsigned Reg = J != MBB.end() ? MI->getOperand(3).getReg() : Patmos::SL;
 
       if (Reg == Patmos::SL || Reg == Patmos::SH) {
         while (Latency > 0) {
@@ -419,7 +422,7 @@ insertAfterMul(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
 
     SkippedMulNOPs++;
 
-    J = next(J);
+    J = TII->nextNonPseudo(MBB, J);
   }
 
   return false;
@@ -434,8 +437,8 @@ void DelayHazardInfo::insertDefsUses(MachineInstr *MI) {
 
   // If MI is a call or return, just examine the explicit non-variadic operands.
   const MCInstrDesc& MCID = MI->getDesc();
-  unsigned e = (MI->isCall() || MI->isReturn()) ? MCID.getNumOperands() :
-                                                  MI->getNumOperands();
+  unsigned e = (MI->isCall() || MI->isReturn(MachineInstr::AllInBundle))
+                      ? MCID.getNumOperands() : MI->getNumOperands();
 
   DEBUG_TRACE(dbgs() << " ---- regs: [");
   for (unsigned i = 0; i != e; ++i) {
@@ -458,20 +461,47 @@ void DelayHazardInfo::insertDefsUses(MachineInstr *MI) {
 }
 
 
-bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
+bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator I) {
+
+  // for calls, allow only single-issue and 32bit instructions
+  if (MI.isCall() && PDSF.TII->getInstrSize(I) != 4)
+    return true;
+
+  if (I->isBundle()) {
+    MachineBasicBlock::instr_iterator II = *I; ++II;
+
+    for (; II != MBB.instr_end() && II->isInsideBundle(); ++II) {
+      // skip debug value
+      if (II->isDebugValue()) continue;
+      if (II->isImplicitDef()) continue;
+
+      if (hasHazard(MBB, II)) return true;
+    }
+    return false;
+  }
 
   assert(!I->isKill() && !I->hasDelaySlot());
 
   const PatmosInstrInfo *TII = PDSF.TII;
 
-  // for calls, allow only single-issue and 32bit instructions
-  if (MI.isCall() && TII->getInstrSize(I) == 8)
-    return true;
-
   // don't move long latency/split MUL into delay slot
   if (I->getOpcode() == Patmos::MUL ||
       I->getOpcode() == Patmos::MULU)
     return true;
+
+  // Loads or stores cannot be moved past a store to the delay slot
+  // and stores cannot be moved past a load.
+  if (I->mayLoad()) {
+    sawLoad = true;
+    if (sawStore) return true;
+  }
+
+  if (I->mayStore()) {
+    if (sawStore) return true;
+    sawStore = true;
+    if (sawLoad) return true;
+  }
 
   // don't move loads to the last delay slot for return
   if (I->mayLoad() && Candidates.empty() && MI.isReturn() )
@@ -492,19 +522,6 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock::iterator I) {
   if ( (I->mayLoad()||I->mayStore()) && TII->getMemType(I)==PatmosII::MEM_S
        && sawSTC )
     return true;
-
-  // Loads or stores cannot be moved past a store to the delay slot
-  // and stores cannot be moved past a load.
-  if (I->mayLoad()) {
-    sawLoad = true;
-    if (sawStore) return true;
-  }
-
-  if (I->mayStore()) {
-    if (sawStore) return true;
-    sawStore = true;
-    if (sawLoad) return true;
-  }
 
   // instruction has unmodeled side-effects
   // check for safe MTS/MFS (which can have side-effects in general)

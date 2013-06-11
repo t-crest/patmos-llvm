@@ -36,7 +36,8 @@ extern "C" void LLVMInitializePatmosTarget() {
 }
 
 static ScheduleDAGInstrs *createPatmosVLIWMachineSched(MachineSchedContext *C) {
-  return new VLIWMachineScheduler(C, new ConvergingVLIWScheduler());
+  ScheduleDAGMI *PS = new PatmosVLIWScheduler(C, new PatmosVLIWSchedStrategy());
+  return PS;
 }
 
 static MachineSchedRegistry
@@ -129,7 +130,14 @@ namespace {
           addPass(createPatmosPacketizer(getPatmosTargetMachine()));
         }
 
-        addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine()));
+        // disable the filler if we have bundles, the filler does not handle
+        // them properly at the moment.
+        addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
+                                                false));
+      }
+
+      if (getPatmosSubtarget().enableBundling(getOptLevel())) {
+        addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
       }
 
       // All passes below this line must handle delay slots and bundles
