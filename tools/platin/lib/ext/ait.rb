@@ -126,7 +126,7 @@ module PML
     def export_flowfact(ff)
       if(ff.classification == 'calltargets-global')
         export_calltargets(ff)
-      elsif(ff.classification == 'loop-local')
+      elsif(ff.classification == 'loop-global')
         export_loopbound(ff)
       elsif(ff.classification == 'infeasible-global')
         export_infeasible(ff)

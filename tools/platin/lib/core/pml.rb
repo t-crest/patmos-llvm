@@ -104,8 +104,8 @@ module PML
       end
       @triple = @data['triple'].split('-')
       @arch = Architecture.from_triple(triple)
-      @bitcode_functions = FunctionList.new(@data['bitcode-functions'] || [])
-      @machine_functions = FunctionList.new(@data['machine-functions'] || [])
+      @bitcode_functions = FunctionList.new(@data['bitcode-functions'] || [], :labelkey => 'name')
+      @machine_functions = FunctionList.new(@data['machine-functions'] || [], :labelkey => 'mapsto')
       @relation_graphs   = RelationGraphList.new(@data['relation-graphs'] || [],
                                                  @bitcode_functions, @machine_functions)
       @data['flowfacts'] ||= []
@@ -141,10 +141,6 @@ module PML
       final.delete("flowfacts") if @data["flowfacts"] == []
       final.delete("timing") if @data["timing"] == []
       io.write(YAML::dump(final))
-    end
-
-    def delay_slots
-      @arch.delay_slots
     end
 
     def machine_code_only_functions
@@ -188,6 +184,7 @@ module PML
     end
   end
 
+
   # architectures
   class Architecture
     @@register = {}
@@ -206,8 +203,14 @@ module PML
       die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]
       @@register[archname].new(triple)
     end
-    require 'arch/patmos'
-    require 'arch/arm'
+    def call_delay_slots ; delay_slots ; end
+    def branch_delay_slots ; delay_slots ; end
+    def return_delay_slots ; delay_slots ; end
+   end
+  require 'arch/patmos'
+  require 'arch/arm'
+  class GenericArchitecture < Architecture
+    def delay_slots ; 0 ; end
   end
 
 
@@ -283,46 +286,64 @@ module PML
 
   class Reference < PMLObject
     include QNameObject
+    attr_reader :context
+    def any_context?
+      context.empty?
+    end
     def Reference.from_pml(functions, data)
-      assert("PML Reference: no function attribute") { data['function'] }
-      function = functions.by_name(data['function'])
-      if block = data['block']
-        block = function.blocks.by_name(block)
-        if index = data['instruction']
-          ins = block.instructions[index]
-          return InstructionRef.new(ins,data)
+      context  = CallString.from_pml(functions, data[CallString.key])
+      f,b,i = data['function'],data['block'],data['instruction']
+      if refstr = data['instruction']
+        parts = refstr.split('/') # compact notation
+        f,b,i = parts.map { |v| YAML::load(v) } if parts[2]
+      elsif refstr = data['block'] || data['loop']
+        parts = refstr.split('/')  # compact notation
+        f,b  = parts.map { |v| YAML::load(v) } if parts[1]
+      end
+      assert("PML Reference: no function attribute") { f }
+      function = functions.by_name(f)
+      if b
+        block = function.blocks.by_name(b)
+        if i
+          instruction = block.instructions[i]
+          return InstructionRef.new(instruction,context,data)
+        elsif data['loop']
+          return LoopRef.new(block,context,data)
         else
-          return BlockRef.new(block,data)
+          return BlockRef.new(block,context,data)
         end
-      elsif loop = data['loop']
-        loop = function.blocks.by_name(loop)
-        return LoopRef.new(loop, data)
       elsif src=data['edgesource']
         bb_src = function.blocks.by_name(src)
         bb_dst = function.blocks.by_name(data['edgetarget'])
-        return EdgeRef.new(bb_src, bb_dst, data)
+        return EdgeRef.new(bb_src, bb_dst, context, data)
       else
-        return FunctionRef.new(function,data)
+        return FunctionRef.new(function, context, data)
       end
     end
     def ==(other)
       return false if ! other.kind_of?(Reference)
       return qname == other.qname
     end
+    def to_pml
+      pml = to_pml_impl
+      pml[CallString.key] = context.to_pml if ! context.empty?
+      pml
+    end
   end
 
   # Qualified name for functions
   class FunctionRef < Reference
     attr_reader :function
-    def initialize(function, data=nil)
-      @function = function
+    def initialize(function, context, data = nil)
+      @function, @context = function, context
       @qname = function.qname
+      @qname = "#{qname}#{@context.qname}" if @context
       set_data(data)
     end
     def to_s
-      "#<FunctionRef: #{function}>"
+      "#<FunctionRef: #{function}#{@context}>"
     end
-    def to_pml
+    def to_pml_impl
       { 'function' => @function.name }
     end
   end
@@ -330,34 +351,44 @@ module PML
   # Qualified name for blocks
   class BlockRef < Reference
     attr_reader :function, :block, :qname
-    def initialize(block, data = nil)
+    def initialize(block, context, data = nil)
       @block = block
       @function = block.function
+      @context = context
       @qname = block.qname
+      @qname += @context.qname if @context
       set_data(data)
     end
-    def to_pml
-      { 'function' => block.function.name, 'block' => block.name }
+    def to_s
+      "#<BlockRef: #{@block.qname}#{@context}>"
+    end
+    def to_pml_impl
+      { 'block' => block.qname }
     end
   end
 
   # Qualified name for loops
   class LoopRef < Reference
     attr_reader :function, :loopblock, :qname
-    def initialize(block, data = nil)
+    def initialize(block, context, data = nil)
       @loopblock = block
       @function = block.function
+      @context = context
       @qname = block.qname
+      @qname += @context.qname if @context
       set_data(data)
     end
-    def to_pml
-      { 'function' => loopblock.function.name, 'loop' => loopblock.name }
+    def to_s
+      "#<LoopRef: #{loopblock.qname}#{@context}>"
+    end
+    def to_pml_impl
+      { 'loop' => loopblock.qname }
     end
   end
 
   class EdgeRef < Reference
     attr_reader :source, :target
-    def initialize(source, target, data = nil)
+    def initialize(source, target, context, data = nil)
       assert("PML EdgeRef: source and target need to be blocks, not #{source.class}/#{target.class}") {
         source.kind_of?(Block) && target.kind_of?(Block)
       }
@@ -365,7 +396,9 @@ module PML
 
       @source, @target = source, target
       @name = "#{source.name}->#{target.name}"
+      @context = context
       @qname = "#{source.qname}->#{target.name}"
+      @qname += @context.qname if @context
       set_data(data)
     end
     def function
@@ -374,7 +407,7 @@ module PML
     def to_s
       qname
     end
-    def to_pml
+    def to_pml_impl
       { 'function' => source.function.name, 'edgesource' => source.name, 'edgetarget' => target.name }
     end
   end
@@ -382,26 +415,30 @@ module PML
   # Qualified name for instructions
   class InstructionRef < Reference
     attr_reader :function, :block, :instruction
-    def initialize(instruction, data = nil)
+    def initialize(instruction, context, data = nil)
       @instruction = instruction
       @block, @function = instruction.block, instruction.function
+      @context = context
       @qname = instruction.qname
+      @qname += @context.qname if @context
       set_data(data)
     end
     def block
       instruction.block
     end
-    def to_pml
-      { 'function' => instruction.function.name,
-        'block' => instruction.block.name, 'instruction' => instruction.name }
+    def to_s
+      "#<InstructionRef: #{@instruction.qname}#{@context}>"
+    end
+    def to_pml_impl
+      { 'instruction' => instruction.qname }
     end
   end
 
   # List of functions in the program
   class FunctionList < PMLList
     include NameIndexList
-    def initialize(data)
-      @list = data.map { |f| Function.new(f) }
+    def initialize(data, opts)
+      @list = data.map { |f| Function.new(f, opts) }
       set_data(data)
       build_lookup
     end
@@ -453,13 +490,14 @@ module PML
     include NameIndexList
     def initialize(function, data)
       @list = data.map { |b| Block.new(function, b) }
+      @list.each_with_index { |block,ix| block.layout_successor=@list[ix+1] }
       set_data(data)
     end
     def first
       @list.first
     end
     def [](name)
-      by_name[name]
+      by_name(name)
     end
   end
 
@@ -485,6 +523,9 @@ module PML
     def address=(value)
       data['address']=value
     end
+    def no_context
+      CallString.new([])
+    end
   end
 
   # PML call graph
@@ -494,11 +535,12 @@ module PML
   #  PML function wrapper
   class Function < ProgramPointProxy
     attr_reader :blocks, :loops
-    def initialize(data)
+    def initialize(data, opts)
       set_data(data)
       @name = data['name']
       @qname = name
       @loops = []
+      @labelkey = opts[:labelkey]
       @blocks = BlockList.new(self, data['blocks'])
       blocks.each do |block|
         if(block.loopheader?)
@@ -507,20 +549,22 @@ module PML
       end
     end
     def ref
-      FunctionRef.new(self)
+      FunctionRef.new(self, no_context)
     end
     def [](k)
       assert("Function: do not access blocks/loops directly") { k!='blocks'&&k!='loops'}
       data[k]
     end
     def to_s
-      "#{data['mapsto']}/#{name}"
+      s = name
+      s = "(#{data['mapsto']})#{s}" if data['mapsto']
+      s
     end
     def address
       data['address'] || blocks.first.address
     end
     def label
-      data['label'] || data['mapsto'] || blocks.first.label
+      data[@labelkey] || blocks.first.label
     end
     def instructions
       blocks.inject([]) { |insns,b| insns.concat(b.instructions) }
@@ -583,11 +627,22 @@ module PML
       return @successors if @successors
       @successors = (data['successors']||[]).map { |s| function.blocks.by_name(s) }.uniq.freeze
     end
+    def layout_successor=(block)
+      @layout_successor=block
+    end
+    # XXX: (possible over-approximating) heuristic
+    def fallthrough_successor
+      if successors.include?(@layout_successor)
+        @fallthrough_block = @layout_successor
+      else
+        @fallthrough_block = nil
+      end
+    end
     def next
       (successors.length == 1) ? successors.first : nil
     end
     def ref
-      BlockRef.new(self)
+      BlockRef.new(self, no_context)
     end
     def to_s
       if function['mapsto']
@@ -606,7 +661,7 @@ module PML
 
     def loopref
       assert("Block#loopref: not a loop header") { self.loopheader? }
-      LoopRef.new(self)
+      LoopRef.new(self, no_context)
     end
 
     # XXX: LLVM specific/arch specific
@@ -632,7 +687,7 @@ module PML
       data['index']
     end
     def ref
-      InstructionRef.new(self)
+      InstructionRef.new(self, no_context)
     end
     def calls?
       ! callees.empty?
@@ -662,7 +717,9 @@ module PML
       block.instructions[index+1] || (block.next ? block.next.instructions.first : nil)
     end
     def to_s
-      "#{function['mapsto']}/#{qname}"
+      s = qname
+      s = "(#{function['mapsto']})#{s}" if function['mapsto']
+      s
     end
     def size   ; data['size'] ; end
     def opcode ; data['opcode'] ; end
@@ -760,14 +817,14 @@ module PML
 
   # Flow fact selector
   class FlowFactSelection
-    MINIMAL_FLOWFACT_TYPES = %w{loop-local calltargets-global infeasible-global}
+    MINIMAL_FLOWFACT_TYPES = %w{loop-global calltargets-global infeasible-global}
     def initialize(pml, profile)
       @pml, @profile = pml, profile
     end
     def include?(ff)
       return true if @profile == "all"
       # context-independent loop bound
-      is_loop_bound       = ff.classification == "loop-local"
+      is_loop_bound       = ff.classification == "loop-global"
       # context-independent block infeasibility
       is_infeasible = ! ff.get_block_infeasible.nil?
       # context-independent calltarget restriction
@@ -851,22 +908,37 @@ module PML
   end
 
   # Callstring
-  class Callstring < PMLObject
+  class CallString < PMLObject
     attr_reader :callsites
-    def initialize(callsites,data=nil)
-      @callsites = callsites
+    def initialize(callsite_refs,data=nil)
+      @callsites = callsite_refs
       set_data(data)
+    end
+    def qname
+      return @callsites.map { |cs| "\\#{cs.qname}" }.join("")
     end
     def length
       @callsites.length
     end
+    def empty?
+      @callsites.empty?
+    end
     def to_s
-      @callsite.join("->")
+      return "" if @callsites.empty?
+      " [#{@callsites.map { |cs| cs.qname }.join(",")}]"
     end
     def to_pml
       @callsites.map { |cs| cs.to_pml }
     end
-    def Callstring.from_pml(mod,data)
+    def CallString.key
+      "callstring"
+    end
+    # Construct a callstring from a bounded stack of instructions
+    def CallString.from_bounded_stack(bs)
+      CallString.new(bs.stack.map { |cs| cs.ref })
+    end
+    def CallString.from_pml(mod, data)
+      return CallString.new([]) unless data
       cs = data.map { |ref| Reference.from_pml(mod,ref) }
       CallString.new(cs, data)
     end
@@ -977,19 +1049,19 @@ module PML
     end
 
     # Flow fact builders
-    def FlowFact.block_frequency(scoperef, block, freq, fact_context, classification)
-      terms = [ Term.new(block.ref, 1) ]
+    def FlowFact.block_frequency(scoperef, blockref, freq, fact_context, classification)
+      terms = [ Term.new(blockref, 1) ]
       flowfact = FlowFact.new(scoperef, TermList.new(terms),'less-equal',freq.max)
       flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact
     end
 
-    def FlowFact.calltargets(scoperef, cs, receiverset, fact_context, classification)
-      terms = [ Term.new(cs.ref, -1) ]
-      receiverset.each do |function| 
-        terms.push(Term.new(function.ref, 1))
+    def FlowFact.calltargets(scoperef, csref, receivers, fact_context, classification)
+      terms = [ Term.new(csref,1) ]
+      receivers.each do |fref|
+        terms.push(Term.new(fref,-1))
       end
-      flowfact = FlowFact.new(scoperef,TermList.new(terms),'equal',0)
+      flowfact = FlowFact.new(scoperef,TermList.new(terms),'less-equal',0)
       flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact
     end
@@ -1024,19 +1096,19 @@ module PML
     #   targets ... [FunctionRef]
     def get_calltargets
       callsite_candidate = lhs.list.select { |term|
-        term.factor.abs == 1 && term.ppref.kind_of?(InstructionRef)
+        term.factor == 1 && term.ppref.kind_of?(InstructionRef)
       }
       return nil unless callsite_candidate.length == 1
-      callsite = callsite_candidate.first.ppref
-      opposite_factor = callsite_candidate.first.factor
+      callsite_ref = callsite_candidate.first.ppref
+      opposite_factor = -1
       targets = []
       lhs.each { |term|
         next if term == callsite_candidate.first
-        return nil unless term.factor == -opposite_factor
+        return nil unless term.factor == opposite_factor
         return nil unless term.ppref.kind_of?(FunctionRef)
-        targets.push(term.ppref.function)
+        targets.push(term.ppref)
       }
-      [scope, callsite, targets]
+      [scope, callsite_ref, targets]
     end
   end
 

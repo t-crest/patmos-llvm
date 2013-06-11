@@ -105,6 +105,12 @@ module PML
       self.on("--timing-output NAME", "Name of the WCET information generator") { |n| options.timing_output = n }
       add_check { |options| options.timing_output = default_name unless options.timing_output } if default_name
     end
+    # tool uses call strings and allows the user to specify a custom length
+    def callstring_length
+      self.on("--callstring-length INTEGER", "default callstring length used in recorders (=0)") { |recorder_cl|
+        options.callstring_length = recorder_cl.to_i
+      }
+    end
     # user should specify selection of flow facts
     def flow_fact_selection
       self.on("--flow-fact-input SOURCE,..", "Flow fact sources to use (=all)") { |srcs|

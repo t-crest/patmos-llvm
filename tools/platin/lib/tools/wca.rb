@@ -17,6 +17,7 @@ class WcaTool
     WcaTool.add_config_options(opts)
     opts.analysis_entry
     opts.flow_fact_selection
+    opts.callstring_length
     opts.calculates_wcet('wca-unknown')
   end
 
@@ -25,52 +26,69 @@ class WcaTool
 
     # Builder and Analysis Entry
     ilp = LpSolveILP.new(options)
-    builder = IPETBuilder.new(pml, options, ilp)
 
     machine_entry = pml.machine_functions.by_label(options.analysis_entry)
     bitcode_entry = pml.bitcode_functions.by_name(options.analysis_entry)
     entry = { :dst => machine_entry, :src => bitcode_entry }
 
-    # flow facts
-    flowfacts = pml.flowfacts.filter(pml,
-                                     options.flow_fact_selection,
-                                     options.flow_fact_srcs,
-                                     ["machinecode","bitcode"])
-    ff_levels = if options.use_relation_graph then ["bitcode","machinecode"] else ["machinecode"] end
 
     # PLAYING: VCFGs
-    ctxm = ContextManager.new(1,1,1,2)
-    cf = ControlFlowModel.new(pml.machine_functions, machine_entry, ctxm, :delay_slots => pml.arch.delay_slots)
-    exit(0)
-
-    # Refine Control-Flow Model
-    builder.refine(entry, flowfacts)
-
-    # Build IPET using Pseudo-Costs
-    builder.build(entry) do |edge|
+    bcffs,mcffs = ['bitcode','machinecode'].map { |level|
+      pml.flowfacts.filter(pml,options.flow_fact_selection,options.flow_fact_srcs,level)
+    }
+    ctxm = ContextManager.new(options.callstring_length,1,1,2)
+    mc_model = ControlFlowModel.new(pml.machine_functions, machine_entry, mcffs, ctxm, pml.arch)
+    mc_model.build_ipet(ilp) do |edge|
       # pseudo cost (1 cycle per instruction)
       if (edge.kind_of?(Block))
         edge.instructions.length
       else
-        src = edge.source
-        branch_index = nil
-        src.instructions.each_with_index { |ins,ix|
-          if btargets = ins['branch-targets'] # XXX ugly
-            if btargets.include?(edge.target.name)
-              branch_index = ix
-            end
-          end
-        }
-        if branch_index
-          branch_index + pml.delay_slots + 1
-        else
-          src.instructions.length
-        end
+        edge.source.instructions.length
       end
     end
 
-    # Add flow facts
-    flowfacts.each { |ff| builder.add_flowfact(ff) }
+    #cfbc = ControlFlowModel.new(pml.bitcode_functions, bitcode_entry, bcffs,
+    #                            ContextManager.new(options.callstring_length), GenericArchitecture.new)
+    exit(0)
+
+    # builder
+    # builder = IPETBuilder.new(pml, options, ilp)
+
+    # # flow facts
+    # flowfacts = pml.flowfacts.filter(pml,
+    #                                  options.flow_fact_selection,
+    #                                  options.flow_fact_srcs,
+    #                                  ["machinecode","bitcode"])
+    # ff_levels = if options.use_relation_graph then ["bitcode","machinecode"] else ["machinecode"] end
+
+    # # Refine Control-Flow Model
+    # builder.refine(entry, flowfacts)
+
+    # # Build IPET using Pseudo-Costs
+    # builder.build(entry) do |edge|
+    #   # pseudo cost (1 cycle per instruction)
+    #   if (edge.kind_of?(Block))
+    #     edge.instructions.length
+    #   else
+    #     src = edge.source
+    #     branch_index = nil
+    #     src.instructions.each_with_index { |ins,ix|
+    #       if btargets = ins['branch-targets'] # XXX ugly
+    #         if btargets.include?(edge.target.name)
+    #           branch_index = ix
+    #         end
+    #       end
+    #     }
+    #     if branch_index
+    #       branch_index + pml.branch_delay_slots + 1
+    #     else
+    #       src.instructions.length
+    #     end
+    #   end
+    # end
+
+    # # Add flow facts
+    # flowfacts.each { |ff| builder.add_flowfact(ff) }
 
     statistics("flowfacts" => flowfacts.length,
                "ipet variables" => builder.ilp.num_variables,

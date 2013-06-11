@@ -100,7 +100,6 @@ end
 
 class RelationGraphTransformTool
   TRANSFORM_ACTIONS=%w{up down copy}
-  SUPPORTED_FLOW_FACT_TYPES=%w{loop-local loop-function loop-global block-local block-function block-global infeasible-global calltargets-global}
 
   def RelationGraphTransformTool.add_options(opts)
     opts.analysis_entry

@@ -39,7 +39,6 @@ class MachineTraceMonitor < TraceMonitor
   def initialize(pml,trace,program_start = "main")
     super()
     @pml = pml
-    @delay_slots = pml.delay_slots
     @trace = trace
     @program_entry = @pml.machine_functions.by_label(program_start)
     @start = @program_entry.blocks.first.address
@@ -82,19 +81,19 @@ class MachineTraceMonitor < TraceMonitor
 
       @cycles = cycles
       # Handle Return (TODO)
-      if pending_return && pending_return[1] + @delay_slots + 1 == @executed_instructions
+      if pending_return && pending_return[1] + @pml.arch.return_delay_slots + 1 == @executed_instructions
         __dbg { "Return from #{pending_return.first} -> #{@callstack[-1]}" }
         # If we there was no change of control-flow since the return instruction,  the pending return
         # was not executed (predicated). This is a heuristic, and should not be used for simulators
         # with better information available (it fails if the recursive function returns to next instruction,
         # which is unlikely, but possible)
         fallthrough_instruction = pending_return.first
-        (@delay_slots+1).times do
+        (@pml.arch.return_delay_slots+1).times do
           fallthrough_instruction = fallthrough_instruction.next
           break unless fallthrough_instruction
         end
         if fallthrough_instruction && pc == fallthrough_instruction.address
-          __dbg { "Predicated return!" }
+          __dbg { "Predicated return at #{fallthrough_instruction}" }
         else
           if ! handle_return(*pending_return)
             @inscost.each do |op,cycs|
@@ -175,8 +174,8 @@ class MachineTraceMonitor < TraceMonitor
   end
 
   def handle_call(c, call_pc)
-    assert("No call instruction before function entry #{call_pc + 1 + @delay_slots} != #{@executed_instructions}") {
-      call_pc + 1 + @delay_slots == @executed_instructions
+    assert("No call instruction before function entry #{call_pc + 1 + @pml.arch.call_delay_slots} != #{@executed_instructions}") {
+      call_pc + 1 + @pml.arch.call_delay_slots == @executed_instructions
     }
     @callstack.push(c)
     __dbg { "Call from #{@callstack.inspect}" }
@@ -322,10 +321,11 @@ end
 
 # Recorder that schedules other recorders
 class RecorderScheduler
-  attr_accessor :start, :runs
+  attr_accessor :start, :runs, :executed_blocks
   def initialize(recorder_specs, analysis_entry)
     @start = analysis_entry
     @runs = 0
+    @executed_blocks = {}
     @recorder_map = {}
     @global_specs, @function_specs = [], []
     recorder_specs.each { |type,ctx,spec|
@@ -341,6 +341,9 @@ class RecorderScheduler
   end
   def recorders
     @recorder_map.values
+  end
+  def global_recorders
+    recorders.select { |r| r.global? }
   end
   def function(callee,callsite,cycles)
     if @running
@@ -402,6 +405,7 @@ class RecorderScheduler
   end
   def block(bb, cycles)
     return unless @running
+    (@executed_blocks[bb.function] ||= Set.new).add(bb)
     @active.values.each { |recorder| recorder.block(bb, cycles) }
   end
   def loopenter(bb, cycles)
@@ -433,6 +437,19 @@ class FunctionRecorder
     @record_calltargets = spec.entity_types.include?(:call_targets)
     @record_loopheaders = spec.entity_types.include?(:loop_header_bounds)
     @results = FrequencyRecord.new("FunctionRecorder_#{rid}(#{function}, #{context || 'global'})")
+  end
+  def global?
+    ! @context
+  end
+  def type
+    global? ? 'global' : 'function'
+  end
+  def scope
+    if @context
+      FunctionRef.new(@function, CallString.from_bounded_stack(@context))
+    else
+      @function.ref
+    end
   end
   def active?
     return true unless @calllimit
@@ -480,7 +497,9 @@ class FunctionRecorder
     results.name
   end
   def dump(io=$stdout)
-    results.dump(io)
+    header = "Observations for #{self}\n  function: #{@function}"
+    header += "\n  context: #{@context}" if @context && ! @context.empty?
+    results.dump(io, header)
   end
 private
   def in_context(block)
@@ -490,13 +509,13 @@ end
 
 # Utility class to record frequencies when analyzing traces
 class FrequencyRecord
-  attr_reader :name, :runs, :cycles, :freqs, :calltargets
+  attr_reader :name, :runs, :cycles, :blockfreqs, :calltargets, :loopbounds
   def initialize(name)
     @name = name
     @runs = 0
     @calltargets = {}
-    @loops = {}
-    @freqs = nil
+    @loopbounds = {}
+    @blockfreqs = nil
   end
   def start(cycles)
     @cycles_start = cycles
@@ -530,46 +549,46 @@ class FrequencyRecord
   def stop(cycles)
     die "Recorder: stop without start: #{@name}" unless @current_record
     @cycles = merge_ranges(cycles - @cycles_start, @cycles)
-    unless @freqs
-      @freqs = {}
+    unless @blockfreqs
+      @blockfreqs = {}
       @current_record.each do |bref,count|
-        @freqs[bref] = count .. count
+        @blockfreqs[bref] = count .. count
       end
     else
       @current_record.each do |bref,count|
-        if ! @freqs.include?(bref)
-          @freqs[bref] = 0 .. count
+        if ! @blockfreqs.include?(bref)
+          @blockfreqs[bref] = 0 .. count
         else
-          @freqs[bref] = merge_ranges(count, @freqs[bref])
+          @blockfreqs[bref] = merge_ranges(count, @blockfreqs[bref])
         end
       end
-      @freqs.each do |bref,count|
-        @freqs[bref] = merge_ranges(count, 0..0) unless @current_record.include?(bref)
+      @blockfreqs.each do |bref,count|
+        @blockfreqs[bref] = merge_ranges(count, 0..0) unless @current_record.include?(bref)
       end
     end
     @current_record, @current_loops = nil, nil
   end
   def dump(io=$>, header=nil)
-    (io.puts "No records";return) unless @freqs
+    (io.puts "No records";return) unless @blockfreqs
     io.puts "---"
     io.puts header if header
-    io.puts "cycles: #{cycles}"
-    @freqs.keys.sort.each do |bref|
-      io.puts "  #{bref.to_s.ljust(15)} \\in #{@freqs[bref]}"
+    io.puts "  cycles: #{cycles}"
+    @blockfreqs.keys.sort.each do |bref|
+      io.puts "  #{bref.to_s.ljust(15)} \\in #{@blockfreqs[bref]}"
     end
     @calltargets.each do |site,recv|
       io.puts "  #{site} calls #{recv.to_a.join(", ")}"
     end
-    @loops.each do |loop,bound|
+    @loopbounds.each do |loop,bound|
       io.puts "  Loop #{loop} in #{bound}"
     end
   end
 private
   def merge_loop_bound(key,bound)
-    unless @loops[key]
-      @loops[key] = bound..bound
+    unless @loopbounds[key]
+      @loopbounds[key] = bound..bound
     else
-      @loops[key] = merge_ranges(bound, @loops[key])
+      @loopbounds[key] = merge_ranges(bound, @loopbounds[key])
     end
   end
 end

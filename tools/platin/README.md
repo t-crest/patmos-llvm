@@ -42,6 +42,14 @@ $ ./platin bench-trace --outdir gen --binary bin/jumptable.elf -o gen/jumptable.
 $ ./platin bench-sweet --outdir gen --bitcode bin/jumptable.elf.bc \
                        --binary bin/jumptable.elf -o gen/jumptable.pml bin/jumptable.elf.pml
 
+Demo of individual tools
+------------------------
+
+(1) Context-sensitive trace analysis
+
+$ ./platin analyze-trace -i bin/jumptable.elf.pml bin/jumptable.elf --callstring-length 1 --analysis-entry=main
+
+
 Open Questions
 --------------
 * Currently, the LLVM machine blocks do not seem to be in order, why?

@@ -25,43 +25,21 @@ class AnalyzeTraceTool
     trace = @pml.arch.simulator_trace(@options)
     tm = MachineTraceMonitor.new(@pml, trace, @options.trace_entry)
     tm.subscribe(VerboseRecorder.new($dbgs)) if @options.debug
-    @scheduler = RecorderScheduler.new(@options.recorders,@entry)
-    tm.subscribe(@scheduler)
+    @main_recorder = RecorderScheduler.new(@options.recorders, @entry)
+    tm.subscribe(@main_recorder)
     tm.run
 
-   if(@scheduler.runs == 0)
+    if(@main_recorder.runs == 0)
       die "Analysis entry '#{@options.analysis_entry}' (pc: #{@entry.address}) never executed"
     end
-
-    @scheduler.recorders.each do |recorder|
-      puts "Results of recorder #{recorder}"
-      recorder.dump
-    end
-    die("ok")
-
-   # Collect executed and infeasible blocks
-    @executed_functions = Set.new
-    @executed_blocks    = {}
+    @executed_blocks = @main_recorder.executed_blocks
     @infeasible_functions = Set.new
-    @infeasible_blocks    = Set.new
-    @global.results.freqs.each do |block,freq|
-      @executed_functions.add(block.function)
-      bset = (@executed_blocks[block.function] ||= Set.new)
-      bset.add(block)
-    end
-    @executed_blocks.each do |function, covered|
-      function.blocks.each do |block|
-        unless covered.include?(block)
-          @infeasible_blocks.add(block)
-          block.callsites.map { |i| i.callees }.flatten.each { |fname|
-            next if fname == "__any__"
-            fun = @pml.machine_functions.by_label(fname)
-            unless @executed_functions.include?(fun)
-              @infeasible_functions.add(fun)
-              # Why we need them? -> Infeasible Predicated Calls!
-              @infeasible_blocks.add(fun.blocks.first)
-            end
-          }
+    @executed_blocks.each do |function,bset|
+      function.each_callsite do |cs|
+        next if cs.unresolved_call?
+        cs.callees.each do |callee|
+          f = @pml.machine_functions.by_label(callee)
+          @infeasible_functions.add(f) unless @executed_blocks[f]
         end
       end
     end
@@ -69,79 +47,12 @@ class AnalyzeTraceTool
   end
   def console_output
     # Verbose Output
-    if @options.verbose
-      $dbgs.puts "* Global Frequencies"
-      $dbgs.puts
-      @global.results.dump($dbgs)
-      $dbgs.puts
-      $dbgs.puts "* Local Frequencies"
-      @local.results.each { |scope,r|
-        r.dump($dbgs, "Function: #{scope}")
-      }
-      $dbgs.puts
-      $dbgs.puts "* Loop Bounds"
-      @loops.results.values.each { |r| r.dump($dbgs) }
-      $dbgs.puts "* Executed Functions: #{@executed_blocks.keys.join(", ")}"
-    end
-    # Console Output
-    if ! @options.output
-      $stdout.puts "=== Summary of '#{@options.analysis_entry}' observed during " + 
-                   "execution of '#{@options.trace_entry}' ==="
-      loops_by_fun = Hash.new
-      @loops.results.each { |loop, r| (loops_by_fun[loop.function]||=[]).push([loop,r]) }
-      @local.results.each { |scope,r|
-        $stdout.printf("Function %-30s  Cycles: %15s  Executions: %8d\n",scope,r.cycles,r.runs)
-        (loops_by_fun[scope] || []).each { |loop,rl|
-          $stdout.printf(" Loop %-30s     Cycles: %15s  Executions: %8d Bounds: %8s\n",
-                       loop, rl.cycles, rl.runs, rl.freqs.values[0])
-        }
-      }
-    end
-  end
-  def export_facts
-    outpml = @pml
-    outpml = outpml.clone_empty if @options.output_diff
-
-    fact_context = { 'level' => 'machinecode', 'origin' => @options.flow_fact_output || 'trace'}
-    globalscope = @entry.ref
-
-    outpml.timing.add(TimingEntry.new(globalscope,@global.results.cycles.max,fact_context))
-
-    flow_facts_before = @pml.flowfacts.length
-
-    # Export globally valid call target sets and infeasible blocks (mandatory for WCET analysis)
-    @global.results.calltargets.each do |cs,receiverset|
-      next unless cs.unresolved_call?
-      outpml.flowfacts.add(FlowFact.calltargets(globalscope, cs, receiverset, fact_context, "calltargets-global"))
-    end
-    @infeasible_blocks.each do |block|
-      outpml.flowfacts.add(FlowFact.block_frequency(globalscope, block, 0..0, fact_context, "infeasible-global"))
-    end
-
-    # Export global block frequencies
-    if @options.generate_scope_entry
-      @global.results.freqs.each do |block,freq|
-        outpml.flowfacts.add(FlowFact.block_frequency(globalscope, block, freq, fact_context, "block-global"))
+    if @options.verbose || ! @options.output
+      @main_recorder.recorders.each do |recorder|
+        recorder.dump($dbgs)
       end
+      $dbgs.puts "* Executed Functions: #{@main_recorder.executed_blocks.keys.join(", ")}"
     end
-
-    # Export local block frequencies
-    @local.results.each do |function,results|
-      scope = function.ref
-      results.freqs.each do |block,freq|
-        outpml.flowfacts.add(FlowFact.block_frequency(scope, block, freq, fact_context, "block-local"))
-      end
-    end
-
-    # Export Loops
-    @loops.results.values.each do |loopbound|
-      loop,freq = loopbound.freqs.to_a[0]
-      if ! loop
-        raise Exception.new("Inconsistent loop structure - no loop bound frequency record for #{loopbound}")
-      end
-      outpml.flowfacts.add(FlowFact.block_frequency(loop.loopref, loop, freq, fact_context, "loop-local"))
-    end
-
     # Warn about functions / loops not executed
     @infeasible_functions.each do |function|
       warn "Reachable function #{function} never executed by trace"
@@ -150,10 +61,69 @@ class AnalyzeTraceTool
       function.loops.each do |block|
         unless bset.include?(block)
           warn "Loop #{block} not executed by trace"
-          outpml.flowfacts.add(FlowFact.block_frequency(block.loopref, block, 0..0, fact_context, "loop-local"))
         end
       end
     end
+    # # Console Output
+    # if ! @options.output
+    #   $stdout.puts "=== Summary of '#{@options.analysis_entry}' observed during " + 
+    #                "execution of '#{@options.trace_entry}' ==="
+    #   loops_by_fun = Hash.new
+    #   @loops.results.each { |loop, r| (loops_by_fun[loop.function]||=[]).push([loop,r]) }
+    #   @local.results.each { |scope,r|
+    #     $stdout.printf("Function %-30s  Cycles: %15s  Executions: %8d\n",scope,r.cycles,r.runs)
+    #     (loops_by_fun[scope] || []).each { |loop,rl|
+    #       $stdout.printf(" Loop %-30s     Cycles: %15s  Executions: %8d Bounds: %8s\n",
+    #                    loop, rl.cycles, rl.runs, rl.freqs.values[0])
+    #     }
+    #   }
+    # end
+  end
+
+  def export_facts
+    outpml = @pml
+    outpml = outpml.clone_empty if @options.output_diff
+
+    fact_context = { 'level' => 'machinecode', 'origin' => @options.flow_fact_output || 'trace'}
+
+    # if we have a global recorder, add timing extracted from trace
+    global_recorders = @main_recorder.global_recorders
+    if ! global_recorders.empty?
+      global = global_recorders.first
+      outpml.timing.add(TimingEntry.new(global.scope,global.results.cycles.max,fact_context))
+    end
+
+    flow_facts_before = @pml.flowfacts.length
+
+    @main_recorder.recorders.each { |recorder|
+      scope = recorder.scope
+      suffix = recorder.type
+      # Export call targets (mandatory for WCET analysis)
+      # Only export if either unresolved in the compiler or the dynamic receiver set is smaller than the static one
+      recorder.results.calltargets.each do |pp,receiverset|
+        cs, call_context = pp
+        next unless cs.unresolved_call? || cs.callees.size != receiverset.size
+        caller_ref = InstructionRef.new(cs, CallString.new(call_context.stack.map { |cs| cs.ref }))
+        receiver_call_context = call_context.push(cs,call_context.length+1)
+        receivers = receiverset.map { |f| FunctionRef.new(f, CallString.from_bounded_stack(receiver_call_context)) }
+        outpml.flowfacts.add(FlowFact.calltargets(scope, caller_ref, receivers, fact_context, "calltargets-#{suffix}"))
+      end
+      # Export block frequencies; infeasible blocks are necessary for WCET analysis
+      recorder.results.blockfreqs.each do |pp,freq|
+        block, call_context = pp
+        type = (freq.max == 0) ? "infeasible" : "block"
+        block_ref = BlockRef.new(block, CallString.from_bounded_stack(call_context))
+        outpml.flowfacts.add(FlowFact.block_frequency(scope, block_ref, freq, fact_context, "#{type}-#{suffix}"))
+      end
+      # Export loop header bounds (mandatory for WCET analysis) for global analyses
+      if recorder.global?
+        recorder.results.loopbounds.each do |pp,bound|
+          next
+          loop, call_context = pp
+          outpml.flowfacts.add(FlowFact.loop_count(loop, call_context, bound, fact_context, "loop-global"))
+        end
+      end
+    }
     statistics("extracted flow-flact hypotheses" => outpml.flowfacts.length - flow_facts_before) if @options.stats
     outpml
   end
@@ -184,11 +154,9 @@ class AnalyzeTraceTool
     opts.trace_entry
     opts.analysis_entry
     opts.generates_flowfacts
+    opts.callstring_length
     opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help-recorders)") { |recorder_spec|
-      opts.options.recorders = recorder_spec
-    }
-    opts.on("--callstring-length INTEGER", "default callstring length used in recorders (=0)") { |recorder_cl|
-      opts.options.callstring_length = recorder_cl.to_i
+      opts.options.recorder_spec = recorder_spec
     }
     opts.on_tail("--help-recorders", "help on recorder specifications") {
       RecorderSpecification.help($stderr)
