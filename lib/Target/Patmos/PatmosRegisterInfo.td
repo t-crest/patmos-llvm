@@ -139,8 +139,8 @@ def SRegs : RegisterClass<"Patmos", [i32], 32,
   (add S0, SM, SL, SH, S4, SS, ST, S7,
    S8, S9, S10, S11, S12, S13, S14, S15)>;
 
-let Size = 8 in {
-  def PRegs : RegisterClass<"Patmos", [i1], 8,
+let Size = 32 in {
+  def PRegs : RegisterClass<"Patmos", [i1], 32,
     // constant true
     (add P0,
     // callee saved

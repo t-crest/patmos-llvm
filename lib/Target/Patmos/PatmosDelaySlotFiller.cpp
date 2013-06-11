@@ -489,6 +489,19 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
       I->getOpcode() == Patmos::MULU)
     return true;
 
+  // Loads or stores cannot be moved past a store to the delay slot
+  // and stores cannot be moved past a load.
+  if (I->mayLoad()) {
+    sawLoad = true;
+    if (sawStore) return true;
+  }
+
+  if (I->mayStore()) {
+    if (sawStore) return true;
+    sawStore = true;
+    if (sawLoad) return true;
+  }
+
   // don't move loads to the last delay slot for return
   if (I->mayLoad() && Candidates.empty() && MI.isReturn() )
     return true;
@@ -508,19 +521,6 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
   if ( (I->mayLoad()||I->mayStore()) && TII->getMemType(I)==PatmosII::MEM_S
        && sawSTC )
     return true;
-
-  // Loads or stores cannot be moved past a store to the delay slot
-  // and stores cannot be moved past a load.
-  if (I->mayLoad()) {
-    sawLoad = true;
-    if (sawStore) return true;
-  }
-
-  if (I->mayStore()) {
-    if (sawStore) return true;
-    sawStore = true;
-    if (sawLoad) return true;
-  }
 
   // instruction has unmodeled side-effects
   // check for safe MTS/MFS (which can have side-effects in general)
