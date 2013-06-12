@@ -53,11 +53,11 @@ function analyze() {
     rm -f "${OUTPREFIX}.pml"
     case "${ARCH}" in
         patmos)  ${PLATIN} bench-${BENCH} --bitcode "${BINPREFIX}.elf.bc" --outdir "${OUTDIR}" \
-                --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
+                --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" -i "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
         arm*) $GEM5_HOME/build/ARM/gem5.opt --debug-flags=Exec,-ExecMicro,ExecMacro --trace-file=trace $GEM5_HOME/configs/example/se.py -c "${BINPREFIX}.elf" ;
               cp m5out/trace "${OUTPREFIX}.mtf"
               ${PLATIN} bench-${BENCH} --disable-ait  --bitcode "${BINPREFIX}.elf.bc" --trace-file="${OUTPREFIX}.mtf"  --outdir "${OUTDIR}" \
-                --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
+                --binary "${BINPREFIX}.elf" -o "${OUTPREFIX}.pml" -i "${BINPREFIX}.elf.pml" 2>&1 | tee -a ${LOGFILE} ;;
         *) echo "Bad architecture ${ARCH}" >&2; exit 1 ;;
     esac
     # if something failed, at least copy the files, so we see there is data missing

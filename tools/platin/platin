@@ -9,20 +9,22 @@ usage() {
     cat <<EOF >&2
 usage: platin <command> [<args>]
 
-The following platin commands are available and supported:
+The following platin tools are available and supported:
+  wcet            ... Calculate WCET (main driver)
+  analyze-trace   ... Analyze simulator trace and generate flow facts
+
   extract-symbols ... Extract addresses of symbols from ELF file
-  analyze-trace   ... Generate flow facts from simulator traces
   transform       ... Transform flowfacts from bitcode to machinecode (and vice versa) [alpha]
   wca             ... Calculate WCET cost using lp_solve [beta]
   visualize       ... Visualize IR and MC CFGs as well as relation graphs [alpha]
-  bench-trace     ... Simulate and analyze benchmark using trace flow-fact hypotheses
-
   ait2pml         ... Add aiT analysis results to the PML database
   pml2ais         ... Translate program information to aiT's AIS format
-
   sweet           ... Run SWEET analysis tool
   ff2pml          ... Translate SWEET flowfacts to PML
-  bench-sweet     ... Simulate and Analyze benchmark using SWEET and trace flow-fact hypotheses
+
+The following platin benchmark scripts are available:
+  bench-trace     ... Simulate and analyze benchmark using trace flow-fact hypotheses
+  bench-sweet     ... Simulate and analyze benchmark using SWEET and trace flow-fact hypotheses
 
   Undocumented commands: $(echo $(list_unknown_commands))
 

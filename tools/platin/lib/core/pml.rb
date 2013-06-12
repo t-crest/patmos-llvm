@@ -1066,6 +1066,12 @@ module PML
       flowfact
     end
 
+    def FlowFact.loop_count(scoperef, bound, fact_context, classification)
+      flowfact = FlowFact.new(scoperef, TermList.new([]), 'less-equal', bound)
+      flowfact.add_attributes(fact_context, 'classification' => classification)
+      flowfact
+    end
+
     def blocks_constraint?
       lhs.all? { |t| t.ppref.kind_of?(BlockRef) }
     end

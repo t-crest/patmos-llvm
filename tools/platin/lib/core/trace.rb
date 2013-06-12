@@ -269,12 +269,12 @@ class RecorderSpecification
                 ([gf])
                 (?: / ([0-9]+))?
                 :
-                ([blc]+)
+                ([blic]+)
                 (?: / ([0-9]+))?
                 (?: : ([0-9]+))?
                 \Z }x
   SCOPES = { 'g' => :global, 'f' => :function }
-  ENTITIES = { 'b' => :block_frequencies, 'l' => :loop_header_bounds, 'c' => :call_targets }
+  ENTITIES = { 'b' => :block_frequencies, 'i' => :infeasible_blocks, 'l' => :loop_header_bounds, 'c' => :call_targets }
   attr_reader :entity_types, :entity_context, :calllimit
   def initialize(entity_types, entity_context, calllimit)
     @entity_types, @entity_context, @calllimit = entity_types, entity_context, calllimit
@@ -287,6 +287,7 @@ class RecorderSpecification
     out.puts("                     | 'f'['/' <callstring-length>] (=function-scopes)")
     out.puts("entity-selection  := <entity-type>+ [ '/' <callstring-length> ]")
     out.puts("entity-type       :=   'b' (=block frequencies)")
+    out.puts("                     | 'i' (=infeasible blocks)")
     out.puts("                     | 'l' (=loop bounds)")
     out.puts("                     | 'c' (=indirect call targets)")
     out.puts("entity-filter     := <calldepth-limit>")
@@ -427,13 +428,14 @@ end
 
 # Recorder for a function (intra- or interprocedural)
 class FunctionRecorder
-  attr_reader :results, :rid
+  attr_reader :results, :rid, :report_block_frequencies
   def initialize(scheduler, rid, function, context, spec)
     @scheduler = scheduler
     @rid, @function, @context = rid, function, context
     @callstack, @calllimit = [], spec.calllimit
     @callstring_length = spec.entity_context
-    @record_blockfrequencies = spec.entity_types.include?(:block_frequencies)
+    @report_block_frequencies = spec.entity_types.include?(:block_frequencies)
+    @record_block_frequencies = @report_block_frequencies || spec.entity_types.include?(:infeasible_blocks)
     @record_calltargets = spec.entity_types.include?(:call_targets)
     @record_loopheaders = spec.entity_types.include?(:loop_header_bounds)
     @results = FrequencyRecord.new("FunctionRecorder_#{rid}(#{function}, #{context || 'global'})")
@@ -468,7 +470,7 @@ class FunctionRecorder
   end
   def block(bb, _)
     return unless active?
-    results.increment_block(in_context(bb)) if @record_blockfrequencies
+    results.increment_block(in_context(bb)) if @record_block_frequencies
   end
   def loopenter(bb, cycles)
     return unless active?

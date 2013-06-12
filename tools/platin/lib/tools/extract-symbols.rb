@@ -54,6 +54,8 @@ class ExtractSymbols
           # Migh be different from current addr, as subfunctions require the emitter
           # to insert additional text between blocks.
           addr = block_addr
+        elsif ! @instruction_addresses[function.label]
+          die("No label #{function.label} for function #{function} found in binary")
         elsif ins_addr = @instruction_addresses[function.label][ins_index]
           warn("Heuristic found wrong address for #{block}: #{addr}, not #{ins_addr}") if addr != ins_addr
           addr = ins_addr

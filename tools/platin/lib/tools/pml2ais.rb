@@ -24,7 +24,6 @@ class AisExportTool
       ais.gen_header if options.ais_header
 
       pml.machine_functions.each { |func| ais.export_jumptables(func) }
-
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
       flowfacts.each { |ff| ais.export_flowfact(ff) }
 

@@ -47,7 +47,7 @@ class AnalyzeTraceTool
   end
   def console_output
     # Verbose Output
-    if @options.verbose || ! @options.output
+    if @options.verbose || @options.console_output
       @main_recorder.recorders.each do |recorder|
         recorder.dump($dbgs)
       end
@@ -82,7 +82,6 @@ class AnalyzeTraceTool
 
   def export_facts
     outpml = @pml
-    outpml = outpml.clone_empty if @options.output_diff
 
     fact_context = { 'level' => 'machinecode', 'origin' => @options.flow_fact_output || 'trace'}
 
@@ -112,24 +111,21 @@ class AnalyzeTraceTool
       recorder.results.blockfreqs.each do |pp,freq|
         block, call_context = pp
         type = (freq.max == 0) ? "infeasible" : "block"
+        next unless recorder.report_block_frequencies || type == "infeasible"
         block_ref = BlockRef.new(block, CallString.from_bounded_stack(call_context))
         outpml.flowfacts.add(FlowFact.block_frequency(scope, block_ref, freq, fact_context, "#{type}-#{suffix}"))
       end
       # Export loop header bounds (mandatory for WCET analysis) for global analyses
       if recorder.global?
         recorder.results.loopbounds.each do |pp,bound|
-          next
           loop, call_context = pp
-          outpml.flowfacts.add(FlowFact.loop_count(loop, call_context, bound, fact_context, "loop-global"))
+          loop_ref = LoopRef.new(loop, CallString.from_bounded_stack(call_context))
+          outpml.flowfacts.add(FlowFact.loop_count(loop_ref, bound.max, fact_context, "loop-global"))
         end
       end
     }
     statistics("extracted flow-flact hypotheses" => outpml.flowfacts.length - flow_facts_before) if @options.stats
     outpml
-  end
-  def AnalyzeTraceTool.add_config_options(opts)
-    Architecture.simulator_options(opts)
-    opts.trace_entry
   end
 
   # Examples for recorder specifications:
@@ -147,13 +143,9 @@ class AnalyzeTraceTool
   #   for every virtually-inlined function (threshold = default callstring length), record block frequencies
   DEFAULT_RECORDER_SPEC="g:blc,f:b/0:0"
 
-  def AnalyzeTraceTool.add_options(opts)
-    ExtractSymbolsTool.add_config_options(opts)
-    AnalyzeTraceTool.add_config_options(opts)
-    opts.binary_file(true)
+  def AnalyzeTraceTool.add_config_options(opts)
+    Architecture.simulator_options(opts)
     opts.trace_entry
-    opts.analysis_entry
-    opts.generates_flowfacts
     opts.callstring_length
     opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help-recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
@@ -167,10 +159,18 @@ class AnalyzeTraceTool
     }
   end
 
-  def AnalyzeTraceTool.run(pml,options)
-    needs_options(options, :analysis_entry, :binary_file)
-    entry  = pml.machine_functions.by_label(options.analysis_entry, true)
+  def AnalyzeTraceTool.add_options(opts)
+    ExtractSymbolsTool.add_config_options(opts)
+    AnalyzeTraceTool.add_config_options(opts)
+    opts.binary_file(true)
+    opts.trace_entry
+    opts.analysis_entry
+    opts.generates_flowfacts
+  end
 
+  def AnalyzeTraceTool.run(pml,options)
+    needs_options(options, :analysis_entry, :binary_file, :recorder_spec)
+    entry  = pml.machine_functions.by_label(options.analysis_entry, true)
     if ! entry
       die("Analysis entry (ELF label #{options.analysis_entry}) not found")
     end
@@ -200,6 +200,7 @@ EOF
     opts.writes_pml
     AnalyzeTraceTool.add_options(opts)
   end
+  options.console_output = true unless options.output
   pml = AnalyzeTraceTool.run(PMLDoc.from_files(options.input), options)
   pml.dump_to_file(options.output) if options.output
 end

@@ -573,7 +573,7 @@ class IPETBuilder
       model = (ff.level == "machinecode") ? :dst : :src
       scope,cs,targets = ff.get_calltargets
       if scope && scope.kind_of?(FunctionRef) && scope.function == entry[model]
-        add_calltargets(cs.instruction, targets, model)
+        add_calltargets(cs.instruction, targets.map { |t| t.function} , model)
       end
       # set infeasible blocks
       scope,bref = ff.get_block_infeasible

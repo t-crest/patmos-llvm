@@ -38,6 +38,8 @@ class BenchTool
 
   def BenchTool.run(pml,options)
 
+    diff = options.diff
+    options.diff = false
     needs_options(options, :outdir, :binary_file)
     mod = File.basename(options.binary_file, ".elf")
 
@@ -63,6 +65,7 @@ class BenchTool
         opts.flow_fact_selection = selection
         opts.timing_output = "wca-trace-#{selection}"
         opts.flow_fact_srcs = ["trace"]
+        opts.diff = diff
         WcaTool.run(pml, opts)
       }
 
@@ -74,6 +77,7 @@ class BenchTool
         AisExportTool.run(pml,opts)
         ApxExportTool.run(pml,opts)
         AitAnalyzeTool.run(pml, opts)
+        opts.diff = diff
         AitImportTool.run(pml,opts)
       } unless options.disable_ait
 
@@ -104,6 +108,7 @@ class BenchTool
         opts.timing_output = "wca-uptrace-#{selection}"
         opts.flow_fact_selection = "all" # already selected and we only have global trafo atm
         opts.flow_fact_srcs = ["trace.transformed.#{selection}", "trace.support.#{selection}"]
+        opts.diff = diff
         WcaTool.run(pml, opts)
       } # if selection != "minimal" # missing classification prevents to use minimal
 
@@ -133,7 +138,8 @@ if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
 PSK benchmark run: extract symbols, analyze trace, run aiT
 EOF
-  options, args = PML::optparse([:input], "program.elf.pml", SYNOPSIS) do |opts|
+  options, args = PML::optparse([], "", SYNOPSIS) do |opts|
+    opts.needs_pml
     BenchTool.add_options(opts)
   end
   BenchTool.run(PMLDoc.from_files([options.input]), options).dump_to_file(options.output)

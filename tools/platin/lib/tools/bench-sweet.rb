@@ -123,7 +123,8 @@ if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
 PSK benchmark run: extract symbols, analyze trace, run aiT"
 EOF
-  options, args = PML::optparse([:input], "program.elf.pml", SYNOPSIS) do |opts|
+  options, args = PML::optparse([], "", SYNOPSIS) do |opts|
+    opts.needs_pml
     BenchToolSweet.add_options(opts)
   end
   BenchToolSweet.run(PMLDoc.from_files([options.input]), options).dump_to_file(options.output)

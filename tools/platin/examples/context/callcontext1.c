@@ -1,4 +1,5 @@
 #include "common.h"
+
 int f(int a);
 int g_pre(int a);
 int g(int a);

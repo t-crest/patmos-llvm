@@ -77,10 +77,12 @@ module PML
     # export indirect calls
     def export_calltargets(ff)
       scope, callsite, targets = ff.get_calltargets
-      assert("Bad calltarget flowfact: #{ff.inspect}") { scope }
+      assert("Bad calltarget flowfact: #{ff.inspect}") { scope && scope.context.empty? }
+      # no support for context-sensitive call targets
+      return unless callsite.context.empty?
       block = callsite.block
       location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
-      called = targets.map { |f| dquote(f.label) }.join(", ")
+      called = targets.map { |f| dquote(f.function.label) }.join(", ")
       gen_fact("instruction #{location} calls #{called} ;",
                "global indirect call targets (source: #{ff['origin']})")
     end
@@ -90,9 +92,13 @@ module PML
       # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' 
       # of the loop. But apparently this is not how loop bounds are interpreted in
       # aiT (=> ask absint guys)
+
+      # context-sensitive facts not yet supported
+      return unless (ff.scope.context.empty?)
+
       loopname = dquote(ff.scope.loopblock.label)
       gen_fact("loop #{loopname} max #{ff.rhs} ;", # end ;"
-               "local loop header bound (source: #{ff['origin']})")
+               "global loop header bound (source: #{ff['origin']})")
     end
 
     # export global infeasibles
@@ -100,15 +106,24 @@ module PML
       scope, pp, zero = ff.get_block_frequency_bound
       insname = dquote(pp.block.label)
 
+      # context-sensitive facts not yet supported
+      return unless ff.scope.context.empty?
+
       gen_fact("instruction #{insname} is never executed ;",
-               "globally infeasible call (source: #{ff['origin']})")
+               "globally infeasible block (source: #{ff['origin']})")
     end
 
     def export_linear_constraint(ff)
       terms_lhs, terms_rhs = [],[]
       terms = ff.lhs.dup
       scope = ff.scope
-      scope = scope.function.blocks.first.ref if scope.kind_of?(FunctionRef)
+      assert("export_linear_constraint: not in function scope") { scope.kind_of?(FunctionRef) }
+
+      # no support for context-sensitive linear constraints
+      return unless scope.context.empty?
+      return unless terms.all? { |t| t.ppref.context.empty? }
+
+      scope = scope.function.blocks.first.ref
       terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0
       terms.each { |t|
         set = (t.factor < 0) ? terms_rhs : terms_lhs
