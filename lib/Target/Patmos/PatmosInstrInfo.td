@@ -721,13 +721,13 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
     // load from data cache (no pattern to match)
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 "d" # asmop # "c", "sm = [${ra:addrmod}${imm:addrmod}]",
+                 "d" # asmop # "c", "[${ra:addrmod}${imm:addrmod}]",
                  [], IIC_LD>;
 
     // load from main memory (no pattern to match)
     def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 "d" # asmop # "m", "sm = [${ra:addrmod}${imm:addrmod}]",
+                 "d" # asmop # "m", "[${ra:addrmod}${imm:addrmod}]",
                  [], IIC_LD>;
   }
 }
