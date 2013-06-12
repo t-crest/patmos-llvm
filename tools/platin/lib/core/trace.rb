@@ -271,7 +271,6 @@ class RecorderSpecification
                 :
                 ([blic]+)
                 (?: / ([0-9]+))?
-                (?: : ([0-9]+))?
                 \Z }x
   SCOPES = { 'g' => :global, 'f' => :function }
   ENTITIES = { 'b' => :block_frequencies, 'i' => :infeasible_blocks, 'l' => :loop_header_bounds, 'c' => :call_targets }
@@ -308,7 +307,10 @@ class RecorderSpecification
         }
         entity_context = ectx ? ectx.to_i : default_callstring_length
         scope_context = scopectx ? scopectx.to_i : default_callstring_length
-        entity_call_limit = elimit ? (elimit.to_i+1) : nil
+        entity_call_limit = nil
+        if scopestr == 'f' # intraprocedural
+          entity_call_limit = entity_context
+        end
         spec = RecorderSpecification.new(entity_types, entity_context, entity_call_limit)
         scope = SCOPES[scopestr] or die("Bad scope type #{scopestr}")
         recorders.push([scope,scope_context,spec])
@@ -470,6 +472,7 @@ class FunctionRecorder
   end
   def block(bb, _)
     return unless active?
+    # puts "#{self}: visiting #{bb} active:#{active?} calllimit:#{@calllimit}"
     results.increment_block(in_context(bb)) if @record_block_frequencies
   end
   def loopenter(bb, cycles)

@@ -128,20 +128,9 @@ class AnalyzeTraceTool
     outpml
   end
 
-  # Examples for recorder specifications:
-  #
-  #   g:blc    ==> global recorder (program points distinguished by default callstring length)
-  #   g:c:1    ==> call-targets for entry function and direct callees (default callstring length)
-  #   g:l/2    ==> loop header bounds (callstring length 2)
-  #   g:b/1:2  ==> block frequencies for entry function, callees, and callees of callees (callstring length 1)
-  #   f/0:b:0  ==> intraprocedural block frequencies for every function
-  #   f/2:b:0  ==> intraprocedural block frequencies for every virtually-inlined (threshold=2) function
-  #   f:b:0    ==> intraprocedural block frequencies for every virtually-inlined (threshold=default callstring length) function
-
-  # The default recorder is
-  #   globally, record block frequencies, loop bounds and call targets (program points distinguished by default callstring length)
-  #   for every virtually-inlined function (threshold = default callstring length), record block frequencies
-  DEFAULT_RECORDER_SPEC="g:blc,f:b/0:0"
+  # The default recorder record loop bounds, infeasibles and calltargets globally, and
+  # intraprocedural block frequencies
+  DEFAULT_RECORDER_SPEC="g:lic,f:b/0"
 
   def AnalyzeTraceTool.add_config_options(opts)
     Architecture.simulator_options(opts)

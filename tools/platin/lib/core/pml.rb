@@ -1067,7 +1067,8 @@ module PML
     end
 
     def FlowFact.loop_count(scoperef, bound, fact_context, classification)
-      flowfact = FlowFact.new(scoperef, TermList.new([]), 'less-equal', bound)
+      blockref = BlockRef.new(scoperef.loopblock,CallString.new([]))
+      flowfact = FlowFact.new(scoperef, TermList.new([Term.new(blockref,1)]), 'less-equal', bound)
       flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact
     end
