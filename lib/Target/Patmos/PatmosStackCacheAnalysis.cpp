@@ -19,7 +19,7 @@
 #undef PATMOS_TRACE_CG_OCCUPANCY_ILP
 #undef PATMOS_TRACE_WORST_SITE_OCCUPANCY
 #undef PATMOS_TRACE_PATH_OCCUPANCY
-#define PATMOS_DUMP_DOT_OCCUPANCY
+#undef PATMOS_TRACE_DETAILED_RESULTS
 
 #include "Patmos.h"
 #include "PatmosCallGraphBuilder.h"
@@ -57,6 +57,14 @@ static cl::opt<std::string> BoundsFile(
   cl::desc("File containing bounds for the stack cache analysis."),
   cl::Hidden);
 
+/// EnableViewSCAGraph - Option to enable the rendering of the Spill Cost 
+/// Analysis graph.
+static cl::opt<bool> EnableViewSCAGraph(
+  "mpatmos-view-sca-graph",
+  cl::init(false),
+  cl::desc("Show the Spill Cost analysis after the Patmos Stack Cache Analysis."),
+  cl::Hidden);
+
 namespace llvm {
   /// Count the number of SENS instructions removed.
   STATISTIC(RemovedSENS, "Useless SENS instructions removed.");
@@ -64,11 +72,47 @@ namespace llvm {
   /// Count the number of SENS instructions that could not be removed.
   STATISTIC(RemainingSENS, "SENS instructions remaining.");
 
+  /// Count the number of SENS instructions that potentially have to fill the 
+  /// total size given as their argument.
+  STATISTIC(FullyFillingSENS, "SENS instructions fully filling.");
+
+  /// Count the number of SRES instructions potentially spilling.
+  STATISTIC(SpillingSRES, "SRES instructions potentially spilling.");
+
+  /// Count the number of SRES instructions potentially fully spilling the total 
+  /// szie given as their argument.
+  STATISTIC(FullySpillingSRES, "SRES instructions fully spilling.");
+
+  /// Count the number of SRES instructions that certainly do not spill.
+  STATISTIC(NonSpillingSRES, "SRES instructions guaranteed to not spill.");
+
+  /// Count the total number of nodes in the SCA graph.
+  STATISTIC(TotalSCAGraphSize, "Total SCA graph size.");
+
+  /// Count the total number of nodes in the pruned SCA graph.
+  STATISTIC(PrunedSCAGraphSize, "Pruned SCA graph size.");
+
+  /// Count the total number of ILPs solved.
+  STATISTIC(ILPs, "Number of ILPs solved.");
+
+  /// Count the total number of functions (excluding dead functions).
+  STATISTIC(Functions, "Number of machine functions.");
+
+  /// Prefixes for ILP variable names
+  enum ilp_prefix {
+    T,
+    Z,
+    W,
+    OF,
+    X
+  };
+
   // forward definition.
   class SCANode;
   class SCAEdge;
   class SpillCostAnalysisGraph;
   bool operator <(const SCAEdge &a, const SCAEdge &b);
+  llvm::raw_ostream &operator <<(llvm::raw_ostream &O, ilp_prefix Prefix);
 
   /// Set of SCANodes.
   typedef std::set<SCANode*> SCANodeSet;
@@ -567,9 +611,6 @@ namespace llvm {
     /// Map call sites to an unsigned integer.
     typedef std::map<MCGSite*, unsigned int> MCGSiteUInt;
 
-    /// List of ensures to be removed/not removed.
-    typedef std::map<MachineInstr*, bool> ENSUREs;
-
     /// List of ensures and their effective sizes.
     typedef std::map<MachineInstr*, unsigned int> SIZEs;
 
@@ -993,7 +1034,7 @@ namespace llvm {
     // TODO: take care of predication, i.e., predicated SENS/CALL instructions
     // might be mangled and they might not match one to one.
     // TODO: check for STCr
-    void removeEnsures(MBBs &WL, MBBUInt &INs, ENSUREs &ENSs, MCGNode *Node,
+    void removeEnsures(MBBs &WL, MBBUInt &INs, SIZEs &ENSs, MCGNode *Node,
                        MachineBasicBlock *MBB)
     {
       // track maximum stack occupancy of children in the call graph -- 
@@ -1022,7 +1063,11 @@ namespace llvm {
           if (ensure == 0) assert(remove);
 
           // if all fits, the SENS can be removed.
-          ENSs[i] = remove;
+          unsigned int filling = remove ? 0u : ensure + childOccupancy -
+                                               STC.getStackCacheSize();
+          ENSs[i] = filling;
+
+          assert(filling != 0 || remove);
 
           if (!remove && !TII.isPredicated(i)) {
             childOccupancy = std::min(childOccupancy,
@@ -1056,7 +1101,7 @@ namespace llvm {
           i++) {
         if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
-          ENSUREs ENSs;
+          SIZEs ENSs;
           MBBUInt INs;
           MachineFunction *MF = (*i)->getMF();
 
@@ -1079,13 +1124,26 @@ namespace llvm {
           }
 
           // actually remove ensure instructions
-          for(ENSUREs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
+          for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
               i++) {
-            if (i->second) {
+            unsigned int ensure = i->first->getOperand(2).getImm() *
+                                  STC.getStackCacheBlockSize();
+#ifdef PATMOS_TRACE_DETAILED_RESULTS
+            MachineBasicBlock *MBB = i->first->getParent();
+            MachineBasicBlock::instr_iterator MI(i->first);
+            dbgs() << "ENS: " << MF->getFunction()->getName() << ":BB"
+                   << MBB->getNumber() << ":"
+                   << std::distance(MBB->instr_begin(), MI) << ": k=" 
+                   << ensure << ", f=" << i->second << "\n";
+#endif // PATMOS_TRACE_DETAILED_RESULTS
+
+            if (i->second == 0) {
               i->first->getParent()->erase(i->first);
               RemovedSENS++;
             }
             else {
+              if (i->second == ensure)
+                FullyFillingSENS++;
               RemainingSENS++;
             }
           }
@@ -1107,10 +1165,11 @@ namespace llvm {
     }
 
     /// ilp_name - make a name for a node suitable for the LP file.
-    static std::string ilp_name(const MCGNode *N)
+    static std::string ilp_name(ilp_prefix Prefix, const MCGNode *N)
     {
       std::string tmps;
       raw_string_ostream tmp(tmps);
+      tmp << Prefix;
       if (N->isUnknown()) {
         tmp << "U" << (void*)N;
       }
@@ -1120,11 +1179,11 @@ namespace llvm {
     }
 
     /// ilp_name - make a name for a call site suitable for the LP file.
-    static std::string ilp_name(const MCGSite *S)
+    static std::string ilp_name(ilp_prefix Prefix, const MCGSite *S)
     {
       std::string tmps;
       raw_string_ostream tmp(tmps);
-      tmp << "S" << (void*)S;
+      tmp << Prefix << "S" << (void*)S;
       return tmp.str();
     }
 
@@ -1162,6 +1221,8 @@ namespace llvm {
 
         SOLname.eraseFromDisk();
       }
+
+      ILPs++;
 
       return result;
     }
@@ -1225,14 +1286,14 @@ namespace llvm {
       // nodes in the SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
           n++) {
-        OS << "\n + " << getBytesReserved(*n) << " " << ilp_name(*n);
+        OS << "\n + " << getBytesReserved(*n) << " " << ilp_name(W, *n);
       }
 
       // exit sites
       for(MCGSiteSet::iterator n(exits.begin()), ne(exits.end()); n != ne;
           n++) {
         OS << "\n + " << getMinMaxOccupancy((*n)->getCallee(), Maximize)
-           << "\t" << ilp_name(*n);
+           << "\t" << ilp_name(W, *n);
 
         if (!(*n)->getCallee()->isUnknown())
           OS << "\t\\ " << (*n)->getCallee()->getMF()->getFunction()->getName();
@@ -1249,20 +1310,26 @@ namespace llvm {
       unsigned int cnt = 0;
 
       // force path over the call graph node N
-      OS << "path:\t" << ilp_name(N) << " >= 1\n";
+      OS << "path:\t" << ilp_name(W, N) << " >= 1\n";
 
       // constraints on in-flow of nodes in SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
           n++) {
-        OS << "if" << cnt << ":\t";
+        for(ilp_prefix p = Z; p <= W; p = (ilp_prefix)(p + 1)) {
+          OS << "if" << p << cnt << ":\t";
 
-        const MCGSites &CS((*n)->getCallingSites());
-        for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
-          OS << " + " << ilp_name(*cs);
+          const MCGSites &CS((*n)->getCallingSites());
+          for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
+              cs++) {
+            OS << " + " << ilp_name(p, *cs);
+
+            // account for transition edges from Z to W version of node N
+            if (*n == N && p == W)
+              OS << " + " << ilp_name(T, *cs);
+          }
+
+          OS << " - " << ilp_name(p, *n) << " = 0\n";
         }
-
-        OS << " - " << ilp_name(*n) << " = 0\n";
         cnt++;
       }
 
@@ -1270,28 +1337,60 @@ namespace llvm {
       cnt = 0;
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
           n++) {
-        OS << "of" << cnt << ":\t";
+        for(ilp_prefix p = Z; p <= W; p = (ilp_prefix)(p + 1)) {
+          OS << "of" << p << cnt << ":\t";
 
-        const MCGSites &CS((*n)->getSites());
+          const MCGSites &CS((*n)->getSites());
+          for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
+              cs++) {
+            OS << " + " << ilp_name(p, *cs);
+
+            // account for transition edges from Z to W version of node N
+            if ((*cs)->getCallee() == N && p == Z)
+              OS << " + " << ilp_name(T, *cs);
+          }
+
+          // handle function containing at least one call-free path
+          if (IsCallFree[*n] && p == W) {
+            OS << " + " << ilp_name(OF, *n);
+          }
+
+          OS << " - " << ilp_name(p, *n) << " = 0\n";
+        }
+        cnt++;
+      }
+
+      // constraints on out-flow of nodes in SCC
+      cnt = 0;
+      for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
+          n++) {
+        OS << "veq" << cnt << ":\t + "
+           << ilp_name(Z, *n) << " + " << ilp_name(W, *n)
+           << " - " << ilp_name(X, *n) << " = 0\n";
+        cnt++;
+      }
+
+      // constraint on in-flow over transition edges to the W version of node N
+      // (both, from within the SCC or from the outside)
+      {
+        const MCGSites &CS(N->getCallingSites());
+        OS << "tran:\t";
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
             cs++) {
-          OS << " + " << ilp_name(*cs);
+          OS << " + " << ilp_name(T, *cs);
         }
-
-        // handle function containing at least one call-free path
-        if (IsCallFree[*n]) {
-          OS << " + OF" << ilp_name(*n);
-        }
-
-        OS << " - " << ilp_name(*n) << " = 0\n";
-        cnt++;
+        OS << " = 1\n";
       }
 
       // constraint on out-flow of entry nodes
       OS << "en:\t";
       for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
           cs != cse; cs++) {
-        OS << " + " << ilp_name(*cs);;
+        OS << " + " << ilp_name(Z, *cs);;
+
+        // account for transition edges from an entry to the W version of node N
+        if ((*cs)->getCallee() == N)
+          OS << " + " << ilp_name(T, *cs);
       }
       OS << " = 1\n";
 
@@ -1300,7 +1399,7 @@ namespace llvm {
       bool ex_printed = false;
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end());
           cs != cse; cs++) {
-        OS << " + " << ilp_name(*cs);
+        OS << " + " << ilp_name(W, *cs);
         ex_printed = true;
       }
 
@@ -1308,7 +1407,7 @@ namespace llvm {
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
           n++) {
         if (IsCallFree[*n]) {
-          OS << " + OF" << ilp_name(*n);
+          OS << " + " << ilp_name(OF, *n);
           ex_printed = true;
         }
       }
@@ -1326,32 +1425,44 @@ namespace llvm {
       // nodes and call sites in SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
           n++) {
-        OS << ilp_name(*n) << "\n";
+        OS << ilp_name(Z, *n) << "\n";
+        OS << ilp_name(W, *n) << "\n";
 
         // handle functions with at least one call-free path
         if (IsCallFree[*n]) {
-          OS << "OF" << ilp_name(*n) << "\n";
+          OS << ilp_name(OF, *n) << "\n";
         }
 
         const MCGSites &CS((*n)->getCallingSites());
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
             cs++) {
           // skip entry sites
-          if(entries.find(*cs) == entries.end())
-            OS << ilp_name(*cs) << "\n";
+          if(entries.find(*cs) == entries.end()) {
+            OS << ilp_name(Z, *cs) << "\n";
+            OS << ilp_name(W, *cs) << "\n";
+          }
+        }
+      }
+
+      // transition edges to W version of node N
+      {
+        const MCGSites &CS(N->getCallingSites());
+        for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
+            cs++) {
+          OS << ilp_name(T, *cs) << "\n";
         }
       }
 
       // entries
       for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
           cs != cse; cs++) {
-        OS << ilp_name(*cs) << "\n";
+        OS << ilp_name(Z, *cs) << "\n";
       }
 
       // exits
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end()); 
           cs != cse; cs++) {
-        OS << ilp_name(*cs) << "\n";
+        OS << ilp_name(W, *cs) << "\n";
       }
 
       // add user-defined variable definitions
@@ -1490,7 +1601,7 @@ namespace llvm {
             worstOccupancy = std::min(worstOccupancy, worstCallOccupancy);
           }
         }
-        else if (i->getOpcode() == Patmos::SENS && !TII.isPredicated(i)) {
+        else if (i->getOpcode() == Patmos::SENSi && !TII.isPredicated(i)) {
           unsigned int ensure = i->getOperand(2).getImm() *
                                 STC.getStackCacheBlockSize();
           worstOccupancy = std::max(ensure, worstOccupancy);
@@ -1607,6 +1718,9 @@ namespace llvm {
     void pruneSCAGraph()
     {
       const MCGSCANodeMap &nodes(SCAGraph.getNodes());
+
+      // keep statistics of the initial SCA graph size.
+      TotalSCAGraphSize += nodes.size();
 
       // eliminate UNKNOWN nodes from the graph
       SCANodeSet cleanup;
@@ -1753,9 +1867,52 @@ namespace llvm {
       // prune graph, i.e., hide nodes not relevant for the analysis
       pruneSCAGraph();
 
-#ifdef PATMOS_DUMP_DOT_OCCUPANCY
-      ViewGraph(SCAGraph, "xxx");
-#endif // PATMOS_DUMP_DOT_OCCUPANCY
+      const MCGSCANodeMap &nodes(SCAGraph.getNodes());
+#ifdef PATMOS_TRACE_DETAILED_RESULTS
+      for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
+          i != ie; i++) {
+        if (i->second->isVisible()) {
+          MCGNode *N = i->first.first;
+          dbgs() << "CTXT: " << N->getMF()->getFunction()->getName()
+                << ": k=" << getBytesReserved(N)
+                << ", s=" << i->second->getSpillCost()
+                << ", o=" << i->first.second << "\n";
+        }
+      }
+#endif // PATMOS_TRACE_DETAILED_RESULTS
+
+      // keep statistics of the pruned SCA graph size.
+      MCGNodeUInt Spilling;
+      for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
+          i != ie; i++) {
+        if (i->second->isVisible()) {
+          PrunedSCAGraphSize++;
+          Spilling[i->first.first] = std::max(Spilling[i->first.first],
+                                              i->second->getSpillCost());
+        }
+      }
+
+      // statistics of SRES instructions (functions for now)
+      for(MCGNodes::const_iterator i(G.getNodes().begin()),
+          ie(G.getNodes().end()); i != ie; i++) {
+        unsigned int reserved = getBytesReserved(*i);
+        if (!(*i)->isDead()) {
+          Functions++;
+          if (reserved != 0) {
+            unsigned int tmp = Spilling[*i];
+            if (tmp == 0)
+              NonSpillingSRES++;
+            else {
+              SpillingSRES++;
+              if (tmp == reserved)
+                FullySpillingSRES++;
+            }
+          }
+        }
+      }
+
+      if (EnableViewSCAGraph)
+        ViewGraph(SCAGraph, "xxx");
     }
 
     /// runOnModule - determine the state of the stack cache for each call site.
@@ -1806,6 +1963,26 @@ ModulePass *llvm::createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm){
 }
 
 namespace llvm {
+  llvm::raw_ostream &operator <<(llvm::raw_ostream &O, ilp_prefix Prefix)
+  {
+    switch(Prefix)
+    {
+      case W:
+        O << "W"; break;
+      case Z:
+        O << "Z"; break;
+      case T:
+        O << "T"; break;
+      case OF:
+        O << "OF"; break;
+      case X:
+        // do not print anything
+        break;
+    }
+
+    return O;
+  }
+
   bool operator <(const SCAEdge &a, const SCAEdge &b)
   {
     if (a.getCaller() != b.getCaller())
