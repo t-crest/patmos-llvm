@@ -8,12 +8,13 @@ require 'ext/sweet'
 include PML
 
 class AlfTool
-  def AlfTool.config_options(opts)
+  def AlfTool.add_config_options(opts)
     opts.alfllc_command
   end
   def AlfTool.add_options(opts)
-    AlfTool.config_options(opts)
-    opts.runs_llvm2alf
+    AlfTool.add_config_options(opts)
+    opts.bitcode_file
+    opts.alf_file
   end
   # Internal ALF options:
   #  standalone       ... create stubs (returning \TOP) for all undefined objects
@@ -62,8 +63,9 @@ class SweetAnalyzeTool
   def SweetAnalyzeTool.add_options(opts)
     SweetAnalyzeTool.add_config_options(opts)
     opts.analysis_entry
-    opts.runs_llvm2alf
-    opts.runs_sweet
+    opts.bitcode_file
+    opts.alf_file
+    opts.sweet_options
     opts.on("--sweet-generate-trace") { opts.options.sweet_generate_trace = true }
     opts.sweet_flowfact_file
     opts.sweet_trace_file(false)

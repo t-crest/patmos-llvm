@@ -61,7 +61,8 @@ class RelationGraphValidation
     if ! errors.empty?
       raise Exception.new("Progress trace validation failed: #{errors.inspect}")
     end
-    statistics("progress trace length (src)" => pt1.trace.length,
+    statistics("CFRG-VALIDATION",
+               "progress trace length (src)" => pt1.trace.length,
                "progress trace length (dst)" => pt2.trace.length) if @options.stats
   end
   def is_machine_only_node(dstnode, srcnode)
@@ -119,6 +120,8 @@ class RelationGraphTransformTool
 
   # pml ... PML for the prgoam
   def RelationGraphTransformTool.run(pml,options)
+    needs_options(options,:flow_fact_selection,:flow_fact_srcs,:transform_action,:analysis_entry)
+
     #require 'perftools'
     #PerfTools::CpuProfiler.start("/tmp/platin-transform")
 
@@ -143,7 +146,8 @@ class RelationGraphTransformTool
         ff.add_attribute('level', (dir == :src) ? "bitcode" : "machinecode")
         pml.flowfacts.add(ff)
       }
-      statistics("transformed flowfacts" =>new_ffs.length) if options.stats
+      statistics("TRANSFORM",
+                 "transformed flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" => new_ffs.length) if options.stats
     else
       die("Bad transformation action --transform-action=#{options.transform_action}")
     end

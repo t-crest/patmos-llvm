@@ -524,7 +524,7 @@ module PML
       data['address']=value
     end
     def no_context
-      CallString.new([])
+      CallString.empty
     end
   end
 
@@ -910,6 +910,9 @@ module PML
   # Callstring
   class CallString < PMLObject
     attr_reader :callsites
+    def CallString.empty
+      CallString.new([])
+    end
     def initialize(callsite_refs,data=nil)
       @callsites = callsite_refs
       set_data(data)
@@ -1067,7 +1070,7 @@ module PML
     end
 
     def FlowFact.loop_count(scoperef, bound, fact_context, classification)
-      blockref = BlockRef.new(scoperef.loopblock,CallString.new([]))
+      blockref = BlockRef.new(scoperef.loopblock,CallString.empty)
       flowfact = FlowFact.new(scoperef, TermList.new([Term.new(blockref,1)]), 'less-equal', bound)
       flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact

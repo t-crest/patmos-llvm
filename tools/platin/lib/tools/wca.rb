@@ -90,7 +90,8 @@ class WcaTool
     flowfacts.each { |ff| builder.add_flowfact(ff) }
     # END: remove me soon
 
-    statistics("flowfacts" => flowfacts.length,
+    statistics("WCA",
+               "flowfacts" => flowfacts.length,
                "ipet variables" => builder.ilp.num_variables,
                "ipet constraints" => builder.ilp.constraints.length) if options.stats
 
@@ -103,9 +104,9 @@ class WcaTool
 
     # Solve ILP
     cycles,freqs = builder.ilp.solve_max
-    statistics("ilp variables" => builder.ilp.num_variables,
-               "ilp constraints" => builder.ilp.constraints.length,
-               "ilp solution" => cycles) if options.stats
+    statistics("WCA",
+               "ilp variables" => builder.ilp.num_variables,
+               "ilp constraints" => builder.ilp.constraints.length) if options.stats
 
     if options.verbose
       puts "Cycles: #{cycles}"

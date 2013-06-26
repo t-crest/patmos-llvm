@@ -4,15 +4,16 @@
 
 # Set library path for installation
 
-KNOWN_COMMANDS="analyze-trace ait2pml bench-trace bench-sweet wca transform extract-symbols pml2ais ff2pml visualize sweet"
+KNOWN_COMMANDS="wcet analyze-trace ait2pml bench-trace bench-sweet wca transform extract-symbols pml2ais ff2pml visualize sweet"
 usage() {
     cat <<EOF >&2
 usage: platin <command> [<args>]
 
 The following platin tools are available and supported:
-  wcet            ... Calculate WCET (main driver)
-  analyze-trace   ... Analyze simulator trace and generate flow facts
 
+  wcet            ... Calculate WCET (main driver)
+
+  analyze-trace   ... Analyze simulator trace and generate flow facts
   extract-symbols ... Extract addresses of symbols from ELF file
   transform       ... Transform flowfacts from bitcode to machinecode (and vice versa) [alpha]
   wca             ... Calculate WCET cost using lp_solve [beta]
@@ -21,10 +22,6 @@ The following platin tools are available and supported:
   pml2ais         ... Translate program information to aiT's AIS format
   sweet           ... Run SWEET analysis tool
   ff2pml          ... Translate SWEET flowfacts to PML
-
-The following platin benchmark scripts are available:
-  bench-trace     ... Simulate and analyze benchmark using trace flow-fact hypotheses
-  bench-sweet     ... Simulate and analyze benchmark using SWEET and trace flow-fact hypotheses
 
   Undocumented commands: $(echo $(list_unknown_commands))
 

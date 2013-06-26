@@ -27,8 +27,9 @@ class AisExportTool
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
       flowfacts.each { |ff| ais.export_flowfact(ff) }
 
-      statistics("AIS flow facts" => ais.stats_generated_facts,
-                 "Unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
+      statistics("AIS",
+                 "exported flow facts" => ais.stats_generated_facts,
+                 "unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
     }
   end
 end

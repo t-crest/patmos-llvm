@@ -38,15 +38,22 @@ module PML
     end
     # tool writes report (stdout or machinereadble)
     def writes_report
-      self.on("--report [FILE]", "Generate report") { |f| options.report = f || "-" }
+      self.on("--report [FILE]", "generate report") { |f| options.report = f || "-" }
+      self.on("--append-report [KEYVALUELIST]", "append to existing report") { |kvlist|
+        options.report_append = if kvlist
+          Hash[kvlist.split(/,/).map { |s| s.split(/=/)}]
+        else
+          {}
+        end
+      }
     end
     # tool calculates flowfacts
     def generates_flowfacts
-      self.on("--flow-fact-output NAME", "Name of the flow fact generator") { |n| options.flow_fact_output = n }
+      self.on("--flow-fact-output NAME", "name for set of generated flow facts") { |n| options.flow_fact_output = n }
     end
     # tool generates WCET results
     def calculates_wcet(default_name = nil)
-      self.on("--timing-output NAME", "Name of the WCET information generator") { |n| options.timing_output = n }
+      self.on("--timing-output NAME", "name or prefix for set of calculated WCETs") { |n| options.timing_output = n }
       add_check { |options| options.timing_output = default_name unless options.timing_output } if default_name
     end
     # tool uses call strings and allows the user to specify a custom length
@@ -57,13 +64,13 @@ module PML
     end
     # user should specify selection of flow facts
     def flow_fact_selection
-      self.on("--flow-fact-input SOURCE,..", "Flow fact sources to use (=all)") { |srcs|
+      self.on("--flow-fact-input SOURCE,..", "flow fact sets to use (=all)") { |srcs|
         options.flow_fact_srcs = srcs.split(/\s*,\s*/)
       }
-      self.on("--flow-fact-selection PROFILE,...", "Flow facts set to use (=all,minimal,local,rt-support-{all,local})") { |ty|
+      self.on("--flow-fact-selection PROFILE,...", "flow fact filter (=all,minimal,local,rt-support-{all,local})") { |ty|
         options.flow_fact_selection = ty
       }
-      self.on("--use-relation-graph", "whether to use bitcode flowfacts via relation graph") {
+      self.on("--use-relation-graph", "use bitcode flowfacts via relation graph") {
         options.use_relation_graph = true
       }
       add_check { |options|
@@ -73,17 +80,17 @@ module PML
     end
     # ELF binaries
     def binary_file(mandatory = false)
-      self.on("-b", "--binary FILE", "Name of the binary file to analyze") { |f| options.binary_file = f }
+      self.on("-b", "--binary FILE", "binary file to analyze") { |f| options.binary_file = f }
       needs(:binary_file, "Option --binary is mandatory") if mandatory
     end
     # Trace entry
     def trace_entry
-      self.on("--trace-entry FUNCTION", "Name of the function to trace") { |f| options.trace_entry = f }
+      self.on("--trace-entry FUNCTION", "name/label of function to trace (=main)") { |f| options.trace_entry = f }
       add_check { |options| options.trace_entry = "main" unless options.trace_entry }
     end
     # Analysis entry
     def analysis_entry
-      self.on("-e", "--analysis-entry FUNCTION", "Name of the function to analyse") { |f|
+      self.on("-e", "--analysis-entry FUNCTION", "name/label of function to analyse (=main)") { |f|
         options.analysis_entry = f
       }
       add_check { |options| options.analysis_entry = "main" unless options.analysis_entry }
@@ -106,7 +113,7 @@ module PML
   def optparse(arg_range, arg_descr, synopsis)
     options = OpenStruct.new
     parser = PML::OptionParser.new(options) do |opts|
-      opts.banner = "usage: #{File.basename($0)} OPTIONS #{arg_descr}\n\n#{SYNOPSIS}\n" 
+      opts.banner = "usage: #{File.basename($0)} OPTIONS #{arg_descr}\n\n#{synopsis}\n" 
       opts.separator("Options:")
       yield opts if block_given?
       opts.separator("")

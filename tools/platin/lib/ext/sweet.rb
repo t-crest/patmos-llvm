@@ -270,29 +270,44 @@ module PML
         options.sweet   ||= "sweet"
       }
     end
-    def bitcode_file(mandatory=false)
-      self.on("--bitcode FILE", "Bitcode file")                { |f| options.bitcode_file = f }
+    def bitcode_file(mandatory=Proc.new { |options| false })
+      self.on("--bitcode FILE", "linked bitcode file")                { |f| options.bitcode_file = f }
       self.add_check { |options|
-        die_usage "Specifying a bitcode file (--bitcode) is mandatory" unless options.bitcode_file
-      } if mandatory
-    end
-    def runs_llvm2alf
-      bitcode_file(true)
-      self.on("--alf FILE", "ALF program model file")          { |f| options.alf_file = f }
-      self.add_check { |options|
-        die_usage "Specifying the ALF file is mandatory for SWEET analysis"     unless options.alf_file
+        if mandatory.call(options)
+          die_usage "Specifying a bitcode file (--bitcode) is mandatory" unless options.bitcode_file
+        end
       }
     end
-    def runs_sweet
-      self.on("--sweet-ignore-volatiles", "treat volatile memory areas as ordinary ones") { |f| options.sweet_ignore_volatiles = true }
+    def alf_file(mandatory=Proc.new { |options| false })
+      self.on("--alf FILE", "ALF program model file")          { |f| options.alf_file = f }
+      self.add_check { |options|
+        if mandatory.call(options)
+          die_usage "Specifying an ALF file is mandatory for SWEET analysis" unless options.alf_file
+        end
+      }
     end
-    def sweet_flowfact_file(mandatory = true)
+
+    def sweet_options
+      self.on("--sweet-ignore-volatiles", "treat volatile memory areas as ordinary ones") { |f|
+        options.sweet_ignore_volatiles = true
+      }
+    end
+
+    def sweet_flowfact_file(mandatory=Proc.new { |options| true })
       self.on("--sweet-flowfacts FILE.ff", "SWEET flowfact file") { |f| options.sweet_flowfact_file = f }
-      self.add_check { |options| die_usage "Specifying SWEET flowfact file is mandatory" unless options.sweet_flowfact_file } if mandatory
+      self.add_check { |options|
+        if mandatory.call(options)
+          die_usage "Specifying SWEET flowfact file is mandatory" unless options.sweet_flowfact_file
+        end
+      }
     end
-    def sweet_trace_file(mandatory = true)
+    def sweet_trace_file(mandatory = Proc.new { |options| true })
       self.on("--sweet-trace FILE.tf", "SWEET trace file") { |f| options.sweet_trace_file = f }
-      self.add_check { |options| die_usage "Specifying SWEET trace file is mandatory" unless options.sweet_trace_file } if mandatory
+      self.add_check { |options|
+        if mandatory.call(options)
+          die_usage "Specifying SWEET trace file is mandatory" unless options.sweet_trace_file
+        end
+      }
     end
   end
 # end module PML

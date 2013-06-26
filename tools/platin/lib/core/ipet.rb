@@ -70,6 +70,9 @@ class IndexedConstraint
       @gcd = @lhs.values.inject(0,:gcd)
       @lhs.merge!(@lhs) { |v,c| c / @gcd }
       @rhs /= @gcd
+      # As all flow variables are positive, the constraint is a tautology
+      # if it is of the form (n_i x_i <= rhs, n_i <= 0, rhs >= 0)
+      @tauto = true if @lhs.all? { |v,c| c <= 0 } && @rhs >= 0
     end
   end
   def hash
@@ -333,9 +336,9 @@ class IPETEdge
   def ref
     assert("IPETEdge#ref: not a PML entity") { pml_entity? }
     if :exit == target
-      BlockRef.new(source)
+      source.ref
     else
-      EdgeRef.new(source, target)
+      EdgeRef.new(source, target, CallString.empty)
     end
   end
   def to_s
@@ -712,7 +715,7 @@ class FlowFactTransformation
       copied.push(ff2)
     }
     copied.each { |ff| pml.flowfacts.add(ff) }
-    statistics("flowfacts copied to #{options.flow_fact_output}" => copied.length) if options.stats
+    statistics("IPET","Flowfacts copied (=>#{options.flow_fact_output})" => copied.length) if options.stats
   end
   def transform(machine_entry, flowfacts, target_level)
     ilp  = ILP.new
@@ -740,7 +743,7 @@ class FlowFactTransformation
         ilp.eliminate(var)
       end
     end
-    statistics("constraints after FM-elimination (#{constraints_before})" => ilp.constraints.length) if options.stats
+    statistics("IPET","Constraints after FM-elimination (#{constraints_before} =>)" => ilp.constraints.length) if options.stats
 
     new_flowfacts = []
     ilp.constraints.each do |constr|

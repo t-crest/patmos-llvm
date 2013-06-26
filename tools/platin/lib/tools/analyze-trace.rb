@@ -43,7 +43,7 @@ class AnalyzeTraceTool
         end
       end
     end
-    statistics("simulator trace length" => trace.stats_num_items) if @options.stats
+    statistics("TRACE", "simulator trace length" => trace.stats_num_items) if @options.stats
   end
   def console_output
     # Verbose Output
@@ -124,7 +124,7 @@ class AnalyzeTraceTool
         end
       end
     }
-    statistics("extracted flow-flact hypotheses" => outpml.flowfacts.length - flow_facts_before) if @options.stats
+    statistics("TRACE", "extracted flow-flact hypotheses" => outpml.flowfacts.length - flow_facts_before) if @options.stats
     outpml
   end
 
@@ -158,7 +158,7 @@ class AnalyzeTraceTool
   end
 
   def AnalyzeTraceTool.run(pml,options)
-    needs_options(options, :analysis_entry, :binary_file, :recorder_spec)
+    needs_options(options, :analysis_entry, :trace_entry, :binary_file, :recorder_spec)
     entry  = pml.machine_functions.by_label(options.analysis_entry, true)
     if ! entry
       die("Analysis entry (ELF label #{options.analysis_entry}) not found")

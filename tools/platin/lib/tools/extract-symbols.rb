@@ -41,7 +41,7 @@ class ExtractSymbols
     # Run platform-specific extractor, if available
     @pml.arch.extract_symbols(self, @pml, @options) if @pml.arch.respond_to?(:extract_symbols)
 
-    statistics("number of extracted addresses" => stats_address_count) if @options.stats
+    statistics("EXTRACT","extracted addresses" => stats_address_count) if @options.stats
     self
   end
   def update_pml

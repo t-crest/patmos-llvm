@@ -220,7 +220,7 @@ class VisualizeTool
       end
     end
     html.generate(outdir) if options.html
-    statistics("number of generated bc,mc,rg graphs" => targets.length) if options.stats
+    statistics("VISUALIZE","Generated bc+mc+rg graphs" => targets.length) if options.stats
   end
 
   def VisualizeTool.add_options(opts)

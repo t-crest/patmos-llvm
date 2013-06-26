@@ -57,13 +57,16 @@ module PML
     $stderr.puts(format_msg("INFO",msg))
   end
 
-  def statistics(vs)
-    msg = vs.map { |k,v| "#{k}: #{v}" }.join(", ")
-    $stderr.puts(format_msg("STAT",msg))
+  def statistics(mod,vs,align=47)
+    vs.each { |k,v|
+      key = "#{mod}: #{k}".ljust(align)
+      msg = "#{key} #{v}"
+      $stderr.puts(format_msg("STAT",msg))
+    }
   end
 
-  def format_msg(tag,msg,align=30)
-    "[#{File.basename($0).to_s.ljust(align)}] #{tag}: #{msg}"
+  def format_msg(tag,msg,align=-1)
+    "[platin] #{tag}: #{msg}"
   end
 
 end

@@ -31,6 +31,7 @@ class SimulatorTrace
       }
     else
       begin
+        needs_options(@options, :pasim)
         IO.popen("#{@options.pasim} -q --debug 0 --debug-fmt trace -b #{@elf} 2>&1 1>/dev/null") do |io|
           while item=parse(io.gets)
             yield item

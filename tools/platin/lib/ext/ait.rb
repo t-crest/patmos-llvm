@@ -49,6 +49,7 @@ module PML
       @stats_generated_facts += 1
       @outfile.puts(ais_instr+" # "+descr)
       $stderr.puts(ais_instr) if @options.verbose
+      true
     end
 
     # Export jumptables for a function
@@ -78,8 +79,10 @@ module PML
     def export_calltargets(ff)
       scope, callsite, targets = ff.get_calltargets
       assert("Bad calltarget flowfact: #{ff.inspect}") { scope && scope.context.empty? }
+
       # no support for context-sensitive call targets
-      return unless callsite.context.empty?
+      return false unless callsite.context.empty?
+
       block = callsite.block
       location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
       called = targets.map { |f| dquote(f.function.label) }.join(", ")
@@ -94,7 +97,7 @@ module PML
       # aiT (=> ask absint guys)
 
       # context-sensitive facts not yet supported
-      return unless (ff.scope.context.empty?)
+      return false unless (ff.scope.context.empty?)
 
       loopname = dquote(ff.scope.loopblock.label)
       gen_fact("loop #{loopname} max #{ff.rhs} ;", # end ;"
@@ -107,7 +110,9 @@ module PML
       insname = dquote(pp.block.label)
 
       # context-sensitive facts not yet supported
-      return unless ff.scope.context.empty?
+      return false unless ff.scope.context.empty?
+      # no support for empty basic blocks (typically at -O0)
+      return false if pp.block.instructions.empty?
 
       gen_fact("instruction #{insname} is never executed ;",
                "globally infeasible block (source: #{ff['origin']})")
@@ -120,8 +125,18 @@ module PML
       assert("export_linear_constraint: not in function scope") { scope.kind_of?(FunctionRef) }
 
       # no support for context-sensitive linear constraints
-      return unless scope.context.empty?
-      return unless terms.all? { |t| t.ppref.context.empty? }
+      return false unless scope.context.empty?
+      return false unless terms.all? { |t| t.ppref.context.empty? }
+      # no support for edges in aiT
+      unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
+        warn("Constraint not supported by aiT (not a block ref): #{ff}")
+        return false
+      end
+      # no support for empty basic blocks (typically at -O0)
+      if terms.any? { |t| t.ppref.block.instructions.empty? }
+        warn("Constraint not supported by aiT (empty basic block): #{ff})")
+        return false
+      end
 
       scope = scope.function.blocks.first.ref
       terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0
@@ -139,17 +154,19 @@ module PML
 
     # export linear-constraint flow facts
     def export_flowfact(ff)
-      if(ff.classification == 'calltargets-global')
-        export_calltargets(ff)
-      elsif(ff.classification == 'loop-global')
-        export_loopbound(ff)
-      elsif(ff.classification == 'infeasible-global')
-        export_infeasible(ff)
-      elsif(ff.blocks_constraint? || ff.scope.kind_of?(FunctionRef))
-        export_linear_constraint(ff)
-      else
-        @stats_skipped_flowfacts += 1
-      end
+      supported =
+        if(ff.classification == 'calltargets-global')
+          export_calltargets(ff)
+        elsif(ff.classification == 'loop-global')
+          export_loopbound(ff)
+        elsif(ff.classification == 'infeasible-global')
+          export_infeasible(ff)
+        elsif(ff.blocks_constraint? || ff.scope.kind_of?(FunctionRef))
+          export_linear_constraint(ff)
+        else
+          false
+        end
+      @stats_skipped_flowfacts += 1 unless supported
     end
 
   end

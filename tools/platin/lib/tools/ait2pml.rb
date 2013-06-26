@@ -53,7 +53,7 @@ class AitImportTool
                             'level' => 'machinecode',
                             'origin' => options.timing_output)
     pml.timing.add(entry)
-    statistics("imported results from aiT result file" => 1) if options.stats
+    statistics("AIT","imported results" => 1) if options.stats
     pml
   end
 end
