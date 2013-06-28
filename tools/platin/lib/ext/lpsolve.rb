@@ -39,7 +39,7 @@ class LpSolveILP < ILP
     lp.print_lp if options.lp_debug
     lp.set_verbose(0)
 
-    self.dump($stderr) if options.debug
+    debug(options, :ilp) { self.dump(DebugIO.new) }
     start = Time.now
     r = lp.solve
     @solvertime += (Time.now - start)
@@ -156,11 +156,11 @@ class LpSolveILP < ILP
       next if n =~ /__positive_/
       # only relax flow facts, assuming structural constraints are correct
       if constr.name =~ /^ff/
-        v_lhs = add_variable("__slack_#{n}",:slack,0, BIGM)
+        v_lhs = add_variable("__slack_#{n}",:slack)
         add_cost("__slack_#{n}", -SLACK)
         constr.set(v_lhs, -1)
         if constr.op == "equal"
-          v_rhs = add_variable("__slack_#{n}_rhs",:slack,0, BIGM)
+          v_rhs = add_variable("__slack_#{n}_rhs",:slack)
           add_cost("__slack_#{n}_rhs", -SLACK)
           constr.set(v_rhs, 1)
         end

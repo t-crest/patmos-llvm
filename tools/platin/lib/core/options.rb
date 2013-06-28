@@ -119,7 +119,7 @@ module PML
       opts.separator("")
       opts.on("--stats", "print statistics") { options.stats = true }
       opts.on("--verbose", "verbose output") { options.verbose = true }
-      opts.on("--debug", "debug output") { options.debug = true }
+      opts.on("--debug [TYPE]", "debug output (trace,ilp,ipet,visualize,=all)") { |d| options.debug_type = d ? d.to_sym : :all }
       opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
     end
     parser.parse!

@@ -31,7 +31,9 @@ class ExtractSymbols
       io.each_line do |line|
         if record = objdump_extract(line.chomp)
           next unless @options.text_sections.include?(record.section)
-          info "Adding address for label #{record.label}: #{record.address}" if @options.debug
+          debug(@options, :elf) {
+            "Adding address for label #{record.label}: #{record.address}"
+          }
           add_symbol(record.label, record.address)
         end
       end
@@ -70,7 +72,7 @@ class ExtractSymbols
             warn("Heuristic found wrong address: #{instruction}: #{addr}, not #{ins_addr}") if addr != ins_addr
             addr = ins_addr
           elsif instruction['size'] == 0
-            warn("Size 0 for instruction #{instruction}") if @options.debug
+            debug(@options,:elf) { "Size 0 for instruction #{instruction}" }
           end
           instruction.address = addr
           addr += instruction['size']

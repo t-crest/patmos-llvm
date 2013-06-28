@@ -91,12 +91,7 @@ class SweetImportTool
       end
     end
     statistics("SWEET", "added flow facts (=>#{flow_fact_origin})" => added, "skipped flow facts" => skipped) if options.stats
-    if options.verbose
-      $dbgs.puts "Reasons for skipping flow facts: "
-      reasons.each do |k,count|
-        $dbgs.puts "  #{k} (#{count})"
-      end
-    end
+    debug(options, :sweet) { "Reasons for skipping flow facts: #{reasons.inspect}" }
     pml
   end
 

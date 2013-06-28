@@ -137,6 +137,8 @@ module PML
         warn("Constraint not supported by aiT (empty basic block): #{ff})")
         return false
       end
+      # do not export positivity contraints
+      return if ff.rhs >= 0 && terms.all? { |t| t.factor < 0 }
 
       scope = scope.function.blocks.first.ref
       terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0

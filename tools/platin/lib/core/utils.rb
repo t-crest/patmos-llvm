@@ -7,8 +7,6 @@ require 'yaml'
 require 'set'
 require 'core/options'
 
-$dbgs = $stderr
-
 module PML
   def file_open(path,mode="r")
     internal_error "file_open: nil" unless path
@@ -39,6 +37,20 @@ module PML
   def die_usage(msg)
     $stderr.puts(format_msg("USAGE","#{msg}. Try --help"))
     exit 1
+  end
+
+  class DebugIO
+    def initialize(io=$stderr)
+      @io = io
+    end
+    def puts(str)
+      @io.puts(format_msg("DEBUG",str))
+    end
+  end
+  def debug(options, type)
+    return unless options.debug_type == :all || options.debug_type == type
+    msg = yield
+    $stderr.puts(format_msg("DEBUG",msg)) if msg
   end
 
   def warn(msg)

@@ -542,7 +542,7 @@ module PML
       @loops = []
       @labelkey = opts[:labelkey]
       @blocks = BlockList.new(self, data['blocks'])
-      blocks.each do |block|
+      @blocks.each do |block|
         if(block.loopheader?)
           @loops.push(block)
         end

@@ -33,14 +33,11 @@ end
 # Generated events: block, function, ret, loop{enter,exit,cont}, eof
 #
 class MachineTraceMonitor < TraceMonitor
-  def __dbg
-    # puts("[DEBUG] #{yield}")
-  end
-  def initialize(pml,trace,program_start = "main")
+  def initialize(pml, options, trace)
     super()
-    @pml = pml
+    @pml, @options = pml, options
     @trace = trace
-    @program_entry = @pml.machine_functions.by_label(program_start)
+    @program_entry = @pml.machine_functions.by_label(options.trace_entry)
     @start = @program_entry.blocks.first.address
     # whether an instruction is a watch point
     @wp = {}
@@ -62,6 +59,7 @@ class MachineTraceMonitor < TraceMonitor
     @callstack = []
     @loopstack = nil
     @current_function = nil
+    @last_block = nil
     @last_ins  = [nil,0] # XXX: playing
     @inscost   = {}  # XXX: playing
     pending_return, pending_call = nil, nil
@@ -75,14 +73,14 @@ class MachineTraceMonitor < TraceMonitor
       # Playground: Learn about instruction costs
       # @inscost[@last_ins.first] = merge_ranges(cycles - @last_ins[1],@inscost[@last_ins.first]) if @last_ins.first
       # @last_ins = [@wp_instr[pc],cycles]
-      # __dbg { "pc: #{pc} [t=#{cycles}]" }
+      # debug(@options, :trace) { "pc: #{pc} [t=#{cycles}]" }
 
       next unless @wp[pc] || pending_return
 
       @cycles = cycles
       # Handle Return (TODO)
       if pending_return && pending_return[1] + @pml.arch.return_delay_slots + 1 == @executed_instructions
-        __dbg { "Return from #{pending_return.first} -> #{@callstack[-1]}" }
+        # debug(@options, :trace) { "Return from #{pending_return.first} -> #{@callstack[-1]}" }
         # If we there was no change of control-flow since the return instruction,  the pending return
         # was not executed (predicated). This is a heuristic, and should not be used for simulators
         # with better information available (it fails if the recursive function returns to next instruction,
@@ -93,7 +91,7 @@ class MachineTraceMonitor < TraceMonitor
           break unless fallthrough_instruction
         end
         if fallthrough_instruction && pc == fallthrough_instruction.address
-          __dbg { "Predicated return at #{fallthrough_instruction}" }
+          # debug(@options, :trace) { "Predicated return at #{fallthrough_instruction}" }
         else
           if ! handle_return(*pending_return)
             @inscost.each do |op,cycs|
@@ -107,7 +105,7 @@ class MachineTraceMonitor < TraceMonitor
 
       # Handle Basic Block
       if b = @wp_block_start[pc]
-        __dbg { "#{pc}: Block: #{b} / #{b.address}" }
+        # debug(@options, :trace) { "#{pc}: Block: #{b} / #{b.address}" }
         # function entry
         if b.address == b.function.address
           # call
@@ -123,7 +121,7 @@ class MachineTraceMonitor < TraceMonitor
 
           # set current function
           @current_function = b.function
-          __dbg { "change function to #{b.function}" }
+          # debug(@options, :trace) { "change function to #{b.function}" }
           @loopstack = []
           publish(:function, b.function, @callstack[-1], @cycles)
         end
@@ -136,21 +134,40 @@ class MachineTraceMonitor < TraceMonitor
 
         # basic block
         assert("Current function does not match block: #{@current_function} != #{b}") { @current_function == b.function }
-        @empty_blocks[b.address].each { |b0| publish(:block, b0, @cycles) } if @empty_blocks[b.address]
+
+        # Empty blocks are problematic (cannot be distinguished) - what do do?
+        # They are rare (only with -O0), so we tolerate some work. An empty block
+        # is published only if it is a successor of the last block
+        @empty_blocks[b.address].each { |b0|
+          if ! @last_block || @last_block.successors.include?(b0)
+            while(b0.instructions.size == 0)
+              debug(@options,:trace) { "Publishing empty block #{b0} (<-#{@last_block})" }
+              publish(:block, b0, @cycles)
+              assert("Empty block may only have one successor") { b0.successors.size == 1}
+              @last_block = b0
+              b0 = @last_block.successors.first
+            end
+            break
+          end
+        } if @empty_blocks[b.address]
         publish(:block, b, @cycles)
+        @last_block = b
       end
 
       # Handle Call
       if c = @wp_call_instr[pc]
-        __dbg { "#{pc}: Call: #{c}, #{@executed_instructions} in #{@current_function}" }
-        assert("Call instruction #{c} does not match current function #{@current_function}") { c.function == @current_function }
+        assert("Call instruction #{c} does not match current function #{@current_function}") {
+          c.function == @current_function
+        }
         pending_call = [c, @executed_instructions]
+        # debug(@options, :trace) { "#{pc}: Call: #{c} in #{@current_function}" }
       end
 
-      # Handle Return Block (TODO: in order to handle predicated returns, we need to know where return instructions are)
+      # Handle Return Block
+      # TODO: in order to handle predicated returns, we need to know where return instructions ar
       if r = @wp_return_instr[pc]
-        __dbg { "Scheduling return at #{r}" }
         pending_return = [r,@executed_instructions]
+        # debug(@options, :trace) { "Scheduling return at #{r}" }
       end
     end
 
@@ -177,8 +194,9 @@ class MachineTraceMonitor < TraceMonitor
     assert("No call instruction before function entry #{call_pc + 1 + @pml.arch.call_delay_slots} != #{@executed_instructions}") {
       call_pc + 1 + @pml.arch.call_delay_slots == @executed_instructions
     }
+    @lastblock = nil
     @callstack.push(c)
-    __dbg { "Call from #{@callstack.inspect}" }
+    # debug(@options, :trace) { "Call from #{@callstack.inspect}" }
   end
 
   def handle_return(r, ret_pc)
@@ -191,9 +209,10 @@ class MachineTraceMonitor < TraceMonitor
     return nil if(r.function == @program_entry)
     assert("Callstack empty at return (inconsistent callstack)") { ! @callstack.empty? }
     c = @callstack.pop
-    __dbg { "Return to #{c}" }
+    @last_block = c.block
     @loopstack = c.block.loops.reverse
     @current_function = c.function
+    # debug(@options, :trace) { "Return to #{c}" }
   end
 
   def exit_loops_downto(nest)
@@ -612,7 +631,7 @@ class ProgressTraceRecorder
   # if there is no relation graph, skip function
   def function(callee,callsite,cycles)
     @rg = @pml.relation_graphs.by_name(callee.name, @level)
-    $dbgs.puts "Call to rg for #{@level}-#{callee}: #{@rg.nodes.first}" if @rg && @options.debug
+    debug(@options,:trace) { "Call to rg for #{@level}-#{callee}: #{@rg.nodes.first}" } if rg
     @callstack.push(@node)
     @node = nil
   end
@@ -628,34 +647,32 @@ class ProgressTraceRecorder
         bb == first_node.get_block(level)
       }
       @node = first_node
-      $dbgs.puts "Visiting first node: #{@node}" if @options.debug
+      # debug(@options, :trace) { "Visiting first node: #{@node} (#{bb})" }
       return
     end
     # find matching successor progress node
     succs = @node.successors_matching(bb, @level)
-    if succs.length == 0
-      raise Exception.new("progress trace: no matching successor: at #{@node}, following #{@node.get_block(@level)}->#{bb} in (#{@level})")
-    elsif succs.length > 1
-      raise Exception.new("progress trace: indeterministic successor choice: #{@node} via #{bb}: #{succs}")
+    assert("progress trace: no (unique) successor (but #{succs.length}) at #{@node}, "+
+           "following #{@node.get_block(@level)}->#{bb} (level #{@level})") {
+      succs.length == 1
+    }
+    succ = succs.first
+    if succ.type == :progress
+      trace.push(succ)
+      internal_preds.push(@pred_list)
+      @pred_list = []
     else
-      succ = succs.first
-      if succ.type == :progress
-        trace.push(succ)
-        internal_preds.push(@pred_list)
-        @pred_list = []
-      else
-        @pred_list.push(succ)
-      end
-      @node = succ
-      $dbgs.puts "Visiting node: #{@node}" if @options.debug
+      @pred_list.push(succ)
     end
+    @node = succ
+    # debug(@options,:trace) { "Visiting node: #{@node} (#{bb})" }
   end
   # set current relation graph
   def ret(rsite,csite,cycles)
     return if csite.nil?
     @rg = @pml.relation_graphs.by_name(csite.function.name, @level)
     @node = @callstack.pop
-    $dbgs.puts "Return to rg for #{@level}-#{csite.function}: #{@rg.nodes.first}" if @rg and @options.debug
+    debug(@options, :trace) { "Return to rg for #{@level}-#{csite.function}: #{@rg.nodes.first}" } if @rg
   end
   def eof ; end
   def method_missing(event, *args); end

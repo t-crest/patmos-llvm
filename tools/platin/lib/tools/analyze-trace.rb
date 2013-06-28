@@ -23,8 +23,11 @@ class AnalyzeTraceTool
   end
   def analyze_trace
     trace = @pml.arch.simulator_trace(@options)
-    tm = MachineTraceMonitor.new(@pml, trace, @options.trace_entry)
-    tm.subscribe(VerboseRecorder.new($dbgs)) if @options.debug
+    tm = MachineTraceMonitor.new(@pml, @options, trace)
+    debug(@options, :trace) {
+      tm.subscribe(VerboseRecorder.new(DebugIO.new))
+      "Starting trace analysis"
+    }
     @main_recorder = RecorderScheduler.new(@options.recorders, @entry)
     tm.subscribe(@main_recorder)
     tm.run
@@ -49,9 +52,9 @@ class AnalyzeTraceTool
     # Verbose Output
     if @options.verbose || @options.console_output
       @main_recorder.recorders.each do |recorder|
-        recorder.dump($dbgs)
+        recorder.dump($stderr)
       end
-      $dbgs.puts "* Executed Functions: #{@main_recorder.executed_blocks.keys.join(", ")}"
+      $stderr.puts "* Executed Functions: #{@main_recorder.executed_blocks.keys.join(", ")}"
     end
     # Warn about functions / loops not executed
     @infeasible_functions.each do |function|

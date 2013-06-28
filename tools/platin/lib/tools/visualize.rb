@@ -22,9 +22,9 @@ end
 class Visualizer
   attr_reader :options
   def generate(g,outfile)
-    $dbgs.puts outfile if options.debug
+    debug(options, :visualize) { "Generating #{outfile}" }
     g.output( :png => "#{outfile}" )
-    $stderr.puts "#{outfile} ok" if options.verbose
+    info("#{outfile} ok") if options.verbose
   end
 end
 class FlowGraphVisualizer < Visualizer

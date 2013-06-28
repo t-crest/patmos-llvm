@@ -96,10 +96,9 @@ class WcaTool
                "ipet constraints" => builder.ilp.constraints.length) if options.stats
 
     # Weak-eliminate auxilliary variables
-    unless options.debug
-      ilp.variables.each do |var|
-        # ilp.eliminate_weak(var) if ilp.costs[var] == 0
-      end
+    # XXX: check whether this works correctly
+    ilp.variables.each do |var|
+      # ilp.eliminate_weak(var) if ilp.costs[var] == 0
     end
 
     # Solve ILP

@@ -54,7 +54,6 @@ class RelationGraphValidation
           raise Exception.new("Progress trace validation failed: #{p1} != #{p2}")
         end
       else
-        #$dbgs.puts "Match: #{p2.data.inspect}" if @options.debug
         ix_src,ix_dst = ix_src+1, ix_dst+1
       end
     end
@@ -85,8 +84,8 @@ class RelationGraphValidationTool
 
   def RelationGraphValidationTool.run(pml, options)
     mtrace = pml.arch.simulator_trace(options)
-    tm1 = MachineTraceMonitor.new(pml, mtrace)
-    entry  = pml.machine_functions.by_label(options.analysis_entry)
+    tm1 = MachineTraceMonitor.new(pml, options, mtrace)
+    entry = pml.machine_functions.by_label(options.analysis_entry)
     pt1 = ProgressTraceRecorder.new(pml, entry, true, options)
     tm1.subscribe(pt1)
     tm1.run

@@ -70,9 +70,6 @@ class IndexedConstraint
       @gcd = @lhs.values.inject(0,:gcd)
       @lhs.merge!(@lhs) { |v,c| c / @gcd }
       @rhs /= @gcd
-      # As all flow variables are positive, the constraint is a tautology
-      # if it is of the form (n_i x_i <= rhs, n_i <= 0, rhs >= 0)
-      @tauto = true if @lhs.all? { |v,c| c <= 0 } && @rhs >= 0
     end
   end
   def hash
@@ -119,7 +116,7 @@ class ILP
   # variables ... array of distinct, comparable items
   def initialize(options = nil)
     @solvertime = 0
-    @options = options || OpenStruct.new(:verbose=>false,:debug=>false)
+    @options = options || OpenStruct.new(:verbose=>false, :debug_type => nil)
     @variables = []
     @indexmap = {}
     @vartype = {}
@@ -223,11 +220,22 @@ class ILP
                 u
               end
         set.push([coeff,constr])
-        # delete
+        # affected, delete
         true
       end
     end
-    # $dbgs.puts("FM/Elimination: set of e=#{e.length}, l=#{l.length}, u=#{u.length}")
+
+    #debug(@options,:ipet) {
+    #  io = DebugIO.new
+    #  io.puts("------------------------------------------------------")
+    #  io.puts("Constraints before elimination of #{var_by_index(var)}")
+    #  @constraints.each { |c| io.puts("[n] #{c.name} #{c.tags.to_a}: #{c}") }
+    #  [e,l,u].zip(%w{e l u}).each { |set,name|
+    #    set.each { |coeff,c| io.puts("[#{name}] #{c.name} #{c.tags.to_a}: #{c} (#{coeff})") }
+    #  }
+    #  nil
+    #}
+
     # Trivial: no constraints for var
     if e.empty? && l.empty? && u.empty?
       @eliminated[var] = true
@@ -269,7 +277,12 @@ class ILP
         e_terms.each { |v,c| terms[v] -= c * coeff }
         rhs -= coeff * e_rhs
         # (3) add new constraint
-        add_indexed_constraint(terms, constr.op, rhs, constr.name, constr.tags + e_constr.tags)
+        c = add_indexed_constraint(terms, constr.op, rhs, constr.name, constr.tags + e_constr.tags)
+        # debug(@options, :ipet) {
+        #  if (e_constr.tags + constr.tags).include?(:flowfact)
+        #    "Gaussian Elimination: #{constr.name}+#{e_constr.name}: #{c}"
+        #  end
+        #}
       end
     else
       assert("FM elimination should be disabled for eliminate_weak") { ! weak }
@@ -287,7 +300,12 @@ class ILP
           l_terms.each { |v,c| terms[v] -= u_coeff * c }
           rhs = l_coeff * u_rhs - u_coeff * l_rhs
           name = l_constr.name+"<>"+u_constr.name
-          add_indexed_constraint(terms, l_constr.op, rhs, name, l_constr.tags + u_constr.tags)
+          c = add_indexed_constraint(terms, l_constr.op, rhs, name, l_constr.tags + u_constr.tags)
+          #debug(@options, :ipet) {
+          #  if (l_constr.tags + u_constr.tags).include?(:flowfact)
+          #    "Gaussian Elimination: #{l_constr.name}+#{u_constr.name}: #{c}"
+          #  end
+          #}
         end
       end
     end
@@ -297,9 +315,10 @@ class ILP
   def add_indexed_constraint(terms_indexed, op, const_rhs, name, tags)
     terms_indexed.default=0
     constr = IndexedConstraint.new(self, terms_indexed, op, const_rhs, name, tags)
-    return if constr.tautology?
+    return nil if constr.tautology?
     raise Exception.new("Inconsistent constraint #{name}: #{constr}") if constr.inconsistent?
     @constraints.add(constr)
+    constr
   end
 end
 
@@ -626,7 +645,7 @@ class IPETBuilder
       ilp.add_constraint(lhs, ff.op, 0, name, :flowfact)
       name
     rescue UnknownVariableException => detail
-      $stderr.puts "Skipping constraint: #{detail}" if @options.debug
+      debug(@options,:ipet) { "Skipping constraint: #{detail}" }
     end
   end
 
@@ -654,31 +673,36 @@ private
     bitcode_function.blocks.each { |block|
       @bc_model.add_block_constraint(block)
     }
-    # group relation edges by corresponding BC/MC edge and by source node
+    # Our LCTES 2013 paper describes 5 sets of constraints referenced below
+    # map from src/dst edge to set of corresponding relation edges (constraint set (3) and (4))
     rg_edges_of_edge   = { :src => {}, :dst => {} }
-    rg_edges_by_source = {}
+    # map from progress node to set of outgoing src/dst edges (constraint set (5))
+    rg_progress_edges = { }
     each_relation_edge(rg) do |edge|
       level = edge.level
       source_block = edge.source.get_block(level)
       target_block = (edge.target.type == :exit) ? :exit : (edge.target.get_block(level))
 
       assert("Bad RG: #{edge}") { source_block && target_block }
-
-      if [:entry,:progress].include?(edge.source.type)
-        rg_edges_by_source[edge.source] ||= { :src => [], :dst => [] }
-        rg_edges_by_source[edge.source][level].push(edge)
-      end
+      # (3),(4)
       (rg_edges_of_edge[level][IPETEdge.new(source_block,target_block,level)] ||=[]).push(edge)
+      # (5)
+      if edge.source.type == :entry || edge.source.type == :progress
+        rg_progress_edges[edge.source] ||= { :src => [], :dst => [] }
+        rg_progress_edges[edge.source][level].push(edge)
+      end
     end
+    # (3),(4)
     rg_edges_of_edge.each do |level,edgemap|
       edgemap.each do |edge,rg_edges|
         lhs = rg_edges.map { |rge| [rge,1] } + [[edge,-1]]
         @ilp.add_constraint(lhs, "equal", 0, "rg_edge_#{edge.qname}", :structural)
       end
     end
-    rg_edges_by_source.each do |s,edges|
+    # (5)
+    rg_progress_edges.each do |progress_node, edges|
       lhs = edges[:src].map { |e| [e,1] } + edges[:dst].map { |e| [e,-1] }
-      @ilp.add_constraint(lhs, "equal", 0, "rg_progress_#{s.qname}", :structural)
+      @ilp.add_constraint(lhs, "equal", 0, "rg_progress_#{progress_node.qname}", :structural)
     end
   end
 
@@ -718,7 +742,7 @@ class FlowFactTransformation
     statistics("IPET","Flowfacts copied (=>#{options.flow_fact_output})" => copied.length) if options.stats
   end
   def transform(machine_entry, flowfacts, target_level)
-    ilp  = ILP.new
+    ilp  = ILP.new(@options)
     builder_opts = options.dup
     builder_opts.use_relation_graph = true
     ipet = IPETBuilder.new(pml,builder_opts,ilp)
@@ -752,8 +776,9 @@ class FlowFactTransformation
 
       # Constraint is boring if it was derived from positivity and structural constraints only
       interesting = ! constr.tags.reject { |tag| tag == :positive || tag == :structural }.empty?
-      info "#{interesting ? 'INTERESTING' : 'BORING'} transformed constraint #{name} "+
-           "#{constr.tags.to_a}: #{constr}" if options.debug
+      debug(options, :ipet) {
+        "#{interesting ? 'INTERESTING' : 'BORING'} transformed constraint #{name} #{constr.tags.to_a}: #{constr}"
+      }
       next unless interesting
 
       # Simplify: edges->block
