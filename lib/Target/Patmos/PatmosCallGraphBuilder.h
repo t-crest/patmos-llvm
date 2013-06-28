@@ -122,6 +122,9 @@ namespace llvm {
     /// findSite - Find the call site of the given MachineInstr.
     MCGSite *findSite(const MachineInstr *MI) const;
 
+    /// getLabel - get a string representation of the call graph node.
+    std::string getLabel() const;
+
     /// dump - print the call graph node to the debug stream.
     void dump() const;
   };
@@ -165,7 +168,7 @@ namespace llvm {
     }
 
     /// dump - print the call site to the debug stream.
-    void dump() const;
+    void dump(bool short_format = true) const;
   };
 
   /// A machine-level call graph.
