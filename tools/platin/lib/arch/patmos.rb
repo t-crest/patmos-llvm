@@ -23,12 +23,21 @@ class SimulatorTrace
   def each
     die("File '#{@elf}' (ELF) not found") unless File.exist?("#{@elf}")
     if @options.trace_file
-      file_open(@options.trace_file) { |fh|
+      fh = $stdin
+      begin
+        if @options.trace_file[-3..-1] == '.gz'
+          require 'zlib'
+          fh = Zlib::GzipReader.open(@options.trace_file)
+        elsif @options.trace_file != '-'
+          fh = File.open(@options.trace_file, "r")
+        end
         fh.each_line { |line|
           yield parse(line)
           @stats_num_items += 1
         }
-      }
+      ensure
+        fh.close
+      end
     else
       begin
         needs_options(@options, :pasim)
