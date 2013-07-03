@@ -354,7 +354,7 @@ bool PatmosInstrInfo::isPseudo(const MachineInstr *MI) const {
 void PatmosInstrInfo::skipPseudos(MachineBasicBlock &MBB,
     MachineBasicBlock::instr_iterator &II) const
 {
-  while (isPseudo(II) && II != MBB.instr_end()) {
+  while (II != MBB.instr_end() && isPseudo(II)) {
     II++;
   }
 }
@@ -363,7 +363,7 @@ void PatmosInstrInfo::skipPseudos(MachineBasicBlock &MBB,
     MachineBasicBlock::iterator &II) const
 {
   // TODO we should check if a bundle contains only pseudos (optionally).
-  while (!II->isBundle() && isPseudo(II) && II != MBB.instr_end()) {
+  while (II != MBB.instr_end() && !II->isBundle() && isPseudo(II)) {
     II++;
   }
 }
