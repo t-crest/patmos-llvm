@@ -395,7 +395,6 @@ struct Doc {
   std::vector<BitcodeFunction*> BitcodeFunctions;
   std::vector<GenericFormat::MachineFunction*> MachineFunctions;
   std::vector<RelationGraph*> RelationGraphs;
-
   Doc(StringRef TargetTriple)
     : FormatVersion("pml-0.1"),
       TargetTriple(TargetTriple) {}
@@ -431,6 +430,10 @@ struct MappingTraits< Doc > {
 
 } // end namespace yaml
 } // end namespace llvm
+
+/////////////////
+/// PML Export //
+/////////////////
 
 namespace llvm {
 
@@ -497,7 +500,7 @@ namespace llvm {
 
     virtual void finalize(const Module &M) {}
 
-    virtual void serialize(const Function &F) =0;
+    virtual void serialize(const Function &F, LoopInfo *LI) =0;
 
     virtual void writeOutput(yaml::Output *Output) =0;
   };
@@ -530,7 +533,7 @@ namespace llvm {
   public:
     PMLFunctionExport(TargetMachine &TM) : YDoc(TM.getTargetTriple()) {}
 
-    virtual void serialize(const Function &F);
+    virtual void serialize(const Function &F, LoopInfo *LI);
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
@@ -616,57 +619,6 @@ namespace llvm {
 
   // ---------------------- Export Passes ------------------------- //
 
-  // TODO Define FunctionPass that runs only BitcodeExporter
-
-  /// PMLExportPass - This is a pass to export a machine function to
-  /// YAML (using the PML schema define at (TODO: cite report))
-  class PMLExportPass : public MachineFunctionPass {
-
-    static char ID;
-
-    std::vector<PMLExport*> Exporters;
-
-    StringRef OutFileName;
-    tool_output_file *OutFile;
-    yaml::Output *Output;
-    std::string BitcodeFile;
-
-  protected:
-    PMLExportPass(char &id, TargetMachine &tm, StringRef filename)
-      : MachineFunctionPass(id), OutFileName(filename),
-       OutFile(0), Output(0)
-    { }
-  public:
-    PMLExportPass(TargetMachine &tm, StringRef filename)
-      : MachineFunctionPass(ID), OutFileName(filename),
-       OutFile(0), Output(0)
-    { }
-
-    virtual ~PMLExportPass();
-
-    void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
-
-    void addExporter(PMLBitcodeExport *PE) {
-      Exporters.push_back( new PMLBitcodeExportAdapter(PE) );
-    }
-    void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }
-
-    // ----------------- Pass Interface  ----------------- //
-
-    virtual const char *getPassName() const { return "YAML/PML Export"; }
-
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-
-    virtual bool doInitialization(Module &M);
-
-    virtual bool doFinalization(Module &M);
-
-    /// Serialize using configured exporter. This uses
-    /// the GenericArchitecture trait.
-    virtual bool runOnMachineFunction(MachineFunction &MF);
-  };
-
-  // TODO add a pass that runs on bitcode functions only, as FunctionPass.
 
   // TODO this pass is currently implemented to work as machine-code module
   // pass. It should either support running on bitcode only as well, or

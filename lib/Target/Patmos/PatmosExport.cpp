@@ -212,39 +212,6 @@ namespace llvm {
   };
 
 
-  class PatmosExportPass : public PMLExportPass {
-    static char ID;
-
-    PatmosPMLInstrInfo PII;
-  public:
-    PatmosExportPass(PatmosTargetMachine &tm, StringRef filename)
-      : PMLExportPass(ID, tm, filename), PII(tm)
-    {
-      initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
-    }
-
-    PMLInstrInfo *getInstrInfo() { return &PII; }
-
-    virtual const char *getPassName() const {
-      return "Patmos YAML/PML Module Export";
-    }
-
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.setPreservesAll();
-      AU.addRequired<PatmosCallGraphBuilder>();
-      PMLExportPass::getAnalysisUsage(AU);
-    }
-
-    virtual bool runOnMachineFunction(MachineFunction &MF) {
-      PatmosCallGraphBuilder &PCGB = getAnalysis<PatmosCallGraphBuilder>();
-      PII.setCallGraph( PCGB.getCallGraph() );
-      return PMLExportPass::runOnMachineFunction(MF);
-    }
-  };
-
-  char PatmosExportPass::ID = 0;
-
-
   class PatmosModuleExportPass : public PMLModuleExportPass {
     static char ID;
 
@@ -278,24 +245,6 @@ namespace llvm {
 
   char PatmosModuleExportPass::ID = 0;
 
-
-
-  /// createPatmosExportPass - Returns a new PatmosExportPass
-  /// \see PatmosExportPass
-  FunctionPass *createPatmosExportPass(PatmosTargetMachine &TM,
-                                       std::string& Filename,
-                                       std::string& BitcodeFilename)
-  {
-    PatmosExportPass *PEP = new PatmosExportPass(TM, Filename);
-
-    // Add our own export passes
-    PEP->addExporter( new PatmosMachineFunctionExport(TM, PEP->getInstrInfo()));
-    PEP->addExporter( new PatmosFunctionExport(TM) );
-    PEP->addExporter( new PMLRelationGraphExport(TM) );
-    if (! BitcodeFilename.empty())
-      PEP->writeBitcode(BitcodeFilename);
-    return PEP;
-  }
 
   /// createPatmosExportPass - Returns a new PatmosExportPass
   /// \see PatmosExportPass

@@ -33,7 +33,7 @@
 using namespace llvm;
 
 /// Unfortunately, the interface for accessing successors differs
-/// between machine block and bitcode block, therefore we need tis
+/// between machine block and bitcode block, therefore we need this
 /// trait in order to avoid code duplication
 namespace llvm {
 namespace yaml {
@@ -78,10 +78,16 @@ void PMLBitcodeExportAdapter::finalize(const Module &M) {
 }
 
 void PMLBitcodeExportAdapter::serialize(MachineFunction &MF,
-                                        MachineLoopInfo* LI)
+                                        MachineLoopInfo* MLI)
 {
   const Function *F = MF.getFunction();
-  if (F) Exporter->serialize(*F);
+  if (F) {
+    // TODO get LoopInfo
+    //LoopInfo &LI = getAnalysis<LoopInfo>(*F);
+    //Exporter->serialize(*F, &LI);
+    Exporter->serialize(*F, NULL);
+
+  }
 }
 
 void PMLBitcodeExportAdapter::writeOutput(yaml::Output *Output) {
@@ -172,7 +178,7 @@ int PMLInstrInfo::getSize(const MachineInstr *Instr)
   return Instr->getDesc().getSize();
 }
 
-void PMLFunctionExport::serialize(const Function &Fn)
+void PMLFunctionExport::serialize(const Function &Fn, LoopInfo *LI)
 {
   // create PML bitcode function
   yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn.getName());
@@ -182,12 +188,14 @@ void PMLFunctionExport::serialize(const Function &Fn)
       ++BI) {
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
-    // export loop information (FIXME: not available)
-    // Loop *Loop = ILI.getLoopFor(BI);
-    // while (Loop) {
-    //  B->Loops.push_back(yaml::Name(Loop->getHeader()->getName()));
-    //  Loop = Loop->getParentLoop();
-    // }
+    // export loop information
+    if (LI) {
+      Loop *Loop = LI->getLoopFor(BI);
+      while (Loop) {
+        B->Loops.push_back(yaml::Name(Loop->getHeader()->getName()));
+        Loop = Loop->getParentLoop();
+      }
+    }
 
     /// B->MapsTo = (maybe C-source debug info?)
     for (const_pred_iterator PI = pred_begin(&*BI), PE = pred_end(&*BI); PI != PE;
@@ -379,6 +387,8 @@ void PMLMachineFunctionExport::exportBranchInstruction(MachineFunction &MF,
     }
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 // TODO maybe move RelationGraph utility stuff into its own (internal) class.
 
@@ -786,86 +796,7 @@ bool PMLRelationGraphExport::isBackEdge(MachineBasicBlock *Source,
 }
 
 
-
-
-
-PMLExportPass::~PMLExportPass() {
-  while (!Exporters.empty()) {
-    delete Exporters.back();
-    Exporters.pop_back();
-  }
-}
-
-void PMLExportPass::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.setPreservesAll();
-  AU.addRequired<MachineLoopInfo>();
-  MachineFunctionPass::getAnalysisUsage(AU);
-}
-
-bool PMLExportPass::doInitialization(Module &M) {
-  // TODO with the current implementation, we actually do not need to
-  // keep the Output as field, we only use it in finalization.
-  std::string ErrorInfo;
-  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
-  if (!ErrorInfo.empty()) {
-    delete OutFile;
-    errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
-    errs() << "[mc2yml] Reason: " << ErrorInfo;
-    OutFile = 0;
-  }
-  else {
-    Output = new yaml::Output(OutFile->os());
-  }
-
-  for (std::vector<PMLExport*>::iterator it = Exporters.begin(),
-       end = Exporters.end(); it != end; it++) {
-    (*it)->initialize(M);
-  }
-  return false;
-}
-
-bool PMLExportPass::doFinalization(Module &M) {
-  for (std::vector<PMLExport*>::iterator it = Exporters.begin(),
-       end = Exporters.end(); it != end; it++) {
-    (*it)->finalize(M);
-    // TODO we could be slightly more clevererer here and try to serialize stuff
-    // during export already, so we do not need to keep everything in memory..
-    (*it)->writeOutput(Output);
-  }
-
-  if (OutFile) {
-    OutFile->keep();
-    delete Output;
-    delete OutFile;
-  }
-
-  if (!BitcodeFile.empty()) {
-    std::string ErrorInfo;
-    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo, 0);
-    WriteBitcodeToFile(&M, BitcodeStream.os());
-    if(! ErrorInfo.empty()) {
-      errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";
-    } else {
-      BitcodeStream.keep();
-    }
-  }
-
-  return false;
-}
-
-bool PMLExportPass::runOnMachineFunction(MachineFunction &MF) {
-  MachineLoopInfo *LI = &getAnalysis<MachineLoopInfo>();
-
-  for (std::vector<PMLExport*>::iterator it = Exporters.begin(),
-       end = Exporters.end(); it != end; it++) {
-    (*it)->serialize(MF, LI);
-  }
-
-  return false;
-}
-
-char PMLExportPass::ID = 0;
-
+///////////////////////////////////////////////////////////////////////////////
 
 
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
@@ -899,6 +830,7 @@ void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
   AU.setPreservesAll();
   AU.addRequired<MachineModuleInfo>();
   AU.addRequired<MachineLoopInfo>();
+  AU.addRequired<LoopInfo>();
   MachineModulePass::getAnalysisUsage(AU);
 }
 
@@ -914,6 +846,10 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
     addToQueue(M, MMI, Roots[i]);
   }
 
+  if (Queue.empty()) {
+    addToQueue(M, MMI, "main");
+  }
+
   // follow roots until no new methods are found
   while (!Queue.empty()) {
     MachineFunction *MF = Queue.front();
@@ -924,15 +860,16 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
     Function* F = const_cast<Function*>(MF->getFunction());
 
     if (F) {
+      LoopInfo &LI(getAnalysis<LoopInfo>(*F));
       for (size_t i=0; i < BCExporters.size(); i++) {
-        BCExporters[i]->serialize(*F);
+        BCExporters[i]->serialize(*F, &LI);
       }
     }
 
-    MachineLoopInfo &LI(getAnalysis<MachineLoopInfo>(*F));
+    MachineLoopInfo &MLI(getAnalysis<MachineLoopInfo>(*F));
 
     for (size_t i=0; i < MCExporters.size(); i++) {
-      MCExporters[i]->serialize(*MF, &LI);
+      MCExporters[i]->serialize(*MF, &MLI);
     }
 
     addCalleesToQueue(M, MMI, *MF);
@@ -1044,10 +981,10 @@ char PMLModuleExportPass::ID = 0;
 
 
 /// Returns a newly-created PML export pass.
-MachineFunctionPass *
-createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFileName)
+MachineModulePass *
+createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFileName, ArrayRef<std::string> Roots)
 {
-  PMLExportPass *PEP = new PMLExportPass(TM, FileName);
+  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, 0);
 
   PEP->addExporter( new PMLFunctionExport(TM) );
   PEP->addExporter( new PMLMachineFunctionExport(TM) );

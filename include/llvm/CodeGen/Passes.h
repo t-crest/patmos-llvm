@@ -24,6 +24,7 @@ namespace llvm {
 
   class FunctionPass;
   class MachineFunctionPass;
+  class MachineModulePass;
   class PassInfo;
   class PassManagerBase;
   class TargetLowering;
@@ -296,8 +297,8 @@ namespace llvm {
 
   /// PMLExport pass - this pass exports the internal LLVM information (machinecode)
   /// to the given stream in PML format
-  MachineFunctionPass *
-  createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFile);
+  MachineModulePass *
+  createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFile, ArrayRef<std::string> Roots);
 
   /// MachineLoopInfo - This pass is a loop analysis pass.
   extern char &MachineLoopInfoID;

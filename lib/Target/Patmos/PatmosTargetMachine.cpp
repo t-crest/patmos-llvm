@@ -139,9 +139,10 @@ namespace {
                                   std::string &BitcodeFile) {
       if (OutFile.empty())
         return false;
-      if (Roots.empty()) {
-        addPass(createPatmosExportPass(getPatmosTargetMachine(), OutFile, BitcodeFile));
-      } else {
+      //if (Roots.empty()) {
+      //  addPass(createPatmosExportPass(getPatmosTargetMachine(), OutFile, BitcodeFile));
+      //} else
+      {
         addPass(createPatmosModuleExportPass(getPatmosTargetMachine(), OutFile, BitcodeFile, Roots));
       }
       return true;
