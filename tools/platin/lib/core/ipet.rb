@@ -347,13 +347,13 @@ class IPETEdge
     return false if target == :exit
     target.backedge_target?(source)
   end
-  def pml_entity?
+  def cfg_edge?
     return false unless source.kind_of?(Block)
     return false unless :exit == target || target.kind_of?(Block)
     true
   end
   def ref
-    assert("IPETEdge#ref: not a PML entity") { pml_entity? }
+    assert("IPETEdge#ref: not a CFG edge") { cfg_edge? }
     if :exit == target
       source.ref
     else
@@ -450,6 +450,12 @@ class IPETModel
     ipet.add_constraint(lhs,"equal",0,"structural_#{block.qname}",:structural)
   end
 
+  # frequency of incoming edges is frequency of block
+  def add_block_variable_constraint(block)
+    lhs = block_frequency(block) + [[block, -1]]
+    ipet.add_constraint(lhs,"equal",0,"block_#{block.qname}", :structural)
+  end
+
   # frequency of incoming is frequency of outgoing edges is 0
   def add_infeasible_block(block)
     add_block_constraint(block)
@@ -529,7 +535,7 @@ class IPETBuilder
 
   # Build basic IPET structure.
   # Yields blocks, so the caller can compute their cost
-  def build(entry)
+  def build(entry, opts = { :mbb_variables =>  false })
     mf_functions = reachable_set(entry[:dst]) do |mf_function|
       succs = Set.new
       mf_function.each_callsite { |cs|
@@ -567,6 +573,10 @@ class IPETBuilder
           next
         end
         @mc_model.add_block_constraint(block)
+        if opts[:mbb_variables]
+          @ilp.add_variable(block)
+          @mc_model.add_block_variable_constraint(block)
+        end
         block.callsites.each do |cs|
           call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets[cs])
           call_edges.each do |ce|
@@ -605,6 +615,7 @@ class IPETBuilder
     end
   end
 
+
   #
   # Add flowfacts
   #
@@ -612,7 +623,7 @@ class IPETBuilder
   #
   # (1) Linear Combinations of Block or Edge Frequencies relative to Function or Loop Scope
   #
-  def add_flowfact(ff)
+  def add_flowfact(ff, tag = :flowfact)
     model = ff.level == "machinecode" ? @mc_model : @bc_model
     raise Exception.new("IPETBuilder#add_flowfact: cannot add bitcode flowfact without using relation graph") unless model
     lhs = []
@@ -642,7 +653,7 @@ class IPETBuilder
     end
     begin
       name = "ff_#{ff['classification']}_#{@ffcount+=1}"
-      ilp.add_constraint(lhs, ff.op, 0, name, :flowfact)
+      ilp.add_constraint(lhs, ff.op, 0, name, tag)
       name
     rescue UnknownVariableException => detail
       debug(@options,:ipet) { "Skipping constraint: #{detail}" }
@@ -731,57 +742,142 @@ class FlowFactTransformation
 
   # Copy flowfacts
   def copy(flowfacts)
-    copied = []
-    flowfacts.each { |ff|
-      ff2 = ff.deep_clone
-      ff2.add_attribute('origin', options.flow_fact_output)
-      info("Adding support for #{ff2.lhs.map { |t| t.ppref.function }.join(",")}") if options.verbose
-      copied.push(ff2)
-    }
+    copied = copy_flowfacts(flowfacts)
     copied.each { |ff| pml.flowfacts.add(ff) }
     statistics("IPET","Flowfacts copied (=>#{options.flow_fact_output})" => copied.length) if options.stats
   end
-  def transform(machine_entry, flowfacts, target_level)
-    ilp  = ILP.new(@options)
-    builder_opts = options.dup
-    builder_opts.use_relation_graph = true
-    ipet = IPETBuilder.new(pml,builder_opts,ilp)
-    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
 
-    # Refine Control-Flow Model
-    ipet.refine(entry, flowfacts)
+  # Simplify
+  def simplify(machine_entry, flowfacts)
+    builder_opts = { :use_rg => false }
+    if options.transform_eliminate_edges
+      builder_opts[:mbb_variables] = true
+    else
+      warn("TransformTool#simplify: no simplifications enabled")
+      return copy(flowfacts) # just a copy
+    end
 
-    # Build IPET, no costs
-    ipet.build(entry) { |edge| 0 }
-
-    # Add flow facts
+    # Filter flow facts that need to be simplified
+    copy, simplify = [], []
     flowfacts.each { |ff|
-      name = ipet.add_flowfact(ff)
+      if options.transform_eliminate_edges && ! ff.get_calltargets && ff.references_edges?
+        simplify.push(ff)
+      elsif options.transform_eliminate_edges && ff.references_empty_block?
+        simplify.push(ff)
+      else
+        copy.push(ff)
+      end
     }
+    copied = copy_flowfacts(copy)
+    copied.each { |ff| pml.flowfacts.add(ff) }
+
+    # Build ILP for transformation
+    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
+    ipet = build_model(entry, copied, builder_opts)
+    simplify.each { |ff| ipet.add_flowfact(ff, :simplify) }
+
+    # Elimination
+    ilp = ipet.ilp
+    constraints_before = ilp.constraints.length
+    ilp.variables.each do |var|
+      if var.kind_of?(Instruction)
+        info("Eliminating Instruction: #{var}")
+        ilp.eliminate(var)
+      elsif options.transform_eliminate_edges && var.kind_of?(IPETEdge) && var.cfg_edge?
+        info("Eliminating IPET Edge: #{var}")
+        ilp.eliminate(var)
+      elsif options.transform_eliminate_edges && var.kind_of?(Block) && var.instructions.empty?
+        info("Eliminating empty block: #{var}")
+        ilp.eliminate(var)
+      else
+        info("Not eliminating #{var}")
+      end
+    end
+
+    # Extract and add new flow facts
+    new_ffs = extract_flowfacts(ilp, entry, :dst, [:simplify])
+    new_ffs.each { |ff| pml.flowfacts.add(ff) }
+    statistics("TRANSFORM",
+               "Constraints after 'simplify' FM-elimination (#{constraints_before} =>)" =>
+               ilp.constraints.length,
+               "Unsimplified flowfacts copied (=>#{options.flow_fact_output})" =>
+               copied.length,
+               "Simplified flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" =>
+               new_ffs.length) if options.stats
+  end
+
+  def transform(machine_entry, flowfacts, target_level)
+    # Build ILP for transformation
+    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
+    ilp = build_model(entry, flowfacts, :use_rg => true).ilp
 
     # If direction up/down, eliminate all vars but dst/src
     info "Running transformer to level #{target_level}" if options.verbose
     constraints_before = ilp.constraints.length
     ilp.variables.each do |var|
-      if ilp.vartype[var] != target_level || var.kind_of?(Instruction) || ! var.pml_entity?
+      if ilp.vartype[var] != target_level || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
         ilp.eliminate(var)
       end
     end
-    statistics("IPET","Constraints after FM-elimination (#{constraints_before} =>)" => ilp.constraints.length) if options.stats
 
+    # Extract and add new flow facts
+    new_ffs = extract_flowfacts(ilp, entry, target_level, [:flowfact, :callsite])
+    new_ffs.each { |ff| pml.flowfacts.add(ff) }
+    statistics("TRANSFORM",
+               "Constraints after FM-elimination (#{constraints_before} =>)" =>
+               ilp.constraints.length,
+               "transformed flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" =>
+               new_ffs.length) if options.stats
+  end
+
+private
+
+  def copy_flowfacts(flowfacts)
+    copied = []
+    flowfacts.each { |ff|
+      ff2 = ff.deep_clone
+      ff2.add_attribute('origin', options.flow_fact_output)
+      copied.push(ff2)
+    }
+    copied
+  end
+
+  #
+  # entry      ... { :dst => <machine-function , :src => <bitcode-function> }
+  # flowfacts  ... [ <FlowFact f> ]
+  # opts  :use_rg          => <boolean> ... whether to enable relation graphs
+  #       :mbb_variables => <boolean> ... add variables representing basic blocks
+  #
+  def build_model(entry, flowfacts, opts = { :use_rg => false })
+    # ILP for transformation
+    ilp  = ILP.new(@options)
+
+    # IPET builder
+    builder_opts = options.dup
+    builder_opts.use_relation_graph = opts[:use_rg]
+    ipet = IPETBuilder.new(pml,builder_opts,ilp)
+
+    # Build IPET (no cost) and add flow facts
+    ipet.build(entry, :mbb_variables => true) { |edge| 0 }
+    flowfacts.each { |ff| ipet.add_flowfact(ff) }
+    ipet.refine(entry, flowfacts)
+    ipet
+  end
+
+  def extract_flowfacts(ilp, entry, target_level, tags = [:flowfact, :callsite])
     new_flowfacts = []
     ilp.constraints.each do |constr|
       lhs = constr.named_lhs
       name = constr.name
 
       # Constraint is boring if it was derived from positivity and structural constraints only
-      interesting = ! constr.tags.reject { |tag| tag == :positive || tag == :structural }.empty?
+      interesting = constr.tags.any? { |tag| tags.include?(tag) }
       debug(options, :ipet) {
         "#{interesting ? 'INTERESTING' : 'BORING'} transformed constraint #{name} #{constr.tags.to_a}: #{constr}"
       }
       next unless interesting
 
-      # Simplify: edges->block
+      # Simplify: edges->block if possible (lossless; see eliminate_edges for potentially lossy transformation)
       unless lhs.any? { |var,_| ! var.kind_of?(IPETEdge) }
         # (1) get all referenced outgoing blocks
         out_blocks = {}
@@ -807,7 +903,10 @@ class FlowFactTransformation
       ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs)
       new_flowfacts.push(ff)
     end
-
+    new_flowfacts.each { |ff|
+      ff.add_attribute('origin', options.flow_fact_output)
+      ff.add_attribute('level', (target_level == :src) ? "bitcode" : "machinecode")
+    }
     new_flowfacts
   end
 end

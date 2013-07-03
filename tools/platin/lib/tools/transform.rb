@@ -33,7 +33,7 @@ class RelationGraphValidation
           info("Progress Trace Validation Mismatch: #{p1} vs #{p2}")
           info("Trace to SRC:")
           (-SHOW_ERROR_TRACE..SHOW_ERROR_TRACE).each do |off|
-            is,id = [0,ix_src+off].max, [0,ix_dst+off].max
+            is,id = [ [0,ix_src+off].max, tsrc.length - 1].min, [ [0,ix_dst+off].max, tdst.length - 1 ].min
             pt1.internal_preds[is].each { |n|
               $stderr.puts "        #{n}"
             }
@@ -98,19 +98,22 @@ class RelationGraphValidationTool
   end
 end
 
-class RelationGraphTransformTool
+class TransformTool
   TRANSFORM_ACTIONS=%w{up down copy}
 
-  def RelationGraphTransformTool.add_options(opts)
+  def TransformTool.add_options(opts)
     opts.analysis_entry
     opts.flow_fact_selection
     opts.generates_flowfacts
     opts.on("--validate", "Validate relation graph") { opts.options.validate = true }
-    opts.on("--transform-action ACTION", "action to perform (=down,up,copy)") { |action| opts.options.transform_action = action }
+    opts.on("--transform-action ACTION", "action to perform (=down,up,copy,simplify)") { |action|
+      opts.options.transform_action = action
+    }
+    opts.on("--transform-eliminate-edges", "eliminate edges in favor of blocks") {
+      opts.options.transform_eliminated_edges = true
+    }
     RelationGraphValidationTool.add_options(opts, false)
     opts.add_check { |options|
-      # die_usage("Missing option --transform-action") unless options.transform_action
-      # die_usage("Bad action #{options.transform_action} (not in {#{TRANSFORM_ACTIONS.join(",")}})") unless TRANSFORM_ACTIONS.include?(options.transform_action)
       if options.validate
         RelationGraphValidationTool.check_options(options)
       end
@@ -118,7 +121,7 @@ class RelationGraphTransformTool
   end
 
   # pml ... PML for the prgoam
-  def RelationGraphTransformTool.run(pml,options)
+  def TransformTool.run(pml,options)
     needs_options(options,:flow_fact_selection,:flow_fact_srcs,:transform_action,:analysis_entry)
 
     #require 'perftools'
@@ -131,22 +134,18 @@ class RelationGraphTransformTool
     # Analysis Entry
     entry = pml.machine_functions.by_label(options.analysis_entry)
 
-    # flow facts
-    flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs,  ["bitcode","machinecode"])
+    # Select flow facts
+    flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["bitcode","machinecode"])
 
+    # Start transformation
     fft = FlowFactTransformation.new(pml,options)
     if options.transform_action == "copy"
       fft.copy(flowfacts)
     elsif options.transform_action == "up" || options.transform_action == "down"
       dir = options.transform_action == "up" ? :src : :dst
-      new_ffs = fft.transform(entry, flowfacts, dir)
-      new_ffs.each { |ff|
-        ff.add_attribute('origin', options.flow_fact_output)
-        ff.add_attribute('level', (dir == :src) ? "bitcode" : "machinecode")
-        pml.flowfacts.add(ff)
-      }
-      statistics("TRANSFORM",
-                 "transformed flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" => new_ffs.length) if options.stats
+      fft.transform(entry, flowfacts, dir)
+    elsif options.transform_action == "simplify"
+      fft.simplify(entry, flowfacts)
     else
       die("Bad transformation action --transform-action=#{options.transform_action}")
     end
@@ -157,12 +156,12 @@ end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF
-Validates relation graph and transforms flow facts from IR level to machine code level.
+Transforms flow facts from IR level to machine code level or simplify set of flow facts
 EOF
   options, args = PML::optparse(0, "", SYNOPSIS) do |opts|
     opts.needs_pml
     opts.writes_pml
-    RelationGraphTransformTool.add_options(opts)
+    TransformTool.add_options(opts)
   end
-  RelationGraphTransformTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
+  TransformTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
 end

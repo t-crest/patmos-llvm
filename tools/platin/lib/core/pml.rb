@@ -815,33 +815,54 @@ module PML
   end
 
 
-  # Flow fact selector
-  class FlowFactSelection
-    MINIMAL_FLOWFACT_TYPES = %w{loop-global calltargets-global infeasible-global}
-    def initialize(pml, profile)
-      @pml, @profile = pml, profile
+  # Flow fact classification and selection
+  class FlowFactClassifier
+    def initialize(pml)
+      @pml = pml
     end
-    def include?(ff)
-      return true if @profile == "all"
-      # context-independent loop bound
-      is_loop_bound       = ff.classification == "loop-global"
+    # FIXME: cache
+    def classify(ff)
+      c = OpenStruct.new
+      # context-independent loop bound (FIXME: depends on metadata)
+      c.is_loop_bound = ff.classification == "loop-global"
       # context-independent block infeasibility
-      is_infeasible = ! ff.get_block_infeasible.nil?
+      c.is_infeasible = ! ff.get_block_infeasible.nil?
       # context-independent calltarget restriction
       (_,cs,_)      = ff.get_calltargets
-      is_indirect_calltarget = cs && cs.instruction.unresolved_call?
+      c.is_indirect_calltarget = cs && cs.instruction.unresolved_call?
       # rt: involves machine-code only function
-      is_rt         = ff.lhs.any? { |term| @pml.machine_code_only_functions.include?(term.ppref.function.label) }
-      is_minimal    = is_loop_bound || is_infeasible || is_indirect_calltarget
-      is_local      = is_minimal || ff.lhs.all? { |term| term.ppref.function == ff.scope.function }
-      case @profile
-      when "minimal"    then is_minimal
-      when "local"      then is_local
+      c.is_rt         = ff.lhs.any? { |term| @pml.machine_code_only_functions.include?(term.ppref.function.label) }
+      c.is_minimal    = c.is_loop_bound || c.is_infeasible || c.is_indirect_calltarget
+      c.is_local      = c.is_minimal || ff.lhs.all? { |term| term.ppref.function == ff.scope.function }
+      c
+    end
+    def classification_group(ff)
+      c = classify(ff)
+      s = if c.is_loop_bound
+            "loop-bound"
+          elsif c.is_infeasible
+            "infeasible"
+          elsif c.is_indirect_calltarget
+            "indirect-call-target"
+          elsif c.is_local
+            "local"
+          else
+            "global"
+          end
+      s = "#{s}-rt" if c.is_rt
+      s
+    end
+    def included?(ff, profile)
+      c = classify(ff)
+      return true if profile == "all"
+      case profile
+      when "minimal"    then c.is_minimal
+      when "local"      then c.is_local
       # FIXME: indirect calltargets are needed on MC level to build callgraph
-      when "rt-support-all"   then is_rt || is_indirect_calltarget
-      when "rt-support-local" then (is_rt && is_local) || is_indirect_calltarget
-      when "rt-support-minimal" then (is_rt && is_minimal) || is_indirect_calltarget
-      else raise Exception.new("Bad Flow-Fact Selection Profile: #{@profile}")
+      when "rt-support-all"   then c.is_rt || c.is_indirect_calltarget
+      when "rt-support-local" then (c.is_rt && c.is_local) || c.is_indirect_calltarget
+      when "rt-support-minimal" then (c.is_rt && c.is_minimal) || c.is_indirect_calltarget
+      else raise Exception.new("Bad Flow-Fact Selection Profile: #{profile}")
       end
     end
   end
@@ -866,7 +887,7 @@ module PML
     end
 
     def filter(pml, ff_selection, ff_srcs, ff_levels)
-      selector = FlowFactSelection.new(pml, ff_selection)
+      classifier = FlowFactClassifier.new(pml)
       @list.select { |ff|
         # skip if level does not match
         if ! ff_levels.include?(ff.level)
@@ -874,11 +895,37 @@ module PML
         # skip if source is not included
         elsif ff_srcs != "all" && ! ff_srcs.include?(ff.origin)
           false
-        elsif ! selector.include?(ff)
+        elsif ! classifier.included?(ff, ff_selection)
           false
         else
           true
         end
+      }
+    end
+
+    def stats(pml, io = $stderr)
+      classifier = FlowFactClassifier.new(pml)
+      @by_level = {}
+      @list.each { |ff|
+        klass = classifier.classification_group(ff)
+        by_origin = (@by_level[ff.level] ||= {})
+        by_origin[:cnt] = (by_origin[:cnt] || 0) + 1
+        by_group = (by_origin[ff.origin] ||= {})
+        by_group[:cnt] = (by_group[:cnt] || 0) + 1
+        by_klass = (by_group[klass] ||= {})
+        by_klass[:cnt] = (by_klass[:cnt] || 0) + 1
+      }
+      io.puts "Flow-Facts, classified"
+      @by_level.each { |level,by_group|
+        io.puts " #{level.to_s.ljust(39)} #{by_group[:cnt]}"
+        by_group.each { |group,by_klass|
+          next if group == :cnt
+          io.puts "   #{group.to_s.ljust(37)} #{by_klass[:cnt]}"
+          by_klass.each { |klass,stats|
+            next if klass == :cnt
+            io.puts "     #{klass.to_s.ljust(35)} #{stats[:cnt]}"
+          }
+        }
       }
     end
 
@@ -1074,6 +1121,14 @@ module PML
       flowfact = FlowFact.new(scoperef, TermList.new([Term.new(blockref,1)]), 'less-equal', bound)
       flowfact.add_attributes(fact_context, 'classification' => classification)
       flowfact
+    end
+
+    def references_empty_block?
+      lhs.any? { |t| t.ppref.kind_of?(BlockRef) && t.ppref.block.instructions.empty? }
+    end
+
+    def references_edges?
+      lhs.any? { |t| t.ppref.kind_of?(EdgeRef) }
     end
 
     def blocks_constraint?

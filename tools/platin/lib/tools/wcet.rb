@@ -80,7 +80,7 @@ class WcetTool
       opts.flow_fact_srcs = ["llvm","trace"]
       opts.flow_fact_selection = "rt-support-#{options.flow_fact_selection}"
       opts.flow_fact_output = "trace.support"
-      RelationGraphTransformTool.run(pml, opts)
+      TransformTool.run(pml, opts)
     end
   end
 
@@ -96,7 +96,7 @@ class WcetTool
       opts.flow_fact_srcs = ["sweet.bc","trace.support"]
       opts.flow_fact_selection = "all"
       opts.flow_fact_output = "sweet"
-      RelationGraphTransformTool.run(pml,opts)
+      TransformTool.run(pml,opts)
     end
   end
 
@@ -109,16 +109,30 @@ class WcetTool
       WcaTool.run(pml, opts)
     end unless options.disable_wca
 
+    wcet_analysis_ait(srcs) unless options.disable_ait
+  end
+
+  def wcet_analysis_ait(srcs)
     time("run WCET analysis (aiT)") do
+      # simplify flow facts
       opts = options.dup
       opts.flow_fact_selection ||= "all"
-      opts.timing_output = [opts.timing_output,'aiT'].compact.join("/")
       opts.flow_fact_srcs = srcs
+      opts.flow_fact_output = 'aiT'
+      opts.transform_action = 'simplify'
+      opts.transform_eliminate_edges = true
+      TransformTool.run(pml, opts)
+      pml.flowfacts.stats(pml, DebugIO.new)
+
+      # run WCET analysis
+      opts.flow_fact_selection = "all"
+      opts.flow_fact_srcs = ['aiT']
+      opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
       AisExportTool.run(pml,opts)
       ApxExportTool.run(pml,opts)
       AitAnalyzeTool.run(pml, opts)
       AitImportTool.run(pml,opts)
-    end unless options.disable_ait
+    end
   end
 
   def report
@@ -161,14 +175,10 @@ class WcetTool
     begin
       outdir, tmpdir = options.outdir, nil
       tmpdir = outdir = Dir.mktmpdir() unless options.outdir
-      # Configure files for aiT export
       mod = File.basename(options.binary_file, ".elf")
-      unless options.disable_ait
-        options.ais_file = File.join(outdir, mod+".ais") unless options.ais_file
-        options.apx_file = File.join(outdir, mod+".apx") unless options.apx_file
-        options.ait_result_file = File.join(outdir, mod+".ait.xml") unless options.ait_result_file
-        options.ait_report_file = File.join(outdir, mod+".ait.txt") unless options.ait_report_file
-      end
+
+      configure_ait_files(outdir, mod, false) unless options.disable_ait
+
       if options.enable_sweet
         options.alf_file = File.join(outdir, mod+".alf") unless options.alf_file
         options.sweet_flowfact_file = File.join(outdir, mod+".ff") unless options.sweet_flowfact_file
@@ -179,6 +189,14 @@ class WcetTool
       FileUtils.remove_entry tmpdir if tmpdir
     end
     pml
+  end
+
+  # Configure files for aiT export
+  def configure_ait_files(outdir, basename, overwrite = true)
+    options.ais_file = File.join(outdir, "#{basename}.ais") unless (overwrite && options.ais_file)
+    options.apx_file = File.join(outdir, "#{basename}.apx") unless (overwrite && options.apx_file)
+    options.ait_result_file = File.join(outdir, "#{basename}.ait.xml") unless (overwrite && options.ait_result_file)
+    options.ait_report_file = File.join(outdir, "#{basename}.ait.txt") unless (overwrite && options.ait_report_file)
   end
 
   def WcetTool.run(pml,options)
