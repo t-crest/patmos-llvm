@@ -37,10 +37,11 @@
 /// footprint; during analysis, documents are usually linked into
 /// a single document.
 
+
 /// Utility for declaring that a std::vector of a particular *pointer*type
 /// should be considered a YAML sequence. Must only be used in namespace
 /// llvm/yaml.
-#define IS_PTR_SEQUENCE_VECTOR(_type)                                        \
+#define YAML_IS_PTR_SEQUENCE_VECTOR(_type)                                   \
     template<>                                                               \
     struct SequenceTraits< std::vector<_type*> > {                           \
       static size_t size(IO &io, std::vector<_type*> &seq) {                 \
@@ -52,7 +53,21 @@
         return *seq[index];                                                  \
       }                                                                      \
     };
-#define IS_PTR_SEQUENCE_VECTOR_1(_type)                                      \
+
+#define YAML_IS_SEQUENCE_VECTOR(_type)                                      \
+    template<>                                                              \
+    struct SequenceTraits< std::vector<_type> > {                           \
+      static size_t size(IO &io, std::vector<_type> &seq) {                 \
+        return seq.size();                                                  \
+      }                                                                     \
+      static _type& element(IO &io, std::vector<_type> &seq, size_t index) {\
+        if ( index >= seq.size() )                                          \
+          seq.resize(index+1);                                              \
+        return seq[index];                                                  \
+      }                                                                     \
+    };                                                                      \
+
+#define YAML_IS_PTR_SEQUENCE_VECTOR_1(_type)                                 \
     template<typename _member_type>                                          \
     struct SequenceTraits< std::vector<_type<_member_type>*> > {             \
       static size_t size(IO &io, std::vector<_type<_member_type>*> &seq) {   \
@@ -84,8 +99,12 @@ struct Name {
   std::string NameStr;
   // Empty Name
   Name() : NameStr("") {}
-  /// Name from string
+  /// Name from string (copy)
   Name(const StringRef& name) : NameStr(name.str()) {}
+  Name& operator=( const StringRef& name ) {
+    NameStr.assign(name.str());
+    return *this;
+  }
   /// Name from unsigned integer
   Name(uint64_t name) : NameStr(utostr(name)) {}
   /// get name as string
@@ -160,7 +179,7 @@ struct MappingTraits<Instruction> {
     // io.mapOptional("description", InsDescr, StringRef(""));
   }
 };
-IS_PTR_SEQUENCE_VECTOR(Instruction)
+YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
 /// Generic MachineInstruction Specification
 enum BranchType { branch_none, branch_unconditional, branch_conditional,
@@ -194,7 +213,7 @@ struct MappingTraits<GenericMachineInstruction> {
   }
   static const bool flow = true;
 };
-IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
+YAML_IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
 
 /// Basic Block Specification (generic)
 template<typename InstructionT>
@@ -215,7 +234,6 @@ struct Block {
     return Ins;
   }
 };
-
 template <typename InstructionT>
 struct MappingTraits< Block<InstructionT> > {
   static void mapping(IO &io, Block<InstructionT>& Block) {
@@ -227,7 +245,7 @@ struct MappingTraits< Block<InstructionT> > {
     io.mapOptional("instructions", Block.Instructions);
   }
 };
-IS_PTR_SEQUENCE_VECTOR_1(Block)
+YAML_IS_PTR_SEQUENCE_VECTOR_1(Block)
 
 /// basic functions
 template <typename BlockT>
@@ -255,7 +273,7 @@ struct MappingTraits< Function<BlockT> > {
     io.mapRequired("blocks",  fn.Blocks);
   }
 };
-IS_PTR_SEQUENCE_VECTOR_1(Function)
+YAML_IS_PTR_SEQUENCE_VECTOR_1(Function)
 
 typedef Block<Instruction> BitcodeBlock;
 typedef Function<BitcodeBlock> BitcodeFunction;
@@ -308,7 +326,7 @@ struct MappingTraits< RelationNode > {
     io.mapOptional("dst-successors", node.DstSuccessors, std::vector<Name>());
   }
 };
-IS_PTR_SEQUENCE_VECTOR(RelationNode)
+YAML_IS_PTR_SEQUENCE_VECTOR(RelationNode)
 
 /// Relation Graph Scope
 struct RelationScope {
@@ -378,8 +396,109 @@ struct MappingTraits< RelationGraph > {
     io.mapOptional("status", RG.Status);
   }
 };
-IS_PTR_SEQUENCE_VECTOR(RelationGraph)
+YAML_IS_PTR_SEQUENCE_VECTOR(RelationGraph)
 
+// Flow Facts
+//////////////////////////////////////////////////////////////////////////////
+
+enum CmpOp { cmp_less_equal, cmp_equal };
+template <>
+struct ScalarEnumerationTraits<CmpOp> {
+  static void enumeration(IO &io, CmpOp &op) {
+    io.enumCase(op, "less-equal", cmp_less_equal);
+    io.enumCase(op, "equal", cmp_equal);
+  }
+};
+
+struct ProgramPoint {
+  Name Function;
+  Name Block;
+  Name Instruction;
+  /// XXX: add edges-target etc.
+  /// for loop scopes
+  Name Loop;
+};
+template <>
+struct MappingTraits< ProgramPoint > {
+  static void mapping(IO &io, ProgramPoint &PP) {
+    io.mapRequired("function", PP.Function);
+    io.mapOptional("block", PP.Function, Name(""));
+    io.mapOptional("instruction", PP.Instruction, Name(""));
+    io.mapOptional("loop", PP.Loop, Name(""));
+  }
+};
+
+struct Term {
+  ProgramPoint* PP;
+  uint64_t Factor;
+  Term() : PP(0), Factor(0) {}
+  Term(ProgramPoint *pp, uint64_t factor) : PP(pp), Factor(factor) {}
+};
+
+template <>
+struct MappingTraits< Term > {
+  static void mapping(IO &io, Term &Term) {
+    io.mapRequired("factor", Term.Factor);
+    io.mapRequired("program-point", *(Term.PP));
+  }
+};
+
+YAML_IS_SEQUENCE_VECTOR(Term)
+
+struct FlowFact {
+  ProgramPoint* Scope;
+  std::vector<Term> TermsLHS;
+  CmpOp Comparison;
+  Name ConstRHS;
+  ReprLevel Level;
+  Name Origin;
+  Name Classification;
+
+  // Add term (PP should have been created by this flow fact)
+  void addTermLHS(ProgramPoint *PP, uint64_t Factor) {
+    TermsLHS.push_back(Term(PP, Factor));
+  }
+
+  // Factory / Memory Management
+  std::vector<ProgramPoint*> Storage;
+  ~FlowFact() {
+    for(std::vector<ProgramPoint*>::iterator I = Storage.begin(), E = Storage.end(); I != E; ++I)
+      delete *I;
+  }
+  ProgramPoint* createLoop(const Name& Function, const Name& Loop) {
+    ProgramPoint *LPP = new ProgramPoint();
+    Storage.push_back(LPP);
+    LPP->Function = Function;
+    LPP->Loop = Loop;
+    return LPP;
+  }
+  ProgramPoint* createBlock(const Name& Function, const Name& Block) {
+    ProgramPoint *BPP = new ProgramPoint();
+    Storage.push_back(BPP);
+    BPP->Function = Function;
+    BPP->Block = Block;
+    return BPP;
+  }
+};
+
+
+template <>
+struct MappingTraits< FlowFact > {
+  static void mapping(IO &io, FlowFact &FF) {
+    io.mapRequired("scope", *(FF.Scope));
+    io.mapRequired("lhs", FF.TermsLHS);
+    io.mapRequired("op", FF.Comparison);
+    io.mapRequired("rhs", FF.ConstRHS);
+    io.mapRequired("level", FF.Level);
+    io.mapRequired("origin", FF.Origin);
+    io.mapOptional("classification", FF.Classification, Name(""));
+  }
+};
+
+YAML_IS_PTR_SEQUENCE_VECTOR(FlowFact)
+
+// PML Documents
+//////////////////////////////////////////////////////////////////////////////
 
 /// Each document defines a version of the format, and either the
 /// generic architecture, or a specialized one. Architecture specific
@@ -397,6 +516,8 @@ struct Doc {
   std::vector<BitcodeFunction*> BitcodeFunctions;
   std::vector<GenericFormat::MachineFunction*> MachineFunctions;
   std::vector<RelationGraph*> RelationGraphs;
+  std::vector<FlowFact*> FlowFacts;
+
   Doc(StringRef TargetTriple)
     : FormatVersion("pml-0.1"),
       TargetTriple(TargetTriple) {}
@@ -426,6 +547,7 @@ struct MappingTraits< Doc > {
     io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
     io.mapOptional("machine-functions",doc.MachineFunctions);
     io.mapOptional("relation-graphs",doc.RelationGraphs);
+    io.mapOptional("flowfacts", doc.FlowFacts);
   }
 };
 
@@ -676,4 +798,5 @@ namespace llvm {
 
 } // end namespace llvm
 
+#undef DELETE_MEMBERS
 #endif

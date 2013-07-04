@@ -16,6 +16,7 @@
 #include "llvm/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -174,7 +175,27 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
     // export loop information
     LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
+    ScalarEvolution &SE = P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
+
     Loop *Loop = LI.getLoopFor(BI);
+    if (Loop) {
+      // add (trivial) flow fact for demonstration purposes
+      yaml::FlowFact *FF = new yaml::FlowFact();
+      FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
+      yaml::ProgramPoint *Block = FF->createBlock(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
+      FF->addTermLHS(Block, 1);
+      FF->addTermLHS(Block, -1);
+      FF->Comparison = yaml::cmp_equal;
+      FF->Level = yaml::level_bitcode;
+      FF->Origin = "llvm";
+      FF->Classification = "loop-global";
+
+    // SCEVConstant;
+    // bool hasLoopInvariantBackedgeTakenCount(const Loop *L);
+    // const SCEV *getMaxBackedgeTakenCount(const Loop *L);
+    // const SCEV *getBackedgeTakenCount(const Loop *L);
+    }
+
     while (Loop) {
       B->Loops.push_back(yaml::Name(Loop->getHeader()->getName()));
       Loop = Loop->getParentLoop();
@@ -807,6 +828,7 @@ void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
   AU.addRequired<MachineModuleInfo>();
   AU.addRequired<MachineLoopInfo>();
   AU.addRequired<LoopInfo>();
+  AU.addRequired<ScalarEvolution>();
   MachineModulePass::getAnalysisUsage(AU);
 }
 
