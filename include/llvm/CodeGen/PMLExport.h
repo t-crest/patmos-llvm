@@ -148,6 +148,7 @@ struct Instruction {
   bool hasCallees() {
     return ! Callees.empty();
   }
+  static const bool flow = true;
 };
 template <>
 struct MappingTraits<Instruction> {
@@ -191,6 +192,7 @@ struct MappingTraits<GenericMachineInstruction> {
     io.mapOptional("is-return",     Ins.IsReturn, false);
     io.mapOptional("branch-targets",Ins.BranchTargets, std::vector<Name>());
   }
+  static const bool flow = true;
 };
 IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
 
