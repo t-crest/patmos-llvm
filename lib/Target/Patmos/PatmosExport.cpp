@@ -1,4 +1,4 @@
-//===-- PatmosFunctionSplitter.cpp - Split functions to fit into the cache ===//
+//===-- PatmosExport.cpp - Target-specific PML exporter for Patmos --------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

@@ -57,9 +57,12 @@ namespace {
 
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
+  private:
+    const std::string DefaultRoot;
+
   public:
     PatmosPassConfig(PatmosTargetMachine *TM, PassManagerBase &PM)
-     : TargetPassConfig(TM, PM)
+     : TargetPassConfig(TM, PM), DefaultRoot("main")
     {
       // Enable preRA MI scheduler.
       if (TM->getSubtargetImpl()->usePreRAMIScheduler(getOptLevel())) {
@@ -139,12 +142,14 @@ namespace {
                                   std::string &BitcodeFile) {
       if (OutFile.empty())
         return false;
-      //if (Roots.empty()) {
-      //  addPass(createPatmosExportPass(getPatmosTargetMachine(), OutFile, BitcodeFile));
-      //} else
-      {
-        addPass(createPatmosModuleExportPass(getPatmosTargetMachine(), OutFile, BitcodeFile, Roots));
-      }
+
+
+      addPass(createPatmosModuleExportPass(
+          getPatmosTargetMachine(),
+          OutFile, BitcodeFile,
+          Roots.empty() ? ArrayRef<std::string>(DefaultRoot) : Roots
+          ));
+
       return true;
     }
 

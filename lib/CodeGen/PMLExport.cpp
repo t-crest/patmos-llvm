@@ -822,10 +822,6 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
     addToQueue(M, MMI, Roots[i]);
   }
 
-  if (Queue.empty()) {
-    addToQueue(M, MMI, "main");
-  }
-
   // follow roots until no new methods are found
   while (!Queue.empty()) {
     MachineFunction *MF = Queue.front();
