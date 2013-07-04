@@ -184,9 +184,10 @@ namespace llvm {
 
   };
 
-  class PatmosFunctionExport : public PMLFunctionExport {
+  class PatmosBitcodeExport : public PMLBitcodeExport {
   public:
-    PatmosFunctionExport(PatmosTargetMachine &tm) : PMLFunctionExport(tm) {}
+    PatmosBitcodeExport(PatmosTargetMachine &tm, const ModulePass &mp)
+      : PMLBitcodeExport(tm, mp) {}
 
     virtual bool doExportInstruction(const Instruction* Instr) {
       if (SkipSerializeInstructions) {
@@ -197,10 +198,11 @@ namespace llvm {
 
   };
 
-  class PatmosMachineFunctionExport : public PMLMachineFunctionExport {
+  class PatmosMachineExport : public PMLMachineExport {
   public:
-    PatmosMachineFunctionExport(PatmosTargetMachine &tm, PMLInstrInfo *PII)
-      : PMLMachineFunctionExport(tm, PII) {}
+    PatmosMachineExport(PatmosTargetMachine &tm, const ModulePass &mp,
+                        PMLInstrInfo *PII)
+      : PMLMachineExport(tm, mp, PII) {}
 
     virtual bool doExportInstruction(const MachineInstr *Ins) {
       if (SkipSerializeInstructions) {
@@ -257,9 +259,9 @@ namespace llvm {
                       new PatmosModuleExportPass(TM, Filename, Roots);
 
     // Add our own export passes
-    PEP->addExporter( new PatmosMachineFunctionExport(TM, PEP->getInstrInfo()));
-    PEP->addExporter( new PatmosFunctionExport(TM) );
-    PEP->addExporter( new PMLRelationGraphExport(TM) );
+    PEP->addExporter( new PatmosMachineExport(TM, *PEP, PEP->getInstrInfo()));
+    PEP->addExporter( new PatmosBitcodeExport(TM, *PEP) );
+    PEP->addExporter( new PMLRelationGraphExport(TM, *PEP) );
     if (! BitcodeFilename.empty())
       PEP->writeBitcode(BitcodeFilename);
     return PEP;

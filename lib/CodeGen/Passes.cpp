@@ -534,7 +534,6 @@ void TargetPassConfig::addMachinePasses() {
 }
 
 /// Add standard serialization to PML format
-/// XXX: roots is ignored
 bool TargetPassConfig::addSerializePass(std::string& OutFile, ArrayRef<std::string> Roots, std::string &BitcodeFile)
 {
   addPass(createPMLExportPass(*TM, OutFile, BitcodeFile, Roots));

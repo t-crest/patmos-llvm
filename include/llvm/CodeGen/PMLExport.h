@@ -475,6 +475,7 @@ namespace llvm {
 
   /// Base class for all exporters
   class PMLExport {
+
   public:
     PMLExport() {}
 
@@ -484,43 +485,11 @@ namespace llvm {
 
     virtual void finalize(const Module &M) {}
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI) =0;
+    virtual void serialize(MachineFunction &MF) =0;
 
     virtual void writeOutput(yaml::Output *Output) =0;
   };
 
-  /// Base class for exporters that work on modules and functions
-  class PMLBitcodeExport {
-  public:
-    PMLBitcodeExport() {}
-
-    virtual ~PMLBitcodeExport() {}
-
-    virtual void initialize(const Module &M) {}
-
-    virtual void finalize(const Module &M) {}
-
-    virtual void serialize(const Function &F, LoopInfo *LI) =0;
-
-    virtual void writeOutput(yaml::Output *Output) =0;
-  };
-
-  class PMLBitcodeExportAdapter : public PMLExport {
-    PMLBitcodeExport *Exporter;
-  public:
-    PMLBitcodeExportAdapter(PMLBitcodeExport *E)
-      : PMLExport(), Exporter(E) { assert(Exporter); }
-
-    virtual ~PMLBitcodeExportAdapter() { if (Exporter) delete Exporter; }
-
-    virtual void initialize(const Module &M);
-
-    virtual void finalize(const Module &M);
-
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
-
-    virtual void writeOutput(yaml::Output *Output);
-  };
 
   // --------------- Standard exporters --------------------- //
 
@@ -528,12 +497,18 @@ namespace llvm {
   // do the Doc related stuff separately, if needed for efficiency reasons, or
   // to update existing yaml-docs.
 
-  class PMLFunctionExport : public PMLBitcodeExport {
+  class PMLBitcodeExport : public PMLExport {
+  private:
     yaml::Doc YDoc;
-  public:
-    PMLFunctionExport(TargetMachine &TM) : YDoc(TM.getTargetTriple()) {}
+    const ModulePass &MP;
 
-    virtual void serialize(const Function &F, LoopInfo *LI);
+  public:
+    PMLBitcodeExport(TargetMachine &TM, const ModulePass &mp)
+    : YDoc(TM.getTargetTriple()), MP(mp) {}
+
+    virtual ~PMLBitcodeExport() {}
+
+    virtual void serialize(MachineFunction &MF);
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
@@ -544,21 +519,28 @@ namespace llvm {
     virtual void exportInstruction(yaml::Instruction* I, const Instruction* II);
   };
 
-  class PMLMachineFunctionExport : public PMLExport {
+
+
+  class PMLMachineExport : public PMLExport {
+  private:
     yaml::Doc YDoc;
 
     TargetMachine &TM;
     PMLInstrInfo *PII;
+    const ModulePass &MP;
 
   public:
-    PMLMachineFunctionExport(TargetMachine &TM, PMLInstrInfo *pii = 0)
-      : YDoc(TM.getTargetTriple()), TM(TM)
+    PMLMachineExport(TargetMachine &tm, const ModulePass &mp,
+                     PMLInstrInfo *pii = 0)
+      : YDoc(tm.getTargetTriple()), TM(tm), MP(mp)
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
     }
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
+    virtual ~PMLMachineExport() {}
+
+    virtual void serialize(MachineFunction &MF);
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
@@ -587,15 +569,18 @@ namespace llvm {
   };
 
   class PMLRelationGraphExport : public PMLExport {
+  private:
     yaml::Doc YDoc;
+    const ModulePass &MP;
 
-    MachineLoopInfo *LI;
   public:
-    PMLRelationGraphExport(TargetMachine &TM)
-      : YDoc(TM.getTargetTriple()), LI(0) {}
+    PMLRelationGraphExport(TargetMachine &TM, const ModulePass &mp)
+      : YDoc(TM.getTargetTriple()), MP(mp) {}
+
+    virtual ~PMLRelationGraphExport() {}
 
     /// Build the Control-Flow Relation Graph connection machine code and bitcode
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
+    virtual void serialize(MachineFunction &MF);
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
@@ -627,14 +612,12 @@ namespace llvm {
 
     static char ID;
 
-    typedef std::vector<PMLExport*>        MCExportList;
-    typedef std::vector<PMLBitcodeExport*> BCExportList;
+    typedef std::vector<PMLExport*>        ExportList;
     typedef std::vector<std::string>       StringList;
     typedef std::list<MachineFunction*>    MFQueue;
     typedef std::set<MachineFunction*>     MFSet;
 
-    MCExportList MCExporters;
-    BCExportList BCExporters;
+    ExportList Exporters;
 
     PMLInstrInfo *PII;
 
@@ -652,11 +635,11 @@ namespace llvm {
     PMLModuleExportPass(TargetMachine &TM, StringRef filename,
                         ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
 
-    virtual ~PMLModuleExportPass();
+    virtual~PMLModuleExportPass() {
+      DELETE_MEMBERS(Exporters);
+    }
 
-    void addExporter(PMLExport *PE) { MCExporters.push_back(PE); }
-
-    void addExporter(PMLBitcodeExport *PE) { BCExporters.push_back(PE); }
+    void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
 
     void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }
 

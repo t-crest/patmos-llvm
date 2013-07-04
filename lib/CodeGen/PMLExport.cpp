@@ -64,35 +64,11 @@ bool operator==(const Name n1, const Name n2) {
 } // end namespace yaml
 } // end namespace llvm
 
-
+///////////////////////////////////////////////////////////////////////////////
 
 namespace llvm
 {
 
-void PMLBitcodeExportAdapter::initialize(const Module &M) {
-  Exporter->initialize(M);
-}
-
-void PMLBitcodeExportAdapter::finalize(const Module &M) {
-  Exporter->finalize(M);
-}
-
-void PMLBitcodeExportAdapter::serialize(MachineFunction &MF,
-                                        MachineLoopInfo* MLI)
-{
-  const Function *F = MF.getFunction();
-  if (F) {
-    // TODO get LoopInfo
-    //LoopInfo &LI = getAnalysis<LoopInfo>(*F);
-    //Exporter->serialize(*F, &LI);
-    Exporter->serialize(*F, NULL);
-
-  }
-}
-
-void PMLBitcodeExportAdapter::writeOutput(yaml::Output *Output) {
-  Exporter->writeOutput(Output);
-}
 
 PMLInstrInfo::StringList PMLInstrInfo::getCalleeNames(MachineFunction &Caller,
                                                  const MachineInstr *Ins)
@@ -178,16 +154,26 @@ int PMLInstrInfo::getSize(const MachineInstr *Instr)
   return Instr->getDesc().getSize();
 }
 
-void PMLFunctionExport::serialize(const Function &Fn, LoopInfo *LI)
+
+///////////////////////////////////////////////////////////////////////////////
+
+
+void PMLBitcodeExport::serialize(MachineFunction &MF)
 {
+  const Function *Fn = MF.getFunction();
+
+  if (!Fn) return;
+
   // create PML bitcode function
-  yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn.getName());
+  yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn->getName());
   F->Level = yaml::level_bitcode;
   yaml::BitcodeBlock *B;
-  for (Function::const_iterator BI = Fn.begin(), BE = Fn.end(); BI != BE;
+  for (Function::const_iterator BI = Fn->begin(), BE = Fn->end(); BI != BE;
       ++BI) {
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
+    //FIXME LOOP
+    /*
     // export loop information
     if (LI) {
       Loop *Loop = LI->getLoopFor(BI);
@@ -196,6 +182,7 @@ void PMLFunctionExport::serialize(const Function &Fn, LoopInfo *LI)
         Loop = Loop->getParentLoop();
       }
     }
+    */
 
     /// B->MapsTo = (maybe C-source debug info?)
     for (const_pred_iterator PI = pred_begin(&*BI), PE = pred_end(&*BI); PI != PE;
@@ -225,7 +212,7 @@ void PMLFunctionExport::serialize(const Function &Fn, LoopInfo *LI)
   YDoc.addFunction(F);
 }
 
-void PMLFunctionExport::exportInstruction(yaml::Instruction* I,
+void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                                           const Instruction *II)
 {
   if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
@@ -240,8 +227,7 @@ void PMLFunctionExport::exportInstruction(yaml::Instruction* I,
   }
 }
 
-void PMLMachineFunctionExport::serialize(MachineFunction &MF,
-                                         MachineLoopInfo* LI)
+void PMLMachineExport::serialize(MachineFunction &MF)
 {
   yaml::GenericFormat::MachineFunction *F =
      new yaml::GenericFormat::MachineFunction(MF.getFunctionNumber());
@@ -263,11 +249,13 @@ void PMLMachineFunctionExport::serialize(MachineFunction &MF,
     B->MapsTo = yaml::Name(BB->getName());
 
     // export loop information
+    /*FIXME LOOP
     MachineLoop *Loop = LI->getLoopFor(BB);
     while (Loop) {
       B->Loops.push_back(yaml::Name(Loop->getHeader()->getNumber()));
       Loop = Loop->getParentLoop();
     }
+    */
 
     // export instruction and branch Information
     MachineBasicBlock *TrueSucc = 0, *FalseSucc = 0;
@@ -294,13 +282,12 @@ void PMLMachineFunctionExport::serialize(MachineFunction &MF,
   YDoc.addMachineFunction(F);
 }
 
-void PMLMachineFunctionExport::exportInstruction(MachineFunction &MF,
-                                 yaml::GenericMachineInstruction *I,
-                                 const MachineInstr *Ins,
-                                 SmallVector<MachineOperand, 4> &Conditions,
-                                 bool HasBranchInfo,
-                                 MachineBasicBlock *TrueSucc,
-                                 MachineBasicBlock *FalseSucc)
+void PMLMachineExport::
+exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+                  const MachineInstr *Ins,
+                  SmallVector<MachineOperand, 4> &Conditions,
+                  bool HasBranchInfo, MachineBasicBlock *TrueSucc,
+                  MachineBasicBlock *FalseSucc)
 {
   I->Opcode = Ins->getOpcode();
   I->Size = PII->getSize(Ins);
@@ -323,9 +310,9 @@ void PMLMachineFunctionExport::exportInstruction(MachineFunction &MF,
   // ss.flush();
 }
 
-void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
-                                 yaml::GenericMachineInstruction *I,
-                                 const MachineInstr *Ins)
+void PMLMachineExport::
+exportCallInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+                      const MachineInstr *Ins)
 {
   std::vector<StringRef> Callees = PII->getCalleeNames(MF, Ins);
 
@@ -343,13 +330,13 @@ void PMLMachineFunctionExport::exportCallInstruction(MachineFunction &MF,
   }
 }
 
-void PMLMachineFunctionExport::exportBranchInstruction(MachineFunction &MF,
-                                 yaml::GenericMachineInstruction *I,
-                                 const MachineInstr *Ins,
-                                 SmallVector<MachineOperand, 4> &Conditions,
-                                 bool HasBranchInfo,
-                                 MachineBasicBlock *TrueSucc,
-                                 MachineBasicBlock *FalseSucc)
+void PMLMachineExport::
+exportBranchInstruction(MachineFunction &MF,
+                        yaml::GenericMachineInstruction *I,
+                        const MachineInstr *Ins,
+                        SmallVector<MachineOperand, 4> &Conditions,
+                        bool HasBranchInfo, MachineBasicBlock *TrueSucc,
+                        MachineBasicBlock *FalseSucc)
 {
   // Should we check the PMLInstrInfo for branch targets?
   bool LookupBranchTargets = true;
@@ -621,9 +608,10 @@ void addProgressNodes(yaml::RelationGraph *RG,
 }
 
 
-void PMLRelationGraphExport::serialize(MachineFunction &MF, MachineLoopInfo* LI)
+void PMLRelationGraphExport::serialize(MachineFunction &MF)
 {
-  this->LI = LI;
+  //FIXME LOOP
+  //this->LI = LI;
 
   Function *BF = const_cast<Function*>(MF.getFunction());
   if (!BF)
@@ -784,6 +772,9 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
 bool PMLRelationGraphExport::isBackEdge(MachineBasicBlock *Source,
                                         MachineBasicBlock *Target)
 {
+  //FIXME LOOP
+  return false;
+  /*
   if (!LI->isLoopHeader(Target))
     return false;
   MachineLoop *HeaderLoop = LI->getLoopFor(Target);
@@ -793,6 +784,7 @@ bool PMLRelationGraphExport::isBackEdge(MachineBasicBlock *Source,
   while (LatchLoop->getLoopDepth() > HeaderLoop->getLoopDepth())
     LatchLoop = LatchLoop->getParentLoop();
   return (LatchLoop == HeaderLoop);
+  */
 }
 
 
@@ -814,16 +806,6 @@ PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
   PII = pii ? pii : new PMLInstrInfo();
 }
 
-PMLModuleExportPass::~PMLModuleExportPass() {
-  while (!BCExporters.empty()) {
-    delete BCExporters.back();
-    BCExporters.pop_back();
-  }
-  while (!MCExporters.empty()) {
-    delete MCExporters.back();
-    MCExporters.pop_back();
-  }
-}
 
 void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
 {
@@ -855,21 +837,8 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
     MachineFunction *MF = Queue.front();
     Queue.pop_front();
 
-    // We need to remove the const for getAnalysis<>(*F), it might modify
-    // F since it will run (analysis) function passes on it.
-    Function* F = const_cast<Function*>(MF->getFunction());
-
-    if (F) {
-      LoopInfo &LI(getAnalysis<LoopInfo>(*F));
-      for (size_t i=0; i < BCExporters.size(); i++) {
-        BCExporters[i]->serialize(*F, &LI);
-      }
-    }
-
-    MachineLoopInfo &MLI(getAnalysis<MachineLoopInfo>(*F));
-
-    for (size_t i=0; i < MCExporters.size(); i++) {
-      MCExporters[i]->serialize(*MF, &MLI);
+    for (size_t i=0; i < Exporters.size(); i++) {
+      Exporters[i]->serialize(*MF);
     }
 
     addCalleesToQueue(M, MMI, *MF);
@@ -890,12 +859,7 @@ void PMLModuleExportPass::addCalleesToQueue(const Module &M, MachineModuleInfo &
 }
 
 bool PMLModuleExportPass::doInitialization(Module &M) {
-  for (MCExportList::iterator it = MCExporters.begin(), ie = MCExporters.end();
-       it != ie; ++it)
-  {
-    (*it)->initialize(M);
-  }
-  for (BCExportList::iterator it = BCExporters.begin(), ie = BCExporters.end();
+  for (ExportList::iterator it = Exporters.begin(), ie = Exporters.end();
        it != ie; ++it)
   {
     (*it)->initialize(M);
@@ -919,13 +883,7 @@ bool PMLModuleExportPass::doFinalization(Module &M) {
     Output = new yaml::Output(OutFile->os());
   }
 
-  for (MCExportList::iterator it = MCExporters.begin(), ie = MCExporters.end();
-       it != ie; ++it)
-  {
-    (*it)->finalize(M);
-    (*it)->writeOutput(Output);
-  }
-  for (BCExportList::iterator it = BCExporters.begin(), ie = BCExporters.end();
+  for (ExportList::iterator it = Exporters.begin(), ie = Exporters.end();
        it != ie; ++it)
   {
     (*it)->finalize(M);
@@ -986,9 +944,9 @@ createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& Bitco
 {
   PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, 0);
 
-  PEP->addExporter( new PMLFunctionExport(TM) );
-  PEP->addExporter( new PMLMachineFunctionExport(TM) );
-  PEP->addExporter( new PMLRelationGraphExport(TM) );
+  PEP->addExporter( new PMLBitcodeExport(TM, *PEP) );
+  PEP->addExporter( new PMLMachineExport(TM, *PEP) );
+  PEP->addExporter( new PMLRelationGraphExport(TM, *PEP) );
   if (! BitcodeFileName.empty())
     PEP->writeBitcode(BitcodeFileName);
   return PEP;
