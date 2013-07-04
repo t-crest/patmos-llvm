@@ -172,17 +172,13 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
       ++BI) {
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
-    //FIXME LOOP
-    /*
     // export loop information
-    if (LI) {
-      Loop *Loop = LI->getLoopFor(BI);
-      while (Loop) {
-        B->Loops.push_back(yaml::Name(Loop->getHeader()->getName()));
-        Loop = Loop->getParentLoop();
-      }
+    LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
+    Loop *Loop = LI.getLoopFor(BI);
+    while (Loop) {
+      B->Loops.push_back(yaml::Name(Loop->getHeader()->getName()));
+      Loop = Loop->getParentLoop();
     }
-    */
 
     /// B->MapsTo = (maybe C-source debug info?)
     for (const_pred_iterator PI = pred_begin(&*BI), PE = pred_end(&*BI); PI != PE;
@@ -249,13 +245,13 @@ void PMLMachineExport::serialize(MachineFunction &MF)
     B->MapsTo = yaml::Name(BB->getName());
 
     // export loop information
-    /*FIXME LOOP
-    MachineLoop *Loop = LI->getLoopFor(BB);
+    Function* F = const_cast<Function*>(MF.getFunction());
+    MachineLoopInfo &MLI(P.getAnalysis<MachineLoopInfo>(*F));
+    MachineLoop *Loop = MLI.getLoopFor(BB);
     while (Loop) {
       B->Loops.push_back(yaml::Name(Loop->getHeader()->getNumber()));
       Loop = Loop->getParentLoop();
     }
-    */
 
     // export instruction and branch Information
     MachineBasicBlock *TrueSucc = 0, *FalseSucc = 0;
@@ -610,9 +606,6 @@ void addProgressNodes(yaml::RelationGraph *RG,
 
 void PMLRelationGraphExport::serialize(MachineFunction &MF)
 {
-  //FIXME LOOP
-  //this->LI = LI;
-
   Function *BF = const_cast<Function*>(MF.getFunction());
   if (!BF)
     return;
@@ -706,6 +699,11 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
       std::map<MachineBasicBlock*, StringRef> &MachineEventMap,
       std::set<StringRef> &TabuList)
 {
+
+
+  Function* F = const_cast<Function*>(MF.getFunction());
+  BackedgeInfo BI(P.getAnalysis<MachineLoopInfo>(*F));
+
   BitcodeEventMap.clear();
   MachineEventMap.clear();
   DEBUG(dbgs() << "buildEventMaps() " << MF.begin()->getParent()->getFunction()->getName() << "\n");
@@ -736,7 +734,7 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
     for (MachineBasicBlock::const_pred_iterator PredI = BlockI->pred_begin(),
         PredE = BlockI->pred_end(); PredI != PredE; ++PredI)
     {
-      if (isBackEdge(*PredI, BlockI))
+      if (BI.isBackEdge(*PredI, BlockI))
           continue;
       if ((*PredI)->getBasicBlock() == BlockI->getBasicBlock()) {
         IsSubNode = true;
@@ -769,22 +767,18 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
 
 
 /// Check whether Source -> Target is a backedge
-bool PMLRelationGraphExport::isBackEdge(MachineBasicBlock *Source,
-                                        MachineBasicBlock *Target)
+bool PMLRelationGraphExport::BackedgeInfo::
+isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target)
 {
-  //FIXME LOOP
-  return false;
-  /*
-  if (!LI->isLoopHeader(Target))
+  if (!MLI.isLoopHeader(Target))
     return false;
-  MachineLoop *HeaderLoop = LI->getLoopFor(Target);
-  MachineLoop *LatchLoop = LI->getLoopFor(Source);
+  MachineLoop *HeaderLoop = MLI.getLoopFor(Target);
+  MachineLoop *LatchLoop = MLI.getLoopFor(Source);
   if (!LatchLoop)
     return false;
   while (LatchLoop->getLoopDepth() > HeaderLoop->getLoopDepth())
     LatchLoop = LatchLoop->getParentLoop();
   return (LatchLoop == HeaderLoop);
-  */
 }
 
 

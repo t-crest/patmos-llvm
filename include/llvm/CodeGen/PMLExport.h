@@ -500,11 +500,11 @@ namespace llvm {
   class PMLBitcodeExport : public PMLExport {
   private:
     yaml::Doc YDoc;
-    const ModulePass &MP;
+    Pass &P;
 
   public:
-    PMLBitcodeExport(TargetMachine &TM, const ModulePass &mp)
-    : YDoc(TM.getTargetTriple()), MP(mp) {}
+    PMLBitcodeExport(TargetMachine &TM, ModulePass &mp)
+    : YDoc(TM.getTargetTriple()), P(mp) {}
 
     virtual ~PMLBitcodeExport() {}
 
@@ -527,12 +527,12 @@ namespace llvm {
 
     TargetMachine &TM;
     PMLInstrInfo *PII;
-    const ModulePass &MP;
+    Pass &P;
 
   public:
-    PMLMachineExport(TargetMachine &tm, const ModulePass &mp,
+    PMLMachineExport(TargetMachine &tm, ModulePass &mp,
                      PMLInstrInfo *pii = 0)
-      : YDoc(tm.getTargetTriple()), TM(tm), MP(mp)
+      : YDoc(tm.getTargetTriple()), TM(tm), P(mp)
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
@@ -571,11 +571,11 @@ namespace llvm {
   class PMLRelationGraphExport : public PMLExport {
   private:
     yaml::Doc YDoc;
-    const ModulePass &MP;
+    Pass &P;
 
   public:
-    PMLRelationGraphExport(TargetMachine &TM, const ModulePass &mp)
-      : YDoc(TM.getTargetTriple()), MP(mp) {}
+    PMLRelationGraphExport(TargetMachine &TM, ModulePass &mp)
+      : YDoc(TM.getTargetTriple()), P(mp) {}
 
     virtual ~PMLRelationGraphExport() {}
 
@@ -598,8 +598,16 @@ namespace llvm {
                         std::map<MachineBasicBlock*,StringRef> &MachineEventMap,
                         std::set<StringRef> &TabuList);
 
-    /// Check whether Source -> Target is a back-edge
-    bool isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target);
+    class BackedgeInfo {
+    private:
+      MachineLoopInfo &MLI;
+    public:
+      BackedgeInfo(MachineLoopInfo &mli) : MLI(mli) {}
+      ~BackedgeInfo() {}
+      /// Check whether Source -> Target is a back-edge
+      bool isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target);
+    };
+
   };
 
   // ---------------------- Export Passes ------------------------- //

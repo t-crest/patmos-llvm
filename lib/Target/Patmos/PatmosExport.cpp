@@ -186,7 +186,7 @@ namespace llvm {
 
   class PatmosBitcodeExport : public PMLBitcodeExport {
   public:
-    PatmosBitcodeExport(PatmosTargetMachine &tm, const ModulePass &mp)
+    PatmosBitcodeExport(PatmosTargetMachine &tm, ModulePass &mp)
       : PMLBitcodeExport(tm, mp) {}
 
     virtual bool doExportInstruction(const Instruction* Instr) {
@@ -200,7 +200,7 @@ namespace llvm {
 
   class PatmosMachineExport : public PMLMachineExport {
   public:
-    PatmosMachineExport(PatmosTargetMachine &tm, const ModulePass &mp,
+    PatmosMachineExport(PatmosTargetMachine &tm, ModulePass &mp,
                         PMLInstrInfo *PII)
       : PMLMachineExport(tm, mp, PII) {}
 
