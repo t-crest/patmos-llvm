@@ -83,6 +83,15 @@ static cl::opt<bool> PrintGCInfo("print-gc", cl::Hidden,
 static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
     cl::desc("Verify generated machine code"),
     cl::init(getenv("LLVM_VERIFY_MACHINEINSTRS")!=NULL));
+static cl::opt<std::string> SerializeMachineCode("mserialize",
+   cl::desc("Export PML specification of generated machine code to FILE"),
+   cl::init(""));
+static cl::list<std::string>SerializeRoots("mserialize-roots",
+   cl::desc("Export only methods reachable from given functions"),
+   cl::Hidden);
+static cl::opt<std::string> SerializePreemitBitcode("mpreemit-bitcode",
+  cl::desc("Write the final bitcode representation (before emit) to FILE"),
+  cl::init(""));
 static cl::opt<std::string>
 PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
                    cl::desc("Print machine instrs"),
@@ -92,9 +101,6 @@ PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
 static cl::opt<bool> EarlyLiveIntervals("early-live-intervals", cl::Hidden,
     cl::desc("Run live interval analysis earlier in the pipeline"));
 
-//static cl::opt<std::string> SerializeMachineCode("serialize",
-//  cl::desc("Export specification of generated machine code to FILE"),
-//  cl::init(""));
 
 /// Allow standard passes to be disabled by command line options. This supports
 /// simple binary flags that either suppress the pass or do nothing.
@@ -523,8 +529,15 @@ void TargetPassConfig::addMachinePasses() {
     printAndVerify("After PreEmit passes");
 
   // Serialize machine code
-  // if (! SerializeMachineCode.empty())
-  //    PM->add(createPMLExportPass(SerializeMachineCode, TM));
+  if (! SerializeMachineCode.empty())
+    addSerializePass(SerializeMachineCode, SerializeRoots, SerializePreemitBitcode);
+}
+
+/// Add standard serialization to PML format
+bool TargetPassConfig::addSerializePass(std::string& OutFile, ArrayRef<std::string> Roots, std::string &BitcodeFile)
+{
+  addPass(createPMLExportPass(*TM, OutFile, BitcodeFile, Roots));
+  return true;
 }
 
 /// Add passes that optimize machine instructions in SSA form.

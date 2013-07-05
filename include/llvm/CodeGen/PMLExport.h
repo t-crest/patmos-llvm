@@ -1,4 +1,4 @@
-//===- lib/Support/PMLExport.h -----------------------------------------===//
+//===- lib/CodeGen/PMLExport.h -----------------------------------------===//
 //
 //               YAML definitions for exporting LLVM datastructures
 //
@@ -11,6 +11,7 @@
 #define LLVM_PML_EXPORT_H_
 
 #include "llvm/Module.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/SmallVector.h"
@@ -37,10 +38,11 @@
 /// footprint; during analysis, documents are usually linked into
 /// a single document.
 
+
 /// Utility for declaring that a std::vector of a particular *pointer*type
 /// should be considered a YAML sequence. Must only be used in namespace
 /// llvm/yaml.
-#define IS_PTR_SEQUENCE_VECTOR(_type)                                        \
+#define YAML_IS_PTR_SEQUENCE_VECTOR(_type)                                   \
     template<>                                                               \
     struct SequenceTraits< std::vector<_type*> > {                           \
       static size_t size(IO &io, std::vector<_type*> &seq) {                 \
@@ -52,7 +54,21 @@
         return *seq[index];                                                  \
       }                                                                      \
     };
-#define IS_PTR_SEQUENCE_VECTOR_1(_type)                                      \
+
+#define YAML_IS_SEQUENCE_VECTOR(_type)                                      \
+    template<>                                                              \
+    struct SequenceTraits< std::vector<_type> > {                           \
+      static size_t size(IO &io, std::vector<_type> &seq) {                 \
+        return seq.size();                                                  \
+      }                                                                     \
+      static _type& element(IO &io, std::vector<_type> &seq, size_t index) {\
+        if ( index >= seq.size() )                                          \
+          seq.resize(index+1);                                              \
+        return seq[index];                                                  \
+      }                                                                     \
+    };                                                                      \
+
+#define YAML_IS_PTR_SEQUENCE_VECTOR_1(_type)                                 \
     template<typename _member_type>                                          \
     struct SequenceTraits< std::vector<_type<_member_type>*> > {             \
       static size_t size(IO &io, std::vector<_type<_member_type>*> &seq) {   \
@@ -77,14 +93,19 @@
 namespace llvm {
 namespace yaml {
 
+
 /// A string representing an identifier (string,index,address)
 struct Name {
   // String representation
   std::string NameStr;
   // Empty Name
   Name() : NameStr("") {}
-  /// Name from string
+  /// Name from string (copy)
   Name(const StringRef& name) : NameStr(name.str()) {}
+  Name& operator=( const StringRef& name ) {
+    NameStr.assign(name.str());
+    return *this;
+  }
   /// Name from unsigned integer
   Name(uint64_t name) : NameStr(utostr(name)) {}
   /// get name as string
@@ -138,6 +159,7 @@ struct ScalarEnumerationTraits<ReprLevel> {
 struct Instruction {
   uint64_t Index;
   int64_t Opcode;
+  // std::string Descr;
   std::vector<Name> Callees;
   Instruction(uint64_t index) : Index(index), Opcode(0) {}
   void addCallee(const StringRef function) {
@@ -146,6 +168,7 @@ struct Instruction {
   bool hasCallees() {
     return ! Callees.empty();
   }
+  static const bool flow = true;
 };
 template <>
 struct MappingTraits<Instruction> {
@@ -153,9 +176,11 @@ struct MappingTraits<Instruction> {
     io.mapRequired("index",   Ins.Index);
     io.mapOptional("opcode",  Ins.Opcode, (int64_t) -1);
     io.mapOptional("callees", Ins.Callees);
+    // StringRef InsDescr(Ins.Descr);
+    // io.mapOptional("description", InsDescr, StringRef(""));
   }
 };
-IS_PTR_SEQUENCE_VECTOR(Instruction)
+YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
 /// Generic MachineInstruction Specification
 enum BranchType { branch_none, branch_unconditional, branch_conditional,
@@ -172,10 +197,11 @@ struct ScalarEnumerationTraits<BranchType> {
 };
 struct GenericMachineInstruction : Instruction {
   uint64_t Size;
+  bool IsReturn;
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
   GenericMachineInstruction(uint64_t Index) :
-    Instruction(Index), Size(0), BranchType(branch_none) {}
+  Instruction(Index), Size(0), IsReturn(false), BranchType(branch_none) {}
 };
 template <>
 struct MappingTraits<GenericMachineInstruction> {
@@ -183,10 +209,12 @@ struct MappingTraits<GenericMachineInstruction> {
     MappingTraits<Instruction>::mapping(io,Ins);
     io.mapOptional("size",          Ins.Size);
     io.mapOptional("branch-type",   Ins.BranchType, branch_none);
+    io.mapOptional("is-return",     Ins.IsReturn, false);
     io.mapOptional("branch-targets",Ins.BranchTargets, std::vector<Name>());
   }
+  static const bool flow = true;
 };
-IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
+YAML_IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
 
 /// Basic Block Specification (generic)
 template<typename InstructionT>
@@ -207,7 +235,6 @@ struct Block {
     return Ins;
   }
 };
-
 template <typename InstructionT>
 struct MappingTraits< Block<InstructionT> > {
   static void mapping(IO &io, Block<InstructionT>& Block) {
@@ -219,7 +246,7 @@ struct MappingTraits< Block<InstructionT> > {
     io.mapOptional("instructions", Block.Instructions);
   }
 };
-IS_PTR_SEQUENCE_VECTOR_1(Block)
+YAML_IS_PTR_SEQUENCE_VECTOR_1(Block)
 
 /// basic functions
 template <typename BlockT>
@@ -247,7 +274,7 @@ struct MappingTraits< Function<BlockT> > {
     io.mapRequired("blocks",  fn.Blocks);
   }
 };
-IS_PTR_SEQUENCE_VECTOR_1(Function)
+YAML_IS_PTR_SEQUENCE_VECTOR_1(Function)
 
 typedef Block<Instruction> BitcodeBlock;
 typedef Function<BitcodeBlock> BitcodeFunction;
@@ -300,7 +327,7 @@ struct MappingTraits< RelationNode > {
     io.mapOptional("dst-successors", node.DstSuccessors, std::vector<Name>());
   }
 };
-IS_PTR_SEQUENCE_VECTOR(RelationNode)
+YAML_IS_PTR_SEQUENCE_VECTOR(RelationNode)
 
 /// Relation Graph Scope
 struct RelationScope {
@@ -318,9 +345,10 @@ struct MappingTraits< RelationScope > {
 
 /// Relation Graph construction status (everything except 'valid' is a bug)
 /// valid: no problems during construction
+/// loop: construction worked fine, but CFRG contains  no-progress loop
 /// corrected: initial mapping did not include all path, but tabu list corrected the problem
 /// incomplete: no sensible mapping that includes all paths from both graphs was found
-enum RelationGraphStatus { rg_status_valid, rg_status_corrected, rg_status_incomplete };
+enum RelationGraphStatus { rg_status_valid, rg_status_loop, rg_status_corrected, rg_status_incomplete };
 template <>
 struct ScalarEnumerationTraits<RelationGraphStatus> {
   static void enumeration(IO &io, RelationGraphStatus& status) {
@@ -369,8 +397,109 @@ struct MappingTraits< RelationGraph > {
     io.mapOptional("status", RG.Status);
   }
 };
-IS_PTR_SEQUENCE_VECTOR(RelationGraph)
+YAML_IS_PTR_SEQUENCE_VECTOR(RelationGraph)
 
+// Flow Facts
+//////////////////////////////////////////////////////////////////////////////
+
+enum CmpOp { cmp_less_equal, cmp_equal };
+template <>
+struct ScalarEnumerationTraits<CmpOp> {
+  static void enumeration(IO &io, CmpOp &op) {
+    io.enumCase(op, "less-equal", cmp_less_equal);
+    io.enumCase(op, "equal", cmp_equal);
+  }
+};
+
+struct ProgramPoint {
+  Name Function;
+  Name Block;
+  Name Instruction;
+  /// XXX: add edges-target etc.
+  /// for loop scopes
+  Name Loop;
+};
+template <>
+struct MappingTraits< ProgramPoint > {
+  static void mapping(IO &io, ProgramPoint &PP) {
+    io.mapRequired("function", PP.Function);
+    io.mapOptional("block", PP.Block, Name(""));
+    io.mapOptional("instruction", PP.Instruction, Name(""));
+    io.mapOptional("loop", PP.Loop, Name(""));
+  }
+};
+
+struct Term {
+  ProgramPoint* PP;
+  int64_t Factor;
+  Term() : PP(0), Factor(0) {}
+  Term(ProgramPoint *pp, int64_t factor) : PP(pp), Factor(factor) {}
+};
+
+template <>
+struct MappingTraits< Term > {
+  static void mapping(IO &io, Term &Term) {
+    io.mapRequired("factor", Term.Factor);
+    io.mapRequired("program-point", *(Term.PP));
+  }
+};
+
+YAML_IS_SEQUENCE_VECTOR(Term)
+
+struct FlowFact {
+  ProgramPoint* Scope;
+  std::vector<Term> TermsLHS;
+  CmpOp Comparison;
+  Name ConstRHS;
+  ReprLevel Level;
+  Name Origin;
+  Name Classification;
+
+  // Add term (PP should have been created by this flow fact)
+  void addTermLHS(ProgramPoint *PP, int64_t Factor) {
+    TermsLHS.push_back(Term(PP, Factor));
+  }
+
+  // Factory / Memory Management
+  std::vector<ProgramPoint*> Storage;
+  ~FlowFact() {
+    for(std::vector<ProgramPoint*>::iterator I = Storage.begin(), E = Storage.end(); I != E; ++I)
+      delete *I;
+  }
+  ProgramPoint* createLoop(const Name& Function, const Name& Loop) {
+    ProgramPoint *LPP = new ProgramPoint();
+    Storage.push_back(LPP);
+    LPP->Function = Function;
+    LPP->Loop = Loop;
+    return LPP;
+  }
+  ProgramPoint* createBlock(const Name& Function, const Name& Block) {
+    ProgramPoint *BPP = new ProgramPoint();
+    Storage.push_back(BPP);
+    BPP->Function = Function;
+    BPP->Block = Block;
+    return BPP;
+  }
+};
+
+
+template <>
+struct MappingTraits< FlowFact > {
+  static void mapping(IO &io, FlowFact &FF) {
+    io.mapRequired("scope", *(FF.Scope));
+    io.mapRequired("lhs", FF.TermsLHS);
+    io.mapRequired("op", FF.Comparison);
+    io.mapRequired("rhs", FF.ConstRHS);
+    io.mapRequired("level", FF.Level);
+    io.mapRequired("origin", FF.Origin);
+    io.mapOptional("classification", FF.Classification, Name(""));
+  }
+};
+
+YAML_IS_PTR_SEQUENCE_VECTOR(FlowFact)
+
+// PML Documents
+//////////////////////////////////////////////////////////////////////////////
 
 /// Each document defines a version of the format, and either the
 /// generic architecture, or a specialized one. Architecture specific
@@ -388,6 +517,7 @@ struct Doc {
   std::vector<BitcodeFunction*> BitcodeFunctions;
   std::vector<GenericFormat::MachineFunction*> MachineFunctions;
   std::vector<RelationGraph*> RelationGraphs;
+  std::vector<FlowFact*> FlowFacts;
 
   Doc(StringRef TargetTriple)
     : FormatVersion("pml-0.1"),
@@ -396,6 +526,7 @@ struct Doc {
     DELETE_MEMBERS(BitcodeFunctions);
     DELETE_MEMBERS(MachineFunctions);
     DELETE_MEMBERS(RelationGraphs);
+    DELETE_MEMBERS(FlowFacts);
   }
   /// Add a function, which is owned by the document afterwards
   void addFunction(BitcodeFunction *F) {
@@ -409,6 +540,10 @@ struct Doc {
   void addRelationGraph(RelationGraph* RG) {
     RelationGraphs.push_back(RG);
   }
+  /// Add a flowfact, which is owned by the document afterwards
+  void addFlowFact(FlowFact* FF) {
+    FlowFacts.push_back(FF);
+  }
 };
 template <>
 struct MappingTraits< Doc > {
@@ -418,12 +553,17 @@ struct MappingTraits< Doc > {
     io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
     io.mapOptional("machine-functions",doc.MachineFunctions);
     io.mapOptional("relation-graphs",doc.RelationGraphs);
+    io.mapOptional("flowfacts", doc.FlowFacts);
   }
 };
 
 
 } // end namespace yaml
 } // end namespace llvm
+
+/////////////////
+/// PML Export //
+/////////////////
 
 namespace llvm {
 
@@ -465,6 +605,7 @@ namespace llvm {
 
   /// Base class for all exporters
   class PMLExport {
+
   public:
     PMLExport() {}
 
@@ -474,43 +615,11 @@ namespace llvm {
 
     virtual void finalize(const Module &M) {}
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI) =0;
+    virtual void serialize(MachineFunction &MF) =0;
 
     virtual void writeOutput(yaml::Output *Output) =0;
   };
 
-  /// Base class for exporters that work on modules and functions
-  class PMLBitcodeExport {
-  public:
-    PMLBitcodeExport() {}
-
-    virtual ~PMLBitcodeExport() {}
-
-    virtual void initialize(const Module &M) {}
-
-    virtual void finalize(const Module &M) {}
-
-    virtual void serialize(const Function &F) =0;
-
-    virtual void writeOutput(yaml::Output *Output) =0;
-  };
-
-  class PMLBitcodeExportAdapter : public PMLExport {
-    PMLBitcodeExport *Exporter;
-  public:
-    PMLBitcodeExportAdapter(PMLBitcodeExport *E)
-      : PMLExport(), Exporter(E) { assert(Exporter); }
-
-    virtual ~PMLBitcodeExportAdapter() { if (Exporter) delete Exporter; }
-
-    virtual void initialize(const Module &M);
-
-    virtual void finalize(const Module &M);
-
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
-
-    virtual void writeOutput(yaml::Output *Output);
-  };
 
   // --------------- Standard exporters --------------------- //
 
@@ -518,12 +627,18 @@ namespace llvm {
   // do the Doc related stuff separately, if needed for efficiency reasons, or
   // to update existing yaml-docs.
 
-  class PMLFunctionExport : public PMLBitcodeExport {
+  class PMLBitcodeExport : public PMLExport {
+  private:
     yaml::Doc YDoc;
-  public:
-    PMLFunctionExport(TargetMachine &TM) : YDoc(TM.getTargetTriple()) {}
+    Pass &P;
 
-    virtual void serialize(const Function &F);
+  public:
+    PMLBitcodeExport(TargetMachine &TM, ModulePass &mp)
+    : YDoc(TM.getTargetTriple()), P(mp) {}
+
+    virtual ~PMLBitcodeExport() {}
+
+    virtual void serialize(MachineFunction &MF);
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
@@ -534,21 +649,28 @@ namespace llvm {
     virtual void exportInstruction(yaml::Instruction* I, const Instruction* II);
   };
 
-  class PMLMachineFunctionExport : public PMLExport {
+
+
+  class PMLMachineExport : public PMLExport {
+  private:
     yaml::Doc YDoc;
 
     TargetMachine &TM;
     PMLInstrInfo *PII;
+    Pass &P;
 
   public:
-    PMLMachineFunctionExport(TargetMachine &TM, PMLInstrInfo *pii = 0)
-      : YDoc(TM.getTargetTriple()), TM(TM)
+    PMLMachineExport(TargetMachine &tm, ModulePass &mp,
+                     PMLInstrInfo *pii = 0)
+      : YDoc(tm.getTargetTriple()), TM(tm), P(mp)
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
     }
 
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
+    virtual ~PMLMachineExport() {}
+
+    virtual void serialize(MachineFunction &MF);
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
@@ -577,15 +699,18 @@ namespace llvm {
   };
 
   class PMLRelationGraphExport : public PMLExport {
+  private:
     yaml::Doc YDoc;
+    Pass &P;
 
-    MachineLoopInfo *LI;
   public:
-    PMLRelationGraphExport(TargetMachine &TM)
-      : YDoc(TM.getTargetTriple()), LI(0) {}
+    PMLRelationGraphExport(TargetMachine &TM, ModulePass &mp)
+      : YDoc(TM.getTargetTriple()), P(mp) {}
+
+    virtual ~PMLRelationGraphExport() {}
 
     /// Build the Control-Flow Relation Graph connection machine code and bitcode
-    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI);
+    virtual void serialize(MachineFunction &MF);
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
@@ -603,63 +728,20 @@ namespace llvm {
                         std::map<MachineBasicBlock*,StringRef> &MachineEventMap,
                         std::set<StringRef> &TabuList);
 
-    /// Check whether Source -> Target is a back-edge
-    bool isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target);
+    class BackedgeInfo {
+    private:
+      MachineLoopInfo &MLI;
+    public:
+      BackedgeInfo(MachineLoopInfo &mli) : MLI(mli) {}
+      ~BackedgeInfo() {}
+      /// Check whether Source -> Target is a back-edge
+      bool isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target);
+    };
+
   };
 
   // ---------------------- Export Passes ------------------------- //
 
-  // TODO Define FunctionPass that runs only BitcodeExporter
-
-  /// PMLExportPass - This is a pass to export a machine function to
-  /// YAML (using the PML schema define at (TODO: cite report))
-  class PMLExportPass : public MachineFunctionPass {
-
-    static char ID;
-
-    std::vector<PMLExport*> Exporters;
-
-    StringRef OutFileName;
-    tool_output_file *OutFile;
-    yaml::Output *Output;
-    std::string BitcodeFile;
-
-  protected:
-    PMLExportPass(char &id, TargetMachine &tm, StringRef filename)
-      : MachineFunctionPass(id), OutFileName(filename),
-       OutFile(0), Output(0)
-    { }
-  public:
-    PMLExportPass(TargetMachine &tm, StringRef filename)
-      : MachineFunctionPass(ID), OutFileName(filename),
-       OutFile(0), Output(0)
-    { }
-
-    virtual ~PMLExportPass();
-
-    void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
-
-    void addExporter(PMLBitcodeExport *PE) {
-      Exporters.push_back( new PMLBitcodeExportAdapter(PE) );
-    }
-    void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }
-
-    // ----------------- Pass Interface  ----------------- //
-
-    virtual const char *getPassName() const { return "YAML/PML Export"; }
-
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-
-    virtual bool doInitialization(Module &M);
-
-    virtual bool doFinalization(Module &M);
-
-    /// Serialize using configured exporter. This uses
-    /// the GenericArchitecture trait.
-    virtual bool runOnMachineFunction(MachineFunction &MF);
-  };
-
-  // TODO add a pass that runs on bitcode functions only, as FunctionPass.
 
   // TODO this pass is currently implemented to work as machine-code module
   // pass. It should either support running on bitcode only as well, or
@@ -668,14 +750,12 @@ namespace llvm {
 
     static char ID;
 
-    typedef std::vector<PMLExport*>        MCExportList;
-    typedef std::vector<PMLBitcodeExport*> BCExportList;
+    typedef std::vector<PMLExport*>        ExportList;
     typedef std::vector<std::string>       StringList;
     typedef std::list<MachineFunction*>    MFQueue;
     typedef std::set<MachineFunction*>     MFSet;
 
-    MCExportList MCExporters;
-    BCExportList BCExporters;
+    ExportList Exporters;
 
     PMLInstrInfo *PII;
 
@@ -693,11 +773,11 @@ namespace llvm {
     PMLModuleExportPass(TargetMachine &TM, StringRef filename,
                         ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
 
-    virtual ~PMLModuleExportPass();
+    virtual~PMLModuleExportPass() {
+      DELETE_MEMBERS(Exporters);
+    }
 
-    void addExporter(PMLExport *PE) { MCExporters.push_back(PE); }
-
-    void addExporter(PMLBitcodeExport *PE) { BCExporters.push_back(PE); }
+    void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
 
     void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }
 
@@ -724,4 +804,5 @@ namespace llvm {
 
 } // end namespace llvm
 
+#undef DELETE_MEMBERS
 #endif

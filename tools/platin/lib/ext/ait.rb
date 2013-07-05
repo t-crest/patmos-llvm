@@ -49,6 +49,7 @@ module PML
       @stats_generated_facts += 1
       @outfile.puts(ais_instr+" # "+descr)
       $stderr.puts(ais_instr) if @options.verbose
+      true
     end
 
     # Export jumptables for a function
@@ -77,10 +78,14 @@ module PML
     # export indirect calls
     def export_calltargets(ff)
       scope, callsite, targets = ff.get_calltargets
-      assert("Bad calltarget flowfact: #{ff.inspect}") { scope }
+      assert("Bad calltarget flowfact: #{ff.inspect}") { scope && scope.context.empty? }
+
+      # no support for context-sensitive call targets
+      return false unless callsite.context.empty?
+
       block = callsite.block
       location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
-      called = targets.map { |f| dquote(f.label) }.join(", ")
+      called = targets.map { |f| dquote(f.function.label) }.join(", ")
       gen_fact("instruction #{location} calls #{called} ;",
                "global indirect call targets (source: #{ff['origin']})")
     end
@@ -90,9 +95,13 @@ module PML
       # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' 
       # of the loop. But apparently this is not how loop bounds are interpreted in
       # aiT (=> ask absint guys)
+
+      # context-sensitive facts not yet supported
+      return false unless (ff.scope.context.empty?)
+
       loopname = dquote(ff.scope.loopblock.label)
       gen_fact("loop #{loopname} max #{ff.rhs} ;", # end ;"
-               "local loop header bound (source: #{ff['origin']})")
+               "global loop header bound (source: #{ff['origin']})")
     end
 
     # export global infeasibles
@@ -100,15 +109,38 @@ module PML
       scope, pp, zero = ff.get_block_frequency_bound
       insname = dquote(pp.block.label)
 
+      # context-sensitive facts not yet supported
+      return false unless ff.scope.context.empty?
+      # no support for empty basic blocks (typically at -O0)
+      return false if pp.block.instructions.empty?
+
       gen_fact("instruction #{insname} is never executed ;",
-               "globally infeasible call (source: #{ff['origin']})")
+               "globally infeasible block (source: #{ff['origin']})")
     end
 
     def export_linear_constraint(ff)
       terms_lhs, terms_rhs = [],[]
       terms = ff.lhs.dup
       scope = ff.scope
-      scope = scope.function.blocks.first.ref if scope.kind_of?(FunctionRef)
+      assert("export_linear_constraint: not in function scope") { scope.kind_of?(FunctionRef) }
+
+      # no support for context-sensitive linear constraints
+      return false unless scope.context.empty?
+      return false unless terms.all? { |t| t.ppref.context.empty? }
+      # no support for edges in aiT
+      unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
+        warn("Constraint not supported by aiT (not a block ref): #{ff}")
+        return false
+      end
+      # no support for empty basic blocks (typically at -O0)
+      if terms.any? { |t| t.ppref.block.instructions.empty? }
+        warn("Constraint not supported by aiT (empty basic block): #{ff})")
+        return false
+      end
+      # do not export positivity contraints
+      return if ff.rhs >= 0 && terms.all? { |t| t.factor < 0 }
+
+      scope = scope.function.blocks.first.ref
       terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0
       terms.each { |t|
         set = (t.factor < 0) ? terms_rhs : terms_lhs
@@ -124,17 +156,19 @@ module PML
 
     # export linear-constraint flow facts
     def export_flowfact(ff)
-      if(ff.classification == 'calltargets-global')
-        export_calltargets(ff)
-      elsif(ff.classification == 'loop-local')
-        export_loopbound(ff)
-      elsif(ff.classification == 'infeasible-global')
-        export_infeasible(ff)
-      elsif(ff.blocks_constraint? || ff.scope.kind_of?(FunctionRef))
-        export_linear_constraint(ff)
-      else
-        @stats_skipped_flowfacts += 1
-      end
+      supported =
+        if(ff.classification == 'calltargets-global')
+          export_calltargets(ff)
+        elsif(ff.classification == 'loop-global')
+          export_loopbound(ff)
+        elsif(ff.classification == 'infeasible-global')
+          export_infeasible(ff)
+        elsif(ff.blocks_constraint? || ff.scope.kind_of?(FunctionRef))
+          export_linear_constraint(ff)
+        else
+          false
+        end
+      @stats_skipped_flowfacts += 1 unless supported
     end
 
   end
@@ -149,6 +183,16 @@ module PML
       # There is probably a better way to do this .. e.g., use a template file.
       @outfile.puts '<!DOCTYPE APX>'
       @outfile.puts '<project xmlns="http://www.absint.com/apx" target="patmos" version="12.10i">'
+
+      @outfile.puts '<options>'
+      @outfile.puts '<analyses_options>'
+      @outfile.puts '<extract_annotations_from_source_files>true</extract_annotations_from_source_files>'
+      @outfile.puts '</analyses_options>'
+      @outfile.puts '<general_options>'
+      @outfile.puts '<include_path>.</include_path>'
+      @outfile.puts '</general_options>'
+      @outfile.puts '</options>'
+
       @outfile.puts ' <files>'
       @outfile.puts "  <executables>#{File.expand_path binary}</executables>"
       @outfile.puts "  <ais>#{File.expand_path aisfile}</ais>" if aisfile

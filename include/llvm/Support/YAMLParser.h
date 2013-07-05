@@ -35,8 +35,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_SUPPORT_YAML_PARSER_H
-#define LLVM_SUPPORT_YAML_PARSER_H
+#ifndef LLVM_SUPPORT_YAMLPARSER_H
+#define LLVM_SUPPORT_YAMLPARSER_H
 
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallString.h"
@@ -184,7 +184,7 @@ public:
     : Node(NK_Scalar, D, Anchor)
     , Value(Val) {
     SMLoc Start = SMLoc::getFromPointer(Val.begin());
-    SMLoc End = SMLoc::getFromPointer(Val.end() - 1);
+    SMLoc End = SMLoc::getFromPointer(Val.end());
     SourceRange = SMRange(Start, End);
   }
 
@@ -516,7 +516,7 @@ public:
     if (isAtEnd() || Other.isAtEnd())
       return isAtEnd() && Other.isAtEnd();
 
-    return *Doc == *Other.Doc;
+    return Doc == Other.Doc;
   }
   bool operator !=(const document_iterator &Other) {
     return !(*this == Other);
@@ -543,7 +543,7 @@ public:
 
 private:
   bool isAtEnd() const {
-    return Doc == 0 || *Doc == 0;
+    return !Doc || !*Doc;
   }
 
   OwningPtr<Document> *Doc;

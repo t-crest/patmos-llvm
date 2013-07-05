@@ -17,7 +17,8 @@ class WcaTool
     WcaTool.add_config_options(opts)
     opts.analysis_entry
     opts.flow_fact_selection
-    opts.calculates_wcet
+    opts.callstring_length
+    opts.calculates_wcet('wca-unknown')
   end
 
   def WcaTool.run(pml,options)
@@ -25,11 +26,33 @@ class WcaTool
 
     # Builder and Analysis Entry
     ilp = LpSolveILP.new(options)
-    builder = IPETBuilder.new(pml, options, ilp)
 
     machine_entry = pml.machine_functions.by_label(options.analysis_entry)
     bitcode_entry = pml.bitcode_functions.by_name(options.analysis_entry)
     entry = { :dst => machine_entry, :src => bitcode_entry }
+
+
+    # PLAYING: VCFGs
+    #bcffs,mcffs = ['bitcode','machinecode'].map { |level|
+    #  pml.flowfacts.filter(pml,options.flow_fact_selection,options.flow_fact_srcs,level)
+    #}
+    #ctxm = ContextManager.new(options.callstring_length,1,1,2)
+    #mc_model = ControlFlowModel.new(pml.machine_functions, machine_entry, mcffs, ctxm, pml.arch)
+    #mc_model.build_ipet(ilp) do |edge|
+      # pseudo cost (1 cycle per instruction)
+    #  if (edge.kind_of?(Block))
+    #    edge.instructions.length
+    #  else
+    #    edge.source.instructions.length
+    #  end
+    #end
+
+    #cfbc = ControlFlowModel.new(pml.bitcode_functions, bitcode_entry, bcffs,
+    #                            ContextManager.new(options.callstring_length), GenericArchitecture.new)
+
+    # BEGIN: remove me soon
+    # builder
+    builder = IPETBuilder.new(pml, options, ilp)
 
     # flow facts
     flowfacts = pml.flowfacts.filter(pml,
@@ -57,32 +80,32 @@ class WcaTool
           end
         }
         if branch_index
-          branch_index + pml.delay_slots + 1
+          branch_index + pml.arch.branch_delay_slots + 1
         else
           src.instructions.length
         end
       end
     end
-
     # Add flow facts
     flowfacts.each { |ff| builder.add_flowfact(ff) }
+    # END: remove me soon
 
-    statistics("flowfacts" => flowfacts.length,
+    statistics("WCA",
+               "flowfacts" => flowfacts.length,
                "ipet variables" => builder.ilp.num_variables,
                "ipet constraints" => builder.ilp.constraints.length) if options.stats
 
     # Weak-eliminate auxilliary variables
-    unless options.debug
-      ilp.variables.each do |var|
-        # ilp.eliminate_weak(var) if ilp.costs[var] == 0
-      end
+    # XXX: check whether this works correctly
+    ilp.variables.each do |var|
+      # ilp.eliminate_weak(var) if ilp.costs[var] == 0
     end
 
     # Solve ILP
     cycles,freqs = builder.ilp.solve_max
-    statistics("ilp variables" => builder.ilp.num_variables,
-               "ilp constraints" => builder.ilp.constraints.length,
-               "ilp solution" => cycles) if options.stats
+    statistics("WCA",
+               "ilp variables" => builder.ilp.num_variables,
+               "ilp constraints" => builder.ilp.constraints.length) if options.stats
 
     if options.verbose
       puts "Cycles: #{cycles}"
@@ -94,30 +117,10 @@ class WcaTool
     end
 
     # report result
-    report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => builder.ilp.constraints.length,
+    report = TimingEntry.new(machine_entry.ref, cycles, 'num_constraints' => builder.ilp.constraints.length,
+                             'solvertime' => builder.ilp.solvertime,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)
-
-    # # XXX: playing: fourier-motzkin elimination
-    # cycles = nil
-    # if options.use_relation_graph
-    #   ilp = builder.ilp
-    #   ilp.variables.each do |var|
-    #     if ilp.vartype[var] != :dst
-    #       ilp.eliminate(var)
-    #       if options.debug
-    #         puts ilp
-    #         old_cycles = cycles
-    #         cycles,freqs = ilp.solve_max
-    #         raise Exception.new("Error eliminating #{var}") if old_cycles && cycles != old_cycles
-    #       end
-    #     end
-    #   end
-    #   cycles,freqs = ilp.solve_max
-    #   report = TimingEntry.new(machine_entry.ref, cycles, 'problemsize' => ilp.constraints.length,'level' => 'machinecode',
-    #                            'origin' => (options.timing_output || 'platin')+"-fm")
-    #   pml.timing.add(report)
-    # end
 
     pml
   end
@@ -132,5 +135,5 @@ EOF
     opts.writes_pml
     WcaTool.add_options(opts)
   end
-  WcaTool.run(PMLDoc.from_file(options.input), options).dump_to_file(options.output)
+  WcaTool.run(PMLDoc.from_files(options.input), options).dump_to_file(options.output)
 end

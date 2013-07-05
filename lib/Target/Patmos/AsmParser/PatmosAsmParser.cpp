@@ -751,13 +751,29 @@ bool PatmosAsmParser::
 ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
                  SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 {
+  // Check if we parsed any guards already
+  bool HasGuard = !Operands.empty();
+
   // The first operand is the token for the instruction name
-  Operands.insert(Operands.begin(), PatmosOperand::CreateToken(Name,NameLoc));
+  // We need to split at . in mnemonic names, this is the way the matcher
+  // expects it.
+  size_t Next = Name.find('.');
+  StringRef Mnemonic = Name.slice(0, Next);
+
+  Operands.insert(Operands.begin(),
+                  PatmosOperand::CreateToken(Mnemonic, NameLoc));
+
+  if (Next != StringRef::npos) {
+    // there is a format/modifier token in mnemonic, add as first operand
+    StringRef Format = Name.slice(Next, StringRef::npos);
+    Operands.insert(Operands.begin() + 1,
+                    PatmosOperand::CreateToken(Format, NameLoc));
+  }
 
   // If this instruction has no guard, we just add a default one.
   // We do not yet know if the instruction actually requires one, so we might need to undo this
   // if we do not find a match (if we actually have instructions that have no guard).
-  if (Operands.size() == 1) {
+  if (!HasGuard) {
     Operands.push_back(PatmosOperand::CreateReg(Patmos::P0, NameLoc, NameLoc));
     Operands.push_back(PatmosOperand::CreateFlag(false, NameLoc, NameLoc,
                                                  getParser().getContext()));

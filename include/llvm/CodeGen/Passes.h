@@ -17,12 +17,14 @@
 
 #include "llvm/Pass.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/ADT/ArrayRef.h"
 #include <string>
 
 namespace llvm {
 
   class FunctionPass;
   class MachineFunctionPass;
+  class MachineModulePass;
   class PassInfo;
   class PassManagerBase;
   class TargetLowering;
@@ -154,6 +156,10 @@ public:
   virtual bool addInstSelector() {
     return true;
   }
+
+  /// addSerializePass - Install a pass that serializes the internal representation
+  /// of the compiler to PML format
+  virtual bool addSerializePass(std::string& OutFile, ArrayRef<std::string> Roots, std::string &BitcodeFile);
 
   /// Add the complete, standard set of LLVM CodeGen passes.
   /// Fully developed targets will not generally override this.
@@ -291,8 +297,8 @@ namespace llvm {
 
   /// PMLExport pass - this pass exports the internal LLVM information (machinecode)
   /// to the given stream in PML format
-  MachineFunctionPass *
-  createPMLExportPass(TargetMachine &TM, std::string& FileName);
+  MachineModulePass *
+  createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFile, ArrayRef<std::string> Roots);
 
   /// MachineLoopInfo - This pass is a loop analysis pass.
   extern char &MachineLoopInfoID;

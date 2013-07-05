@@ -1,20 +1,11 @@
 #!/bin/bash
-pushd $(dirname $0)
-detect_rake19() {
-    RAKE19s="rake1.9.1 rake1.9 rake"
-    for g19 in ${RAKE19s} ; do
-        if [ ! -z "`which ${g19}`" ] ; then
-            RAKE19="$g19"
-            return
-        fi
-    done
-    echo "rake / rake1.9.1 not found" >&2
-    exit 1
-}
+#
+# Install necessary ruby gems
+#
 detect_gem19() {
     GEM19s="gem1.9.1 gem1.9 gem"
     for g19 in ${GEM19s} ; do
-        if [ ! -z "`which ${g19}`" ] ; then
+        if [ ! -z "`which ${g19}  2>/dev/null`" ] ; then
             GEM19="$g19"
             return
         fi
@@ -22,17 +13,29 @@ detect_gem19() {
     echo "gem / gem1.9.1 not found" >&2
     exit 1
 }
-detect_rake19
-detect_gem19
 
-# Install standard ruby gems
-${GEM19} install --user-install rsec --version 0.4
-${GEM19} install --user-install ruby-graphviz --version 1.0.8
-
-# Install ruby gems from my github account
-if [ ! -e "rb-lpsolve" ] ; then
-    git clone https://github.com/visq/rb-lpsolve.git
+if [ -z $1 ] ; then
+    echo "Error: No install directory specified." >&2
+    echo "Usage: $0 <path-to-patmos-install>/lib/gems/1.9" >&2
+    exit 1
 fi
-(cd rb-lpsolve && ${RAKE19} gem)
-${GEM19} install --user-install rb-lpsolve/pkg/*.gem
+
+detect_gem19
+INSTALL_DIR="${1}"
+
+pushd $(dirname $0)
+HAS_GEMS=1
+for gem in $(cat gems.txt) ; do
+    if [ ! -e "${gem}" ] ; then
+	HAS_GEMS=0
+    fi
+done
+if [ "${HAS_GEMS}" -eq 0 ] ; then
+    echo "Fetching Gems"
+    ./fetch_gems.sh
+fi
+FLAGS="--install-dir ${1}"
+for gem in $(cat gems.txt) ; do
+    ${GEM19} install --install-dir "${INSTALL_DIR}" "${gem}"
+done
 popd

@@ -36,14 +36,15 @@ namespace llvm {
   FunctionPass *createPatmosDelaySlotFillerPass(const PatmosTargetMachine &tm,
                                                 bool ForceDisable);
   FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);
-  FunctionPass *createPatmosExportPass(PatmosTargetMachine &tm,
-                                       std::string& filename);
+  FunctionPass *createPatmosExportPass(PatmosTargetMachine &TM,
+                                       std::string& Filename,
+                                       std::string& BitcodeFilename);
   FunctionPass *createPatmosPacketizer(PatmosTargetMachine &tm);
   FunctionPass *createPatmosBundleSanitizer(PatmosTargetMachine &tm);
-  ModulePass   *createPatmosModuleExportPass(PatmosTargetMachine &tm,
-                                       std::string& filename,
-                                       ArrayRef<std::string> roots);
-
+  ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
+                                           std::string& Filename,
+                                           std::string& BitcodeFilename,
+                                           ArrayRef<std::string> Roots);
   ModulePass *createPatmosCallGraphBuilder();
   ModulePass *createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm);
 } // end namespace llvm;

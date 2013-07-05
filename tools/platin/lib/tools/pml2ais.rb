@@ -24,12 +24,12 @@ class AisExportTool
       ais.gen_header if options.ais_header
 
       pml.machine_functions.each { |func| ais.export_jumptables(func) }
-
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
       flowfacts.each { |ff| ais.export_flowfact(ff) }
 
-      statistics("AIS flow facts" => ais.stats_generated_facts,
-                 "Unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
+      statistics("AIS",
+                 "exported flow facts" => ais.stats_generated_facts,
+                 "unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
     }
   end
 end
@@ -48,7 +48,6 @@ class ApxExportTool
     opts.add_check { |options|
       die_usage "No apx file specified." if mandatory && ! options.apx_file
       if options.apx_file
-        die_usage "Option --report  is mandatory when generating apx file" unless options.ait_report_file
         die_usage "Option --binary  is mandatory when generating apx file" unless options.binary_file
         die_usage "Option --results is mandatory when generating apx file" unless options.ait_result_file
       end
@@ -63,7 +62,7 @@ class ApxExportTool
       apx_exporter.export_project(options.binary_file,
                                   options.ais_file,
                                   options.ait_result_file,
-                                  options.report_file,
+                                  options.ait_report_file,
                                   options.analysis_entry)
     end
   end
@@ -77,7 +76,7 @@ EOF
     AisExportTool.add_options(opts)
     ApxExportTool.add_options(opts, false)
   end
-  pml = PMLDoc.from_file(args.first)
+  pml = PMLDoc.from_files([options.input])
   AisExportTool.run(pml, options)
 
   # TODO make this available as separate platin-tool to to generate only the APX file!?

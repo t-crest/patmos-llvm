@@ -53,17 +53,6 @@ namespace {
     cl::init(false),
     cl::desc("Enable the Patmos stack cache analysis."),
     cl::Hidden);
-
-  static cl::opt<std::string> SerializeMachineCode(
-    "mpatmos-serialize",
-    cl::desc("Export PML specification of generated machine code to FILE"),
-    cl::init(""));
-
-  static cl::list<std::string> SerializeRoots(
-    "mpatmos-serialize-roots",
-    cl::desc("Export only methods reachable from given functions"),
-    cl::Hidden);
-
   static cl::opt<bool> DisableIfConverter(
       "mpatmos-disable-ifcvt",
       cl::init(false),
@@ -72,10 +61,12 @@ namespace {
 
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
+  private:
+    const std::string DefaultRoot;
 
   public:
     PatmosPassConfig(PatmosTargetMachine *TM, PassManagerBase &PM)
-     : TargetPassConfig(TM, PM)
+     : TargetPassConfig(TM, PM), DefaultRoot("main")
     {
       // Enable preRA MI scheduler.
       if (TM->getSubtargetImpl()->usePreRAMIScheduler(getOptLevel())) {
@@ -145,15 +136,23 @@ namespace {
 
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
-      if (!SerializeMachineCode.empty()) {
-        if (SerializeRoots.empty()) {
-          addPass(createPatmosExportPass(getPatmosTargetMachine(),
-                                         SerializeMachineCode));
-        } else {
-          addPass(createPatmosModuleExportPass(getPatmosTargetMachine(),
-                                         SerializeMachineCode, SerializeRoots));
-        }
-      }
+      return true;
+    }
+
+    /// addSerializePass - Install a pass that serializes the internal representation
+    /// of the compiler to PML format
+    virtual bool addSerializePass(std::string& OutFile,
+                                  ArrayRef<std::string> Roots,
+                                  std::string &BitcodeFile) {
+      if (OutFile.empty())
+        return false;
+
+
+      addPass(createPatmosModuleExportPass(
+          getPatmosTargetMachine(),
+          OutFile, BitcodeFile,
+          Roots.empty() ? ArrayRef<std::string>(DefaultRoot) : Roots
+          ));
 
       return true;
     }
