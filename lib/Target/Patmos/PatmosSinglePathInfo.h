@@ -43,8 +43,8 @@ namespace llvm {
 ///////////////////////////////////////////////////////////////////////////////
 
   // forward decl
-  class SPNode;
-  class SPNodeWalker;
+  class SPScope;
+  class SPScopeWalker;
   class PredDefInfo;
 
   /// PatmosSinglePathInfo - Single-Path analysis pass
@@ -68,33 +68,33 @@ namespace llvm {
       /// Set of functions yet to be analyzed
       std::set<std::string> FuncsRemain;
 
-      /// Root SPNode
-      SPNode *Root;
+      /// Root SPScope
+      SPScope *Root;
 
 
       /// Analyze a given MachineFunction
       void analyzeFunction(MachineFunction &MF);
 
-      /// createSPNodeTree - Create an SPNode tree, return the root node.
+      /// createSPScopeTree - Create an SPScope tree, return the root scope.
       /// The tree needs to be destroyed by the client,
-      /// by deleting the root node.
-      SPNode *createSPNodeTree(MachineFunction &MF) const;
+      /// by deleting the root scope.
+      SPScope *createSPScopeTree(MachineFunction &MF) const;
 
-      /// computeControlDependence - Compute CD for a given SPNode
-      void computeControlDependence(SPNode &N,
+      /// computeControlDependence - Compute CD for a given SPScope
+      void computeControlDependence(SPScope &S,
                                     MachinePostDominatorTree &PDT,
                                     CD_map_t &CD) const;
 
       /// decomposeControlDependence - Decompose CD into K and R.
-      void decomposeControlDependence(SPNode &N, const CD_map_t &CD,
+      void decomposeControlDependence(SPScope &S, const CD_map_t &CD,
                                       K_t &K, R_t &R) const;
 
-      /// assignPredInfo - Set the predicate information of an SPNode
-      void assignPredInfo(SPNode &N, const K_t &K, const R_t &R) const;
+      /// assignPredInfo - Set the predicate information of an SPScope
+      void assignPredInfo(SPScope &S, const K_t &K, const R_t &R) const;
 
       /// getOrCreateDefInfo - Returns a predicate definition info
       /// for a given MBB.
-      PredDefInfo &getOrCreateDefInfo(SPNode &, const MachineBasicBlock *)
+      PredDefInfo &getOrCreateDefInfo(SPScope &, const MachineBasicBlock *)
                                       const;
 
     public:
@@ -140,11 +140,11 @@ namespace llvm {
       /// isToConvert - Return true if the function should be if-converted
       bool isToConvert(MachineFunction &MF) const;
 
-      /// getRootNode - Return the Root SPNode for this function
-      SPNode *getRootNode() const { return Root; }
+      /// getRootScope - Return the Root SPScope for this function
+      SPScope *getRootScope() const { return Root; }
 
-      /// walkRoot - Walk the top-level SPNode
-      void walkRoot(SPNodeWalker &walker) const;
+      /// walkRoot - Walk the top-level SPScope
+      void walkRoot(SPScopeWalker &walker) const;
   };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -184,19 +184,20 @@ namespace llvm {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  class SPNode {
+  class SPScope {
     friend class PatmosSinglePathInfo;
     public:
-      /// constructor - Create an SPNode with specified parent SP node or NULL
-      /// if top level; the header/entry MBB; the succ MBB; number of backedges
-      explicit SPNode(SPNode *parent, MachineBasicBlock *header,
+      /// constructor - Create an SPScope with specified parent SP scope or
+      /// NULL if top level;
+      /// the header/entry MBB; the succ MBB; number of backedges
+      explicit SPScope(SPScope *parent, MachineBasicBlock *header,
                       MachineBasicBlock *succ, unsigned numbe);
 
-      /// destructor - free the child nodes first, cleanup
-      ~SPNode();
+      /// destructor - free the child scopes first, cleanup
+      ~SPScope();
 
       /// getParent
-      const SPNode *getParent() const { return Parent; }
+      const SPScope *getParent() const { return Parent; }
 
       /// getHeader
       MachineBasicBlock *getHeader() const { return Blocks.front(); }
@@ -204,30 +205,30 @@ namespace llvm {
       /// getSuccMBB - Get the single successor MBB
       MachineBasicBlock *getSuccMBB() const { return SuccMBB; }
 
-      /// getDepth - Get the nesting depth of the SPNode
+      /// getDepth - Get the nesting depth of the SPScope
       unsigned int getDepth() const { return Depth; }
 
-      /// isTopLevel - Returs true if the SPNode is the top-level SPNode
+      /// isTopLevel - Returs true if the SPScope is the top-level SPScope
       /// (not a loop)
       bool isTopLevel() const { return (NULL == Parent); }
 
       /// isMember - Returns true if the specified MBB is a member of this
-      /// SPNode, (non-recursively)
+      /// SPScope, (non-recursively)
       bool isMember(const MachineBasicBlock *MBB) const;
 
       /// isSubHeader - Returns true if the specified MBB is header of a
-      /// subnode of this node
+      /// subscope of this scope
       bool isSubHeader(MachineBasicBlock *MBB) const;
 
-      /// hasLoopBound - Returs true if the SPNode is a loop and has a bound
+      /// hasLoopBound - Returs true if the SPScope is a loop and has a bound
       /// to be accounted for
       bool hasLoopBound() const { return (-1 != LoopBound); }
 
-      /// getLoopBound - Return the loop bound for this SPNode
+      /// getLoopBound - Return the loop bound for this SPScope
       int getLoopBound() const { return LoopBound; }
 
-      /// walk - Walk this SPNode recursively
-      void walk(SPNodeWalker &walker);
+      /// walk - Walk this SPScope recursively
+      void walk(SPScopeWalker &walker);
 
       /// getNumPredicates - Returns the number of predicates required for
       /// this function
@@ -246,24 +247,24 @@ namespace llvm {
         return NumPredDefEdges.at(pred);
       }
 
-      /// getBlocks - Returns the list of basic blocks in this SPNode,
+      /// getBlocks - Returns the list of basic blocks in this SPScope,
       /// in topological order.
       const std::vector<MachineBasicBlock*> &getBlocks() const {
         return Blocks;
       }
 
-      // dump() - Dump state of this SP node and the subtree
+      // dump() - Dump state of this SP scope and the subtree
       void dump() const;
 
       /// iterator - Type for iterator through MBBs
       typedef std::vector<MachineBasicBlock*>::iterator iterator;
 
       /// child_iterator - Type for child iterator
-      typedef std::vector<SPNode*>::iterator child_iterator;
+      typedef std::vector<SPScope*>::iterator child_iterator;
 
     private:
-      // parent SPNode
-      SPNode *Parent;
+      // parent SPScope
+      SPScope *Parent;
 
       // successor MBB
       MachineBasicBlock *SuccMBB;
@@ -274,14 +275,14 @@ namespace llvm {
       // loop bound
       int LoopBound;
 
-      // children as map: header MBB -> SPNode
-      std::map<MachineBasicBlock*, SPNode*> HeaderMap;
+      // children as map: header MBB -> SPScope
+      std::map<MachineBasicBlock*, SPScope*> HeaderMap;
 
       // MBBs contained
       std::vector<MachineBasicBlock*> Blocks;
 
-      // sub-nodes
-      std::vector<SPNode*> Children;
+      // sub-scopes
+      std::vector<SPScope*> Children;
 
       // nesting depth
       unsigned int Depth;
@@ -298,10 +299,10 @@ namespace llvm {
       // number of defining edges for each predicate
       std::vector<unsigned> NumPredDefEdges;
 
-      /// addMBB - Add an MBB to the SP node
+      /// addMBB - Add an MBB to the SP scope
       void addMBB(MachineBasicBlock *MBB);
 
-      /// topoSort - sort blocks of this SPNode topologically
+      /// topoSort - sort blocks of this SPScope topologically
       void topoSort(void);
 
     public:
@@ -320,21 +321,21 @@ namespace llvm {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  class SPNodeWalker {
+  class SPScopeWalker {
     public:
       virtual void nextMBB(MachineBasicBlock *) = 0;
-      virtual void enterSubnode(SPNode *) = 0;
-      virtual void exitSubnode(SPNode *) = 0;
+      virtual void enterSubscope(SPScope *) = 0;
+      virtual void exitSubscope(SPScope *) = 0;
   };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  // Allow clients to walk the list of nested SPNodes
-  template <> struct GraphTraits<SPNode*> {
-    typedef SPNode NodeType;
-    typedef SPNode::child_iterator ChildIteratorType;
+  // Allow clients to walk the list of nested SPScopes
+  template <> struct GraphTraits<SPScope*> {
+    typedef SPScope NodeType;
+    typedef SPScope::child_iterator ChildIteratorType;
 
-    static NodeType *getEntryNode(SPNode *N) { return N; }
+    static NodeType *getEntryNode(SPScope *S) { return S; }
     static inline ChildIteratorType child_begin(NodeType *N) {
       return N->child_begin();
     }

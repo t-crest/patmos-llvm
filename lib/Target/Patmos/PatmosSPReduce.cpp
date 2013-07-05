@@ -8,15 +8,15 @@
 //===----------------------------------------------------------------------===//
 //
 // This pass reduces functions marked for single-path conversion.
-// It operates on the information regarding SPNodes and (abstract) predicates
+// It operates on the information regarding SPScopes and (abstract) predicates
 // obtained from PatmosSinglePathInfo, in following phases:
 // (1) Predicate register allocation is performed with the predicate
 //     registers unused in this function, the information is stored in an
-//     RAInfo object for every SPNode.
+//     RAInfo object for every SPScope.
 // (2) Code for predicate definitions/spill/load is inserted in MBBs for
-//     every SPNode, and instructions of their basic blocks are predicated.
+//     every SPScope, and instructions of their basic blocks are predicated.
 // (3) The CFG is actually "reduced" or linearized, by putting alternatives
-//     in sequence. This is done by a walk over the SPNode tree, which also
+//     in sequence. This is done by a walk over the SPScope tree, which also
 //     inserts MBBs around loops for predicate spilling/restoring,
 //     setting/loading loop bounds, etc.
 // (4) MBBs are merged and renumbered, as finalization step.
@@ -78,7 +78,8 @@ STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
 
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
-STATISTIC( NoSpillNodes,  "Number of SPNodes (loops) where S0 spill can be omitted");
+STATISTIC( NoSpillScopes,
+                  "Number of SPScopes (loops) where S0 spill can be omitted");
 
 // anonymous namespace
 namespace {
@@ -106,17 +107,17 @@ namespace {
     /// doReduceFunction - Reduce a given MachineFunction
     void doReduceFunction(MachineFunction &MF);
 
-    /// computeRegAlloc - Compute RAInfo for each SPNode of the tree
-    void computeRegAlloc(SPNode *root);
+    /// computeRegAlloc - Compute RAInfo for each SPScope of the tree
+    void computeRegAlloc(SPScope *root);
 
-    /// createRAInfo - Helper function to create a new RAInfo for an SPNode
+    /// createRAInfo - Helper function to create a new RAInfo for an SPScope
     /// and insert it in the RAInfos map of the pass.
     /// Returns a reference to the newly created RAInfo.
-    RAInfo &createRAInfo(SPNode *N);
+    RAInfo &createRAInfo(SPScope *S);
 
     /// insertPredDefinitions - Insert predicate register definitions
-    /// to MBBs of the given SPNode.
-    void insertPredDefinitions(SPNode *N);
+    /// to MBBs of the given SPScope.
+    void insertPredDefinitions(SPScope *S);
 
     /// insertDefsForBV - Helper function to insert definitions for all
     /// predicates contained in the bitvector bv in MBB at MI, which are
@@ -128,8 +129,8 @@ namespace {
                          const BitVector &bv,
                          const SmallVectorImpl<MachineOperand> &Cond);
 
-    /// applyPredicates - Predicate instructions of MBBs in the given SPNode.
-    void applyPredicates(SPNode *N);
+    /// applyPredicates - Predicate instructions of MBBs in the given SPScope.
+    void applyPredicates(SPScope *S);
 
     /// insertUseSpillLoad - Insert Spill/Load code at the beginning of the
     /// given MBB, according to R.
@@ -151,11 +152,11 @@ namespace {
     void mergeMBBs(MachineFunction &MF);
 
     /// hasLiveOutPReg - Check if an unavailable PReg must be preserved
-    /// in S0 during predicate allocation SPNode on exiting the SPNode
-    bool hasLiveOutPReg(const SPNode *N) const;
+    /// in S0 during predicate allocation SPScope on exiting the SPScope
+    bool hasLiveOutPReg(const SPScope *S) const;
 
-    /// Map to hold RA infos for each SPNode
-    std::map<const SPNode*, RAInfo> RAInfos;
+    /// Map to hold RA infos for each SPScope
+    std::map<const SPScope*, RAInfo> RAInfos;
 
     // Predicate registers un-/used in the function,
     // which are un-/available for allocation here
@@ -206,13 +207,13 @@ namespace {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  /// LinearizeWalker - Class to linearize the CFG during a walk of the SPNode
+  /// LinearizeWalker - Class to linearize the CFG during a walk of the SPScope
   /// tree.
-  class LinearizeWalker : public SPNodeWalker {
+  class LinearizeWalker : public SPScopeWalker {
     private:
       virtual void nextMBB(MachineBasicBlock *);
-      virtual void enterSubnode(SPNode *);
-      virtual void exitSubnode(SPNode *);
+      virtual void enterSubscope(SPScope *);
+      virtual void exitSubscope(SPScope *);
 
       // reference to the pass, to get e.g. RAInfos
       PatmosSPReduce &Pass;
@@ -267,15 +268,15 @@ namespace {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  /// RAInfo - Class to hold register allocation information for a SPNode
+  /// RAInfo - Class to hold register allocation information for a SPScope
   class RAInfo {
     public:
-      // the SPNode this RAInfo belongs to
-      const SPNode *Node;
+      // the SPScope this RAInfo belongs to
+      const SPScope *Scope;
     private:
       // The number of colors (physically available registers)
       const unsigned NumColors;
-      // the sequence of MBBs in topological order (ref to Node->Blocks)
+      // the sequence of MBBs in topological order (ref to Scope->Blocks)
       const std::vector<MachineBasicBlock*> &MBBs;
       // the live ranges of predcicates (index = predicate number)
       std::vector<LiveRange> LRs;
@@ -284,12 +285,12 @@ namespace {
       // set of unused locations, managed during the
       std::set<unsigned> FreeLocs;
       // various attributes regarding locations
-      unsigned NumLocs, // Total number of locations in this SPNode
+      unsigned NumLocs, // Total number of locations in this SPScope
                CumLocs, // Cumulative number of locations synthesized up the
                         //   tree: NumLocs + max. CumLocs over the children
-               Offset,  // S0 does not need to be spilled around this node,
+               Offset,  // S0 does not need to be spilled around this scope,
                         //   this is the offset to the available registers
-               SpillOffset,   // Starting offset for this node's spill locations
+               SpillOffset,   // Starting offset for this scope's spill locations
                LoopCntOffset; // Loop counter stack location offset
       // UseLoc - Record to hold predicate use information for a MBB
       // - loc:   which location to use (a register)
@@ -299,7 +300,7 @@ namespace {
         int loc, load, spill;
         UseLoc(void) : loc(-1), load(-1), spill(-1) {}
       };
-      // Map of MBB -> UseLoc, for an SPNode
+      // Map of MBB -> UseLoc, for an SPScope
       std::map<const MachineBasicBlock*, UseLoc> UseLocs;
 
       // Comparator for predicates, furthest next use;
@@ -314,11 +315,11 @@ namespace {
       };
 
       // createLiveRanges - Helper function to initially create the live ranges
-      // for all predicates used in this SPNode
+      // for all predicates used in this SPScope
       void createLiveRanges(void);
 
       // assignLocations - Performs a linear scan allocation over the MBBs
-      // of the SPNode to assign locations
+      // of the SPScope to assign locations
       void assignLocations(void);
 
       // get an available location
@@ -344,10 +345,10 @@ namespace {
       }
 
     public:
-      explicit RAInfo(SPNode *N, unsigned numcolors) :
-        Node(N), NumColors(numcolors), MBBs(N->getBlocks()),
-        LRs(N->getNumPredicates(), LiveRange(N->getBlocks().size()+1)),
-        DefLocs(N->getNumPredicates(),-1),
+      explicit RAInfo(SPScope *S, unsigned numcolors) :
+        Scope(S), NumColors(numcolors), MBBs(S->getBlocks()),
+        LRs(S->getNumPredicates(), LiveRange(S->getBlocks().size()+1)),
+        DefLocs(S->getNumPredicates(),-1),
         NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0), LoopCntOffset(0) {
           createLiveRanges();
           assignLocations();
@@ -368,7 +369,7 @@ namespace {
       // Traversal order is not important for this function, depth-first
       // makes sense though.
       void setLoopCntOffset(unsigned num) {
-        assert(Node->hasLoopBound());
+        assert(Scope->hasLoopBound());
         LoopCntOffset = num;
       }
 
@@ -382,7 +383,7 @@ namespace {
       // given the parent RAInfo. Naturally called in a pre-order traversal.
       void computePhysOffset(const RAInfo &ParentRI) {
         // check if we must spill the PRegs
-        // Parent.num + N.cum <= size  --> no spill!
+        // Parent.num + S.cum <= size  --> no spill!
         if ( ParentRI.NumLocs + CumLocs <= NumColors ) {
           // compute offset
           Offset = ParentRI.NumLocs + ParentRI.Offset;
@@ -400,9 +401,9 @@ namespace {
         }
       }
 
-      // needsNodeSpill - Returns true if S0 must be spilled/restored
-      // upon entry/exit of this SPNode.
-      bool needsNodeSpill(void) const {
+      // needsScopeSpill - Returns true if S0 must be spilled/restored
+      // upon entry/exit of this SPScope.
+      bool needsScopeSpill(void) const {
         return (Offset == 0);
       }
 
@@ -540,26 +541,26 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   AvailPredRegs.pop_back();
 
 
-  SPNode *root = PSPI.getRootNode();
+  SPScope *root = PSPI.getRootScope();
 
   computeRegAlloc(root);
 
-  // Okay, now actually insert code, handling nodes in no particular order
-  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
-    SPNode *N = *I;
+  // Okay, now actually insert code, handling scopes in no particular order
+  for (df_iterator<SPScope*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+    SPScope *S = *I;
 
-    DEBUG( dbgs() << "Insert code in [MBB#" << N->getHeader()->getNumber()
+    DEBUG( dbgs() << "Insert code in [MBB#" << S->getHeader()->getNumber()
                   << "]\n");
 
-    // Predicate the instructions of blocks in N, also inserting spill/load
+    // Predicate the instructions of blocks in S, also inserting spill/load
     // of predicates not in registers.
-    applyPredicates(N);
+    applyPredicates(S);
 
     // Insert predicate definitions.
-    insertPredDefinitions(N);
+    insertPredDefinitions(S);
   }
 
-  // Following walk of the SPNode tree linearizes the CFG structure,
+  // Following walk of the SPScope tree linearizes the CFG structure,
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
   DEBUG( dbgs() << "Linearize MBBs\n" );
   LinearizeWalker LW(*this, MF);
@@ -574,22 +575,22 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 }
 
 
-void PatmosSPReduce::computeRegAlloc(SPNode *root) {
+void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   DEBUG( dbgs() << "RegAlloc\n" );
 
   // perform reg-allocation in post-order to compute cumulative location
   // numbers in one go
-  for (po_iterator<SPNode*> I = po_begin(root), E = po_end(root); I!=E; ++I) {
-    SPNode *N = *I;
-    // create RAInfo for SPNode
-    RAInfo &RI = createRAInfo(N);
+  for (po_iterator<SPScope*> I = po_begin(root), E = po_end(root); I!=E; ++I) {
+    SPScope *S = *I;
+    // create RAInfo for SPScope
+    RAInfo &RI = createRAInfo(S);
 
     // Because this is a post-order traversal, we have already visited
     // all children. Synthesize the cumulative number of locations
     unsigned maxChildPreds = 0;
-    for(SPNode::child_iterator CI = N->child_begin(), CE = N->child_end();
+    for(SPScope::child_iterator CI = S->child_begin(), CE = S->child_end();
         CI != CE; ++CI) {
-      SPNode *CN = *CI;
+      SPScope *CN = *CI;
       maxChildPreds = std::max(RAInfos.at(CN).getCumLocs(), maxChildPreds);
     }
     RI.setCumLocs(maxChildPreds);
@@ -597,27 +598,27 @@ void PatmosSPReduce::computeRegAlloc(SPNode *root) {
   } // end of PO traversal for RegAlloc
 
 
-  // Visit all nodes in depth-first order to compute offsets:
+  // Visit all scopes in depth-first order to compute offsets:
   // - Offset is inherited during traversal
   // - SpillOffset is assigned increased depth-first, from left to right
   // - LoopCntOffset as well
   unsigned spillLocCnt   = 0,
            loopCntOffset = 0;
-  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
-    SPNode *N = *I;
+  for (df_iterator<SPScope*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+    SPScope *S = *I;
 
-    RAInfo &RI = RAInfos.at(N);
+    RAInfo &RI = RAInfos.at(S);
 
     // compute offset for physically available registers
-    if (!N->isTopLevel()) {
-      RI.computePhysOffset( RAInfos.at(N->getParent()) );
-      if (!RI.needsNodeSpill()) NoSpillNodes++; // STATISTIC
+    if (!S->isTopLevel()) {
+      RI.computePhysOffset( RAInfos.at(S->getParent()) );
+      if (!RI.needsScopeSpill()) NoSpillScopes++; // STATISTIC
     }
     // assign and update spillLocCnt
     RI.assignSpillOffset(spillLocCnt);
 
     // assign a loop counter offset for the stack location
-    if (N->hasLoopBound()) {
+    if (S->hasLoopBound()) {
       RI.setLoopCntOffset(loopCntOffset++);
     }
 
@@ -630,25 +631,25 @@ void PatmosSPReduce::computeRegAlloc(SPNode *root) {
 
 
 
-RAInfo& PatmosSPReduce::createRAInfo(SPNode *N) {
-  assert(!RAInfos.count(N) && "Already having RAInfo for Node!");
+RAInfo& PatmosSPReduce::createRAInfo(SPScope *S) {
+  assert(!RAInfos.count(S) && "Already having RAInfo for Scope!");
   // The number of colors for allocation is AvailPredRegs.size()
-  RAInfos.insert( std::make_pair(N, RAInfo(N,
+  RAInfos.insert( std::make_pair(S, RAInfo(S,
                                            AvailPredRegs.size()
                                            )) );
-  return RAInfos.at(N);
+  return RAInfos.at(S);
 }
 
 
-void PatmosSPReduce::insertPredDefinitions(SPNode *N) {
+void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
   DEBUG( dbgs() << " Insert Predicate Definitions\n" );
 
-  RAInfo &R = RAInfos.at(N);
+  RAInfo &R = RAInfos.at(S);
 
   // For each MBB, check defs
-  for (SPNode::iterator I=N->begin(), E=N->end(); I!=E; ++I) {
+  for (SPScope::iterator I=S->begin(), E=S->end(); I!=E; ++I) {
     MachineBasicBlock *MBB = *I;
-    const PredDefInfo *DI = N->getDefInfo(MBB);
+    const PredDefInfo *DI = S->getDefInfo(MBB);
 
     // check for definitions
     if (!DI) continue;
@@ -717,7 +718,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
 
       // The definition location of the predicate is a physical register.
       MachineInstr *DefMI;
-      if (R.Node->getNumDefEdges(r) > 1) {
+      if (R.Scope->getNumDefEdges(r) > 1) {
         // if this is the first definition, we unconditionally need to
         // initialize it to false
         // we can skip this, if use_preg=true anyway
@@ -795,23 +796,23 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
 }
 
 
-void PatmosSPReduce::applyPredicates(SPNode *N) {
+void PatmosSPReduce::applyPredicates(SPScope *S) {
   DEBUG( dbgs() << " Applying predicates to MBBs\n" );
 
-  const RAInfo &R = RAInfos.at(N);
+  const RAInfo &R = RAInfos.at(S);
 
   // for each MBB
-  for (SPNode::iterator I=N->begin(), E=N->end(); I!=E; ++I) {
+  for (SPScope::iterator I=S->begin(), E=S->end(); I!=E; ++I) {
     MachineBasicBlock *MBB = *I;
 
-    // Subheaders are treated in "their" SPNode.
+    // Subheaders are treated in "their" SPScope.
     // The necessary glue code (copy predicates etc) is done in the linearize
     // walk.
-    if (N->isSubHeader(MBB))
+    if (S->isSubHeader(MBB))
       continue;
 
     unsigned use_preg = getUsePReg(R, MBB);
-    assert(use_preg != Patmos::NoRegister || N->isTopLevel());
+    assert(use_preg != Patmos::NoRegister || S->isTopLevel());
 
     // check for use predicate
     if (use_preg==Patmos::NoRegister) {
@@ -1011,8 +1012,8 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
 
 
 
-bool PatmosSPReduce::hasLiveOutPReg(const SPNode *N) const {
-  MachineBasicBlock *SuccMBB = N->getSuccMBB();
+bool PatmosSPReduce::hasLiveOutPReg(const SPScope *S) const {
+  MachineBasicBlock *SuccMBB = S->getSuccMBB();
   for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
     if (SuccMBB->isLiveIn(UnavailPredRegs[i])) {
       return true;
@@ -1034,9 +1035,9 @@ void RAInfo::createLiveRanges(void) {
   for (unsigned i=0, e=MBBs.size(); i<e; i++) {
     MachineBasicBlock *MBB = MBBs[i];
     // insert use
-    LRs[Node->getPredUse(MBB)].addUse(i);
+    LRs[Scope->getPredUse(MBB)].addUse(i);
     // insert defs
-    const PredDefInfo *DI = Node->getDefInfo(MBB);
+    const PredDefInfo *DI = Scope->getDefInfo(MBB);
     if (DI) {
       for (int r = DI->getBoth().find_first(); r != -1;
           r = DI->getBoth().find_next(r)) {
@@ -1045,7 +1046,7 @@ void RAInfo::createLiveRanges(void) {
     }
   }
   // add a use for header predicate
-  if (!Node->isTopLevel()) {
+  if (!Scope->isTopLevel()) {
     LRs[0].addUse(MBBs.size());
   }
 }
@@ -1053,23 +1054,23 @@ void RAInfo::createLiveRanges(void) {
 
 void RAInfo::assignLocations(void) {
   // vector to keep track of locations during the scan
-  std::vector<int> curLocs(Node->getNumPredicates(),-1);
+  std::vector<int> curLocs(Scope->getNumPredicates(),-1);
 
   for (unsigned i=0, e=MBBs.size(); i<e; i++) {
     MachineBasicBlock *MBB = MBBs[i];
 
     // (1) handle use
-    unsigned usePred = Node->getPredUse(MBB);
+    unsigned usePred = Scope->getPredUse(MBB);
     // for the top-level entry, we don't need to assign a location,
     // as we will use p0 - TODO: interprocedural handling
-    if (!(usePred==0 && Node->isTopLevel())) {
+    if (!(usePred==0 && Scope->isTopLevel())) {
       UseLoc UL;
 
       int &curUseLoc = curLocs[usePred];
 
-      assert( MBB == Node->getHeader() || i>0 );
+      assert( MBB == Scope->getHeader() || i>0 );
 
-      if ( MBB != Node->getHeader() ) {
+      if ( MBB != Scope->getHeader() ) {
         // each use must be preceded by a location assignment
         assert( curUseLoc >= 0 );
         // if previous location was not a register, we have to allocate
@@ -1129,7 +1130,7 @@ void RAInfo::assignLocations(void) {
     // (3) handle definitions in this basic block.
     //     if we need to get new locations for predicates (loc==-1),
     //     assign new ones in nearest-next-use order
-    const PredDefInfo *DI = Node->getDefInfo(MBB);
+    const PredDefInfo *DI = Scope->getDefInfo(MBB);
     if (DI) {
       std::vector<unsigned> order;
       for (int r = DI->getBoth().find_first(); r != -1;
@@ -1156,7 +1157,7 @@ void RAInfo::assignLocations(void) {
   // What is the location of the header predicate after handling all blocks?
   // We store this location, as it is where the next iteration has to get it
   // from (if different from its use location)
-  UseLoc &ul = UseLocs[Node->getHeader()];
+  UseLoc &ul = UseLocs[Scope->getHeader()];
   if (ul.loc != curLocs[0]) {
     ul.load = curLocs[0];
   }
@@ -1165,8 +1166,8 @@ void RAInfo::assignLocations(void) {
 
 
 void RAInfo::dump() const {
-  dbgs() << "[MBB#"     << Node->getHeader()->getNumber()
-         <<  "] depth=" << Node->getDepth() << "\n";
+  dbgs() << "[MBB#"     << Scope->getHeader()->getNumber()
+         <<  "] depth=" << Scope->getDepth() << "\n";
 
   for(unsigned i=0; i<LRs.size(); i++) {
     const LiveRange &LR = LRs[i];
@@ -1228,24 +1229,24 @@ void LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
 }
 
 
-void LinearizeWalker::enterSubnode(SPNode *N) {
+void LinearizeWalker::enterSubscope(SPScope *S) {
 
   // We don't create a preheader for entry.
-  if (N->isTopLevel()) return;
+  if (S->isTopLevel()) return;
 
   // insert loop preheader to spill predicates / load loop bound
   MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
   MF.push_back(PrehdrMBB);
 
 
-  const RAInfo &RI = Pass.RAInfos.at(N),
-               &RP = Pass.RAInfos.at(N->getParent());
+  const RAInfo &RI = Pass.RAInfos.at(S),
+               &RP = Pass.RAInfos.at(S->getParent());
 
   DebugLoc DL;
-  if (RI.needsNodeSpill()) {
+  if (RI.needsScopeSpill()) {
     // we create a SBC instruction here; TRI->eliminateFrameIndex() will
     // convert it to a stack cache access, if the stack cache is enabled.
-    int fi = Pass.PMFI->getSinglePathS0SpillFI(N->getDepth()-1);
+    int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth()-1);
     unsigned tmpReg = Pass.GuardsReg;
     Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
         tmpReg, Patmos::S0, false);
@@ -1260,7 +1261,7 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
   }
 
   // copy the header predicate for the subloop
-  const MachineBasicBlock *HeaderMBB = N->getHeader();
+  const MachineBasicBlock *HeaderMBB = S->getHeader();
   unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true),
            inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
   assert(inner_preg != Patmos::P0);
@@ -1273,9 +1274,9 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
   }
 
   // Initialize the loop bound and store it to the stack slot
-  if (N->hasLoopBound()) {
+  if (S->hasLoopBound()) {
     unsigned tmpReg = Pass.GuardsReg;
-    int loop = N->getLoopBound();
+    int loop = S->getLoopBound();
     // Create an instruction to load the loop bound
     // TODO try to find an unused register
     // FIXME load or copy the actual loop bound
@@ -1299,15 +1300,15 @@ void LinearizeWalker::enterSubnode(SPNode *N) {
 }
 
 
-void LinearizeWalker::exitSubnode(SPNode *N) {
+void LinearizeWalker::exitSubscope(SPScope *S) {
 
-  MachineBasicBlock *HeaderMBB = N->getHeader();
-  DEBUG_TRACE( dbgs() << "NodeRange [MBB#" <<  HeaderMBB->getNumber()
+  MachineBasicBlock *HeaderMBB = S->getHeader();
+  DEBUG_TRACE( dbgs() << "ScopeRange [MBB#" <<  HeaderMBB->getNumber()
                 <<  ", MBB#" <<  LastMBB->getNumber() << "]\n" );
 
-  if (N->isTopLevel()) return;
+  if (S->isTopLevel()) return;
 
-  const RAInfo &RI = Pass.RAInfos.at(N);
+  const RAInfo &RI = Pass.RAInfos.at(S);
   DebugLoc DL;
 
   // insert backwards branch to header at the last block
@@ -1319,7 +1320,7 @@ void LinearizeWalker::exitSubnode(SPNode *N) {
   // now we can fill the MBB with instructions:
   // load the branch predicate
   unsigned branch_preg = Patmos::NoRegister;
-  if (N->hasLoopBound()) {
+  if (S->hasLoopBound()) {
     // load the loop counter, decrement it by one, and if it is not (yet)
     // zero, we enter the loop again.
     // TODO is the loop counter in a register?!
@@ -1368,17 +1369,17 @@ void LinearizeWalker::exitSubnode(SPNode *N) {
   InsertedInstrs++; // STATISTIC
 
 
-  assert(!Pass.hasLiveOutPReg(N) &&
+  assert(!Pass.hasLiveOutPReg(S) &&
          "Unimplemented: handling of live-out PRegs of loops");
 
 
   // create a post-loop MBB to restore the spill predicates, if necessary
-  if (RI.needsNodeSpill()) {
+  if (RI.needsScopeSpill()) {
     MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
     MF.push_back(PostMBB);
     // we create a LBC instruction here; TRI->eliminateFrameIndex() will
     // convert it to a stack cache access, if the stack cache is enabled.
-    int fi = Pass.PMFI->getSinglePathS0SpillFI(N->getDepth()-1);
+    int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth()-1);
     unsigned tmpReg = Pass.GuardsReg;
     MachineInstr *loadMI =
       AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,

@@ -128,18 +128,18 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
 
   const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
 
-  SPNode *root = PSPI.getRootNode();
+  SPScope *root = PSPI.getRootScope();
 
   std::vector<unsigned> requiredPreds;
 
-  // for all (sub-)SPNodes
-  for (df_iterator<SPNode*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
-    SPNode *N = *I;
-    MachineBasicBlock *Header = N->getHeader();
-    unsigned preds = N->getNumPredicates();
-    unsigned d = N->getDepth();
+  // for all (sub-)SPScopes
+  for (df_iterator<SPScope*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+    SPScope *S = *I;
+    MachineBasicBlock *Header = S->getHeader();
+    unsigned preds = S->getNumPredicates();
+    unsigned d = S->getDepth();
 
-    if (N->hasLoopBound()) {
+    if (S->hasLoopBound()) {
       int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
       PMFI.addSinglePathFI(fi);
     }
@@ -147,7 +147,7 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     DEBUG( dbgs() << "[MBB#" << Header->getNumber()
                   << "]: d=" << d << ", " << preds << "\n");
 
-    // keep track of the maximum required number of predicates for each SPNode
+    // keep track of the maximum required number of predicates for each SPScope
     if (d+1 > requiredPreds.size()) {
       requiredPreds.push_back(preds);
     } else {

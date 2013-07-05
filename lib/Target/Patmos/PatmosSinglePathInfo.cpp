@@ -150,7 +150,7 @@ void PatmosSinglePathInfo::dump() const {
 
 
 
-void PatmosSinglePathInfo::walkRoot(llvm::SPNodeWalker &walker) const {
+void PatmosSinglePathInfo::walkRoot(llvm::SPScopeWalker &walker) const {
   assert( Root != NULL );
   Root->walk(walker);
 }
@@ -166,21 +166,21 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
   DEBUG_TRACE( dbgs() << "Post-dominator tree:\n" );
   DEBUG_TRACE( PDT.print(dbgs(), MF.getFunction()->getParent()) );
 
-  // build the SPNode tree
-  Root = createSPNodeTree(MF);
-  for (df_iterator<SPNode*> I = df_begin(Root), E = df_end(Root); I!=E; ++I) {
-    SPNode *N = *I;
-    // topologically sort the blocks and subnodes of each SPNode
-    N->topoSort();
+  // build the SPScope tree
+  Root = createSPScopeTree(MF);
+  for (df_iterator<SPScope*> I = df_begin(Root), E = df_end(Root); I!=E; ++I) {
+    SPScope *S = *I;
+    // topologically sort the blocks and subscopes of each SPScope
+    S->topoSort();
 
     CD_map_t CD;
-    computeControlDependence(*N, PDT, CD);
+    computeControlDependence(*S, PDT, CD);
 
     K_t K;
     R_t R;
-    decomposeControlDependence(*N, CD, K, R);
+    decomposeControlDependence(*S, CD, K, R);
 
-    assignPredInfo(*N, K, R);
+    assignPredInfo(*S, K, R);
   }
 
   DEBUG( print(dbgs()) );
@@ -191,20 +191,20 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
 
 
-void PatmosSinglePathInfo::computeControlDependence(SPNode &N,
+void PatmosSinglePathInfo::computeControlDependence(SPScope &S,
                                               MachinePostDominatorTree &PDT,
                                               CD_map_t &CD) const {
 
   // build control dependence information
-  for (unsigned i=0; i<N.Blocks.size(); i++) {
-    MachineBasicBlock *MBB = N.Blocks[i];
+  for (unsigned i=0; i<S.Blocks.size(); i++) {
+    MachineBasicBlock *MBB = S.Blocks[i];
     MachineDomTreeNode *ipdom = PDT[MBB]->getIDom();
 
     for(MachineBasicBlock::succ_iterator SI=MBB->succ_begin(),
                                          SE=MBB->succ_end(); SI!=SE; ++SI) {
       MachineBasicBlock *SMBB = *SI;
       // only consider members
-      if (!N.isMember(SMBB))
+      if (!S.isMember(SMBB))
         continue;
       // exclude edges to post-dominating (single) successors;
       // the second case catches the single-node loop case
@@ -219,8 +219,8 @@ void PatmosSinglePathInfo::computeControlDependence(SPNode &N,
   } // end for each MBB
 
   // add control dependence for entry edge NULL -> BB0
-  if (N.isTopLevel()) {
-    MachineBasicBlock *entryMBB = N.getHeader();
+  if (S.isTopLevel()) {
+    MachineBasicBlock *entryMBB = S.getHeader();
     for (MachineDomTreeNode *t = PDT[entryMBB]; t != NULL; t = t->getIDom() ) {
       CD[t->getBlock()].insert( std::make_pair(
                                   (MachineBasicBlock*)NULL, entryMBB)
@@ -245,12 +245,12 @@ void PatmosSinglePathInfo::computeControlDependence(SPNode &N,
 }
 
 
-void PatmosSinglePathInfo::decomposeControlDependence(SPNode &N,
+void PatmosSinglePathInfo::decomposeControlDependence(SPScope &S,
                                                       const CD_map_t &CD,
                                                       K_t &K, R_t &R) const {
   int p = 0;
-  for (unsigned i=0; i<N.Blocks.size(); i++) {
-    const MachineBasicBlock *MBB = N.Blocks[i];
+  for (unsigned i=0; i<S.Blocks.size(); i++) {
+    const MachineBasicBlock *MBB = S.Blocks[i];
     CD_map_entry_t t = CD.at(MBB);
     int q=-1;
     // try to lookup the control dependence
@@ -291,18 +291,18 @@ void PatmosSinglePathInfo::decomposeControlDependence(SPNode &N,
 }
 
 
-void PatmosSinglePathInfo::assignPredInfo(SPNode &N, const K_t &K,
+void PatmosSinglePathInfo::assignPredInfo(SPScope &S, const K_t &K,
                                           const R_t &R) const {
   // Properly assign the Uses/Defs
-  N.PredCount = K.size();
-  N.PredUse = R;
+  S.PredCount = K.size();
+  S.PredUse = R;
   // initialize number of defining edges to 0 for all predicates
-  N.NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
+  S.NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
 
   // For each predicate, compute defs
   for (unsigned int i=0; i<K.size(); i++) {
     // store number of defining edges
-    N.NumPredDefEdges[i] = K[i].size();
+    S.NumPredDefEdges[i] = K[i].size();
     // for each definition edge
     for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
               EI!=EE; ++EI) {
@@ -312,7 +312,7 @@ void PatmosSinglePathInfo::assignPredInfo(SPNode &N, const K_t &K,
       }
 
       // get pred definition info of MBBSrc
-      PredDefInfo &PredDef = getOrCreateDefInfo(N, MBBSrc);
+      PredDefInfo &PredDef = getOrCreateDefInfo(S, MBBSrc);
       // insert definition for predicate i according to MBBDst
       PredDef.define(i, MBBDst);
     } // end for each definition edge
@@ -322,10 +322,10 @@ void PatmosSinglePathInfo::assignPredInfo(SPNode &N, const K_t &K,
 ///////////////////////////////////////////////////////////////////////////////
 
 PredDefInfo &
-PatmosSinglePathInfo::getOrCreateDefInfo(SPNode &N,
+PatmosSinglePathInfo::getOrCreateDefInfo(SPScope &S,
                                          const MachineBasicBlock *MBB) const {
 
-  if (!N.PredDefs.count(MBB)) {
+  if (!S.PredDefs.count(MBB)) {
     // for AnalyzeBranch
     MachineBasicBlock *TBB = NULL, *FBB = NULL;
     SmallVector<MachineOperand, 2> Cond;
@@ -345,20 +345,20 @@ PatmosSinglePathInfo::getOrCreateDefInfo(SPNode &N,
     }
 
     // Create new info
-    N.PredDefs.insert(
-      std::make_pair(MBB, PredDefInfo(N.PredCount, TBB, Cond)) );
+    S.PredDefs.insert(
+      std::make_pair(MBB, PredDefInfo(S.PredCount, TBB, Cond)) );
   }
 
-  return N.PredDefs.at(MBB);
+  return S.PredDefs.at(MBB);
 }
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// SPNode methods
+// SPScope methods
 ///////////////////////////////////////////////////////////////////////////////
 
 
-SPNode::SPNode(SPNode *parent, MachineBasicBlock *header,
+SPScope::SPScope(SPScope *parent, MachineBasicBlock *header,
                MachineBasicBlock *succ, unsigned int numbe)
                : Parent(parent), SuccMBB(succ), NumBackedges(numbe),
                  LoopBound(-1) {
@@ -371,12 +371,12 @@ SPNode::SPNode(SPNode *parent, MachineBasicBlock *header,
     Parent->addMBB(header);
     Depth = Parent->Depth + 1;
   }
-  // add header also to this SPNode's block list
+  // add header also to this SPScope's block list
   Blocks.push_back(header);
 }
 
-/// destructor - free the child nodes first, cleanup
-SPNode::~SPNode() {
+/// destructor - free the child scopes first, cleanup
+SPScope::~SPScope() {
   for (unsigned i=0; i<Children.size(); i++) {
     delete Children[i];
   }
@@ -384,13 +384,13 @@ SPNode::~SPNode() {
   HeaderMap.clear();
 }
 
-void SPNode::addMBB(MachineBasicBlock *MBB) {
+void SPScope::addMBB(MachineBasicBlock *MBB) {
   if (Blocks.front() != MBB) {
     Blocks.push_back(MBB);
   }
 }
 
-bool SPNode::isMember(const MachineBasicBlock *MBB) const {
+bool SPScope::isMember(const MachineBasicBlock *MBB) const {
   for (unsigned i=0; i<Blocks.size(); i++) {
     if (Blocks[i] == MBB) return true;
   }
@@ -398,22 +398,22 @@ bool SPNode::isMember(const MachineBasicBlock *MBB) const {
 }
 
 
-bool SPNode::isSubHeader(MachineBasicBlock *MBB) const {
+bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
   return HeaderMap.count(MBB) > 0;
 }
 
 
-void SPNode::topoSort(void) {
+void SPScope::topoSort(void) {
   std::deque<MachineBasicBlock *> S;
   std::vector<MachineBasicBlock *> succs;
   std::map<MachineBasicBlock *, int> deps;
-  // for each block in SPNode excluding header,
+  // for each block in SPScope excluding header,
   // store the number of predecessors
   for (unsigned i=1; i<Blocks.size(); i++) {
     MachineBasicBlock *MBB = Blocks[i];
     deps[MBB] = MBB->pred_size();
     if (HeaderMap.count(MBB)) {
-      SPNode *subloop = HeaderMap[MBB];
+      SPScope *subloop = HeaderMap[MBB];
       deps[MBB] -= subloop->NumBackedges;
     }
   }
@@ -424,7 +424,7 @@ void SPNode::topoSort(void) {
     MachineBasicBlock *n = S.back();
     Blocks.push_back(n); // re-append
     S.pop_back();
-    // n is either a subloop header or a simple block of this SPNode
+    // n is either a subloop header or a simple block of this SPScope
     if (HeaderMap.count(n)) {
       succs.push_back(HeaderMap[n]->getSuccMBB());
     } else {
@@ -444,8 +444,8 @@ void SPNode::topoSort(void) {
   }
 }
 
-void SPNode::walk(SPNodeWalker &walker) {
-  walker.enterSubnode(this);
+void SPScope::walk(SPScopeWalker &walker) {
+  walker.enterSubscope(this);
   for (unsigned i=0; i<Blocks.size(); i++) {
     MachineBasicBlock *MBB = Blocks[i];
     if (HeaderMap.count(MBB)) {
@@ -454,7 +454,7 @@ void SPNode::walk(SPNodeWalker &walker) {
       walker.nextMBB(MBB);
     }
   }
-  walker.exitSubnode(this);
+  walker.exitSubscope(this);
 }
 
 static void indent(unsigned depth) {
@@ -462,10 +462,10 @@ static void indent(unsigned depth) {
     dbgs() << "  ";
 }
 
-static void printUDInfo(const SPNode &N, const MachineBasicBlock *MBB) {
-  dbgs() << "  u=" << N.getPredUse(MBB);
+static void printUDInfo(const SPScope &S, const MachineBasicBlock *MBB) {
+  dbgs() << "  u=" << S.getPredUse(MBB);
 
-  const PredDefInfo *DI = N.getDefInfo(MBB);
+  const PredDefInfo *DI = S.getDefInfo(MBB);
   if (DI) {
     dbgs() << " dT=";
     printBitVector(dbgs(), DI->getTrue());
@@ -475,7 +475,7 @@ static void printUDInfo(const SPNode &N, const MachineBasicBlock *MBB) {
   dbgs() << "\n";
 }
 
-void SPNode::dump() const {
+void SPScope::dump() const {
   indent(Depth);
   dbgs() <<  "[BB#" << Blocks.front()->getNumber() << "]";
   if (Parent) {
@@ -499,14 +499,14 @@ void SPNode::dump() const {
   }
 }
 
-int SPNode::getPredUse(const MachineBasicBlock *MBB) const {
+int SPScope::getPredUse(const MachineBasicBlock *MBB) const {
   if (PredUse.count(MBB)) {
     return PredUse.at(MBB);
   }
   return -1;
 }
 
-const PredDefInfo *SPNode::getDefInfo( const MachineBasicBlock *MBB) const {
+const PredDefInfo *SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
 
   if (PredDefs.count(MBB)) {
     return &PredDefs.at(MBB);
@@ -518,12 +518,12 @@ const PredDefInfo *SPNode::getDefInfo( const MachineBasicBlock *MBB) const {
 
 
 
-// build the SPNode tree in DFS order, creating new SPNodes preorder
+// build the SPScope tree in DFS order, creating new SPScopes preorder
 static
-void createSPNodeSubtree(MachineLoop *loop, SPNode *parent,
-                         std::map<const MachineLoop *, SPNode *> &M) {
+void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
+                         std::map<const MachineLoop *, SPScope *> &M) {
   // We need to make some assumptions about the loops we can handle for now...
-  // allow only one successor for SPNode
+  // allow only one successor for SPScope
   assert( loop->getExitBlock() != NULL &&
           "Allow only one successor for loops!" );
   assert( loop->getExitingBlock() != NULL &&
@@ -532,42 +532,42 @@ void createSPNodeSubtree(MachineLoop *loop, SPNode *parent,
   //assert( loop->getHeader() == loop->getExitingBlock() &&
   //        "Allow only loops with Header == Exiting Block!" );
 
-  SPNode *N = new SPNode(parent,
-                         loop->getHeader(),
-                         loop->getExitBlock(),
-                         loop->getNumBackEdges()
-                         );
+  SPScope *S = new SPScope(parent,
+                          loop->getHeader(),
+                          loop->getExitBlock(),
+                          loop->getNumBackEdges()
+                          );
 
-  // update map: Loop -> SPNode
-  M[loop] = N;
+  // update map: Loop -> SPScope
+  M[loop] = S;
 
   for (MachineLoop::iterator I = loop->begin(), E = loop->end();
           I != E; ++I) {
-    createSPNodeSubtree(*I, N, M);
+    createSPScopeSubtree(*I, S, M);
   }
 }
 
 
 
-SPNode *
-PatmosSinglePathInfo::createSPNodeTree(MachineFunction &MF) const {
+SPScope *
+PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) const {
   // Get loop information
   MachineLoopInfo &LI = getAnalysis<MachineLoopInfo>();
 
-  // First, create a SPNode tree
-  std::map<const MachineLoop *, SPNode *> M;
+  // First, create a SPScope tree
+  std::map<const MachineLoop *, SPScope *> M;
 
-  SPNode *Root = new SPNode(NULL, &MF.front(), NULL, 0);
+  SPScope *Root = new SPScope(NULL, &MF.front(), NULL, 0);
 
   M[NULL] = Root;
 
   // iterate over top-level loops
   for (MachineLoopInfo::iterator I=LI.begin(), E=LI.end(); I!=E; ++I) {
     MachineLoop *Loop = *I;
-    createSPNodeSubtree(Loop, Root, M);
+    createSPScopeSubtree(Loop, Root, M);
   }
 
-  // Then, add MBBs to the corresponding SPNodes
+  // Then, add MBBs to the corresponding SPScopes
   for (MachineFunction::iterator FI=MF.begin(), FE=MF.end();
           FI!=FE; ++FI) {
     MachineBasicBlock *MBB = FI;
