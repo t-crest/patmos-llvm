@@ -11,6 +11,7 @@
 #define LLVM_PML_EXPORT_H_
 
 #include "llvm/Module.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/SmallVector.h"
@@ -422,7 +423,7 @@ template <>
 struct MappingTraits< ProgramPoint > {
   static void mapping(IO &io, ProgramPoint &PP) {
     io.mapRequired("function", PP.Function);
-    io.mapOptional("block", PP.Function, Name(""));
+    io.mapOptional("block", PP.Block, Name(""));
     io.mapOptional("instruction", PP.Instruction, Name(""));
     io.mapOptional("loop", PP.Loop, Name(""));
   }
@@ -430,9 +431,9 @@ struct MappingTraits< ProgramPoint > {
 
 struct Term {
   ProgramPoint* PP;
-  uint64_t Factor;
+  int64_t Factor;
   Term() : PP(0), Factor(0) {}
-  Term(ProgramPoint *pp, uint64_t factor) : PP(pp), Factor(factor) {}
+  Term(ProgramPoint *pp, int64_t factor) : PP(pp), Factor(factor) {}
 };
 
 template <>
@@ -455,7 +456,7 @@ struct FlowFact {
   Name Classification;
 
   // Add term (PP should have been created by this flow fact)
-  void addTermLHS(ProgramPoint *PP, uint64_t Factor) {
+  void addTermLHS(ProgramPoint *PP, int64_t Factor) {
     TermsLHS.push_back(Term(PP, Factor));
   }
 
@@ -525,6 +526,7 @@ struct Doc {
     DELETE_MEMBERS(BitcodeFunctions);
     DELETE_MEMBERS(MachineFunctions);
     DELETE_MEMBERS(RelationGraphs);
+    DELETE_MEMBERS(FlowFacts);
   }
   /// Add a function, which is owned by the document afterwards
   void addFunction(BitcodeFunction *F) {
@@ -537,6 +539,10 @@ struct Doc {
   /// Add a relation graph, which is owned by the document afterwards
   void addRelationGraph(RelationGraph* RG) {
     RelationGraphs.push_back(RG);
+  }
+  /// Add a flowfact, which is owned by the document afterwards
+  void addFlowFact(FlowFact* FF) {
+    FlowFacts.push_back(FF);
   }
 };
 template <>

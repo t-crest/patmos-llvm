@@ -17,6 +17,7 @@
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -179,21 +180,26 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
     Loop *Loop = LI.getLoopFor(BI);
     if (Loop) {
-      // add (trivial) flow fact for demonstration purposes
-      yaml::FlowFact *FF = new yaml::FlowFact();
-      FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
-      yaml::ProgramPoint *Block = FF->createBlock(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
-      FF->addTermLHS(Block, 1);
-      FF->addTermLHS(Block, -1);
-      FF->Comparison = yaml::cmp_equal;
-      FF->Level = yaml::level_bitcode;
-      FF->Origin = "llvm";
-      FF->Classification = "loop-global";
+      if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
+        if(const SCEVConstant* BEBound = dyn_cast<SCEVConstant>(SE.getMaxBackedgeTakenCount(Loop))) {
+          uint64_t HeaderBound = BEBound->getValue()->getZExtValue() + 1;
+          if(HeaderBound < 0xFFFFFFFFu) {
+            yaml::FlowFact *FF = new yaml::FlowFact();
 
-    // SCEVConstant;
-    // bool hasLoopInvariantBackedgeTakenCount(const Loop *L);
-    // const SCEV *getMaxBackedgeTakenCount(const Loop *L);
-    // const SCEV *getBackedgeTakenCount(const Loop *L);
+            FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
+
+            yaml::ProgramPoint *Block =
+              FF->createBlock(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
+            FF->addTermLHS(Block, 1LL);
+            FF->ConstRHS = HeaderBound;
+            FF->Comparison = yaml::cmp_equal;
+            FF->Level = yaml::level_bitcode;
+            FF->Origin = "llvm";
+            FF->Classification = "loop-global";
+            YDoc.addFlowFact(FF);
+          }
+        }
+      }
     }
 
     while (Loop) {
