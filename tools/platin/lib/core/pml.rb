@@ -93,6 +93,7 @@ module PML
   # from PML files
   class PMLDoc
     attr_reader :data, :triple, :arch, :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
+    # attr_reader :data, :arch, :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing,:sctree
 
     # constructor expects a YAML document or a list of YAML documents
     def initialize(stream)
@@ -112,6 +113,8 @@ module PML
       @flowfacts = FlowFactList.from_pml(self, @data['flowfacts'])
       @data['timing'] ||= []
       @timing = TimingList.from_pml(self, @data['timing'])
+      @sctree = SCTree.new(@data['sctree']) if @data.include?('sctree')
+      @sctree ||= nil
     end
 
     def clone_empty
@@ -1340,5 +1343,24 @@ module PML
       data.to_s
     end
   end
+
+  # Tree structure representing stack cache analysis results
+  class SCTree < PMLObject
+    attr_reader :nodes
+    def initialize(data)
+      set_data(data)
+      @nodes = SCNodeList.new(data['nodes'] || [], self)
+    end
+  end
+
+  # List of stack cache tree nodes
+  class SCNodeList < PMLList
+    include NameIndexList
+    def initialize(data, tree)
+      @list = data.map { |n| SCNode.new(n, tree) }
+      set_data(data)
+    end
+  end
+
 # end of module PML
 end

@@ -20,6 +20,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/Support/CFG.h"
@@ -547,6 +548,17 @@ struct GenericFormat {
   typedef Function<MachineBlock> MachineFunction;
 };
 
+struct SCACostGraph {
+  StringRef Name;
+  SCACostGraph() : Name("Heinz") {}
+};
+
+template <>
+struct MappingTraits< SCACostGraph > {
+  static void mapping(IO &io, SCACostGraph& g) {
+    io.mapRequired("name",   g.Name);
+  }
+};
 
 struct Doc {
   StringRef FormatVersion;
@@ -555,6 +567,7 @@ struct Doc {
   std::vector<GenericFormat::MachineFunction*> MachineFunctions;
   std::vector<RelationGraph*> RelationGraphs;
   std::vector<FlowFact*> FlowFacts;
+  SCACostGraph SCAcg;
 
   Doc(StringRef TargetTriple)
     : FormatVersion("pml-0.1"),
@@ -591,6 +604,7 @@ struct MappingTraits< Doc > {
     io.mapOptional("machine-functions",doc.MachineFunctions);
     io.mapOptional("relation-graphs",doc.RelationGraphs);
     io.mapOptional("flowfacts", doc.FlowFacts);
+    io.mapOptional("sca-cost-graph",doc.SCAcg);
   }
 };
 
@@ -787,6 +801,21 @@ namespace llvm {
       bool isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target);
     };
 
+  };
+
+  class PMLFoo : public PMLExport {
+    yaml::Doc YDoc;
+
+  public:
+    PMLFoo(TargetMachine &TM)
+      : YDoc(TM.getTargetTriple()) {}
+
+    /// Build the Control-Flow Relation Graph connection machine code and bitcode
+    virtual void serialize(MachineFunction &MF, MachineLoopInfo* LI) {}
+
+    virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
+
+    yaml::Doc& getDoc() { return YDoc; }
   };
 
   // ---------------------- Export Passes ------------------------- //

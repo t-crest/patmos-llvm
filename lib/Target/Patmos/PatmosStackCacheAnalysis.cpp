@@ -30,6 +30,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
+#include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Program.h"
@@ -634,6 +635,9 @@ namespace llvm {
     /// Subtarget information (stack cache block size)
     const PatmosSubtarget &STC;
 
+    /// Target machine info
+    const PatmosTargetMachine &TM;
+
     /// Instruction information
     const TargetInstrInfo &TII;
 
@@ -645,7 +649,7 @@ namespace llvm {
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
         MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(*tm.getInstrInfo()), BI(BoundsFile)
+        TM(tm), TII(*tm.getInstrInfo()), BI(BoundsFile)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
@@ -1918,6 +1922,7 @@ namespace llvm {
     /// runOnModule - determine the state of the stack cache for each call site.
     virtual bool runOnMachineModule(const Module &M)
     {
+
       PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
       const MCallGraph &G(*PCGB.getCallGraph());
       MCGNode *main = PCGB.getMCGNode(M, "main");
@@ -1945,12 +1950,59 @@ namespace llvm {
       // the worst-case spilling at reserves.
       propagateMaxOccupancy(G, main);
 
+      exportPML(G);
+
       return false;
     }
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {
       return "Patmos Stack Cache Analysis";
+    }
+
+    void exportPML(const MCallGraph &G) {
+      yaml::Doc YDoc(TM.getTargetTriple());
+      const MCGNodes &nodes(G.getNodes());
+
+      // visit all functions
+      for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
+          i++) {
+        if ((*i)->isUnknown())
+          continue;
+
+        MachineFunction *MF = (*i)->getMF();
+
+        yaml::GenericFormat::MachineFunction *YF =
+           new yaml::GenericFormat::MachineFunction(MF->getFunctionNumber());
+        YF->Level = yaml::level_machinecode;
+        YF->MapsTo = yaml::Name(MF->getFunction()->getName());
+        YF->Hash = StringRef("0");
+        YDoc.addMachineFunction(YF);
+      }
+
+
+
+
+      yaml::Output *Output;
+      StringRef OutFileName("foo.pml");
+      tool_output_file *OutFile;
+      std::string ErrorInfo;
+      OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
+      if (!ErrorInfo.empty()) {
+        delete OutFile;
+        errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
+        errs() << "[mc2yml] Reason: " << ErrorInfo;
+        OutFile = 0;
+      }
+      else {
+        Output = new yaml::Output(OutFile->os());
+      }
+      *Output << YDoc;
+      if (OutFile) {
+        OutFile->keep();
+        delete Output;
+        delete OutFile;
+      }
     }
   };
 
