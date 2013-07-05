@@ -192,9 +192,9 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
               FF->createBlock(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
             FF->addTermLHS(Block, 1LL);
             FF->ConstRHS = HeaderBound;
-            FF->Comparison = yaml::cmp_equal;
+            FF->Comparison = yaml::cmp_less_equal;
             FF->Level = yaml::level_bitcode;
-            FF->Origin = "llvm";
+            FF->Origin = "llvm.bc";
             FF->Classification = "loop-global";
             YDoc.addFlowFact(FF);
           }

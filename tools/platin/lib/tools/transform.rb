@@ -142,8 +142,10 @@ class TransformTool
     if options.transform_action == "copy"
       fft.copy(flowfacts)
     elsif options.transform_action == "up" || options.transform_action == "down"
-      dir = options.transform_action == "up" ? :src : :dst
-      fft.transform(entry, flowfacts, dir)
+      target_level = options.transform_action == "up" ? :src : :dst
+      if flowfacts.any? { |ff| ff.level == (target_level == :dst ? "bitcode" : "machinecode") }
+        fft.transform(entry, flowfacts, target_level)
+      end
     elsif options.transform_action == "simplify"
       fft.simplify(entry, flowfacts)
     else

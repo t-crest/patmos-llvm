@@ -44,10 +44,13 @@ class WcetTool
     trace_analysis if options.trace_analysis
     sweet_analysis if options.enable_sweet
 
+    transform_down(["llvm.bc"],"llvm")
     flow_srcs = ["llvm"]
     flow_srcs.push("trace") if options.use_trace_facts
     flow_srcs.push("sweet") if options.enable_sweet
+    # FIXME: check if this is necessary (CFRG testsuite)
     flow_srcs.push("trace.support") if options.enable_sweet && options.trace_analysis
+
     wcet_analysis(flow_srcs)
     report
     pml
@@ -100,33 +103,46 @@ class WcetTool
     end
   end
 
+  def transform_down(srcs, output)
+    time("Flow Fact Transformation #{srcs}") do
+      opts = options.dup
+      opts.flow_fact_selection ||= "all"
+      opts.flow_fact_srcs = srcs
+      opts.flow_fact_output = output
+      opts.transform_action = 'down'
+      TransformTool.run(pml, opts)
+    end
+  end
+
   def wcet_analysis(srcs)
+    wcet_analysis_platin(srcs) if options.enable_wca
+    wcet_analysis_ait(srcs) unless options.disable_ait
+  end
+
+  def wcet_analysis_platin(srcs)
     time("run WCET analysis (platin)") do
       opts = options.dup
       opts.timing_output = [opts.timing_output,'platin'].compact.join("/")
       opts.flow_fact_selection ||= "all"
       opts.flow_fact_srcs = srcs
       WcaTool.run(pml, opts)
-    end unless options.disable_wca
-
-    wcet_analysis_ait(srcs) unless options.disable_ait
+    end
   end
 
   def wcet_analysis_ait(srcs)
     time("run WCET analysis (aiT)") do
-      # simplify flow facts
+      # Simplify flow facts
       opts = options.dup
       opts.flow_fact_selection ||= "all"
       opts.flow_fact_srcs = srcs
-      opts.flow_fact_output = 'aiT'
+      opts.flow_fact_output = [options.timing_output,'.aiT'].compact.join("/")
       opts.transform_action = 'simplify'
       opts.transform_eliminate_edges = true
       TransformTool.run(pml, opts)
-      pml.flowfacts.stats(pml, DebugIO.new)
 
       # run WCET analysis
       opts.flow_fact_selection = "all"
-      opts.flow_fact_srcs = ['aiT']
+      opts.flow_fact_srcs = [ opts.flow_fact_output ]
       opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
       AisExportTool.run(pml,opts)
       ApxExportTool.run(pml,opts)
@@ -216,7 +232,7 @@ class WcetTool
     opts.on("--enable-trace-analysis", "run trace analysis") { |d| opts.options.trace_analysis = true }
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }
     opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
-    opts.on("--disable-wca", "do not run WCA calculator") { |d| opts.options.disable_wca = true }
+    opts.on("--enable-wca", "run platin WCA calculator") { |d| opts.options.enable_wca = true }
 
     opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
     use_sweet = Proc.new { |options| options.enable_sweet }

@@ -781,16 +781,14 @@ class FlowFactTransformation
     constraints_before = ilp.constraints.length
     ilp.variables.each do |var|
       if var.kind_of?(Instruction)
-        info("Eliminating Instruction: #{var}")
+        debug(options,:ipet) { "Eliminating Instruction: #{var}" }
         ilp.eliminate(var)
       elsif options.transform_eliminate_edges && var.kind_of?(IPETEdge) && var.cfg_edge?
-        info("Eliminating IPET Edge: #{var}")
+        debug(options,:ipet) { "Eliminating IPET Edge: #{var}" }
         ilp.eliminate(var)
       elsif options.transform_eliminate_edges && var.kind_of?(Block) && var.instructions.empty?
-        info("Eliminating empty block: #{var}")
+        debug(options,:ipet) { "Eliminating empty block: #{var}" }
         ilp.eliminate(var)
-      else
-        info("Not eliminating #{var}")
       end
     end
 

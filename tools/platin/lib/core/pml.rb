@@ -292,20 +292,24 @@ module PML
     end
     def Reference.from_pml(functions, data)
       context  = CallString.from_pml(functions, data[CallString.key])
-      f,b,i = data['function'],data['block'],data['instruction']
-      if refstr = data['instruction']
-        parts = refstr.split('/') # compact notation
-        f,b,i = parts.map { |v| YAML::load(v) } if parts[2]
-      elsif refstr = data['block'] || data['loop']
+      fname,bname,iname = data['function'],(data['block'] || data['loop']),data['instruction']
+
+      # Support for compact notation (f/b/i or f/l)
+      if refstr = data['instruction'] && (! fname || ! bname)
+        parts = refstr.split('/')
+        fname,bname,iname = parts.map { |v| YAML::load(v) } if parts[2]
+      elsif refstr = (data['block'] || data['loop']) && (! fname)
         parts = refstr.split('/')  # compact notation
-        f,b  = parts.map { |v| YAML::load(v) } if parts[1]
+        fname,bname  = parts.map { |v| YAML::load(v) } if parts[1]
       end
-      assert("PML Reference: no function attribute") { f }
-      function = functions.by_name(f)
-      if b
-        block = function.blocks.by_name(b)
-        if i
-          instruction = block.instructions[i]
+
+      assert("PML Reference: no function attribute") { fname }
+      function = functions.by_name(fname)
+
+      if bname
+        block = function.blocks.by_name(bname)
+        if iname
+          instruction = block.instructions[iname]
           return InstructionRef.new(instruction,context,data)
         elsif data['loop']
           return LoopRef.new(block,context,data)
