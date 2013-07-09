@@ -742,8 +742,7 @@ class FlowFactTransformation
 
   # Copy flowfacts
   def copy(flowfacts)
-    copied = copy_flowfacts(flowfacts)
-    copied.each { |ff| pml.flowfacts.add(ff) }
+    copied = pml.flowfacts.add_copies(flowfacts, options.flow_fact_output)
     statistics("IPET","Flowfacts copied (=>#{options.flow_fact_output})" => copied.length) if options.stats
   end
 
@@ -754,7 +753,6 @@ class FlowFactTransformation
       builder_opts[:mbb_variables] = true
     else
       warn("TransformTool#simplify: no simplifications enabled")
-      return copy(flowfacts) # just a copy
     end
 
     # Filter flow facts that need to be simplified
@@ -768,8 +766,7 @@ class FlowFactTransformation
         copy.push(ff)
       end
     }
-    copied = copy_flowfacts(copy)
-    copied.each { |ff| pml.flowfacts.add(ff) }
+    copied = pml.flowfacts.add_copies(copy, options.flow_fact_output)
 
     # Build ILP for transformation
     entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
@@ -829,16 +826,6 @@ class FlowFactTransformation
   end
 
 private
-
-  def copy_flowfacts(flowfacts)
-    copied = []
-    flowfacts.each { |ff|
-      ff2 = ff.deep_clone
-      ff2.add_attribute('origin', options.flow_fact_output)
-      copied.push(ff2)
-    }
-    copied
-  end
 
   #
   # entry      ... { :dst => <machine-function , :src => <bitcode-function> }

@@ -148,26 +148,29 @@ class WcetTool
       ApxExportTool.run(pml,opts)
       AitAnalyzeTool.run(pml, opts)
       AitImportTool.run(pml,opts)
+      pml.flowfacts.reject! { |ff| ff.origin == '.aiT' }
     end
   end
 
-  def report
-    results = summarize_results
+  def report(additional_keys = [])
+    results = summarize_results(additional_keys)
     file_open(options.report, (options.report_append ? "a" : "w")) do |fh|
       info "Writing report to #{options.report}" if options.report != "-"
       fh.puts YAML::dump(results.map { |r| r.merge(options.report_append || {}) })
     end if options.report
   end
 
-  def summarize_results
+  def summarize_results(additional_keys = [])
     trace_cycles = nil
     results = pml.timing.sort_by { |te|
       [ te.scope.qname, te.cycles, te.origin ]
     }.map { |te|
       trace_cycles = te.cycles if te.origin == "trace"
-      { 'analysis-entry' => options.analysis_entry,
+      dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
         'cycles' => te.cycles }
+      additional_keys.each { |k| dict[k] = te[k] }
+      dict
     }
     if options.runcheck
       die("wcet check: Not timing for simulator trace") unless trace_cycles

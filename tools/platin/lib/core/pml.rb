@@ -121,6 +121,18 @@ module PML
       PMLDoc.new(data)
     end
 
+    def try
+      backup = flowfacts,timing
+      begin
+        @flowfacts = flowfacts.dup
+        @timing = timing.dup
+        r = yield
+      ensure
+        @flowfacts, @timing = backup
+      end
+      r
+    end
+
     def to_s
       "PMLDoc{bitcode-functions: |#{bitcode_functions.length}|, machine-functions: |#{machine_functions.length}"+
         ", flowfacts: |#{flowfacts.length}|}, timing: |#{timing.length}|"
@@ -884,10 +896,39 @@ module PML
       FlowFactList.new(data.map { |d| FlowFact.from_pml(pml,d) }, data)
     end
 
+    def dup
+      FlowFactList.new(@list.dup, @data.dup)
+    end
+
     def add(ff)
       @list.push(ff)
       data.push(ff.data)
       add_index(ff)
+    end
+
+    def add_copies(flowfacts, new_origin)
+      copies = []
+      flowfacts.each { |ff|
+        ff_copy = ff.deep_clone
+        ff_copy.add_attribute('origin', new_origin)
+        add(ff_copy)
+        copies.push(ff_copy)
+      }
+      copies
+    end
+
+    def reject!
+      rejects = []
+      @list.reject! { |ff| r = yield ff ; rejects.push(r); r }
+      data.reject! { |ff| rejects.shift }
+    end
+
+    def by_origin(origin)
+      if origin.kind_of?(String)
+        @list.select { |ff| origin == ff.origin }
+      else
+        @list.select { |ff| origin.include?(ff.origin) }
+      end
     end
 
     def filter(pml, ff_selection, ff_srcs, ff_levels)
@@ -1192,6 +1233,9 @@ module PML
     def TimingList.from_pml(pml, data)
       TimingList.new(data.map { |d| TimingEntry.from_pml(pml,d) }, data)
     end
+    def dup
+      TimingList.new(@list.dup, data.dup)
+    end
     def add(te)
       @list.push(te)
       data.push(te.data)
@@ -1218,6 +1262,9 @@ module PML
       @cycles = cycles
       @context = context
       set_data(data)
+    end
+    def []=(key,value)
+      data[key] = value
     end
     def [](key)
       data[key]

@@ -1,8 +1,9 @@
 #
-# PLATIN tool set
+# The *platin* toolkit
 #
-# aiT bridge
+# Bridge to absint's "aiT" WCET analyzer
 #
+
 require 'platin'
 
 module PML
@@ -22,8 +23,10 @@ module PML
   end
 
   class AISExporter
+
     attr_reader :stats_generated_facts,  :stats_skipped_flowfacts
     attr_reader :outfile
+
     def initialize(pml,ais_file,options)
       @pml = pml
       @outfile = ais_file
@@ -81,7 +84,10 @@ module PML
       assert("Bad calltarget flowfact: #{ff.inspect}") { scope && scope.context.empty? }
 
       # no support for context-sensitive call targets
-      return false unless callsite.context.empty?
+      unless callsite.context.empty?
+        warn("aiT: no support for callcontext-sensitive callsites")
+        return false
+      end
 
       block = callsite.block
       location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
@@ -97,7 +103,10 @@ module PML
       # aiT (=> ask absint guys)
 
       # context-sensitive facts not yet supported
-      return false unless (ff.scope.context.empty?)
+      unless ff.scope.context.empty?
+        warn("aiT: no support for callcontext-sensitive loop bounds")
+        return false
+      end
 
       loopname = dquote(ff.scope.loopblock.label)
       gen_fact("loop #{loopname} max #{ff.rhs} ;", # end ;"
@@ -110,9 +119,16 @@ module PML
       insname = dquote(pp.block.label)
 
       # context-sensitive facts not yet supported
-      return false unless ff.scope.context.empty?
+      unless ff.scope.context.empty? && pp.context.empty?
+        warn("aiT: no support for context-sensitive scopes / program points")
+        return false
+      end
+
       # no support for empty basic blocks (typically at -O0)
-      return false if pp.block.instructions.empty?
+      if pp.block.instructions.empty?
+        warn("aiT: no support for program points referencing empty blocks")
+        return false
+      end
 
       gen_fact("instruction #{insname} is never executed ;",
                "globally infeasible block (source: #{ff['origin']})")
@@ -125,8 +141,11 @@ module PML
       assert("export_linear_constraint: not in function scope") { scope.kind_of?(FunctionRef) }
 
       # no support for context-sensitive linear constraints
-      return false unless scope.context.empty?
-      return false unless terms.all? { |t| t.ppref.context.empty? }
+      unless scope.context.empty? && terms.all? { |t| t.ppref.context.empty? }
+        warn("aiT: no support for context-sensitive scopes / program points")
+        return false
+      end
+
       # no support for edges in aiT
       unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
         warn("Constraint not supported by aiT (not a block ref): #{ff}")
@@ -137,8 +156,11 @@ module PML
         warn("Constraint not supported by aiT (empty basic block): #{ff})")
         return false
       end
-      # do not export positivity contraints
-      return if ff.rhs >= 0 && terms.all? { |t| t.factor < 0 }
+
+      # Positivty constraints => do nothing
+      if ff.rhs >= 0 && terms.all? { |t| t.factor < 0 }
+        return true
+      end
 
       scope = scope.function.blocks.first.ref
       terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0
@@ -166,6 +188,7 @@ module PML
         elsif(ff.blocks_constraint? || ff.scope.kind_of?(FunctionRef))
           export_linear_constraint(ff)
         else
+          info("aiT: unsupported flow fact type: #{ff}") unless supported
           false
         end
       @stats_skipped_flowfacts += 1 unless supported
