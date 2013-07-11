@@ -1,3 +1,0 @@
-rsec-0.4.gem
-ruby-graphviz-1.0.8.gem
-lpsolve-5.5.10.j.gem
