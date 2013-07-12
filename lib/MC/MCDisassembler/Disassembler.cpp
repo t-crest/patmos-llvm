@@ -9,7 +9,6 @@
 
 #include "Disassembler.h"
 #include "llvm-c/Disassembler.h"
-
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler.h"
@@ -18,9 +17,9 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryObject.h"
 #include "llvm/Support/TargetRegistry.h"
-#include "llvm/Support/ErrorHandling.h"
 
 namespace llvm {
 class Target;
@@ -34,54 +33,69 @@ using namespace llvm;
 // functions can all be passed as NULL.  If successful, this returns a
 // disassembler context.  If not, it returns NULL.
 //
-LLVMDisasmContextRef LLVMCreateDisasm(const char *TripleName, void *DisInfo,
-                                      int TagType, LLVMOpInfoCallback GetOpInfo,
-                                      LLVMSymbolLookupCallback SymbolLookUp) {
+LLVMDisasmContextRef LLVMCreateDisasmCPU(const char *Triple, const char *CPU,
+                                         void *DisInfo, int TagType,
+                                         LLVMOpInfoCallback GetOpInfo,
+                                         LLVMSymbolLookupCallback SymbolLookUp){
   // Get the target.
   std::string Error;
-  const Target *TheTarget = TargetRegistry::lookupTarget(TripleName, Error);
+  const Target *TheTarget = TargetRegistry::lookupTarget(Triple, Error);
   assert(TheTarget && "Unable to create target!");
 
   // Get the assembler info needed to setup the MCContext.
-  const MCAsmInfo *MAI = TheTarget->createMCAsmInfo(TripleName);
-  assert(MAI && "Unable to create target asm info!");
+  const MCAsmInfo *MAI = TheTarget->createMCAsmInfo(Triple);
+  if (!MAI)
+    return 0;
 
   const MCInstrInfo *MII = TheTarget->createMCInstrInfo();
-  assert(MII && "Unable to create target instruction info!");
+  if (!MII)
+    return 0;
 
-  const MCRegisterInfo *MRI = TheTarget->createMCRegInfo(TripleName);
-  assert(MRI && "Unable to create target register info!");
+  const MCRegisterInfo *MRI = TheTarget->createMCRegInfo(Triple);
+  if (!MRI)
+    return 0;
 
   // Package up features to be passed to target/subtarget
   std::string FeaturesStr;
-  std::string CPU;
 
-  const MCSubtargetInfo *STI = TheTarget->createMCSubtargetInfo(TripleName, CPU,
+  const MCSubtargetInfo *STI = TheTarget->createMCSubtargetInfo(Triple, CPU,
                                                                 FeaturesStr);
-  assert(STI && "Unable to create subtarget info!");
+  if (!STI)
+    return 0;
 
   // Set up the MCContext for creating symbols and MCExpr's.
   MCContext *Ctx = new MCContext(*MAI, *MRI, *MII, 0);
-  assert(Ctx && "Unable to create MCContext!");
+  if (!Ctx)
+    return 0;
 
   // Set up disassembler.
   MCDisassembler *DisAsm = TheTarget->createMCDisassembler(*STI);
-  assert(DisAsm && "Unable to create disassembler!");
+  if (!DisAsm)
+    return 0;
   DisAsm->setupForSymbolicDisassembly(GetOpInfo, SymbolLookUp, DisInfo, Ctx);
 
   // Set up the instruction printer.
   int AsmPrinterVariant = MAI->getAssemblerDialect();
   MCInstPrinter *IP = TheTarget->createMCInstPrinter(AsmPrinterVariant,
                                                      *MAI, *MII, *MRI, *STI);
-  assert(IP && "Unable to create instruction printer!");
+  if (!IP)
+    return 0;
 
-  LLVMDisasmContext *DC = new LLVMDisasmContext(TripleName, DisInfo, TagType,
+  LLVMDisasmContext *DC = new LLVMDisasmContext(Triple, DisInfo, TagType,
                                                 GetOpInfo, SymbolLookUp,
                                                 TheTarget, MAI, MRI,
                                                 STI, MII, Ctx, DisAsm, IP);
-  assert(DC && "Allocation failure!");
+  if (!DC)
+    return 0;
 
   return DC;
+}
+
+LLVMDisasmContextRef LLVMCreateDisasm(const char *Triple, void *DisInfo,
+                                      int TagType, LLVMOpInfoCallback GetOpInfo,
+                                      LLVMSymbolLookupCallback SymbolLookUp) {
+  return LLVMCreateDisasmCPU(Triple, "", DisInfo, TagType, GetOpInfo,
+                             SymbolLookUp);
 }
 
 //
@@ -182,6 +196,28 @@ int LLVMSetDisasmOptions(LLVMDisasmContextRef DCR, uint64_t Options){
       MCInstPrinter *IP = DC->getIP();
       IP->setUseMarkup(1);
       Options &= ~LLVMDisassembler_Option_UseMarkup;
+  }
+  if (Options & LLVMDisassembler_Option_PrintImmHex){
+      LLVMDisasmContext *DC = (LLVMDisasmContext *)DCR;
+      MCInstPrinter *IP = DC->getIP();
+      IP->setPrintImmHex(1);
+      Options &= ~LLVMDisassembler_Option_PrintImmHex;
+  }
+  if (Options & LLVMDisassembler_Option_AsmPrinterVariant){
+      LLVMDisasmContext *DC = (LLVMDisasmContext *)DCR;
+      // Try to set up the new instruction printer.
+      const MCAsmInfo *MAI = DC->getAsmInfo();
+      const MCInstrInfo *MII = DC->getInstrInfo();
+      const MCRegisterInfo *MRI = DC->getRegisterInfo();
+      const MCSubtargetInfo *STI = DC->getSubtargetInfo();
+      int AsmPrinterVariant = MAI->getAssemblerDialect();
+      AsmPrinterVariant = AsmPrinterVariant == 0 ? 1 : 0;
+      MCInstPrinter *IP = DC->getTarget()->createMCInstPrinter(
+          AsmPrinterVariant, *MAI, *MII, *MRI, *STI);
+      if (IP) {
+        DC->setIP(IP);
+        Options &= ~LLVMDisassembler_Option_AsmPrinterVariant;
+      }
   }
   return (Options == 0);
 }

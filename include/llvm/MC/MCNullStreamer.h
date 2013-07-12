@@ -18,16 +18,26 @@ namespace llvm {
 
   class MCNullStreamer : public MCStreamer {
   public:
-    MCNullStreamer(MCContext &Context) : MCStreamer(Context) {}
+    MCNullStreamer(MCContext &Context) : MCStreamer(SK_NullStreamer, Context) {}
 
     /// @name MCStreamer Interface
     /// @{
 
-    virtual void InitSections() {}
+    virtual void InitToTextSection() {
+    }
 
-    virtual void ChangeSection(const MCSection *Section) {}
+    virtual void InitSections() {
+    }
+
+    virtual void ChangeSection(const MCSection *Section,
+			       const MCExpr *Subsection) {
+    }
 
     virtual void EmitLabel(MCSymbol *Symbol);
+
+    virtual void EmitDebugLabel(MCSymbol *Symbol) {
+	EmitLabel(Symbol);
+    }
 
     virtual void EmitAssemblerFlag(MCAssemblerFlag Flag) {}
     virtual void EmitThumbFunc(MCSymbol *Func) {}
@@ -77,7 +87,7 @@ namespace llvm {
 
     virtual void EmitFileDirective(StringRef Filename) {}
     virtual bool EmitDwarfFileDirective(unsigned FileNo, StringRef Directory,
-                                        StringRef Filename) {
+                                        StringRef Filename, unsigned CUID = 0) {
       return false;
     }
     virtual void EmitDwarfLocDirective(unsigned FileNo, unsigned Line,
@@ -86,6 +96,10 @@ namespace llvm {
                                        StringRef FileName) {}
     virtual void EmitInstruction(const MCInst &Inst) {}
 
+    virtual void EmitBundleAlignMode(unsigned AlignPow2) {}
+    virtual void EmitBundleLock(bool AlignToEnd) {}
+    virtual void EmitBundleUnlock() {}
+
     virtual void EmitFStart(const MCSymbol *Start, const MCExpr* Size,
                             unsigned Alignment) {}
 
@@ -93,6 +107,10 @@ namespace llvm {
 
     virtual void EmitCFIEndProcImpl(MCDwarfFrameInfo &Frame) {
       RecordProcEnd(Frame);
+    }
+
+    static bool classof(const MCStreamer *S) {
+      return S->getKind() == SK_NullStreamer;
     }
 
     /// @}

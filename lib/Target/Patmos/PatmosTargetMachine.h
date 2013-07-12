@@ -21,7 +21,7 @@
 #include "PatmosSelectionDAGInfo.h"
 #include "PatmosRegisterInfo.h"
 #include "PatmosSubtarget.h"
-#include "llvm/DataLayout.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 

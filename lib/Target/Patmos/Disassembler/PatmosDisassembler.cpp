@@ -14,7 +14,6 @@
 #include "Patmos.h"
 #include "PatmosSubtarget.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
-#include "llvm/MC/EDInstInfo.h"
 #include "llvm/MC/MCDisassembler.h"
 #include "llvm/MC/MCFixedLenDisassembler.h"
 #include "llvm/Support/MemoryObject.h"
@@ -53,9 +52,6 @@ public:
                               uint64_t address,
                               raw_ostream &vStream,
                               raw_ostream &cStream) const;
-
-  /// getEDInfo - See MCDisassembler.
-  const EDInstInfo *getEDInfo() const;
 
 private:
 
@@ -100,13 +96,8 @@ static DecodeStatus DecodePredRegisterClass(MCInst &Inst, unsigned RegNo, uint64
                                             const void *Decoder);
 
 #include "PatmosGenDisassemblerTables.inc"
-#include "PatmosGenEDInfo.inc"
 
-const EDInstInfo *PatmosDisassembler::getEDInfo() const {
-  return instInfoPatmos;
-}
-
-  /// readInstruction - read four bytes from the MemoryObject
+/// readInstruction - read four bytes from the MemoryObject
 static DecodeStatus readInstruction32(const MemoryObject &region,
                                       uint64_t address,
                                       uint64_t &size,

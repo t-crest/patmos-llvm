@@ -12,19 +12,21 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "LibraryLinker.h"
 #include "llvm/Linker.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/Module.h"
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/PrettyStackTrace.h"
-#include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/SystemUtils.h"
-#include "llvm/Support/IRReader.h"
-#include "llvm/Support/Signals.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/Signals.h"
+#include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/SystemUtils.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include <memory>
 using namespace llvm;
 
@@ -90,25 +92,25 @@ int main(int argc, char **argv) {
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
   cl::ParseCommandLineOptions(argc, argv, "llvm linker\n");
 
-  std::string Progname;
+  std::string Modname;
   if (OutputFilename == "-")
-    Progname = "<stdout>";
+    Modname = "<stdout>";
   else {
     sys::Path P(OutputFilename);
     P.eraseSuffix();
-    Progname = P.str();
+    Modname = P.str();
   }
 
 
   // Craft a new linker and add in search paths
-  Linker L(Progname, Progname, Context);
+  LibraryLinker L(argv[0], Modname, Context);
   L.addPaths(LibrarySearchPaths);
   if (!NoStdLib) {
     L.addSystemPaths();
   }
 
   if (Verbose) {
-    L.setFlags(Linker::Verbose);
+    L.setFlags(LibraryLinker::Verbose);
   }
 
   // Link in modules, archives, and libraries
@@ -147,7 +149,7 @@ int main(int argc, char **argv) {
       bool IsNative;
       if (P.isArchive()) {
         // Link the archive in if it will resolve symbols
-        if (L.LinkInArchive(P, IsNative))
+        if (L.linkInArchive(P, IsNative))
         {
           errs() << argv[0] << ": error linking archive: '" << FileName << "'\n";
           return 1;
@@ -155,7 +157,7 @@ int main(int argc, char **argv) {
       }
       else if (P.isBitcodeFile()) {
         // Link the bitcode file in
-        if (L.LinkInFile(P, IsNative)) {
+        if (L.linkInFile(P, IsNative)) {
           errs() << argv[0] << ": error linking bitcode file: '" << FileName << "'\n";
           return 1;
         }
@@ -170,7 +172,7 @@ int main(int argc, char **argv) {
           return 1;
         }
         std::string ErrMessage;
-        if (L.LinkInModule(M.get(), &ErrMessage)) {
+        if (L.linkInModule(M.get(), &ErrMessage)) {
           errs() << argv[0] << ": link error in '" << FileName
                  << "': " << ErrMessage << "\n";
           return 1;
@@ -182,7 +184,7 @@ int main(int argc, char **argv) {
     if (LibPos < FilePos) {
       // Link in library or archive
       const std::string &LibName = *LibIt++;
-      sys::Path P = L.FindLib(LibName, OnlyStatic);
+      sys::Path P = L.FindLibrary(LibName, OnlyStatic);
       if (P.isEmpty()) {
         errs() << argv[0] << ": library not found for: '-l" << LibName << "'\n";
         return 1;
@@ -190,7 +192,7 @@ int main(int argc, char **argv) {
 
       bool IsNative;
       if (P.isArchive()) {
-        if (L.LinkInArchive(P, IsNative))
+        if (L.linkInArchive(P, IsNative))
         {
           errs() << argv[0] << ": error linking archive: '" << P.str() << "'\n";
           return 1;
@@ -237,4 +239,3 @@ int main(int argc, char **argv) {
 
   return 0;
 }
-// vim: set sw=2 sts=2 expandtab:

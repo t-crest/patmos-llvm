@@ -58,7 +58,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineDominators.h"
@@ -539,6 +539,12 @@ namespace llvm {
               headers.insert(dst);
               entering.push_back(j->second);
             }
+          }
+
+          // check for dead code, this is not supported here.
+          if (headers.empty() && scc.size() > 1) {
+            llvm_unreachable("SCC has no entry edges: function "
+                             "contains dead code");
           }
 
           // transforms SCCs and remove cycles

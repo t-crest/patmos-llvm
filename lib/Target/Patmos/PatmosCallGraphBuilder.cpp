@@ -14,7 +14,7 @@
 #define DEBUG_TYPE "patmos-call-graph-builder"
 
 #include "PatmosCallGraphBuilder.h"
-#include "llvm/Module.h"
+#include "llvm/IR/Module.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/Support/Debug.h"

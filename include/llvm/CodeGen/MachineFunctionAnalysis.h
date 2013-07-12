@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CODEGEN_MACHINE_FUNCTION_ANALYSIS_H
-#define LLVM_CODEGEN_MACHINE_FUNCTION_ANALYSIS_H
+#ifndef LLVM_CODEGEN_MACHINEFUNCTIONANALYSIS_H
+#define LLVM_CODEGEN_MACHINEFUNCTIONANALYSIS_H
 
 #include "llvm/Pass.h"
 
@@ -20,6 +20,7 @@ namespace llvm {
 
 class TargetMachine;
 class MachineFunction;
+class TargetMachine;
 
 /// MachineFunctionAnalysis - This class is a Pass that manages a
 /// MachineFunction object.

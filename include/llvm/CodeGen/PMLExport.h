@@ -10,7 +10,7 @@
 #ifndef LLVM_PML_EXPORT_H_
 #define LLVM_PML_EXPORT_H_
 
-#include "llvm/Module.h"
+#include "llvm/IR/Module.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"

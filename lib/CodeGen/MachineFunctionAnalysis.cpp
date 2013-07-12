@@ -15,9 +15,9 @@
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/IR/Function.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Function.h"
 
 using namespace llvm;
 

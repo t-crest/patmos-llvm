@@ -18,7 +18,7 @@ BUILT_SOURCES = PatmosGenRegisterInfo.inc PatmosGenInstrInfo.inc \
 		PatmosGenDAGISel.inc PatmosGenCallingConv.inc \
 		PatmosGenSubtargetInfo.inc \
 		PatmosGenMCCodeEmitter.inc \
-		PatmosGenEDInfo.inc PatmosGenDisassemblerTables.inc \
+		PatmosGenDisassemblerTables.inc \
 		PatmosGenDFAPacketizer.inc
 GEN_DAG_ISEL_FLAGS=-recursive-xform
 

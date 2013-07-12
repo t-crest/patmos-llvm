@@ -669,10 +669,10 @@ bool PatmosAsmParser::ParseImmediate(SmallVectorImpl<MCParsedAsmOperand*> &Opera
   case AsmToken::Minus:
   case AsmToken::Integer:
   case AsmToken::Identifier:
-    if (getParser().ParseExpression(EVal))
+    SMLoc E;
+    if (getParser().parseExpression(EVal, E))
       return true;
 
-    SMLoc E = Lexer.getLoc();
     Operands.push_back(PatmosOperand::CreateImm(EVal, S, E));
     return false;
   }
@@ -851,7 +851,8 @@ bool PatmosAsmParser::ParseDirectiveWord(unsigned Size, SMLoc L) {
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
     for (;;) {
       const MCExpr *Value;
-      if (getParser().ParseExpression(Value))
+      SMLoc E;
+      if (getParser().parseExpression(Value, E))
         return true;
 
       getParser().getStreamer().EmitValue(Value, Size, 0 /*addrspace*/);
@@ -879,7 +880,8 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
 
   const MCSymbol *Start;
   const MCExpr *StartExpr;
-  if (getParser().ParseExpression(StartExpr)) {
+  SMLoc E;
+  if (getParser().parseExpression(StartExpr, E)) {
     return true;
   }
   if (StartExpr->getKind() == MCExpr::SymbolRef) {
@@ -894,7 +896,7 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
   Parser.Lex();
 
   const MCExpr *Length;
-  if (getParser().ParseExpression(Length)) {
+  if (getParser().parseExpression(Length, E)) {
     return true;
   }
 
@@ -903,7 +905,7 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
   Parser.Lex();
 
   int64_t Align;
-  if (getParser().ParseAbsoluteExpression(Align)) {
+  if (getParser().parseAbsoluteExpression(Align)) {
     return true;
   }
   if (Align < 0) {

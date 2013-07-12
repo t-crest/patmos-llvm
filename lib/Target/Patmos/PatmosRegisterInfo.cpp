@@ -17,7 +17,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosRegisterInfo.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -132,38 +132,6 @@ PatmosRegisterInfo::getPointerRegClass(unsigned Kind) const {
 }
 #endif
 
-void PatmosRegisterInfo::
-eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
-                              MachineBasicBlock::iterator I) const {
-  // We need to adjust the stack pointer here (and not in the prologue) to
-  // handle alloca instructions that modify the stack pointer before ADJ*
-  // instructions. We only need to do that if we need a frame pointer, otherwise
-  // we reserve size for the call stack frame in FrameLowering in the prologue.
-  if (TM.getFrameLowering()->hasFP(MF)) {
-    MachineInstr &MI = *I;
-    DebugLoc dl = MI.getDebugLoc();
-    int Size = MI.getOperand(0).getImm();
-    unsigned Opcode;
-    if (MI.getOpcode() == Patmos::ADJCALLSTACKDOWN) {
-      Opcode = (Size <= 0xFFF) ? Patmos::SUBi : Patmos::SUBl;
-    }
-    else if (MI.getOpcode() == Patmos::ADJCALLSTACKUP) {
-      Opcode = (Size <= 0xFFF) ? Patmos::ADDi : Patmos::ADDl;
-    }
-    else {
-        llvm_unreachable("Unsupported pseudo instruction.");
-    }
-    if (Size)
-      AddDefaultPred(BuildMI(MBB, I, dl, TII.get(Opcode), Patmos::RSP))
-                                                  .addReg(Patmos::RSP)
-                                                  .addImm(Size);
-  }
-  // erase the pseudo instruction
-  MBB.erase(I);
-}
-
-
-
 void
 PatmosRegisterInfo::computeLargeFIOffset(MachineRegisterInfo &MRI,
                                          int &offset, unsigned &basePtr,
@@ -249,7 +217,9 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
 
 void
 PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                        int SPAdj, RegScavenger *RS) const {
+                                        int SPAdj, unsigned FIOperandNum,
+					RegScavenger *RS) const 
+{
   assert(SPAdj == 0 && "Unexpected");
 
   // get some references
@@ -263,25 +233,16 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   bool computedLargeOffset = false;
 
-  //----------------------------------------------------------------------------
-  // find position of the FrameIndex object
-
-  unsigned i = 0;
-  while (!MI.getOperand(i).isFI()) {
-    ++i;
-  }
-  assert(i+1 < MI.getNumOperands() && "Instr doesn't have valid FrameIndex/Offset operands!");
-
   // TODO: check for correctness of position
   // expect FrameIndex to be on second position for load/store operations
-  //assert(i == 2 || i == 3);
+  //assert(FIOperandNum == 2 || FIOperandNum == 3);
 
   //----------------------------------------------------------------------------
   // Stack Object / Frame Index
 
-  int FrameIndex        = MI.getOperand(i).getIndex();
+  int FrameIndex        = MI.getOperand(FIOperandNum).getIndex();
   int FrameOffset       = MFI.getObjectOffset(FrameIndex);
-  int FrameDisplacement = MI.getOperand(i+1).getImm();
+  int FrameDisplacement = MI.getOperand(FIOperandNum+1).getImm();
 
   //----------------------------------------------------------------------------
   // Stack cache info
@@ -402,8 +363,8 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   }
 
   // update the instruction's operands
-  MI.getOperand(i).ChangeToRegister(BasePtr, false, false, computedLargeOffset);
-  MI.getOperand(i+1).ChangeToImmediate(Offset);
+  MI.getOperand(FIOperandNum).ChangeToRegister(BasePtr, false, false, computedLargeOffset);
+  MI.getOperand(FIOperandNum+1).ChangeToImmediate(Offset);
 }
 
 unsigned PatmosRegisterInfo::getFrameRegister(const MachineFunction &MF) const {

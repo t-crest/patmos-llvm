@@ -18,8 +18,8 @@ using namespace llvm;
 
 void MCNullStreamer::EmitLabel(MCSymbol *Symbol) {
   assert(Symbol->isUndefined() && "Cannot define a symbol twice!");
-  assert(getCurrentSection() && "Cannot emit before setting section!");
-  Symbol->setSection(*getCurrentSection());
+  assert(getCurrentSection().first && "Cannot emit before setting section!");
+  Symbol->setSection(*getCurrentSection().first);
 }
 
 MCStreamer *llvm::createNullStreamer(MCContext &Context) {
