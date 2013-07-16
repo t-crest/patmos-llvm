@@ -88,7 +88,7 @@ static cl::opt<std::string> SerializeMachineCode("mserialize",
    cl::init(""));
 static cl::list<std::string>SerializeRoots("mserialize-roots",
    cl::desc("Export only methods reachable from given functions"),
-   cl::Hidden);
+   cl::CommaSeparated, cl::Hidden);
 static cl::opt<std::string> SerializePreemitBitcode("mpreemit-bitcode",
   cl::desc("Write the final bitcode representation (before emit) to FILE"),
   cl::init(""));
