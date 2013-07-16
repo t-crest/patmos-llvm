@@ -624,8 +624,12 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
+    assert((RVLocs[i].getLocReg() == Patmos::R1 ||
+            RVLocs[i].getLocReg() == Patmos::R2) && "Invalid return register");
+    // We only support i32 return registers, so we copy from i32, no matter what
+    // the actual return type in RVLocs[i].getValVT() is.
     Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
-                               RVLocs[i].getValVT(), InFlag).getValue(1);
+                               MVT::i32, InFlag).getValue(1);
     InFlag = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
   }
