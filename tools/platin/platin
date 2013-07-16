@@ -102,4 +102,4 @@ elif [ "${COMMAND}" == "help" ] ; then
     exit 0
 fi
 # Run command
-${RUBY} -I ${LIBDIR} ${LIBDIR}/tools/"${COMMAND}".rb "${@}"
+exec ${RUBY} -I ${LIBDIR} ${LIBDIR}/tools/"${COMMAND}".rb "${@}"

@@ -24,8 +24,7 @@ class AitAnalyzeTool
   def AitAnalyzeTool.run(pml, options)
     needs_options(options, :a3, :apx_file)
 
-    system("#{options.a3} -b #{options.apx_file}")
-    unless $? == 0
+    unless safe_system("#{options.a3} -b #{options.apx_file}")
       die "aiT (command: '#{options.a3}') failed batch processing #{options.apx_file} (exit status #{$?})"
     end
   end
