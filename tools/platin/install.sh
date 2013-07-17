@@ -127,13 +127,16 @@ if [ ! -z "${GEM}" ] ; then
 	if [ "$(${GEM} list ${gemname} --version ${gemversion} -i)" != "true" ] ; then
 	    info "Installing gem ${gemname} --version ${gemversion} (missing)"
 	    local_gemfile="${SRC_DIR}/ext/${gemname}-${gemversion}.gem"
-	    if [ -e "${local_gemfile}" ] ; then
-		run "${GEM}" install --install-dir "${GEM_DIR}" "${local_gemfile}" -q
-	    else
-		run "${GEM}" install --install-dir "${GEM_DIR}" "${gemname}" --version "${gemversion}" -q
-	    fi
-	    if [ "${?}" -ne 0 ] ; then
-		echo "ERROR: failed to install gem ${gemname} --version ${gemversion}" >&2
+	    if [ -z "${DRYRUN}" ] ; then
+		if [ -e "${local_gemfile}" ] ; then
+		    gem_args="${local_gemfile}"
+		else
+		    gem_args="${gemname} --version ${gemversion}"
+		fi
+		"${GEM}" install --install-dir "${GEM_DIR}" ${gem_args}  -q 2>&1 | sed 's/^/[GEM] /'
+		if [ "${PIPESTATUS[0]}" -ne 0 ] ; then
+		    echo "WARNING: failed to install gem ${gem_args}. platin will not work." >&2
+		fi
 	    fi
 	fi
     done	
