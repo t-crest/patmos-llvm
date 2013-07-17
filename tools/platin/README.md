@@ -8,64 +8,61 @@ Requirements
 ------------
 
 * ruby 1.9 or newer (mandatory)
-  - Ubuntu 12.10
-    sudo aptitue install ruby1.9.1, ruby1.9.1-dev
-  - gems will be installed automatically if necessary (rsec, ruby-graphviz, lpsolve)
+    - Ubuntu 12.10
+      sudo aptitue install ruby1.9.1, ruby1.9.1-dev
+    - gems will be installed automatically if necessary (rsec, ruby-graphviz, lpsolve)
 
 
 Basic Usage
 -----------
 
 * Compile test program
-    echo 'volatile int out; __attribute__((noinline)) void f(int x) { int i; for(i = 0; i<1024;i++) out+=x; } ' > test.c
-    echo 'int main() { f(3); f(5); return 0; }' >> test.c
-    patmos-clang -Wall -mserialize=test.pml -mpreemit-bitcode=test.bc -o test test.c
+
+        echo 'volatile int out; __attribute__((noinline)) void f(int x) { int i; for(i = 0; i<1024;i++) out+=x; } ' > test.c
+        echo 'int main() { f(3); f(5); return 0; }' >> test.c
+        patmos-clang -Wall -mserialize=test.pml -mpreemit-bitcode=test.bc -o test test.c
 
 * Analyze using aiT
 
-    platin wcet -i test.pml -b test --report
+        platin wcet -i test.pml -b test --report
 
 * Analyze f() using platin-internal analyzer only
 
-    platin wcet --analysis-entry f -i test.pml -b test --disable-ait --enable-wca --report
+        platin wcet --analysis-entry f -i test.pml -b test --disable-ait --enable-wca --report
 
 * Enable analysis of the (dynamic) execution trace [for comparison]
 
-    platin wcet --enable-trace-analysis  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
+        platin wcet --enable-trace-analysis  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
 
 * Use flow facts from the (dynamic) execution trace [for early-stage development]
 
-    platin wcet --use-trace-facts  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
+        platin wcet --use-trace-facts  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
 
+
+LLVM Options
+------------
+CodeGen/Passes:
+
+* -mserialize=FILE
+* -mpreemit-bitcode=FILE
+* -mserialize-roots=LIST
+
+Known Problems
+--------------
+
+* tool chain problems
+    - mrtc/whet -O0:      Needs math libraries => problem with atan function
 
 Demo of individual tools
 ------------------------
 
 MORE TO COME
 
-(1) Context-sensitive trace analysis
-
-    platin analyze-trace -i bin/jumptable.elf.pml bin/jumptable.elf --callstring-length 1 --analysis-entry=main
-
-
-Known Problems
---------------
-
-* tool chain problems
-mrtc/whet -O0:      Needs math libraries => problem with atan function
-
-
-LLVM Integration
-================
-
-Options
--------
-CodeGen/Passes: -mserialize, -mserialize-roots, -mpreemit-bitcode
-
 Architectures
 =============
 
-Notes for ARM:
+Notes for ARM (not up-to-date)
+------------------------------
 
     # Install ARM crosscompiler (Ubuntu)
     #   sudo aptitude install gcc-arm-linux-gnueabi  libc6-dev-armel-cross
@@ -92,5 +89,5 @@ Notes for ARM:
     $GEM5_HOME/build/ARM/gem5.opt --debug-flags=Exec,-ExecMicro,ExecMacro --trace-file=$1.trace \
                                   $GEM5_HOME/configs/example/se.py -c bin/$1.elf
 
-    # Analyze using platin
-    platin bench-trace --disable-ait --trace-file m5out/$1.trace --outdir out -o out/$1.pml --binary bin/$1.elf bin/$1.pml
+    # Analyze using platin (pseudo costs)
+    platin wcet --disable-ait --trace-file m5out/$1.trace --outdir out -b bin/$1.elf -i bin/$1.pml --report
