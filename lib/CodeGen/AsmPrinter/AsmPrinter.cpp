@@ -2067,10 +2067,12 @@ void AsmPrinter::EmitBasicBlockStart(const MachineBasicBlock *MBB) const {
     if (isVerbose())
       OutStreamer.AddComment("Block address taken");
 
-    std::vector<MCSymbol*> Syms = MMI->getAddrLabelSymbolToEmit(BB);
+    if (BB) {
+      std::vector<MCSymbol*> Syms = MMI->getAddrLabelSymbolToEmit(BB);
 
-    for (unsigned i = 0, e = Syms.size(); i != e; ++i)
-      OutStreamer.EmitLabel(Syms[i]);
+      for (unsigned i = 0, e = Syms.size(); i != e; ++i)
+        OutStreamer.EmitLabel(Syms[i]);
+    }
   }
 
   // Print some verbose block comments.
