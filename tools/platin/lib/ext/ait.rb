@@ -98,9 +98,8 @@ module PML
 
     # export loop bounds
     def export_loopbound(ff)
-      # FIXME: As we export loop header bounds, we should say the loop header is 'at the end' 
-      # of the loop. But apparently this is not how loop bounds are interpreted in
-      # aiT (=> ask absint guys)
+      # As we export loop header bounds, we should say the loop header is 'at the end' 
+      # of the loop (confirmed by absint (Gernot))
 
       # context-sensitive facts not yet supported
       unless ff.scope.context.empty?
@@ -109,7 +108,7 @@ module PML
       end
 
       loopname = dquote(ff.scope.loopblock.label)
-      gen_fact("loop #{loopname} max #{ff.rhs} ;", # end ;"
+      gen_fact("loop #{loopname} max #{ff.rhs} end ; ",
                "global loop header bound (source: #{ff['origin']})")
     end
 

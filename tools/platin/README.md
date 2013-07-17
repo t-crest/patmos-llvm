@@ -6,96 +6,67 @@ and transforming PML files.
 
 Requirements
 ------------
-* ruby 1.9 or newer
-* gems (see ext/gem_install.sh): rsec, ruby-graphviz, lpsolve (unofficial)
 
-[Ubuntu]
-$ sudo aptitude install ruby1.9.1-full
-$ ./ext/install_gems.sh
+* ruby 1.9 or newer (mandatory)
+  - Ubuntu 12.10
+    sudo aptitue install ruby1.9.1, ruby1.9.1-dev
+  - gems will be installed automatically if necessary (rsec, ruby-graphviz, lpsolve)
 
 
-Demo: Automated Benchmark Evaluation
-------------------------------------
+Basic Usage
+-----------
 
-$ SETS="basic" ./eval-run
+* Compile test program
+    echo 'volatile int out; __attribute__((noinline)) void f(int x) { int i; for(i = 0; i<1024;i++) out+=x; } ' > test.c
+    echo 'int main() { f(3); f(5); return 0; }' >> test.c
+    patmos-clang -Wall -mserialize=test.pml -mpreemit-bitcode=test.bc -o test test.c
 
-Demo with manual compilation: platin, aiT, SWEET
-------------------------------------------------
+* Analyze using aiT
 
-(1) Compile source code to bitcode file (not yet linked with libc)
+    platin wcet -i test.pml -b test --report
 
-$ mkdir src bin gen
-$ patmos-clang -emit-llvm -S -o src/jumptable.bc examples/jumptable.c
+* Analyze f() using platin-internal analyzer only
 
-(2) Compile to ELF
+    platin wcet --analysis-entry f -i test.pml -b test --disable-ait --enable-wca --report
 
-$ patmos-clang -o bin/jumptable.elf \
-               -mpatmos-preemit-bitcode=bin/jumptable.elf.bc \
-               -mserialize=bin/jumptable.elf.pml src/jumptable.bc
+* Enable analysis of the (dynamic) execution trace [for comparison]
 
-(3) Trace Analysis Demo (platin trace analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
+    platin wcet --enable-trace-analysis  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
 
-$ ./platin bench-trace --outdir gen --binary bin/jumptable.elf -o gen/jumptable.pml bin/jumptable.elf.pml
+* Use flow facts from the (dynamic) execution trace [for early-stage development]
 
-(3b) Trace Analysis Demo + SWEET bitcode analysis (requires AlfBackend and SWEET)
+    platin wcet --use-trace-facts  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
 
-$ ./platin bench-sweet --outdir gen --bitcode bin/jumptable.elf.bc \
-                       --binary bin/jumptable.elf -o gen/jumptable.pml bin/jumptable.elf.pml
 
 Demo of individual tools
 ------------------------
 
+MORE TO COME
+
 (1) Context-sensitive trace analysis
 
-$ ./platin analyze-trace -i bin/jumptable.elf.pml bin/jumptable.elf --callstring-length 1 --analysis-entry=main
+    platin analyze-trace -i bin/jumptable.elf.pml bin/jumptable.elf --callstring-length 1 --analysis-entry=main
 
-
-Open Questions
---------------
-* Currently, the LLVM machine blocks do not seem to be in order, why?
-  This makes it impossible to infer missing labels, but otherwise
-  is no problem.
-* aiT integration:
-  Is this correct ??
-    "exit test at end" => loop header bound
-    "exit test at beginning" => loop backedge bound = loop header bound - 1
 
 Known Problems
 --------------
 
-* aiT infeasibility analysis
-mrtc/statemate -O0: aiT reports that the loop body is infeasible, allthough it is
-                    executed 3 times in the simulator trace [=> aiT bug?]
-mrtc/fft1 -O0:      aiT reports that an infeasible problem, even if no annotations are
-	            given [=> aiT bug?]
-mrtc/lms -O0:       aiT reports infeasability [=> aiT bug?]:
-	            Loop 'main.L1': dead end in first iteration in all contexts
-
-* patmos tool chain problems
-mrtc/fac -O0:       Recursion not supported
+* tool chain problems
 mrtc/whet -O0:      Needs math libraries => problem with atan function
 
-* trace analsis takes > 60s
-mrtc/adpcm -O0:     120s
-mrtc/st -O0:        ...
 
 LLVM Integration
 ================
 
 Options
 -------
-CodeGen/Passes: -mserialize, -mserialize-roots
-Patmos specific: -mpatmos-preemit-bitcode
-
-Block Mapping Modifications
----------------------------
-* BranchFolder: when merging the tails of two basic blocks, delete the associated bitcode BB
-* BranchFolder: when merging a basic block and its successor, use one of the labels if it is defined
+CodeGen/Passes: -mserialize, -mserialize-roots, -mpreemit-bitcode
 
 Architectures
 =============
 
-ARM:
+Notes for ARM:
+
     # Install ARM crosscompiler (Ubuntu)
     #   sudo aptitude install gcc-arm-linux-gnueabi  libc6-dev-armel-cross
     #
