@@ -49,6 +49,13 @@ PatmosFrameLowering::PatmosFrameLowering(const PatmosTargetMachine &tm)
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
 
+
+  // Naked functions should not use the stack, they do not get a frame pointer.
+  bool isNaked = MF.getFunction()->getAttributes().
+                    hasAttribute(AttributeSet::FunctionIndex, Attribute::Naked);
+  if (isNaked)
+    return false;
+
   return (MF.getTarget().Options.DisableFramePointerElim(MF) ||
           MF.getFrameInfo()->hasVarSizedObjects() ||
           MFI->isFrameAddressTaken());

@@ -83,13 +83,10 @@ public:
   virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const {
     return false; //FIXME
   }
-#if 0
-  const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
-#endif
 
-  void eliminateFrameIndex(MachineBasicBlock::iterator II,
-                           int SPAdj, unsigned FIOperandNum,
-			   RegScavenger *RS = NULL) const;
+  virtual void eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                   int SPAdj, unsigned FIOperandNum,
+		                   RegScavenger *RS = NULL) const;
 
   // Debug information queries.
   unsigned getFrameRegister(const MachineFunction &MF) const;

@@ -125,12 +125,6 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   return Reserved;
 }
 
-#if 0
-const TargetRegisterClass *
-PatmosRegisterInfo::getPointerRegClass(unsigned Kind) const {
-  return &Patmos::GR16RegClass;
-}
-#endif
 
 void
 PatmosRegisterInfo::computeLargeFIOffset(MachineRegisterInfo &MRI,
