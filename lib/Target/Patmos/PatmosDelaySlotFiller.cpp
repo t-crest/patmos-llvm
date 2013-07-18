@@ -502,8 +502,9 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
     if (sawLoad) return true;
   }
 
-  // don't move loads to the last delay slot for return
-  if (I->mayLoad() && Candidates.empty() && MI.isReturn() )
+  // don't move loads to the last delay slot for call or return
+  if (I->mayLoad() && Candidates.empty() && 
+	  (MI.isCall() || MI.isReturn()))
     return true;
 
   // don't move loads with use immediately afterwards
