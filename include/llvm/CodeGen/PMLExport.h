@@ -456,6 +456,7 @@ struct FlowFact {
   std::vector<Term> TermsLHS;
   CmpOp Comparison;
   Name ConstRHS;
+  Name SymbRHS;
   ReprLevel Level;
   Name Origin;
   Name Classification;
@@ -495,6 +496,7 @@ struct MappingTraits< FlowFact > {
     io.mapRequired("lhs", FF.TermsLHS);
     io.mapRequired("op", FF.Comparison);
     io.mapRequired("rhs", FF.ConstRHS);
+    io.mapRequired("rhs-symb", FF.SymbRHS);
     io.mapRequired("level", FF.Level);
     io.mapRequired("origin", FF.Origin);
     io.mapOptional("classification", FF.Classification, Name(""));
