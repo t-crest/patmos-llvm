@@ -18,7 +18,10 @@
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
+//#include "InstPrinter/PatmosInstPrinter.h"
 #include "llvm/Function.h"
+#include "llvm/CodeGen/Analysis.h"
+#include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -218,11 +221,17 @@ namespace llvm {
 
   };
 
+  // we need information about the calling conventions!
+  #include "PatmosGenCallingConv.inc"
+
   class PatmosMachineExport : public PMLMachineExport {
   public:
     PatmosMachineExport(PatmosTargetMachine &tm, ModulePass &mp,
                         PMLInstrInfo *PII)
-      : PMLMachineExport(tm, mp, PII) {}
+      : PMLMachineExport(tm, mp, PII) {
+        // silence compiler warning
+        (void)RetCC_Patmos;
+      }
 
     virtual bool doExportInstruction(const MachineInstr *Ins) {
       if (SkipSerializeInstructions) {
@@ -231,6 +240,10 @@ namespace llvm {
       }
       return true;
     }
+
+    /// exportArgumentRegisterMapping
+    /// see below for implementation
+    virtual void exportArgumentRegisterMapping(MachineFunction &MF);
   };
 
 
@@ -286,6 +299,151 @@ namespace llvm {
       PEP->writeBitcode(BitcodeFilename);
     return PEP;
   }
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+
+  void PatmosMachineExport::exportArgumentRegisterMapping(MachineFunction &MF)
+  {
+      const PatmosTargetLowering *TLI =
+        static_cast<const PatmosTargetLowering *>(TM.getTargetLowering());
+      const TargetRegisterInfo *TRI = TM.getRegisterInfo();
+      const Function *F = MF.getFunction();
+      LLVMContext &Ctx = F->getParent()->getContext();
+
+      if (F->isVarArg()) {
+        // we are passing arguments on stack, can't handle this for now
+        // TODO
+        return;
+      }
+
+      // following code segment was copied in large parts from
+      // SelectionDAGISel::LowerArguments(), which can be found in
+      // libCodeGen/SelectionDAG/SelectionDAGBuilder.cpp:6686
+
+      /////////////////
+
+      SmallVector<ISD::InputArg, 16> Ins;
+      const DataLayout *TD = TLI->getDataLayout();
+      ISD::ArgFlagsTy Flags;
+
+      // For Patmos, PatmosISelLowering does not overload CanLowerReturn(),
+      // which returns true by default and is queried by FunctionInfo
+      // Check whether the function can return without sret-demotion.
+      SmallVector<ISD::OutputArg, 4> Outs;
+      GetReturnInfo(F->getReturnType(), F->getAttributes().getRetAttributes(),
+          Outs, *TLI);
+      assert(TLI->CanLowerReturn(F->getCallingConv(),
+            MF, F->isVarArg(), Outs, Ctx));
+
+      // Set up the incoming argument description vector.
+      unsigned Idx = 1;
+      for (Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end();
+          I != E; ++I, ++Idx) {
+        SmallVector<EVT, 4> ValueVTs;
+        ComputeValueVTs(*TLI, I->getType(), ValueVTs);
+        bool isArgValueUsed = !I->use_empty();
+        for (unsigned Value = 0, NumValues = ValueVTs.size();
+            Value != NumValues; ++Value) {
+          EVT VT = ValueVTs[Value];
+          Type *ArgTy = VT.getTypeForEVT(Ctx);
+          ISD::ArgFlagsTy Flags;
+          unsigned OriginalAlignment =
+            TD->getABITypeAlignment(ArgTy);
+
+          if (F->getParamAttributes(Idx).hasAttribute(Attributes::ZExt))
+            Flags.setZExt();
+          if (F->getParamAttributes(Idx).hasAttribute(Attributes::SExt))
+            Flags.setSExt();
+          if (F->getParamAttributes(Idx).hasAttribute(Attributes::InReg))
+            Flags.setInReg();
+          if (F->getParamAttributes(Idx).hasAttribute(Attributes::StructRet))
+            Flags.setSRet();
+          if (F->getParamAttributes(Idx).hasAttribute(Attributes::ByVal)) {
+            Flags.setByVal();
+            PointerType *Ty = cast<PointerType>(I->getType());
+            Type *ElementTy = Ty->getElementType();
+            Flags.setByValSize(TD->getTypeAllocSize(ElementTy));
+            // For ByVal, alignment should be passed from FE.  BE will guess if
+            // this info is not there but there are cases it cannot get right.
+            unsigned FrameAlign;
+            if (F->getParamAlignment(Idx))
+              FrameAlign = F->getParamAlignment(Idx);
+            else
+              FrameAlign = TLI->getByValTypeAlignment(ElementTy);
+            Flags.setByValAlign(FrameAlign);
+          }
+          if (F->getParamAttributes(Idx).hasAttribute(Attributes::Nest))
+            Flags.setNest();
+          Flags.setOrigAlign(OriginalAlignment);
+
+          EVT RegisterVT = TLI->getRegisterType(Ctx, VT);
+          unsigned NumRegs = TLI->getNumRegisters(Ctx, VT);
+          for (unsigned i = 0; i != NumRegs; ++i) {
+            ISD::InputArg MyFlags(Flags, RegisterVT, isArgValueUsed,
+                Idx-1, i*RegisterVT.getStoreSize());
+            if (NumRegs > 1 && i == 0)
+              MyFlags.Flags.setSplit();
+            // if it isn't first piece, alignment must be 1
+            else if (i > 0)
+              MyFlags.Flags.setOrigAlign(1);
+            Ins.push_back(MyFlags);
+          }
+        }
+      }
+
+      /////////////////
+      // see
+      // PatmosTargetLowering::LowerCCCArguments() in PatmosISelLowering.cpp
+      /////////////////
+      // Assign locations to all of the incoming arguments.
+      SmallVector<CCValAssign, 16> ArgLocs;
+      CCState CCInfo(F->getCallingConv(), false/*isVarArg*/,
+                     MF, TM, ArgLocs, Ctx);
+      CCInfo.AnalyzeFormalArguments(Ins, CC_Patmos);
+      /////////////////
+
+
+      // Lowered arguments are computed, now we can match them back again
+      // and do the actual exporting
+
+      unsigned FAIdx = 0, // formal argument index
+               LAIdx = 0; // lowered argument index
+
+      // we have a 1-1 mapping of Ins to ArgLocs, we access them via LAIdx
+      for (Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end();
+          I != E; ++I, ++FAIdx) {
+
+        // Place LAIdx to the position where the lowered arguments for the
+        // corresponding formal argument start
+        while(Ins[LAIdx].OrigArgIndex < FAIdx) LAIdx++;
+
+        if (IntegerType *ITy = dyn_cast<IntegerType>(I->getType())) {
+          // being an integer, this might be an interesting parameter
+
+          // TODO Do we need to test special flags (zero-/sign-extend)
+          //      and output more information?
+          // Note that we start with the low-part registers first
+          EVT VT = TLI->getValueType(ITy);
+          assert(VT.isSimple());
+          // dump out all registers with OrigArgIndex == FAIdx
+          dbgs() << FAIdx << " " << *I << ": [";
+          for( ; LAIdx < Ins.size() && Ins[LAIdx].OrigArgIndex == FAIdx;
+              LAIdx++) {
+            CCValAssign &VA = ArgLocs[LAIdx];
+            assert(VA.isRegLoc());
+            dbgs() <<  TRI->getName(VA.getLocReg()) << " ";
+            // this is a matter of preference, really (include PatmosInstPrinter.h)
+            //<< "$" <<  PatmosInstPrinter::getRegisterName(VA.getLocReg()) << "\n";
+          }
+          dbgs() <<  "]\n";
+        }
+      }
+    }
+
+
 
 } // end namespace llvm
 

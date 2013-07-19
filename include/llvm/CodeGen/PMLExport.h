@@ -261,6 +261,7 @@ struct Function {
   Name MapsTo;
   StringRef Hash;
   std::vector<BlockT*> Blocks;
+    // TODO optional arg-reg mapping
   Function(StringRef name) : FunctionName(name) {}
   Function(uint64_t name) : FunctionName(name) {}
   ~Function() { DELETE_MEMBERS(Blocks); }
@@ -277,6 +278,7 @@ struct MappingTraits< Function<BlockT> > {
     io.mapOptional("mapsto",  fn.MapsTo, Name(""));
     io.mapOptional("hash",    fn.Hash);
     io.mapRequired("blocks",  fn.Blocks);
+    // TODO optional arg-reg mapping
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR_1(Function)
@@ -666,14 +668,16 @@ namespace llvm {
   private:
     yaml::Doc YDoc;
 
-    TargetMachine &TM;
     PMLInstrInfo *PII;
     Pass &P;
+
+  protected:
+    TargetMachine &TM;
 
   public:
     PMLMachineExport(TargetMachine &tm, ModulePass &mp,
                      PMLInstrInfo *pii = 0)
-      : YDoc(tm.getTargetTriple()), TM(tm), P(mp)
+      : YDoc(tm.getTargetTriple()), P(mp), TM(tm)
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
@@ -706,6 +710,8 @@ namespace llvm {
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
                                    MachineBasicBlock *FalseSucc);
+
+    virtual void exportArgumentRegisterMapping(MachineFunction &MF);
 
   };
 

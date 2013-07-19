@@ -316,6 +316,10 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   PMF->MapsTo = yaml::Name(MF.getFunction()->getName());
   PMF->Level = yaml::level_machinecode;
   yaml::GenericFormat::MachineBlock *B;
+
+  // export argument-register mapping if available
+  exportArgumentRegisterMapping(MF);
+
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
     B = PMF->addBlock(
@@ -453,6 +457,12 @@ exportBranchInstruction(MachineFunction &MF,
       I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
     }
   }
+}
+
+
+void PMLMachineExport::
+exportArgumentRegisterMapping(MachineFunction &MF) {
+  // must be implemented entirely by target-specific exporters at this stage
 }
 
 ///////////////////////////////////////////////////////////////////////////////

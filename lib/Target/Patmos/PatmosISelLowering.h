@@ -153,6 +153,10 @@ namespace llvm {
     /// LowerLOAD - Promote i1 load operations to i8.
     SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
   };
+
+
+
+
 } // namespace llvm
 
 #endif // _LLVM_TARGET_PATMOS_ISELLOWERING_H_
