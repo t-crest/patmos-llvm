@@ -80,7 +80,7 @@ class WcaTool
           end
         }
         if branch_index
-          branch_index + pml.arch.branch_delay_slots + 1
+          (branch_index + 1) + src.instructions[branch_index].delay_slots
         else
           src.instructions.length
         end
@@ -109,10 +109,11 @@ class WcaTool
 
     if options.verbose
       puts "Cycles: #{cycles}"
+      puts "Edge Profile:"
       freqs.map { |v,freq|
         [v,freq * builder.ilp.get_cost(v)]
       }.sort { |a,b| b[1] <=> a[1] }.each { |v,cost|
-        puts "#{v}: #{freqs[v]} (#{cost} cyc)"
+        puts "  #{v}: #{freqs[v]} (#{cost} cyc)"
       }
     end
 

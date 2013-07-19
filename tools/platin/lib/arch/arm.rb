@@ -97,9 +97,6 @@ class Architecture < PML::Architecture
   def initialize(triple)
     @triple = triple
   end
-  def delay_slots
-    0
-  end
   def Architecture.simulator_options(opts)
   end
   def simulator_trace(options)

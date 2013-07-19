@@ -215,14 +215,13 @@ module PML
       die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]
       @@register[archname].new(triple)
     end
-    def call_delay_slots ; delay_slots ; end
-    def branch_delay_slots ; delay_slots ; end
-    def return_delay_slots ; delay_slots ; end
-   end
+  end
+
   require 'arch/patmos'
   require 'arch/arm'
+
+  # XXX: are there relevant use cases for an unspecified architecture?
   class GenericArchitecture < Architecture
-    def delay_slots ; 0 ; end
   end
 
 
@@ -721,7 +720,10 @@ module PML
       data['branch-targets'] || []
     end
     def returns?
-      data['is-return'] || false
+      data['branch-type'] == 'return'
+    end
+    def delay_slots
+      data['branch-delay-slots'] || 0
     end
     def function
       block.function

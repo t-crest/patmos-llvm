@@ -79,14 +79,14 @@ class MachineTraceMonitor < TraceMonitor
 
       @cycles = cycles
       # Handle Return (TODO)
-      if pending_return && pending_return[1] + @pml.arch.return_delay_slots + 1 == @executed_instructions
+      if pending_return && pending_return[1] + pending_return[0].delay_slots + 1 == @executed_instructions
         # debug(@options, :trace) { "Return from #{pending_return.first} -> #{@callstack[-1]}" }
         # If we there was no change of control-flow since the return instruction,  the pending return
         # was not executed (predicated). This is a heuristic, and should not be used for simulators
         # with better information available (it fails if the recursive function returns to next instruction,
         # which is unlikely, but possible)
         fallthrough_instruction = pending_return.first
-        (@pml.arch.return_delay_slots+1).times do
+        (pending_return[0].delay_slots + 1).times do
           fallthrough_instruction = fallthrough_instruction.next
           break unless fallthrough_instruction
         end
@@ -191,8 +191,8 @@ class MachineTraceMonitor < TraceMonitor
   end
 
   def handle_call(c, call_pc)
-    assert("No call instruction before function entry #{call_pc + 1 + @pml.arch.call_delay_slots} != #{@executed_instructions}") {
-      call_pc + 1 + @pml.arch.call_delay_slots == @executed_instructions
+    assert("No call instruction before function entry #{call_pc + 1 + c.delay_slots} != #{@executed_instructions}") {
+      call_pc + 1 + c.delay_slots == @executed_instructions
     }
     @lastblock = nil
     @callstack.push(c)
@@ -489,7 +489,7 @@ class FunctionRecorder
     @callstack.push(callsite)
     callee.blocks.each { |bb| results.init_block(in_context(bb)) } if active?
   end
-  def block(bb, _)
+  def block(bb, cycles)
     return unless active?
     # puts "#{self}: visiting #{bb} active:#{active?} calllimit:#{@calllimit}"
     results.increment_block(in_context(bb)) if @record_block_frequencies

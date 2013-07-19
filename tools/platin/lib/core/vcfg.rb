@@ -242,20 +242,20 @@ private
           split_node = nil
         end
         if current_instruction.calls?
-          current_node.last_index = index + arch.call_delay_slots
+          current_node.last_index = index + current_instruction.delay_slots
           index = current_node.last_index + 1
           call_node = callnodes[current_instruction] = CallNode.new(self, current_instruction)
           current_node.add_successor(call_node)
           split_node = call_node
         elsif current_instruction.returns?
           has_return = true
-          current_node.last_index = index + arch.return_delay_slots
+          current_node.last_index = index + current_instruction.delay_slots
           index = current_node.last_index + 1
           current_node.add_successor(@exit)
           split_node = current_node
         elsif current_instruction.branches?
           has_branchtarget = true
-          current_node.last_index = index + arch.branch_delay_slots
+          current_node.last_index = index + current_instruction.delay_slots
           index = current_node.last_index + 1
           split_node = current_node
           current_instruction.branch_targets.each { |bix|

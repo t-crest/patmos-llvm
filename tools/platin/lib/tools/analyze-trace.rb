@@ -52,9 +52,9 @@ class AnalyzeTraceTool
     # Verbose Output
     if @options.verbose || @options.console_output
       @main_recorder.recorders.each do |recorder|
-        recorder.dump($stderr)
+        recorder.dump($stdout)
       end
-      $stderr.puts "* Executed Functions: #{@main_recorder.executed_blocks.keys.join(", ")}"
+      $stdout.puts "* Executed Functions: #{@main_recorder.executed_blocks.keys.join(", ")}"
     end
     # Warn about functions / loops not executed
     @infeasible_functions.each do |function|
@@ -147,7 +147,8 @@ class AnalyzeTraceTool
       exit 0
     }
     opts.add_check { |options|
-      options.recorders = RecorderSpecification.parse(options.recorder_spec || DEFAULT_RECORDER_SPEC, options.callstring_length || 0)
+      options.recorder_spec = DEFAULT_RECORDER_SPEC unless options.recorder_spec
+      options.recorders = RecorderSpecification.parse(options.recorder_spec, options.callstring_length)
     }
   end
 
@@ -169,8 +170,7 @@ class AnalyzeTraceTool
 
     unless entry.blocks.first.address
       warn("No addresses in PML file, trying to extract from ELF file")
-      pml = ExtractSymbolsTool.run(pml,options)
-      pml.dump_to_file(options.input.first) if options.input.size == 1
+      ExtractSymbolsTool.run(pml,options)
     end
     tool = AnalyzeTraceTool.new(pml, options, entry)
     tool.analyze_trace
@@ -187,7 +187,7 @@ of instructions and generate flow facts. Also records indirect call targets.
 EOF
   # FIXME: binary file is passed as positional argument, and thus should not be shown
   # as option argument in usage
-  options, args = PML::optparse( [:binary_file], "program.elf", SYNOPSIS) do |opts|
+  options, args = PML::optparse( [], "", SYNOPSIS) do |opts|
     opts.needs_pml
     opts.writes_pml
     AnalyzeTraceTool.add_options(opts)
