@@ -113,6 +113,26 @@ namespace llvm {
       return PMLInstrInfo::getCallees(M, MMI, MF, Instr);
     }
 
+    virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) {
+      switch (Instr->getOpcode()) {
+      case Patmos::BR:
+      case Patmos::BRu: 
+      case Patmos::BRT:
+      case Patmos::BRTu:
+	return 2;
+      case Patmos::BRCF:
+      case Patmos::BRCFu:
+      case Patmos::BRCFT:
+      case Patmos::BRCFTu:
+      case Patmos::CALL:
+      case Patmos::CALLR:
+      case Patmos::RET:
+	return 3;
+      default:
+	return 0;
+      }
+    }
+
     virtual const std::vector<MachineBasicBlock*> getBranchTargets(
                                     MachineFunction &MF,
                                     const MachineInstr *Instr)

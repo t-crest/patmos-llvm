@@ -165,6 +165,8 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
   const Function *Fn = MF.getFunction();
 
   if (!Fn) return;
+  LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
+  ScalarEvolution &SE = P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
 
   // create PML bitcode function
   yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn->getName());
@@ -175,9 +177,6 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
     // export loop information
-    LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
-    ScalarEvolution &SE = P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
-
     Loop *Loop = LI.getLoopFor(BI);
     if (Loop) {
       if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
@@ -225,8 +224,6 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
       yaml::Instruction *I = B->addInstruction(
           new yaml::Instruction(Index++));
-      I->Opcode = II->getOpcode();
-
       exportInstruction(I, II);
     }
   }
@@ -238,6 +235,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                                           const Instruction *II)
 {
+  I->Opcode = II->getOpcode();
   if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
     if (const Function *F = CI->getCalledFunction()) {
       I->addCallee(F->getName());
@@ -252,14 +250,18 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
 
 void PMLMachineExport::serialize(MachineFunction &MF)
 {
-  yaml::GenericFormat::MachineFunction *F =
+  Function* F = const_cast<Function*>(MF.getFunction());
+  MachineLoopInfo &MLI(P.getAnalysis<MachineLoopInfo>(*F));
+
+  yaml::GenericFormat::MachineFunction *PMF =
      new yaml::GenericFormat::MachineFunction(MF.getFunctionNumber());
-  F->MapsTo = yaml::Name(MF.getFunction()->getName());
-  F->Level = yaml::level_machinecode;
+
+  PMF->MapsTo = yaml::Name(MF.getFunction()->getName());
+  PMF->Level = yaml::level_machinecode;
   yaml::GenericFormat::MachineBlock *B;
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
-    B = F->addBlock(
+    B = PMF->addBlock(
         new yaml::GenericFormat::MachineBlock(BB->getNumber()));
 
     for (MachineBasicBlock::const_pred_iterator BBPred = BB->pred_begin(),
@@ -272,8 +274,6 @@ void PMLMachineExport::serialize(MachineFunction &MF)
     B->MapsTo = yaml::Name(BB->getName());
 
     // export loop information
-    Function* F = const_cast<Function*>(MF.getFunction());
-    MachineLoopInfo &MLI(P.getAnalysis<MachineLoopInfo>(*F));
     MachineLoop *Loop = MLI.getLoopFor(BB);
     while (Loop) {
       B->Loops.push_back(yaml::Name(Loop->getHeader()->getNumber()));
@@ -301,8 +301,8 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   }
 
   // TODO: we do not compute a hash yet
-  F->Hash = StringRef("0");
-  YDoc.addMachineFunction(F);
+  PMF->Hash = StringRef("0");
+  YDoc.addMachineFunction(PMF);
 }
 
 void PMLMachineExport::
@@ -314,17 +314,17 @@ exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
 {
   I->Opcode = Ins->getOpcode();
   I->Size = PII->getSize(Ins);
+  I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
+
   if (Ins->getDesc().isCall()) {
-     exportCallInstruction(MF, I, Ins);
-  }
-  if (Ins->getDesc().isReturn()) {
-     I->IsReturn = true;
-  }
-  if (Ins->getDesc().isBranch()) {
+    I->BranchType = yaml::branch_call;
+    exportCallInstruction(MF, I, Ins);
+  } else if (Ins->getDesc().isReturn()) {
+    I->BranchType = yaml::branch_return;
+  } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
-  }
-  else {
+  } else {
     I->BranchType = yaml::branch_none;
   }
   // XXX: maybe a good idea (descriptions)
@@ -389,7 +389,7 @@ exportBranchInstruction(MachineFunction &MF,
 
   if (LookupBranchTargets) {
     typedef const std::vector<MachineBasicBlock*> BTVector;
-    BTVector targets = PII->getBranchTargets(MF, Ins);
+    const BTVector& targets = PII->getBranchTargets(MF, Ins);
 
     for (BTVector::const_iterator it = targets.begin(),ie=targets.end();
           it != ie; ++it) {

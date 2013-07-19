@@ -184,7 +184,7 @@ YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
 /// Generic MachineInstruction Specification
 enum BranchType { branch_none, branch_unconditional, branch_conditional,
-                  branch_indirect, branch_any };
+                  branch_indirect, branch_call, branch_return, branch_any };
 template <>
 struct ScalarEnumerationTraits<BranchType> {
   static void enumeration(IO &io, BranchType& branchtype) {
@@ -192,16 +192,21 @@ struct ScalarEnumerationTraits<BranchType> {
     io.enumCase(branchtype, "unconditional", branch_unconditional);
     io.enumCase(branchtype, "conditional", branch_conditional);
     io.enumCase(branchtype, "indirect", branch_indirect);
+    io.enumCase(branchtype, "call", branch_call);
+    io.enumCase(branchtype, "return", branch_return);
     io.enumCase(branchtype, "any", branch_any);
   }
 };
 struct GenericMachineInstruction : Instruction {
+
   uint64_t Size;
-  bool IsReturn;
+
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
+  unsigned BranchDelaySlots;
+
   GenericMachineInstruction(uint64_t Index) :
-  Instruction(Index), Size(0), IsReturn(false), BranchType(branch_none) {}
+  Instruction(Index), Size(0), BranchType(branch_none) {}
 };
 template <>
 struct MappingTraits<GenericMachineInstruction> {
@@ -209,8 +214,8 @@ struct MappingTraits<GenericMachineInstruction> {
     MappingTraits<Instruction>::mapping(io,Ins);
     io.mapOptional("size",          Ins.Size);
     io.mapOptional("branch-type",   Ins.BranchType, branch_none);
-    io.mapOptional("is-return",     Ins.IsReturn, false);
-    io.mapOptional("branch-targets",Ins.BranchTargets, std::vector<Name>());
+    io.mapOptional("branch-delay-slots", Ins.BranchDelaySlots, 0U);
+    io.mapOptional("branch-targets", Ins.BranchTargets, std::vector<Name>());
   }
   static const bool flow = true;
 };
@@ -590,17 +595,21 @@ namespace llvm {
     virtual MFList getCallees(const Module &M, MachineModuleInfo &MMI,
                               MachineFunction &MF, const MachineInstr *Instr);
 
-    virtual MBBList getBranchTargets(MachineFunction &MF,
-                                     const MachineInstr *Instr);
-
     virtual MFList getCalledFunctions(const Module &M,
                                       MachineModuleInfo &MMI,
                                       MachineFunction &MF);
+
+    virtual MBBList getBranchTargets(MachineFunction &MF,
+                                     const MachineInstr *Instr);
+
+    /// get number of delay slots for this instruction, if any
+    virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) { return 0; }
 
     /// get number of bytes this instruction takes
     /// FIXME: we should rely on getDescr()->getSize(), but this does not
     /// work for inline assembler at the moment.
     virtual int getSize(const MachineInstr *Instr);
+
   };
 
   /// Base class for all exporters
