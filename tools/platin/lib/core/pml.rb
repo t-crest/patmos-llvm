@@ -307,10 +307,10 @@ module PML
       fname,bname,iname = data['function'],(data['block'] || data['loop']),data['instruction']
 
       # Support for compact notation (f/b/i or f/l)
-      if refstr = data['instruction'] && (! fname || ! bname)
+      if (refstr = data['instruction']) && (! fname || ! bname)
         parts = refstr.split('/')
         fname,bname,iname = parts.map { |v| YAML::load(v) } if parts[2]
-      elsif refstr = (data['block'] || data['loop']) && (! fname)
+      elsif (refstr = data['block'] || data['loop']) && (! fname)
         parts = refstr.split('/')  # compact notation
         fname,bname  = parts.map { |v| YAML::load(v) } if parts[1]
       end
