@@ -40,7 +40,7 @@ def SDTBrjt                : SDTypeProfile<0, 2, [SDTCisPtrTy<0>,
 //===----------------------------------------------------------------------===//
 
 def PatmosReturn  : SDNode<"PatmosISD::RET_FLAG", SDTNone,
-                           [SDNPHasChain, SDNPOptInGlue]>;
+                           [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
 def PatmosCall    : SDNode<"PatmosISD::CALL",SDT_PatmosCall,
                            [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue,
