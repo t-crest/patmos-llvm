@@ -133,17 +133,19 @@ class WcetTool
   def wcet_analysis_ait(srcs)
     time("run WCET analysis (aiT)") do
       # Simplify flow facts
+      simplified_sources = []
       opts = options.dup
       opts.flow_fact_selection ||= "all"
-      opts.flow_fact_srcs = srcs
-      opts.flow_fact_output = [options.timing_output,'.aiT'].compact.join("/")
-      opts.transform_action = 'simplify'
-      opts.transform_eliminate_edges = true
-      TransformTool.run(pml, opts)
-
+      srcs.each { |src|
+        opts.flow_fact_srcs   = [src]
+        simplified_sources.push(opts.flow_fact_output = src + ".simplified")
+        opts.transform_action = 'simplify'
+        opts.transform_eliminate_edges = true
+        TransformTool.run(pml, opts)
+      }
       # run WCET analysis
       opts.flow_fact_selection = "all"
-      opts.flow_fact_srcs = [ opts.flow_fact_output ]
+      opts.flow_fact_srcs = simplified_sources
       opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
       AisExportTool.run(pml,opts)
       ApxExportTool.run(pml,opts)
