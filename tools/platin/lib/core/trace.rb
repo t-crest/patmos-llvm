@@ -55,13 +55,17 @@ class MachineTraceMonitor < TraceMonitor
   end
   # run monitor
   def run
+    @finished = false # set to true on (observed) program exit
     @executed_instructions = 0
     @callstack = []
     @loopstack = nil
     @current_function = nil
     @last_block = nil
-    @last_ins  = [nil,0] # XXX: playing
-    @inscost   = {}  # XXX: playing
+
+    # Playground: learn about instruction costs
+    # @last_ins  = [nil,0] # XXX: playing
+    # @inscost   = {}  # XXX: playing
+
     pending_return, pending_call = nil, nil
     @trace.each do |pc,cycles|
 
@@ -70,7 +74,7 @@ class MachineTraceMonitor < TraceMonitor
 
       @executed_instructions += 1
 
-      # Playground: Learn about instruction costs
+      # Playground: learn about instruction costs
       # @inscost[@last_ins.first] = merge_ranges(cycles - @last_ins[1],@inscost[@last_ins.first]) if @last_ins.first
       # @last_ins = [@wp_instr[pc],cycles]
       # debug(@options, :trace) { "pc: #{pc} [t=#{cycles}]" }
@@ -94,9 +98,8 @@ class MachineTraceMonitor < TraceMonitor
           # debug(@options, :trace) { "Predicated return at #{fallthrough_instruction}" }
         else
           if ! handle_return(*pending_return)
-            @inscost.each do |op,cycs|
-              puts "COST #{op} #{cycs}"
-            end
+            # Finished
+            @finished = true
             break
           end
           pending_return = nil
@@ -170,6 +173,14 @@ class MachineTraceMonitor < TraceMonitor
         # debug(@options, :trace) { "Scheduling return at #{r}" }
       end
     end
+    if ! @finished
+      die("Trace Analysis: did not observe return from program entry #{@program_entry}")
+    end
+
+    # Playground: learn about instruction costs
+    # @inscost.each do |op,cycs|
+    #  puts "COST #{op} #{cycs}"
+    # end
 
     publish(:eof)
   end
@@ -206,7 +217,7 @@ class MachineTraceMonitor < TraceMonitor
     else
       publish(:ret, r, @callstack[-1], @cycles)
     end
-    return nil if(r.function == @program_entry)
+    return nil if(r.function == @program_entry) # intended program exit
     assert("Callstack empty at return (inconsistent callstack)") { ! @callstack.empty? }
     c = @callstack.pop
     @last_block = c.block
