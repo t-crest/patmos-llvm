@@ -1,4 +1,4 @@
-//===-- PMLExport.cpp -----------------------------------------------===//
+//===-- PMLExport.cpp -----------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,10 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "pml-export"
+
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -34,6 +37,11 @@
 
 
 using namespace llvm;
+
+namespace llvm {
+STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
+STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
+}
 
 /// Unfortunately, the interface for accessing successors differs
 /// between machine block and bitcode block, therefore we need this
@@ -240,6 +248,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
           FF->addTermLHS(Block, 1LL);
           if (hasConstantBound) {
             FF->ConstRHS = ConstHeaderBound;
+            NumConstantBounds++; // bump statistic counter
           }
           if (hasSymbolicBound) {
             // FIXME maybe we want something more structured/processed
@@ -248,6 +257,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             raw_string_ostream os(s);
             os << *SymbolicHeaderBound;
             FF->SymbRHS = os.str();
+            NumSymbolicBounds++; // bump statistic counter
           }
           FF->Comparison = yaml::cmp_less_equal;
           FF->Level = yaml::level_bitcode;
