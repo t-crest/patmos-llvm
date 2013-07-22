@@ -243,7 +243,9 @@ namespace llvm {
 
     /// exportArgumentRegisterMapping
     /// see below for implementation
-    virtual void exportArgumentRegisterMapping(MachineFunction &MF);
+    virtual void exportArgumentRegisterMapping(
+                                  yaml::GenericFormat::MachineFunction *PMF,
+                                  const MachineFunction &MF);
   };
 
 
@@ -305,7 +307,9 @@ namespace llvm {
 ///////////////////////////////////////////////////////////////////////////////
 
 
-  void PatmosMachineExport::exportArgumentRegisterMapping(MachineFunction &MF)
+  void PatmosMachineExport::
+  exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *PMF,
+                                const MachineFunction &MF)
   {
       const PatmosTargetLowering *TLI =
         static_cast<const PatmosTargetLowering *>(TM.getTargetLowering());
@@ -336,7 +340,7 @@ namespace llvm {
       GetReturnInfo(F->getReturnType(), F->getAttributes().getRetAttributes(),
           Outs, *TLI);
       assert(TLI->CanLowerReturn(F->getCallingConv(),
-            MF, F->isVarArg(), Outs, Ctx));
+            const_cast<MachineFunction&>(MF), F->isVarArg(), Outs, Ctx));
 
       // Set up the incoming argument description vector.
       unsigned Idx = 1;
@@ -401,7 +405,7 @@ namespace llvm {
       // Assign locations to all of the incoming arguments.
       SmallVector<CCValAssign, 16> ArgLocs;
       CCState CCInfo(F->getCallingConv(), false/*isVarArg*/,
-                     MF, TM, ArgLocs, Ctx);
+                     const_cast<MachineFunction&>(MF), TM, ArgLocs, Ctx);
       CCInfo.AnalyzeFormalArguments(Ins, CC_Patmos);
       /////////////////
 
@@ -428,17 +432,26 @@ namespace llvm {
           // Note that we start with the low-part registers first
           EVT VT = TLI->getValueType(ITy);
           assert(VT.isSimple());
-          // dump out all registers with OrigArgIndex == FAIdx
-          dbgs() << FAIdx << " " << *I << ": [";
+
+          DEBUG( dbgs() << FAIdx << " " << *I << ": [" );
+
+          yaml::Argument *Arg = PMF->addArgument(
+              new yaml::Argument(I->getName(), FAIdx));
+
+          // get all registers with OrigArgIndex == FAIdx
           for( ; LAIdx < Ins.size() && Ins[LAIdx].OrigArgIndex == FAIdx;
               LAIdx++) {
             CCValAssign &VA = ArgLocs[LAIdx];
             assert(VA.isRegLoc());
-            dbgs() <<  TRI->getName(VA.getLocReg()) << " ";
+
+            Arg->addReg(TRI->getName(VA.getLocReg()));
+
+            DEBUG( dbgs() <<  TRI->getName(VA.getLocReg()) << " " );
             // this is a matter of preference, really (include PatmosInstPrinter.h)
             //<< "$" <<  PatmosInstPrinter::getRegisterName(VA.getLocReg()) << "\n";
           }
-          dbgs() <<  "]\n";
+          DEBUG( dbgs() <<  "]\n" );
+
         }
       }
     }

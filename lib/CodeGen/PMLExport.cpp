@@ -247,7 +247,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             std::string s;
             raw_string_ostream os(s);
             os << *SymbolicHeaderBound;
-            FF->SymbRHS = os.str().c_str();
+            FF->SymbRHS = os.str();
           }
           FF->Comparison = yaml::cmp_less_equal;
           FF->Level = yaml::level_bitcode;
@@ -318,7 +318,7 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   yaml::GenericFormat::MachineBlock *B;
 
   // export argument-register mapping if available
-  exportArgumentRegisterMapping(MF);
+  exportArgumentRegisterMapping(PMF, MF);
 
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
@@ -461,7 +461,8 @@ exportBranchInstruction(MachineFunction &MF,
 
 
 void PMLMachineExport::
-exportArgumentRegisterMapping(MachineFunction &MF) {
+exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *F,
+                              const MachineFunction &MF) {
   // must be implemented entirely by target-specific exporters at this stage
 }
 
