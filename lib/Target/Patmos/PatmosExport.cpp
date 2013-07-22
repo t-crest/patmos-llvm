@@ -18,7 +18,7 @@
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
-//#include "InstPrinter/PatmosInstPrinter.h"
+#include "InstPrinter/PatmosInstPrinter.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -435,23 +435,36 @@ namespace llvm {
 
           DEBUG( dbgs() << FAIdx << " " << *I << ": [" );
 
-          yaml::Argument *Arg = PMF->addArgument(
-              new yaml::Argument(I->getName(), FAIdx));
+          // FIXME
+          // we don't add it immediately to PMF, as we only support
+          // arguments in registers at this point
+          yaml::Argument *Arg = new yaml::Argument(I->getName(), FAIdx);
+          bool allInRegs = true;
 
           // get all registers with OrigArgIndex == FAIdx
           for( ; LAIdx < Ins.size() && Ins[LAIdx].OrigArgIndex == FAIdx;
               LAIdx++) {
             CCValAssign &VA = ArgLocs[LAIdx];
-            assert(VA.isRegLoc());
 
-            Arg->addReg(TRI->getName(VA.getLocReg()));
+            if (!VA.isRegLoc()) {
+              // no support yet, bailout
+              allInRegs = false;
+              break;
+            }
+
+            // we prefer the name of the register as is printed in assembly
+            Arg->addReg(PatmosInstPrinter::getRegisterName(VA.getLocReg()));
 
             DEBUG( dbgs() <<  TRI->getName(VA.getLocReg()) << " " );
-            // this is a matter of preference, really (include PatmosInstPrinter.h)
-            //<< "$" <<  PatmosInstPrinter::getRegisterName(VA.getLocReg()) << "\n";
           }
+
           DEBUG( dbgs() <<  "]\n" );
 
+          if (allInRegs) {
+            PMF->addArgument(Arg);
+          } else {
+            delete Arg;
+          }
         }
       }
     }
