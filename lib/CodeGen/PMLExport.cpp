@@ -222,9 +222,10 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             hasConstantBound = true;
           }
         }
-        // check for symbolic loop bound
+        // check for non-constant, symbolic loop bound
         const SCEV *BECount = SE.getBackedgeTakenCount(Loop);
-        if (!isa<SCEVCouldNotCompute>(BECount)) {
+        if (!isa<SCEVCouldNotCompute>(BECount)
+            && !isa<SCEVConstant>(BECount)) {
           // check for Arguments using visitor
           SCEVCheckFormalArgs CheckFA;
           visitAll(BECount, CheckFA);
