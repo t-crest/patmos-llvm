@@ -97,7 +97,7 @@ EOF
 
 install_binary
 
-for libfile in $(cd "${SRC_DIR}/lib" ; find "." -name '*.rb') ; do
+for libfile in $(cd "${SRC_DIR}/lib" ; find "." -name '*.rb' -o -name '*.yml') ; do
     SRC="${SRC_DIR}/lib/${libfile}"
     DST="${INSTALL_DIR}/lib/platin/${libfile}"
     install "${DST}" "${SRC}"
@@ -120,7 +120,7 @@ if [ ! -z "${GEM}" ] ; then
     else
 	export GEM_PATH="${GEM_DIR}:${GEM_PATH}"
     fi
-    for gemqname in rsec:0.4 ruby-graphviz:1.0.8 lpsolve:5.5.10.j ; do
+    for gemqname in rsec:0.4 ruby-graphviz:1.0.8 kwalify:0.7.2 lpsolve:5.5.10.j ; do
 	gemname=$(echo "${gemqname}" | cut -d':' -f1)
 	gemversion=$(echo "${gemqname}" | cut -d':' -f2)
 	verbose "INFO checking for gem ${gemqname}"

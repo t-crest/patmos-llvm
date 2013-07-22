@@ -950,20 +950,23 @@ module PML
       }
     end
 
-    def stats(pml, io = $stderr)
+    def stats(pml)
       classifier = FlowFactClassifier.new(pml)
-      @by_level = {}
+      by_level = {}
       @list.each { |ff|
         klass = classifier.classification_group(ff)
-        by_origin = (@by_level[ff.level] ||= {})
+        by_origin = (by_level[ff.level] ||= {})
         by_origin[:cnt] = (by_origin[:cnt] || 0) + 1
         by_group = (by_origin[ff.origin] ||= {})
         by_group[:cnt] = (by_group[:cnt] || 0) + 1
         by_klass = (by_group[klass] ||= {})
         by_klass[:cnt] = (by_klass[:cnt] || 0) + 1
       }
+      by_level
+    end
+    def dump_stats(pml, io=$stderr)      
       io.puts "Flow-Facts, classified"
-      @by_level.each { |level,by_group|
+      stats(pml).each { |level,by_group|
         io.puts " #{level.to_s.ljust(39)} #{by_group[:cnt]}"
         by_group.each { |group,by_klass|
           next if group == :cnt

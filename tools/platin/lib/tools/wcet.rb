@@ -1,4 +1,5 @@
-#!/usr/bin/env ruby
+#
+# platin toolkit
 #
 require 'platin'
 include PML

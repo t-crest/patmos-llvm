@@ -1,0 +1,167 @@
+type:      map
+mapping:
+  "format":
+    type: str
+    required: yes
+  "triple":
+    type: str
+  "machine-functions": &funlist
+    type: seq
+    sequence:
+      - &function
+        type: map
+        mapping:
+          "name":
+            type: scalar
+            required: yes
+            unique: yes
+          "mapsto":
+            type: scalar
+          "level": &level
+            type: str
+            enum: [bitcode,machinecode]
+            required: yes
+          "hash":
+            type: scalar
+          "blocks":
+            type: seq
+            sequence:
+              - &block
+                type: map
+                mapping:
+                  "name":
+                    type: scalar
+                    required: yes
+                    unique: yes
+                  "mapsto":
+                    type: scalar
+                  "address":
+                    type: int
+                  "successors": &namelist
+                    type: seq
+                    sequence:
+                      - 
+                        type: scalar
+                  "predecessors": *namelist
+                  "loops": *namelist
+                  "instructions":
+                    type: seq
+                    sequence:
+                      - &instruction
+                        type: map
+                        mapping:
+                          "index":
+                             type: int
+                             required: yes
+                             unique: yes
+                          "opcode":
+                             type: scalar
+                          "branch-type":
+                             type: str
+                             enum: [unconditional, conditional, call, return, indirect, any]
+                          "branch-targets": *namelist
+                          "callees": *namelist
+                          "branch-delay-slots":
+                             type: int                             
+                          "size":
+                             type: int
+                          "address":
+                             type: int
+  "bitcode-functions": *funlist
+  "relation-graphs":
+    type: seq
+    sequence:
+      - &rglist
+        type: map
+        mapping:
+          "src": &rgscope
+            type: map
+            required: yes
+            mapping:
+              "function":
+                 type: scalar
+              "level": *level
+          "dst": *rgscope
+          "nodes":
+            type: seq
+            sequence:
+              - &rgnode
+                type: map
+                mapping:
+                  "name":
+                    type: int
+                    required: yes
+                    unique: yes
+                  "type":
+                    type: str
+                    required: yes
+                  "src-block":
+                    type: scalar
+                  "dst-block":
+                    type: scalar
+                  "src-successors": &rgnodelist
+                    type: seq
+                    sequence:
+                      -
+                        type: scalar
+                  "dst-successors": *rgnodelist                 
+          "status":
+            type: str
+            enum: [valid,corrected,invalid]
+  "flowfacts":
+    type: seq
+    sequence:
+      - &flowfact
+        type: map
+        mapping:
+          "origin":
+            type: str
+          "level": *level
+          "classification":
+            type: str
+          "scope": &scope
+            type: map
+            mapping: &scoperef
+              "function":
+                type: scalar
+              "loop":
+                type: scalar              
+          "lhs":
+            type: seq
+            sequence:
+              - &term
+                type: map
+                mapping:
+                  "factor":
+                    type: int
+                  "program-point":
+                    type: map
+                    mapping:
+                      "function":
+                        type: scalar
+                      "block":
+                        type: scalar
+                      "instruction":
+                        type: scalar                  
+          "op":
+            type: str
+            enum: ["less-equal", equal]
+          "rhs":
+            type: int
+  "timing":
+    type: seq
+    sequence:
+      - &tentry
+        type: map
+        mapping:
+          "level": *level
+          "origin":
+            type: scalar
+          "scope": *scope
+          "cycles":
+            required: true
+            type: int
+          "num_constraints":
+            type: scalar
+          "solvertime":
+            type: scalar

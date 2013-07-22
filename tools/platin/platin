@@ -4,7 +4,7 @@
 
 # Set library path for installation
 
-KNOWN_COMMANDS="wcet analyze-trace ait2pml bench-trace bench-sweet wca transform extract-symbols pml2ais ff2pml visualize sweet"
+KNOWN_COMMANDS="wcet analyze-trace extract-symbols pml transform wca visualize ait2pml pml2ais sweet ff2pml"
 usage() {
     cat <<EOF >&2
 usage: platin <command> [<args>]
@@ -15,20 +15,26 @@ The following platin tools are available and supported:
 
   analyze-trace   ... Analyze simulator trace and generate flow facts
   extract-symbols ... Extract addresses of symbols from ELF file
-  transform       ... Transform flowfacts from bitcode to machinecode (and vice versa) [alpha]
-  wca             ... Calculate WCET cost using lp_solve [beta]
+  pml             ... Validate/Inspect/Visualize/Merge PML files
+  sweet           ... Run SWEET analysis tool
+  transform       ... Transform flowfacts from bitcode to machinecode (and vice versa)
   visualize       ... Visualize IR and MC CFGs as well as relation graphs [alpha]
+
+The following tools are available for internal use only:
+
   ait2pml         ... Add aiT analysis results to the PML database
   pml2ais         ... Translate program information to aiT's AIS format
-  sweet           ... Run SWEET analysis tool
   ff2pml          ... Translate SWEET flowfacts to PML
+  wca             ... Calculate WCET cost using lp_solve
 
-  Undocumented commands: $(echo $(list_unknown_commands))
-
-See 'platin help <command>' for more information on a specific command.
 EOF
+    UNKNOWN=`echo $(list_unknown_commands)`
+    if [ ! -z "${UNKNOWN}" ]; then
+	echo "Undocumented commands: ${UNKNOWN}" >&2
+	echo >&2
+    fi
+    echo "See 'platin help <command>' for more information on a specific command." >&2
 }
-#  merge           ... Merge several PML file in one [not in a good shape]
 
 show_help() {
     COMMAND=$1
