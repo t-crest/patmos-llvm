@@ -1,4 +1,4 @@
-//===-- PMLExport.cpp -----------------------------------------------===//
+//===-- PMLExport.cpp -----------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,10 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "pml-export"
+
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -32,7 +35,13 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
+
 using namespace llvm;
+
+namespace llvm {
+STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
+STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
+}
 
 /// Unfortunately, the interface for accessing successors differs
 /// between machine block and bitcode block, therefore we need this
@@ -159,6 +168,26 @@ int PMLInstrInfo::getSize(const MachineInstr *Instr)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+namespace {
+  // Check whether all LLVM values are function formal arguments.
+  // Implements SCEVTraversal::Visitor.
+  struct SCEVCheckFormalArgs {
+    bool OnlyArg;
+
+    SCEVCheckFormalArgs() : OnlyArg(true) {}
+
+    bool follow(const SCEV *S) {
+      if(const SCEVUnknown *Val = dyn_cast<SCEVUnknown>(S)) {
+        OnlyArg = isa<Argument>(Val->getValue());
+      }
+      return OnlyArg;
+    }
+
+    bool isDone() const { return !OnlyArg; }
+  };
+}
+
+
 
 void PMLBitcodeExport::serialize(MachineFunction &MF)
 {
@@ -180,23 +209,62 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     Loop *Loop = LI.getLoopFor(BI);
     if (Loop) {
       if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
-        if(const SCEVConstant* BEBound = dyn_cast<SCEVConstant>(SE.getMaxBackedgeTakenCount(Loop))) {
-          uint64_t HeaderBound = BEBound->getValue()->getZExtValue() + 1;
-          if(HeaderBound < 0xFFFFFFFFu) {
-            yaml::FlowFact *FF = new yaml::FlowFact();
+        bool hasConstantBound = false,
+             hasSymbolicBound = false;
+        uint64_t ConstHeaderBound;
+        const SCEV *SymbolicHeaderBound;
 
-            FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
-
-            yaml::ProgramPoint *Block =
-              FF->createBlock(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
-            FF->addTermLHS(Block, 1LL);
-            FF->ConstRHS = HeaderBound;
-            FF->Comparison = yaml::cmp_less_equal;
-            FF->Level = yaml::level_bitcode;
-            FF->Origin = "llvm.bc";
-            FF->Classification = "loop-global";
-            YDoc.addFlowFact(FF);
+        // check for constant loop bound
+        if(const SCEVConstant* BEBound =
+                dyn_cast<SCEVConstant>(SE.getMaxBackedgeTakenCount(Loop))) {
+          ConstHeaderBound = BEBound->getValue()->getZExtValue() + 1;
+          if(ConstHeaderBound < 0xFFFFFFFFu) {
+            hasConstantBound = true;
           }
+        }
+        // check for non-constant, symbolic loop bound
+        const SCEV *BECount = SE.getBackedgeTakenCount(Loop);
+        if (!isa<SCEVCouldNotCompute>(BECount)
+            && !isa<SCEVConstant>(BECount)) {
+          // check for Arguments using visitor
+          SCEVCheckFormalArgs CheckFA;
+          visitAll(BECount, CheckFA);
+          if (CheckFA.OnlyArg) {
+            hasSymbolicBound = true;
+            // add 1 to get header bound from backedge count
+            SymbolicHeaderBound = SE.getAddExpr(BECount,
+                SE.getConstant(BECount->getType(), (uint64_t)1));
+          }
+        }
+        // if either constant or symbolic bound, create flow fact.
+        if (hasConstantBound || hasSymbolicBound) {
+          yaml::FlowFact *FF = new yaml::FlowFact();
+
+          FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),
+                                     yaml::Name(BI->getName()));
+
+          yaml::ProgramPoint *Block =
+            FF->createBlock(yaml::Name(Fn->getName()),
+                            yaml::Name(BI->getName()));
+          FF->addTermLHS(Block, 1LL);
+          if (hasConstantBound) {
+            FF->ConstRHS = ConstHeaderBound;
+            NumConstantBounds++; // bump statistic counter
+          }
+          if (hasSymbolicBound) {
+            // FIXME maybe we want something more structured/processed
+            // than a dump
+            std::string s;
+            raw_string_ostream os(s);
+            os << *SymbolicHeaderBound;
+            FF->SymbRHS = os.str();
+            NumSymbolicBounds++; // bump statistic counter
+          }
+          FF->Comparison = yaml::cmp_less_equal;
+          FF->Level = yaml::level_bitcode;
+          FF->Origin = "llvm.bc";
+          FF->Classification = "loop-global";
+          YDoc.addFlowFact(FF);
         }
       }
     }
@@ -259,6 +327,10 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   PMF->MapsTo = yaml::Name(MF.getFunction()->getName());
   PMF->Level = yaml::level_machinecode;
   yaml::GenericFormat::MachineBlock *B;
+
+  // export argument-register mapping if available
+  exportArgumentRegisterMapping(PMF, MF);
+
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
     B = PMF->addBlock(
@@ -396,6 +468,13 @@ exportBranchInstruction(MachineFunction &MF,
       I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
     }
   }
+}
+
+
+void PMLMachineExport::
+exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *F,
+                              const MachineFunction &MF) {
+  // must be implemented entirely by target-specific exporters at this stage
 }
 
 ///////////////////////////////////////////////////////////////////////////////
