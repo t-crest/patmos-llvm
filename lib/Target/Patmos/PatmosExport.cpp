@@ -325,8 +325,7 @@ namespace llvm {
 
       // following code segment was copied in large parts from
       // SelectionDAGISel::LowerArguments(), which can be found in
-      // libCodeGen/SelectionDAG/SelectionDAGBuilder.cpp:6686
-
+      // lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp:6628
       /////////////////
 
       SmallVector<ISD::InputArg, 16> Ins;
