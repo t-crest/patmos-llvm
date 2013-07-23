@@ -357,15 +357,15 @@ namespace llvm {
           unsigned OriginalAlignment =
             TD->getABITypeAlignment(ArgTy);
 
-          if (F->getParamAttributes(Idx).hasAttribute(Attributes::ZExt))
+          if (F->getAttributes().hasAttribute(Idx, Attribute::ZExt))
             Flags.setZExt();
-          if (F->getParamAttributes(Idx).hasAttribute(Attributes::SExt))
+          if (F->getAttributes().hasAttribute(Idx, Attribute::SExt))
             Flags.setSExt();
-          if (F->getParamAttributes(Idx).hasAttribute(Attributes::InReg))
+          if (F->getAttributes().hasAttribute(Idx, Attribute::InReg))
             Flags.setInReg();
-          if (F->getParamAttributes(Idx).hasAttribute(Attributes::StructRet))
+          if (F->getAttributes().hasAttribute(Idx, Attribute::StructRet))
             Flags.setSRet();
-          if (F->getParamAttributes(Idx).hasAttribute(Attributes::ByVal)) {
+          if (F->getAttributes().hasAttribute(Idx, Attribute::ByVal)) {
             Flags.setByVal();
             PointerType *Ty = cast<PointerType>(I->getType());
             Type *ElementTy = Ty->getElementType();
@@ -379,7 +379,7 @@ namespace llvm {
               FrameAlign = TLI->getByValTypeAlignment(ElementTy);
             Flags.setByValAlign(FrameAlign);
           }
-          if (F->getParamAttributes(Idx).hasAttribute(Attributes::Nest))
+          if (F->getAttributes().hasAttribute(Idx, Attribute::Nest))
             Flags.setNest();
           Flags.setOrigAlign(OriginalAlignment);
 
