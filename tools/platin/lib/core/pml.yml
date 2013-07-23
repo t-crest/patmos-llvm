@@ -23,6 +23,23 @@ mapping:
             required: yes
           "hash":
             type: scalar
+          "arguments":
+            type: seq
+            sequence:
+              - &argument
+                type: map
+                mapping:
+                  "index":
+                    type: int
+                    unique: true
+                  "name":
+                    type: str
+                    unique: true
+                  "registers":
+                    type: seq
+                    sequence:
+                      - &register
+                        type: str
           "blocks":
             type: seq
             sequence:
@@ -147,7 +164,8 @@ mapping:
             type: str
             enum: ["less-equal", equal]
           "rhs":
-            type: int
+            desc: "Either an integer (non-symbolic constant) or a string representing a symbolic constant"
+            type: scalar
   "timing":
     type: seq
     sequence:

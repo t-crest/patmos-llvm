@@ -178,7 +178,9 @@ module PML
     # export linear-constraint flow facts
     def export_flowfact(ff)
       supported =
-        if(ff.classification == 'calltargets-global')
+        if(ff.symbolic_bound?)
+          false
+        elsif(ff.classification == 'calltargets-global')
           export_calltargets(ff)
         elsif(ff.classification == 'loop-global')
           export_loopbound(ff)

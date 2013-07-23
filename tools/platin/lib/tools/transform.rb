@@ -137,6 +137,9 @@ class TransformTool
     # Select flow facts
     flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["bitcode","machinecode"])
 
+    # Ignore symbolic loop bounds for now
+    flowfacts.reject! { |ff| ff.symbolic_bound? }
+
     # Start transformation
     fft = FlowFactTransformation.new(pml,options)
     if options.transform_action == "copy"

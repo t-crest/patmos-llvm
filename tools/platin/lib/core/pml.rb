@@ -547,7 +547,40 @@ module PML
   class Callgraph < PMLObject
   end
 
-  #  PML function wrapper
+  # PML function arguments
+  class ArgumentList < PMLList
+    def initialize(function, data)
+      @list = data.map { |a| FunctionArgument.new(function, a) }
+      set_data(data)
+    end
+    def by_name(name, error_if_missing = false)
+      lookup(@named, name, "name", error_if_missing)
+    end
+    def build_lookup
+      @named = {}
+      @list.each { |v| add_lookup(@named,v.name, v, "name", :ignore_if_missing => true) }
+    end
+  end
+  class FunctionArgument < PMLObject
+    def initialize(function, data)
+      set_data(data)
+      @function = function
+    end
+    def name
+      data['name']
+    end
+    def index
+      data['index']
+    end
+    def maps_to_register?
+      registers.length == 1
+    end
+    def registers
+      data['registers']
+    end
+  end
+
+  # PML function wrapper
   class Function < ProgramPointProxy
     attr_reader :blocks, :loops
     def initialize(data, opts)
@@ -557,6 +590,7 @@ module PML
       @loops = []
       @labelkey = opts[:labelkey]
       @blocks = BlockList.new(self, data['blocks'])
+      @arguments = ArgumentList.new(self, data['arguments'] || [])
       @blocks.each do |block|
         if(block.loopheader?)
           @loops.push(block)
@@ -1087,6 +1121,11 @@ module PML
       assert("lhs not a list proxy") { lhs.kind_of?(PMLList) }
       assert("lhs is not a list of terms") { lhs.empty? || lhs[0].kind_of?(Term) }
 
+      # Do not handle symbolic loop bounds for now...
+      if rhs.kind_of?(String) && rhs.strip =~ /\A\d+\Z/
+        rhs = rhs.strip.to_i
+      end
+
       @scope, @lhs, @op, @rhs = scope, lhs, op, rhs
       @attributes = {}
       if data
@@ -1095,6 +1134,9 @@ module PML
         end
       end
       set_data(data)
+    end
+    def symbolic_bound?
+      ! @rhs.kind_of?(Integer)
     end
     # string repr
     def to_s
