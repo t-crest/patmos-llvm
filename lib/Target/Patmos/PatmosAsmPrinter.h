@@ -25,14 +25,15 @@ namespace llvm {
   private:
     PatmosTargetMachine *PTM;
 
-    PatmosMCInstLower MCInstLowering;
-
     // symbol to use for the end of the currently emitted subfunction
     MCSymbol *CurrCodeEnd;
 
   public:
+    PatmosMCInstLower MCInstLowering;
+
     PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrCodeEnd(0)
+      : AsmPrinter(TM, Streamer), CurrCodeEnd(0),
+        MCInstLowering(OutContext, *this)
     {
       if (!(PTM = static_cast<PatmosTargetMachine*>(&TM))) {
         llvm_unreachable("PatmosAsmPrinter must be initialized with a Patmos target configuration.");
