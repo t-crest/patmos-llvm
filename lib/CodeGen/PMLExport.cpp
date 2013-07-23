@@ -188,6 +188,28 @@ namespace {
 }
 
 
+yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
+                                                 yaml::Name RHS) const {
+  const Function *Fn = BB->getParent();
+
+  yaml::FlowFact *FF = new yaml::FlowFact();
+
+  FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),
+                             yaml::Name(BB->getName()));
+
+  yaml::ProgramPoint *Block =
+    FF->createBlock(yaml::Name(Fn->getName()),
+                    yaml::Name(BB->getName()));
+  FF->addTermLHS(Block, 1LL);
+  FF->RHS = RHS;
+  FF->Comparison = yaml::cmp_less_equal;
+  FF->Level = yaml::level_bitcode;
+  FF->Origin = "llvm.bc";
+  FF->Classification = "loop-global";
+
+  return FF;
+}
+
 
 void PMLBitcodeExport::serialize(MachineFunction &MF)
 {
@@ -209,62 +231,38 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     Loop *Loop = LI.getLoopFor(BI);
     if (Loop) {
       if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
-        bool hasConstantBound = false,
-             hasSymbolicBound = false;
-        uint64_t ConstHeaderBound;
-        const SCEV *SymbolicHeaderBound;
 
         // check for constant loop bound
         if(const SCEVConstant* BEBound =
                 dyn_cast<SCEVConstant>(SE.getMaxBackedgeTakenCount(Loop))) {
-          ConstHeaderBound = BEBound->getValue()->getZExtValue() + 1;
+          uint64_t ConstHeaderBound = BEBound->getValue()->getZExtValue() + 1;
           if(ConstHeaderBound < 0xFFFFFFFFu) {
-            hasConstantBound = true;
+            YDoc.addFlowFact(createLoopFact(BI, ConstHeaderBound));
+            // bump statistic counter
+            NumConstantBounds++;
           }
         }
         // check for non-constant, symbolic loop bound
         const SCEV *BECount = SE.getBackedgeTakenCount(Loop);
-        if (!isa<SCEVCouldNotCompute>(BECount)
-            && !isa<SCEVConstant>(BECount)) {
+        if (!isa<SCEVCouldNotCompute>(BECount)) {
           // check for Arguments using visitor
           SCEVCheckFormalArgs CheckFA;
           visitAll(BECount, CheckFA);
           if (CheckFA.OnlyArg) {
-            hasSymbolicBound = true;
             // add 1 to get header bound from backedge count
-            SymbolicHeaderBound = SE.getAddExpr(BECount,
+            const SCEV *SymbolicHeaderBound = SE.getAddExpr(BECount,
                 SE.getConstant(BECount->getType(), (uint64_t)1));
-          }
-        }
-        // if either constant or symbolic bound, create flow fact.
-        if (hasConstantBound || hasSymbolicBound) {
-          yaml::FlowFact *FF = new yaml::FlowFact();
 
-          FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),
-                                     yaml::Name(BI->getName()));
-
-          yaml::ProgramPoint *Block =
-            FF->createBlock(yaml::Name(Fn->getName()),
-                            yaml::Name(BI->getName()));
-          FF->addTermLHS(Block, 1LL);
-          if (hasConstantBound) {
-            FF->ConstRHS = ConstHeaderBound;
-            NumConstantBounds++; // bump statistic counter
-          }
-          if (hasSymbolicBound) {
             // FIXME maybe we want something more structured/processed
             // than a dump
             std::string s;
             raw_string_ostream os(s);
-            os << *SymbolicHeaderBound;
-            FF->SymbRHS = os.str();
-            NumSymbolicBounds++; // bump statistic counter
+            os << "\"" << *SymbolicHeaderBound << "\"";
+
+            YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
+            // bump statistic counter
+            NumSymbolicBounds++;
           }
-          FF->Comparison = yaml::cmp_less_equal;
-          FF->Level = yaml::level_bitcode;
-          FF->Origin = "llvm.bc";
-          FF->Classification = "loop-global";
-          YDoc.addFlowFact(FF);
         }
       }
     }
