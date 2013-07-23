@@ -337,7 +337,9 @@ bool PatmosDelaySlotFiller::hasDefUseDep(const MachineInstr *D,
       return true;
     }
   }
-  return false;
+  // TODO The check above does not work always, needs to be fixed, then return
+  // false here again.
+  return true;
 }
 
 
