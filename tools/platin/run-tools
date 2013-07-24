@@ -28,7 +28,7 @@ fi
 if [ ! -e "${BC}" ] ; then echo "${BC} not found" ; usage ; fi
 if [ -z "`which patmos-clang`" ] ; then echo "patmos-clang command not found" ; exit 1 ; fi
 set -x
-patmos-clang ${PATMOS_CFLAGS} -o "${ELF}" -mpatmos-preemit-bitcode="${ELFBC}" -mserialize="${PML}" "${BC}"
+patmos-clang ${PATMOS_CFLAGS} -o "${ELF}" -mpreemit-bitcode="${ELFBC}" -mserialize="${PML}" "${BC}"
 set +x
 if [ $? -ne 0 ] ; then
     echo "Compilation failed (${BINDIR}/${M}.log)"
@@ -53,7 +53,7 @@ PLATIN=platin-wrapper
 if [ -z "${FF_SELECT}" ] ; then FF_SELECT="all" ; fi
 ${PLATIN} extract-symbols -i "${PML}" -o "${PML}" --objdump-command "${PATMOS_OBJDUMP}" --text-sections .text --stats "${ELF}"
 
-${PLATIN} analyze-trace -i "${PML}" -o "${MO}.pml" --flow-fact-output=trace --analysis-entry main  --trace-entry main --pasim-command pasim --stats "${ELF}"
+${PLATIN} analyze-trace -i "${PML}" -o "${MO}.pml" -b "${ELF}" --flow-fact-output=trace --analysis-entry main  --trace-entry main --pasim-command pasim --stat
 
 ${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-trace-${FF_SELECT} --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --stats
 
@@ -73,9 +73,9 @@ ${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-tracebc-${FF_SE
 
 # aiT analysis
 ${PLATIN} pml2ais --ais "${MO}.ais" -g --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --apx "${MO}.apx" \
-    --binary "${ELF}" --results "${MO}.ait.xml" --report "${MO}.ait.txt" --stats "${MO}.pml"
-${PLATIN} ait2pml --input "${MO}.pml" --output "${MO}.pml" --timing-output aiT-trace-${FF_SELECT} --analysis-entry main --analyze --apx "${MO}.apx" \
-    --a3-command a3patmos --results "${MO}.ait.xml" --stats
+    --binary "${ELF}" --ait-report-prefix "${MO}.ait" --stats "${MO}.pml"
+a3patmos -b "${MO}.apx"
+${PLATIN} ait2pml --input "${MO}.pml" --output "${MO}.pml" --timing-output aiT-trace-${FF_SELECT} --ait-report-prefix "${MO}.ait" --stats
 
 # SWEET analysis
 # XXX: again, we need to use all flow facts after transformation, as the transformation does not operate locally atm
@@ -87,7 +87,7 @@ ${PLATIN} transform --input "${MO}.pml" --output "${MO}.pml"  --flow-fact-input 
     --flow-fact-output "sweet" \
     --transform-action=down --flow-fact-selection ${FF_SELECT} \
     --validate --analysis-entry main --binary "${ELF}" --pasim-command pasim --sweet-trace "${MO}.tf" --stats
-${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml" --timing-output sweet-${FF_SELECT} --flow-fact-input sweet,trace.support --flow-fact-selection all --analysis-entry main --stats
+${PLATIN} wcet --enable-wca --binary "${ELF}" --report  -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-trace-${FF_SELECT} --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --stats
 
 rm -rf "${MO}/graphs.${M}/"
 mkdir -p "${MO}/graphs.${M}/"
