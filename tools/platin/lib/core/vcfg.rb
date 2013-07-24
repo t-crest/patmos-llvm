@@ -4,7 +4,7 @@
 # virtual control-flow model (virtual callgraph + cfg)
 #
 require 'core/pml'
-require 'core/context'
+
 module PML
 
 #

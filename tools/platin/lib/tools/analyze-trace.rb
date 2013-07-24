@@ -105,25 +105,27 @@ class AnalyzeTraceTool
       recorder.results.calltargets.each do |pp,receiverset|
         cs, call_context = pp
         next unless cs.unresolved_call? || cs.callees.size != receiverset.size
-        caller_ref = InstructionRef.new(cs, CallString.new(call_context.stack.map { |cs| cs.ref }))
+        caller_ref = InstructionRef.new(cs, call_context)
         receiver_call_context = call_context.push(cs,call_context.length+1)
-        receivers = receiverset.map { |f| FunctionRef.new(f, CallString.from_bounded_stack(receiver_call_context)) }
-        outpml.flowfacts.add(FlowFact.calltargets(scope, caller_ref, receivers, fact_context, "calltargets-#{suffix}"))
+        receivers = receiverset.map { |f|
+          ContextRef.new(FunctionRef.new(f), receiver_call_context)
+        }
+        outpml.flowfacts.add(FlowFact.calltargets(scope, caller_ref, receivers, fact_context))
       end
       # Export block frequencies; infeasible blocks are necessary for WCET analysis
       recorder.results.blockfreqs.each do |pp,freq|
         block, call_context = pp
         type = (freq.max == 0) ? "infeasible" : "block"
         next unless recorder.report_block_frequencies || type == "infeasible"
-        block_ref = BlockRef.new(block, CallString.from_bounded_stack(call_context))
-        outpml.flowfacts.add(FlowFact.block_frequency(scope, block_ref, freq, fact_context, "#{type}-#{suffix}"))
+        block_ref = ContextRef.new(BlockRef.new(block), call_context)
+        outpml.flowfacts.add(FlowFact.block_frequency(scope, block_ref, freq, fact_context))
       end
       # Export loop header bounds (mandatory for WCET analysis) for global analyses
       if recorder.global?
         recorder.results.loopbounds.each do |pp,bound|
           loop, call_context = pp
-          loop_ref = LoopRef.new(loop, CallString.from_bounded_stack(call_context))
-          outpml.flowfacts.add(FlowFact.loop_count(loop_ref, bound.max, fact_context, "loop-global"))
+          loop_ref = ContextRef.new(LoopRef.new(loop), call_context)
+          outpml.flowfacts.add(FlowFact.loop_bound(loop_ref, bound.max, fact_context))
         end
       end
     }

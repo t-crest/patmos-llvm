@@ -5,9 +5,7 @@
 # Simple visualizer (should be expanded to do proper report generation)
 #
 require 'set'
-require 'core/pml'
-require 'core/utils'
-require 'core/vcfg'
+require 'platin'
 include PML
 
 begin

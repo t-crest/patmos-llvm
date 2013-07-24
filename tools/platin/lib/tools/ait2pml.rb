@@ -33,12 +33,19 @@ end
 
 class AitImportTool
   def AitImportTool.add_config_options(opts)
+    opts.on("--[no-]import-mem-accesses", "import results from value analysis of memory (=true)") { |b|
+      opts.options.ait_import_memory_accesses = b
+    }
+    opts.add_check { |options| options.ait_import_memory_accesses = true if options.ait_import_memory_accesses.nil? }
   end
   def AitImportTool.add_options(opts)
     ExtractSymbolsTool.add_config_options(opts)
+    AitImportTool.add_config_options(opts)
     opts.analysis_entry
     opts.binary_file
     opts.ait_report_prefix
+    opts.timing_output("aiT")
+    opts.import_block_timing
   end
   def AitImportTool.run(pml,options)
     needs_options(options, :analysis_entry, :ait_report_prefix)

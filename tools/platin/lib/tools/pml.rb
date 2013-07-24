@@ -8,9 +8,7 @@
 # - visualize PML files
 #
 require 'set'
-require 'core/pml'
-require 'core/utils'
-require 'core/vcfg'
+require 'platin'
 include PML
 
 begin

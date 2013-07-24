@@ -110,13 +110,13 @@ class IndexedConstraint
   end
 end
 
-# ILP base class
+# ILP base class (FIXME)
 class ILP
   attr_reader :variables, :constraints, :costs, :options, :vartype, :solvertime
   # variables ... array of distinct, comparable items
   def initialize(options = nil)
     @solvertime = 0
-    @options = options || OpenStruct.new(:verbose=>false, :debug_type => nil)
+    @options = options
     @variables = []
     @indexmap = {}
     @vartype = {}
@@ -357,7 +357,7 @@ class IPETEdge
     if :exit == target
       source.ref
     else
-      EdgeRef.new(source, target, CallString.empty)
+      EdgeRef.new(source, target)
     end
   end
   def to_s
@@ -604,12 +604,12 @@ class IPETBuilder
       # set indirect call targets
       model = (ff.level == "machinecode") ? :dst : :src
       scope,cs,targets = ff.get_calltargets
-      if scope && scope.kind_of?(FunctionRef) && scope.function == entry[model]
+      if scope && scope.reference.kind_of?(FunctionRef) && scope.function == entry[model]
         add_calltargets(cs.instruction, targets.map { |t| t.function} , model)
       end
       # set infeasible blocks
       scope,bref = ff.get_block_infeasible
-      if scope && scope.kind_of?(FunctionRef) && scope.function == entry[model]
+      if scope && scope.reference.kind_of?(FunctionRef) && scope.function == entry[model]
         set_infeasible(bref.block, model)
       end
     end
@@ -628,31 +628,36 @@ class IPETBuilder
     raise Exception.new("IPETBuilder#add_flowfact: cannot add bitcode flowfact without using relation graph") unless model
     lhs = []
     ff.lhs.each { |term|
-      pp = term.ppref
-      if pp.kind_of?(FunctionRef)
-        lhs += model.function_frequency(pp.function, term.factor)
-      elsif pp.kind_of?(BlockRef)
-        lhs += model.block_frequency(pp.block, term.factor)
-      elsif pp.kind_of?(EdgeRef)
-        lhs += model.edgeref_frequency(pp, term.factor)
-      elsif pp.kind_of?(InstructionRef)
+      unless term.context.empty?
+        warn("IPETBuilder#add_flowfact: context sensitive program points not supported: #{ff}")
+      end
+      if term.ppref.kind_of?(FunctionRef)
+        lhs += model.function_frequency(term.ppref.function, term.factor)
+      elsif term.ppref.kind_of?(BlockRef)
+        lhs += model.block_frequency(term.ppref.block, term.factor)
+      elsif term.ppref.kind_of?(EdgeRef)
+        lhs += model.edgeref_frequency(term.ppref, term.factor)
+      elsif term.ppref.kind_of?(InstructionRef)
         # XXX: exclusively used in refinement for now
         return false
       else
-        die("Unknown reference type: #{pp.class}")
+        raise Exception.new("IPETBuilder#add_flowfact: Unknown reference type: #{term.ppref.class}")
       end
     }
     scope = ff.scope
-    if scope.kind_of?(FunctionRef)
-      lhs += model.function_frequency(scope.function, -ff.rhs)
-    elsif scope.kind_of?(LoopRef)
-      lhs += model.sum_loop_entry(scope.loopblock, -ff.rhs)
-    else
-      $stderr.puts "Skipping unsupported constraint #{ff}"
+    unless scope.context.empty?
+      warn("IPETBUilder#add_flowfact: context sensitive scopes not supported: #{ff}")
       return false
     end
+    if scope.reference.kind_of?(FunctionRef)
+      lhs += model.function_frequency(scope.reference.function, -ff.rhs)
+    elsif scope.reference.kind_of?(LoopRef)
+      lhs += model.sum_loop_entry(scope.reference.loopblock, -ff.rhs)
+    else
+      raise Exception.new("IPETBuilder#add_flowfact: Unknown scope type: #{scope.reference.class}")
+    end
     begin
-      name = "ff_#{ff['classification']}_#{@ffcount+=1}"
+      name = "ff_#{@ffcount+=1}"
       ilp.add_constraint(lhs, ff.op, 0, name, tag)
       name
     rescue UnknownVariableException => detail
@@ -851,6 +856,8 @@ private
 
   def extract_flowfacts(ilp, entry, target_level, tags = [:flowfact, :callsite])
     new_flowfacts = []
+    attrs = { 'origin' =>  options.flow_fact_output,
+              'level'  => (target_level == :src) ? "bitcode" : "machinecode" }
     ilp.constraints.each do |constr|
       lhs = constr.named_lhs
       name = constr.name
@@ -885,13 +892,9 @@ private
       scope = entry[target_level]
       info "Adding transformed constraint #{constr} -> in #{scope} :" +
            "#{terms} #{constr.op} #{constr.rhs}" if options.verbose
-      ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs)
+      ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs, attrs.dup)
       new_flowfacts.push(ff)
     end
-    new_flowfacts.each { |ff|
-      ff.add_attribute('origin', options.flow_fact_output)
-      ff.add_attribute('level', (target_level == :src) ? "bitcode" : "machinecode")
-    }
     new_flowfacts
   end
 end

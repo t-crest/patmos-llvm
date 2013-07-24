@@ -304,7 +304,7 @@ module PML
     def sweet_trace_file(mandatory = Proc.new { |options| true })
       self.on("--sweet-trace FILE.tf", "SWEET trace file") { |f| options.sweet_trace_file = f }
       self.add_check { |options|
-        if mandatory.call(options)
+        if mandatory && mandatory.call(options)
           die_usage "Specifying SWEET trace file is mandatory" unless options.sweet_trace_file
         end
       }

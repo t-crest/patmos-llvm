@@ -54,6 +54,8 @@ if [ -z "${FF_SELECT}" ] ; then FF_SELECT="all" ; fi
 ${PLATIN} extract-symbols -i "${PML}" -o "${PML}" --objdump-command "${PATMOS_OBJDUMP}" --text-sections .text --stats "${ELF}"
 
 ${PLATIN} analyze-trace -i "${PML}" -o "${MO}.pml" -b "${ELF}" --flow-fact-output=trace --analysis-entry main  --trace-entry main --pasim-command pasim --stat
+# context sensitive trace analysis (not yet useful)
+# ${PLATIN} analyze-trace -i "${PML}" -o "${MO}.pml" -b "${ELF}" --flow-fact-output=trace --analysis-entry main --recorders=g:lc/1,f/1:b,f:b/1,f/1:b/1 --trace-entry main --pasim-command pasim --stat
 
 ${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-trace-${FF_SELECT} --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --stats
 
@@ -87,11 +89,15 @@ ${PLATIN} transform --input "${MO}.pml" --output "${MO}.pml"  --flow-fact-input 
     --flow-fact-output "sweet" \
     --transform-action=down --flow-fact-selection ${FF_SELECT} \
     --validate --analysis-entry main --binary "${ELF}" --pasim-command pasim --sweet-trace "${MO}.tf" --stats
-${PLATIN} wcet --enable-wca --binary "${ELF}" --report  -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-trace-${FF_SELECT} --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --stats
+${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml" --timing-output sweet-${FF_SELECT} --flow-fact-input sweet,trace.support --flow-fact-selection all --analysis-entry main --stats
+
+# combined tool
+${PLATIN} wcet --enable-wca --binary "${ELF}" --report  -i "${MO}.pml" -o "${MO}.pml"  --timing-output wcet-${FF_SELECT} --use-trace-facts  --analysis-entry main --stats
 
 rm -rf "${MO}/graphs.${M}/"
 mkdir -p "${MO}/graphs.${M}/"
 ${PLATIN} visualize --outdir "${MO}/graphs.${M}/" --stats "${MO}.pml"
 
-# merge is not really implemented
-# ./platin merge -o "${MO}.pml" --stats "${MO}.pml" "${MO}.up.pml" "${MO}.wca.pml"
+# validate final PML
+${PLATIN} pml --validate -i "${MO}.pml"
+

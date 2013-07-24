@@ -1,9 +1,9 @@
 #
 # PLATIN tool set
 #
-# Core lirary
+# Core library and analyses
 require 'core/utils'
 require 'core/pml'
-require 'core/trace'
 require 'core/vcfg'
-require 'core/ipet'
+require 'analysis/trace'
+require 'analysis/ipet'

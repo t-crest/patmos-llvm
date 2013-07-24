@@ -8,6 +8,54 @@ require 'set'
 require 'core/options'
 
 module PML
+
+  def dquote(str)
+    '"' + str + '"'
+  end
+
+  def merge_ranges(r1,r2=nil)
+    assert("first argument is nil") { r1 }
+    r1=Range.new(r1,r1) unless r1.kind_of?(Range)
+    return r1 unless r2
+    [r1.min,r2.min].min .. [r1.max,r2.max].max
+  end
+
+  class WorkList
+    def initialize(queue = nil)
+      @todo = queue || Array.new
+      @done = Set.new
+    end
+    def enqueue(item)
+      @todo.push(item) unless @done.include?(item)
+    end
+    def process
+      while ! @todo.empty?
+        item = @todo.pop
+        next if @done.include?(item)
+        @done.add(item)
+        yield item
+      end
+    end
+  end
+
+  # calculate the reachable set from entry,
+  # where the provided block needs to compute
+  # the successors of an item
+  def reachable_set(entry)
+    reachable = Set.new
+    todo = [entry]
+    while !todo.empty?
+      item = todo.pop
+      next if reachable.include?(item)
+      reachable.add(item)
+      successors = yield item
+      successors.each do |succ|
+        todo.push(succ)
+      end
+    end
+    reachable
+  end
+
   def file_open(path,mode="r")
     internal_error "file_open: nil" unless path
     if(path=="-")
@@ -47,6 +95,15 @@ module PML
     Process.wait(pids.first)
     trap(0, "DEFAULT")
     $? == 0
+  end
+
+  def assert(msg)
+    unless yield
+      pnt = Thread.current.backtrace[1]
+      $stderr.puts ("#{$0}: Assertion failed in #{pnt}: #{msg}")
+      puts "    "+Thread.current.backtrace[1..-1].join("\n    ")
+      exit 1
+    end
   end
 
   def internal_error(msg)

@@ -17,7 +17,7 @@ module PML
       self.add_check { |options| die_usage "Option --ais is mandatory" unless options.ais_file } if mandatory
     end
     def ait_report_prefix(mandatory=true)
-      self.on("--ait-report-prefix FILEPREFIX", "Path prefix for aiT's report and XML results") {
+      self.on("--ait-report-prefix PREFIX", "Path prefix for aiT's report and XML results") {
         |f| options.ait_report_prefix = f
       }
       self.add_check { |options| die_usage "Option --ait-report-prefix is mandatory" unless options.ait_report_prefix } if mandatory
@@ -50,11 +50,12 @@ module PML
       # TODO any additional header stuff to generate (context, entry, ...)?
     end
 
-    def gen_fact(ais_instr, descr)
+    def gen_fact(ais_instr, descr, derived_from=nil)
       @stats_generated_facts += 1
       @outfile.puts(ais_instr+" # "+descr)
       debug(@options,:ait) {
-        "Wrote AIS instruction: #{ais_instr}"
+        s = " derived from #{derived_from}" if derived_from
+        "Wrote AIS instruction: #{ais_instr}#{s}"
       }
       true
     end
@@ -76,15 +77,14 @@ module PML
             targets = successors.uniq.map { |succ_name|
               dquote(Block.get_label(ins.function.name,succ_name))
             }.join(", ")
-            gen_fact("instruction #{instr} branches to #{targets};","jumptable (source: llvm)")
+            gen_fact("instruction #{instr} branches to #{targets};","jumptable (source: llvm)",ins)
           end
         end
       end
     end
 
     # export indirect calls
-    def export_calltargets(ff)
-      scope, callsite, targets = ff.get_calltargets
+    def export_calltargets(ff, scope, callsite, targets)
       assert("Bad calltarget flowfact: #{ff.inspect}") { scope && scope.context.empty? }
 
       # no support for context-sensitive call targets
@@ -97,57 +97,65 @@ module PML
       location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
       called = targets.map { |f| dquote(f.function.label) }.join(", ")
       gen_fact("instruction #{location} calls #{called} ;",
-               "global indirect call targets (source: #{ff['origin']})")
+               "global indirect call targets (source: #{ff.origin})",ff)
     end
 
     # export loop bounds
-    def export_loopbound(ff)
-      # As we export loop header bounds, we should say the loop header is 'at the end' 
+    def export_loopbound(ff, scope, bound)
+      # As we export loop header bounds, we should say the loop header is 'at the end'
       # of the loop (confirmed by absint (Gernot))
 
+      # we do not support symbolic loop bounds yet
+      if ff.symbolic_bound?
+        warn("aiT: no support for symbolic loop bounds")
+        return false
+      end
       # context-sensitive facts not yet supported
-      unless ff.scope.context.empty?
+      unless scope.context.empty?
         warn("aiT: no support for callcontext-sensitive loop bounds")
         return false
       end
-
-      loopname = dquote(ff.scope.loopblock.label)
-      gen_fact("loop #{loopname} max #{ff.rhs} end ; ",
-               "global loop header bound (source: #{ff['origin']})")
+      loopname = dquote(scope.reference.loopblock.label)
+      gen_fact("loop #{loopname} max #{bound} end ; ",
+               "global loop header bound (source: #{ff.origin})",ff)
     end
 
     # export global infeasibles
-    def export_infeasible(ff)
-      scope, pp, zero = ff.get_block_frequency_bound
+    def export_infeasible(ff, scope, pp)
       insname = dquote(pp.block.label)
 
       # context-sensitive facts not yet supported
-      unless ff.scope.context.empty? && pp.context.empty?
-        warn("aiT: no support for context-sensitive scopes / program points")
+      unless scope.context.empty? && pp.context.empty?
+        warn("aiT: no support for context-sensitive scopes / program points: #{ff}")
         return false
       end
 
       # no support for empty basic blocks (typically at -O0)
-      if pp.block.instructions.empty?
-        warn("aiT: no support for program points referencing empty blocks")
+      if pp.reference.block.instructions.empty?
+        warn("aiT: no support for program points referencing empty blocks: #{ff}")
         return false
       end
-
       gen_fact("instruction #{insname} is never executed ;",
-               "globally infeasible block (source: #{ff['origin']})")
+               "globally infeasible block (source: #{ff.origin})",ff)
     end
 
     def export_linear_constraint(ff)
       terms_lhs, terms_rhs = [],[]
       terms = ff.lhs.dup
       scope = ff.scope
-      assert("export_linear_constraint: not in function scope") { scope.kind_of?(FunctionRef) }
 
-      # no support for context-sensitive linear constraints
-      unless scope.context.empty? && terms.all? { |t| t.ppref.context.empty? }
-        warn("aiT: no support for context-sensitive scopes / program points")
+      unless scope.context.empty?
+        warn("aiT: no support for context-sensitive scopes: #{ff}")
         return false
       end
+
+      # no support for context-sensitive linear constraints
+      unless  terms.all? { |t| t.context.empty? }
+        warn("aiT: no support for context-sensitive scopes / program points: #{ff}")
+        return false
+      end
+
+      assert("export_linear_constraint: not in function scope") { scope.reference.kind_of?(FunctionRef) }
 
       # no support for edges in aiT
       unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
@@ -176,7 +184,7 @@ module PML
         set.empty? ? "0" : set.join(" + ")
       }.join(cmp_op)
       gen_fact("flow #{constr};",
-               "linear constraint on block frequencies (source: #{ff['origin']} / #{ff['classification']})")
+               "linear constraint on block frequencies (source: #{ff.origin})",ff)
     end
 
     # export linear-constraint flow facts
@@ -184,13 +192,13 @@ module PML
       supported =
         if(ff.symbolic_bound?)
           false
-        elsif(ff.classification == 'calltargets-global')
-          export_calltargets(ff)
-        elsif(ff.classification == 'loop-global')
-          export_loopbound(ff)
-        elsif(ff.classification == 'infeasible-global')
-          export_infeasible(ff)
-        elsif(ff.blocks_constraint? || ff.scope.kind_of?(FunctionRef))
+        elsif scope_bound = ff.get_loop_bound
+          export_loopbound(ff,*scope_bound)
+        elsif scope_cs_targets = ff.get_calltargets
+          export_calltargets(ff,*scope_cs_targets)
+        elsif scope_pp = ff.get_block_infeasible
+          export_infeasible(ff,*scope_pp)
+        elsif(ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef))
           export_linear_constraint(ff)
         else
           info("aiT: unsupported flow fact type: #{ff}") unless supported
@@ -244,53 +252,6 @@ module PML
 EOF
     end
   end
-
-class AitContextEntryLoop
-  attr_reader :routine, :entrysite, :peel, :step
-  def initialize(routine, entrysite, peel, k)
-    @routine, @entrysite, @peel, @step = routine, entrysite, peel, k
-  end
-  def ==(other)
-    return false if other.nil?
-    return false unless other.kind_of?(AitContextEntryLoop)
-    entrysite == other.entrysite && peel == other.peel && step == other.step
-  end
-  def eql?(other); self == other ; end
-  def hash
-    return @hash if @hash
-    @hash=peel.hash ^ step.hash
-  end
-  def to_s
-    step_str =
-      if @step == 0
-        ''
-      else
-        "+#{(@step==1) ? "" : @step}k"
-      end
-    "LS<#{@routine.name},#{@peel}#{@stepstr}"
-  end
-end
-class AitContextEntryCall
-  attr_reader :routine, :callsite
-  def initialize(routine, callsite)
-    @routine, @callsite = routine, callsite
-  end
-  def ==(other)
-    return false if other.nil?
-    return false unless other.kind_of?(AitContextEntryCall)
-    routine == other.routine && callsite == other.callsite
-  end
-  def eql?(other); self == other ; end
-  def hash
-    return @hash if @hash
-    @hash=routine.hash ^ callsite.hash
-  end
-  def to_s
-    "CS<#{@callsite}->#{@routine.name}>"
-  end
-end
-
-
 
 class AitImport
   attr_reader :pml, :options
@@ -352,10 +313,11 @@ class AitImport
             routine = @routine_names[$1]
             if $2
               peel,last = $2.to_i, $3.to_i
-              loopk = (peel == last && $3) ? 1 : 0
-              AitContextEntryLoop.new(routine, site, peel-1, loopk)
+              loopoffset = peel - 1
+              loopstep = (peel == last && $3) ? 1 : 0
+              LoopContextEntry.new(routine.loop, loopstep, loopoffset, site)
             else
-              AitContextEntryCall.new(routine, site)
+              CallContextEntry.new(site)
             end
           else
             die("invalid contex target: #{target}")
@@ -367,7 +329,7 @@ class AitImport
       if @contexts[ctx.id] && @contexts[ctx.id] != ctx
         raise Exception.new("Duplicate context with different meaning: #{ctx.id}")
       end
-      @contexts[ctx.id] = ctx
+      @contexts[ctx.id] = Context.from_list(ctx.context)
     }
     contexts
   end
@@ -390,20 +352,34 @@ class AitImport
       ins = pml.machine_functions.instruction_by_address(Integer(e.attributes['address']))
       e.each_element("value_context") { |ce|
         context = @contexts[ce.attributes['context']]
-        # value_step#index ? value_step#mode? value_step#width?
         ce.each_element("value_step") { |se|
+
+          is_read = se.attributes['type'] == "read"
+
+          # value_step#index ? value_step#mode? value_step#width?
           # value_area#mod? value_area#rem?
-          if area = se.get_elements("value_area").first
+
+          unpredictable = false
+          se.each_element("value_area") { |area|
             min,max,rem,mod  = %w{min max rem mod}.map { |k| Integer(area.attributes[k]) if area.attributes[k] }
-            if min==max
-              value_analysis_stats[(se.attributes['type'] == "read") ? 'predictable reads':'predictable writes'] += 1
-            else
-              value_analysis_stats['unpredictable'] += 1
+            unpredictable = true if min != max
+          }
+          if unpredictable
+            value_analysis_stats['unpredictable'] += 1
+            prefix, first = "Access #{ins} in #{context}", true
+            se.each_element("value_area") { |area|
+              if first
+                debug(options,:ait) { prefix }
+                first = false
+              end
+              min,max,rem,mod  = %w{min max rem mod}.map { |k| Integer(area.attributes[k]) if area.attributes[k] }
               debug(options,:ait) {
-                sprintf("Access %s: %s 0x%08x..0x%08x (%d bytes), mod=0x%x rem=0x%x\n",
-                        ins.to_s,se.attributes['type'],min,max,max-min,mod || -1,rem || -1)
+                sprintf("- %s 0x%08x..0x%08x (%d bytes), mod=0x%x rem=0x%x\n",
+                        se.attributes['type'],min,max,max-min,mod || -1,rem || -1)
               }
-            end
+            }
+          else
+            value_analysis_stats[(is_read) ? 'predictable reads':'predictable writes'] += 1
           end
         }
       }
@@ -437,7 +413,7 @@ class AitImport
 #          @function_cost[routine.loop.function] += re.attributes['cycles'].to_i
         end
         re.each_element("wcet_context") { |ctx_elem|
-          context = @contexts[ctx_elem.attributes['context']].context
+          context = @contexts[ctx_elem.attributes['context']]
           ctx_elem.each_element("wcet_edge") { |edge|
             next unless edge.attributes['cycles']
             cycles, count = %w{cycles count}.map { |k| edge.attributes[k].to_i }
@@ -456,7 +432,7 @@ class AitImport
       @block_count.each { |b,ctxs|
         msgs.call "- block #{b}"
         ctxs.each { |ctx,c|
-          msgs.call(sprintf(" -- context #{ctx}: %.2f * #{c}\n",@block_cost[b][ctx].to_f / c.to_f))
+          msgs.call(sprintf(" -- #{ctx}: %.2f * #{c}\n",@block_cost[b][ctx].to_f / c.to_f))
         }
       }
     }

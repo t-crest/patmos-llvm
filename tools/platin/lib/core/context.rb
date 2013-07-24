@@ -12,13 +12,8 @@ class BoundedStack
   # fly-weight, to get cheaper comparisons (profile hotspot)
   @@repository = {}
   attr_reader :stack
-  def BoundedStack.initial(length)
+  def BoundedStack.empty
     BoundedStack.create([])
-  end
-  def BoundedStack.suffix(stack, length)
-    return BoundedStack.create(stack.dup) if length > stack.length
-    return BoundedStack.initial(0) if length == 0
-    BoundedStack.create(stack[-length..-1])
   end
   def BoundedStack.create(stack)
     bs = @@repository[stack]
@@ -70,7 +65,7 @@ class BoundedStack
   end
   def to_s
     return "[]" if @stack.empty?
-    @stack.map { |n| n.to_s }.join("-")
+    @stack.map { |n| n.to_s }.join(",")
   end
   # unique objects - can use pointer equality (== defined as equals?) per default
   def hash
@@ -161,56 +156,170 @@ class ContextNode
   end
 end
 
-# Loop Context for one loop
-# Given peel and unroll factors
-# loop contexts represented as
-#   [loopheader,init,offset]
-# correspond to the loop iteration
-#   init<peel:  init
-#   init==peel: peel + unroll*k + offset
-class LoopContext
-  attr_reader :loop,:init,:offset
-  def initialize(loop,init=0,offset=0)
-    raise Exception.new("Loop Context: loop.nil?") unless loop
-    @loop = loop
-    @init = init
-    @offset = offset
+#
+# callstring entry (either call edge or loop edge)
+#
+class ContextEntry
+  def ContextEntry.from_pml(functions,data)
+    if data['loop']
+      LoopContextEntry.from_pml(functions,data)
+    else
+      CallContextEntry.from_pml(functions,data)
+    end
+  end
+end
+
+class CallContextEntry < ContextEntry
+  attr_reader :callsite,:callee
+  def initialize(callsite)
+    @callsite = callsite
+  end
+  def to_pml
+    { 'callsite' => @callsite.qname }
+  end
+  def CallContextEntry.from_pml(functions, data)
+    ref = InstructionRef.from_qname(functions,data['callsite'])
+    raise Exception.new("CallContextEntry#from_pml: callsite is not an instruction") unless ref.kind_of?(InstructionRef)
+    CallContextEntry.new(ref.instruction)
   end
   def dup
-    LoopContext.new(@loop,@init,@offset)
+    CallContextEntry.new(callsite,callee)
   end
-  def with_increment(peel,unroll)
-    if @init >= peel
-      LoopContext.new(@loop, @init,(@offset + 1) % unroll)
-    else
-      LoopContext.new(@loop, @init+1,@offset)
-    end
-  end
-  def predecessor_contexts(peel, unroll)
-    if @init >= @peel
-      if @offset == 0
-        [ LoopContext.new(@loop,peel-1,0), LoopContext.new(@loop, @init, unroll - 1) ]
-      else
-        [ LoopContext.new(@loop,@init,@offset-1) ]
-      end
-    elsif @init > 0
-      [ LoopContext.new(@loop, @init - 1, 0) ]
-    else
-      []
-    end
+  def inspect
+    "#<CallContextEntry #{object_id}: #{callsite}>"
   end
   def to_s
-    "#<LoopContext #{loop} #{init} #{offset}>"
+    @callsite.qname
+  end
+  def qname
+    @callsite.qname
   end
   def ==(other)
     return false if other.nil?
-    return false unless other.kind_of?(LoopContext)
-    @loop == other.loop && @init == other.init && @offset == other.offset
+    return false unless other.kind_of?(CallContextEntry)
+    @callsite == other.callsite
   end
   def eql?(other); self == other ; end
   def hash
     return @hash if @hash
-    @hash = @loops.hash
+    @hash = callsite.hash
+  end
+  def <=>(other)
+    hash <=> other.hash
+  end
+end
+
+#
+# Context Entry (Loop or Call)
+# Loop Context
+#  callsite    ... the program point that branched to the loop entry, or TOP (used by aiT)
+#  offset/step ... index of loop iterations is { offset + step*k | k >= 0 }
+#  TOP element ... (callsite=TOP,offset=0,step=1)
+# Call Context
+#  callsite    ... the instruction that called the function entry, or TOP
+#  TOP element ... (callsite=TOP)
+#
+class LoopContextEntry < ContextEntry
+  attr_reader :callsite,:loop,:offset,:step
+  def initialize(loop,step=1,offset=0,callsite)
+    assert("Loop context: no loop given (#{loop})") { loop.kind_of?(Block) }
+    @loop, @step, @offset, @callsite = loop,step,offset,callsite
+    @callsite = nil if @loop.has_preheader? # no interesting information
+  end
+  def dup
+    LoopContextEntry.new(@loop,@step,@offset,@callsite)
+  end
+  # XXX: little bit hackish
+  def to_pml
+    pml = { 'loop' => @loop.qname,
+            'step' => @step,
+            'offset' => @offset }
+    pml['callsite'] = @callsite.qname if @callsite
+    pml
+  end
+  def LoopContextEntry.from_pml(functions, data)
+    ref = LoopRef.from_qname(functions,data['loop'])
+    raise Exception.new("LoopContextEntry#from_pml: loop is not a loop reference") unless ref.kind_of?(LoopRef)
+    step = data['step']
+    offset = data['offset']
+    callsite = InstructionRef.from_qname(data['callsite']) if data['callsite']
+    LoopContextEntry.new(ref.loopblock,step,offset,callsite.instruction)
+  end
+
+  #
+  # check whether the loop context matches the peel/unroll
+  # setting and normalize
+  #
+  # Check:
+  #  (step = 0) v (step = unroll ^ offset >= peel)
+  # Normalized
+  #  (step = 0 ^ offset < peel) v (step = unroll ^ offset = peel + k ^ k < unroll)
+  def check_and_normalize(offset,step,peel,unroll)
+    raise Exception.new("LoopContextEntry: step #{step} or offset #{offset} negative") if offset < 0 || step < 0
+    if step != 0
+      raise Exception.new("LoopContextEntry: step #{step} does not match unroll factor #{unroll}") unless step = unroll
+      raise Execption.new("LoopContextEntry: offset #{offset} to small for peel factor #{peel}") unless offset >= peel
+      [peel + (offset - peel)%unroll, unroll]
+    else
+      if offset >= peel
+        [peel + (offset-peel)%unroll, unroll]
+      else
+        [offset, 0]
+      end
+    end
+  end
+  #
+  # Given that we are in loop iteration (offset+step*k),
+  # compute next iterations (offset+step*k + 1)
+  # Assumes the expression is normalized
+  def with_increment(peel,unroll)
+    o,s = check_and_normalize(@offset+1,@step,peel,unroll)
+    LoopContextEntry.new(@loop,s,o,@callsite)
+  end
+
+  #
+  # Given that we are in loop iteration (offset+step*k),
+  # compute previous iterations (offset-1+step*k), a set of expressions
+  def predecessor_contexts(peel, unroll)
+    # handle the case when subtracting one from offset violates normalization
+    o,s = check_and_normalize(@offset, @step, peel, unroll)
+    if o == 0 # implies @step == 0
+      []
+    elsif o == peel
+      [ LoopContextEntry.new(@loop,0,peel-1,@callsite),
+        LoopContextEntry.new(@loop,unroll,peel+unroll-1,@callsite) ]
+    else
+      o2, s2 = check_and_normalize(@offset - 1, @step, peel, unroll)
+      [ LoopContextEntry.new(@loop, s2, o2, @callsite) ]
+    end
+  end
+  def inspect
+    "#<LoopContextEntry #{object_id}: #{callsite}->#{loop} #{offset}+#{step} k>"
+  end
+  def to_s
+    qname
+  end
+  def qname
+    return @qname if @qname
+    lc = @offset.to_s
+    lc += "+k" if @step == 1
+    lc += "+#{@step}k" if @step > 1
+    @qname = "#{loop.qname}[#{lc}]#{@callsite ? @callsite.qname : ''}"
+  end
+  def ==(other)
+    return false if other.nil?
+    return false unless other.kind_of?(LoopContextEntry)
+    if ! other.callsite.nil?
+      return false unless callsite && callsite == other.callsite
+    else
+      return false unless callsite.nil?
+    end
+    @loop == other.loop && @step == other.step && @offset == other.offset
+  end
+  def eql?(other); self == other ; end
+  def hash
+    return @hash if @hash
+    @hash = loop.hash ^ offset.hash
   end
   def <=>(other)
     hash <=> other.hash
@@ -218,26 +327,57 @@ class LoopContext
 end
 
 # Context
-class Context
-  attr_reader :callstring, :loopcontext
-  def initialize(cs, lc)
-    @callstring, @loopcontext = cs, lc
+class Context < PMLObject
+  attr_reader :callstring
+  def initialize(callstring, data=nil)
+    assert("Context: expecting BoundedStack") {
+      callstring.kind_of?(BoundedStack)
+    }
+    @callstring = callstring
+    set_data(data)
   end
-  def Context.initial(calldepth, loopdepth)
-    Context.new(BoundedStack.initial(calldepth), BoundedStack.initial(loopdepth))
+  def to_pml
+    @callstring.to_a.map { |cs| cs.to_pml }
+  end
+  def Context.from_pml(functions, data)
+    cs = data.map { |ref| ContextEntry.from_pml(functions,ref) }
+    Context.new(BoundedStack.create(cs.reverse), data)
+  end
+  def qname
+    return @callstring.to_a.map { |cs| "<-#{cs.qname}" }.join("")
+  end
+  def Context.empty
+    Context.new(BoundedStack.empty)
+  end
+  def empty?
+    @callstring.empty?
+  end
+  def push(e,bound)
+    Context.new(@callstring.push(e,bound))
+  end
+  def pop
+    Context.new(@callstring.pop)
+  end
+  def top
+    @callstring.top
+  end
+  def map_top
+    Context.new(@callstring.map_top { |e| yield e })
+  end
+  def Context.callstack_suffix(stack, length)
+    return Context.new(BoundedStack.empty)             if length == 0
+    start = (length >= stack.length) ? 0 : (-length)
+    entries = stack[start..-1].map { |callsite|
+      CallContextEntry.new(callsite)
+    }
+    Context.new(BoundedStack.create(entries))
+  end
+  def Context.from_list(list)
+    assert("Context.from_list: not a list of context entries (#{list.first.class})") { list.all? { |e| e.kind_of?(ContextEntry) } }
+    Context.new(BoundedStack.create(list.reverse))
   end
   def to_a
-    @callstring.to_a + @loopcontext.to_a
-    # @callstring.reverse.each { |s| yield [:callsite,s] }
-    # @loopcontext.stack.reverse.each { |s| yield [:loopcontext,s] }
-  end
-  def with_callstring
-    callstring_new = yield @callstring
-    Context.new(callstring_new, @loopcontext)
-  end
-  def with_loopcontext
-    loopcontext_new = yield @loopcontext
-    Context.new(@callstring, loopcontext_new)
+    @callstring.to_a
   end
   def scope_context
     # no dynamic context at the moment
@@ -248,70 +388,231 @@ class Context
     scope_context
   end
   def to_s
-    "Ctx<#{@callstring},#{@loopcontext}>"
+    list = @callstring.to_a.map { |entry| entry }.join(",")
+    "Context<#{list}>"
   end
   def ==(other)
     return false if other.nil?
     return false unless other.kind_of?(Context)
-    @callstring == other.callstring && @loopcontext == other.loopcontext
+    @callstring == other.callstring
   end
   def eql?(other); self == other ; end
   def hash
     return @hash if @hash
-    @hash = @callstring.hash ^ @loopcontext.hash
+    @hash = @callstring.hash
   end
   def <=>(other)
     hash <=> other.hash
   end
 end
 
+#
+# program point reference + context
+class ContextRef < PMLObject
+  attr_reader :reference, :context
+  def initialize(ref, context, data = nil)
+    assert("ContextRef: reference has bad type #{ref.class}") { ref.kind_of?(Reference) }
+    assert("ContextRef: context has bad type #{context.class}") { context.kind_of?(Context) }
+    @reference, @context = ref, context
+    set_data(data)
+  end
+  #
+  # compact notation (introduced so LLVM exported does not need to fight with contexts):
+  #
+  def to_pml
+    pml = @reference.to_pml
+    pml['context'] = @context.to_pml unless @context.empty?
+    pml
+  end
+  def ContextRef.from_pml(functions, data)
+    context = data['context'] ? Context.from_pml(functions,data['context']) : Context.empty
+    ref = Reference.from_pml(functions, data)
+    ContextRef.new(ref, context, data)
+  end
+  def function
+    reference.function
+  end
+  def block
+    reference.block
+  end
+  def instruction
+    reference.instruction
+  end
+  def loop
+    reference.loop
+  end
+  def qname
+    "#{reference.qname}#{context.qname}"
+  end
+  def inspect
+    "ContextRef<reference=#{reference.inspect},context=#{context.inspect}>"
+  end
+  def to_s
+    qname
+  end
+  def ==(other)
+    return false if other.nil?
+    return false unless other.kind_of?(ContextRef)
+    @reference == other.reference && @context == other.context
+  end
+  def eql?(other); self == other ; end
+  def hash
+    return @hash if @hash
+    @hash = @reference.hash * 31 + @context.hash
+  end
+  def <=>(other)
+    hash <=> other.hash
+  end
+end
+
+#
 # fairly generic context manager
+# loop contexts are disabled if looppeel = 0= and loopunroll == 1
+#
 class ContextManager
-  def initialize(calldepth = 1, loopdepth = 0, looppeel = 1, loopunroll = 1)
-    raise Exception.new("ContextManager: calldepth>=1 is required") unless calldepth >= 1
-    @calldepth, @loopdepth, @looppeel, @loopunroll = calldepth, loopdepth, looppeel, loopunroll
+  def initialize(history_length, looppeel = 0, loopunroll = 1)
+    raise Exception.new("ContextManager: history_length>=1 is required") unless history_length >= 1
+    @history_length, @looppeel, @loopunroll = history_length, looppeel, loopunroll
   end
   def initial
-    Context.initial(@calldepth, @loopdepth)
+    Context.empty
   end
   # do not record instruction history context for now
   def blockslice(ctx, node)
     ctx
   end
-  def push_call(ctx, callnode)
-    ctx.with_callstring { |cs| cs.push(callnode, @calldepth) }
+  def store_loopcontext?
+    @looppeel != 0 || @loopunroll != 1
+  end
+  def push_call(ctx, callsite)
+    ctx.push(CallContextEntry.new(callsite), @history_length)
   end
   def pop_call(ctx)
-    callnode = ctx.callstring.top
-    if callnode
-      [ ctx.with_callstring { |cs| cs.pop }, callnode ]
-    else
-      nil
+    ctx_entry = ctx.top
+    if ctx_entry
+      assert("pop_call: need to exit loop first") { ctx_entry.kind_of?(CallContextEntry) }
+      ctx_entry = ctx_entry.callsite
     end
+    [ ctx.pop, ctx_entry ]
   end
   def enter_loop(ctx, loop)
-    return ctx unless @loopdepth > 0
-    ctx.with_loopcontext { |lc|
-      lc.push(LoopContext.new(loop), @loopdepth)
-    }
+    return ctx unless store_loopcontext?
+    ctx.push(LoopContextEntry.new(loop), @history_length)
   end
   def exit_loop(ctx)
-    return ctx unless @loopdepth > 0
-    loopnode = ctx.loopcontext.top.loop
-    [ ctx.with_loopcontext { |lc| lc.pop }, loopnode ]
+    return ctx unless store_loopcontext?
+    assert("exit_loop: not a loop context #{ctx.top}") { ctx.top.kind_of?(LoopContextEntry) }
+    loopnode = ctx.top.loop
+    [ ctx.pop, loopnode ]
   end
   def continue_loop(ctx)
-    return ctx unless @loopdepth > 0
-    ctx.with_loopcontext { |lcs|
-      lcs.map_top { |lc| lc.with_increment(@looppeel, @loopunroll) }
+    return ctx unless store_loopcontext?
+    ctx.map_top { |lc|
+      assert("continue_loop: not a loop context #{lc}") { lc.kind_of?(LoopContextEntry) }
+      lc.with_increment(@looppeel, @loopunroll)
     }
   end
   def reset_loop(ctx, loop)
-    return ctx unless @loopdepth > 0
-    ctx.with_loopcontext { |lcs|
-      lcs.map_top { |lc| LoopContext.new(loop) }
+    return ctx unless store_loopcontext?
+    ctx.map_top { |lc|
+      assert("continue_loop: not a loop context #{lc}") { lc.kind_of?(LoopContextEntry) }
+      LoopContextEntry.new(loop)
     }
   end
 end
 
 end # module PML
+
+# in-module testing
+if __FILE__ == $0
+  require 'test/unit'
+  include PML
+  class TestContext < Test::Unit::TestCase
+    def setup
+      @ctxm1 = ContextManager.new(2)
+      @ctxm2 = ContextManager.new(2,1,2)
+    end
+    def sd_instructions(num)
+      (0..num-1).map { |ix| { 'index' => ix } }
+    end
+    def sd_function(name)
+      b0 = { 'name' => 0, 'instructions' => sd_instructions(6) }
+      { 'name' => name, 'blocks' => [b0] }
+    end
+    def sd_flist
+      [sd_function('main'),sd_function('f'),sd_function('g'),sd_function('h')]
+    end
+    def test_call_return1
+      c = @ctxm1.initial
+      fs = FunctionList.new(sd_flist, :labelkey => 'name')
+      c1 = fs['main'].blocks.first.instructions.first
+      c2 = fs['f'].blocks.first.instructions.first
+      c = @ctxm1.push_call(c, c1)
+      c = @ctxm1.push_call(c, c2)
+      pml = c.to_pml
+      c_from = Context.from_pml(fs,c.to_pml)
+      assert_equal(c, c_from)
+      c, site = @ctxm1.pop_call(c)
+      assert_equal(c2,site)
+      c, site = @ctxm1.pop_call(c)
+      assert_equal(c1,site)
+      assert_equal(@ctxm1.initial, c)
+    end
+    def test_call_return2
+      c = @ctxm1.initial
+      fs = FunctionList.new(sd_flist, :labelkey => 'name')
+      c1 = fs['main'].blocks.first.instructions.first
+      c2 = fs['f'].blocks.first.instructions.first
+      c3 = fs['g'].blocks.first.instructions.first
+      l1 = fs['f'].blocks.first
+      c = @ctxm1.push_call(c, c1)
+      c = @ctxm1.push_call(c, c2)
+      c = @ctxm1.enter_loop(c, l1)
+      c = @ctxm1.push_call(c, c3)
+      c, site = @ctxm1.pop_call(c)
+      assert_equal(c3,site)
+      c = @ctxm1.continue_loop(c)
+      c = @ctxm1.push_call(c, c3)
+      c, site = @ctxm1.pop_call(c)
+      c, loop = @ctxm1.exit_loop(c)
+      c, site = @ctxm1.pop_call(c)
+      assert_equal(c2,site)
+      c, site = @ctxm1.pop_call(c)
+      assert_equal(@ctxm1.initial, c)
+    end
+    def test_loop
+      c = @ctxm2.initial
+      fs = FunctionList.new(sd_flist, :labelkey => 'name')
+      c1 = fs['main'].blocks.first.instructions.first
+      c2 = fs['f'].blocks.first.instructions.first
+      c3 = fs['g'].blocks.first.instructions.first
+      l1 = fs['f'].blocks.first
+      c = @ctxm2.push_call(c, c1)
+      c = @ctxm2.enter_loop(c, l1)
+      puts c
+      pml = c.to_pml
+      puts pml
+      c_from = Context.from_pml(fs,c.to_pml)
+      assert_equal(c, c_from)
+      c = @ctxm2.push_call(c, c2)
+      c, site = @ctxm2.pop_call(c)
+
+      assert_equal(0,c.top.offset)
+      assert_equal(1,c.top.step)
+      c = @ctxm2.continue_loop(c)
+      assert_equal(1,c.top.offset)
+      assert_equal(2,c.top.step)
+      c = @ctxm2.continue_loop(c)
+      assert_equal(2,c.top.offset)
+      assert_equal(2,c.top.step)
+      c = @ctxm2.push_call(c, c2)
+      c, site = @ctxm2.pop_call(c)
+      c, loop = @ctxm2.exit_loop(c)
+      assert_equal(loop, l1)
+      c, site = @ctxm2.pop_call(c)
+      assert_equal(@ctxm2.initial, c)
+      c, site = @ctxm2.pop_call(c)
+      assert_equal(@ctxm2.initial, c)
+    end
+  end
+end

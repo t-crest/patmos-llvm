@@ -21,9 +21,9 @@ end
 # class to import SWEET flow facts (format .ff) to PML
 class SweetFlowFactImport
 
-  def initialize(functions, fact_context)
+  def initialize(functions, fact_attributes)
     @functions = functions
-    @fact_context = fact_context
+    @fact_attributes = fact_attributes
   end
 
   def to_pml(ffsrc)
@@ -40,8 +40,8 @@ class SweetFlowFactImport
       when "=" ; "equal"
       else     ; raise Exception.new("Bad constraint op: #{ffsrc.constraint.op}")
       end
-    flowfact = FlowFact.new(scope.ref, TermList.new(terms), op, ffsrc.constraint.rhs)
-    flowfact.add_attributes(@fact_context)
+    flowfact = FlowFact.new(scope.ref, TermList.new(terms), op, ffsrc.constraint.rhs,
+                            @fact_attributes.dup)
     flowfact
   end
 

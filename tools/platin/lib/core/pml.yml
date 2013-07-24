@@ -57,7 +57,7 @@ mapping:
                   "successors": &namelist
                     type: seq
                     sequence:
-                      - 
+                      -
                         type: scalar
                   "predecessors": *namelist
                   "loops": *namelist
@@ -79,7 +79,7 @@ mapping:
                           "branch-targets": *namelist
                           "callees": *namelist
                           "branch-delay-slots":
-                             type: int                             
+                             type: int
                           "size":
                              type: int
                           "address":
@@ -121,7 +121,7 @@ mapping:
                     sequence:
                       -
                         type: scalar
-                  "dst-successors": *rgnodelist                 
+                  "dst-successors": *rgnodelist
           "status":
             type: str
             enum: [valid,corrected,invalid]
@@ -130,21 +130,48 @@ mapping:
     sequence:
       - &flowfact
         type: map
+        desc: >-
+          linear flow constraint of the form
+          (variable-lhs) <> (constant-rhs)
         mapping:
           "origin":
             type: str
           "level": *level
           "classification":
-            type: str
+            type: any
+            desc: "DEPRECATED"
           "scope": &scope
             type: map
             mapping: &scoperef
               "function":
                 type: scalar
               "loop":
-                type: scalar              
+                type: scalar
+              "context": &callstring
+                type: seq
+                sequence:
+                  - &contextentry
+                    type: map
+                    mapping:
+                      "callsite":
+                        desc: >-
+                          qualified name of the callsite (call context entry)
+                        type: scalar
+                      "loop":
+                        desc: >-
+                          qualified name of the loop header (loop context entry)
+                        type: scalar
+                      "step":
+                        desc: >-
+                          loop step (context applies to all iterations of the form (offest + k step))
+                        type: scalar
+                      "offset":
+                        type: scalar
           "lhs":
             type: seq
+            desc: >-
+              variable left-hand side of the constraint;
+              sum of program points multiplied by a constant coefficient
             sequence:
               - &term
                 type: map
@@ -159,12 +186,23 @@ mapping:
                       "block":
                         type: scalar
                       "instruction":
-                        type: scalar                  
+                        type: scalar
+                      "edgesource":
+                        type: any
+                        desc: "TODO"
+                      "edgetarget":
+                         type: any
+                         desc: "TODO"
           "op":
             type: str
-            enum: ["less-equal", equal]
+            desc: >-
+              comparison operator of the constraint (<= or =)
+            enum: ["less-equal", "equal"]
           "rhs":
-            desc: "Either an integer (non-symbolic constant) or a string representing a symbolic constant"
+            desc: >-
+              constant right-hand side of the constraint
+              either an integer (non-symbolic constant)
+              or a string representing a symbolic constant
             type: scalar
   "timing":
     type: seq
@@ -183,3 +221,14 @@ mapping:
             type: scalar
           "solvertime":
             type: scalar
+          "blocks":
+            type: seq
+            desc: >-
+              worst-case execution time of basic blocks
+            sequence:
+              - &blocktiming
+                type: map
+                mapping:
+                  "cycles":
+                    type: scalar
+                    desc: "?"
