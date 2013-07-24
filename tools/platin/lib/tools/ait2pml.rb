@@ -1,11 +1,12 @@
 #!/usr/bin/env ruby
 #
-# PSK tool set
+# platin tool set
 #
-# Converts the result of the aiT analysis to PML format
+# Interprets the results of the aiT analysis in PML
 #
 
 require 'platin'
+require 'tools/extract-symbols'
 require 'ext/ait'
 include PML
 
@@ -34,25 +35,23 @@ class AitImportTool
   def AitImportTool.add_config_options(opts)
   end
   def AitImportTool.add_options(opts)
-    opts.on("--analyze", "run a3patmos") { opts.options.run_ait = true }
-    AitAnalyzeTool.add_options(opts, false)
+    ExtractSymbolsTool.add_config_options(opts)
     opts.analysis_entry
-    opts.calculates_wcet('aiT-unknown')
-    opts.ait_result_file
+    opts.binary_file
+    opts.ait_report_prefix
   end
   def AitImportTool.run(pml,options)
-    needs_options(options, :ait_result_file, :analysis_entry, :timing_output)
-
-    AitAnalyzeTool.run(pml,options) if options.run_ait
-    doc = Document.new(File.read(options.ait_result_file))
-    cycles = doc.elements["results/result[1]/cycles"].text.to_i
-    scope = pml.machine_functions.by_label(options.analysis_entry).ref
-    entry = TimingEntry.new(scope,
-                            cycles,
-                            'level' => 'machinecode',
-                            'origin' => options.timing_output)
-    pml.timing.add(entry)
-    statistics("AIT","imported results" => 1) if options.stats
+    needs_options(options, :analysis_entry, :ait_report_prefix)
+    entry  = pml.machine_functions.by_label(options.analysis_entry, true)
+    if ! entry
+      die("Analysis entry (ELF label #{options.analysis_entry}) not found")
+    end
+    unless entry.blocks.first.address
+      die("No addresses in PML file, and no binary file given") unless options.binary_file
+      warn("No addresses in PML file, trying to extract from ELF file")
+      ExtractSymbolsTool.run(pml,options)
+    end
+    AitImport.new(pml,options).run
     pml
   end
 end

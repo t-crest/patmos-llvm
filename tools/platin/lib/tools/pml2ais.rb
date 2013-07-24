@@ -42,27 +42,25 @@ class ApxExportTool
 
     opts.apx_file(mandatory)
     opts.binary_file(mandatory)
-    opts.ait_result_file(mandatory)
+    opts.ait_report_prefix(mandatory)
 
-    opts.on("-r", "--report FILE", "Filename of the report log file") { |f| opts.options.ait_report_file = f }
     opts.add_check { |options|
       die_usage "No apx file specified." if mandatory && ! options.apx_file
       if options.apx_file
         die_usage "Option --binary  is mandatory when generating apx file" unless options.binary_file
-        die_usage "Option --results is mandatory when generating apx file" unless options.ait_result_file
+        die_usage "Option --ait-report-prefixs is mandatory when generating apx file" unless options.ait_report_prefix
       end
     }
   end
 
   def ApxExportTool.run(pml, options)
-    needs_options(options, :binary_file, :ais_file, :ait_result_file, :ait_report_file, :analysis_entry)
+    needs_options(options, :binary_file, :ais_file, :ait_report_prefix, :analysis_entry)
 
     File.open(options.apx_file, "w") do |fh|
       apx_exporter = APXExporter.new(fh)
       apx_exporter.export_project(options.binary_file,
                                   options.ais_file,
-                                  options.ait_result_file,
-                                  options.ait_report_file,
+                                  options.ait_report_prefix,
                                   options.analysis_entry)
     end
   end
