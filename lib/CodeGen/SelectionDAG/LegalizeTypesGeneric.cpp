@@ -292,16 +292,19 @@ void DAGTypeLegalizer::ExpandRes_VAARG(SDNode *N, SDValue &Lo, SDValue &Hi) {
   DebugLoc dl = N->getDebugLoc();
   const unsigned Align = N->getConstantOperandVal(3);
 
-  Lo = DAG.getVAArg(NVT, dl, Chain, Ptr, N->getOperand(2), Align);
-  Hi = DAG.getVAArg(NVT, dl, Lo.getValue(1), Ptr, N->getOperand(2), 0);
-
-  // Handle endianness of the load.
-  if (TLI.isBigEndian())
-    std::swap(Lo, Hi);
-
-  // Modified the chain - switch anything that used the old chain to use
-  // the new one.
-  ReplaceValueWith(SDValue(N, 1), Hi.getValue(1));
+  if (TLI.isBigEndian()) {
+	Hi = DAG.getVAArg(NVT, dl, Chain, Ptr, N->getOperand(2), Align);
+	Lo = DAG.getVAArg(NVT, dl, Hi.getValue(1), Ptr, N->getOperand(2), 0);
+	// Modified the chain - switch anything that used the old chain to use
+	// the new one.
+	ReplaceValueWith(SDValue(N, 1), Lo.getValue(1));
+  } else {
+	Lo = DAG.getVAArg(NVT, dl, Chain, Ptr, N->getOperand(2), Align);
+	Hi = DAG.getVAArg(NVT, dl, Lo.getValue(1), Ptr, N->getOperand(2), 0);
+	// Modified the chain - switch anything that used the old chain to use
+	// the new one.
+	ReplaceValueWith(SDValue(N, 1), Hi.getValue(1));
+  }
 }
 
 
