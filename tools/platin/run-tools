@@ -99,5 +99,5 @@ mkdir -p "${MO}/graphs.${M}/"
 ${PLATIN} visualize --outdir "${MO}/graphs.${M}/" --stats "${MO}.pml"
 
 # validate final PML
-${PLATIN} pml --validate -i "${MO}.pml"
+${PLATIN} pml --validate -i "${MO}.pml" --stats
 

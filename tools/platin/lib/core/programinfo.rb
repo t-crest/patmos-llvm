@@ -82,12 +82,6 @@ module PML
       FlowFactList.new(@list.dup, @data.dup)
     end
 
-    def add(ff)
-      @list.push(ff)
-      data.push(ff.data)
-      add_index(ff)
-    end
-
     def add_copies(flowfacts, new_origin)
       copies = []
       flowfacts.each { |ff|
@@ -376,11 +370,6 @@ module PML
     def dup
       ValueFactList.new(@list.dup, data.dup)
     end
-    def add(te)
-      @list.push(te)
-      data.push(te.data)
-      add_index(te)
-    end
     def by_origin(origin, error_if_missing = true)
       lookup(@by_origin, origin, "origin", error_if_missing)
     end
@@ -394,35 +383,72 @@ module PML
     end
   end
 
+  class ValueSet < PMLList
+    def initialize(list, data = nil)
+      assert("ValueSet#initialize: list must not be nil") { list }
+      @list = list
+      set_data(data)
+    end
+    def ValueSet.from_pml(pml, data)
+      ValueSet.new(data.map { |d| ValueRange.from_pml(pml,d) }, data)
+    end
+    def to_pml
+      @list.map { |v| v.to_pml }
+    end
+    def dup
+      ValueSet.new(@list.dup, data.dup)
+    end
+  end
+  class ValueRange < PMLObject
+      attr_reader :min,:max
+    def initialize(min, max, data =nil)
+      @min, @max = min, max
+      set_data(data)
+    end
+    def inspect
+      "ValueRange<min=#{min.inspect},max=#{max.inspect}>"
+    end
+    def to_s
+       range.to_s
+    end
+    def range
+      Range.new(min,max)
+    end
+    def ValueRange.from_pml(_,data)
+      ValueRange.new(data['min'],data['max'],data)
+    end
+    def to_pml
+      { 'min' => @min, 'max' => @max }
+    end
+  end
+
   # value facts record results from value analysis (at the binary or bitcode level)
   #
   # program-point: pp
-  # type: read-address, write-address, register-value
-  # variable: memoperand, register
+  # variable: mem-address-read, mem-address-write, register name
   # width: int
   # values: list of { min: x, max: x }
   class ValueFact < PMLObject
     attr_reader :attributes
     include ProgramInfoObject
-    def initialize(programpoint, type, variable, witdth, values, attrs, data = nil)
-      @programpoint, @type, @variable, @values = programpoint, type, variable, values
+    def initialize(programpoint, variable, width, values, attrs, data = nil)
+      @programpoint, @variable, @width, @values = programpoint, variable, width, values
       @attributes = attrs
       set_data(data)
     end
     def ValueFact.from_pml(pml, data)
       fs = pml.functions_for_level(data['level'])
       ValueFact.new(ContextRef.from_pml(fs,data['program-point']),
-                    data['type'], data['variable'], data['width'],
-                    ValueSet.from_pml(data['values']), data['origin'],
+                    data['variable'], data['width'],
+                    ValueSet.from_pml(fs,data['values']),
                     ProgramInfoObject.attributes_from_pml(data),
                     data)
     end
     def to_pml
       { 'program-point' => @programpoint.to_pml,
-        'type' => @type,
         'variable' => @variable,
         'width' => @width,
-        'values' => @values }.merge(attributes)
+        'values' => @values.to_pml }.merge(attributes)
     end
     def to_s
       to_pml.to_s
@@ -442,11 +468,6 @@ module PML
     end
     def dup
       TimingList.new(@list.dup, data.dup)
-    end
-    def add(te)
-      @list.push(te)
-      data.push(te.data)
-      add_index(te)
     end
     def by_origin(origin, error_if_missing = true)
       lookup(@by_origin, origin, "origin", error_if_missing)

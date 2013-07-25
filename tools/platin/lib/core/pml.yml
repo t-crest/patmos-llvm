@@ -125,6 +125,71 @@ mapping:
           "status":
             type: str
             enum: [valid,corrected,invalid]
+  "valuefacts":
+    type: seq
+    sequence:
+      - &valuefact
+        type: map
+        desc: >-
+          information on the possible value of variables
+          at a certain point in the program
+        mapping:
+          "origin":
+            type: str
+          "level": *level
+          "variable":
+            type: str
+            desc: >-
+              description of the variable this fact refers to
+              mem-address-read ... memory address the instruction reads from
+              mem-address-write ... memory address the instruction writes to
+          "width":
+            type: int
+          "values":
+            type: seq
+            sequence:
+              -
+                type: map
+                mapping:
+                  "min":
+                    type: int
+                  "max":
+                    type: int
+          "program-point": &program-point
+            type: map
+            mapping:
+              "function":
+                type: scalar
+              "block":
+                type: scalar
+              "instruction":
+                 type: scalar
+              "edgesource":
+                  type: any
+                  desc: "TODO"
+              "edgetarget":
+                  type: any
+                  desc: "TODO"
+              "context": &context
+                type: seq
+                sequence:
+                  - &contextentry
+                    type: map
+                    mapping:
+                      "callsite":
+                        desc: >-
+                          qualified name of the callsite (call context entry)
+                        type: scalar
+                      "loop":
+                        desc: >-
+                          qualified name of the loop header (loop context entry)
+                        type: scalar
+                      "step":
+                        desc: >-
+                          loop step (context applies to all iterations of the form (offest + k step))
+                        type: scalar
+                      "offset":
+                        type: scalar
   "flowfacts":
     type: seq
     sequence:
@@ -147,26 +212,7 @@ mapping:
                 type: scalar
               "loop":
                 type: scalar
-              "context": &callstring
-                type: seq
-                sequence:
-                  - &contextentry
-                    type: map
-                    mapping:
-                      "callsite":
-                        desc: >-
-                          qualified name of the callsite (call context entry)
-                        type: scalar
-                      "loop":
-                        desc: >-
-                          qualified name of the loop header (loop context entry)
-                        type: scalar
-                      "step":
-                        desc: >-
-                          loop step (context applies to all iterations of the form (offest + k step))
-                        type: scalar
-                      "offset":
-                        type: scalar
+              "context": *context
           "lhs":
             type: seq
             desc: >-
@@ -178,21 +224,7 @@ mapping:
                 mapping:
                   "factor":
                     type: int
-                  "program-point":
-                    type: map
-                    mapping:
-                      "function":
-                        type: scalar
-                      "block":
-                        type: scalar
-                      "instruction":
-                        type: scalar
-                      "edgesource":
-                        type: any
-                        desc: "TODO"
-                      "edgetarget":
-                         type: any
-                         desc: "TODO"
+                  "program-point": *program-point
           "op":
             type: str
             desc: >-

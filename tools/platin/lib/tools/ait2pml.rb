@@ -33,10 +33,10 @@ end
 
 class AitImportTool
   def AitImportTool.add_config_options(opts)
-    opts.on("--[no-]import-mem-accesses", "import results from value analysis of memory (=true)") { |b|
-      opts.options.ait_import_memory_accesses = b
+    opts.on("--[no-]import-addresses", "import memory address range identified during value analysis (=true)") { |b|
+      opts.options.ait_import_addresses = b
     }
-    opts.add_check { |options| options.ait_import_memory_accesses = true if options.ait_import_memory_accesses.nil? }
+    opts.add_check { |options| options.ait_import_addresses = true if options.ait_import_addresses.nil? }
   end
   def AitImportTool.add_options(opts)
     ExtractSymbolsTool.add_config_options(opts)

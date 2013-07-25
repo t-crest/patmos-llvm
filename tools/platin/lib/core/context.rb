@@ -242,8 +242,8 @@ class LoopContextEntry < ContextEntry
     raise Exception.new("LoopContextEntry#from_pml: loop is not a loop reference") unless ref.kind_of?(LoopRef)
     step = data['step']
     offset = data['offset']
-    callsite = InstructionRef.from_qname(data['callsite']) if data['callsite']
-    LoopContextEntry.new(ref.loopblock,step,offset,callsite.instruction)
+    callsite = InstructionRef.from_qname(data['callsite']).instruction if data['callsite']
+    LoopContextEntry.new(ref.loopblock,step,offset,callsite)
   end
 
   #

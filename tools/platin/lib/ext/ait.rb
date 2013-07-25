@@ -333,6 +333,64 @@ class AitImport
     }
     contexts
   end
+  #
+  # read memory address ranges identified during value analysis
+  #
+  def read_value_analysis_results(analysis_task_elem)
+
+    value_analysis_stats = Hash.new(0)
+
+    facts = []
+    fact_attrs = { 'level' => 'machinecode', 'origin' => 'aiT' }
+
+    analysis_task_elem.each_element("value_analysis/value_accesses/value_access") { |e|
+
+      ins = pml.machine_functions.instruction_by_address(Integer(e.attributes['address']))
+
+      e.each_element("value_context") { |ce|
+
+        context = @contexts[ce.attributes['context']]
+        fact_pp = ContextRef.new(ins.ref, context)
+
+        ce.each_element("value_step") { |se|
+
+          # value_step#index ? value_step#mode?
+          # value_area#mod? value_area#rem?
+
+          is_read = se.attributes['type'] == 'read'
+          if is_read
+            fact_variable = "mem-address-read"
+          else
+            fact_variable = "mem-address-write"
+          end
+          fact_width = se.attributes['width'].to_i
+
+          unpredictable = false
+          se.each_element("value_area") { |area|
+            unpredictable = true if area.attributes['min'] != area.attributes['max']
+          }
+          debug(options,:ait) { "Access #{ins} in #{context}" } if unpredictable
+
+          values = []
+          se.each_element("value_area") { |area|
+            min,max,rem,mod  = %w{min max rem mod}.map { |k|
+              Integer(area.attributes[k]) if area.attributes[k]
+            }
+            debug(options,:ait) {
+              sprintf("- %s 0x%08x..0x%08x (%d bytes), mod=0x%x rem=0x%x\n",
+                      se.attributes['type'],min,max,max-min,mod || -1,rem || -1)
+            } if unpredictable
+            values.push(ValueRange.new(min,max))
+          }
+          value_analysis_stats[(unpredictable ? 'un' : '') + 'predictable ' + (is_read ? 'reads' : 'writes')] += 1
+          fact_values = ValueSet.new(values)
+          facts.push(ValueFact.new(fact_pp, fact_variable, fact_width, fact_values, fact_attrs.dup))
+        }
+      }
+    }
+    statistics("AIT",value_analysis_stats) if options.stats
+    facts
+  end
   def run
     analysis_entry  = pml.machine_functions.by_label(options.analysis_entry, true)
     read_result_file(options.ait_report_prefix + ".xml")
@@ -345,46 +403,14 @@ class AitImport
         msgs.call("Routine #{id}: #{r}")
       end
     }
+
     # read value analysis results
     read_contexts(analysis_task_elem.get_elements("value_analysis/contexts").first)
-    value_analysis_stats = { 'predictable reads' => 0, 'predictable writes' => 0, 'unpredictable' => 0 }
-    analysis_task_elem.each_element("value_analysis/value_accesses/value_access") { |e|
-      ins = pml.machine_functions.instruction_by_address(Integer(e.attributes['address']))
-      e.each_element("value_context") { |ce|
-        context = @contexts[ce.attributes['context']]
-        ce.each_element("value_step") { |se|
-
-          is_read = se.attributes['type'] == "read"
-
-          # value_step#index ? value_step#mode? value_step#width?
-          # value_area#mod? value_area#rem?
-
-          unpredictable = false
-          se.each_element("value_area") { |area|
-            min,max,rem,mod  = %w{min max rem mod}.map { |k| Integer(area.attributes[k]) if area.attributes[k] }
-            unpredictable = true if min != max
-          }
-          if unpredictable
-            value_analysis_stats['unpredictable'] += 1
-            prefix, first = "Access #{ins} in #{context}", true
-            se.each_element("value_area") { |area|
-              if first
-                debug(options,:ait) { prefix }
-                first = false
-              end
-              min,max,rem,mod  = %w{min max rem mod}.map { |k| Integer(area.attributes[k]) if area.attributes[k] }
-              debug(options,:ait) {
-                sprintf("- %s 0x%08x..0x%08x (%d bytes), mod=0x%x rem=0x%x\n",
-                        se.attributes['type'],min,max,max-min,mod || -1,rem || -1)
-              }
-            }
-          else
-            value_analysis_stats[(is_read) ? 'predictable reads':'predictable writes'] += 1
-          end
-        }
+    if options.ait_import_addresses
+      read_value_analysis_results(analysis_task_elem).each { |valuefact|
+        pml.valuefacts.add(valuefact)
       }
-    }
-    statistics("AIT",value_analysis_stats) if options.stats
+    end
 
     # read wcet analysis results
     wcet_elem = analysis_task_elem.get_elements("wcet_analysis").first

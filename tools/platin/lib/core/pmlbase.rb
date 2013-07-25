@@ -73,7 +73,9 @@ module PML
   # class providing convenient accessors and additional program information derived
   # from PML files
   class PMLDoc
-    attr_reader :data, :triple, :arch, :bitcode_functions,:machine_functions,:relation_graphs,:flowfacts,:timing
+    attr_reader :data, :triple, :arch
+    attr_reader :bitcode_functions,:machine_functions,:relation_graphs
+    attr_reader :flowfacts,:valuefacts,:timing
 
     # constructor expects a YAML document or a list of YAML documents
     def initialize(stream)
@@ -91,6 +93,8 @@ module PML
                                                  @bitcode_functions, @machine_functions)
       @data['flowfacts'] ||= []
       @flowfacts = FlowFactList.from_pml(self, @data['flowfacts'])
+      @data['valuefacts'] ||= []
+      @valuefacts = ValueFactList.from_pml(self, @data['valuefacts'])
       @data['timing'] ||= []
       @timing = TimingList.from_pml(self, @data['timing'])
     end
@@ -113,20 +117,22 @@ module PML
     end
 
     def try
-      backup = flowfacts,timing
+      backup = flowfacts,valuefacts,timing
       begin
         @flowfacts = flowfacts.dup
         @timing = timing.dup
         r = yield
       ensure
-        @flowfacts, @timing = backup
+        @flowfacts, @valuefacts, @timing = backup
       end
       r
     end
 
     def to_s
-      "PMLDoc{bitcode-functions: |#{bitcode_functions.length}|, machine-functions: |#{machine_functions.length}"+
-        ", flowfacts: |#{flowfacts.length}|}, timing: |#{timing.length}|"
+      sprintf("PMLDoc{bitcode-functions: |%d|, machine-functions: |%d|"+
+              ", flowfacts: |%s|, valuefacts: |%d|, timings: |%d|",
+              bitcode_functions.length, machine_functions.length,
+              flowfacts.length,valuefacts.length,timing.length)
     end
 
     def dump_to_file(filename)
@@ -142,6 +148,7 @@ module PML
     def dump(io)
       final = @data.clone
       final.delete("flowfacts") if @data["flowfacts"] == []
+      final.delete("valuefacts") if @data["valuefacts"] == []
       final.delete("timing") if @data["timing"] == []
       io.write(YAML::dump(final))
     end
@@ -252,6 +259,14 @@ module PML
         raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}")
       end
       v
+    end
+    def add(item)
+      list.push(item)
+      data.push(item.data)
+      add_index(item)
+    end
+    private
+    def add_index(item)
     end
     def add_lookup(dict,key,val,name,opts={})
       return if ! key && opts[:ignore_if_missing]
