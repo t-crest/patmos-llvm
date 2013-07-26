@@ -178,9 +178,9 @@ module PML
         callees = []
         f.each_callsite { |cs|
           cs.callees.each { |n|
-            if(f = @labelled[n])
+            if(f = by_label(n,false))
               callees.push(f)
-            elsif(f = @named[n])
+            elsif(f = by_name(n,false))
               callees.push(f)
             else
               unresolved.add(cs)
@@ -517,6 +517,7 @@ module PML
     def initialize(rg, data)
       @list = data.map { |n| RelationNode.new(rg, n) }
       set_data(data)
+      build_index
     end
   end
 

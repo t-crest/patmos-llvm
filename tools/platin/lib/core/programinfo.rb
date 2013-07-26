@@ -445,8 +445,13 @@ module PML
     end
     def TimingEntry.from_pml(pml, data)
       fs = pml.functions_for_level(data['level'])
+      blocktiming = if data['blocktiming']
+                      BlockTimingList.from_pml(fs, data['blocktiming'])
+                    else
+                      BlockTimingList.new([])
+                    end
       TimingEntry.new(Reference.from_pml(fs,data['scope']), data['cycles'],
-                      BlockTimingList.from_pml(fs, data['blocktiming']),
+                      blocktiming,
                       ProgramInfoObject.attributes_from_pml(pml,data), data)
     end
     def to_pml
