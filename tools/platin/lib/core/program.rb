@@ -21,7 +21,6 @@ module PML
       return InstructionRef.from_qname(functions,iname) if iname && ! bname
       return LoopRef.from_qname(functions,data['loop']) if lname && ! fname
       return BlockRef.from_qname(functions,bname)       if bname && ! fname
-
       assert("PML Reference: no function attribute") { fname }
       function = functions.by_name(fname)
 
@@ -160,11 +159,14 @@ module PML
 
   # List of functions in the program
   class FunctionList < PMLList
-    include NameIndexList
+    extend PMLListGen
+    pml_name_index_list(:Function,[:address,:label],[])
+
+    # customized constructor
     def initialize(data, opts)
-      @list = data.map { |f| Function.new(f, opts) }
-      set_data(data)
-      build_lookup
+       @list = data.map { |f| Function.new(f, opts) }
+       set_data(data)
+       build_index
     end
 
     # return [rs, unresolved]
@@ -190,23 +192,6 @@ module PML
       [rs, unresolved]
     end
 
-    def [](name)
-      by_name(name)
-    end
-    def by_address(addr, error_if_missing = true)
-      lookup(@address, addr, "address", error_if_missing)
-    end
-    def by_label(label, error_if_missing = true)
-      lookup(@labelled, label, "label", error_if_missing)
-    end
-    def build_lookup
-      @address = {}
-      @labelled = {}
-      @list.each do |v|
-        add_lookup(@labelled,v.label,v,"label",:ignore_if_missing => true)
-        add_lookup(@address,v.address,v,"address",:ignore_if_missing => true)
-      end
-    end
     def instruction_by_address(addr)
       if ! @instruction_by_address
         @instruction_by_address = {}
@@ -218,23 +203,22 @@ module PML
 
   # List of PML basic blocks in a function
   class BlockList < PMLList
-    include NameIndexList
+    extend PMLListGen
+    pml_name_index_list(:Block)
+    # customized constructor
     def initialize(function, data)
-      @list = data.map { |b| Block.new(function, b) }
-      @list.each_with_index { |block,ix| block.layout_successor=@list[ix+1] }
-      set_data(data)
-    end
-    def first
-      @list.first
-    end
-    def [](name)
-      by_name(name)
+       @list = data.map { |b| Block.new(function, b) }
+       @list.each_with_index { |block,ix| block.layout_successor=@list[ix+1] }
+       set_data(data)
+       build_index
     end
   end
 
   # List of PML instructions in a block
   class InstructionList < PMLList
-    include NameIndexList
+    extend PMLListGen
+    pml_name_index_list(:Instruction)
+    # customized constructor
     def initialize(block, data)
       @list = data.map { |i| Instruction.new(block, i) }
       set_data(data)
@@ -262,18 +246,15 @@ module PML
 
   # PML function arguments
   class ArgumentList < PMLList
+    extend PMLListGen
+    pml_list(:FunctionArgument,[:name])
+    # customized constructor
     def initialize(function, data)
-      @list = data.map { |a| FunctionArgument.new(function, a) }
-      set_data(data)
-    end
-    def by_name(name, error_if_missing = false)
-      lookup(@named, name, "name", error_if_missing)
-    end
-    def build_lookup
-      @named = {}
-      @list.each { |v| add_lookup(@named,v.name, v, "name", :ignore_if_missing => true) }
+     @list = data.map { |a| FunctionArgument.new(function, a) }
+     set_data(data)
     end
   end
+
   class FunctionArgument < PMLObject
     def initialize(function, data)
       set_data(data)
@@ -507,8 +488,9 @@ module PML
 
   # List of relation graphs (unmodifiable)
   class RelationGraphList < PMLList
+    # non-standard pml list
     def initialize(data, srclist, dstlist)
-      @list = data.map { |rg| RelationGraph.new(rg, srclist, dstlist) }
+      @list = data.map { |rgdata| RelationGraph.new(rgdata, srclist, dstlist) }
       set_data(data)
       build_lookup
     end
@@ -530,13 +512,13 @@ module PML
 
   # List of relation graph nodes (unmodifiable)
   class RelationNodeList < PMLList
-    include NameIndexList
-    def initialize(data, rg)
-      @list = data.map { |n| RelationNode.new(n, rg) }
+    extend PMLListGen
+    pml_name_index_list(:RelationNode)
+    def initialize(rg, data)
+      @list = data.map { |n| RelationNode.new(rg, n) }
       set_data(data)
     end
   end
-
 
   # Relation Graphs
   class RelationGraph < PMLObject
@@ -546,7 +528,7 @@ module PML
       @src_functions, @dst_functions = src_funs, dst_funs
       @src = src_funs.by_name(data['src']['function'])
       @dst = dst_funs.by_name(data['dst']['function'])
-      @nodes = RelationNodeList.new(data['nodes'], self)
+      @nodes = RelationNodeList.new(self, data['nodes'])
     end
     def get_function(level)
       level == :src ? @src : @dst
@@ -560,7 +542,7 @@ module PML
   class RelationNode < PMLObject
     include QNameObject
     attr_reader :name, :rg
-    def initialize(data, rg)
+    def initialize(rg, data)
       set_data(data)
       @rg = rg
       @name = data['name']

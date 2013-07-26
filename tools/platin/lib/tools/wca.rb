@@ -126,7 +126,8 @@ class WcaTool
     end
 
     # report result
-    report = TimingEntry.new(machine_entry.ref, cycles, 'num_constraints' => builder.ilp.constraints.length,
+    report = TimingEntry.new(machine_entry.ref, cycles,BlockTimingList.new([]),
+                             'num_constraints' => builder.ilp.constraints.length,
                              'solvertime' => builder.ilp.solvertime,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)

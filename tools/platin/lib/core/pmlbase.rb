@@ -40,7 +40,7 @@ module PML
     def ProgramInfoObject.attribute_list
       %w{origin level}
     end
-    def ProgramInfoObject.attributes_from_pml(data)
+    def ProgramInfoObject.attributes_from_pml(_,data)
       if data.nil?
         {}
       else
@@ -98,7 +98,9 @@ module PML
       @data['timing'] ||= []
       @timing = TimingList.from_pml(self, @data['timing'])
     end
-
+    def valuefacts
+      @valuefacts
+    end
     def functions_for_level(level)
       if level == 'bitcode'
         bitcode_functions
@@ -265,9 +267,13 @@ module PML
       data.push(item.data)
       add_index(item)
     end
-    private
-    def add_index(item)
+    def dup
+      self.class.new(@list.dup, data.dup)
     end
+    def deep_clone
+      self.class.new(@list.map { |item| item.deep_clone }, nil)
+    end
+    private
     def add_lookup(dict,key,val,name,opts={})
       return if ! key && opts[:ignore_if_missing]
       if dict[key]
@@ -277,23 +283,60 @@ module PML
     end
   end
 
-  # Lists where elements can be queried by name and qualified name
-  module NameIndexList
-    def by_name(name, error_if_missing = true)
-      build_name_index unless @named
-      lookup(@named, name, "name", error_if_missing)
+  #
+  # auto-generate smart lists implementation
+  #
+  module PMLListGen
+    def pml_list(element_type, unique_indices = [], indices = [])
+      all_indices = unique_indices + indices
+      module_eval %Q$
+        def initialize(list, existing_data = nil)
+          assert("#{self.class}#initialize: list must not be nil") { list }
+          @list = list
+          set_data(existing_data)
+          build_index
+        end
+        def self.from_pml(ctx,data)
+          self.new(data.map { |d| #{element_type}.from_pml(ctx,d) }, data)
+        end
+        def build_index
+          #{all_indices.map { |index| "@index_#{index} = {}"}.join("; ") }
+          @list.each { |item| add_index(item) }
+        end
+        private
+        def add_index(item)
+          #{(unique_indices.map { |index|
+            %Q&
+              k = item.send(:#{index})
+              if k
+                if duplicate = @index_#{index}[k]
+                  raise Exception.new("#{self.class}#add_index(\#{item}): duplicate index #{index}: \#{duplicate.inspect}")
+                end
+                @index_#{index}[k] = item
+              end
+            &
+           } +
+           indices.map { |index|
+             "(@index_#{index}[item.send(:#{index})]||=[]).push(item)"
+           }).join(";")
+          }
+        end
+      $
+      all_indices.each { |index|
+         module_eval %Q$
+           def by_#{index}(key, error_if_missing = false)
+               lookup(@index_#{index}, key, "#{index}", error_if_missing)
+           end
+         $
+      }
     end
-    def by_qname(name, error_if_missing = true)
-      build_name_index unless @named
-      lookup(@qnamed, name, "qname", error_if_missing)
-    end
-    def build_name_index
-      @named, @qnamed = {}, {}
-      list.each do |v|
-        add_lookup(@named, v.name, v, "name")
-        add_lookup(@qnamed, v.qname, v, "qname")
-      end
+    def pml_name_index_list(element_type, unique_indices = [], indices = [])
+      pml_list(element_type, [:name,:qname] + unique_indices, indices)
+      module_eval %Q!
+        def [](arg)
+          by_name(arg)
+        end
+      !
     end
   end
-
 end # end module pml

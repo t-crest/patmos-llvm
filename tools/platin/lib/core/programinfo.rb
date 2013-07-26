@@ -67,19 +67,15 @@ module PML
 
   # List of flowfacts (modifiable)
   class FlowFactList < PMLList
-    def initialize(list, data = nil)
-      assert("list must not be nil") { list }
-      @list = list
-      set_data(data)
-      build_index
-    end
-
-    def FlowFactList.from_pml(pml, data)
-      FlowFactList.new(data.map { |d| FlowFact.from_pml(pml,d) }, data)
-    end
-
-    def dup
-      FlowFactList.new(@list.dup, @data.dup)
+    extend PMLListGen
+    pml_list(:FlowFact,[],[:origin])
+    # customized by_origin implementation
+    def by_origin(origin)
+      if origin.kind_of?(String)
+        @list.select { |ff| origin == ff.origin }
+      else
+        @list.select { |ff| origin.include?(ff.origin) }
+      end
     end
 
     def add_copies(flowfacts, new_origin)
@@ -97,14 +93,6 @@ module PML
       rejects = []
       @list.reject! { |ff| r = yield ff ; rejects.push(r); r }
       data.reject! { |ff| rejects.shift }
-    end
-
-    def by_origin(origin)
-      if origin.kind_of?(String)
-        @list.select { |ff| origin == ff.origin }
-      else
-        @list.select { |ff| origin.include?(ff.origin) }
-      end
     end
 
     def filter(pml, ff_selection, ff_srcs, ff_levels)
@@ -138,6 +126,7 @@ module PML
       }
       by_level
     end
+
     def dump_stats(pml, io=$stderr)
       io.puts "Flow-Facts, classified"
       stats(pml).each { |level,by_group|
@@ -152,33 +141,19 @@ module PML
         }
       }
     end
-
-    private
-    def build_index
-      @by_origin = {}
-      @list.each { |ff| add_index(ff) }
-    end
-    def add_index(ff)
-      (@by_origin[ff.origin]||=[]).push(ff)
-    end
   end
 
   # List of Terms
   class TermList < PMLList
-    def initialize(list,data=nil)
-      @list = list
-      set_data(data)
-    end
-    def dup
-      TermList.new(@list.dup)
-    end
+    extend PMLListGen
+    pml_list(:Term,[])
     def deep_clone
-      list = @list.map { |v| v.deep_clone }
-      TermList.new(list)
+      self.dup # Terms are immutable
     end
   end
 
   # Term (ProgramPoint, Factor)
+  # Immutable
   class Term < PMLObject
     attr_reader :factor, :pp
     def initialize(pp,factor,data=nil)
@@ -186,6 +161,7 @@ module PML
       assert("Term#initialize: not a context-sensitive reference: #{pp}") { pp.kind_of?(ContextRef) }
       @pp,@factor = pp,factor
       set_data(data)
+      self.freeze
     end
     def context
       @pp.context
@@ -258,7 +234,7 @@ module PML
       mod = pml.functions_for_level(data['level'])
       scope = Reference.from_pml(mod,data['scope'])
       lhs = TermList.new(data['lhs'].map { |t| Term.from_pml(mod,t) })
-      attrs = ProgramInfoObject.attributes_from_pml(data)
+      attrs = ProgramInfoObject.attributes_from_pml(pml, data)
       ff = FlowFact.new(scope, lhs, data['op'], data['rhs'], attrs, data)
     end
     def to_pml
@@ -358,47 +334,18 @@ module PML
 
   # List of value analysis entries (modifiable)
   class ValueFactList < PMLList
-    def initialize(list, data = nil)
-      assert("ValueFactList#initialize: list must not be nil") { list }
-      @list = list
-      set_data(data)
-      build_index
-    end
-    def ValueFactList.from_pml(pml, data)
-      ValueFactList.new(data.map { |d| ValueFact.from_pml(pml,d) }, data)
-    end
-    def dup
-      ValueFactList.new(@list.dup, data.dup)
-    end
-    def by_origin(origin, error_if_missing = true)
-      lookup(@by_origin, origin, "origin", error_if_missing)
-    end
-    private
-    def build_index
-      @by_origin = {}
-      @list.each { |te| add_index(te) }
-    end
-    def add_index(te)
-      (@by_origin[te.origin]||=[]).push(te)
-    end
+    extend PMLListGen
+    pml_list(:ValueFact,[],[:origin])
   end
 
   class ValueSet < PMLList
-    def initialize(list, data = nil)
-      assert("ValueSet#initialize: list must not be nil") { list }
-      @list = list
-      set_data(data)
-    end
-    def ValueSet.from_pml(pml, data)
-      ValueSet.new(data.map { |d| ValueRange.from_pml(pml,d) }, data)
-    end
-    def to_pml
-      @list.map { |v| v.to_pml }
-    end
+    extend PMLListGen
+    pml_list(:ValueRange)
     def dup
       ValueSet.new(@list.dup, data.dup)
     end
   end
+
   class ValueRange < PMLObject
       attr_reader :min,:max
     def initialize(min, max, data =nil)
@@ -441,7 +388,7 @@ module PML
       ValueFact.new(ContextRef.from_pml(fs,data['program-point']),
                     data['variable'], data['width'],
                     ValueSet.from_pml(fs,data['values']),
-                    ProgramInfoObject.attributes_from_pml(data),
+                    ProgramInfoObject.attributes_from_pml(pml, data),
                     data)
     end
     def to_pml
@@ -457,50 +404,55 @@ module PML
 
   # List of timing entries (modifiable)
   class TimingList < PMLList
-    def initialize(list, data = nil)
-      assert("list is nil") { list }
-      @list = list
+    extend PMLListGen
+    pml_list(:TimingEntry, [], [:origin])
+  end
+  class BlockTimingList < PMLList
+    extend PMLListGen
+    pml_list(:BlockTiming, [:reference], [])
+  end
+  class BlockTiming < PMLObject
+    attr_reader :reference, :cycles, :wcetfreq
+    def initialize(reference, cycles, wcetfreq, data = nil)
+      @reference, @cycles, @wcetfreq = reference, cycles, wcetfreq
       set_data(data)
-      build_index
     end
-    def TimingList.from_pml(pml, data)
-      TimingList.new(data.map { |d| TimingEntry.from_pml(pml,d) }, data)
+    def BlockTiming.from_pml(fs, data)
+      BlockTiming.new(ContextRef.from_pml(fs,data['reference']), data['cycles'], data['frequency'], data)
     end
-    def dup
-      TimingList.new(@list.dup, data.dup)
+    def to_pml
+      pml = { 'reference' => reference.to_pml, 'cycles' => cycles }
+      pml['frequency'] = wcetfreq if wcetfreq
+      pml
     end
-    def by_origin(origin, error_if_missing = true)
-      lookup(@by_origin, origin, "origin", error_if_missing)
-    end
-    private
-    def build_index
-      @by_origin = {}
-      @list.each { |te| add_index(te) }
-    end
-    def add_index(te)
-      (@by_origin[te.origin]||=[]).push(te)
+    def to_s
+      data
     end
   end
 
   # timing entries are used to record WCET analysis results or measurement results
   class TimingEntry < PMLObject
-    attr_reader :cycles, :scope
+    attr_reader :cycles, :scope, :blocktiming
     attr_reader :attributes
     include ProgramInfoObject
 
-    def initialize(scope, cycles, attrs, data = nil)
+    def initialize(scope, cycles, blocktiming, attrs, data = nil)
       @scope = scope
       @cycles = cycles
+      @blocktiming = blocktiming
       @attributes = attrs
       set_data(data)
     end
     def TimingEntry.from_pml(pml, data)
-      mod = pml.functions_for_level(data['level'])
-      TimingEntry.new(Reference.from_pml(mod,data['scope']), data['cycles'],
-                      ProgramInfoObject.attributes_from_pml(data), data)
+      fs = pml.functions_for_level(data['level'])
+      TimingEntry.new(Reference.from_pml(fs,data['scope']), data['cycles'],
+                      BlockTimingList.from_pml(fs, data['blocktiming']),
+                      ProgramInfoObject.attributes_from_pml(pml,data), data)
     end
     def to_pml
-      { 'scope' => @scope.to_pml, 'cycles' => @cycles }.merge(attributes)
+      pml = { 'scope' => @scope.to_pml, 'cycles' => @cycles }.merge(attributes)
+      pml['blocktiming'] = @blocktiming.to_pml unless @blocktiming.empty?
+      pml
     end
     def to_s
       to_pml.to_s

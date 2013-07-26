@@ -253,7 +253,7 @@ mapping:
             type: scalar
           "solvertime":
             type: scalar
-          "blocks":
+          "blocktiming":
             type: seq
             desc: >-
               worst-case execution time of basic blocks
@@ -261,6 +261,12 @@ mapping:
               - &blocktiming
                 type: map
                 mapping:
+                  "reference": *program-point
                   "cycles":
                     type: scalar
-                    desc: "?"
+                    desc: >-
+                      execution time of the block in cycles (depends on the context)
+                  "frequency":
+                    type: scalar
+                    desc: >-
+                      worst-case frequency (typically on the worst-case path)
