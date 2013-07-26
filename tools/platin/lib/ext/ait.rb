@@ -265,11 +265,11 @@ class AitImport
     doc = Document.new(File.read(file))
     cycles = doc.elements["results/result[1]/cycles"].text.to_i
     scope = pml.machine_functions.by_label(options.analysis_entry).ref
-    entry = TimingEntry.new(scope,
-                            cycles,
-                            'level' => 'machinecode',
-                            'origin' => options.timing_output)
-    pml.timing.add(entry)
+    TimingEntry.new(scope,
+                    cycles,
+                    BlockTimingList.new([]),
+                    'level' => 'machinecode',
+                    'origin' => options.timing_output)
   end
   def read_routines(analysis_elem)
     analysis_elem.each_element("decode/routines/routine") do |elem|
@@ -391,9 +391,61 @@ class AitImport
     statistics("AIT",value_analysis_stats) if options.stats
     facts
   end
+
+  #
+  # read results from WCET analysis
+  #
+  def read_wcet_analysis_results(wcet_elem, analysis_entry)
+    read_contexts(wcet_elem.get_elements("contexts").first)
+    @function_count, @function_cost = {} , Hash.new(0)
+    @block_count, @block_cost = {},{}
+    wcet_elem.each_element("wcet_path") { |e|
+      rentry = e.get_elements("wcet_entry").first.attributes["routine"]
+      entry = @routines[rentry]
+      next unless  entry.function == analysis_entry
+      e.each_element("wcet_routine") { |re|
+        routine = @routines[re.attributes['routine']]
+        if routine.function
+          @function_count[routine.function] = re.attributes['count'].to_i
+          @function_cost[routine.function] += re.attributes['cumulative_cycles'].to_i
+        else
+          # loop cost
+        end
+        re.each_element("wcet_context") { |ctx_elem|
+          context = @contexts[ctx_elem.attributes['context']]
+          ctx_elem.each_element("wcet_edge") { |edge|
+            next unless edge.attributes['cycles']
+            cycles, count = %w{cycles count}.map { |k| edge.attributes[k].to_i }
+            source,target = %w{source_block target_block}.map { |k| @blocks[edge.attributes[k]] }
+            block = source.block
+            (@block_cost[block]||=Hash.new(0))[context] += cycles
+            (@block_count[block]||=Hash.new(0))[context] += count if source.index == 0
+          }
+        }
+      }
+    }
+    debug(options,:ait) { |&msgs|
+      @function_count.each { |f,c|
+        msgs.call "- function #{f}: #{@function_cost[f].to_f / c.to_f} * #{c}"
+      }
+    }
+    btiming = []
+    @block_cost.each { |b,ctxs|
+      debug(options,:ait) { "- block #{b}" }
+      ctxs.each { |ctx,cum_cycles|
+        ref = ContextRef.new(b.ref, ctx)
+        freq = @block_count[b][ctx]
+        cycles = cum_cycles.to_f / (freq || 1)
+        debug(options,:ait) { sprintf(" -- %s: %.2f * %d\n",ctx.to_s, cycles, freq) }
+        btiming.push(BlockTiming.new(ref, cycles, freq))
+      }
+    }
+    btiming
+  end
+
   def run
     analysis_entry  = pml.machine_functions.by_label(options.analysis_entry, true)
-    read_result_file(options.ait_report_prefix + ".xml")
+    timing_entry = read_result_file(options.ait_report_prefix + ".xml")
 
     ait_report_file = options.ait_report_prefix + ".#{options.analysis_entry}" + ".xml"
     analysis_task_elem = Document.new(File.read(ait_report_file)).get_elements("a3/wcet_analysis_task").first
@@ -414,55 +466,13 @@ class AitImport
 
     # read wcet analysis results
     wcet_elem = analysis_task_elem.get_elements("wcet_analysis").first
-    read_contexts(wcet_elem.get_elements("contexts").first)
-
-    # @contexts.each { |cid,ctx|
-    #   puts "Context: #{cid} for #{ctx.routine}"
-    #   puts "  no history" if ctx.context.empty?
-    #   ctx.context.each { |item|
-    #     puts "  #{item}"
-    #   }
-    # }
-
-    @function_count, @function_cost = {} , Hash.new(0)
-    @block_count, @block_cost = {},{}
-    wcet_elem.each_element("wcet_path") { |e|
-      rentry = e.get_elements("wcet_entry").first.attributes["routine"]
-      entry = @routines[rentry]
-      next unless  entry.function == analysis_entry
-      e.each_element("wcet_routine") { |re|
-        routine = @routines[re.attributes['routine']]
-        if routine.function
-          @function_count[routine.function] = re.attributes['count'].to_i
-          @function_cost[routine.function] += re.attributes['cumulative_cycles'].to_i
-        else
-#          @function_cost[routine.loop.function] += re.attributes['cycles'].to_i
-        end
-        re.each_element("wcet_context") { |ctx_elem|
-          context = @contexts[ctx_elem.attributes['context']]
-          ctx_elem.each_element("wcet_edge") { |edge|
-            next unless edge.attributes['cycles']
-            cycles, count = %w{cycles count}.map { |k| edge.attributes[k].to_i }
-            source,target = %w{source_block target_block}.map { |k| @blocks[edge.attributes[k]] }
-            block = source.block
-            (@block_cost[block]||=Hash.new(0))[context] += cycles
-            (@block_count[block]||=Hash.new(0))[context] += count if source.index == 0
-          }
-        }
+    if options.import_block_timing
+      read_wcet_analysis_results(wcet_elem, analysis_entry).each { |blocktiming|
+        timing_entry.blocktiming.add(blocktiming)
       }
-    }
-    debug(options,:ait) { |&msgs|
-      @function_count.each { |f,c|
-        msgs.call "- function #{f}: #{@function_cost[f].to_f / c.to_f} * #{c}"
-      }
-      @block_count.each { |b,ctxs|
-        msgs.call "- block #{b}"
-        ctxs.each { |ctx,c|
-          msgs.call(sprintf(" -- #{ctx}: %.2f * #{c}\n",@block_cost[b][ctx].to_f / c.to_f))
-        }
-      }
-    }
-    statistics("AIT","imported results" => 1) if options.stats
+    end
+    statistics("AIT","imported WCET results" => 1) if options.stats
+    pml.timing.add(timing_entry)
   end
 end
 
