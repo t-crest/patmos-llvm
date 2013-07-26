@@ -403,6 +403,21 @@ const MachineInstr *PatmosInstrInfo::getFirstMI(const MachineInstr *MI) const {
   return MI;
 }
 
+PatmosInstrAnalyzer *PatmosInstrInfo::createPatmosInstrAnalyzer(
+                                                         MCContext &Ctx) const {
+  // PIA is deleted by AsmPrinter
+  PatmosInstrAnalyzer *PIA = new PatmosInstrAnalyzer(Ctx);
+
+  // PTM.getTargetLowering()->getObjFileLowering() might not yet be
+  // initialized, so we create a new section object for this temp context
+  const MCSection* TS = Ctx.getELFSection(".text",
+                                          ELF::SHT_PROGBITS, 0,
+                                          SectionKind::getText());
+  PIA->SwitchSection(TS);
+
+  return PIA;
+}
+
 unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
   if (MI->isInlineAsm()) {
     // TODO is there a way to get the current context?
@@ -410,14 +425,7 @@ unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
                   *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);
 
     // PIA is deleted by AsmPrinter
-    PatmosInstrAnalyzer *PIA = new PatmosInstrAnalyzer(Ctx);
-
-    // PTM.getTargetLowering()->getObjFileLowering() might not yet be
-    // initialized, so we create a new section object for this temp context
-    const MCSection* TS = Ctx.getELFSection(".text",
-                                            ELF::SHT_PROGBITS, 0,
-                                            SectionKind::getText());
-    PIA->SwitchSection(TS);
+    PatmosInstrAnalyzer *PIA = createPatmosInstrAnalyzer(Ctx);
 
     PatmosAsmPrinter PAP(PTM, *PIA);
     PAP.EmitInlineAsm(MI);
@@ -438,6 +446,27 @@ unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
     return MI->getDesc().getSize();
   }
 }
+
+bool PatmosInstrInfo::hasCall(const MachineInstr *MI) const {
+  if (MI->isInlineAsm()) {
+    // TODO is there a way to get the current context?
+    MCContext Ctx(*PTM.getMCAsmInfo(),
+                  *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);
+
+    // PIA is deleted by AsmPrinter
+    PatmosInstrAnalyzer *PIA = createPatmosInstrAnalyzer(Ctx);
+
+    PatmosAsmPrinter PAP(PTM, *PIA);
+    PAP.EmitInlineAsm(MI);
+
+    return PIA->hasCall();
+  }
+  else {
+    // trust the desc..
+    return MI->isCall();
+  }
+}
+
 
 bool PatmosInstrInfo::canIssueInSlot(const MCInstrDesc &MID,
                                      unsigned Slot) const {
