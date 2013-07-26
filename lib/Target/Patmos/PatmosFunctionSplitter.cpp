@@ -235,7 +235,8 @@ namespace llvm {
       for(MachineFunction::iterator i(mf->begin()), ie(mf->end());
           i != ie; i++) {
         // make a block
-        ablock *ab = new ablock(id++, this, i, hasCall(i), getBBSize(i, PTM));
+        ablock *ab = new ablock(id++, this, i, hasCall(i, PTM),
+                                               getBBSize(i, PTM));
 
         // Keep track of fallthough edges
         if (pred && mayFallThrough(pred->MBB)) {
@@ -350,17 +351,16 @@ namespace llvm {
 
       // add some bytes in case we need to fix-up the fall-through
       return size + (mayFallThrough(MBB) ?
-                  PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false) * 4 : 0);
+                PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true) * 4 + 4: 0);
     }
 
     /// hasCall - Check whether the basic block contains a call instruction.
-    static bool hasCall(MachineBasicBlock *MBB)
+    static bool hasCall(MachineBasicBlock *MBB, PatmosTargetMachine &PTM)
     {
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
-        // TODO check for inline assembly
-        if (i->isCall())
+        if (PTM.getInstrInfo()->hasCall(i))
           return true;
       }
 
@@ -747,15 +747,18 @@ namespace llvm {
       DEBUG(dbgs() << "  visit: " << block->getName());
 #endif
       if (block->SCCSize == 0 || region == block) {
-        // do we need to insert fix-up code for calls in the region?
-        unsigned call_fix_up = (block->HasCall && !region->HasCall) ? 8 : 0;
+        // TODO check: why does this assertion not hold??
+        //assert(block->SCCSize == 0 && "A region must not start with an SCC");
+
+        unsigned block_size = block->Size +
+                              getMaxBlockMargin(PTM, region, region_size, block);
 
         // regular block that is not a loop header or a loop header in its own
         // region
-        if (call_fix_up + block->Size + region_size <=
-                                                     STC.getMethodCacheSize()) {
+        if (region_size + block_size <= STC.getMethodCacheSize())
+        {
           // update the region's total size
-          region_size += block->Size + call_fix_up;
+          region_size += block_size;
           region->HasCall |= block->HasCall;
 
           // emit the blocks of the SCC and update the ready list
@@ -779,15 +782,13 @@ namespace llvm {
       else {
         // loop header of some loop
 
-        // do we need to insert fix-up code due to calls in the entire SCC
-        // calls?
-        unsigned call_fix_up = (block->HasCallinSCC && !region->HasCall) ? 8 :
-                                                                           0;
+        unsigned block_size = block->SCCSize +
+                              getMaxBlockMargin(PTM, region, region_size, block);
 
-        if (call_fix_up + block->SCCSize + region_size <=
-                                                     STC.getMethodCacheSize()) {
+        if (region_size + block_size <= STC.getMethodCacheSize())
+        {
           // update the region's total size
-          region_size += block->SCCSize + call_fix_up;
+          region_size += block_size;
           region->HasCall |= block->HasCallinSCC;
 
           // emit all blocks of the SCC and update the ready list
@@ -983,8 +984,8 @@ namespace llvm {
         rewrite = BR->getOperand(2).getMBB() == target;
       }
 
-
       if (rewrite) {
+        // Replace br with brcf, fix delay slot size
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         BR->setDesc(TII.get(opcode));
 
@@ -1204,14 +1205,61 @@ namespace llvm {
       return newBB;
     }
 
+    static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
+                                          ablock *region, unsigned &region_size,
+                                          ablock *block)
+    {
+      bool hasCall = block->SCCSize == 0 || region == block ? block->HasCall
+                                                          : block->HasCallinSCC;
+      bool needsCallFixup = (hasCall && !region->HasCall);
+
+      // TODO analyze successors, check if all of them fit with max margins
+      // into the region, then we only need a BR instead of BRCF
+      bool mightExit = true;
+      // TODO analyze MBB, check if we have a BR at the end.
+      bool hasBranch = false;
+
+      return getMaxBlockMargin(PTM, needsCallFixup, mightExit, hasBranch);
+    }
+
+    static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
+                                          MachineBasicBlock *MBB)
+    {
+      // TODO analyze MBB, check if we have a BR at the end.
+      bool hasBranch = false;
+      return getMaxBlockMargin(PTM, true, true, hasBranch);
+    }
+
+    /// getMaxRegionMargin - Get the maximum number of bytes needed to be
+    /// added to a basic block.
+    /// needsCallFixup - does this block contain the first call in this region
+    /// mightExitRegion - we might exit the region after this block
+    /// hasBranch - Does this block end with a branch?
+    static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
+                                        bool needsCallFixup = true,
+                                        bool mightExitRegion = true,
+                                        bool hasBranch = false)
+    {
+      unsigned branch_fixups = 0;
+      if (hasBranch) {
+        // we already have a BR, we only need to add a NOP if we change to BRCF
+        branch_fixups = mightExitRegion ? 4 : 0;
+      } else {
+        // we might need to add a BR/BRCF to replace the fallthrough, and NOPs
+        // to fill the delay slots
+        branch_fixups = 4 +
+             PTM.getSubtargetImpl()->getCFLDelaySlotCycles(mightExitRegion) * 4;
+      }
+      return branch_fixups + (needsCallFixup ? 8 : 0);
+    }
+
     /// splitBlock - Split a basic block into smaller blocks that each fit into
     /// the method cache.
     static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize,
                                    PatmosTargetMachine &PTM)
     {
       // make a new block
-      unsigned int curr_size = 12;
-      unsigned int i_count = 0;
+      unsigned int curr_size = getMaxBlockMargin(PTM);
       unsigned int total_size = 0;
       // Note: we need to use an instr_iterator here, otherwise splice fails
       // horribly for some mysterious ilist bug.
@@ -1220,14 +1268,19 @@ namespace llvm {
       {
         // skip over instructions inside bundles
         if (i->isInsideBundle()) {
-          i_count++;
           continue;
         }
 
         // get instruction size
         unsigned int i_size = agraph::getInstrSize(i, PTM);
 
-        // ensure that delay slots are respected
+        if (i_size > MCSize) {
+          report_fatal_error("Inline assembly in function " +
+                             MBB->getParent()->getFunction()->getName() +
+                             " is larger than the method cache size!");
+        }
+
+        // ensure that we do not split inside delay slots
         unsigned int delay_slot_margin = i->hasDelaySlot()
                       ? PTM.getSubtargetImpl()->getMaxDelaySlotCodeSize(i) : 0;
 
@@ -1235,11 +1288,10 @@ namespace llvm {
         assert(!isPatmosCFL(FirstMI->getOpcode(), FirstMI->getDesc().TSFlags)
                || (delay_slot_margin > 0));
 
-        // check block + instruction size
+        // check block + instruction size + max delay slot size of this instr.
         if (curr_size + i_size + delay_slot_margin < MCSize)
         {
           curr_size += i_size;
-          i_count++;
         }
         else
         {
@@ -1251,15 +1303,13 @@ namespace llvm {
           // copy instructions over from the original block.
           newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
 
-          // start anew
-          i_count = 1;
-          curr_size = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false) * 8
-                      + 4 + i_size; // may fall through!
+          // start anew, may fall through!
+          curr_size = getMaxBlockMargin(PTM) + i_size;
           i = MBB->instr_begin();
         }
       }
 
-      return total_size + getBBSize(MBB, PTM);
+      return total_size + curr_size;
     }
 
     void view()
@@ -1334,7 +1384,8 @@ namespace llvm {
         // in case the block is larger than the method cache, split it and
         // update its
         //
-        if (bb_size > STC.getMethodCacheSize()) {
+        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > STC.getMethodCacheSize())
+        {
           bb_size = agraph::splitBlock(i, STC.getMethodCacheSize(), PTM);
         }
 
