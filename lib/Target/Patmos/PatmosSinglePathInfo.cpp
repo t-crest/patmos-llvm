@@ -17,7 +17,7 @@
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"

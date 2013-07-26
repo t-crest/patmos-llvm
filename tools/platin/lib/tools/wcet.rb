@@ -1,4 +1,5 @@
-#!/usr/bin/env ruby
+#
+# platin toolkit
 #
 require 'platin'
 include PML
@@ -44,10 +45,13 @@ class WcetTool
     trace_analysis if options.trace_analysis
     sweet_analysis if options.enable_sweet
 
+    transform_down(["llvm.bc"],"llvm")
     flow_srcs = ["llvm"]
     flow_srcs.push("trace") if options.use_trace_facts
     flow_srcs.push("sweet") if options.enable_sweet
+    # FIXME: check if this is necessary (CFRG testsuite)
     flow_srcs.push("trace.support") if options.enable_sweet && options.trace_analysis
+
     wcet_analysis(flow_srcs)
     report
     pml
@@ -100,58 +104,76 @@ class WcetTool
     end
   end
 
+  def transform_down(srcs, output)
+    time("Flow Fact Transformation #{srcs}") do
+      opts = options.dup
+      opts.flow_fact_selection ||= "all"
+      opts.flow_fact_srcs = srcs
+      opts.flow_fact_output = output
+      opts.transform_action = 'down'
+      TransformTool.run(pml, opts)
+    end
+  end
+
   def wcet_analysis(srcs)
+    wcet_analysis_platin(srcs) if options.enable_wca
+    wcet_analysis_ait(srcs) unless options.disable_ait
+  end
+
+  def wcet_analysis_platin(srcs)
     time("run WCET analysis (platin)") do
       opts = options.dup
       opts.timing_output = [opts.timing_output,'platin'].compact.join("/")
       opts.flow_fact_selection ||= "all"
       opts.flow_fact_srcs = srcs
       WcaTool.run(pml, opts)
-    end unless options.disable_wca
-
-    wcet_analysis_ait(srcs) unless options.disable_ait
+    end
   end
 
   def wcet_analysis_ait(srcs)
     time("run WCET analysis (aiT)") do
-      # simplify flow facts
+      # Simplify flow facts
+      simplified_sources = []
       opts = options.dup
       opts.flow_fact_selection ||= "all"
-      opts.flow_fact_srcs = srcs
-      opts.flow_fact_output = 'aiT'
-      opts.transform_action = 'simplify'
-      opts.transform_eliminate_edges = true
-      TransformTool.run(pml, opts)
-      pml.flowfacts.stats(pml, DebugIO.new)
-
+      srcs.each { |src|
+        opts.flow_fact_srcs   = [src]
+        simplified_sources.push(opts.flow_fact_output = src + ".simplified")
+        opts.transform_action = 'simplify'
+        opts.transform_eliminate_edges = true
+        TransformTool.run(pml, opts)
+      }
       # run WCET analysis
       opts.flow_fact_selection = "all"
-      opts.flow_fact_srcs = ['aiT']
+      opts.flow_fact_srcs = simplified_sources
       opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
       AisExportTool.run(pml,opts)
       ApxExportTool.run(pml,opts)
       AitAnalyzeTool.run(pml, opts)
       AitImportTool.run(pml,opts)
+      pml.flowfacts.reject! { |ff| ff.origin == '.aiT' }
     end
   end
 
-  def report
-    results = summarize_results
+  def report(additional_keys = [])
+    results = summarize_results(additional_keys)
     file_open(options.report, (options.report_append ? "a" : "w")) do |fh|
       info "Writing report to #{options.report}" if options.report != "-"
       fh.puts YAML::dump(results.map { |r| r.merge(options.report_append || {}) })
     end if options.report
   end
 
-  def summarize_results
+  def summarize_results(additional_keys = [])
     trace_cycles = nil
     results = pml.timing.sort_by { |te|
       [ te.scope.qname, te.cycles, te.origin ]
     }.map { |te|
       trace_cycles = te.cycles if te.origin == "trace"
-      { 'analysis-entry' => options.analysis_entry,
+      dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
         'cycles' => te.cycles }
+      additional_keys.each { |k| dict[k] = te[k] }
+      dict
     }
     if options.runcheck
       die("wcet check: Not timing for simulator trace") unless trace_cycles
@@ -216,7 +238,7 @@ class WcetTool
     opts.on("--enable-trace-analysis", "run trace analysis") { |d| opts.options.trace_analysis = true }
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }
     opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
-    opts.on("--disable-wca", "do not run WCA calculator") { |d| opts.options.disable_wca = true }
+    opts.on("--enable-wca", "run platin WCA calculator") { |d| opts.options.enable_wca = true }
 
     opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
     use_sweet = Proc.new { |options| options.enable_sweet }

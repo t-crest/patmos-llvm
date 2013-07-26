@@ -19,7 +19,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosUtil.h"
 #include "InstPrinter/PatmosInstPrinter.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCInst.h"

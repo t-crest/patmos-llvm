@@ -19,7 +19,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/DepthFirstIterator.h"

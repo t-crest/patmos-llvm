@@ -24,6 +24,31 @@ module PML
     end
   end
 
+  def safe_system(*args)
+    # make sure spawned process get killed at exit
+    # hangs if subprocess refuses to terminate
+    pids = []  # holds the spawned pids
+    trap(0) do # kill spawned pid(s) when terminating
+      pids.each do |pid|
+        next unless pid
+        begin
+          Process.kill("TERM",pid)
+          $stderr.puts("Terminated spawned child with PID #{pid}")
+        rescue SystemCallError
+          # killed in the meantime
+        end
+      end
+    end
+    begin
+      pids.push(spawn(*args))
+    rescue SystemCallError
+      return nil
+    end
+    Process.wait(pids.first)
+    trap(0, "DEFAULT")
+    $? == 0
+  end
+
   def internal_error(msg)
     raise Exception.new(format_msg("INTERNAL ERROR", msg))
   end

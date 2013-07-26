@@ -11,7 +11,6 @@ tablegen(LLVM PatmosGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM PatmosGenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM PatmosGenDFAPacketizer.inc -gen-dfa-packetizer)
 #tablegen(LLVM PatmosGenIntrinsics.inc -gen-tgt-intrinsic)
-tablegen(LLVM PatmosGenEDInfo.inc -gen-enhanced-disassembly-info)
 tablegen(LLVM PatmosGenDisassemblerTables.inc -gen-disassembler)
 add_public_tablegen_target(PatmosCommonTableGen)
 

@@ -178,43 +178,46 @@ namespace llvm {
   public:
     typedef T *iterator;
 
-    /// Construct an empty ArrayRef.
+    /// Construct an empty MutableArrayRef.
     /*implicit*/ MutableArrayRef() : ArrayRef<T>() {}
-    
+
+    /// Construct an empty MutableArrayRef from None.
+    /*implicit*/ MutableArrayRef(NoneType) : ArrayRef<T>() {}
+
     /// Construct an MutableArrayRef from a single element.
     /*implicit*/ MutableArrayRef(T &OneElt) : ArrayRef<T>(OneElt) {}
-    
+
     /// Construct an MutableArrayRef from a pointer and length.
     /*implicit*/ MutableArrayRef(T *data, size_t length)
       : ArrayRef<T>(data, length) {}
-    
+
     /// Construct an MutableArrayRef from a range.
     MutableArrayRef(T *begin, T *end) : ArrayRef<T>(begin, end) {}
-    
+
     /// Construct an MutableArrayRef from a SmallVector.
     /*implicit*/ MutableArrayRef(SmallVectorImpl<T> &Vec)
     : ArrayRef<T>(Vec) {}
-    
+
     /// Construct a MutableArrayRef from a std::vector.
     /*implicit*/ MutableArrayRef(std::vector<T> &Vec)
     : ArrayRef<T>(Vec) {}
-    
+
     /// Construct an MutableArrayRef from a C array.
     template <size_t N>
     /*implicit*/ MutableArrayRef(T (&Arr)[N])
       : ArrayRef<T>(Arr) {}
-    
+
     T *data() const { return const_cast<T*>(ArrayRef<T>::data()); }
 
     iterator begin() const { return data(); }
     iterator end() const { return data() + this->size(); }
-    
+
     /// front - Get the first element.
     T &front() const {
       assert(!this->empty());
       return data()[0];
     }
-    
+
     /// back - Get the last element.
     T &back() const {
       assert(!this->empty());
@@ -226,14 +229,14 @@ namespace llvm {
       assert(N <= this->size() && "Invalid specifier");
       return MutableArrayRef<T>(data()+N, this->size()-N);
     }
-    
+
     /// slice(n, m) - Chop off the first N elements of the array, and keep M
     /// elements in the array.
     MutableArrayRef<T> slice(unsigned N, unsigned M) const {
       assert(N+M <= this->size() && "Invalid specifier");
       return MutableArrayRef<T>(data()+N, M);
     }
-    
+
     /// @}
     /// @name Operator Overloads
     /// @{
@@ -310,5 +313,5 @@ namespace llvm {
     static const bool value = true;
   };
 }
-  
+
 #endif

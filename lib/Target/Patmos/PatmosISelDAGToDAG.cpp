@@ -13,11 +13,11 @@
 
 #include "Patmos.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/Function.h"
-#include "llvm/Intrinsics.h"
-#include "llvm/CallingConv.h"
-#include "llvm/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/CallingConv.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -140,15 +140,13 @@ SDNode *PatmosDAGToDAGISel::SelectABSPattern(SDNode *N){
     Ops.push_back(ADDSrc0);
     Ops.push_back(CurDAG->getRegister(Patmos::R0, MVT::i32));
 
-    SDNode *Compare = CurDAG->getMachineNode(Patmos::CMPLT, dl, MVT::i1,
-                                             Ops.data(), Ops.size());
+    SDNode *Compare = CurDAG->getMachineNode(Patmos::CMPLT, dl, MVT::i1, Ops);
 
     Ops.clear();
     Ops.push_back(SDValue(Compare, 0));
     Ops.push_back(PredFlag);
     Ops.push_back(ADDSrc0);
-    SDNode *Negate  = CurDAG->getMachineNode(Patmos::NEG, dl, VT,
-                                             Ops.data(), Ops.size());
+    SDNode *Negate  = CurDAG->getMachineNode(Patmos::NEG, dl, VT, Ops);
     return Negate;
   }
 
@@ -170,8 +168,12 @@ SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
   assert(Pred.getValueType() == MVT::i1);
 
   // create branch node
-  SDValue Ops[] = { Pred, PredInvFlag, Target, Chain };
-  return CurDAG->getMachineNode(Patmos::BR, dl, MVT::Other, Ops, 4);
+  SmallVector<SDValue,4> Ops;
+  Ops.push_back(Pred);
+  Ops.push_back(PredInvFlag);
+  Ops.push_back(Target);
+  Ops.push_back(Chain);
+  return CurDAG->getMachineNode(Patmos::BR, dl, MVT::Other, Ops);
 }
 
 

@@ -18,7 +18,7 @@
 
 #include <Patmos.h>
 #include <PatmosTargetMachine.h>
-#include <llvm/Module.h>
+#include <llvm/IR/Module.h>
 #include <llvm/ADT/BitVector.h>
 #include <llvm/CodeGen/MachineFunctionPass.h>
 #include "llvm/CodeGen/MachinePostDominators.h"
@@ -326,6 +326,7 @@ namespace llvm {
       virtual void nextMBB(MachineBasicBlock *) = 0;
       virtual void enterSubscope(SPScope *) = 0;
       virtual void exitSubscope(SPScope *) = 0;
+      virtual ~SPScopeWalker() {};
   };
 
 ///////////////////////////////////////////////////////////////////////////////

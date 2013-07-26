@@ -31,6 +31,8 @@ namespace llvm {
     public:
       explicit PatmosMCAsmInfo(const Target &T, StringRef TT);
 
+      virtual ~PatmosMCAsmInfo() {}
+
       // This is a nasty workaround to get Target info where we otherwise not have it
       const Target &getTarget() const { return T; }
   };

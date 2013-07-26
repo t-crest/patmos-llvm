@@ -15,7 +15,7 @@
 #ifndef _PATMOS_UTIL_H_
 #define _PATMOS_UTIL_H_
 
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/ADT/SmallString.h"
 

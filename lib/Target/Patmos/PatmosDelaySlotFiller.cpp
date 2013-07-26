@@ -41,7 +41,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
@@ -338,7 +338,9 @@ bool PatmosDelaySlotFiller::hasDefUseDep(const MachineInstr *D,
       return true;
     }
   }
-  return false;
+  // TODO The check above does not work always, needs to be fixed, then return
+  // false here again.
+  return true;
 }
 
 
@@ -503,8 +505,9 @@ bool DelayHazardInfo::hasHazard(MachineBasicBlock &MBB,
     if (sawLoad) return true;
   }
 
-  // don't move loads to the last delay slot for return
-  if (I->mayLoad() && Candidates.empty() && MI.isReturn() )
+  // don't move loads to the last delay slot for call or return
+  if (I->mayLoad() && Candidates.empty() && 
+	  (MI.isCall() || MI.isReturn()))
     return true;
 
   // don't move loads with use immediately afterwards

@@ -38,7 +38,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/DepthFirstIterator.h"
@@ -757,7 +757,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
       MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
             TII->get(Patmos::LWC), tmpReg))
         .addFrameIndex(fi).addImm(0); // address
-      TRI->eliminateFrameIndex(loadMI, 0, NULL);
+      TRI->eliminateFrameIndex(loadMI, 0, 3);
       // clear bit on first definition (unconditionally)
       if (R.isFirstDef(&MBB, r)) {
         // R &= ~(1 << loc)
@@ -783,7 +783,7 @@ void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
             TII->get(Patmos::SWC)))
         .addFrameIndex(fi).addImm(0) // address
         .addReg(tmpReg);
-      TRI->eliminateFrameIndex(storeMI, 0, NULL);
+      TRI->eliminateFrameIndex(storeMI, 0, 2);
       InsertedInstrs += 4; // STATISTIC
     }
   }
@@ -914,7 +914,7 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
       MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, firstMI, DL,
             TII->get(Patmos::LWC), GuardsReg))
         .addFrameIndex(fi).addImm(0); // address
-      TRI->eliminateFrameIndex(loadMI, 0, NULL);
+      TRI->eliminateFrameIndex(loadMI, 0, 3);
       // set/clear bit
       //FIXME use new instruction for that
       // if (guard) R |= (1 << spill)
@@ -934,7 +934,7 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
             TII->get(Patmos::SWC)))
         .addFrameIndex(fi).addImm(0) // address
         .addReg(GuardsReg);
-      TRI->eliminateFrameIndex(storeMI, 0, NULL);
+      TRI->eliminateFrameIndex(storeMI, 0, 2);
       InsertedInstrs += 4; // STATISTIC
     }
 
@@ -955,7 +955,7 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
   MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, MI, DL,
         TII->get(Patmos::LWC), GuardsReg))
     .addFrameIndex(fi).addImm(0); // address
-  TRI->eliminateFrameIndex(loadMI, 0, NULL);
+  TRI->eliminateFrameIndex(loadMI, 0, 3);
   // test bit
   // LI $rtr, load
   AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::LIi),
@@ -1256,7 +1256,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg);
 
-    Pass.TRI->eliminateFrameIndex(storeMI, 0, NULL);
+    Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 2; // STATISTIC
   }
 
@@ -1291,7 +1291,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg, RegState::Kill);
-    Pass.TRI->eliminateFrameIndex(storeMI, 0, NULL);
+    Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 2; // STATISTIC
   }
 
@@ -1330,7 +1330,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
       AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
             Pass.TII->get(Patmos::LWC), tmpReg))
       .addFrameIndex(fi).addImm(0); // address
-    Pass.TRI->eliminateFrameIndex(loadMI, 0, NULL);
+    Pass.TRI->eliminateFrameIndex(loadMI, 0, 3);
 
     // decrement
     AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
@@ -1347,7 +1347,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg, RegState::Kill);
-    Pass.TRI->eliminateFrameIndex(storeMI, 0, NULL);
+    Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 4; // STATISTIC
   } else {
     // get the header predicate
@@ -1386,7 +1386,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
             Pass.TII->get(Patmos::LBC), tmpReg))
       .addFrameIndex(fi).addImm(0); // address
 
-    Pass.TRI->eliminateFrameIndex(loadMI, 0, NULL);
+    Pass.TRI->eliminateFrameIndex(loadMI, 0, 3);
     // assign to S0
     Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
                           Patmos::S0, tmpReg, true);

@@ -31,19 +31,18 @@
 #ifndef LLVM_CODEGEN_MACHINEMODULEINFO_H
 #define LLVM_CODEGEN_MACHINEMODULEINFO_H
 
-#include "llvm/Pass.h"
-#include "llvm/GlobalValue.h"
-#include "llvm/Metadata.h"
-#include "llvm/MC/MachineLocation.h"
-#include "llvm/MC/MCContext.h"
-#include "llvm/Support/Dwarf.h"
-#include "llvm/Support/DebugLoc.h"
-#include "llvm/Support/ValueHandle.h"
-#include "llvm/Support/DataTypes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/Metadata.h"
+#include "llvm/MC/MCContext.h"
+#include "llvm/MC/MachineLocation.h"
+#include "llvm/Pass.h"
+#include "llvm/Support/DataTypes.h"
+#include "llvm/Support/DebugLoc.h"
+#include "llvm/Support/Dwarf.h"
+#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
 
@@ -187,8 +186,9 @@ public:
   MachineModuleInfo(const TargetMachine &TM);
   ~MachineModuleInfo();
 
-  bool doInitialization();
-  bool doFinalization();
+  // Initialization and Finalization
+  virtual bool doInitialization(Module &);
+  virtual bool doFinalization(Module &);
 
   /// EndFunction - Discard function meta information.
   ///
@@ -304,7 +304,7 @@ public:
   /// isUsedFunction - Return true if the functions in the llvm.used list.  This
   /// does not return true for things in llvm.compiler.used unless they are also
   /// in llvm.used.
-  bool isUsedFunction(const Function *F) {
+  bool isUsedFunction(const Function *F) const {
     return UsedFunctions.count(F);
   }
 
@@ -381,7 +381,7 @@ public:
 
   /// getCurrentCallSite - Get the call site currently being processed, if any.
   /// return zero if none.
-  unsigned getCurrentCallSite(void) { return CurCallSite; }
+  unsigned getCurrentCallSite() { return CurCallSite; }
 
   /// getTypeInfos - Return a reference to the C++ typeinfo for the current
   /// function.

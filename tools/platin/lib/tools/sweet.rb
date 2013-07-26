@@ -35,8 +35,9 @@ class AlfTool
     end
     cmd.push(options.bitcode_file)
     $stderr.puts("Executing #{cmd.join(" ")}") if options.verbose
-    system(*cmd)
-    die "#{options.alf_llc} failed with exit status #{$?}" unless $? == 0
+    unless safe_system(*cmd)
+      die "#{options.alf_llc} failed with exit status #{$?}"
+    end
   end
   def AlfTool.default_ignored_definitions
     %w{__adddf3 __addsf3 __divdf3 __divsf3 __eqdf2} +

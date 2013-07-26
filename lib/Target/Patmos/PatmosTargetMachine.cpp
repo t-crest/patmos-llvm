@@ -186,6 +186,9 @@ namespace {
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
           addPass(&IfConverterID);
+          // If-converter might create unreachable blocks (bug?), need to be
+          // removed before function splitter
+          addPass(&UnreachableMachineBlockElimID);
         }
       }
 

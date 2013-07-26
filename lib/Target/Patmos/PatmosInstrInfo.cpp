@@ -17,7 +17,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosHazardRecognizer.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -410,7 +410,6 @@ const MachineInstr *PatmosInstrInfo::getFirstMI(const MachineInstr *MI) const {
 
 unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
   if (MI->isInlineAsm()) {
-    PatmosTargetMachine& PTM = RI.getTargetMachine();
     // TODO is there a way to get the current context?
     MCContext Ctx(*PTM.getMCAsmInfo(),
                   *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);

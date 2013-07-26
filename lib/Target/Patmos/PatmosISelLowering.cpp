@@ -18,12 +18,12 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosSubtarget.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/Function.h"
-#include "llvm/Intrinsics.h"
-#include "llvm/CallingConv.h"
-#include "llvm/GlobalVariable.h"
-#include "llvm/GlobalAlias.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/CallingConv.h"
+#include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/GlobalAlias.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -153,7 +153,14 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::SRA_PARTS, MVT::i32,   Expand);
   setOperationAction(ISD::SRL_PARTS, MVT::i32,   Expand);
 
+  setOperationAction(ISD::SELECT_CC, MVT::i8,    Expand);
+  setOperationAction(ISD::SELECT_CC, MVT::i16,   Expand);
+  setOperationAction(ISD::SELECT_CC, MVT::i32,   Expand);
   setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
+  setOperationAction(ISD::BR_CC,     MVT::i1,    Expand);
+  setOperationAction(ISD::BR_CC,     MVT::i8,    Expand);
+  setOperationAction(ISD::BR_CC,     MVT::i16,   Expand);
+  setOperationAction(ISD::BR_CC,     MVT::i32,   Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
 
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
@@ -335,8 +342,9 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
 
   // Assign locations to all of the incoming arguments.
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-		 getTargetMachine(), ArgLocs, *DAG.getContext());
+
+  CCState CCInfo(CallConv, isVarArg, MF,
+  		 getTargetMachine(), ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeFormalArguments(Ins, CC_Patmos);
 
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
@@ -427,15 +435,8 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
   // Analyze return values.
   CCInfo.AnalyzeReturn(Outs, RetCC_Patmos);
 
-  // If this is the first return lowered for this function, add the regs to the
-  // liveout set for the function.
-  if (DAG.getMachineFunction().getRegInfo().liveout_empty()) {
-    for (unsigned i = 0; i != RVLocs.size(); ++i)
-      if (RVLocs[i].isRegLoc())
-        DAG.getMachineFunction().getRegInfo().addLiveOut(RVLocs[i].getLocReg());
-  }
-
   SDValue Flag;
+  SmallVector<SDValue, 4> RetOps(1, Chain);
 
   // Copy the result values into the output registers.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
@@ -448,15 +449,18 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
     // Guarantee that all emitted copies are stuck together,
     // avoiding something bad.
     Flag = Chain.getValue(1);
+    RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
   }
 
   unsigned Opc = PatmosISD::RET_FLAG;
 
-  if (Flag.getNode())
-    return DAG.getNode(Opc, dl, MVT::Other, Chain, Flag);
+  RetOps[0] = Chain;  // Update chain.
 
-  // Return Void
-  return DAG.getNode(Opc, dl, MVT::Other, Chain);
+  if (Flag.getNode())
+    RetOps.push_back(Flag);
+
+  // Return
+  return DAG.getNode(Opc, dl, MVT::Other, &RetOps[0], RetOps.size());
 }
 
 
@@ -579,7 +583,9 @@ PatmosTargetLowering::LowerCCCCallTo(CallLoweringInfo &CLI,
 
   // attach machine-level aliasing information
   MachineMemOperand *MMO = 
-      DAG.getMachineFunction().getMachineMemOperand(CLI.MPI, 0, 4, 0);
+      DAG.getMachineFunction().getMachineMemOperand(CLI.MPI, 
+	                                            MachineMemOperand::MOLoad,
+					            4, 0);
 
   Chain = DAG.getMemIntrinsicNode(PatmosISD::CALL, dl,
                                   NodeTys, &Ops[0], Ops.size(),
@@ -624,8 +630,12 @@ PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
 
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
+    assert((RVLocs[i].getLocReg() == Patmos::R1 ||
+            RVLocs[i].getLocReg() == Patmos::R2) && "Invalid return register");
+    // We only support i32 return registers, so we copy from i32, no matter what
+    // the actual return type in RVLocs[i].getValVT() is.
     Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
-                               RVLocs[i].getValVT(), InFlag).getValue(1);
+                               MVT::i32, InFlag).getValue(1);
     InFlag = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
   }

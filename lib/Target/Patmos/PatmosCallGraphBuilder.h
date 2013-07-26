@@ -12,10 +12,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "Patmos.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/Function.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
 #include "llvm/Pass.h"
-#include "llvm/Type.h"
+#include "llvm/IR/Type.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -243,11 +243,10 @@ namespace llvm {
     friend struct GraphTraits<MCallSubGraph>;
     friend struct DOTGraphTraits<MCallSubGraph>;
   private:
-    const MCallGraph &G;
     const MCGNodes Nodes;
 
   public:
-    MCallSubGraph(const MCallGraph &g, MCGNodes &nodes) : G(g), Nodes(nodes) { }
+    MCallSubGraph(const MCallGraph &g, MCGNodes &nodes) : Nodes(nodes) { }
 
     /// isNodeHidden - Callback from DOTGraphTraits, check if node is in 
     /// sub-graph.

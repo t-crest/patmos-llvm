@@ -58,8 +58,11 @@ module PML
     end
     # tool uses call strings and allows the user to specify a custom length
     def callstring_length
-      self.on("--callstring-length INTEGER", "default callstring length used in recorders (=0)") { |recorder_cl|
-        options.callstring_length = recorder_cl.to_i
+      self.on("--callstring-length INTEGER", "default callstring length used in recorders (=0)") { |cl|
+        options.callstring_length = cl.to_i
+      }
+      add_check { |options|
+        options.callstring_length = 0 unless options.callstring_length
       }
     end
     # user should specify selection of flow facts
@@ -113,7 +116,7 @@ module PML
   def optparse(arg_range, arg_descr, synopsis)
     options = OpenStruct.new
     parser = PML::OptionParser.new(options) do |opts|
-      opts.banner = "usage: #{File.basename($0)} OPTIONS #{arg_descr}\n\n#{synopsis}\n" 
+      opts.banner = "Usage: platin #{File.basename($0,'.rb')} OPTIONS #{arg_descr}\n\n#{synopsis}\n" 
       opts.separator("Options:")
       yield opts if block_given?
       opts.separator("")

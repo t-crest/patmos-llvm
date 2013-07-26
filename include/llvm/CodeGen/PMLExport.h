@@ -10,7 +10,7 @@
 #ifndef LLVM_PML_EXPORT_H_
 #define LLVM_PML_EXPORT_H_
 
-#include "llvm/Module.h"
+#include "llvm/IR/Module.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
@@ -184,7 +184,7 @@ YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
 /// Generic MachineInstruction Specification
 enum BranchType { branch_none, branch_unconditional, branch_conditional,
-                  branch_indirect, branch_any };
+                  branch_indirect, branch_call, branch_return, branch_any };
 template <>
 struct ScalarEnumerationTraits<BranchType> {
   static void enumeration(IO &io, BranchType& branchtype) {
@@ -192,16 +192,21 @@ struct ScalarEnumerationTraits<BranchType> {
     io.enumCase(branchtype, "unconditional", branch_unconditional);
     io.enumCase(branchtype, "conditional", branch_conditional);
     io.enumCase(branchtype, "indirect", branch_indirect);
+    io.enumCase(branchtype, "call", branch_call);
+    io.enumCase(branchtype, "return", branch_return);
     io.enumCase(branchtype, "any", branch_any);
   }
 };
 struct GenericMachineInstruction : Instruction {
+
   uint64_t Size;
-  bool IsReturn;
+
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
+  unsigned BranchDelaySlots;
+
   GenericMachineInstruction(uint64_t Index) :
-  Instruction(Index), Size(0), IsReturn(false), BranchType(branch_none) {}
+  Instruction(Index), Size(0), BranchType(branch_none) {}
 };
 template <>
 struct MappingTraits<GenericMachineInstruction> {
@@ -209,8 +214,8 @@ struct MappingTraits<GenericMachineInstruction> {
     MappingTraits<Instruction>::mapping(io,Ins);
     io.mapOptional("size",          Ins.Size);
     io.mapOptional("branch-type",   Ins.BranchType, branch_none);
-    io.mapOptional("is-return",     Ins.IsReturn, false);
-    io.mapOptional("branch-targets",Ins.BranchTargets, std::vector<Name>());
+    io.mapOptional("branch-delay-slots", Ins.BranchDelaySlots, 0U);
+    io.mapOptional("branch-targets", Ins.BranchTargets, std::vector<Name>());
   }
   static const bool flow = true;
 };
@@ -248,6 +253,29 @@ struct MappingTraits< Block<InstructionT> > {
 };
 YAML_IS_PTR_SEQUENCE_VECTOR_1(Block)
 
+
+/// Function formal argument to register mapping
+struct Argument {
+  Name ArgName;
+  uint64_t Index;
+  std::vector<Name> Registers;
+  Argument(StringRef name, uint64_t index) : ArgName(name), Index(index) {}
+  void addReg(const StringRef regname) {
+    Registers.push_back(yaml::Name(regname));
+  }
+  static const bool flow = true;
+};
+template <>
+struct MappingTraits<Argument> {
+  static void mapping(IO &io, Argument& Arg) {
+    io.mapRequired("name",      Arg.ArgName);
+    io.mapRequired("index",     Arg.Index);
+    io.mapRequired("registers", Arg.Registers);
+  }
+};
+YAML_IS_PTR_SEQUENCE_VECTOR(Argument)
+
+
 /// basic functions
 template <typename BlockT>
 struct Function {
@@ -255,10 +283,18 @@ struct Function {
   ReprLevel Level;
   Name MapsTo;
   StringRef Hash;
+  std::vector<Argument*> Arguments;
   std::vector<BlockT*> Blocks;
   Function(StringRef name) : FunctionName(name) {}
   Function(uint64_t name) : FunctionName(name) {}
-  ~Function() { DELETE_MEMBERS(Blocks); }
+  ~Function() {
+    DELETE_MEMBERS(Arguments);
+    DELETE_MEMBERS(Blocks);
+  }
+  Argument* addArgument(Argument *Arg) {
+    Arguments.push_back(Arg);
+    return Arg;
+  }
   BlockT* addBlock(BlockT *B) {
     Blocks.push_back(B);
     return B;
@@ -267,11 +303,12 @@ struct Function {
 template <typename BlockT>
 struct MappingTraits< Function<BlockT> > {
   static void mapping(IO &io, Function<BlockT>& fn) {
-    io.mapRequired("name",    fn.FunctionName);
-    io.mapRequired("level",   fn.Level);
-    io.mapOptional("mapsto",  fn.MapsTo, Name(""));
-    io.mapOptional("hash",    fn.Hash);
-    io.mapRequired("blocks",  fn.Blocks);
+    io.mapRequired("name",      fn.FunctionName);
+    io.mapRequired("level",     fn.Level);
+    io.mapOptional("mapsto",    fn.MapsTo, Name(""));
+    io.mapOptional("arguments", fn.Arguments);
+    io.mapOptional("hash",      fn.Hash);
+    io.mapRequired("blocks",    fn.Blocks);
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR_1(Function)
@@ -450,7 +487,7 @@ struct FlowFact {
   ProgramPoint* Scope;
   std::vector<Term> TermsLHS;
   CmpOp Comparison;
-  Name ConstRHS;
+  Name RHS;
   ReprLevel Level;
   Name Origin;
   Name Classification;
@@ -489,7 +526,7 @@ struct MappingTraits< FlowFact > {
     io.mapRequired("scope", *(FF.Scope));
     io.mapRequired("lhs", FF.TermsLHS);
     io.mapRequired("op", FF.Comparison);
-    io.mapRequired("rhs", FF.ConstRHS);
+    io.mapRequired("rhs", FF.RHS);
     io.mapRequired("level", FF.Level);
     io.mapRequired("origin", FF.Origin);
     io.mapOptional("classification", FF.Classification, Name(""));
@@ -590,17 +627,21 @@ namespace llvm {
     virtual MFList getCallees(const Module &M, MachineModuleInfo &MMI,
                               MachineFunction &MF, const MachineInstr *Instr);
 
-    virtual MBBList getBranchTargets(MachineFunction &MF,
-                                     const MachineInstr *Instr);
-
     virtual MFList getCalledFunctions(const Module &M,
                                       MachineModuleInfo &MMI,
                                       MachineFunction &MF);
+
+    virtual MBBList getBranchTargets(MachineFunction &MF,
+                                     const MachineInstr *Instr);
+
+    /// get number of delay slots for this instruction, if any
+    virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) { return 0; }
 
     /// get number of bytes this instruction takes
     /// FIXME: we should rely on getDescr()->getSize(), but this does not
     /// work for inline assembler at the moment.
     virtual int getSize(const MachineInstr *Instr);
+
   };
 
   /// Base class for all exporters
@@ -632,6 +673,8 @@ namespace llvm {
     yaml::Doc YDoc;
     Pass &P;
 
+    yaml::FlowFact *createLoopFact(const BasicBlock *BB, yaml::Name RHS) const;
+
   public:
     PMLBitcodeExport(TargetMachine &TM, ModulePass &mp)
     : YDoc(TM.getTargetTriple()), P(mp) {}
@@ -655,14 +698,16 @@ namespace llvm {
   private:
     yaml::Doc YDoc;
 
-    TargetMachine &TM;
     PMLInstrInfo *PII;
     Pass &P;
+
+  protected:
+    TargetMachine &TM;
 
   public:
     PMLMachineExport(TargetMachine &tm, ModulePass &mp,
                      PMLInstrInfo *pii = 0)
-      : YDoc(tm.getTargetTriple()), TM(tm), P(mp)
+      : YDoc(tm.getTargetTriple()), P(mp), TM(tm)
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
@@ -695,6 +740,10 @@ namespace llvm {
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
                                    MachineBasicBlock *FalseSucc);
+
+    virtual void exportArgumentRegisterMapping(
+                                      yaml::GenericFormat::MachineFunction *F,
+                                      const MachineFunction &MF);
 
   };
 

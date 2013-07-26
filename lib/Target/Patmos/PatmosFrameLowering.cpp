@@ -18,14 +18,14 @@
 #include "PatmosSinglePathInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/Function.h"
+#include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
-#include "llvm/DataLayout.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -49,6 +49,13 @@ PatmosFrameLowering::PatmosFrameLowering(const PatmosTargetMachine &tm)
 
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
+
+
+  // Naked functions should not use the stack, they do not get a frame pointer.
+  bool isNaked = MF.getFunction()->getAttributes().
+                    hasAttribute(AttributeSet::FunctionIndex, Attribute::Naked);
+  if (isNaked)
+    return false;
 
   return (MF.getTarget().Options.DisableFramePointerElim(MF) ||
           MF.getFrameInfo()->hasVarSizedObjects() ||
@@ -429,7 +436,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   if (TRI->requiresRegisterScavenging(MF)) {
     const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
     int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
-    RS->setScavengingFrameIndex(fi);
+    RS->addScavengingFrameIndex(fi);
     PMFI.setRegScavengingFI(fi);
   }
 }
@@ -539,3 +546,37 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
 
   return true;
 }
+
+void PatmosFrameLowering::
+eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
+                              MachineBasicBlock::iterator I) const {
+  const TargetInstrInfo &TII = *TM.getInstrInfo();
+
+  // We need to adjust the stack pointer here (and not in the prologue) to
+  // handle alloca instructions that modify the stack pointer before ADJ*
+  // instructions. We only need to do that if we need a frame pointer, otherwise
+  // we reserve size for the call stack frame in FrameLowering in the prologue.
+  if (TM.getFrameLowering()->hasFP(MF)) {
+    MachineInstr &MI = *I;
+    DebugLoc dl = MI.getDebugLoc();
+    int Size = MI.getOperand(0).getImm();
+    unsigned Opcode;
+    if (MI.getOpcode() == Patmos::ADJCALLSTACKDOWN) {
+      Opcode = (Size <= 0xFFF) ? Patmos::SUBi : Patmos::SUBl;
+    }
+    else if (MI.getOpcode() == Patmos::ADJCALLSTACKUP) {
+      Opcode = (Size <= 0xFFF) ? Patmos::ADDi : Patmos::ADDl;
+    }
+    else {
+        llvm_unreachable("Unsupported pseudo instruction.");
+    }
+    if (Size)
+      AddDefaultPred(BuildMI(MBB, I, dl, TII.get(Opcode), Patmos::RSP))
+                                                  .addReg(Patmos::RSP)
+                                                  .addImm(Size);
+  }
+  // erase the pseudo instruction
+  MBB.erase(I);
+}
+
+

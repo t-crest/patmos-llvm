@@ -1,4 +1,4 @@
-//===-- PMLExport.cpp -----------------------------------------------===//
+//===-- PMLExport.cpp -----------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,10 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Function.h"
-#include "llvm/Instructions.h"
-#include "llvm/Module.h"
+#define DEBUG_TYPE "pml-export"
+
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -32,7 +35,13 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
+
 using namespace llvm;
+
+namespace llvm {
+STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
+STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
+}
 
 /// Unfortunately, the interface for accessing successors differs
 /// between machine block and bitcode block, therefore we need this
@@ -159,12 +168,56 @@ int PMLInstrInfo::getSize(const MachineInstr *Instr)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+namespace {
+  // Check whether all LLVM values are function formal arguments.
+  // Implements SCEVTraversal::Visitor.
+  struct SCEVCheckFormalArgs {
+    bool OnlyArg;
+
+    SCEVCheckFormalArgs() : OnlyArg(true) {}
+
+    bool follow(const SCEV *S) {
+      if(const SCEVUnknown *Val = dyn_cast<SCEVUnknown>(S)) {
+        OnlyArg = isa<Argument>(Val->getValue());
+      }
+      return OnlyArg;
+    }
+
+    bool isDone() const { return !OnlyArg; }
+  };
+}
+
+
+yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
+                                                 yaml::Name RHS) const {
+  const Function *Fn = BB->getParent();
+
+  yaml::FlowFact *FF = new yaml::FlowFact();
+
+  FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),
+                             yaml::Name(BB->getName()));
+
+  yaml::ProgramPoint *Block =
+    FF->createBlock(yaml::Name(Fn->getName()),
+                    yaml::Name(BB->getName()));
+  FF->addTermLHS(Block, 1LL);
+  FF->RHS = RHS;
+  FF->Comparison = yaml::cmp_less_equal;
+  FF->Level = yaml::level_bitcode;
+  FF->Origin = "llvm.bc";
+  FF->Classification = "loop-global";
+
+  return FF;
+}
+
 
 void PMLBitcodeExport::serialize(MachineFunction &MF)
 {
   const Function *Fn = MF.getFunction();
 
   if (!Fn) return;
+  LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
+  ScalarEvolution &SE = P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
 
   // create PML bitcode function
   yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn->getName());
@@ -175,28 +228,40 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
     // export loop information
-    LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
-    ScalarEvolution &SE = P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
-
     Loop *Loop = LI.getLoopFor(BI);
     if (Loop) {
       if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
-        if(const SCEVConstant* BEBound = dyn_cast<SCEVConstant>(SE.getMaxBackedgeTakenCount(Loop))) {
-          uint64_t HeaderBound = BEBound->getValue()->getZExtValue() + 1;
-          if(HeaderBound < 0xFFFFFFFFu) {
-            yaml::FlowFact *FF = new yaml::FlowFact();
 
-            FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
+        // check for constant loop bound
+        if(const SCEVConstant* BEBound =
+                dyn_cast<SCEVConstant>(SE.getMaxBackedgeTakenCount(Loop))) {
+          uint64_t ConstHeaderBound = BEBound->getValue()->getZExtValue() + 1;
+          if(ConstHeaderBound < 0xFFFFFFFFu) {
+            YDoc.addFlowFact(createLoopFact(BI, ConstHeaderBound));
+            // bump statistic counter
+            NumConstantBounds++;
+          }
+        }
+        // check for non-constant, symbolic loop bound
+        const SCEV *BECount = SE.getBackedgeTakenCount(Loop);
+        if (!isa<SCEVCouldNotCompute>(BECount)) {
+          // check for Arguments using visitor
+          SCEVCheckFormalArgs CheckFA;
+          visitAll(BECount, CheckFA);
+          if (CheckFA.OnlyArg) {
+            // add 1 to get header bound from backedge count
+            const SCEV *SymbolicHeaderBound = SE.getAddExpr(BECount,
+                SE.getConstant(BECount->getType(), (uint64_t)1));
 
-            yaml::ProgramPoint *Block =
-              FF->createBlock(yaml::Name(Fn->getName()),yaml::Name(BI->getName()));
-            FF->addTermLHS(Block, 1LL);
-            FF->ConstRHS = HeaderBound;
-            FF->Comparison = yaml::cmp_equal;
-            FF->Level = yaml::level_bitcode;
-            FF->Origin = "llvm";
-            FF->Classification = "loop-global";
-            YDoc.addFlowFact(FF);
+            // FIXME maybe we want something more structured/processed
+            // than a dump
+            std::string s;
+            raw_string_ostream os(s);
+            os << "\"" << *SymbolicHeaderBound << "\"";
+
+            YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
+            // bump statistic counter
+            NumSymbolicBounds++;
           }
         }
       }
@@ -225,8 +290,6 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
       yaml::Instruction *I = B->addInstruction(
           new yaml::Instruction(Index++));
-      I->Opcode = II->getOpcode();
-
       exportInstruction(I, II);
     }
   }
@@ -238,6 +301,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                                           const Instruction *II)
 {
+  I->Opcode = II->getOpcode();
   if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
     if (const Function *F = CI->getCalledFunction()) {
       I->addCallee(F->getName());
@@ -252,14 +316,22 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
 
 void PMLMachineExport::serialize(MachineFunction &MF)
 {
-  yaml::GenericFormat::MachineFunction *F =
+  Function* F = const_cast<Function*>(MF.getFunction());
+  MachineLoopInfo &MLI(P.getAnalysis<MachineLoopInfo>(*F));
+
+  yaml::GenericFormat::MachineFunction *PMF =
      new yaml::GenericFormat::MachineFunction(MF.getFunctionNumber());
-  F->MapsTo = yaml::Name(MF.getFunction()->getName());
-  F->Level = yaml::level_machinecode;
+
+  PMF->MapsTo = yaml::Name(MF.getFunction()->getName());
+  PMF->Level = yaml::level_machinecode;
   yaml::GenericFormat::MachineBlock *B;
+
+  // export argument-register mapping if available
+  exportArgumentRegisterMapping(PMF, MF);
+
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
-    B = F->addBlock(
+    B = PMF->addBlock(
         new yaml::GenericFormat::MachineBlock(BB->getNumber()));
 
     for (MachineBasicBlock::const_pred_iterator BBPred = BB->pred_begin(),
@@ -272,8 +344,6 @@ void PMLMachineExport::serialize(MachineFunction &MF)
     B->MapsTo = yaml::Name(BB->getName());
 
     // export loop information
-    Function* F = const_cast<Function*>(MF.getFunction());
-    MachineLoopInfo &MLI(P.getAnalysis<MachineLoopInfo>(*F));
     MachineLoop *Loop = MLI.getLoopFor(BB);
     while (Loop) {
       B->Loops.push_back(yaml::Name(Loop->getHeader()->getNumber()));
@@ -301,8 +371,8 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   }
 
   // TODO: we do not compute a hash yet
-  F->Hash = StringRef("0");
-  YDoc.addMachineFunction(F);
+  PMF->Hash = StringRef("0");
+  YDoc.addMachineFunction(PMF);
 }
 
 void PMLMachineExport::
@@ -314,17 +384,17 @@ exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
 {
   I->Opcode = Ins->getOpcode();
   I->Size = PII->getSize(Ins);
+  I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
+
   if (Ins->getDesc().isCall()) {
-     exportCallInstruction(MF, I, Ins);
-  }
-  if (Ins->getDesc().isReturn()) {
-     I->IsReturn = true;
-  }
-  if (Ins->getDesc().isBranch()) {
+    I->BranchType = yaml::branch_call;
+    exportCallInstruction(MF, I, Ins);
+  } else if (Ins->getDesc().isReturn()) {
+    I->BranchType = yaml::branch_return;
+  } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
-  }
-  else {
+  } else {
     I->BranchType = yaml::branch_none;
   }
   // XXX: maybe a good idea (descriptions)
@@ -389,13 +459,20 @@ exportBranchInstruction(MachineFunction &MF,
 
   if (LookupBranchTargets) {
     typedef const std::vector<MachineBasicBlock*> BTVector;
-    BTVector targets = PII->getBranchTargets(MF, Ins);
+    const BTVector& targets = PII->getBranchTargets(MF, Ins);
 
     for (BTVector::const_iterator it = targets.begin(),ie=targets.end();
           it != ie; ++it) {
       I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
     }
   }
+}
+
+
+void PMLMachineExport::
+exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *F,
+                              const MachineFunction &MF) {
+  // must be implemented entirely by target-specific exporters at this stage
 }
 
 ///////////////////////////////////////////////////////////////////////////////

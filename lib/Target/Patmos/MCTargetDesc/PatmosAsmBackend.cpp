@@ -175,7 +175,7 @@ public:
   /// fixup requires the associated instruction to be relaxed.
   bool fixupNeedsRelaxation(const MCFixup &Fixup,
                             uint64_t Value,
-                            const MCInstFragment *DF,
+                            const MCRelaxableFragment *DF,
                             const MCAsmLayout &Layout) const
   {
 

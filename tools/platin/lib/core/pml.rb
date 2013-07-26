@@ -121,6 +121,18 @@ module PML
       PMLDoc.new(data)
     end
 
+    def try
+      backup = flowfacts,timing
+      begin
+        @flowfacts = flowfacts.dup
+        @timing = timing.dup
+        r = yield
+      ensure
+        @flowfacts, @timing = backup
+      end
+      r
+    end
+
     def to_s
       "PMLDoc{bitcode-functions: |#{bitcode_functions.length}|, machine-functions: |#{machine_functions.length}"+
         ", flowfacts: |#{flowfacts.length}|}, timing: |#{timing.length}|"
@@ -203,14 +215,13 @@ module PML
       die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]
       @@register[archname].new(triple)
     end
-    def call_delay_slots ; delay_slots ; end
-    def branch_delay_slots ; delay_slots ; end
-    def return_delay_slots ; delay_slots ; end
-   end
+  end
+
   require 'arch/patmos'
   require 'arch/arm'
+
+  # XXX: are there relevant use cases for an unspecified architecture?
   class GenericArchitecture < Architecture
-    def delay_slots ; 0 ; end
   end
 
 
@@ -292,20 +303,24 @@ module PML
     end
     def Reference.from_pml(functions, data)
       context  = CallString.from_pml(functions, data[CallString.key])
-      f,b,i = data['function'],data['block'],data['instruction']
-      if refstr = data['instruction']
-        parts = refstr.split('/') # compact notation
-        f,b,i = parts.map { |v| YAML::load(v) } if parts[2]
-      elsif refstr = data['block'] || data['loop']
+      fname,bname,iname = data['function'],(data['block'] || data['loop']),data['instruction']
+
+      # Support for compact notation (f/b/i or f/l)
+      if (refstr = data['instruction']) && (! fname || ! bname)
+        parts = refstr.split('/')
+        fname,bname,iname = parts.map { |v| YAML::load(v) } if parts[2]
+      elsif (refstr = data['block'] || data['loop']) && (! fname)
         parts = refstr.split('/')  # compact notation
-        f,b  = parts.map { |v| YAML::load(v) } if parts[1]
+        fname,bname  = parts.map { |v| YAML::load(v) } if parts[1]
       end
-      assert("PML Reference: no function attribute") { f }
-      function = functions.by_name(f)
-      if b
-        block = function.blocks.by_name(b)
-        if i
-          instruction = block.instructions[i]
+
+      assert("PML Reference: no function attribute") { fname }
+      function = functions.by_name(fname)
+
+      if bname
+        block = function.blocks.by_name(bname)
+        if iname
+          instruction = block.instructions[iname]
           return InstructionRef.new(instruction,context,data)
         elsif data['loop']
           return LoopRef.new(block,context,data)
@@ -532,7 +547,40 @@ module PML
   class Callgraph < PMLObject
   end
 
-  #  PML function wrapper
+  # PML function arguments
+  class ArgumentList < PMLList
+    def initialize(function, data)
+      @list = data.map { |a| FunctionArgument.new(function, a) }
+      set_data(data)
+    end
+    def by_name(name, error_if_missing = false)
+      lookup(@named, name, "name", error_if_missing)
+    end
+    def build_lookup
+      @named = {}
+      @list.each { |v| add_lookup(@named,v.name, v, "name", :ignore_if_missing => true) }
+    end
+  end
+  class FunctionArgument < PMLObject
+    def initialize(function, data)
+      set_data(data)
+      @function = function
+    end
+    def name
+      data['name']
+    end
+    def index
+      data['index']
+    end
+    def maps_to_register?
+      registers.length == 1
+    end
+    def registers
+      data['registers']
+    end
+  end
+
+  # PML function wrapper
   class Function < ProgramPointProxy
     attr_reader :blocks, :loops
     def initialize(data, opts)
@@ -542,6 +590,7 @@ module PML
       @loops = []
       @labelkey = opts[:labelkey]
       @blocks = BlockList.new(self, data['blocks'])
+      @arguments = ArgumentList.new(self, data['arguments'] || [])
       @blocks.each do |block|
         if(block.loopheader?)
           @loops.push(block)
@@ -705,7 +754,10 @@ module PML
       data['branch-targets'] || []
     end
     def returns?
-      data['is-return'] || false
+      data['branch-type'] == 'return'
+    end
+    def delay_slots
+      data['branch-delay-slots'] || 0
     end
     def function
       block.function
@@ -880,10 +932,39 @@ module PML
       FlowFactList.new(data.map { |d| FlowFact.from_pml(pml,d) }, data)
     end
 
+    def dup
+      FlowFactList.new(@list.dup, @data.dup)
+    end
+
     def add(ff)
       @list.push(ff)
       data.push(ff.data)
       add_index(ff)
+    end
+
+    def add_copies(flowfacts, new_origin)
+      copies = []
+      flowfacts.each { |ff|
+        ff_copy = ff.deep_clone
+        ff_copy.add_attribute('origin', new_origin)
+        add(ff_copy)
+        copies.push(ff_copy)
+      }
+      copies
+    end
+
+    def reject!
+      rejects = []
+      @list.reject! { |ff| r = yield ff ; rejects.push(r); r }
+      data.reject! { |ff| rejects.shift }
+    end
+
+    def by_origin(origin)
+      if origin.kind_of?(String)
+        @list.select { |ff| origin == ff.origin }
+      else
+        @list.select { |ff| origin.include?(ff.origin) }
+      end
     end
 
     def filter(pml, ff_selection, ff_srcs, ff_levels)
@@ -903,20 +984,23 @@ module PML
       }
     end
 
-    def stats(pml, io = $stderr)
+    def stats(pml)
       classifier = FlowFactClassifier.new(pml)
-      @by_level = {}
+      by_level = {}
       @list.each { |ff|
         klass = classifier.classification_group(ff)
-        by_origin = (@by_level[ff.level] ||= {})
+        by_origin = (by_level[ff.level] ||= {})
         by_origin[:cnt] = (by_origin[:cnt] || 0) + 1
         by_group = (by_origin[ff.origin] ||= {})
         by_group[:cnt] = (by_group[:cnt] || 0) + 1
         by_klass = (by_group[klass] ||= {})
         by_klass[:cnt] = (by_klass[:cnt] || 0) + 1
       }
+      by_level
+    end
+    def dump_stats(pml, io=$stderr)      
       io.puts "Flow-Facts, classified"
-      @by_level.each { |level,by_group|
+      stats(pml).each { |level,by_group|
         io.puts " #{level.to_s.ljust(39)} #{by_group[:cnt]}"
         by_group.each { |group,by_klass|
           next if group == :cnt
@@ -1037,6 +1121,11 @@ module PML
       assert("lhs not a list proxy") { lhs.kind_of?(PMLList) }
       assert("lhs is not a list of terms") { lhs.empty? || lhs[0].kind_of?(Term) }
 
+      # Do not handle symbolic loop bounds for now...
+      if rhs.kind_of?(String) && rhs.strip =~ /\A\d+\Z/
+        rhs = rhs.strip.to_i
+      end
+
       @scope, @lhs, @op, @rhs = scope, lhs, op, rhs
       @attributes = {}
       if data
@@ -1045,6 +1134,9 @@ module PML
         end
       end
       set_data(data)
+    end
+    def symbolic_bound?
+      ! @rhs.kind_of?(Integer)
     end
     # string repr
     def to_s
@@ -1188,6 +1280,9 @@ module PML
     def TimingList.from_pml(pml, data)
       TimingList.new(data.map { |d| TimingEntry.from_pml(pml,d) }, data)
     end
+    def dup
+      TimingList.new(@list.dup, data.dup)
+    end
     def add(te)
       @list.push(te)
       data.push(te.data)
@@ -1214,6 +1309,9 @@ module PML
       @cycles = cycles
       @context = context
       set_data(data)
+    end
+    def []=(key,value)
+      data[key] = value
     end
     def [](key)
       data[key]

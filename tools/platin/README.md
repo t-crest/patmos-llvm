@@ -6,96 +6,64 @@ and transforming PML files.
 
 Requirements
 ------------
-* ruby 1.9 or newer
-* gems (see ext/gem_install.sh): rsec, ruby-graphviz, lpsolve (unofficial)
 
-[Ubuntu]
-$ sudo aptitude install ruby1.9.1-full
-$ ./ext/install_gems.sh
-
-
-Demo: Automated Benchmark Evaluation
-------------------------------------
-
-$ SETS="basic" ./eval-run
-
-Demo with manual compilation: platin, aiT, SWEET
-------------------------------------------------
-
-(1) Compile source code to bitcode file (not yet linked with libc)
-
-$ mkdir src bin gen
-$ patmos-clang -emit-llvm -S -o src/jumptable.bc examples/jumptable.c
-
-(2) Compile to ELF
-
-$ patmos-clang -o bin/jumptable.elf \
-               -mpatmos-preemit-bitcode=bin/jumptable.elf.bc \
-               -mserialize=bin/jumptable.elf.pml src/jumptable.bc
-
-(3) Trace Analysis Demo (platin trace analysis, platin IPET analysis, relation-graph roundtrips, aiT integration)
-
-$ ./platin bench-trace --outdir gen --binary bin/jumptable.elf -o gen/jumptable.pml bin/jumptable.elf.pml
-
-(3b) Trace Analysis Demo + SWEET bitcode analysis (requires AlfBackend and SWEET)
-
-$ ./platin bench-sweet --outdir gen --bitcode bin/jumptable.elf.bc \
-                       --binary bin/jumptable.elf -o gen/jumptable.pml bin/jumptable.elf.pml
-
-Demo of individual tools
-------------------------
-
-(1) Context-sensitive trace analysis
-
-$ ./platin analyze-trace -i bin/jumptable.elf.pml bin/jumptable.elf --callstring-length 1 --analysis-entry=main
+* ruby 1.9 or newer (mandatory)
+    - Ubuntu 12.10
+      sudo aptitue install ruby1.9.1, ruby1.9.1-dev
+    - gems will be installed automatically if necessary (rsec, ruby-graphviz, lpsolve)
 
 
-Open Questions
---------------
-* Currently, the LLVM machine blocks do not seem to be in order, why?
-  This makes it impossible to infer missing labels, but otherwise
-  is no problem.
-* aiT integration:
-  Is this correct ??
-    "exit test at end" => loop header bound
-    "exit test at beginning" => loop backedge bound = loop header bound - 1
+Basic Usage
+-----------
+
+* Compile test program
+
+        echo 'volatile int out; __attribute__((noinline)) void f(int x) { int i; for(i = 0; i<1024;i++) out+=x; } ' > test.c
+        echo 'int main() { f(3); f(5); return 0; }' >> test.c
+        patmos-clang -Wall -mserialize=test.pml -mpreemit-bitcode=test.bc -o test test.c
+
+* Analyze using aiT
+
+        platin wcet -i test.pml -b test --report
+
+* Analyze f() using platin-internal analyzer only
+
+        platin wcet --analysis-entry f -i test.pml -b test --disable-ait --enable-wca --report
+
+* Enable analysis of the (dynamic) execution trace [for comparison]
+
+        platin wcet --enable-trace-analysis  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
+
+* Use flow facts from the (dynamic) execution trace [for early-stage development]
+
+        platin wcet --use-trace-facts  --trace-entry main --analysis-entry f -i test.pml -b test --enable-wca --report
+
+
+LLVM Options
+------------
+CodeGen/Passes:
+
+* -mserialize=FILE
+* -mpreemit-bitcode=FILE
+* -mserialize-roots=LIST
 
 Known Problems
 --------------
 
-* aiT infeasibility analysis
-mrtc/statemate -O0: aiT reports that the loop body is infeasible, allthough it is
-                    executed 3 times in the simulator trace [=> aiT bug?]
-mrtc/fft1 -O0:      aiT reports that an infeasible problem, even if no annotations are
-	            given [=> aiT bug?]
-mrtc/lms -O0:       aiT reports infeasability [=> aiT bug?]:
-	            Loop 'main.L1': dead end in first iteration in all contexts
+* tool chain problems
+    - mrtc/whet -O0:      Needs math libraries => problem with atan function
 
-* patmos tool chain problems
-mrtc/fac -O0:       Recursion not supported
-mrtc/whet -O0:      Needs math libraries => problem with atan function
+Demo of individual tools
+------------------------
 
-* trace analsis takes > 60s
-mrtc/adpcm -O0:     120s
-mrtc/st -O0:        ...
-
-LLVM Integration
-================
-
-Options
--------
-CodeGen/Passes: -mserialize, -mserialize-roots
-Patmos specific: -mpatmos-preemit-bitcode
-
-Block Mapping Modifications
----------------------------
-* BranchFolder: when merging the tails of two basic blocks, delete the associated bitcode BB
-* BranchFolder: when merging a basic block and its successor, use one of the labels if it is defined
+MORE TO COME
 
 Architectures
 =============
 
-ARM:
+Notes for ARM (not up-to-date)
+------------------------------
+
     # Install ARM crosscompiler (Ubuntu)
     #   sudo aptitude install gcc-arm-linux-gnueabi  libc6-dev-armel-cross
     #
@@ -121,5 +89,5 @@ ARM:
     $GEM5_HOME/build/ARM/gem5.opt --debug-flags=Exec,-ExecMicro,ExecMacro --trace-file=$1.trace \
                                   $GEM5_HOME/configs/example/se.py -c bin/$1.elf
 
-    # Analyze using platin
-    platin bench-trace --disable-ait --trace-file m5out/$1.trace --outdir out -o out/$1.pml --binary bin/$1.elf bin/$1.pml
+    # Analyze using platin (pseudo costs)
+    platin wcet --disable-ait --trace-file m5out/$1.trace --outdir out -b bin/$1.elf -i bin/$1.pml --report

@@ -67,15 +67,6 @@ class Architecture < PML::Architecture
   def initialize(triple)
     @triple = triple
   end
-  def branch_delay_slots
-    2
-  end
-  def call_delay_slots
-    3
-  end
-  def return_delay_slots
-    3
-  end
   def Architecture.simulator_options(opts)
     opts.on("--pasim-command FILE", "path to pasim (=pasim)") { |f| opts.options.pasim = f }
     opts.add_check do |options|

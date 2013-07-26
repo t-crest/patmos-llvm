@@ -44,10 +44,6 @@ public:
   ///
   virtual void getAnalysisUsage(AnalysisUsage &AU) const;
 
-  virtual bool doInitialization(Module &M) { return false; }
-
-  virtual bool doFinalization(Module &M) { return false; }
-
 private:
   virtual bool runOnModule(Module &F);
 };
