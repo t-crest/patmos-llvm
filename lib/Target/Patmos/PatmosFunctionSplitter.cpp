@@ -902,7 +902,7 @@ namespace llvm {
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                DebugLoc(), TII.get(Patmos::BRu))).addMBB(target);
         for (unsigned i = 0;
-             i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false); i++) {
+             i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true); i++) {
           AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                  DebugLoc(), TII.get(Patmos::NOP)));
         }
@@ -915,6 +915,8 @@ namespace llvm {
                      <<  "-->" << target->getName() << "\n");
 #endif
       }
+      // TODO else check if there is an unconditional jump to the
+      // successor, remove it if possible.
     }
 
     /// reorderBlocks - Reorder the basic blocks of the function, align them, 
