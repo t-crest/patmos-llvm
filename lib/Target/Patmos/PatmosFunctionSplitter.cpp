@@ -155,11 +155,11 @@ namespace llvm {
     /// contains a call.
     bool HasCallinSCC;
 
-    /// The size of the basic block.
+    /// The size of the basic block, not including any fixup margins.
     unsigned Size;
 
     /// For loop headers: keep track of the total size of the entire SCC of the 
-    /// loop header.
+    /// loop header, including possible fixup margins.
     /// \see transformSCCs
     unsigned SCCSize;
 
@@ -239,7 +239,7 @@ namespace llvm {
                                                getBBSize(i, PTM));
 
         // Keep track of fallthough edges
-        if (pred && mayFallThrough(pred->MBB)) {
+        if (pred && mayFallThrough(PTM, pred->MBB)) {
           pred->FallthroughTarget = ab->MBB;
         }
         pred = ab;
@@ -311,20 +311,30 @@ namespace llvm {
     /// mayFallThrough - Return true in case the block terminates with a 
     /// non-barrier branche or without any branch at all, false in case the 
     /// block terminates with a barrier branch.
-    static bool mayFallThrough(MachineBasicBlock *MBB)
+    static bool mayFallThrough(PatmosTargetMachine &PTM, MachineBasicBlock *MBB)
     {
       if (MBB->succ_empty())
         return false;
 
+      int maxLookback =
+                         PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
+
+      // TODO optimize: skip the min number of delay slot cycles, only look at
+      // exactly local and non-local positions.
+
       // find last terminator
-      for(MachineBasicBlock::reverse_instr_iterator t(MBB->instr_rbegin()),
-          te(MBB->instr_rend()); t != te; t++)
+      for(MachineBasicBlock::reverse_iterator t(MBB->rbegin()),
+          te(MBB->rend()); t != te; t++, maxLookback--)
       {
         MachineInstr *mi = &*t;
 
         // skip non-terminator instructions
-        if (!mi->isTerminator())
+        if (!mi->isTerminator()) {
+          // any branches further back will not be a barrier, assuming there is
+          // no dead code.
+          if (maxLookback == 0) break;
           continue;
+        }
 
         return !mi->isBarrier();
       }
@@ -349,9 +359,7 @@ namespace llvm {
         size += getInstrSize(i, PTM);
       }
 
-      // add some bytes in case we need to fix-up the fall-through
-      return size + (mayFallThrough(MBB) ?
-                PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true) * 4 + 4: 0);
+      return size;
     }
 
     /// hasCall - Check whether the basic block contains a call instruction.
@@ -609,7 +617,7 @@ namespace llvm {
             bool has_call_in_scc = false;
             for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++) {
               assert((*i)->MBB);
-              scc_size += getBBSize((*i)->MBB, PTM);
+              scc_size += (*i)->Size + getMaxBlockMargin(PTM, (*i)->MBB);
               has_call_in_scc |= (*i)->HasCall;
             }
 
@@ -747,8 +755,6 @@ namespace llvm {
       DEBUG(dbgs() << "  visit: " << block->getName());
 #endif
       if (block->SCCSize == 0 || region == block) {
-        // TODO check: why does this assertion not hold??
-        //assert(block->SCCSize == 0 && "A region must not start with an SCC");
 
         unsigned block_size = block->Size +
                               getMaxBlockMargin(PTM, region, region_size, block);
@@ -782,13 +788,12 @@ namespace llvm {
       else {
         // loop header of some loop
 
-        unsigned block_size = block->SCCSize +
-                              getMaxBlockMargin(PTM, region, region_size, block);
+        unsigned scc_size = block->SCCSize;
 
-        if (region_size + block_size <= STC.getMethodCacheSize())
+        if (region_size + scc_size <= STC.getMethodCacheSize())
         {
           // update the region's total size
-          region_size += block_size;
+          region_size += scc_size;
           region->HasCall |= block->HasCallinSCC;
 
           // emit all blocks of the SCC and update the ready list
@@ -953,7 +958,7 @@ namespace llvm {
         // keep track of fall-through blocks
         // Note: we could just do (*i)->FallthroughTarget ? *i : NULL; here, but
         // this way it is more robust..
-        fallThrough = mayFallThrough(MBB) ? *i : NULL;
+        fallThrough = mayFallThrough(PTM, MBB) ? *i : NULL;
       }
 
       // fix-up fall-through blocks
@@ -987,6 +992,11 @@ namespace llvm {
       }
 
       if (rewrite) {
+        DEBUG(dbgs() << "Rewrite: branch in " << BR->getParent()->getName()
+                     << "[" << BR->getParent()->getNumber() << "]"
+                     << " branching to " << target->getName()
+                     << "[" << target->getNumber() << "]\n");
+
         // Replace br with brcf, fix delay slot size
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         BR->setDesc(TII.get(opcode));
@@ -1213,44 +1223,74 @@ namespace llvm {
     {
       bool hasCall = block->SCCSize == 0 || region == block ? block->HasCall
                                                           : block->HasCallinSCC;
+      // If we have a call here but the region is not yet marked as having
+      // calls, we need a fixup for the first time in this region.
       bool needsCallFixup = (hasCall && !region->HasCall);
+
+      bool mayFallthrough = block->FallthroughTarget != 0;
 
       // TODO analyze successors, check if all of them fit with max margins
       // into the region, then we only need a BR instead of BRCF
       bool mightExit = true;
-      // TODO analyze MBB, check if we have a BR at the end.
-      bool hasBranch = false;
 
-      return getMaxBlockMargin(PTM, needsCallFixup, mightExit, hasBranch);
+      // check how many branches we actually have in this block!
+      int numBranches = 0;
+      if (mightExit && block->MBB) {
+        for(MachineBasicBlock::instr_iterator i(block->MBB->instr_begin()),
+            ie(block->MBB->instr_end()); i != ie; i++)
+        {
+          if (i->isBranch()) numBranches++;
+        }
+      }
+
+      return getMaxBlockMargin(PTM, needsCallFixup, mightExit,
+                               mayFallthrough, numBranches);
     }
 
     static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
                                           MachineBasicBlock *MBB)
     {
-      // TODO analyze MBB, check if we have a BR at the end.
-      bool hasBranch = false;
-      return getMaxBlockMargin(PTM, true, true, hasBranch);
+      // TODO analyze MBB, check if we have a call, count number of branches
+      int hasCall = true;
+      int numBranches = 0;
+
+      for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
+          ie(MBB->instr_end()); i != ie; i++)
+      {
+        if (PTM.getInstrInfo()->hasCall(i)) hasCall = true;
+
+        if (i->isBranch()) numBranches++;
+      }
+
+      bool mayFallthrough = mayFallThrough(PTM, MBB);
+
+      return getMaxBlockMargin(PTM, hasCall, true, mayFallthrough, numBranches);
     }
 
     /// getMaxRegionMargin - Get the maximum number of bytes needed to be
     /// added to a basic block.
     /// needsCallFixup - does this block contain the first call in this region
     /// mightExitRegion - we might exit the region after this block
-    /// hasBranch - Does this block end with a branch?
+    /// mightFallthrough - Does this block end with an unconditional branch?
+    /// numBranchesToFix - Number of branches in the block that might exit the
+    ///                    region.
     static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
                                         bool needsCallFixup = true,
                                         bool mightExitRegion = true,
-                                        bool hasBranch = false)
+                                        bool mightFallthrough = true,
+                                        int numBranchesToFix = 0)
     {
-      unsigned branch_fixups = 0;
-      if (hasBranch) {
-        // we already have a BR, we only need to add a NOP if we change to BRCF
-        branch_fixups = mightExitRegion ? 4 : 0;
-      } else {
+      unsigned localDelay = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
+      unsigned exitDelay = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
+
+      // we already have a BR, we only need to add a NOP if we change to BRCF
+      unsigned branch_fixups = numBranchesToFix * (exitDelay - localDelay);
+
+      if (mightFallthrough) {
         // we might need to add a BR/BRCF to replace the fallthrough, and NOPs
         // to fill the delay slots
         branch_fixups = 4 +
-             PTM.getSubtargetImpl()->getCFLDelaySlotCycles(mightExitRegion) * 4;
+             (mightExitRegion ? exitDelay : localDelay) * 4;
       }
       return branch_fixups + (needsCallFixup ? 8 : 0);
     }
@@ -1260,8 +1300,13 @@ namespace llvm {
     static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize,
                                    PatmosTargetMachine &PTM)
     {
+      unsigned int branchFixup = getMaxBlockMargin(PTM, false, true, false, 1);
+
       // make a new block
+      // TODO we could check if we actually have a call and only add the
+      // call fixup costs in this case.
       unsigned int curr_size = getMaxBlockMargin(PTM);
+
       unsigned int total_size = 0;
       // Note: we need to use an instr_iterator here, otherwise splice fails
       // horribly for some mysterious ilist bug.
@@ -1275,6 +1320,9 @@ namespace llvm {
 
         // get instruction size
         unsigned int i_size = agraph::getInstrSize(i, PTM);
+
+        // for branches, assume we need to add a NOP to make it BRCF.
+        if (i->isBranch()) i_size += branchFixup;
 
         if (i_size > MCSize) {
           report_fatal_error("Inline assembly in function " +
