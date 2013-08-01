@@ -47,6 +47,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "patmos-function-splitter"
+#undef PATMOS_TRACE_SCCS
 #undef PATMOS_TRACE_VISITS
 #undef PATMOS_TRACE_EMIT
 #undef PATMOS_TRACE_FIXUP
@@ -621,6 +622,25 @@ namespace llvm {
               has_call_in_scc |= (*i)->HasCall;
             }
 
+#ifdef PATMOS_TRACE_SCCS
+#ifndef PATMOS_DUMP_ALL_SCC_DOTS
+            unsigned cnt = 0;
+#endif
+            DEBUG(
+              dbgs() << "Found SCC, header " << header->getName()
+                     << ", id: " << cnt
+                     << ", numblocks: " << scc.size()
+                     << ", size: " << scc_size
+                     << ", calls: " << has_call_in_scc <<  "\n";
+              dbgs() << "  Blocks:";
+              for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++)
+              {
+                dbgs() << " " << (*i)->getName();
+              }
+              dbgs() << "\n";
+            );
+#endif
+
             assert(header && header->SCCSize == 0 && scc_size != 0);
             header->HasCallinSCC = has_call_in_scc;
             header->SCCSize = scc_size;
@@ -756,6 +776,10 @@ namespace llvm {
 #endif
       if (block->SCCSize == 0 || region == block) {
 
+        // This block is either not in an SCC or starts a new region
+        assert((region != block || region_size == 0) &&
+               "Block starts a region but region size is not null");
+
         unsigned block_size = block->Size +
                               getMaxBlockMargin(PTM, region, region_size, block);
 
@@ -777,6 +801,8 @@ namespace llvm {
 #endif
         }
         else {
+          // Not an SCC, and cannot be a region entry because it would fit
+          // into the cache in any case (region_size == 0).
           assert(region != block);
           regions.insert(block);
           block->Region = block;
@@ -861,6 +887,9 @@ namespace llvm {
 
         // count the number of regions
         num_regions++;
+
+        DEBUG(dbgs() << "Starting region " << num_regions << " with "
+                     << region->getName() << "\n");
 
         while(!ready.empty()) {
           // choose the next block to visit
