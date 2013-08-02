@@ -5,7 +5,6 @@
 #
 require 'core/utils'
 require 'core/pml'
-require 'core/context'
 
 module PML
 
@@ -311,7 +310,7 @@ class RecorderSpecification
 
   def RecorderSpecification.help(out=$stderr)
     out.puts("spec              := <spec-item>,...")
-    out.puts("spec-item         := <scope-selection> ':' <entity-selection> [ ':' <calledepth-limit> ]")
+    out.puts("spec-item         := <scope-selection> ':' <entity-selection>")
     out.puts("scope-selection   :=   'g' (=analysis-entry-scope)")
     out.puts("                     | 'f'['/' <callstring-length>] (=function-scopes)")
     out.puts("entity-selection  := <entity-type>+ [ '/' <callstring-length> ]")
@@ -319,13 +318,13 @@ class RecorderSpecification
     out.puts("                     | 'i' (=infeasible blocks)")
     out.puts("                     | 'l' (=loop bounds)")
     out.puts("                     | 'c' (=indirect call targets)")
-    out.puts("entity-filter     := <calldepth-limit>")
     out.puts("callstring-length := <integer>")
-    out.puts("calldepth-limit   := <integer>")
     out.puts("")
-    out.puts("Example: g:lc:1  ==> loop bounds and call targets in global scope using callstring length 1")
-    out.puts("         g:b:0   ==> block frequencies in global scope (context insensitive)")
-    out.puts("         f:b::0  ==> local block frequencies for every executed function (default virtual inlining treshold)")
+    out.puts("Example: g:lc/1  ==> loop bounds and call targets in global scope using callstring length 1")
+    out.puts("         g:b/0   ==> block frequencies in global scope (context insensitive)")
+    out.puts("         f:b     ==> local block frequencies for every executed function (default callstring/virtual inlining)")
+    out.puts("         f/2:b/1 ==> block frequencies for every executed function (distinguished by callstrings")
+    out.puts("                     of length 2), virtually inlining directly called functions")
   end
   def RecorderSpecification.parse(str, default_callstring_length)
     recorders = []
@@ -403,7 +402,7 @@ class RecorderScheduler
       # create/activate function recorders
       @function_specs.each_with_index do |fspec, tix|
         scopectx, recorder_spec = fspec
-        activate(:function, tix, callee, BoundedStack.suffix(@callstack,scopectx), recorder_spec, cycles)
+        activate(:function, tix, callee, Context.callstack_suffix(@callstack,scopectx), recorder_spec, cycles)
       end
     end
   end
@@ -480,7 +479,7 @@ class FunctionRecorder
   end
   def scope
     if @context
-      FunctionRef.new(@function, CallString.from_bounded_stack(@context))
+      FunctionRef.new(@function, @context)
     else
       @function.ref
     end
@@ -493,12 +492,12 @@ class FunctionRecorder
     # puts "#{self}: starting at #{cycles}"
     results.start(cycles)
     @callstack = []
-    function.blocks.each { |bb| results.init_block(in_context(bb)) }
+    function.blocks.each { |bb| results.init_block(in_context(bb)) } if @record_block_frequencies
   end
   def function(callee,callsite,cycles)
     results.call(in_context(callsite),callee) if active? && @record_calltargets
     @callstack.push(callsite)
-    callee.blocks.each { |bb| results.init_block(in_context(bb)) } if active?
+    callee.blocks.each { |bb| results.init_block(in_context(bb)) } if active? && @record_block_frequencies
   end
   def block(bb, cycles)
     return unless active?
@@ -538,7 +537,7 @@ class FunctionRecorder
   end
 private
   def in_context(block)
-    [ block, BoundedStack.suffix(@callstack, @callstring_length) ]
+    [ block, Context.callstack_suffix(@callstack, @callstring_length) ]
   end
 end
 
@@ -636,14 +635,14 @@ class ProgressTraceRecorder
     @pml, @options = pml, options
     @trace, @entry, @level = [], entry, is_machine_code ? :dst : :src
     @internal_preds, @pred_list = [], []
-    @callstack = []
+    @rg_callstack = []
   end
   # set current relation graph
   # if there is no relation graph, skip function
   def function(callee,callsite,cycles)
     @rg = @pml.relation_graphs.by_name(callee.name, @level)
     debug(@options,:trace) { "Call to rg for #{@level}-#{callee}: #{@rg.nodes.first}" } if rg
-    @callstack.push(@node)
+    @rg_callstack.push(@node)
     @node = nil
   end
   # follow relation graph, emit progress nodes
@@ -682,7 +681,7 @@ class ProgressTraceRecorder
   def ret(rsite,csite,cycles)
     return if csite.nil?
     @rg = @pml.relation_graphs.by_name(csite.function.name, @level)
-    @node = @callstack.pop
+    @node = @rg_callstack.pop
     debug(@options, :trace) { "Return to rg for #{@level}-#{csite.function}: #{@rg.nodes.first}" } if @rg
   end
   def eof ; end

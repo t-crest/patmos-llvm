@@ -8,9 +8,7 @@
 # - visualize PML files
 #
 require 'set'
-require 'core/pml'
-require 'core/utils'
-require 'core/vcfg'
+require 'platin'
 include PML
 
 begin
@@ -50,6 +48,7 @@ class PMLTool
       stats['machine code functions'] = pml.machine_functions.length
       stats['bitcode functions'] = pml.bitcode_functions.length
       stats['timing entries'] = pml.timing.length
+      stats['valuefacts'] = pml.valuefacts.length
       stats['flowfacts'] = pml.flowfacts.length
       pml.flowfacts.stats(pml).each { |level,by_group|
         by_group.each { |group, by_class|

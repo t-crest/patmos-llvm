@@ -74,6 +74,7 @@ class RelationGraphValidationTool
   def RelationGraphValidationTool.add_options(opts, mandatory = true)
     Architecture.simulator_options(opts)
     opts.analysis_entry
+    opts.trace_entry
     opts.binary_file(mandatory)
     opts.sweet_trace_file(mandatory)
   end

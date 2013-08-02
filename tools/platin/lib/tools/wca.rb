@@ -87,7 +87,10 @@ class WcaTool
       end
     end
     # Add flow facts
-    flowfacts.each { |ff| builder.add_flowfact(ff) }
+    flowfacts.each { |ff|
+      debug(options,:wca) { "adding flowfact #{ff}" }
+      builder.add_flowfact(ff)
+    }
     # END: remove me soon
 
     statistics("WCA",
@@ -102,7 +105,12 @@ class WcaTool
     end
 
     # Solve ILP
-    cycles,freqs = builder.ilp.solve_max
+    begin
+      cycles,freqs = builder.ilp.solve_max
+    rescue Exception => ex
+      warn("WCA: ILP failed: #{ex}")
+      cycles,freqs = -1, {}
+    end
     statistics("WCA",
                "ilp variables" => builder.ilp.num_variables,
                "ilp constraints" => builder.ilp.constraints.length) if options.stats
@@ -118,7 +126,8 @@ class WcaTool
     end
 
     # report result
-    report = TimingEntry.new(machine_entry.ref, cycles, 'num_constraints' => builder.ilp.constraints.length,
+    report = TimingEntry.new(machine_entry.ref, cycles,BlockTimingList.new([]),
+                             'num_constraints' => builder.ilp.constraints.length,
                              'solvertime' => builder.ilp.solvertime,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)

@@ -37,25 +37,31 @@ class PatmosInstrAnalyzer : public MCNullStreamer {
   const MCInstrInfo &MII;
   unsigned count;
   unsigned size;
+  bool call;
 public:
   PatmosInstrAnalyzer(MCContext &ctx)
-    : MCNullStreamer(ctx), MII(ctx.getInstrInfo()), count(0), size(0)
+    : MCNullStreamer(ctx), MII(ctx.getInstrInfo()), count(0), size(0),
+      call(false)
     {
     }
 
   void reset() {
     count = 0;
     size = 0;
+    call = false;
   }
 
   unsigned getCount() const { return count; }
 
   unsigned getSize() const { return size; }
 
+  bool hasCall() const { return call; }
+
   virtual void EmitInstruction(const MCInst &Inst) {
     const MCInstrDesc &MID = MII.get(Inst.getOpcode());
     count++;
     size += MID.getSize();
+    call |= MID.isCall();
   }
 };
 
@@ -185,9 +191,15 @@ public:
   // getFirstMI - Return MI or the first 'real' instruction if MI is a bundle.
   const MachineInstr* getFirstMI(const MachineInstr *MI) const;
 
+  PatmosInstrAnalyzer *createPatmosInstrAnalyzer(MCContext &Ctx) const;
+
   /// getInstrSize - get the size of an instruction.
   /// Correctly deals with inline assembler and bundles.
   unsigned int getInstrSize(const MachineInstr *MI) const;
+
+  /// hasCall - check if there is a call in this instruction.
+  /// Correctly deals with inline assembler and bundles.
+  bool hasCall(const MachineInstr *MI) const;
 
   /// Check if we can issue an instruction in a given slot
   bool canIssueInSlot(const MCInstrDesc &MID, unsigned Slot) const;

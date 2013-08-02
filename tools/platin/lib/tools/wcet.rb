@@ -217,8 +217,7 @@ class WcetTool
   def configure_ait_files(outdir, basename, overwrite = true)
     options.ais_file = File.join(outdir, "#{basename}.ais") unless (overwrite && options.ais_file)
     options.apx_file = File.join(outdir, "#{basename}.apx") unless (overwrite && options.apx_file)
-    options.ait_result_file = File.join(outdir, "#{basename}.ait.xml") unless (overwrite && options.ait_result_file)
-    options.ait_report_file = File.join(outdir, "#{basename}.ait.txt") unless (overwrite && options.ait_report_file)
+    options.ait_report_prefix = File.join(outdir, "#{basename}.ait") unless (overwrite && options.ait_report_prefix)
   end
 
   def WcetTool.run(pml,options)

@@ -52,9 +52,18 @@ module PML
       self.on("--flow-fact-output NAME", "name for set of generated flow facts") { |n| options.flow_fact_output = n }
     end
     # tool generates WCET results
+    def timing_output(default_name = nil) ; calculates_wcet(default_name); end
     def calculates_wcet(default_name = nil)
       self.on("--timing-output NAME", "name or prefix for set of calculated WCETs") { |n| options.timing_output = n }
+      self.import_block_timing
       add_check { |options| options.timing_output = default_name unless options.timing_output } if default_name
+    end
+    # import WCET of basic blocks
+    def import_block_timing
+      self.on("--[no-]import-block-timing", "import timing and WCET frequency of basic blocks (=true)") { |b|
+        options.import_block_timing = b
+      }
+      add_check { |options| options.import_block_timing = true if options.import_block_timing.nil? }
     end
     # tool uses call strings and allows the user to specify a custom length
     def callstring_length
@@ -65,6 +74,7 @@ module PML
         options.callstring_length = 0 unless options.callstring_length
       }
     end
+    # XXX: we need to think about this again
     # user should specify selection of flow facts
     def flow_fact_selection
       self.on("--flow-fact-input SOURCE,..", "flow fact sets to use (=all)") { |srcs|
@@ -122,7 +132,7 @@ module PML
       opts.separator("")
       opts.on("--stats", "print statistics") { options.stats = true }
       opts.on("--verbose", "verbose output") { options.verbose = true }
-      opts.on("--debug [TYPE]", "debug output (trace,ilp,ipet,visualize,=all)") { |d| options.debug_type = d ? d.to_sym : :all }
+      opts.on("--debug [TYPE]", "debug output (trace,ilp,ipet,wca,ait,sweet,visualize,=all)") { |d| options.debug_type = d ? d.to_sym : :all }
       opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
     end
     parser.parse!
