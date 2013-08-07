@@ -49,11 +49,8 @@ PatmosFrameLowering::PatmosFrameLowering(const PatmosTargetMachine &tm)
 bool PatmosFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
 
-
   // Naked functions should not use the stack, they do not get a frame pointer.
-  bool isNaked = MF.getFunction()->getAttributes().
-                    hasAttribute(AttributeSet::FunctionIndex, Attribute::Naked);
-  if (isNaked)
+  if (MF.getFunction()->hasFnAttribute(Attribute::Naked))
     return false;
 
   return (MF.getTarget().Options.DisableFramePointerElim(MF) ||
@@ -365,6 +362,11 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   MachineBasicBlock &EntryMBB = MF.front();
 
   DebugLoc DL;
+
+  // Do not emit anything for naked functions
+  if (MF.getFunction()->hasFnAttribute(Attribute::Naked)) {
+    return;
+  }
 
   if (hasFP(MF)) {
     // if framepointer enabled, set it to point to the stack pointer.
