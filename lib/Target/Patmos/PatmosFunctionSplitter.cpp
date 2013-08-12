@@ -52,11 +52,6 @@
 #undef PATMOS_TRACE_EMIT
 #undef PATMOS_TRACE_FIXUP
 #undef PATMOS_DUMP_ALL_SCC_DOTS
-#define PATMOS_TRACE_SCCS
-#define PATMOS_TRACE_VISITS
-#define PATMOS_TRACE_EMIT
-#define PATMOS_TRACE_FIXUP
-#define PATMOS_DUMP_ALL_SCC_DOTS
 
 #include "Patmos.h"
 #include "PatmosAsmPrinter.h"
