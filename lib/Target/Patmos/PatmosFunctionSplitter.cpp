@@ -52,6 +52,11 @@
 #undef PATMOS_TRACE_EMIT
 #undef PATMOS_TRACE_FIXUP
 #undef PATMOS_DUMP_ALL_SCC_DOTS
+#define PATMOS_TRACE_SCCS
+#define PATMOS_TRACE_VISITS
+#define PATMOS_TRACE_EMIT
+#define PATMOS_TRACE_FIXUP
+#define PATMOS_DUMP_ALL_SCC_DOTS
 
 #include "Patmos.h"
 #include "PatmosAsmPrinter.h"
@@ -111,24 +116,8 @@ namespace llvm {
   class ablock;
   class agraph;
 
-  /// aedge - an edge in a transformed copy of the CFG.
-  class aedge
-  {
-  public:
-    /// The edge's source.
-    ablock * Src;
-
-    /// The edge's destination.
-    ablock * Dst;
-
-    /// Create an edge.
-    aedge(ablock *src, ablock *dst) : Src(src), Dst(dst)
-    {
-    }
-  };
-
   typedef std::vector<ablock*> ablocks;
-  typedef std::multimap<ablock*, aedge*> aedges;
+  typedef std::set<unsigned> idset;
 
   /// ablock - a node in a transformed copy of the CFG.
   class ablock
@@ -156,6 +145,12 @@ namespace llvm {
     /// contains a call.
     bool HasCallinSCC;
 
+    /// Indices of the jump table that this node references.
+    idset JTIDs;
+
+    /// Number of branch instructions in this block (conditional or uncond.).
+    unsigned NumBranches;
+
     /// The size of the basic block, not including any fixup margins.
     unsigned Size;
 
@@ -168,7 +163,11 @@ namespace llvm {
     ablocks SCC;
 
     /// The region assigned to a basic block. This is computed late by 
-    /// computeRegions.
+    /// computeRegions. This can either be NULL if not yet assigned,
+    /// the region of the predecessor if the block is found the first time,
+    /// the block itself if it has been marked as region header, or the
+    /// actual region of the block when it has been finished.
+    /// A block may only be marked as header by emitRegion.
     /// \see computeRegions
     ablock *Region;
 
@@ -180,14 +179,32 @@ namespace llvm {
     unsigned NumPreds;
 
     /// Create a block.
-    ablock(unsigned id, agraph* g, MachineBasicBlock *mbb = NULL,
-           bool hascall = false,  unsigned size = 0) : ID(id), G(g), MBB(mbb),
-                                                      FallthroughTarget(0),
-                                                      HasCall(hascall),
-                                                      HasCallinSCC(false),
-                                                      Size(size), SCCSize(0),
-                                                      Region(NULL), NumPreds(0)
+    ablock(PatmosTargetMachine &PTM, unsigned id, agraph* g,
+           MachineBasicBlock *mbb = NULL)
+    : ID(id), G(g), MBB(mbb), FallthroughTarget(0),
+      HasCall(false), HasCallinSCC(false),
+      NumBranches(0), Size(0),
+      SCCSize(0), Region(NULL), NumPreds(0)
     {
+      const PatmosInstrInfo *PII = PTM.getInstrInfo();
+
+      // Count number of branches, size of block, and check for calls
+      if (MBB) {
+        for(MachineBasicBlock::instr_iterator t(MBB->instr_begin()),
+            te(MBB->instr_end()); t != te; t++)
+        {
+          MachineInstr *mi = &*t;
+
+          if (mi->isBundle()) continue;
+          Size += PII->getInstrSize(mi);
+
+          if (PII->hasCall(mi))
+            HasCall = true;
+
+          if (mi->isBranch())
+            NumBranches++;
+        }
+      }
     }
 
     std::string getName() const
@@ -203,6 +220,38 @@ namespace llvm {
     }
   };
 
+  /// aedge - an edge in a transformed copy of the CFG.
+  class aedge
+  {
+  public:
+    /// The edge's source.
+    ablock * Src;
+
+    /// The edge's destination.
+    ablock * Dst;
+
+    /// Create an edge.
+    aedge(ablock *src, ablock *dst) : Src(src), Dst(dst)
+    {
+    }
+
+    bool operator<(const aedge &b) {
+      return Src->ID < b.Src->ID ||
+            (Src->ID == b.Src->ID && Dst->ID < b.Dst->ID);
+    }
+  };
+
+  struct CompareBlock {
+    bool operator()(const ablock *lhs, const ablock *rhs) const {
+      // making sets of blocks deterministic
+      return lhs->ID < rhs->ID;
+    }
+  };
+
+  typedef std::multimap<ablock*, aedge*, CompareBlock> aedges;
+  typedef std::set<ablock*, CompareBlock> ablock_set;
+  typedef std::vector<aedge*> aedge_vector;
+
   /// agraph - a transformed copy of the CFG.
   class agraph
   {
@@ -215,6 +264,13 @@ namespace llvm {
 
     /// The graph's back edges.
     aedges BackEdges;
+
+    /// List of jump tables of this function.
+    std::vector<ablocks> Jumptables;
+
+    /// A flag per jump table if all entries in the JT are already (in the
+    /// process of being) marked as region headers.
+    std::vector<bool> JTIsRegion;
 
     /// The original machine function of the graph.
     MachineFunction *MF;
@@ -236,8 +292,7 @@ namespace llvm {
       for(MachineFunction::iterator i(mf->begin()), ie(mf->end());
           i != ie; i++) {
         // make a block
-        ablock *ab = new ablock(id++, this, i, hasCall(i, PTM),
-                                               getBBSize(i, PTM));
+        ablock *ab = new ablock(PTM, id++, this, i);
 
         // Keep track of fallthough edges
         if (pred && mayFallThrough(PTM, pred->MBB)) {
@@ -268,43 +323,55 @@ namespace llvm {
         }
       }
 
-      // check for blocks with indirect jumps via jump tables. Turn the block's 
-      // successors into an SCC.
-      for(ablocks::iterator i(Blocks.begin()), ie(Blocks.end()); i != ie; i++) {
-        MachineBasicBlock *MBB = (*i)->MBB;
+      // Scan all jump tables, merge all targets of the jump table into a
+      // single node.
+      MachineJumpTableInfo *JTI = mf->getJumpTableInfo();
+      if (JTI) {
+        const std::vector<MachineJumpTableEntry> &JTs = JTI->getJumpTables();
 
-        for(MachineBasicBlock::instr_iterator t(MBB->instr_begin()),
-            te(MBB->instr_end()); t != te; t++)
-        {
-          MachineInstr *mi = &*t;
+        Jumptables.resize(JTs.size());
+        JTIsRegion.resize(JTs.size());
 
-          // skip non-branch instructions
-          if (!mi->isTerminator())
-            continue;
+        for (size_t idx = 0; idx < JTs.size(); idx++) {
+          ablock *last = NULL;
 
-          if (mi->isIndirectBranch()) {
-            ablock *last = NULL;
-            for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
-                ie(MBB->succ_end()); i != ie; i++) {
+          // get a set of all distinct targets in the jump table
+          ablock_set entries;
+          for (std::vector<MachineBasicBlock*>::const_iterator
+               it = JTs[idx].MBBs.begin(), ie = JTs[idx].MBBs.end();
+               it != ie; it++)
+          {
+            ablock *d = MBBtoA[*it];
+            entries.insert(d);
+          }
 
-              // get ablock of destination
-              ablock *d = MBBtoA[*i];
+          DEBUG(dbgs() << "Found jumptable (size " << JTs[idx].MBBs.size()
+                       << ", targets: " << entries.size() << "):");
 
-              if (last) {
-                aedge *e = new aedge(last, d);
-                Edges.insert(std::make_pair(last, e));
-              }
+          // connect all entries to an SCC.
+          for (ablock_set::iterator it = entries.begin(), ie = entries.end();
+               it != ie; it++)
+          {
+            ablock *d = *it;
+            DEBUG(dbgs() << " " << d->getName());
 
-              last = d;
+            d->JTIDs.insert(idx);
+            Jumptables[idx].push_back(d);
+            JTIsRegion[idx] = false;
+
+            if (last) {
+              aedge *e = new aedge(last, d);
+              Edges.insert(std::make_pair(last, e));
             }
 
-            // get ablock of destination
-            ablock *d = MBBtoA[*MBB->succ_begin()];
-            aedge *e = new aedge(last, d);
-            Edges.insert(std::make_pair(last, e));
-
-            break;
+            last = d;
           }
+          DEBUG(dbgs() << "\n");
+
+          // close loop on blocks in jump table
+          ablock *d = MBBtoA[*JTs[idx].MBBs.begin()];
+          aedge *e = new aedge(last, d);
+          Edges.insert(std::make_pair(last, e));
         }
       }
     }
@@ -393,9 +460,6 @@ namespace llvm {
 
     /// A vector of strongly connected components, i.e., vectors of node indices.
     typedef std::vector<ablocks> scc_vector;
-
-    typedef std::set<ablock*> ablock_set;
-    typedef std::vector<aedge*> aedge_vector;
 
     /// Recursive part of Tarjan's SCC algorithm.
     /// \see scc_tarjan
@@ -532,6 +596,9 @@ namespace llvm {
             if (!has_selfedge)
               continue;
           }
+          else if (scc.empty()) {
+            continue;
+          }
 
 #ifdef PATMOS_DUMP_ALL_SCC_DOTS
           write(cnt++);
@@ -551,20 +618,20 @@ namespace llvm {
           }
 
           // check for dead code, this is not supported here.
-          if (headers.empty() && scc.size() > 1) {
+          if (headers.empty()) {
             llvm_unreachable("SCC has no entry edges: function "
                              "contains dead code");
           }
 
           // transforms SCCs and remove cycles
-          ablock *header = headers.empty() ? NULL : *headers.begin();
+          ablock *header = *headers.begin();
           if (headers.size() > 1) {
             // create a new header, redirect all edges from outside of the SCC 
             // to the previous headers to that new header, and append edges from
             // the new header to each previous header.
 
             // create header
-            header = new ablock(Blocks.size(), this);
+            header = new ablock(PTM, Blocks.size(), this);
             Blocks.push_back(header);
 
             // redirect edges leading into the SCC
@@ -632,6 +699,13 @@ namespace llvm {
                      << ", numblocks: " << scc.size()
                      << ", size: " << scc_size
                      << ", calls: " << has_call_in_scc <<  "\n";
+              dbgs() << "  Headers:";
+              for(ablock_set::iterator i(headers.begin()), ie(headers.end());
+                  i != ie; i++)
+              {
+                dbgs() << " " << (*i)->getName();
+              }
+              dbgs() << "\n";
               dbgs() << "  Blocks:";
               for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++)
               {
@@ -700,6 +774,74 @@ namespace llvm {
       return minID;
     }
 
+    /// emitRegion - mark a block as new region entry, and check jump tables
+    /// to ensure all jump table targets become region entries as well.
+    void emitRegion(ablock *region, ablock *block,
+                    ablock_set &ready, ablock_set &regions)
+    {
+      // Note: We only mark a block as header by this function. Whenever we
+      // mark a block as header, we immediately add it to the regions list.
+      // Whenever we mark a block that is part of a jump table as header, all
+      // other jump table entries are also marked as region entries.
+
+      if (block->Region == block) {
+        // already marked and emitted as region before, e.g. by an
+        // artificial loop header.
+        return;
+      }
+
+      if (block->MBB) {
+        // Insert the block directly into the regions list, it has already
+        // been ready.
+        regions.insert(block);
+        block->Region = block;
+        // mark as processed so this block will not become ready.
+        block->NumPreds = 0;
+#ifdef PATMOS_TRACE_VISITS
+          DEBUG(dbgs() << " creating region " << block->getName() << "\n");
+#endif
+
+        // Check if this block is part of a jump table, then we need to ensure
+        // that all other blocks of the jump table become new regions as well.
+        for (idset::iterator jid = block->JTIDs.begin(),je = block->JTIDs.end();
+             jid != je; jid++)
+        {
+          if (JTIsRegion[*jid]) {
+            continue;
+          }
+
+          const ablocks &jt = block->G->Jumptables[*jid];
+          JTIsRegion[*jid] = true;
+
+          for (ablocks::const_iterator it = jt.begin(), ie = jt.end();
+               it != ie; it++)
+          {
+            ablock *d = *it;
+            // only handle all other jump table entries here
+            if (d == block) {
+              continue;
+            }
+
+            // If d has been already visited, ignore it. Note that other
+            // jump table entries might still not be marked, as d might be
+            // part of multiple jump tables.
+            // If d has not been visited yet: If d is in the ready list, we
+            // skip it in visitBlock below. If d is not yet ready, it
+            // will be skipped in emitSCC.
+            emitRegion(region, d, ready, regions);
+          }
+        }
+
+      } else {
+        // mark all headers of a non-natural loop as new regions
+        for(aedges::const_iterator i(Edges.lower_bound(block)),
+            ie(Edges.upper_bound(block)); i != ie; i++)
+        {
+          emitRegion(region, i->second->Dst, ready, regions);
+        }
+      }
+    }
+
     /// emitSCC - Emit the basic blocks of an SCC and update the ready list.
     void emitSCC(ablock *region, ablocks &scc, ablock_set &ready,
                  ablock_set &regions, ablocks &order)
@@ -725,45 +867,163 @@ namespace llvm {
         for(aedges::iterator j(Edges.lower_bound(*i)),
             je(Edges.upper_bound(*i)); j != je; j++) {
           ablock *dst = j->second->Dst;
-          if (std::find(scc.begin(), scc.end(), dst) == scc.end()) {
-            // skip processed blocks
-            if (dst->NumPreds == 0) {
-              continue;
-            }
 
-            // check the successor
-            if (dst->Region == NULL || dst->Region == region) {
-              // first time the successor is seen or all its predecessors are 
-              // in the current region
-              dst->Region = region;
+          // skip processed blocks and blocks marked as region header
+          if (dst->NumPreds == 0) {
+            continue;
+          }
+          // skip blocks in this SCC
+          if (std::find(scc.begin(), scc.end(), dst) != scc.end()) {
+            continue;
+          }
 
-              // decrement the predecessor counter and add to ready list
-              if(--dst->NumPreds == 0) {
-                ready.insert(dst);
-              }
-            }
-            else {
-              // a region mismatch -> the successor or the loop header of its 
-              // SCC have to be region entries
-              dst->Region = dst;
-              dst->NumPreds = 0;
+          // check the successor
+          if (dst->Region == NULL || dst->Region == region) {
+            // first time the successor is seen or all its predecessors are
+            // in the current region: remember the region of its predecessor,
+            // so that we detect a region mismatch when another predecessor is
+            // assigned to a different region.
+            assert(dst != region);
+            dst->Region = region;
 
-              if (dst->MBB) {
-                regions.insert(dst);
-              }
-              else {
-                // mark all headers of a non-natural loop as new regions
-                for(aedges::const_iterator k(Edges.lower_bound(dst)),
-                    ke(Edges.upper_bound(dst)); k != ke; k++) {
-                  regions.insert(k->second->Dst);
-                  k->second->Dst->Region = k->second->Dst;
-                  k->second->Dst->NumPreds = 0;
-                }
-              }
+            // decrement the predecessor counter and add to ready list
+            if(--dst->NumPreds == 0) {
+              ready.insert(dst);
+#ifdef PATMOS_TRACE_VISITS
+          DEBUG(dbgs() << "      making successor " << dst->getName()
+                       << " ready\n");
+#endif
             }
+          }
+          else {
+            // a region mismatch -> the successor or the loop header of its
+            // SCC have to be region entries
+            emitRegion(region, dst, ready, regions);
+#ifdef PATMOS_TRACE_VISITS
+          DEBUG(dbgs() << "      making successor " << dst->getName()
+                       << " a new region\n");
+#endif
           }
         }
       }
+    }
+
+    /// increaseRegion - check if we can add all blocks in the SCC to the region,
+    /// handling any jump tables. If so, update the region info and update the
+    /// scc with additional blocks to emit to the region. If it is not
+    /// possible to increase the region, return false.
+    bool increaseRegion(ablock *region, ablock *header, ablocks &scc,
+                        unsigned &scc_size,
+                        bool &has_call, unsigned &region_size,
+                        ablock_set &ready, ablock_set &regions)
+    {
+      if (region_size + scc_size > STC.getMethodCacheSize()) {
+        // Early exit..
+        return false;
+      }
+
+      // Special case: if we are already starting a new region (the header
+      // is the current region entry), then emit it in any case, and do not
+      // add anything to the SCC (all other jump table entries were already
+      // marked as region headers by the previous emitRegion that made this
+      // header a region).
+      if (header == region) {
+        // Don't forget to update the region info..
+        region_size += scc_size;
+        region->HasCall |= has_call;
+        return true;
+      }
+
+      // Check if any of the blocks in the SCC is already marked as region
+      // header. In this case, we cannot emit the whole SCC into this region.
+      for (ablocks::iterator it = scc.begin(), ie = scc.end(); it != ie; it++) {
+        ablock *a = *it;
+        if (a->Region == a && a != region) {
+          return false;
+        }
+      }
+
+      // Check if any of the blocks are part of a jump table. If so, check if all
+      // other entries in the jump table are ready, part of the SCC, or will be
+      // ready when we emit this SCC, and if so, emit all of them.
+      // Otherwise, we need to make this a region entry.
+      // Note: selectBlock and the artificial loop headers should ensure that
+      // in most cases all blocks are ready.
+
+      // Note: we do not need to check if any of the entries is already region
+      // header, as in this case we would already have marked this header a
+      // region entry as well and never get here.
+
+      assert(header->Region == NULL || header->Region == header ||
+             header->Region == region);
+
+      // initialize a list of all found jump table IDs in the SCC
+      std::list<unsigned> jtids;
+      for (ablocks::iterator it = scc.begin(), ie = scc.end(); it != ie; it++) {
+        ablock *a = *it;
+        for (idset::iterator k = a->JTIDs.begin(),ke = a->JTIDs.end();
+             k != ke; k++)
+        {
+          if (std::find(jtids.begin(), jtids.end(), *k) == jtids.end()) {
+            jtids.push_back(*k);
+          }
+        }
+      }
+
+      // try to add all JT entries to the SCC transitively.
+      std::list<unsigned>::iterator jit = jtids.begin();
+      while (jit != jtids.end()) {
+        ablocks &jt = header->G->Jumptables[*jit++];
+
+        // check all jump-table entries
+        for (ablocks::iterator it = jt.begin(), ie = jt.end(); it != ie; it++) {
+          ablock *entry = *it;
+
+          // transitively find overlapping jump tables
+          for (idset::iterator k = entry->JTIDs.begin(),ke = entry->JTIDs.end();
+               k != ke; k++)
+          {
+            if (std::find(jtids.begin(), jtids.end(), *k) == jtids.end()) {
+              jtids.push_back(*k);
+            }
+          }
+
+          if (std::find(scc.begin(), scc.end(), entry) != scc.end()) {
+            // entry is part of the SCC, nothing to do
+            continue;
+          }
+
+          // .. entry is not part of the SCC
+          if (std::find(ready.begin(), ready.end(), entry) == ready.end()) {
+            // block is not in the SCC and not ready.
+            // TODO check if all predecessors are in the SCC, else return false.
+
+            // TODO some entries might be added later from other jump tables,
+            // we should allow those as well as predecessors..
+
+
+            return false;
+          }
+
+          // JT entry is ready but not part of the SCC and needs to be emitted.
+          scc.push_back(entry);
+          scc_size += entry->Size +
+                             getMaxBlockMargin(PTM, region, region_size, entry);
+
+        }
+      }
+
+      // Now check again for size constraints, now including the full jump table
+      if (region_size + scc_size > STC.getMethodCacheSize()) {
+        return false;
+      }
+
+      // update the region's total size
+      // should we do this in the caller? Nah, would just duplicate the code..
+      region_size += scc_size;
+      region->HasCall |= has_call;
+
+      return true;
     }
 
     /// visitBlock - visit a block: check whether it can be merged with the
@@ -772,56 +1032,63 @@ namespace llvm {
                     ablock_set &ready, ablock_set &regions, ablocks &order)
     {
 #ifdef PATMOS_TRACE_VISITS
-      DEBUG(dbgs() << "  visit: " << block->getName());
+      DEBUG(dbgs() << "  visit: " << block->getName() << " (ready: " << ready.size() << ")");
 #endif
-      if (block->SCCSize == 0 || region == block) {
+      if (block->Region == block && region != block) {
+        // This block has been marked as region entry before while it was ready.
+        emitRegion(region, block, ready, regions);
+#ifdef PATMOS_TRACE_VISITS
+          DEBUG(dbgs() << "... marked as new region\n");
+#endif
+      }
+      else if (block->SCCSize == 0 || region == block) {
 
         // This block is either not in an SCC or starts a new region
         assert((region != block || region_size == 0) &&
                "Block starts a region but region size is not null");
+        assert((region != block || block->MBB) &&
+               "Artificial SCC header is not supposed to start a new region");
 
         unsigned block_size = block->Size +
-                              getMaxBlockMargin(PTM, region, region_size, block);
+                             getMaxBlockMargin(PTM, region, region_size, block);
+        bool has_call = block->HasCall;
+
+        ablocks blocks;
+        blocks.push_back(block);
 
         // regular block that is not a loop header or a loop header in its own
         // region
-        if (region_size + block_size <= STC.getMethodCacheSize())
+        if (increaseRegion(region, block, blocks, block_size, has_call,
+                           region_size, ready, regions))
         {
-          // update the region's total size
-          region_size += block_size;
-          region->HasCall |= block->HasCall;
-
           // emit the blocks of the SCC and update the ready list
-          ablocks tmp;
-          tmp.push_back(block);
-          emitSCC(region, tmp, ready, regions, order);
+          emitSCC(region, blocks, ready, regions, order);
 
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << "... emitted " << region_size << "\n");
 #endif
         }
         else {
-          // Not an SCC, and cannot be a region entry because it would fit
-          // into the cache in any case (region_size == 0).
-          assert(region != block);
-          regions.insert(block);
-          block->Region = block;
+          // This should not be an artificial header here (?)
+          assert(block->MBB);
+
+          // some block in the region, make it a new region header
+          emitRegion(region, block, ready, regions);
+
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << "... new region\n");
 #endif
         }
       }
       else {
-        // loop header of some loop
+        // loop header of some loop, not region entry
 
-        unsigned scc_size = block->SCCSize;
-
-        if (region_size + scc_size <= STC.getMethodCacheSize())
+        // Note: this might add blocks to SCC and SCCSize, but we are done
+        // with this loop header after this anyway, no need to make temp copies.
+        if (increaseRegion(region, block, block->SCC, block->SCCSize,
+                           block->HasCallinSCC,
+                           region_size, ready, regions))
         {
-          // update the region's total size
-          region_size += scc_size;
-          region->HasCall |= block->HasCallinSCC;
-
           // emit all blocks of the SCC and update the ready list
           emitSCC(region, block->SCC, ready, regions, order);
 
@@ -829,23 +1096,14 @@ namespace llvm {
           DEBUG(dbgs() << "... emitted (SCC) " << region_size << "\n");
 #endif
         }
-        else if (block->MBB) {
-          // mark the header of a natural loop as a new region
-          regions.insert(block);
-          block->Region = block;
-#ifdef PATMOS_TRACE_VISITS
-          DEBUG(dbgs() << "... new region (loop)\n");
-#endif
-        }
         else {
-          // mark all headers of a non-natural loop as new regions
-          for(aedges::const_iterator i(Edges.lower_bound(block)),
-              ie(Edges.upper_bound(block)); i != ie; i++) {
-            regions.insert(i->second->Dst);
-            i->second->Dst->Region = i->second->Dst;
-          }
+          // mark the header of a natural/non-natural loop as a new region,
+          // taking care of jump tables
+          emitRegion(region, block, ready, regions);
+
 #ifdef PATMOS_TRACE_VISITS
-          DEBUG(dbgs() << "... new region (non-natural loop)\n");
+          DEBUG(dbgs() << "... new region ("
+                       << (block->MBB ? "loop" : "non-natural loop") << ")\n");
 #endif
         }
       }
@@ -863,8 +1121,7 @@ namespace llvm {
 
       // start with the CFG root
       ablock *root = Blocks.front();
-      regions.insert(root);
-      root->Region = root;
+      emitRegion(root, root, ready, regions);
 
       // initialize predecessor counts
       countPredecessors();
@@ -909,8 +1166,9 @@ namespace llvm {
       // ensure that all blocks are assigned to a region
       int UnassignedBlocks = 0;
       for(ablocks::iterator i(Blocks.begin()), ie(Blocks.end()); i != ie; i++) {
-        if ((*i)->Region == NULL) {
-          errs() << "Error: Block without region: " + (*i)->getName() << "\n";
+        if ((*i)->Region == NULL && (*i)->MBB) {
+          errs() << "Error: Block without region: " + (*i)->getName()
+                 << ", SCCSize: " << (*i)->SCCSize << "\n";
           UnassignedBlocks++;
         }
       }
@@ -1263,14 +1521,7 @@ namespace llvm {
       bool mightExit = true;
 
       // check how many branches we actually have in this block!
-      int numBranches = 0;
-      if (mightExit && block->MBB) {
-        for(MachineBasicBlock::instr_iterator i(block->MBB->instr_begin()),
-            ie(block->MBB->instr_end()); i != ie; i++)
-        {
-          if (i->isBranch()) numBranches++;
-        }
-      }
+      int numBranches = block->NumBranches;
 
       return getMaxBlockMargin(PTM, needsCallFixup, mightExit,
                                mayFallthrough, numBranches);
@@ -1463,7 +1714,8 @@ namespace llvm {
         // in case the block is larger than the method cache, split it and
         // update its
         //
-        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > STC.getMethodCacheSize())
+        if (bb_size + agraph::getMaxBlockMargin(PTM, i) >
+                                                       STC.getMethodCacheSize())
         {
           bb_size = agraph::splitBlock(i, STC.getMethodCacheSize(), PTM);
         }
