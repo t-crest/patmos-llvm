@@ -69,6 +69,8 @@ add_llvm_library(LLVMCodeGen
   OptimizePHIs.cpp
   PHIElimination.cpp
   PHIEliminationUtils.cpp
+  PMLImport.cpp
+  PMLExport.cpp
   Passes.cpp
   PeepholeOptimizer.cpp
   PostRASchedulerList.cpp
@@ -110,7 +112,6 @@ add_llvm_library(LLVMCodeGen
   TwoAddressInstructionPass.cpp
   UnreachableBlockElim.cpp
   VirtRegMap.cpp
-  PMLExport.cpp
   )
 
 add_dependencies(LLVMCodeGen intrinsics_gen)

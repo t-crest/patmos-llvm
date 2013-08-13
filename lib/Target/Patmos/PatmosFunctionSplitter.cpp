@@ -67,6 +67,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
+#include "llvm/CodeGen/PMLImport.h"
 #include "llvm/MC/MCNullStreamer.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrDesc.h"
@@ -1688,7 +1689,7 @@ namespace llvm {
       MachineFunctionPass(ID), PTM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
-      // TODO we could disable this pass if this is not a PatmosTargetMachine
+      initializePMLImportPass(*PassRegistry::getPassRegistry());
     }
 
     /// getPassName - Return the pass' name.

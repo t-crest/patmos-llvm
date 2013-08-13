@@ -27,6 +27,7 @@
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/PML.h"
 #include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
