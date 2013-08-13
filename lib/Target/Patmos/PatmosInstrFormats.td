@@ -471,6 +471,20 @@ class CFLi<bits<4>op,
   let Inst{3-0} = op;
 }
 
+// CFLt - Trap
+//
+class CFLt<dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : CFL<outs, ins, asmop, asmstr, pattern, FOther, IIC_CFLt> {
+
+  let CFLOp = 0b01;
+
+  // unbound fields
+  bits<5> func; // trap function number
+
+  let Inst{24} = 1;
+  let Inst{4-0} = func;
+}
+
 // CFLr - Return
 //
 class CFLr<bits<4>op,

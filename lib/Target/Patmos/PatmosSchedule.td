@@ -45,6 +45,7 @@ def IIC_SPCf   : InstrItinClass;
 // control flow ops (only in first slot)
 def IIC_CFLb   : InstrItinClass;
 def IIC_CFLi   : InstrItinClass;
+def IIC_CFLt   : InstrItinClass;
 def IIC_CFLr   : InstrItinClass;
 // pseudos
 def IIC_Pseudo : InstrItinClass;
@@ -80,6 +81,7 @@ def PatmosGenericItineraries : ProcessorItineraries<
     InstrItinData<IIC_SPCf,   [ InstrStage<1, [FU_ALU0, FU_ALU1]> ]>,
     InstrItinData<IIC_CFLb,   [ InstrStage<1, [FU_ALU0]> ]>,
     InstrItinData<IIC_CFLi,   [ InstrStage<1, [FU_ALU0]> ]>,
+    InstrItinData<IIC_CFLt,   [ InstrStage<1, [FU_ALU0]> ]>,
     InstrItinData<IIC_CFLr,   [ InstrStage<1, [FU_ALU0]> ]>,
     InstrItinData<IIC_Pseudo, [ InstrStage<0, [FU_ALU0]> ]>
   ]>;

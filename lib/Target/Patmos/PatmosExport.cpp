@@ -130,6 +130,7 @@ namespace llvm {
       case Patmos::CALL:
       case Patmos::CALLR:
       case Patmos::RET:
+      case Patmos::XRET:
 	return 3;
       default:
 	return 0;

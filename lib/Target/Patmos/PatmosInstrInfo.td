@@ -165,7 +165,8 @@ def uimm18   : Operand<i32>, PatLeaf<(imm), [{return isUInt<18>(N->getZExtValue(
 // Call/Branch
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
 def imm22    : Operand<i32>, PatLeaf<(imm), [{return isInt <22>(N->getSExtValue());}]>;
-
+// Trap
+def uimm5    : Operand<i32>, PatLeaf<(imm), [{return isUInt<5>(N->getZExtValue());}]>;
 
 // 32-bit bitmask transformed to a bit number
 def uimm5mask : Operand<i32>, PatLeaf<(imm), [{
@@ -382,9 +383,19 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
     neverHasSideEffects = 1 in { // due to missing pattern
   def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
                   "ret", "$rb, $ro", []>;
+  def XRET : CFLr<0b0001, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
+                  "xret", "$rb, $ro", []>;
 }
 
-
+let isCall=1, hasDelaySlot=0,
+  // Traps are like calls and may overwrite caller saved registers
+  Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
+          R17, R18, R19, R20, RFB, RFO,
+          SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
+  def TRAP : CFLt<(outs), (ins pred:$p, uimm5:$func),
+  	  	   	 	  "trap", "$func", []>;
+}
+	
 
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions...
