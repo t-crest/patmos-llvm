@@ -39,13 +39,23 @@ module PML
     # Generate a global AIS header
     def gen_header
       # TODO get compiler type depending on YAML arch type
-      @outfile.puts '#compiler'
+      @outfile.puts '# configure compiler'
       @outfile.puts 'compiler "patmos-llvm";'
       @outfile.puts ''
 
-      #@outfile.puts "#clock rate"
-      #@outfile.puts "clock exactly 24 MHz;"
-      #@outfile.puts ""
+      @outfile.puts "# clock rate (disabled)"
+      @outfile.puts "#clock exactly 134 MHz;"
+      @outfile.puts ""
+
+      @outfile.puts "# configure method cache (disabled)"
+      @outfile.puts "#area 0x00000000 .. 0xffffffff access code locked;"
+      @outfile.puts ""
+
+      @outfile.puts "# configure abstract interpretation (disabled)"
+      @outfile.puts "#interproc flexible, max-length=inf, max-unroll=4, default-unroll=2;"
+
+      @outfile.puts "# export block timings"
+      @outfile.puts "global \"export_all_block_times\" = 1;"
 
       # TODO any additional header stuff to generate (context, entry, ...)?
     end
@@ -277,7 +287,7 @@ class AitImport
       routine = OpenStruct.new
       routine.instruction = pml.machine_functions.instruction_by_address(address)
       die("Could not find instruction at address #{address}") unless routine.instruction
-      die("routine address is not a basic block") unless routine.instruction.block.instructions.first == routine.instruction
+      die("routine #{routine.instruction} is not a basic block") unless routine.instruction.block.instructions.first == routine.instruction
       if elem.attributes['loop']
         routine.loop = routine.instruction.block
         die("loop routine is not a loop header") unless routine.loop.loopheader?
@@ -414,12 +424,24 @@ class AitImport
         re.each_element("wcet_context") { |ctx_elem|
           context = @contexts[ctx_elem.attributes['context']]
           ctx_elem.each_element("wcet_edge") { |edge|
-            next unless edge.attributes['cycles']
-            cycles, count = %w{cycles count}.map { |k| edge.attributes[k].to_i }
+            next unless edge.attributes['cycles'] || edge.attributes['path_cycles']
             source,target = %w{source_block target_block}.map { |k| @blocks[edge.attributes[k]] }
             block = source.block
-            (@block_cost[block]||=Hash.new(0))[context] += cycles
-            (@block_count[block]||=Hash.new(0))[context] += count if source.index == 0
+
+            count = edge.attributes['count'].to_i
+            path_cycles = edge.attributes['path_cycles'].to_i
+            if path_cycles == 0 && count > 0
+              cum_cycles = edge.attributes['cycles'].to_i
+              path_cycles = (cum_cycles.to_f / count).to_i
+              die("Inconsistent cummulative cycle counte for block #{block} in context #{context}") unless path_cycles*count == cum_cycles
+            end
+            next unless path_cycles
+            block_count_dict = (@block_count[block]||=Hash.new(0))
+            if source.index == 0
+              block_count_dict[context] += count
+            end
+            block_cost_dict = (@block_cost[block]||=Hash.new(0))
+            block_cost_dict[context] += path_cycles
           }
         }
       }
@@ -432,11 +454,10 @@ class AitImport
     btiming = []
     @block_cost.each { |b,ctxs|
       debug(options,:ait) { "- block #{b}" }
-      ctxs.each { |ctx,cum_cycles|
+      ctxs.each { |ctx,cycles|
         ref = ContextRef.new(b.ref, ctx)
         freq = @block_count[b][ctx]
-        cycles = cum_cycles.to_f / (freq || 1)
-        debug(options,:ait) { sprintf(" -- %s: %.2f * %d\n",ctx.to_s, cycles, freq) }
+        debug(options,:ait) { sprintf(" -- %s: %d * %d\n",ctx.to_s, cycles, freq) }
         btiming.push(BlockTiming.new(ref, cycles, freq))
       }
     }

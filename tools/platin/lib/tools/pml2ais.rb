@@ -9,7 +9,8 @@ include PML
 
 class AisExportTool
   def AisExportTool.add_config_options(opts)
-    opts.on("-g", "--header", "Generate AIS header") { opts.options.ais_header = true }
+    opts.on("-g", "--[no-]ais-header", "Generate AIS header (=true)") { |b| opts.options.ais_header = b }
+    opts.add_check { |options| options.ais_header = true if options.ais_header.nil? }
   end
   def AisExportTool.add_options(opts)
     AisExportTool.add_config_options(opts)
