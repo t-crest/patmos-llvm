@@ -162,6 +162,9 @@ namespace llvm {
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
                                    MachineBasicBlock *FalseSucc);
+    virtual void exportLoadInstruction(MachineFunction &MF,
+                                   yaml::GenericMachineInstruction *I,
+                                   const MachineInstr *Instr);
 
     virtual void exportArgumentRegisterMapping(
                                       yaml::GenericFormat::MachineFunction *F,

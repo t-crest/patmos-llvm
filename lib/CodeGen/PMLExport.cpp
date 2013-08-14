@@ -25,10 +25,12 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PML.h"
 #include "llvm/CodeGen/PMLExport.h"
+#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -42,6 +44,8 @@ using namespace llvm;
 namespace llvm {
 STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
 STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
+
+STATISTIC( NumMemOp,   "Number of mem ops with pointer type");
 }
 
 /// Unfortunately, the interface for accessing successors differs
@@ -395,6 +399,9 @@ exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
   } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
+  } else if (Ins->getDesc().mayLoad()) {
+    exportLoadInstruction(MF, I, Ins);
+    I->BranchType = yaml::branch_none;
   } else {
     I->BranchType = yaml::branch_none;
   }
@@ -469,6 +476,63 @@ exportBranchInstruction(MachineFunction &MF,
   }
 }
 
+void PMLMachineExport::
+exportLoadInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+                      const MachineInstr *Ins)
+{
+  // TODO attach the information to the PML instruction
+  //
+  // FIXME maybe there should be only one memoperand here anyway? bundles?
+  for(MachineInstr::mmo_iterator I=Ins->memoperands_begin(),
+                                 E=Ins->memoperands_end(); I!=E; ++I) {
+    MachineMemOperand *MO = *I;
+    assert(MO->isLoad());
+    const Value *V = MO->getValue();
+    if (V) {
+      assert(V->getType()->getTypeID()==Type::PointerTyID &&
+            "Value referenced by a MachineMemOperand is not a pointer!");
+      NumMemOp++; // STATISTICS
+
+      // Debug output to inspect types, grep "^[GCIAPO]:" <err>
+      if (const GlobalValue *G = dyn_cast<GlobalValue>(V)) {
+          DEBUG( dbgs() << "G: "; G->dump() );
+          // A subclass of Constant
+          // Global value of which we know the address EXACTLY
+
+      } else if (const Constant *C = dyn_cast<Constant>(V)) {
+          DEBUG( dbgs() << "C: "; C->dump() );
+          // this also captures getelementptr with constant operands
+          // we know the address EXACTLY
+
+      } else if (const Instruction *I = dyn_cast<Instruction>(V)) {
+          DEBUG( dbgs() << "I: "; I->dump() );
+          // This should be either getelementptr or inttoptr
+          // at least one of the operands of getelementptr is variable:
+          // - base (e.g. if passed as argument)
+          // - index (for accesses to known arrays)
+          //
+          // If idx0 == 0 and only the other indices is variable,
+          // we can export the RANGE (probably the most interesting case)
+          // TODO focus on this and see if exporting the others gives any
+          //      improvement
+
+      } else if (const Argument *A = dyn_cast<Argument>(V)) {
+          DEBUG( dbgs() << "A: "; A->dump() );
+          // pointers passed as function arguments
+
+      } else if (const PseudoSourceValue *P =
+                            dyn_cast<PseudoSourceValue>(V)) {
+          DEBUG( dbgs() << "P: "; P->dump() );
+          // this captures locations on the stack frame
+
+      } else {
+          DEBUG( dbgs() << "O: "; V->dump() );
+          // ??? anything we forgot?
+      }
+    }
+  }
+
+}
 
 void PMLMachineExport::
 exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *F,
