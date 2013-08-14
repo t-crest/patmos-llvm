@@ -37,6 +37,14 @@ namespace llvm {
       AU.setPreservesAll();
     }
 
+    // TODO Maybe at some later point, we might want to load multiple PML files
+    // for different compiler phases, or a single PML file that contains
+    // multiple results that are back-annotated to different compiler phases.
+    // We will need some sort of interface to select the phase that we are
+    // currently in (no need to be able to handle multiple phases in parallel,
+    // as long as LLVM is not multithreaded), and need to export PML files at
+    // different phases.
+
     virtual void initializePass();
 
 

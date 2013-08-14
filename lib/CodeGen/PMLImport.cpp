@@ -63,6 +63,9 @@ uint64_t PMLImport::getLocalWCET(const MachineBasicBlock *MBB) const
 
 double PMLImport::getCriticality(const MachineBasicBlock *MBB) const
 {
+  // TODO get all criticalities from all contexts and target results, and take
+  // the max.
+
   return 1.0;
 }
 

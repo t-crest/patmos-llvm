@@ -248,6 +248,22 @@ namespace llvm {
   typedef std::set<ablock*, CompareBlock> ablock_set;
   typedef std::vector<aedge*> aedge_vector;
 
+  typedef struct {
+    ablock *block;
+    double criticality;
+  } ready_block;
+
+  struct SortCrit {
+    bool operator()(const ready_block &lhs, const ready_block &rhs) const {
+      // On the ready list, we sort by highest criticality first, then
+      // lowest ID first
+      if (lhs.criticality > rhs.criticality) return true;
+      return lhs.block->ID < rhs.block->ID;
+    }
+  };
+
+  typedef std::set<ready_block, SortCrit> ready_set;
+
   /// agraph - a transformed copy of the CFG.
   class agraph
   {
@@ -275,9 +291,11 @@ namespace llvm {
     PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
 
+    PMLImport &PML;
+
     /// Construct a graph from a machine function.
-    agraph(MachineFunction *mf, PatmosTargetMachine &tm) : MF(mf), PTM(tm),
-        STC(tm.getSubtarget<PatmosSubtarget>())
+    agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLImport &pml)
+    : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()), PML(pml)
     {
       Blocks.reserve(mf->size());
 
@@ -730,6 +748,31 @@ namespace llvm {
       }
     }
 
+    void makeReady(ready_set &ready, ablock *block) {
+      ready_block rb;
+      rb.block = block;
+      if (block->MBB) {
+        rb.criticality = PML.getCriticality(block->MBB);
+      } else {
+        double maxCrit = 0.0;
+        for (ablocks::iterator i = block->SCC.begin(), ie = block->SCC.end();
+             i != ie; i++)
+        {
+          if (!(*i)->MBB) continue;
+          maxCrit = std::max(maxCrit, PML.getCriticality((*i)->MBB));
+        }
+        rb.criticality = maxCrit;
+      }
+      ready.insert(rb);
+    }
+
+    bool isReady(ready_set &ready, ablock *block) {
+      for(ready_set::iterator i(ready.begin()), ie(ready.end()); i != ie; i++) {
+        if (i->block == block) return true;
+      }
+      return false;
+    }
+
     /// selectRegion - Chose a region to process next. the order does not really
     /// matter here -- so just make it independent of pointer values.
     ablock *selectRegion(ablock_set &regions)
@@ -749,31 +792,36 @@ namespace llvm {
     /// selectBlock - select the next block to be visited.
     /// if the current block is a fall-through, prefer that fall-through, 
     /// otherwise take the block with the smallest ID (deterministic).
-    ablock *selectBlock(ablock *region, ablock_set &ready, ablock *last)
+    const ready_block &selectBlock(ablock *region, ready_set &ready, ablock *last)
     {
       // check if the fall-through is ready
       MachineBasicBlock *fallthrough = last ? last->FallthroughTarget : NULL;
 
-      ablock *minID = NULL;
-      for(ablock_set::iterator i(ready.begin()), ie(ready.end()); i != ie;
-          i++) {
+      double maxCrit = ready.begin()->criticality;
+
+      const ready_block *fttarget = NULL;
+      for(ready_set::iterator i(ready.begin()), ie(ready.end()); i != ie; i++) {
 
         // check for fall-through
-        if ((*i)->MBB == fallthrough)
-          return *i;
-
-        // take the block with the smallest ID first (determinism)
-        if (!minID || minID->ID > (*i)->ID)
-          minID = *i;
+        if (i->block->MBB == fallthrough) {
+          fttarget = &*i;
+          break;
+        }
       }
 
-      return minID;
+      // Prefer the fallthrough block if it is sufficiently critical
+      if (fttarget && fttarget->criticality > maxCrit - 0.1) {
+        return *fttarget;
+      }
+
+      // Otherwise just use the (deterministic) ordering of the ready list
+      return *ready.begin();
     }
 
     /// emitRegion - mark a block as new region entry, and check jump tables
     /// to ensure all jump table targets become region entries as well.
     void emitRegion(ablock *region, ablock *block,
-                    ablock_set &ready, ablock_set &regions)
+                    ready_set &ready, ablock_set &regions)
     {
       // Note: We only mark a block as header by this function. Whenever we
       // mark a block as header, we immediately add it to the regions list.
@@ -839,7 +887,7 @@ namespace llvm {
     }
 
     /// emitSCC - Emit the basic blocks of an SCC and update the ready list.
-    void emitSCC(ablock *region, ablocks &scc, ablock_set &ready,
+    void emitSCC(ablock *region, ablocks &scc, ready_set &ready,
                  ablock_set &regions, ablocks &order)
     {
       // emit blocks and update ready list
@@ -884,7 +932,7 @@ namespace llvm {
 
             // decrement the predecessor counter and add to ready list
             if(--dst->NumPreds == 0) {
-              ready.insert(dst);
+              makeReady(ready, dst);
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << "      making successor " << dst->getName()
                        << " ready\n");
@@ -911,7 +959,7 @@ namespace llvm {
     bool increaseRegion(ablock *region, ablock *header, ablocks &scc,
                         unsigned &scc_size,
                         bool &has_call, unsigned &region_size,
-                        ablock_set &ready, ablock_set &regions)
+                        ready_set &ready, ablock_set &regions)
     {
       if (region_size + scc_size > STC.getMethodCacheSize()) {
         // Early exit..
@@ -990,7 +1038,7 @@ namespace llvm {
           }
 
           // .. entry is not part of the SCC
-          if (std::find(ready.begin(), ready.end(), entry) == ready.end()) {
+          if (!isReady(ready, entry)) {
             // block is not in the SCC and not ready.
             // TODO check if all predecessors are in the SCC, else return false.
 
@@ -1025,7 +1073,7 @@ namespace llvm {
     /// visitBlock - visit a block: check whether it can be merged with the
     /// region of its predecessors or whether the block starts a new region.
     void visitBlock(ablock *region, unsigned &region_size, ablock *block,
-                    ablock_set &ready, ablock_set &regions, ablocks &order)
+                    ready_set &ready, ablock_set &regions, ablocks &order)
     {
 #ifdef PATMOS_TRACE_VISITS
       DEBUG(dbgs() << "  visit: " << block->getName() << " (ready: " << ready.size() << ")");
@@ -1110,7 +1158,7 @@ namespace llvm {
     void computeRegions(ablocks &order)
     {
       // set of ready blocks, i.e., all predecessors were visited
-      ablock_set ready;
+      ready_set ready;
 
       // set of unprocessed regions
       ablock_set regions;
@@ -1133,7 +1181,7 @@ namespace llvm {
         assert(region->MBB);
 
         // initialize ready list
-        ready.insert(region);
+        makeReady(ready, region);
 
         // keep track of the region's total size
         unsigned region_size = 0;
@@ -1146,12 +1194,12 @@ namespace llvm {
 
         while(!ready.empty()) {
           // choose the next block to visit
-          ablock *next = selectBlock(region, ready, order.empty() ? NULL :
-                                                                  order.back());
+          const ready_block &next = selectBlock(region, ready,
+                                           order.empty() ? NULL : order.back());
           ready.erase(next);
 
           // visit the block
-          visitBlock(region, region_size, next, ready, regions, order);
+          visitBlock(region, region_size, next.block, ready, regions, order);
         }
 
         DEBUG(dbgs() << "Region: " << region->getName() << ": "
@@ -1697,6 +1745,11 @@ namespace llvm {
       return "Patmos Function Splitter";
     }
 
+    void getAnalysisUsage(AnalysisUsage &AU) const {
+      AU.addRequired<PMLImport>();
+      MachineFunctionPass::getAnalysisUsage(AU);
+    }
+
     /// runOnMachineFunction - Run the function splitter on the given function.
     bool runOnMachineFunction(MachineFunction &MF) {
       // the pass got disabled?
@@ -1725,7 +1778,7 @@ namespace llvm {
       // splitting needed?
       if (total_size > STC.getMethodCacheSize()) {
         // construct a copy of the CFG.
-        agraph G(&MF, PTM);
+        agraph G(&MF, PTM, getAnalysis<PMLImport>());
         G.transformSCCs();
 
         // compute regions -- i.e., split the function
