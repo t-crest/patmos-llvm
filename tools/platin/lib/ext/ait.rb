@@ -75,17 +75,17 @@ module PML
       func.blocks.each do |mbb|
         branches = 0
         mbb.instructions.each do |ins|
-          branches += 1 if ins['branch-type'] && ins['branch-type'] != "none"
-          if ins['branch-type'] == 'indirect'
+          branches += 1 if ins.branch_type != "none"
+          if ins.branch_type == 'indirect'
             label = ins.block.label
             instr = if ins.address
                       "#{dquote(label)} + #{ins.address - ins.block.address} bytes"
                     else
                       "#{dquote(label)} + #{branches} branches"
                     end
-            successors = ins['branch-targets'] ? ins['branch-targets'] : mbb['successors']
-            targets = successors.uniq.map { |succ_name|
-              dquote(Block.get_label(ins.function.name,succ_name))
+            successors = ins.branch_targets ? ins.branch_targets : mbb.successors
+            targets = successors.uniq.map { |succ|
+              dquote(succ.label)
             }.join(", ")
             gen_fact("instruction #{instr} branches to #{targets};","jumptable (source: llvm)",ins)
           end
@@ -211,7 +211,7 @@ module PML
         elsif(ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef))
           export_linear_constraint(ff)
         else
-          info("aiT: unsupported flow fact type: #{ff}") unless supported
+          warn("aiT: unsupported flow fact type: #{ff}") unless supported
           false
         end
       @stats_skipped_flowfacts += 1 unless supported
@@ -269,6 +269,7 @@ class AitImport
     @pml, @options = pml, options
     @routines = {}
     @blocks = {}
+    @is_loopblock = {}
     @contexts = {}
   end
   def read_result_file(file)
@@ -277,7 +278,7 @@ class AitImport
     scope = pml.machine_functions.by_label(options.analysis_entry).ref
     TimingEntry.new(scope,
                     cycles,
-                    BlockTimingList.new([]),
+                    nil,
                     'level' => 'machinecode',
                     'origin' => options.timing_output)
   end
@@ -298,13 +299,13 @@ class AitImport
       routine.name = elem.attributes['name']
       @routines[elem.attributes['id']] = routine
       elem.each_element("block") { |be|
+        @is_loopblock[be.attributes['id']] = true if elem.attributes['loop']
         unless be.attributes['address']
           debug(options,:ait) { "No address for block #{be}" }
           next
         end
         ins = pml.machine_functions.instruction_by_address(Integer(be.attributes['address']))
         @blocks[be.attributes['id']] = ins
-        # "aiT block starts in the middle of LLVM block: #{ins}" if(ins.index != 0)
       }
     end
     @routine_names = @routines.values.inject({}) { |memo,r| memo[r.name] = r; memo }
@@ -407,13 +408,18 @@ class AitImport
   #
   def read_wcet_analysis_results(wcet_elem, analysis_entry)
     read_contexts(wcet_elem.get_elements("contexts").first)
+
     @function_count, @function_cost = {} , Hash.new(0)
-    @block_count, @block_cost = {},{}
+    edge_freq, edge_cycles, edge_contrib = {}, {}, {}
+    ait_ins_cost, ait_edge_cost = Hash.new(0), Hash.new(0)
+
     wcet_elem.each_element("wcet_path") { |e|
       rentry = e.get_elements("wcet_entry").first.attributes["routine"]
       entry = @routines[rentry]
       next unless  entry.function == analysis_entry
+
       e.each_element("wcet_routine") { |re|
+        # extract function cost
         routine = @routines[re.attributes['routine']]
         if routine.function
           @function_count[routine.function] = re.attributes['count'].to_i
@@ -421,47 +427,160 @@ class AitImport
         else
           # loop cost
         end
+
+        # extract edge cost (relative to LLVM terminology)
         re.each_element("wcet_context") { |ctx_elem|
           context = @contexts[ctx_elem.attributes['context']]
-          ctx_elem.each_element("wcet_edge") { |edge|
-            next unless edge.attributes['cycles'] || edge.attributes['path_cycles']
-            source,target = %w{source_block target_block}.map { |k| @blocks[edge.attributes[k]] }
-            block = source.block
 
+          # deal with aiT's special nodes
+          start_nodes, loop_nodes, return_nodes = {}, {}, {}
+
+          # Special Case #1: (StartNode -> Node) is ignored
+          # => If the target block is a start block, ignore the edge
+          ctx_elem.each_element("wcet_start") { |elem|
+            start_nodes[elem.attributes['block']] = true
+          }
+
+          # Special Case #2: (Node -> CallNode[Loop]) => (Node -> LoopHeaderNode)
+          # => If we have an edge from a node to a 'loop call node', we need to replace
+          #    it by an edge to the loop header node
+          ctx_elem.each_element("wcet_edge_call") { |call_edge|
+            if loopblock = @routines[call_edge.attributes['target_routine']].loop
+              loop_nodes[call_edge.attributes['source_block']] = loopblock
+            end
+          }
+
+          # Special case #3: The unsolveable one?
+          # In aiT we have edges from nodes within a loop to loop end nodes,
+          # and edges from return nodes to nodes just after loop, but end nodes
+          # and return nodes are not connected.
+          # So in theory we could have the following situation in LLVM:
+          #   a[L1] -> c v d v h[L1]
+          #   b[L1] -> c v d v h[L1]
+          # and in aiT:
+          #   a[L1] -> end  ; return[L1] -> c
+          #   b[L1] -> end  ; return[L1] -> d
+          # and no sane way to determine the execution frequencies of a->c, a->d, b->c, b->d
+          # If, however, all loop exit nodes x have a unique successor E(x) outside of the loop,
+          # we simply increment the frequency of x->E(x) if we see x->EndOfLoop.
+          # As I do not know of a better way to do it, we stuck with this strategy for now.
+          ctx_elem.each_element("wcet_edge_return") { |return_edge|
+            return_nodes[return_edge.attributes['target_block']] = true
+          }
+
+          ctx_elem.each_element("wcet_edge") { |edge|
+            next unless edge.attributes['cycles'] || edge.attributes['path_cycles'] || edge.attributes['count']
+            source_block_id = edge.attributes['source_block']
+            next if start_nodes[source_block_id]
+            next if return_nodes[source_block_id]
+            source = @blocks[edge.attributes['source_block']]
+
+            target_block_id = edge.attributes['target_block']
+            target_block = if loop_nodes[target_block_id]
+                             loop_nodes[target_block_id]
+                           else
+                             b = @blocks[target_block_id]
+                             b ? b.block : nil
+                           end
             count = edge.attributes['count'].to_i
+            cum_cycles = edge.attributes['cycles'].to_i
             path_cycles = edge.attributes['path_cycles'].to_i
-            if path_cycles == 0 && count > 0
-              cum_cycles = edge.attributes['cycles'].to_i
-              path_cycles = (cum_cycles.to_f / count).to_i
-              die("Inconsistent cummulative cycle counte for block #{block} in context #{context}") unless path_cycles*count == cum_cycles
+            if count > 0
+              computed_path_cycles = (cum_cycles.to_f / count).to_i
+              if path_cycles.to_i > 0
+                unless path_cycles*count == cum_cycles
+                  die("Inconsistent cummulative cycle count for edge #{source}->#{target_block} in context #{context}")
+                end
+              else
+                path_cycles = computed_path_cycles
+              end
             end
             next unless path_cycles
-            block_count_dict = (@block_count[block]||=Hash.new(0))
-            if source.index == 0
-              block_count_dict[context] += count
+
+            # We need to map the aiT edge to an LLVM edge
+            #
+            # In addition to the special cases discussed above,
+            # there is the problem of duplicated blocks, as we want to compute cycles per execution,
+            # not just cummulative cycles.
+            #
+            # One case is that we are given cycles for an intraprocdural edge b/i -> b/j, in different
+            # contexts. As there might be several aiT nodes for b/i, we need store the maximum cost for
+            # the slice (b/i..b/j) in this case. The frequency is ignored here, it is determined by
+            # the frequency of the block anyway.
+            # The other case is that we have cycles for an edge b/i -> b'; again there might be
+            # several aiT nodes for b/i. In this case, we accumulate the frequency of (b -> b'),
+            # and store the maximum cost for (b-> b').
+            #
+            # Later on, we add the maximum cost for every slice (b/i..b/j) to all edges
+            # b->b' where b' is a live successor at instruction b/i.
+            # Moreover, we add the maximum cost for (b/i -> b') to the edge b->b'.
+
+            if source.block == target_block
+              ref = ContextRef.new(source.ref, context)
+              ait_ins_cost[ref] = [ait_ins_cost[ref],path_cycles].max
+            else
+              pml_edge = source.block.edge_to(target_block ? target_block : nil)
+              if ! target_block && @is_loopblock[target_block_id]
+                # in this case, the target is an end-of-loop node, and we need to add the frequency
+                # to the unique out-of-loop successor of the source. If it does not exist, we give up
+                exit_successor = nil
+                source.block.successors.each { |s|
+                  if source.block.exitedge_source?(s)
+                    die("More than one exit edge from a block within a loop. This makes it" +
+                        "impossible (for us) to determine correct edge frequencies") if exit_successor
+                    exit_successor = s
+                  end
+                }
+                die("no loop exit successor for #{source}, although there is an edge to end-of-loop node") unless exit_successor
+                pml_edge = source.block.edge_to(exit_successor)
+              end
+              ref = ContextRef.new(pml_edge, context)
+              ait_ins_cost[ref] = [ait_ins_cost[ref],path_cycles].max
+              if count > 0
+                # info "Adding frequency to intraprocedural edge #{pml_edge}: #{count} (#{edge})"
+                (edge_freq[pml_edge]||=Hash.new(0))[context] += count
+                (edge_contrib[pml_edge]||=Hash.new(0))[context] += count
+              end
             end
-            block_cost_dict = (@block_cost[block]||=Hash.new(0))
-            block_cost_dict[context] += path_cycles
           }
         }
       }
+    }
+    ait_ins_cost.each { |cref, path_cycles|
+      context = cref.context
+      if cref.reference.kind_of?(InstructionRef)
+        ins = cref.instruction
+        ins.block.outgoing_edges.each { |pml_edge|
+          if ins.live_successor?(pml_edge.target)
+            # info "Adding cost to intrablock edge #{pml_edge}: #{path_cycles}"
+            (edge_cycles[pml_edge]||=Hash.new(0))[context] += path_cycles
+          else
+            # info "#{pml_edge.target} is not a live successor at #{ins}"
+          end
+        }
+      else
+        pml_edge = cref.reference
+        # info "Adding cost to intraprocedural edge #{pml_edge}: #{path_cycles}"
+        (edge_cycles[pml_edge]||=Hash.new(0))[context] += path_cycles
+      end
     }
     debug(options,:ait) { |&msgs|
       @function_count.each { |f,c|
         msgs.call "- function #{f}: #{@function_cost[f].to_f / c.to_f} * #{c}"
       }
     }
-    btiming = []
-    @block_cost.each { |b,ctxs|
-      debug(options,:ait) { "- block #{b}" }
+    profile_list = []
+    edge_cycles.each { |e,ctxs|
+      debug(options,:ait) { "- edge #{e}" }
       ctxs.each { |ctx,cycles|
-        ref = ContextRef.new(b.ref, ctx)
-        freq = @block_count[b][ctx]
+        ref = ContextRef.new(e, ctx)
+        freq = edge_freq[e] ? edge_freq[e][ctx] : 0
+        contrib = edge_contrib[e] ? edge_contrib[e][ctx] : 0
         debug(options,:ait) { sprintf(" -- %s: %d * %d\n",ctx.to_s, cycles, freq) }
-        btiming.push(BlockTiming.new(ref, cycles, freq))
+        profile_list.push(ProfileEntry.new(ref, cycles, freq, contrib))
       }
     }
-    btiming
+    profile_list
   end
 
   def run
@@ -488,9 +607,11 @@ class AitImport
     # read wcet analysis results
     wcet_elem = analysis_task_elem.get_elements("wcet_analysis").first
     if options.import_block_timing
-      read_wcet_analysis_results(wcet_elem, analysis_entry).each { |blocktiming|
-        timing_entry.blocktiming.add(blocktiming)
+      timing_list = []
+      read_wcet_analysis_results(wcet_elem, analysis_entry).each { |pe|
+        timing_list.push(pe)
       }
+      timing_entry.profile = Profile.new(timing_list)
     end
     statistics("AIT","imported WCET results" => 1) if options.stats
     pml.timing.add(timing_entry)

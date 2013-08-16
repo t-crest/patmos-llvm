@@ -3,28 +3,37 @@ mapping:
   "format":
     type: str
     required: yes
+    desc: "PML format version ('pml-0.2')"
   "triple":
     type: str
+    desc: "LLVM target triple (e.g., patmos-unknown-unknown-elf)"
   "machine-functions": &funlist
     type: seq
+    desc: "list of functions"
     sequence:
       - &function
         type: map
+        desc: "function description"
         mapping:
           "name":
             type: scalar
             required: yes
             unique: yes
-          "mapsto":
-            type: scalar
+            desc: "unique name of the function"
           "level": &level
             type: str
             enum: [bitcode,machinecode]
             required: yes
+            desc: "representation level"
+          "mapsto":
+            type: scalar
+            desc: "corresponding function on the next higher-level representation (if any)"
           "hash":
             type: scalar
+            desc: "checksum characterizing the function"
           "arguments":
             type: seq
+            desc: "the function's formal arguments"
             sequence:
               - &argument
                 type: map
@@ -32,16 +41,20 @@ mapping:
                   "index":
                     type: int
                     unique: true
+                    desc: "index of the argument"
                   "name":
                     type: str
                     unique: true
+                    desc: "name of the argument"
                   "registers":
                     type: seq
+                    desc: "registers assigned to the formal argument"
                     sequence:
                       - &register
                         type: str
           "blocks":
             type: seq
+            desc: "basic blocks of the function"
             sequence:
               - &block
                 type: map
@@ -50,19 +63,25 @@ mapping:
                     type: scalar
                     required: yes
                     unique: yes
+                    desc: "name of the basic block (unique within the function)"
                   "mapsto":
                     type: scalar
+                    desc: "corresponding block on the high-level representation (if any)"
                   "address":
                     type: int
+                    desc: "address of the block in the linked binary"
                   "successors": &namelist
                     type: seq
+                    desc: "list of basic blocks"
                     sequence:
                       -
                         type: scalar
+                        desc: "name of the referenced basic block"
                   "predecessors": *namelist
                   "loops": *namelist
                   "instructions":
                     type: seq
+                    desc: "list of the basic block's instructions"
                     sequence:
                       - &instruction
                         type: map
@@ -71,19 +90,24 @@ mapping:
                              type: int
                              required: yes
                              unique: yes
+                             desc: "index of the instruction in the block's instruction list"
                           "opcode":
                              type: scalar
+                             desc: "scalar characterizing the instruction's type"
                           "branch-type":
                              type: str
                              enum: [unconditional, conditional, call, return, indirect, any]
+                             desc: "the kind of branch this instruction realizes (if any)"
                           "branch-targets": *namelist
-                          "callees": *namelist
                           "branch-delay-slots":
                              type: int
+                          "callees": *namelist
                           "size":
                              type: int
+                             desc: "size of the instruction in the binary"
                           "address":
                              type: int
+                             desc: "address of the instruction in the linked binary"
   "bitcode-functions": *funlist
   "relation-graphs":
     type: seq
@@ -201,12 +225,16 @@ mapping:
         mapping:
           "origin":
             type: str
+            desc: "the source this flow fact originated from"
           "level": *level
           "classification":
             type: any
             desc: "DEPRECATED"
           "scope": &scope
             type: map
+            desc: >-
+              the flow fact applies to every execution of the given
+              function or loop (in the specified context)
             mapping: &scoperef
               "function":
                 type: scalar
@@ -248,25 +276,29 @@ mapping:
           "scope": *scope
           "cycles":
             required: true
+            desc: "maximum execution time of the scope"
             type: int
           "num_constraints":
             type: scalar
           "solvertime":
             type: scalar
-          "blocktiming":
+          "profile":
             type: seq
-            desc: >-
-              worst-case execution time of basic blocks
+            desc: "worst-case execution time profile"
             sequence:
-              - &blocktiming
+              -
                 type: map
                 mapping:
                   "reference": *program-point
                   "cycles":
-                    type: scalar
-                    desc: >-
-                      execution time of the block in cycles (depends on the context)
-                  "frequency":
-                    type: scalar
-                    desc: >-
-                      worst-case frequency (typically on the worst-case path)
+                    type: int
+                    desc: "maximum execution time of the block in cycles (depends on the context)"
+                  "wcet_contribution":
+                    type: int
+                    desc: "cycles contributed to WCET"
+                  "wcet_frequency":
+                    type: int
+                    desc: "frequency on the worst-case path"
+                  "criticality":
+                    type: float
+                    desc: "characterization of the block's influence on the worst-case execution time"

@@ -70,7 +70,6 @@ class MachineTraceMonitor < TraceMonitor
 
       @started = true if pc == @start
       next unless @started
-
       @executed_instructions += 1
 
       # Playground: learn about instruction costs
@@ -250,7 +249,6 @@ class MachineTraceMonitor < TraceMonitor
 
         # generate basic block event at first instruction
         add_watch(@wp_block_start, block.address, block)
-
         block.instructions.each do |instruction|
           # Playground: Learn about instruction costs
           # @wp_instr[instruction.address] = instruction
@@ -263,7 +261,7 @@ class MachineTraceMonitor < TraceMonitor
           # trigger call-instruction event at call instructions
           # CAVEAT: delay slots and predicated calls
           if ! instruction.callees.empty?
-            add_watch(@wp_call_instr,instruction['address'],instruction)
+            add_watch(@wp_call_instr,instruction.address,instruction)
           end
           abs_instr_index += 1
         end
@@ -386,7 +384,7 @@ class RecorderScheduler
     end
 
     # start recording at analysis entry
-    if callee['name'] == @start.name
+    if callee.name == @start.name
       @running = true
       @runs += 1
       @active = {}

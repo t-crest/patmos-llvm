@@ -158,10 +158,9 @@ module PML
     attr_reader :factor, :pp
     def initialize(pp,factor,data=nil)
       pp = ContextRef.new(pp, Context.empty) if pp.kind_of?(Reference)
-      assert("Term#initialize: not a context-sensitive reference: #{pp}") { pp.kind_of?(ContextRef) }
+      assert("Term#initialize: not a context-sensitive reference: #{pp} :: #{pp.class}") { pp.kind_of?(ContextRef) }
       @pp,@factor = pp,factor
-      set_data(data)
-      self.freeze
+      set_yaml_repr(data)
     end
     def context
       @pp.context
@@ -178,7 +177,7 @@ module PML
       "#{@factor} #{pp.qname}"
     end
     def to_pml
-      { 'factor' => factor, 'program-point' => pp.to_pml }
+      { 'factor' => factor, 'program-point' => pp.data }
     end
     def Term.from_pml(mod,data)
       Term.new(ContextRef.from_pml(mod,data['program-point']), data['factor'])
@@ -213,7 +212,7 @@ module PML
       @scope, @lhs, @op, @rhs = scope, lhs, op, rhs
       @attributes = attributes
       raise Exception.new("No level attribute!") unless level
-      set_data(data)
+      set_yaml_repr(data)
     end
 
     # whether this flow fact has a symbolic constant (not fully supported)
@@ -240,7 +239,7 @@ module PML
     def to_pml
       assert("no 'level' attribute for flow-fact") { level }
       { 'scope' => scope.data,
-        'lhs' => lhs.to_pml,
+        'lhs' => lhs.data,
         'op' => op,
         'rhs' => rhs,
       }.merge(attributes)
@@ -350,7 +349,7 @@ module PML
       attr_reader :min,:max
     def initialize(min, max, data =nil)
       @min, @max = min, max
-      set_data(data)
+      set_yaml_repr(data)
     end
     def inspect
       "ValueRange<min=#{min.inspect},max=#{max.inspect}>"
@@ -381,7 +380,7 @@ module PML
     def initialize(programpoint, variable, width, values, attrs, data = nil)
       @programpoint, @variable, @width, @values = programpoint, variable, width, values
       @attributes = attrs
-      set_data(data)
+      set_yaml_repr(data)
     end
     def ValueFact.from_pml(pml, data)
       fs = pml.functions_for_level(data['level'])
@@ -392,13 +391,13 @@ module PML
                     data)
     end
     def to_pml
-      { 'program-point' => @programpoint.to_pml,
+      { 'program-point' => @programpoint.data,
         'variable' => @variable,
         'width' => @width,
-        'values' => @values.to_pml }.merge(attributes)
+        'values' => @values.data }.merge(attributes)
     end
     def to_s
-      to_pml.to_s
+      data.to_s
     end
   end
 
@@ -407,23 +406,27 @@ module PML
     extend PMLListGen
     pml_list(:TimingEntry, [], [:origin])
   end
-  class BlockTimingList < PMLList
+  class Profile < PMLList
     extend PMLListGen
-    pml_list(:BlockTiming, [:reference], [])
+    pml_list(:ProfileEntry, [:reference], [])
   end
-  class BlockTiming < PMLObject
-    attr_reader :reference, :cycles, :wcetfreq
-    def initialize(reference, cycles, wcetfreq, data = nil)
-      @reference, @cycles, @wcetfreq = reference, cycles, wcetfreq
-      set_data(data)
+  class ProfileEntry < PMLObject
+    attr_reader :reference, :cycles, :wcetfreq, :criticality, :wcet_contribution
+    def initialize(reference, cycles, wcetfreq, wcetcontrib, criticality=nil, data = nil)
+      @reference, @cycles, @wcetfreq, @criticality = reference, cycles, wcetfreq, criticality
+      set_yaml_repr(data)
     end
-    def BlockTiming.from_pml(fs, data)
-      BlockTiming.new(ContextRef.from_pml(fs,data['reference']), data['cycles'], data['frequency'], data)
+    def ProfileEntry.from_pml(fs, data)
+      ProfileEntry.new(ContextRef.from_pml(fs,data['reference']), data['cycles'],
+                       data['wcet_frequency'], data['wcet_contribution'], data['criticality'], data)
+    end
+    def criticality=(c)
+      @criticality = c
+      @data['criticality'] = c if @data
     end
     def to_pml
-      pml = { 'reference' => reference.to_pml, 'cycles' => cycles }
-      pml['frequency'] = wcetfreq if wcetfreq
-      pml
+      { 'reference' => reference.data, 'cycles' => cycles, 'wcet_frequency' => wcetfreq,
+        'criticality' => criticality, 'wcet_contribution' => wcet_contribution }.delete_if {|k,v| v.nil? }
     end
     def to_s
       data
@@ -432,35 +435,35 @@ module PML
 
   # timing entries are used to record WCET analysis results or measurement results
   class TimingEntry < PMLObject
-    attr_reader :cycles, :scope, :blocktiming
+    attr_reader :cycles, :scope, :profile
     attr_reader :attributes
     include ProgramInfoObject
 
-    def initialize(scope, cycles, blocktiming, attrs, data = nil)
+    def initialize(scope, cycles, profile, attrs, data = nil)
       @scope = scope
       @cycles = cycles
-      @blocktiming = blocktiming
+      @profile = profile
       @attributes = attrs
-      set_data(data)
+      set_yaml_repr(data)
+    end
+    def profile=(p)
+      @profile = p
+      @data['profile'] = @profile.data if @data
     end
     def TimingEntry.from_pml(pml, data)
       fs = pml.functions_for_level(data['level'])
-      blocktiming = if data['blocktiming']
-                      BlockTimingList.from_pml(fs, data['blocktiming'])
-                    else
-                      BlockTimingList.new([])
-                    end
+      profile = data['profile'] ? Profile.from_pml(fs, data['profile']) : nil
       TimingEntry.new(Reference.from_pml(fs,data['scope']), data['cycles'],
-                      blocktiming,
+                      profile,
                       ProgramInfoObject.attributes_from_pml(pml,data), data)
     end
     def to_pml
-      pml = { 'scope' => @scope.to_pml, 'cycles' => @cycles }.merge(attributes)
-      pml['blocktiming'] = @blocktiming.to_pml unless @blocktiming.empty?
+      pml = { 'scope' => @scope.data, 'cycles' => @cycles }.merge(attributes)
+      pml['profile'] = @profile.data if @profile
       pml
     end
     def to_s
-      to_pml.to_s
+      "#<TimingEntry: scope=#{scope}, cycles=#{cycles} cycles,#{attributes.map{|k,v|"#{k}=#{v}"}.join(",")}>"
     end
   end
 

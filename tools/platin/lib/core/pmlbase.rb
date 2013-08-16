@@ -118,14 +118,20 @@ module PML
       PMLDoc.new(data)
     end
 
-    def try
-      backup = flowfacts,valuefacts,timing
+    #
+    # used if some modifications to the PML database should not become permanent
+    # saves the specified sections before yielding, and restores them afterwards
+    def with_temporary_sections(temporary_sections = [:flowfacts, :valuefacts, :timing])
+      backup = temporary_sections.map { |s| self.send(s) }
       begin
-        @flowfacts = flowfacts.dup
-        @timing = timing.dup
+        temporary_sections.map { |s|
+          instance_variable_set("@#{s}", Marshal.load(Marshal.dump(self.send(s))))
+        }
         r = yield
       ensure
-        @flowfacts, @valuefacts, @timing = backup
+        temporary_sections.zip(backup).each { |s,b|
+          instance_variable_set("@#{s}",b)
+        }
       end
       r
     end
@@ -221,39 +227,64 @@ module PML
   require 'arch/arm'
 
   # PML entities provide a method data to access the YAML representation
-  # By default, it returns to_pml (cached in the instance variable @data)
+  # In the constructor, PMLObjects should call set_yaml_repr(yaml_data) if there is
+  # an existing YAML representation available.
+  # Additionally, every PML object needs to implement to_pml (to generate the YAML representation),
+  # and must keep YAML and instance variables in sync at all times.
   class PMLObject
-    # The PML data corresponding to the object
-    def data
-      return @data if @data
-      @data = to_pml
-    end
-    def to_pml
-      return @data if @data
-      raise Exception.new("#{self.class}: to_pml not implemented and not data available")
-    end
-    protected
 
-    # Set data (usually during construction)
-    # If not data is available, use dat=nil
-    def set_data(dat)
-      @data = dat
+    def data
+      # on-demand construction of the YAML representation
+      @data = to_pml unless @data
+      @data
+    end
+
+    private
+
+    def to_pml
+      # return cached YAML representation, if available
+      return @data if @data
+      raise Exception.new("#{self.class}: to_pml not implemented")
+    end
+
+    # set YAML representation, if not nil
+    def set_yaml_repr(dat)
+      @data = dat unless dat.nil?
     end
   end
 
   # A PML list is a list of PML objects, along with a data representation
-  # It provides indexing facilities for subclasses
+  # It provides indexing facilities and keeps the list representation in sync
   class PMLList < PMLObject
+    include Enumerable
     attr_reader :list
     def to_s
       list.to_s
     end
     def to_pml
-      list.map { |t| t.to_pml }
+      list.map { |t| t.data }
     end
-    # delegator to list (which should be frozen)
-    def method_missing(method, *args, &block)
-      list.send(method, *args, &block)
+    def add(item)
+      list.push(item)
+      if @data ; data.push(item.data) ; end
+      add_index(item)
+    end
+    def clear!
+      @list = []
+      @data = [] if @data
+    end
+    # basic list operations (delegators)
+    def length ; list.length ; end
+    def size ; length ; end
+    def empty? ; list.empty? ; end
+    def [](index) ; list[index]; end
+    def each(&block) ; list.each(&block) ; end
+    def push(item); add(item); end
+    def dup
+      self.class.new(@list.dup, data.dup)
+    end
+    def deep_clone
+      self.class.new(@list.map { |item| item.deep_clone }, nil)
     end
     def lookup(dict,key,name,error_if_missing=true)
       v = dict[key]
@@ -261,17 +292,6 @@ module PML
         raise Exception.new("#{self.class}#by_#{name}: No object with key '#{key}' in #{dict.inspect}")
       end
       v
-    end
-    def add(item)
-      list.push(item)
-      data.push(item.data)
-      add_index(item)
-    end
-    def dup
-      self.class.new(@list.dup, data.dup)
-    end
-    def deep_clone
-      self.class.new(@list.map { |item| item.deep_clone }, nil)
     end
     private
     def add_lookup(dict,key,val,name,opts={})
@@ -293,7 +313,7 @@ module PML
         def initialize(list, existing_data = nil)
           assert("#{self.class}#initialize: list must not be nil") { list }
           @list = list
-          set_data(existing_data)
+          set_yaml_repr(existing_data)
           build_index
         end
         def self.from_pml(ctx,data)
@@ -310,7 +330,7 @@ module PML
               k = item.send(:#{index})
               if k
                 if duplicate = @index_#{index}[k]
-                  raise Exception.new("#{self.class}#add_index(\#{item}): duplicate index #{index}: \#{duplicate.inspect}")
+                  raise Exception.new("#{self.class}#add_index(\#{item.inspect}): duplicate index #{index}: \#{duplicate.inspect}")
                 end
                 @index_#{index}[k] = item
               end

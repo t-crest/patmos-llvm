@@ -258,8 +258,7 @@ private
           current_node.last_index = index + current_instruction.delay_slots
           index = current_node.last_index + 1
           split_node = current_node
-          current_instruction.branch_targets.each { |bix|
-            succblock = function.blocks[bix]
+          current_instruction.branch_targets.each { |succblock|
             add_block_predecessor(block_predecessors,succblock,split_node)
           }
         else

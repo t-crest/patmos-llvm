@@ -111,7 +111,8 @@ module PML
   end
 
   def die(msg)
-    $stderr.puts(format_msg("FATAL",msg))
+    pos = Thread.current.backtrace[1]
+    $stderr.puts(format_msg("FATAL",pos+": "+msg))
     # $stderr.puts Thread.current.backtrace
     exit 1
   end

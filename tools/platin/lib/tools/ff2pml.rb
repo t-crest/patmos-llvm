@@ -30,6 +30,7 @@ class SweetFlowFactImport
     raise UnsupportedFlowFactException.new("loop scopes not yet supported", ffsrc) if ffsrc.quantifier != :total
     raise UnsupportedFlowFactException.new("loop scopes not yet supported", ffsrc) if ffsrc.scope.stmt
     raise UnsupportedFlowFactException.new("call strings not yet supported", ffsrc) unless ffsrc.callstring.empty?
+
     scope = @functions.by_name(ffsrc.scope.f)
     terms = ffsrc.constraint.vector.map { |pp,factor|
       Term.new(pp_to_pml(pp).ref, factor)

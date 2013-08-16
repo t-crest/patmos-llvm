@@ -354,11 +354,7 @@ class IPETEdge
   end
   def ref
     assert("IPETEdge#ref: not a CFG edge") { cfg_edge? }
-    if :exit == target
-      source.ref
-    else
-      EdgeRef.new(source, target)
-    end
+    (:exit == target) ? source.edge_to_exit : source.edge_to(target)
   end
   def to_s
     arrow  = @level == :src ? "~>" : "->"
@@ -442,11 +438,8 @@ class IPETModel
   # frequency of incoming is frequency of outgoing edges
   def add_block_constraint(block)
     return if block.predecessors.empty?
-    lhs = if block.successors.empty?
-            lhs = sum_incoming(block,-1) + [[IPETEdge.new(block,:exit,level),1]]
-          else
-            lhs = sum_incoming(block,-1) + sum_outgoing(block)
-          end
+    lhs = sum_incoming(block,-1) + sum_outgoing(block)
+    lhs.push [IPETEdge.new(block,:exit,level),1] if block.may_return?
     ipet.add_constraint(lhs,"equal",0,"structural_#{block.qname}",:structural)
   end
 
@@ -478,7 +471,7 @@ class IPETModel
     end
   end
   def edgeref_frequency(edgeref, factor = 1)
-    [[IPETEdge.new(edgeref.source, edgeref.target, level), factor ]]
+    [[IPETEdge.new(edgeref.source, edgeref.target ? edgeref.target : :exit, level), factor ]]
   end
   def sum_incoming(block, factor=1)
     block.predecessors.map { |pred|
@@ -503,7 +496,7 @@ class IPETModel
       bb.successors.each do |bb2|
         yield IPETEdge.new(bb,bb2,level)
       end
-      if bb.successors.empty? # returns
+      if bb.may_return?
         yield IPETEdge.new(bb,:exit,level)
       end
     end
@@ -538,7 +531,7 @@ class IPETBuilder
   def build(entry, opts = { :mbb_variables =>  false })
     mf_functions = reachable_set(entry[:dst]) do |mf_function|
       succs = Set.new
-      mf_function.each_callsite { |cs|
+      mf_function.callsites.each { |cs|
         next if @mc_model.infeasible.include?(cs.block)
         if cs.unresolved_call?
             if ! @mc_model.calltargets[cs]
@@ -864,10 +857,10 @@ private
 
       # Constraint is boring if it was derived from positivity and structural constraints only
       interesting = constr.tags.any? { |tag| tags.include?(tag) }
-      debug(options, :ipet) {
-        "#{interesting ? 'INTERESTING' : 'BORING'} transformed constraint #{name} #{constr.tags.to_a}: #{constr}"
-      }
       next unless interesting
+      debug(options, :ipet) {
+        "Adding transformed constraint #{name} #{constr.tags.to_a}: #{constr}"
+      }
 
       # Simplify: edges->block if possible (lossless; see eliminate_edges for potentially lossy transformation)
       unless lhs.any? { |var,_| ! var.kind_of?(IPETEdge) }
@@ -878,7 +871,7 @@ private
         #     and replace edges by block
         out_blocks.keys.each { |b|
           edges = b.successors.map { |b2| IPETEdge.new(b,b2,target_level) }
-          edges = [ IPETEdge.new(b,:exit,target_level) ] if edges.empty?
+          edges = [ IPETEdge.new(b,:exit,target_level) ] if b.may_return?
           min_coeff = edges.map { |e| lhs[e] }.min
           if min_coeff != 0
             edges.each { |e| lhs[e] -= min_coeff ; lhs.delete(e) if lhs[e] == 0 }
@@ -890,8 +883,10 @@ private
       # Create flow-fact
       terms = TermList.new(lhs.map { |v,c| Term.new(v.ref,c) })
       scope = entry[target_level]
-      info "Adding transformed constraint #{constr} -> in #{scope} :" +
-           "#{terms} #{constr.op} #{constr.rhs}" if options.verbose
+      debug(options,:ipet) {
+        "Adding transformed constraint #{constr} -> in #{scope} :" +
+        "#{terms} #{constr.op} #{constr.rhs}"
+      }
       ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs, attrs.dup)
       new_flowfacts.push(ff)
     end

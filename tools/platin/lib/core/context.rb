@@ -159,7 +159,7 @@ end
 #
 # callstring entry (either call edge or loop edge)
 #
-class ContextEntry
+class ContextEntry < PMLObject
   def ContextEntry.from_pml(functions,data)
     if data['loop']
       LoopContextEntry.from_pml(functions,data)
@@ -171,19 +171,20 @@ end
 
 class CallContextEntry < ContextEntry
   attr_reader :callsite,:callee
-  def initialize(callsite)
+  def initialize(callsite, data = nil)
     @callsite = callsite
+    set_yaml_repr(data)
   end
   def to_pml
     { 'callsite' => @callsite.qname }
   end
   def CallContextEntry.from_pml(functions, data)
     ref = InstructionRef.from_qname(functions,data['callsite'])
-    raise Exception.new("CallContextEntry#from_pml: callsite is not an instruction") unless ref.kind_of?(InstructionRef)
-    CallContextEntry.new(ref.instruction)
+    assert("CallContextEntry#from_pml: callsite is not an instruction") { ref.kind_of?(InstructionRef) }
+    CallContextEntry.new(ref.instruction, data)
   end
   def dup
-    CallContextEntry.new(callsite,callee)
+    CallContextEntry.new(callsite)
   end
   def inspect
     "#<CallContextEntry #{object_id}: #{callsite}>"
@@ -221,25 +222,26 @@ end
 #
 class LoopContextEntry < ContextEntry
   attr_reader :callsite,:loop,:offset,:step
-  def initialize(loop,step=1,offset=0,callsite)
+
+  def initialize(loop,step=1,offset=0,callsite=nil,data=nil)
     assert("Loop context: no loop given (#{loop})") { loop.kind_of?(Block) }
     @loop, @step, @offset, @callsite = loop,step,offset,callsite
     @callsite = nil if @loop.has_preheader? # no interesting information
+    set_yaml_repr(data)
   end
-  def dup
-    LoopContextEntry.new(@loop,@step,@offset,@callsite)
-  end
+
   # XXX: little bit hackish
   def to_pml
-    pml = { 'loop' => @loop.qname,
-            'step' => @step,
-            'offset' => @offset }
-    pml['callsite'] = @callsite.qname if @callsite
-    pml
+    @data = { 'loop' => @loop.qname,
+              'step' => @step,
+              'offset' => @offset }
+    @data['callsite'] = @callsite.qname if @callsite
+    @data
   end
+
   def LoopContextEntry.from_pml(functions, data)
     ref = LoopRef.from_qname(functions,data['loop'])
-    raise Exception.new("LoopContextEntry#from_pml: loop is not a loop reference") unless ref.kind_of?(LoopRef)
+    assert("LoopContextEntry#from_pml: loop is not a loop reference") { ref.kind_of?(LoopRef) }
     step = data['step']
     offset = data['offset']
     callsite = InstructionRef.from_qname(data['callsite']).instruction if data['callsite']
@@ -257,8 +259,8 @@ class LoopContextEntry < ContextEntry
   def check_and_normalize(offset,step,peel,unroll)
     raise Exception.new("LoopContextEntry: step #{step} or offset #{offset} negative") if offset < 0 || step < 0
     if step != 0
-      raise Exception.new("LoopContextEntry: step #{step} does not match unroll factor #{unroll}") unless step = unroll
-      raise Execption.new("LoopContextEntry: offset #{offset} to small for peel factor #{peel}") unless offset >= peel
+      assert("LoopContextEntry: step #{step} does not match unroll factor #{unroll}") { step == unroll }
+      assert("LoopContextEntry: offset #{offset} to small for peel factor #{peel}")   { offset >= peel }
       [peel + (offset - peel)%unroll, unroll]
     else
       if offset >= peel
@@ -268,6 +270,7 @@ class LoopContextEntry < ContextEntry
       end
     end
   end
+
   #
   # Given that we are in loop iteration (offset+step*k),
   # compute next iterations (offset+step*k + 1)
@@ -293,11 +296,15 @@ class LoopContextEntry < ContextEntry
       [ LoopContextEntry.new(@loop, s2, o2, @callsite) ]
     end
   end
-  def inspect
-    "#<LoopContextEntry #{object_id}: #{callsite}->#{loop} #{offset}+#{step} k>"
+
+  def dup
+    LoopContextEntry.new(@loop,@step,@offset,@callsite)
   end
   def to_s
     qname
+  end
+  def inspect
+    "#<LoopContextEntry #{object_id}: #{callsite}->#{loop} #{offset}+#{step} k>"
   end
   def qname
     return @qname if @qname
@@ -334,10 +341,10 @@ class Context < PMLObject
       callstring.kind_of?(BoundedStack)
     }
     @callstring = callstring
-    set_data(data)
+    set_yaml_repr(data)
   end
   def to_pml
-    @callstring.to_a.map { |cs| cs.to_pml }
+    @callstring.to_a.map { |cs| cs.data }
   end
   def Context.from_pml(functions, data)
     cs = data.map { |ref| ContextEntry.from_pml(functions,ref) }
@@ -365,7 +372,7 @@ class Context < PMLObject
     Context.new(@callstring.map_top { |e| yield e })
   end
   def Context.callstack_suffix(stack, length)
-    return Context.new(BoundedStack.empty)             if length == 0
+    return Context.new(BoundedStack.empty) if length == 0
     start = (length >= stack.length) ? 0 : (-length)
     entries = stack[start..-1].map { |callsite|
       CallContextEntry.new(callsite)
@@ -373,7 +380,9 @@ class Context < PMLObject
     Context.new(BoundedStack.create(entries))
   end
   def Context.from_list(list)
-    assert("Context.from_list: not a list of context entries (#{list.first.class})") { list.all? { |e| e.kind_of?(ContextEntry) } }
+    assert("Context.from_list: not a list of context entries (#{list.first.class})") {
+      list.all? { |e| e.kind_of?(ContextEntry) }
+    }
     Context.new(BoundedStack.create(list.reverse))
   end
   def to_a
@@ -414,14 +423,14 @@ class ContextRef < PMLObject
     assert("ContextRef: reference has bad type #{ref.class}") { ref.kind_of?(Reference) }
     assert("ContextRef: context has bad type #{context.class}") { context.kind_of?(Context) }
     @reference, @context = ref, context
-    set_data(data)
+    set_yaml_repr(data)
   end
+
   #
   # compact notation (introduced so LLVM exported does not need to fight with contexts):
-  #
   def to_pml
-    pml = @reference.to_pml
-    pml['context'] = @context.to_pml unless @context.empty?
+    pml = @reference.data.dup # dup as we modify key
+    pml['context'] = @context.data unless @context.empty?
     pml
   end
   def ContextRef.from_pml(functions, data)
@@ -467,8 +476,7 @@ end
 
 #
 # fairly generic context manager
-# loop contexts are disabled if looppeel = 0= and loopunroll == 1
-#
+# loop contexts are disabled if looppeel == 0 and loopunroll == 1
 class ContextManager
   def initialize(history_length, looppeel = 0, loopunroll = 1)
     raise Exception.new("ContextManager: history_length>=1 is required") unless history_length >= 1
@@ -549,8 +557,7 @@ if __FILE__ == $0
       c2 = fs['f'].blocks.first.instructions.first
       c = @ctxm1.push_call(c, c1)
       c = @ctxm1.push_call(c, c2)
-      pml = c.to_pml
-      c_from = Context.from_pml(fs,c.to_pml)
+      c_from = Context.from_pml(fs,c.data)
       assert_equal(c, c_from)
       c, site = @ctxm1.pop_call(c)
       assert_equal(c2,site)
@@ -589,10 +596,7 @@ if __FILE__ == $0
       l1 = fs['f'].blocks.first
       c = @ctxm2.push_call(c, c1)
       c = @ctxm2.enter_loop(c, l1)
-      puts c
-      pml = c.to_pml
-      puts pml
-      c_from = Context.from_pml(fs,c.to_pml)
+      c_from = Context.from_pml(fs,c.data)
       assert_equal(c, c_from)
       c = @ctxm2.push_call(c, c2)
       c, site = @ctxm2.pop_call(c)

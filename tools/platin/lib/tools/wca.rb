@@ -73,8 +73,8 @@ class WcaTool
         src = edge.source
         branch_index = nil
         src.instructions.each_with_index { |ins,ix|
-          if btargets = ins['branch-targets'] # XXX ugly
-            if btargets.include?(edge.target.name)
+          if ! ins.branch_targets.empty? && edge.target != :exit
+            if ins.branch_targets.include?(edge.target.name)
               branch_index = ix
             end
           end
@@ -108,12 +108,32 @@ class WcaTool
     begin
       cycles,freqs = builder.ilp.solve_max
     rescue Exception => ex
-      warn("WCA: ILP failed: #{ex}")
+      warn("WCA: ILP failed: #{ex}") unless options.disable_ipet_diagnosis
       cycles,freqs = -1, {}
     end
     statistics("WCA",
                "ilp variables" => builder.ilp.num_variables,
                "ilp constraints" => builder.ilp.constraints.length) if options.stats
+
+
+    # report result
+    profile = Profile.new([])
+    report = TimingEntry.new(machine_entry.ref, cycles, profile,
+                             'num_constraints' => builder.ilp.constraints.length,
+                             'solvertime' => builder.ilp.solvertime,
+                             'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
+    # collect edge timings
+    edgefreq, edgecost = {}, Hash.new(0)
+    freqs.each { |v,freq|
+      edgecost = builder.ilp.get_cost(v)
+      freq = freq.to_i
+      if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
+        die("ILP cost: not an IPET edge") unless v.kind_of?(IPETEdge)
+        die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
+        ref = ContextRef.new(v.ref, Context.empty)
+        profile.add(ProfileEntry.new(ref, edgecost, freq, edgecost*freq))
+      end
+    }
 
     if options.verbose
       puts "Cycles: #{cycles}"
@@ -124,14 +144,7 @@ class WcaTool
         puts "  #{v}: #{freqs[v]} (#{cost} cyc)"
       }
     end
-
-    # report result
-    report = TimingEntry.new(machine_entry.ref, cycles,BlockTimingList.new([]),
-                             'num_constraints' => builder.ilp.constraints.length,
-                             'solvertime' => builder.ilp.solvertime,
-                             'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     pml.timing.add(report)
-
     pml
   end
 end

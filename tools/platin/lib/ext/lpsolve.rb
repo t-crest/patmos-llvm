@@ -23,7 +23,7 @@ class LpSolveILP < ILP
   def initialize(options = nil)
     super(options)
     @eps = EPS
-    @do_diagnose = true
+    @do_diagnose = ! options.disable_ipet_diagnosis
   end
   # run solver to find maximum cost
   def solve_max

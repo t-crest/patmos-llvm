@@ -38,7 +38,7 @@ class AnalyzeTraceTool
     @executed_blocks = @main_recorder.executed_blocks
     @infeasible_functions = Set.new
     @executed_blocks.each do |function,bset|
-      function.each_callsite do |cs|
+      function.callsites.each do |cs|
         next if cs.unresolved_call?
         cs.callees.each do |callee|
           f = @pml.machine_functions.by_label(callee)
@@ -92,7 +92,7 @@ class AnalyzeTraceTool
     global_recorders = @main_recorder.global_recorders
     if ! global_recorders.empty?
       global = global_recorders.first
-      outpml.timing.add(TimingEntry.new(global.scope,global.results.cycles.max,BlockTimingList.new([]),fact_context))
+      outpml.timing.add(TimingEntry.new(global.scope,global.results.cycles.max,nil,fact_context))
     end
 
     flow_facts_before = @pml.flowfacts.length
@@ -110,7 +110,9 @@ class AnalyzeTraceTool
         receivers = receiverset.map { |f|
           ContextRef.new(FunctionRef.new(f), receiver_call_context)
         }
-        outpml.flowfacts.add(FlowFact.calltargets(scope, caller_ref, receivers, fact_context))
+        ff = FlowFact.calltargets(scope, caller_ref, receivers, fact_context)
+        debug(options,:trace) { "Adding trace flowfact #{ff}" }
+        outpml.flowfacts.add(ff)
       end
       # Export block frequencies; infeasible blocks are necessary for WCET analysis
       recorder.results.blockfreqs.each do |pp,freq|

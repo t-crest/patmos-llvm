@@ -31,8 +31,8 @@ class FlowGraphVisualizer < Visualizer
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
     vcfg = VCFG.new(function, arch)
-    name = function['name'].to_s
-    name << "/#{function['mapsto']}" if function['mapsto']
+    name = function.name.to_s
+    name << "/#{function.mapsto}" if function.mapsto
     g[:label] = "CFG for " + name
     nodes = {}
     vcfg.nodes.each do |node|
@@ -46,15 +46,14 @@ class FlowGraphVisualizer < Visualizer
         label += "CALL #{node.callsite.callees.map { |c| "#{c}()" }.join(",")}"
       elsif node.kind_of?(BlockSliceNode)
         block = node.block
+        addr = block.instructions[node.first_index].address
+        label += sprintf("0x%x: ",addr) if addr
         label += "#{block.name}"
-        label << "(#{block['mapsto']})" if block['mapsto']
+        label << "(#{block.mapsto})" if block.mapsto
         label << " [#{node.first_index}..#{node.last_index}]"
       elsif node.kind_of?(LoopStateNode)
         label += "LOOP #{node.action} #{node.loop.name}"
       end
-      #    block['instructions'].each do |ins|
-      #      label << "\n#{ins['opcode']} #{ins['size']}"
-      #    end
       nodes[nid] = g.add_nodes(nid.to_s, :label => label)
     end
     vcfg.nodes.each do |node|
@@ -67,14 +66,14 @@ class FlowGraphVisualizer < Visualizer
   def visualize_cfg(function)
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
-    name = function['name'].to_s
-    name << "/#{function['mapsto']}" if function['mapsto']
+    name = function.name.to_s
+    name << "/#{function.mapsto}" if function.mapsto
     g[:label] = "CFG for " + name
     nodes = {}
     function.blocks.each do |block|
       bid = block.name
       label = "#{block.name}"
-      label << " (#{block['mapsto']})" if block['mapsto']
+      label << " (#{block.mapsto})" if block.mapsto
       label << " L#{block.loops.map {|b| b.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
       if options.show_calls
@@ -84,8 +83,8 @@ class FlowGraphVisualizer < Visualizer
           end
         end
       end
-      #    block['instructions'].each do |ins|
-      #      label << "\n#{ins['opcode']} #{ins['size']}"
+      #    block.instructions.each do |ins|
+      #      label << "\n#{ins.opcode} #{ins.size}"
       #    end
       nodes[bid] = g.add_nodes(bid.to_s, :label => label)
     end

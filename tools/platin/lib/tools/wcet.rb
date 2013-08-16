@@ -14,19 +14,40 @@ require 'tools/ff2pml'
 require 'tools/sweet'
 require 'tmpdir'
 
+# High-Level Wrapper for aiT
+# XXX: Internal tool; move into different directory; these tools are not visible on the command line)
+class AitTool
+  def AitTool.run(pml,opts)
+    AisExportTool.run(pml,opts)
+    ApxExportTool.run(pml,opts)
+    AitAnalyzeTool.run(pml, opts)
+    AitImportTool.run(pml,opts)
+  end
+  def AitTool.add_config_options(opts)
+    AisExportTool.add_config_options(opts)
+    ApxExportTool.add_config_options(opts)
+    AitAnalyzeTool.add_config_options( opts)
+    AitImportTool.add_config_options(opts)
+  end
+end
+
 #
 # WCET Analysis command line tool
 # Clients may subclass the WcetTool to implement benchmark drivers
 #
 class WcetTool
-  TOOLS = [ExtractSymbolsTool,
-           AnalyzeTraceTool,
-           WcaTool,
-           AlfTool, SweetAnalyzeTool, SweetImportTool,
-           AisExportTool,ApxExportTool, AitAnalyzeTool,AitImportTool]
+  TOOLS = [ ExtractSymbolsTool,
+            AnalyzeTraceTool,
+            WcaTool,
+            AitTool,
+            AlfTool, SweetAnalyzeTool, SweetImportTool ]
   attr_reader :pml, :options
   def initialize(pml, opts)
     @pml, @options = pml, opts.dup
+  end
+
+  def analysis_entry
+    pml.machine_functions.by_label(options.analysis_entry)
   end
 
   def time(descr)
@@ -59,7 +80,7 @@ class WcetTool
 
   def prepare_pml
     # Sanity check and address extraction
-    rgs = pml.relation_graphs.select { |rg| rg.data['status'] != 'valid' && rg.src.name != "abort" }
+    rgs = pml.relation_graphs.list.select { |rg| rg.data['status'] != 'valid' && rg.src.name != "abort" }
     warn("Problematic Relation Graphs: #{rgs.map { |rg| "#{rg.qname} / #{rg.data['status']}" }.join(", ")}") unless rgs.empty?
 
     # Extract Symbols
@@ -123,37 +144,141 @@ class WcetTool
   def wcet_analysis_platin(srcs)
     time("run WCET analysis (platin)") do
       opts = options.dup
+      opts.import_block_timing = true if opts.compute_criticalities
       opts.timing_output = [opts.timing_output,'platin'].compact.join("/")
       opts.flow_fact_selection ||= "all"
       opts.flow_fact_srcs = srcs
       WcaTool.run(pml, opts)
+      compute_criticalities(opts) { |pml,tmp_opts,src,round|
+        tmp_opts.flow_fact_srcs.push(src)
+        WcaTool.run(pml,tmp_opts)
+      } if opts.compute_criticalities
     end
   end
 
   def wcet_analysis_ait(srcs)
     time("run WCET analysis (aiT)") do
-      # Simplify flow facts
-      simplified_sources = []
-      opts = options.dup
-      opts.flow_fact_selection ||= "all"
-      srcs.each { |src|
-        opts.flow_fact_srcs   = [src]
-        simplified_sources.push(opts.flow_fact_output = src + ".simplified")
-        opts.transform_action = 'simplify'
-        opts.transform_eliminate_edges = true
-        TransformTool.run(pml, opts)
-      }
-      # run WCET analysis
-      opts.flow_fact_selection = "all"
-      opts.flow_fact_srcs = simplified_sources
-      opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
-      AisExportTool.run(pml,opts)
-      ApxExportTool.run(pml,opts)
-      AitAnalyzeTool.run(pml, opts)
-      AitImportTool.run(pml,opts)
-      pml.flowfacts.reject! { |ff| ff.origin == '.aiT' }
+      pml.with_temporary_sections([:flowfacts]) do
+
+        # Simplify flow facts
+        simplify_flowfacts(srcs, options)
+        simplified_sources =  srcs.map { |src| src + ".simplified" }
+
+        # run WCET analysis
+        opts = options.dup
+        opts.flow_fact_selection = "all"
+        opts.import_block_timing = true if opts.compute_criticalities
+        opts.flow_fact_srcs = simplified_sources
+        opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
+        AitTool.run(pml,opts)
+
+        # criticality analysis
+        compute_criticalities(opts) { |pml,tmp_opts,src,round|
+          simplify_flowfacts([src], tmp_opts)
+          tmp_opts.flow_fact_srcs.push(src+".simplified")
+          configure_ait_files(tmp_opts, File.dirname(options.ait_report_prefix), "criticality", true)
+          AitTool.run(pml,tmp_opts)
+        } if opts.compute_criticalities
+      end
     end
   end
+
+  def simplify_flowfacts(srcs, opts)
+    opts = opts.dup
+    opts.flow_fact_selection ||= "all"
+    srcs.each { |src|
+      opts.flow_fact_srcs    = [src]
+      opts.flow_fact_output = src + ".simplified"
+      opts.transform_action = 'simplify'
+      opts.transform_eliminate_edges = true
+      TransformTool.run(pml, opts)
+    }
+  end
+
+  def compute_criticalities(opts)
+    # opts = opts.dup
+    criticality = {}
+    missing_blocks, missing_edges = Set.new, Set.new
+    pml.machine_functions.each { |f|
+      f.blocks.each { |b| missing_blocks.add(b.ref) }
+      f.edges.each { |e| missing_edges.add(e) }
+    }
+    timing = pml.timing.find { |t| t.origin == opts.timing_output }
+    wcet_cycles = timing.cycles
+    round, found_new_edge = 0, true
+    while true
+      cycles = timing.cycles
+      info("Criticality Iteration #{round+=1}: #{cycles} (blockmode=#{! missing_blocks.nil?})")
+      if cycles < 0
+        if missing_blocks
+          missing_blocks = nil
+        else
+          debug(opts,:wcet) { "compute_criticalities: no more feasible edges" }
+          break
+        end
+      else
+        found_new_edge = false
+        timing.profile.each { |t|
+          next unless t.wcetfreq > 0
+          unless criticality[t.reference.reference]
+            criticality[t.reference.reference] = cycles
+            missing_blocks.delete(t.reference.reference.source.ref) if missing_blocks
+            missing_edges.delete(t.reference.reference)
+            found_new_edge = true
+          end
+        }
+        if missing_edges.empty?
+          debug(opts,:wcet) { "compute_criticalities: 100% edge coverage" }
+          break
+        end
+        unless found_new_edge
+          if missing_blocks
+            missing_blocks = nil
+          else
+            warn("compute_criticalities: Feasible problem, so we should have detected new edges on WCET path")
+            break
+          end
+        end
+      end
+      ff = enforce_blocks_constraint(missing_blocks ? missing_blocks : missing_edges, '.criticality')
+      pml.with_temporary_sections([:flowfacts,:timing]) do
+        debug(opts,:wcet) { "Adding constraint to enforce different WCET path: #{ff}" }
+        pml.flowfacts.push(ff)
+        pml.timing.clear!
+        opts.disable_ipet_diagnosis = true
+        yield pml,opts,'.criticality',round
+        timing = pml.timing.find { |t| t.origin == opts.timing_output }
+      end
+    end
+
+    # done, report
+    missing_edges.each { |e| criticality[e] = 0 }
+    debug(options, :wcet) { |&msgs| criticality.each { |k,v| msgs.call("#{k}: #{v.to_f / wcet_cycles}") } }
+
+    # TODO: create context-free profile, unless available
+    timing = pml.timing.find { |t| t.origin == opts.timing_output }
+
+    criticality.each { |ref,v|
+      ref = ContextRef.new(ref,Context.empty)
+      crit = v.to_f / wcet_cycles
+      pe = timing.profile.by_reference(ref)
+      unless pe
+        pe = ProfileEntry.new(ref, nil, nil, nil, crit)
+        timing.profile.add(pe)
+      end
+      pe.criticality = crit
+    }
+  end
+
+  def enforce_blocks_constraint(edges_or_blocks, origin)
+    attrs = { 'level' => 'machinecode', 'origin' => origin }
+    scoperef = analysis_entry.ref
+    terms = edges_or_blocks.map { |ppref|
+      Term.new(ppref, -1)
+    }
+    FlowFact.new(scoperef, TermList.new(terms), 'less-equal', -1, attrs)
+  end
+
 
   def report(additional_keys = [])
     results = summarize_results(additional_keys)
@@ -199,7 +324,7 @@ class WcetTool
       tmpdir = outdir = Dir.mktmpdir() unless options.outdir
       mod = File.basename(options.binary_file, ".elf")
 
-      configure_ait_files(outdir, mod, false) unless options.disable_ait
+      configure_ait_files(options, outdir, mod, false) unless options.disable_ait
 
       if options.enable_sweet
         options.alf_file = File.join(outdir, mod+".alf") unless options.alf_file
@@ -214,10 +339,10 @@ class WcetTool
   end
 
   # Configure files for aiT export
-  def configure_ait_files(outdir, basename, overwrite = true)
-    options.ais_file = File.join(outdir, "#{basename}.ais") unless (overwrite && options.ais_file)
-    options.apx_file = File.join(outdir, "#{basename}.apx") unless (overwrite && options.apx_file)
-    options.ait_report_prefix = File.join(outdir, "#{basename}.ait") unless (overwrite && options.ait_report_prefix)
+  def configure_ait_files(opts, outdir, basename, overwrite = true)
+    opts.ais_file = File.join(outdir, "#{basename}.ais") unless (!overwrite && opts.ais_file)
+    opts.apx_file = File.join(outdir, "#{basename}.apx") unless (!overwrite && opts.apx_file)
+    opts.ait_report_prefix = File.join(outdir, "#{basename}.ait") unless (!overwrite && opts.ait_report_prefix)
   end
 
   def WcetTool.run(pml,options)
@@ -238,7 +363,7 @@ class WcetTool
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }
     opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
     opts.on("--enable-wca", "run platin WCA calculator") { |d| opts.options.enable_wca = true }
-
+    opts.on("--compute-criticalities", "calculate block criticalities") { opts.options.compute_criticalities = true }
     opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
     use_sweet = Proc.new { |options| options.enable_sweet }
     opts.bitcode_file(use_sweet)
