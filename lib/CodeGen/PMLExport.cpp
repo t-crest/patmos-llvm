@@ -229,7 +229,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
     // export loop information
     Loop *Loop = LI.getLoopFor(BI);
-    if (Loop) {
+    if (Loop && Loop->getHeader() == &*BI) {
       if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
 
         // check for constant loop bound
@@ -244,7 +244,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
         }
         // check for non-constant, symbolic loop bound
         const SCEV *BECount = SE.getBackedgeTakenCount(Loop);
-        if (!isa<SCEVCouldNotCompute>(BECount)) {
+        if (!isa<SCEVCouldNotCompute>(BECount) || !isa<SCEVConstant>(BECount)) {
           // check for Arguments using visitor
           SCEVCheckFormalArgs CheckFA;
           visitAll(BECount, CheckFA);
