@@ -351,7 +351,7 @@ class Context < PMLObject
     Context.new(BoundedStack.create(cs.reverse), data)
   end
   def qname
-    return @callstring.to_a.map { |cs| "<-#{cs.qname}" }.join("")
+    return @callstring.to_a.map { |cs| "(#{cs.qname})" }.join("")
   end
   def Context.empty
     Context.new(BoundedStack.empty)
@@ -457,7 +457,7 @@ class ContextRef < PMLObject
     "ContextRef<reference=#{reference.inspect},context=#{context.inspect}>"
   end
   def to_s
-    qname
+    "#{reference}#{context.qname}"
   end
   def ==(other)
     return false if other.nil?

@@ -73,16 +73,16 @@ class WcaTool
         src = edge.source
         branch_index = nil
         src.instructions.each_with_index { |ins,ix|
-          if ! ins.branch_targets.empty? && edge.target != :exit
-            if ins.branch_targets.include?(edge.target.name)
-              branch_index = ix
-            end
+          if ins.returns? && edge.target == :exit
+            branch_index = ix # last instruction that returns
+          elsif ! ins.branch_targets.empty? && ins.branch_targets.include?(edge.target)
+            branch_index = ix # last instruction that branches to the target
           end
         }
-        if branch_index
-          (branch_index + 1) + src.instructions[branch_index].delay_slots
-        else
+        if ! branch_index || (src.fallthrough_successor == edge.target)
           src.instructions.length
+        else
+          (branch_index + 1) + src.instructions[branch_index].delay_slots
         end
       end
     end

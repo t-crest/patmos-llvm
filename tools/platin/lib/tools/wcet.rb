@@ -22,6 +22,15 @@ class AitTool
     ApxExportTool.run(pml,opts)
     AitAnalyzeTool.run(pml, opts)
     AitImportTool.run(pml,opts)
+    if opts.verbose
+      timing = pml.timing.by_origin(opts.timing_output).last
+      puts "Cycles: #{timing.cycles}"
+      puts "Edge Profile:"
+      timing.profile.each { |pe|
+        next unless pe.wcetfreq > 0
+        puts "  #{pe.reference}: #{pe.wcetfreq} (#{pe.wcetfreq * pe.cycles} cyc)"
+      }
+    end
   end
   def AitTool.add_config_options(opts)
     AisExportTool.add_config_options(opts)
@@ -62,6 +71,9 @@ class WcetTool
   # replace this method in a benchmark subclass
   def run_analysis
     prepare_pml
+    unless analysis_entry
+      die("Analysis entry '#{options.analysis_entry}' not found (check for typos, inlined functions or code not reachable from program entry)")
+    end
     options.trace_analysis = true if options.use_trace_facts
     trace_analysis if options.trace_analysis
     sweet_analysis if options.enable_sweet
@@ -304,6 +316,7 @@ class WcetTool
       die("wcet check: Not timing for simulator trace") unless trace_cycles
       pml.timing.each { |te|
         next if te.origin == "trace"
+        next unless te.cycles >= 0
         if te.cycles + 1 < trace_cycles
           die("wcet check: cycles for #{te.origin} (#{te.cycles}) less than measurement (#{trace_cycles})")
         end

@@ -133,6 +133,9 @@ class TransformTool
 
     # Analysis Entry
     entry = pml.machine_functions.by_label(options.analysis_entry)
+    unless entry
+      raise Exception.new("Analysis Entry #{options.analysis_entry} not found")
+    end
 
     # Select flow facts
     flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["bitcode","machinecode"])

@@ -124,7 +124,7 @@ module PML
       source.function
     end
     def to_s
-      qname
+      "#{source.to_s}->#{target ? target.qname : 'exit'}"
     end
     def to_pml
       pml = { 'function' => source.function.name,
