@@ -184,6 +184,7 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
     case ISD::SMUL_LOHI:
     case ISD::UMUL_LOHI:          return LowerMUL_LOHI(Op, DAG);
     case ISD::VASTART:            return LowerVASTART(Op, DAG);
+    case ISD::FRAMEADDR:          return LowerFRAMEADDR(Op, DAG);
     default:
       llvm_unreachable("unimplemented operation");
   }
@@ -272,6 +273,19 @@ SDValue PatmosTargetLowering::LowerMUL_LOHI(SDValue Op,
 }
 
 
+SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
+  // check the depth
+  assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
+         "Frame address can only be determined for current frame.");
+
+  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
+  MFI->setFrameAddressIsTaken(true);
+  EVT VT = Op.getValueType();
+  DebugLoc DL = Op.getDebugLoc();
+  SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), DL,
+                                         Patmos::RFP, VT);
+  return FrameAddr;
+}
 
 
 //===----------------------------------------------------------------------===//
