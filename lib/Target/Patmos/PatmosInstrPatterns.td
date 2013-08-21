@@ -36,6 +36,10 @@ def : Pat<(sext_inreg RRegs:$r, i1), (SRAi (SLi RRegs:$r, (i32 31)), (i32 31))>;
 def : Pat<(add predsel:$p1, predsel:$p2), (PXOR predsel:$p1, predsel:$p2)>;
 def : Pat<(sub predsel:$p1, predsel:$p2), (PXOR predsel:$p1, predsel:$p2)>;
 
+// SET_CC operations, for combining results of SetCC.
+// TODO extend this for other operators, if needed.
+// TODO there should be a better way to do this ?!
+def : Pat<(setcc (i1 predsel:$p1), (i1 predsel:$p2), SETNE), (PXOR predsel:$p1, predsel:$p2)>;
 
 
 //def : Pat<(select RRegs:$rp, RRegs:$rs1, RRegs:$rs2), (CMOV (BTEST RRegs:$rp, 0), RRegs:$rs1, RRegs:$rs2)>;

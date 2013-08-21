@@ -144,7 +144,7 @@ namespace llvm {
     /// variadic functions.
     SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
 
-    /// LowerFRAMEADDR - Lower the
+    /// LowerFRAMEADDR - Lower the llvm.frameaddress intrinsic.
     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
 
     /// LowerMUL_LOHI - Lower Lo/Hi multiplications.

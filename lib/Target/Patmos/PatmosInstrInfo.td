@@ -620,14 +620,14 @@ def MOVrp : ALUc <0b0001, (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1),
 
 // Predicate Combine
 let neverHasSideEffects = 1 in
-class PredCombine<bits<4> opcode, string asmop>
+class PredCombine<bits<4> opcode, string asmop, SDNode opnode>
       : ALUp <opcode,
               (outs PRegs:$pd), (ins pred:$p, predset:$ps1, predset:$ps2),
-              asmop, "$pd = $ps1, $ps2", []>;
+              asmop, "$pd = $ps1, $ps2", [(set PRegs:$pd, (opnode predsel:$ps1, predsel:$ps2))]>;
 
-def POR:  PredCombine <0b0110, "por">;
-def PAND: PredCombine <0b0111, "pand">;
-def PXOR: PredCombine <0b1010, "pxor">;
+def POR:  PredCombine <0b0110, "por",  or>;
+def PAND: PredCombine <0b0111, "pand", and>;
+def PXOR: PredCombine <0b1010, "pxor", xor>;
 
 
 // Pseudos:
