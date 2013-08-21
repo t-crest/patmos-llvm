@@ -92,7 +92,7 @@ namespace llvm {
 
   class PMLBitcodeExport : public PMLExport {
   private:
-    yaml::Doc YDoc;
+    yaml::PMLDoc YDoc;
     Pass &P;
 
     yaml::FlowFact *createLoopFact(const BasicBlock *BB, yaml::Name RHS) const;
@@ -107,7 +107,7 @@ namespace llvm {
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
-    yaml::Doc& getDoc() { return YDoc; }
+    yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
     virtual bool doExportInstruction(const Instruction* Instr) { return true; }
 
@@ -118,7 +118,7 @@ namespace llvm {
 
   class PMLMachineExport : public PMLExport {
   private:
-    yaml::Doc YDoc;
+    yaml::PMLDoc YDoc;
 
     PMLInstrInfo *PII;
     Pass &P;
@@ -141,7 +141,7 @@ namespace llvm {
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
-    yaml::Doc& getDoc() { return YDoc; }
+    yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
     virtual bool doExportInstruction(const MachineInstr *Instr) { return true; }
 
@@ -174,7 +174,7 @@ namespace llvm {
 
   class PMLRelationGraphExport : public PMLExport {
   private:
-    yaml::Doc YDoc;
+    yaml::PMLDoc YDoc;
     Pass &P;
 
   public:
@@ -188,7 +188,7 @@ namespace llvm {
 
     virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
 
-    yaml::Doc& getDoc() { return YDoc; }
+    yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
   private:
 

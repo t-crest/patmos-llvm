@@ -547,7 +547,7 @@ struct GenericFormat {
 };
 
 
-struct Doc {
+struct PMLDoc {
   StringRef FormatVersion;
   StringRef TargetTriple;
   std::vector<BitcodeFunction*> BitcodeFunctions;
@@ -555,10 +555,14 @@ struct Doc {
   std::vector<RelationGraph*> RelationGraphs;
   std::vector<FlowFact*> FlowFacts;
 
-  Doc(StringRef TargetTriple)
+  PMLDoc()
+    : FormatVersion("pml-0.1"), TargetTriple("") {}
+
+  PMLDoc(StringRef TargetTriple)
     : FormatVersion("pml-0.1"),
       TargetTriple(TargetTriple) {}
-  ~Doc() {
+
+  ~PMLDoc() {
     DELETE_MEMBERS(BitcodeFunctions);
     DELETE_MEMBERS(MachineFunctions);
     DELETE_MEMBERS(RelationGraphs);
@@ -582,8 +586,8 @@ struct Doc {
   }
 };
 template <>
-struct MappingTraits< Doc > {
-  static void mapping(IO &io, Doc& doc) {
+struct MappingTraits< PMLDoc > {
+  static void mapping(IO &io, PMLDoc& doc) {
     io.mapRequired("format",   doc.FormatVersion);
     io.mapRequired("triple",   doc.TargetTriple);
     io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
@@ -593,9 +597,10 @@ struct MappingTraits< Doc > {
   }
 };
 
-
 } // end namespace yaml
 } // end namespace llvm
+
+LLVM_YAML_IS_DOCUMENT_LIST_VECTOR(PMLDoc)
 
 #undef DELETE_MEMBERS
 #endif

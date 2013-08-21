@@ -44,7 +44,17 @@ void PMLImport::anchor() {}
 
 void PMLImport::initializePass()
 {
+  if (ImportFile.empty()) {
+    return;
+  }
 
+  yaml::Input Input(ImportFile);
+
+  Input >> YDocs;
+
+  if (!Input.error()) {
+    Initialized = true;
+  }
 }
 
 bool PMLImport::isAvailable() const {

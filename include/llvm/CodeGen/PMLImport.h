@@ -15,6 +15,8 @@
 #define LLVM_CODEGEN_PMLIMPORT_H
 
 #include "llvm/Pass.h"
+#include "llvm/CodeGen/PML.h"
+
 
 namespace llvm {
 
@@ -23,12 +25,19 @@ namespace llvm {
   class Module;
 
   class PMLImport : public ImmutablePass {
+  private:
     virtual void anchor();
+
+    std::vector<yaml::PMLDoc> YDocs;
+
+    bool Initialized;
 
   public:
     static char ID;
 
-    PMLImport() : ImmutablePass(ID) {
+    PMLImport()
+    : ImmutablePass(ID), Initialized(false)
+    {
       PassRegistry &Registry = *PassRegistry::getPassRegistry();
       initializePMLImportPass(Registry);
     }
