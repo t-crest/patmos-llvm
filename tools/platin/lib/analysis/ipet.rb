@@ -14,6 +14,12 @@ class UnknownVariableException < Exception
   end
 end
 
+class InconsistentConstraintException < Exception
+  def initialize(msg)
+    super(msg)
+  end
+end
+
 
 # Indexed Constraints (normalized, with fast hashing)
 # Terms: Index => Integer != 0
@@ -212,7 +218,7 @@ class ILP
     terms_indexed.default=0
     constr = IndexedConstraint.new(self, terms_indexed, op, const_rhs, name, tags)
     return nil if constr.tautology?
-    raise Exception.new("Inconsistent constraint #{name}: #{constr}") if constr.inconsistent?
+    raise InconsistentConstraintException.new("Inconsistent constraint #{name}: #{constr}") if constr.inconsistent?
     constr
   end
 

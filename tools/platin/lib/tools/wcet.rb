@@ -216,10 +216,10 @@ class WcetTool
       f.edges.each { |e| missing_edges.add(e) }
     }
     timing = pml.timing.find { |t| t.origin == opts.timing_output }
+    cycles = timing.cycles
     wcet_cycles = timing.cycles
     round, found_new_edge = 0, true
     while true
-      cycles = timing.cycles
       info("Criticality Iteration #{round+=1}: #{cycles} (blockmode=#{! missing_blocks.nil?})")
       if cycles < 0
         if missing_blocks
@@ -258,8 +258,13 @@ class WcetTool
         pml.flowfacts.push(ff)
         pml.timing.clear!
         opts.disable_ipet_diagnosis = true
-        yield pml,opts,'.criticality',round
-        timing = pml.timing.find { |t| t.origin == opts.timing_output }
+        begin
+          yield pml,opts,'.criticality',round
+          timing = pml.timing.find { |t| t.origin == opts.timing_output }
+          cycles = timing.cycles
+        rescue InconsistentConstraintException => ex # Inconsistent problem
+          cycles = -1
+        end
       end
     end
 
