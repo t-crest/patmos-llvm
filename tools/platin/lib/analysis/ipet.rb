@@ -1,7 +1,7 @@
 #
 # platin tool set
 #
-# ILP/IPET/FM module
+# ILP/IPET module
 #
 require 'core/utils'
 require 'core/pml'
@@ -38,6 +38,9 @@ class IndexedConstraint
   end
   def get_coeff(v)
     @lhs[v]
+  end
+  def var_indices
+    @lhs.keys
   end
   def named_lhs
     named_lhs = Hash.new(0)
@@ -88,6 +91,9 @@ class IndexedConstraint
     key <=> other.key
   end
   def eql?(other); self == other ; end
+  def inspect
+    "Constraint#<#{lhs.inspect},#{@op.inspect},#{rhs.inspect}>"
+  end
   def to_s(use_indices=false)
     lhs, rhs = Hash.new(0), Hash.new(0)
     (@lhs.to_a+[[0,-@rhs]]).each { |v,c|
@@ -110,9 +116,10 @@ class IndexedConstraint
   end
 end
 
+
 # ILP base class (FIXME)
 class ILP
-  attr_reader :variables, :constraints, :costs, :options, :vartype, :solvertime
+  attr_reader :variables, :constraints, :costs, :options, :vartype, :solvertime, :elim_steps
   # variables ... array of distinct, comparable items
   def initialize(options = nil)
     @solvertime = 0
@@ -122,6 +129,7 @@ class ILP
     @vartype = {}
     @eliminated = Hash.new(false)
     @constraints = Set.new
+    @elim_steps = 0
     reset_cost
   end
   # number of non-eliminated variables
@@ -146,6 +154,10 @@ class ILP
   # index of a variable
   def index(variable)
     @indexmap[variable] or raise UnknownVariableException.new("unknown variable: #{variable}")
+  end
+  # variable indices
+  def variable_indices
+    @indexmap.values
   end
   # variable by index
   def var_by_index(ix)
@@ -190,134 +202,24 @@ class ILP
     add_indexed_constraint(terms_indexed,op,const_rhs,name,Set.new([tag]))
   end
 
-  # Substitution
-  def eliminate_weak(var)
-    eliminate(var,true)
+  # conceptually private; friend VariableElimination needs access
+  def delete_varindex(var_index)
+    @eliminated[var_index] = true
   end
 
-  # Fourier/Motzkin elimination
-  def eliminate(var, weak=false)
-    raise Exception.new("ILP#eliminate: non-zero cost") if @costs[var] != 0
-    var = index(var)
-    # group all constraints into 4 groups
-    # N: var does not occur in group
-    # E: k var + ...  = c
-    # L: k var + ... <= c with k > 0
-    # U: k var + ... <= c with k < 0
-    e,l,u = [],[],[]
-    # $stderr.puts("FM/Elimination: starting with a set of #{@constraints.length}")
-    @constraints.reject! do |constr|
-      coeff = constr.get_coeff(var)
-      if ! coeff || coeff == 0
-        # not affected, keep
-        false
-      else
-        set = if constr.op == "equal"
-                e
-              elsif coeff > 0
-                l
-              else
-                u
-              end
-        set.push([coeff,constr])
-        # affected, delete
-        true
-      end
-    end
-
-    #debug(@options,:ipet) {
-    #  io = DebugIO.new
-    #  io.puts("------------------------------------------------------")
-    #  io.puts("Constraints before elimination of #{var_by_index(var)}")
-    #  @constraints.each { |c| io.puts("[n] #{c.name} #{c.tags.to_a}: #{c}") }
-    #  [e,l,u].zip(%w{e l u}).each { |set,name|
-    #    set.each { |coeff,c| io.puts("[#{name}] #{c.name} #{c.tags.to_a}: #{c} (#{coeff})") }
-    #  }
-    #  nil
-    #}
-
-    # Trivial: no constraints for var
-    if e.empty? && l.empty? && u.empty?
-      @eliminated[var] = true
-      return
-    end
-    # No weak elimination possible
-    if e.empty? && weak
-      l.each { |_,c| @constraints.add(c) }
-      u.each { |_,c| @constraints.add(c) }
-      @eliminated[var] = false
-      return
-    end
-    # Delete var
-    (e+l+u).each { |coeff,constr|
-      constr.add(var, -coeff)
-    }
-    # Elimination
-    if ! e.empty?
-      # Substitution if E is non-empty
-      # FIXME: hack to avoid callsite constraints (for flow-fact trafo)
-      eq_entry = e.find { |coeff,constr| constr.name !~ /^callsite_/ }
-      eq_entry = e.first unless eq_entry
-      e.delete(eq_entry)
-      e_coeff, e_constr = eq_entry
-      e_terms, e_rhs = e_constr.lhs, e_constr.rhs
-
-      if e_coeff < 0
-        e_coeff = -e_coeff
-        e_terms.merge!(e_terms) { |v,c| 0-c }
-        e_rhs = -e_rhs
-      end
-      (e + l + u).each do |coeff,constr|
-        terms, rhs = constr.lhs, constr.rhs
-        # substitution: e_coeff terms' - coeff e_terms <=> e_coeff rhs - coeff e_rhs
-        # (1) multiply by e_coeff
-        terms = terms.merge!(terms) { |v,c| c * e_coeff }
-        rhs   = rhs * e_coeff
-        # (2) subtract (coeff * e_terms) and (coeff * e_rhs)
-        e_terms.each { |v,c| terms[v] -= c * coeff }
-        rhs -= coeff * e_rhs
-        # (3) add new constraint
-        c = add_indexed_constraint(terms, constr.op, rhs, constr.name, constr.tags + e_constr.tags)
-        # debug(@options, :ipet) {
-        #  if (e_constr.tags + constr.tags).include?(:flowfact)
-        #    "Gaussian Elimination: #{constr.name}+#{e_constr.name}: #{c}"
-        #  end
-        #}
-      end
-    else
-      assert("FM elimination should be disabled for eliminate_weak") { ! weak }
-      # FM-Elimination
-      # l: ax  + by <= d [ a  > 0 ]
-      # u: a'x + cz <= e [ a' < 0 ]
-      # a cz - a' by <= a e - a' d
-      l.each do |l_coeff,l_constr|
-        l_terms, l_rhs = l_constr.lhs, l_constr.rhs
-        u.each do |u_coeff,u_constr|
-          u_terms, u_rhs = u_constr.lhs, u_constr.rhs
-          # terms = l_coeff * u_terms - u_coeff * l_terms
-          terms = Hash.new(0)
-          u_terms.each { |v,c| terms[v] += l_coeff * c }
-          l_terms.each { |v,c| terms[v] -= u_coeff * c }
-          rhs = l_coeff * u_rhs - u_coeff * l_rhs
-          name = l_constr.name+"<>"+u_constr.name
-          c = add_indexed_constraint(terms, l_constr.op, rhs, name, l_constr.tags + u_constr.tags)
-          #debug(@options, :ipet) {
-          #  if (l_constr.tags + u_constr.tags).include?(:flowfact)
-          #    "Gaussian Elimination: #{l_constr.name}+#{u_constr.name}: #{c}"
-          #  end
-          #}
-        end
-      end
-    end
-    @eliminated[var] = true
-  end
-  private
-  def add_indexed_constraint(terms_indexed, op, const_rhs, name, tags)
+  # conceptually private; friend VariableElimination needs access
+  def create_indexed_constraint(terms_indexed, op, const_rhs, name, tags)
     terms_indexed.default=0
     constr = IndexedConstraint.new(self, terms_indexed, op, const_rhs, name, tags)
     return nil if constr.tautology?
     raise Exception.new("Inconsistent constraint #{name}: #{constr}") if constr.inconsistent?
-    @constraints.add(constr)
+    constr
+  end
+
+  private
+  def add_indexed_constraint(terms_indexed, op, constr_rhs, name, tags)
+    constr = create_indexed_constraint(terms_indexed, op, constr_rhs, name, tags)
+    @constraints.add(constr) if constr
     constr
   end
 end
@@ -729,169 +631,5 @@ private
     }
   end
 end # IPETModel
-
-class FlowFactTransformation
-
-  attr_reader :pml, :options
-
-  def initialize(pml,options)
-    @pml, @options = pml, options
-  end
-
-  # Copy flowfacts
-  def copy(flowfacts)
-    copied = pml.flowfacts.add_copies(flowfacts, options.flow_fact_output)
-    statistics("IPET","Flowfacts copied (=>#{options.flow_fact_output})" => copied.length) if options.stats
-  end
-
-  # Simplify
-  def simplify(machine_entry, flowfacts)
-    builder_opts = { :use_rg => false }
-    if options.transform_eliminate_edges
-      builder_opts[:mbb_variables] = true
-    else
-      warn("TransformTool#simplify: no simplifications enabled")
-    end
-
-    # Filter flow facts that need to be simplified
-    copy, simplify = [], []
-    flowfacts.each { |ff|
-      if options.transform_eliminate_edges && ! ff.get_calltargets && ff.references_edges?
-        simplify.push(ff)
-      elsif options.transform_eliminate_edges && ff.references_empty_block?
-        simplify.push(ff)
-      else
-        copy.push(ff)
-      end
-    }
-    copied = pml.flowfacts.add_copies(copy, options.flow_fact_output)
-
-    # Build ILP for transformation
-    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
-    ipet = build_model(entry, copied, builder_opts)
-    simplify.each { |ff| ipet.add_flowfact(ff, :simplify) }
-
-    # Elimination
-    ilp = ipet.ilp
-    constraints_before = ilp.constraints.length
-    ilp.variables.each do |var|
-      if var.kind_of?(Instruction)
-        debug(options,:ipet) { "Eliminating Instruction: #{var}" }
-        ilp.eliminate(var)
-      elsif options.transform_eliminate_edges && var.kind_of?(IPETEdge) && var.cfg_edge?
-        debug(options,:ipet) { "Eliminating IPET Edge: #{var}" }
-        ilp.eliminate(var)
-      elsif options.transform_eliminate_edges && var.kind_of?(Block) && var.instructions.empty?
-        debug(options,:ipet) { "Eliminating empty block: #{var}" }
-        ilp.eliminate(var)
-      end
-    end
-
-    # Extract and add new flow facts
-    new_ffs = extract_flowfacts(ilp, entry, :dst, [:simplify])
-    new_ffs.each { |ff| pml.flowfacts.add(ff) }
-    statistics("TRANSFORM",
-               "Constraints after 'simplify' FM-elimination (#{constraints_before} =>)" =>
-               ilp.constraints.length,
-               "Unsimplified flowfacts copied (=>#{options.flow_fact_output})" =>
-               copied.length,
-               "Simplified flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" =>
-               new_ffs.length) if options.stats
-  end
-
-  def transform(machine_entry, flowfacts, target_level)
-    # Build ILP for transformation
-    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
-    ilp = build_model(entry, flowfacts, :use_rg => true).ilp
-
-    # If direction up/down, eliminate all vars but dst/src
-    info "Running transformer to level #{target_level}" if options.verbose
-    constraints_before = ilp.constraints.length
-    ilp.variables.each do |var|
-      if ilp.vartype[var] != target_level || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
-        ilp.eliminate(var)
-      end
-    end
-
-    # Extract and add new flow facts
-    new_ffs = extract_flowfacts(ilp, entry, target_level, [:flowfact, :callsite])
-    new_ffs.each { |ff| pml.flowfacts.add(ff) }
-    statistics("TRANSFORM",
-               "Constraints after FM-elimination (#{constraints_before} =>)" =>
-               ilp.constraints.length,
-               "transformed flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" =>
-               new_ffs.length) if options.stats
-  end
-
-private
-
-  #
-  # entry      ... { :dst => <machine-function , :src => <bitcode-function> }
-  # flowfacts  ... [ <FlowFact f> ]
-  # opts  :use_rg          => <boolean> ... whether to enable relation graphs
-  #       :mbb_variables => <boolean> ... add variables representing basic blocks
-  #
-  def build_model(entry, flowfacts, opts = { :use_rg => false })
-    # ILP for transformation
-    ilp  = ILP.new(@options)
-
-    # IPET builder
-    builder_opts = options.dup
-    builder_opts.use_relation_graph = opts[:use_rg]
-    ipet = IPETBuilder.new(pml,builder_opts,ilp)
-
-    # Build IPET (no cost) and add flow facts
-    ipet.build(entry, :mbb_variables => true) { |edge| 0 }
-    flowfacts.each { |ff| ipet.add_flowfact(ff) }
-    ipet.refine(entry, flowfacts)
-    ipet
-  end
-
-  def extract_flowfacts(ilp, entry, target_level, tags = [:flowfact, :callsite])
-    new_flowfacts = []
-    attrs = { 'origin' =>  options.flow_fact_output,
-              'level'  => (target_level == :src) ? "bitcode" : "machinecode" }
-    ilp.constraints.each do |constr|
-      lhs = constr.named_lhs
-      name = constr.name
-
-      # Constraint is boring if it was derived from positivity and structural constraints only
-      interesting = constr.tags.any? { |tag| tags.include?(tag) }
-      next unless interesting
-      debug(options, :ipet) {
-        "Adding transformed constraint #{name} #{constr.tags.to_a}: #{constr}"
-      }
-
-      # Simplify: edges->block if possible (lossless; see eliminate_edges for potentially lossy transformation)
-      unless lhs.any? { |var,_| ! var.kind_of?(IPETEdge) }
-        # (1) get all referenced outgoing blocks
-        out_blocks = {}
-        lhs.each { |edge,coeff| out_blocks[edge.source] = 0 }
-        # (2) for each block, find minimum coeff for all of its outgoing edges
-        #     and replace edges by block
-        out_blocks.keys.each { |b|
-          edges = b.successors.map { |b2| IPETEdge.new(b,b2,target_level) }
-          edges = [ IPETEdge.new(b,:exit,target_level) ] if b.may_return?
-          min_coeff = edges.map { |e| lhs[e] }.min
-          if min_coeff != 0
-            edges.each { |e| lhs[e] -= min_coeff ; lhs.delete(e) if lhs[e] == 0 }
-            lhs[b] += min_coeff
-          end
-        }
-      end
-
-      # Create flow-fact
-      terms = TermList.new(lhs.map { |v,c| Term.new(v.ref,c) })
-      scope = entry[target_level]
-      debug(options,:ipet) {
-        "Adding transformed constraint #{constr} -> in #{scope} :" +
-        "#{terms} #{constr.op} #{constr.rhs}"
-      }
-      ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs, attrs.dup)
-      new_flowfacts.push(ff)
-    end
-    new_flowfacts
-  end
-end
 
 end # module PML
