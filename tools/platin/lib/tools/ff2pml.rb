@@ -9,55 +9,6 @@ require 'platin'
 include PML
 require 'ext/sweet'
 
-# Exception for unsupported flow facts
-class UnsupportedFlowFactException < Exception
-  attr_reader :flowfact
-  def initialize(msg, ff = nil)
-    super(msg)
-    @flowfact = ff
-  end
-end
-
-# class to import SWEET flow facts (format .ff) to PML
-class SweetFlowFactImport
-
-  def initialize(functions, fact_attributes)
-    @functions = functions
-    @fact_attributes = fact_attributes
-  end
-
-  def to_pml(ffsrc)
-    raise UnsupportedFlowFactException.new("loop scopes not yet supported", ffsrc) if ffsrc.quantifier != :total
-    raise UnsupportedFlowFactException.new("loop scopes not yet supported", ffsrc) if ffsrc.scope.stmt
-    raise UnsupportedFlowFactException.new("call strings not yet supported", ffsrc) unless ffsrc.callstring.empty?
-
-    scope = @functions.by_name(ffsrc.scope.f)
-    terms = ffsrc.constraint.vector.map { |pp,factor|
-      Term.new(pp_to_pml(pp).ref, factor)
-    }
-    op =
-      case ffsrc.constraint.op
-      when "<="; "less-equal"
-      when "=" ; "equal"
-      else     ; raise Exception.new("Bad constraint op: #{ffsrc.constraint.op}")
-      end
-    flowfact = FlowFact.new(scope.ref, TermList.new(terms), op, ffsrc.constraint.rhs,
-                            @fact_attributes.dup)
-    flowfact
-  end
-
-  def pp_to_pml(pp)
-    raise UnsupportedFlowFactException.new("edge program points not yet supported") if pp.kind_of?(SWEET::Edge)
-    llvm,internal = pp.split(":::")
-    fun,block,ins = llvm.split("::")
-    # For upper bounds, we could ignore the internal structure of the block
-    raise UnsupportedFlowFactException.new("translation internal program points not supported") if internal
-    raise UnsupportedFlowFactException.new("instruction program points not supported") if ins
-    @functions.by_name(fun).blocks.by_name(block)
-  end
-
-end
-
 class SweetImportTool
   def SweetImportTool.add_config_options(opts)
   end

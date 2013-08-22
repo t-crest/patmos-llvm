@@ -87,7 +87,7 @@ class SweetAnalyzeTool
     if options.sweet_ignore_volatiles
       do_args.push("floats=est")
     end
-    ae_args = [ "-ae", "ffg=uhss,uhsf,uhsp,unss,unsf,unsp", "vola=t" ]
+    ae_args = [ "-ae", "ffg=uhss,uhsf,uhsp,unss,unsf,unsp,uesp,uesf,uess,ubns", "vola=t" ]
     if f = options.sweet_generate_trace
       ae_args.push('css')
       ae_args.push("gtf=#{options.sweet_trace_file}")

@@ -20,6 +20,7 @@ module SWEET
 
   # Edge between basic blocks
   class Edge
+    attr_reader :src, :target
     def initialize(src,target)
       @src, @target = src, target
     end
@@ -254,10 +255,22 @@ module SWEET
   end
 end # module SWEET
 
-# extend option parser
+
 module PML
-  # option parser extensions
-  class OptionParser
+
+# Exception for unsupported flow facts
+#
+class UnsupportedFlowFactException < Exception
+  attr_reader :flowfact
+  def initialize(msg, ff = nil)
+    super(msg)
+    @flowfact = ff
+  end
+end
+
+# option parser extensions
+#
+class OptionParser
     def alfllc_command
       self.on("--alf-llc FILE", "path to alf-llc (=alf-llc)")  { |f| options.alf_llc = f }
       self.add_check { |options|
@@ -310,6 +323,71 @@ module PML
       }
     end
   end
-# end module PML
+
+# class to import SWEET flow facts (format .ff) to PML
+#
+class SweetFlowFactImport
+
+  def initialize(functions, fact_attributes)
+    @functions = functions
+    @fact_attributes = fact_attributes
+  end
+
+  def to_pml(ffsrc)
+    raise UnsupportedFlowFactException.new("loop scopes not yet supported", ffsrc) if ffsrc.quantifier != :total
+    raise UnsupportedFlowFactException.new("loop scopes not yet supported", ffsrc) if ffsrc.scope.stmt
+    raise UnsupportedFlowFactException.new("call strings not yet supported", ffsrc) unless ffsrc.callstring.empty?
+
+    scope = @functions.by_name(ffsrc.scope.f)
+    terms = ffsrc.constraint.vector.map { |pp,factor|
+      Term.new(pp_to_ref(pp), factor)
+    }
+    op =
+      case ffsrc.constraint.op
+      when "<="; "less-equal"
+      when "=" ; "equal"
+      else     ; raise Exception.new("Bad constraint op: #{ffsrc.constraint.op}")
+      end
+    flowfact = FlowFact.new(scope.ref, TermList.new(terms), op, ffsrc.constraint.rhs,
+                            @fact_attributes.dup)
+    flowfact
+  end
+
+  def pp_to_ref(pp)
+    if pp.kind_of?(SWEET::Edge)
+      srcpp, dstpp = [pp.src,pp.target].map { |bpp| lookup_program_point(bpp) }
+      raise UnsupportedFlowFactException.new("interprocedural edges not yet supported") if srcpp.function != dstpp.function
+      if srcpp.kind_of?(EdgeRef) || dstpp.kind_of?(EdgeRef)
+        raise UnsupportedFlowFactException.new("ALF edges involving LLVM edges are not supported")
+      elsif dstpp.kind_of?(Instruction)
+        raise UnsupportedFlowFactException.new("intrablock edges are not supported") if dstpp.ins
+      elsif srcpp.kind_of?(Instruction)
+        srcpp = srcpp.block
+      end
+      assert("supported SWEET edges should reference blocks") { srcpp.kind_of?(Block) && dstpp.kind_of?(Block) }
+      EdgeRef.new(srcpp, dstpp)
+    else
+      lookup_program_point(pp).ref
+    end
+  end
+
+  def lookup_program_point(pp)
+    llvm,internal = pp.split(":::")
+    funname,blockname,insname,targetfunname,targetblockname = llvm.split("::")
+    # For upper bounds, we could ignore the internal structure of the block
+    raise UnsupportedFlowFactException.new("translation internal program points not supported") if internal
+    block = @functions.by_name(funname).blocks.by_name(blockname)
+    if targetblockname
+      # ignore instruction for edges
+      targetblock = @functions.by_name(targetfunname).blocks.by_name(targetblockname)
+      EdgeRef.new(block,targetblock)
+    elsif insname
+      block.instructions[insname.to_i]
+    else
+      block
+    end
+  end
 end
+
+end # end module PML
 

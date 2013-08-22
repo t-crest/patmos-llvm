@@ -117,6 +117,9 @@ module PML
       @qname = "#{source.qname}->#{target ? target.name : '' }"
       set_yaml_repr(data)
     end
+    def ref
+      self
+    end
     def exitedge?
       target.nil?
     end
