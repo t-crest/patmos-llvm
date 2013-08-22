@@ -56,6 +56,7 @@ class PMLTool
     trace_timing = trace_timing.first if trace_timing
     entries.each { |te|
       next unless te.profile
+      next unless te.cycles >= 0
       total_cycles, accum_cycles = te.cycles, 0
       te.profile.each { |pe|
         next unless pe.wcetfreq

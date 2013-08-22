@@ -292,15 +292,15 @@ class WcetTool
   end
 
 
-  def report(additional_keys = [])
-    results = summarize_results(additional_keys)
+  def report(additional_info = {})
+    results = summarize_results(additional_info)
     file_open(options.report, (options.report_append ? "a" : "w")) do |fh|
       info "Writing report to #{options.report}" if options.report != "-"
       fh.puts YAML::dump(results.map { |r| r.merge(options.report_append || {}) })
     end if options.report
   end
 
-  def summarize_results(additional_keys = [])
+  def summarize_results(additional_info = {})
     trace_cycles = nil
     results = pml.timing.sort_by { |te|
       [ te.scope.qname, te.cycles, te.origin ]
@@ -309,7 +309,7 @@ class WcetTool
       dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
         'cycles' => te.cycles }
-      additional_keys.each { |k| dict[k] = te[k] }
+      (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }
     if options.runcheck

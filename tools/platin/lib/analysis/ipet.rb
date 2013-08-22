@@ -237,7 +237,11 @@ class Callsite
   def eql?(other); self == other; end
 end
 
-
+#
+# IPETEdges are either:
+# - edges beween CFG blocks
+# - call edges
+# - edges between relation graph nodes
 class IPETEdge
   attr_reader :qname,:source,:target, :level
   def initialize(edge_source, edge_target, level)
@@ -254,9 +258,15 @@ class IPETEdge
     return false unless :exit == target || target.kind_of?(Block)
     true
   end
-  def ref
-    assert("IPETEdge#ref: not a CFG edge") { cfg_edge? }
+  def cfg_edge
+    assert("IPETEdge#cfg_edge: not a edge between blocks") { cfg_edge? }
     (:exit == target) ? source.edge_to_exit : source.edge_to(target)
+  end
+  def call_edge?
+    source.kind_of?(Instruction) || target.kind_of?(Function)
+  end
+  def relation_graph_edge?
+    source.kind_of?(RelationNode) || target.kind_of?(RelationNode)
   end
   def to_s
     arrow  = @level == :src ? "~>" : "->"

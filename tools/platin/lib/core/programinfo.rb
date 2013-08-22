@@ -446,12 +446,6 @@ module PML
       @attributes = attrs
       set_yaml_repr(data)
     end
-    def [](key)
-      data[key]
-    end
-    def []=(key,value)
-      data[key]=value
-    end
     def profile=(p)
       @profile = p
       @data['profile'] = @profile.data if @data

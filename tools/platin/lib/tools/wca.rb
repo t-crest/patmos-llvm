@@ -113,8 +113,6 @@ class WcaTool
     # report result
     profile = Profile.new([])
     report = TimingEntry.new(machine_entry.ref, cycles, profile,
-                             'num_constraints' => builder.ilp.constraints.length,
-                             'solvertime' => builder.ilp.solvertime,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     # collect edge timings
     edgefreq, edgecost = {}, Hash.new(0)
@@ -124,7 +122,8 @@ class WcaTool
       if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
         die("ILP cost: not an IPET edge") unless v.kind_of?(IPETEdge)
         die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
-        ref = ContextRef.new(v.ref, Context.empty)
+        die("ILP cost: target is not a block") unless v.target == :exit || v.target.kind_of?(Block)
+        ref = ContextRef.new(v.cfg_edge, Context.empty)
         profile.add(ProfileEntry.new(ref, edgecost, freq, edgecost*freq))
       end
     }

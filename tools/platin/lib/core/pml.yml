@@ -278,10 +278,6 @@ mapping:
             required: true
             desc: "maximum execution time of the scope"
             type: int
-          "num_constraints":
-            type: scalar
-          "solvertime":
-            type: scalar
           "profile":
             type: seq
             desc: "worst-case execution time profile"

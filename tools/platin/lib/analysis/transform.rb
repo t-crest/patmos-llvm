@@ -444,14 +444,30 @@ private
         }
       end
 
-      # Create flow-fact
-      terms = TermList.new(lhs.map { |v,c| Term.new(v.ref,c) })
+      # Create flow-fact (with dealing different IPET edges)
+      terms = lhs.map { |v,c|
+        pp = if(v.kind_of?(IPETEdge))
+               if v.cfg_edge?
+                 v.cfg_edge
+               elsif v.call_edge?
+                 ctx = Context.from_list([CallContextEntry.new(v.source)])
+                 ContextRef.new(v.target.ref, ctx)
+               else
+                 assert("FlowFactTransformation: relation graph edge not eliminated") { ! v.relation_graph_edge? }
+                 raise Exception.new("Bad IPETEdge: #{v}")
+               end
+             else
+               v.ref
+             end
+        Term.new(pp, c)
+      }
+      termlist = TermList.new(terms)
       scope = entry[target_level]
       debug(options,:ipet) {
         "Adding transformed constraint #{name} #{constr.tags.to_a}: #{constr} -> in #{scope} :" +
-        "#{terms} #{constr.op} #{constr.rhs}"
+        "#{termlist} #{constr.op} #{constr.rhs}"
       }
-      ff = FlowFact.new(scope.ref, terms, constr.op, constr.rhs, attrs.dup)
+      ff = FlowFact.new(scope.ref, termlist, constr.op, constr.rhs, attrs.dup)
       new_flowfacts.push(ff)
     end
     new_flowfacts
