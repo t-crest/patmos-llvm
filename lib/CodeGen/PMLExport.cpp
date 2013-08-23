@@ -193,18 +193,16 @@ yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
                                                  yaml::Name RHS) const {
   const Function *Fn = BB->getParent();
 
-  yaml::FlowFact *FF = new yaml::FlowFact();
+  yaml::FlowFact *FF = new yaml::FlowFact(yaml::level_bitcode);
 
-  FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),
-                             yaml::Name(BB->getName()));
+  FF->setLoopScope(yaml::Name(Fn->getName()), yaml::Name(BB->getName()));
 
   yaml::ProgramPoint *Block =
-    FF->createBlock(yaml::Name(Fn->getName()),
-                    yaml::Name(BB->getName()));
+                       new yaml::ProgramPoint(Fn->getName(), BB->getName());
+
   FF->addTermLHS(Block, 1LL);
   FF->RHS = RHS;
   FF->Comparison = yaml::cmp_less_equal;
-  FF->Level = yaml::level_bitcode;
   FF->Origin = "llvm.bc";
   FF->Classification = "loop-global";
 
@@ -790,9 +788,9 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF)
       delete RG; // also deletes scopes and nodes
     /// Create Graph
     yaml::RelationScope *DstScope = new yaml::RelationScope(
-        yaml::Name(MF.getFunctionNumber()), yaml::level_machinecode);
+        MF.getFunctionNumber(), yaml::level_machinecode);
     yaml::RelationScope *SrcScope = new yaml::RelationScope(
-        yaml::Name(BF->getName()), yaml::level_bitcode);
+        BF->getName(), yaml::level_bitcode);
     RG = new yaml::RelationGraph(SrcScope, DstScope);
     RG->getEntryNode()->setSrcBlock(
         yaml::FlowGraphTrait<const BasicBlock>::getName(

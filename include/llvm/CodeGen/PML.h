@@ -33,36 +33,45 @@
 /// Serializing to a sequence of documents reduces the memory
 /// footprint; during analysis, documents are usually linked into
 /// a single document.
-
+///
+/// All structs take ownership over their fields, if not otherwise noted.
+/// At the moment, program points, contexts, .. are not shared between objects
+/// due to ownership, and to make update algorithms easier. Pointer fields can
+/// be set to NULL if they are not initialized or have no value.
 
 /// Utility for declaring that a std::vector of a particular *pointer*type
 /// should be considered a YAML sequence. Must only be used in namespace
 /// llvm/yaml.
+/// Note: New pointer elements are initialized to NULL, they are initialized
+/// with a new object in the mapping() functions. This might allow to share
+/// objects that are referenced in YAML, but ownership has to be reworked
+/// first.
 #define YAML_IS_PTR_SEQUENCE_VECTOR(_type)                                   \
     template<>                                                               \
     struct SequenceTraits< std::vector<_type*> > {                           \
       static size_t size(IO &io, std::vector<_type*> &seq) {                 \
         return seq.size();                                                   \
       }                                                                      \
-      static _type& element(IO &io, std::vector<_type*> &seq, size_t index) {\
+      static _type*& element(IO &io, std::vector<_type*> &seq, size_t index) \
+      {                                                                      \
         if ( index >= seq.size() )                                           \
           seq.resize(index+1);                                               \
-        return *seq[index];                                                  \
+        return seq[index];                                                   \
       }                                                                      \
     };
 
-#define YAML_IS_SEQUENCE_VECTOR(_type)                                      \
-    template<>                                                              \
-    struct SequenceTraits< std::vector<_type> > {                           \
-      static size_t size(IO &io, std::vector<_type> &seq) {                 \
-        return seq.size();                                                  \
-      }                                                                     \
-      static _type& element(IO &io, std::vector<_type> &seq, size_t index) {\
-        if ( index >= seq.size() )                                          \
-          seq.resize(index+1);                                              \
-        return seq[index];                                                  \
-      }                                                                     \
-    };                                                                      \
+#define YAML_IS_SEQUENCE_VECTOR(_type)                                       \
+    template<>                                                               \
+    struct SequenceTraits< std::vector<_type> > {                            \
+      static size_t size(IO &io, std::vector<_type> &seq) {                  \
+        return seq.size();                                                   \
+      }                                                                      \
+      static _type& element(IO &io, std::vector<_type> &seq, size_t index) { \
+        if ( index >= seq.size() )                                           \
+          seq.resize(index+1);                                               \
+        return seq[index];                                                   \
+      }                                                                      \
+    };                                                                       \
 
 #define YAML_IS_PTR_SEQUENCE_VECTOR_1(_type)                                 \
     template<typename _member_type>                                          \
@@ -70,11 +79,27 @@
       static size_t size(IO &io, std::vector<_type<_member_type>*> &seq) {   \
           return seq.size();                                                 \
       }                                                                      \
-      static _type<_member_type>& element(IO &io,                            \
-          std::vector<_type<_member_type>*> &seq, size_t index) {            \
+      static _type<_member_type>*& element(IO &io,                           \
+                       std::vector<_type<_member_type>*> &seq, size_t index) \
+      {                                                                      \
           if ( index >= seq.size() )                                         \
             seq.resize(index+1);                                             \
-          return *seq[index];                                                \
+          return seq[index];                                                 \
+      }                                                                      \
+    };
+
+#define YAML_IS_SEQUENCE_VECTOR_1(_type)                                     \
+    template<typename _member_type>                                          \
+    struct SequenceTraits< std::vector<_type<_member_type>> > {              \
+      static size_t size(IO &io, std::vector<_type<_member_type>> &seq) {    \
+          return seq.size();                                                 \
+      }                                                                      \
+      static _type<_member_type>& element(IO &io,                            \
+          std::vector<_type<_member_type>> &seq, size_t index)               \
+      {                                                                      \
+          if ( index >= seq.size() )                                         \
+            seq.resize(index+1);                                             \
+          return seq[index];                                                 \
       }                                                                      \
     };
 
@@ -94,20 +119,24 @@ namespace yaml {
 struct Name {
   // String representation
   std::string NameStr;
+
   // Empty Name
   Name() : NameStr("") {}
   /// Name from string (copy)
   Name(const StringRef& name) : NameStr(name.str()) {}
+  /// Name from unsigned integer
+  Name(uint64_t name) : NameStr(utostr(name)) {}
+
   Name& operator=( const StringRef& name ) {
     NameStr.assign(name.str());
     return *this;
   }
-  /// Name from unsigned integer
-  Name(uint64_t name) : NameStr(utostr(name)) {}
+
   /// get name as string
   StringRef getName() const {
     return StringRef(NameStr);
   }
+
   /// get name as unsigned integer
   uint64_t getNameAsInteger(unsigned Radix = 10) const {
     uint64_t IntName;
@@ -157,24 +186,28 @@ struct ScalarEnumerationTraits<ReprLevel> {
 /// Instruction Specification (generic)
 struct Instruction {
   uint64_t Index;
-  int64_t Opcode;
+  int Opcode;
   // std::string Descr;
   std::vector<Name> Callees;
-  Instruction(uint64_t index) : Index(index), Opcode(0) {}
+
+  Instruction(uint64_t index) : Index(index), Opcode(-1) {}
+
   void addCallee(const StringRef function) {
     Callees.push_back(yaml::Name(function));
   }
   bool hasCallees() {
     return ! Callees.empty();
   }
+
   static const bool flow = true;
 };
 template <>
-struct MappingTraits<Instruction> {
-  static void mapping(IO &io, Instruction& Ins) {
-    io.mapRequired("index",   Ins.Index);
-    io.mapOptional("opcode",  Ins.Opcode, (int64_t) -1);
-    io.mapOptional("callees", Ins.Callees);
+struct MappingTraits<Instruction*> {
+  static void mapping(IO &io, Instruction *&Ins) {
+    if (!Ins) Ins = new Instruction(0);
+    io.mapRequired("index",   Ins->Index);
+    io.mapOptional("opcode",  Ins->Opcode, -1);
+    io.mapOptional("callees", Ins->Callees);
     // StringRef InsDescr(Ins.Descr);
     // io.mapOptional("description", InsDescr, StringRef(""));
   }
@@ -198,23 +231,29 @@ struct ScalarEnumerationTraits<BranchType> {
 };
 struct GenericMachineInstruction : Instruction {
 
-  uint64_t Size;
+  unsigned Size;
+  int64_t  Address;
 
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
   unsigned BranchDelaySlots;
 
-  GenericMachineInstruction(uint64_t Index) :
-  Instruction(Index), Size(0), BranchType(branch_none) {}
+  GenericMachineInstruction(uint64_t Index)
+  : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
+    BranchDelaySlots(0) {}
 };
 template <>
-struct MappingTraits<GenericMachineInstruction> {
-  static void mapping(IO &io, GenericMachineInstruction& Ins) {
-    MappingTraits<Instruction>::mapping(io,Ins);
-    io.mapOptional("size",          Ins.Size);
-    io.mapOptional("branch-type",   Ins.BranchType, branch_none);
-    io.mapOptional("branch-delay-slots", Ins.BranchDelaySlots, 0U);
-    io.mapOptional("branch-targets", Ins.BranchTargets, std::vector<Name>());
+struct MappingTraits<GenericMachineInstruction*> {
+  static void mapping(IO &io, GenericMachineInstruction *&Ins) {
+    if (!Ins) Ins = new GenericMachineInstruction(0);
+    io.mapRequired("index",         Ins->Index);
+    io.mapOptional("opcode",        Ins->Opcode, -1);
+    io.mapOptional("callees",       Ins->Callees);
+    io.mapOptional("size",          Ins->Size);
+    io.mapOptional("address",       Ins->Address, (int64_t) -1);
+    io.mapOptional("branch-type",   Ins->BranchType, branch_none);
+    io.mapOptional("branch-delay-slots", Ins->BranchDelaySlots, 0U);
+    io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
   }
   static const bool flow = true;
 };
@@ -225,13 +264,16 @@ template<typename InstructionT>
 struct Block {
   Name BlockName;
   Name MapsTo;
+  int64_t Address;
   std::vector<Name> Successors;
   std::vector<Name> Predecessors;
   std::vector<Name> Loops;
   std::vector<InstructionT*> Instructions;
-  Block(StringRef name): BlockName(name) {}
-  Block(uint64_t index) : BlockName(index) {}
+
+  Block(StringRef name): BlockName(name), Address(-1) {}
+  Block(uint64_t index) : BlockName(index), Address(-1) {}
   ~Block() { DELETE_MEMBERS(Instructions); }
+
   /// Add an instruction to the block
   /// Block takes ownership of instruction
   InstructionT* addInstruction(InstructionT* Ins) {
@@ -240,14 +282,16 @@ struct Block {
   }
 };
 template <typename InstructionT>
-struct MappingTraits< Block<InstructionT> > {
-  static void mapping(IO &io, Block<InstructionT>& Block) {
-    io.mapRequired("name",         Block.BlockName);
-    io.mapRequired("successors",   Block.Successors);
-    io.mapRequired("predecessors", Block.Predecessors);
-    io.mapOptional("loops",        Block.Loops);
-    io.mapOptional("mapsto",       Block.MapsTo, Name(""));
-    io.mapOptional("instructions", Block.Instructions);
+struct MappingTraits< Block<InstructionT>* > {
+  static void mapping(IO &io, Block<InstructionT> *&B) {
+    if (!B) B = new Block<InstructionT>(0);
+    io.mapRequired("name",         B->BlockName);
+    io.mapOptional("mapsto",       B->MapsTo, Name(""));
+    io.mapOptional("address",      B->Address, (int64_t) -1);
+    io.mapRequired("predecessors", B->Predecessors);
+    io.mapRequired("successors",   B->Successors);
+    io.mapOptional("loops",        B->Loops);
+    io.mapOptional("instructions", B->Instructions);
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR_1(Block)
@@ -258,18 +302,22 @@ struct Argument {
   Name ArgName;
   uint64_t Index;
   std::vector<Name> Registers;
+
   Argument(StringRef name, uint64_t index) : ArgName(name), Index(index) {}
+
   void addReg(const StringRef regname) {
     Registers.push_back(yaml::Name(regname));
   }
+
   static const bool flow = true;
 };
 template <>
-struct MappingTraits<Argument> {
-  static void mapping(IO &io, Argument& Arg) {
-    io.mapRequired("name",      Arg.ArgName);
-    io.mapRequired("index",     Arg.Index);
-    io.mapRequired("registers", Arg.Registers);
+struct MappingTraits<Argument*> {
+  static void mapping(IO &io, Argument*& Arg) {
+    if (!Arg) Arg = new Argument("", 0);
+    io.mapRequired("name",      Arg->ArgName);
+    io.mapRequired("index",     Arg->Index);
+    io.mapRequired("registers", Arg->Registers);
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(Argument)
@@ -284,12 +332,14 @@ struct Function {
   StringRef Hash;
   std::vector<Argument*> Arguments;
   std::vector<BlockT*> Blocks;
-  Function(StringRef name) : FunctionName(name) {}
-  Function(uint64_t name) : FunctionName(name) {}
+
+  Function(StringRef name) : FunctionName(name), Level(level_bitcode) {}
+  Function(uint64_t name)  : FunctionName(name), Level(level_bitcode) {}
   ~Function() {
     DELETE_MEMBERS(Arguments);
     DELETE_MEMBERS(Blocks);
   }
+
   Argument* addArgument(Argument *Arg) {
     Arguments.push_back(Arg);
     return Arg;
@@ -300,14 +350,15 @@ struct Function {
   }
 };
 template <typename BlockT>
-struct MappingTraits< Function<BlockT> > {
-  static void mapping(IO &io, Function<BlockT>& fn) {
-    io.mapRequired("name",      fn.FunctionName);
-    io.mapRequired("level",     fn.Level);
-    io.mapOptional("mapsto",    fn.MapsTo, Name(""));
-    io.mapOptional("arguments", fn.Arguments);
-    io.mapOptional("hash",      fn.Hash);
-    io.mapRequired("blocks",    fn.Blocks);
+struct MappingTraits< Function<BlockT>* > {
+  static void mapping(IO &io, Function<BlockT> *&Fn) {
+    if (!Fn) Fn = new Function<BlockT>(0);
+    io.mapRequired("name",      Fn->FunctionName);
+    io.mapRequired("level",     Fn->Level);
+    io.mapOptional("mapsto",    Fn->MapsTo, Name(""));
+    io.mapOptional("arguments", Fn->Arguments);
+    io.mapOptional("hash",      Fn->Hash);
+    io.mapRequired("blocks",    Fn->Blocks);
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR_1(Function)
@@ -336,8 +387,14 @@ struct RelationNode {
   Name DstBlock;
   std::vector<Name> SrcSuccessors;
   std::vector<Name> DstSuccessors;
+
   RelationNode(Name name, RelationNodeType type)
     : NodeName(name), NodeType(type) {}
+  RelationNode(StringRef name, RelationNodeType type)
+    : NodeName(name), NodeType(type) {}
+  RelationNode(uint64_t name, RelationNodeType type)
+    : NodeName(name), NodeType(type) {}
+
   void addSuccessor(RelationNode *RN, bool IsSrcNode) {
     if(IsSrcNode)
       SrcSuccessors.push_back(RN->NodeName);
@@ -353,14 +410,15 @@ struct RelationNode {
 };
 
 template <>
-struct MappingTraits< RelationNode > {
-  static void mapping(IO &io, RelationNode &node) {
-    io.mapRequired("name",           node.NodeName);
-    io.mapRequired("type",           node.NodeType);
-    io.mapOptional("src-block",      node.SrcBlock, Name(""));
-    io.mapOptional("dst-block",      node.DstBlock, Name(""));
-    io.mapOptional("src-successors", node.SrcSuccessors, std::vector<Name>());
-    io.mapOptional("dst-successors", node.DstSuccessors, std::vector<Name>());
+struct MappingTraits< RelationNode* > {
+  static void mapping(IO &io, RelationNode *&node) {
+    if (!node) node = new RelationNode("", rnt_entry);
+    io.mapRequired("name",           node->NodeName);
+    io.mapRequired("type",           node->NodeType);
+    io.mapOptional("src-block",      node->SrcBlock, Name(""));
+    io.mapOptional("dst-block",      node->DstBlock, Name(""));
+    io.mapOptional("src-successors", node->SrcSuccessors, std::vector<Name>());
+    io.mapOptional("dst-successors", node->DstSuccessors, std::vector<Name>());
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(RelationNode)
@@ -369,13 +427,17 @@ YAML_IS_PTR_SEQUENCE_VECTOR(RelationNode)
 struct RelationScope {
   Name Function; // XXX: should be a scope, really
   ReprLevel Level;
-  RelationScope(Name f, ReprLevel level) : Function(f), Level(level) {}
+
+  RelationScope(Name      f, ReprLevel level) : Function(f), Level(level) {}
+  RelationScope(StringRef f, ReprLevel level) : Function(f), Level(level) {}
+  RelationScope(uint64_t  f, ReprLevel level) : Function(f), Level(level) {}
 };
 template <>
-struct MappingTraits< RelationScope > {
-  static void mapping(IO &io, RelationScope &scope) {
-    io.mapRequired("function", scope.Function);
-    io.mapRequired("level",scope.Level);
+struct MappingTraits< RelationScope* > {
+  static void mapping(IO &io, RelationScope *&scope) {
+    if (!scope) scope = new RelationScope("", level_bitcode);
+    io.mapRequired("function", scope->Function);
+    io.mapRequired("level",scope->Level);
   }
 };
 
@@ -384,7 +446,8 @@ struct MappingTraits< RelationScope > {
 /// loop: construction worked fine, but CFRG contains  no-progress loop
 /// corrected: initial mapping did not include all path, but tabu list corrected the problem
 /// incomplete: no sensible mapping that includes all paths from both graphs was found
-enum RelationGraphStatus { rg_status_valid, rg_status_loop, rg_status_corrected, rg_status_incomplete };
+enum RelationGraphStatus { rg_status_valid, rg_status_loop, rg_status_corrected,
+                           rg_status_incomplete };
 template <>
 struct ScalarEnumerationTraits<RelationGraphStatus> {
   static void enumeration(IO &io, RelationGraphStatus& status) {
@@ -398,42 +461,181 @@ struct ScalarEnumerationTraits<RelationGraphStatus> {
 struct RelationGraph {
   static const int EntryIndex = 0;
   static const int ExitIndex  = 1;
+
   int NextIndex;
   RelationGraphStatus Status;
   RelationScope *SrcScope;
   RelationScope *DstScope;
   std::vector<RelationNode*> RelationNodes;
+
   RelationGraph(RelationScope *src, RelationScope *dst)
   : Status(rg_status_valid), SrcScope(src), DstScope(dst)
   {
-    RelationNodes.push_back(new RelationNode(yaml::Name(EntryIndex),rnt_entry));
-    RelationNodes.push_back(new RelationNode(yaml::Name(ExitIndex),rnt_exit));
+    RelationNodes.push_back(new RelationNode(EntryIndex,rnt_entry));
+    RelationNodes.push_back(new RelationNode(ExitIndex,rnt_exit));
     NextIndex = 2;
   }
   ~RelationGraph() {
-    delete SrcScope;
-    delete DstScope;
+    if (SrcScope) delete SrcScope;
+    if (DstScope) delete DstScope;
     DELETE_MEMBERS(RelationNodes);
   }
+
   RelationNode *getEntryNode() { return RelationNodes[EntryIndex]; }
   RelationNode *getExitNode()  { return RelationNodes[ExitIndex]; }
+
   /// add a relation node (owned by graph)
   RelationNode* addNode(RelationNodeType ty) {
-    RelationNode *N = new RelationNode(yaml::Name(NextIndex++),ty);
+    RelationNode *N = new RelationNode(NextIndex++,ty);
     RelationNodes.push_back(N);
     return N;
   }
 };
 template <>
-struct MappingTraits< RelationGraph > {
-  static void mapping(IO &io, RelationGraph &RG) {
-    io.mapRequired("src",   *RG.SrcScope);
-    io.mapRequired("dst",   *RG.DstScope);
-    io.mapRequired("nodes", RG.RelationNodes);
-    io.mapOptional("status", RG.Status);
+struct MappingTraits< RelationGraph* > {
+  static void mapping(IO &io, RelationGraph *&RG) {
+    if (!RG) RG = new RelationGraph(0, 0);
+    io.mapRequired("src",   RG->SrcScope);
+    io.mapRequired("dst",   RG->DstScope);
+    io.mapRequired("nodes", RG->RelationNodes);
+    io.mapOptional("status", RG->Status);
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(RelationGraph)
+
+
+// Generic program references
+//////////////////////////////////////////////////////////////////////////////
+
+struct Context {
+  Name Callsite;
+  Name Loop;
+  Name Step;
+  Name Offset;
+
+  Context(Name cs)      : Callsite(cs) {}
+  Context(StringRef cs) : Callsite(cs) {}
+  Context(uint64_t cs)  : Callsite(cs) {}
+};
+template <>
+struct MappingTraits< Context* > {
+  static void mapping(IO &io, Context *&C) {
+    if (!C) C = new Context(0);
+    io.mapRequired("callsite", C->Callsite);
+    io.mapOptional("loop",     C->Loop, Name(""));
+    io.mapOptional("step",     C->Step, Name(""));
+    io.mapOptional("offset",   C->Offset, Name(""));
+  }
+};
+YAML_IS_PTR_SEQUENCE_VECTOR(Context)
+
+
+struct Scope {
+  Name Function;
+  Name Loop;
+  Context *ContextRef;
+
+  Scope(Name      f) : Function(f), ContextRef(0) {}
+  Scope(StringRef f) : Function(f), ContextRef(0) {}
+  Scope(uint64_t  f) : Function(f), ContextRef(0) {}
+
+  ~Scope() {
+    if (ContextRef) delete ContextRef;
+  }
+};
+template <>
+struct MappingTraits< Scope* > {
+  static void mapping(IO &io, Scope *&S) {
+    if (!S) S = new Scope(0);
+    io.mapRequired("function", S->Function);
+    io.mapOptional("loop",     S->Loop, Name(""));
+    io.mapOptional("context",  S->ContextRef);
+  }
+};
+
+
+struct ProgramPoint {
+  Name Function;
+  Name Block;
+  Name Instruction;
+  Name EdgeSource;
+  Name EdgeTarget;
+  std::vector<Context*> ContextString;
+
+  ProgramPoint(Name      function) : Function(function) {}
+  ProgramPoint(StringRef function) : Function(function) {}
+  ProgramPoint(uint64_t  function) : Function(function) {}
+  ProgramPoint(StringRef function, StringRef block)
+  : Function(function), Block(block) {}
+
+  ~ProgramPoint() {
+    DELETE_MEMBERS(ContextString);
+  }
+};
+template <>
+struct MappingTraits< ProgramPoint* > {
+  static void mapping(IO &io, ProgramPoint *&PP) {
+    if (!PP) PP = new ProgramPoint(0);
+    io.mapRequired("function",    PP->Function);
+    io.mapOptional("block",       PP->Block, Name(""));
+    io.mapOptional("instruction", PP->Instruction, Name(""));
+    io.mapOptional("edgesource",  PP->EdgeSource, Name(""));
+    io.mapOptional("edgetarget",  PP->EdgeTarget, Name(""));
+    io.mapOptional("context",     PP->ContextString);
+  }
+};
+
+
+// Value Facts
+//////////////////////////////////////////////////////////////////////////////
+
+struct Value {
+  int64_t Min;
+  int64_t Max;
+  Value() : Min(INT64_MIN), Max(INT64_MAX) {}
+  Value(int64_t min, int64_t max) : Min(min), Max(max) {}
+};
+template <>
+struct MappingTraits< Value > {
+  static void mapping(IO &io, Value &V) {
+    io.mapOptional("min", V.Min, (int64_t)INT64_MIN);
+    io.mapOptional("max", V.Max, (int64_t)INT64_MAX);
+  }
+};
+YAML_IS_SEQUENCE_VECTOR(Value)
+
+struct ValueFact {
+  Name Origin;
+  ReprLevel Level;
+  Name Variable;
+  int Width;
+  std::vector<Value> Values;
+  ProgramPoint *PP;
+
+  ValueFact(ReprLevel lvl) : Level(lvl), Width(0), PP(0) {}
+  ~ValueFact() {
+    if (PP) delete PP;
+  }
+
+  void addValue(int64_t min, int64_t max) {
+    Values.push_back(Value(min,max));
+  }
+};
+template <>
+struct MappingTraits< ValueFact* > {
+  static void mapping(IO &io, ValueFact *&VF) {
+    if (!VF) VF = new ValueFact(level_machinecode);
+    io.mapOptional("origin",   VF->Origin);
+    // TODO either make level required, or define a level_none as default
+    io.mapOptional("level",    VF->Level);
+    io.mapOptional("variable", VF->Variable);
+    io.mapOptional("width",    VF->Width);
+    io.mapOptional("values",   VF->Values);
+    io.mapOptional("program-point", VF->PP);
+  }
+};
+YAML_IS_PTR_SEQUENCE_VECTOR(ValueFact)
+
 
 // Flow Facts
 //////////////////////////////////////////////////////////////////////////////
@@ -447,92 +649,136 @@ struct ScalarEnumerationTraits<CmpOp> {
   }
 };
 
-struct ProgramPoint {
-  Name Function;
-  Name Block;
-  Name Instruction;
-  /// XXX: add edges-target etc.
-  /// for loop scopes
-  Name Loop;
-};
-template <>
-struct MappingTraits< ProgramPoint > {
-  static void mapping(IO &io, ProgramPoint &PP) {
-    io.mapRequired("function", PP.Function);
-    io.mapOptional("block", PP.Block, Name(""));
-    io.mapOptional("instruction", PP.Instruction, Name(""));
-    io.mapOptional("loop", PP.Loop, Name(""));
-  }
-};
 
 struct Term {
   ProgramPoint* PP;
   int64_t Factor;
+
   Term() : PP(0), Factor(0) {}
   Term(ProgramPoint *pp, int64_t factor) : PP(pp), Factor(factor) {}
+  ~Term() {
+    if (PP) delete PP;
+  }
 };
 
 template <>
 struct MappingTraits< Term > {
   static void mapping(IO &io, Term &Term) {
     io.mapRequired("factor", Term.Factor);
-    io.mapRequired("program-point", *(Term.PP));
+    io.mapRequired("program-point", Term.PP);
   }
 };
 
 YAML_IS_SEQUENCE_VECTOR(Term)
 
 struct FlowFact {
-  ProgramPoint* Scope;
-  std::vector<Term> TermsLHS;
-  CmpOp Comparison;
-  Name RHS;
+  Name      Origin;
   ReprLevel Level;
-  Name Origin;
-  Name Classification;
+  Name      Classification;
+  Scope    *ScopeRef;
+  std::vector<Term> TermsLHS;
+  CmpOp     Comparison;
+  Name      RHS;
+
+  FlowFact(ReprLevel lvl) : Level(lvl), ScopeRef(0), Comparison(cmp_equal) {}
+  // Factory / Memory Management
+  ~FlowFact() {
+    if (ScopeRef) delete ScopeRef;
+  }
 
   // Add term (PP should have been created by this flow fact)
   void addTermLHS(ProgramPoint *PP, int64_t Factor) {
     TermsLHS.push_back(Term(PP, Factor));
   }
 
-  // Factory / Memory Management
-  std::vector<ProgramPoint*> Storage;
-  ~FlowFact() {
-    for(std::vector<ProgramPoint*>::iterator I = Storage.begin(), E = Storage.end(); I != E; ++I)
-      delete *I;
-  }
-  ProgramPoint* createLoop(const Name& Function, const Name& Loop) {
-    ProgramPoint *LPP = new ProgramPoint();
-    Storage.push_back(LPP);
-    LPP->Function = Function;
-    LPP->Loop = Loop;
-    return LPP;
-  }
-  ProgramPoint* createBlock(const Name& Function, const Name& Block) {
-    ProgramPoint *BPP = new ProgramPoint();
-    Storage.push_back(BPP);
-    BPP->Function = Function;
-    BPP->Block = Block;
-    return BPP;
+  void setLoopScope(const Name& Function, const Name& Loop) {
+    if (ScopeRef) delete ScopeRef;
+    ScopeRef = new Scope(Function);
+    ScopeRef->Loop = Loop;
   }
 };
-
-
 template <>
-struct MappingTraits< FlowFact > {
-  static void mapping(IO &io, FlowFact &FF) {
-    io.mapRequired("scope", *(FF.Scope));
-    io.mapRequired("lhs", FF.TermsLHS);
-    io.mapRequired("op", FF.Comparison);
-    io.mapRequired("rhs", FF.RHS);
-    io.mapRequired("level", FF.Level);
-    io.mapRequired("origin", FF.Origin);
-    io.mapOptional("classification", FF.Classification, Name(""));
+struct MappingTraits< FlowFact* > {
+  static void mapping(IO &io, FlowFact *&FF) {
+    if (!FF) FF = new FlowFact(level_bitcode);
+    io.mapRequired("scope",  FF->ScopeRef);
+    io.mapRequired("lhs",    FF->TermsLHS);
+    io.mapRequired("op",     FF->Comparison);
+    io.mapRequired("rhs",    FF->RHS);
+    io.mapRequired("level",  FF->Level);
+    io.mapRequired("origin", FF->Origin);
+    io.mapOptional("classification", FF->Classification, Name(""));
   }
 };
 
 YAML_IS_PTR_SEQUENCE_VECTOR(FlowFact)
+
+// Timing
+//////////////////////////////////////////////////////////////////////////////
+
+struct Profile {
+  ProgramPoint *Reference;
+  uint64_t Cycles;
+  uint64_t WCETContribution;
+  uint64_t WCETFrequency;
+  double Criticality;
+
+  // only for yaml import.
+  Profile()
+  : Reference(0), Cycles(0), WCETContribution(0), WCETFrequency(0), Criticality(0)
+  {
+  }
+  ~Profile() {
+    if (Reference) delete Reference;
+  }
+
+  void setReference(ProgramPoint *PP) {
+    if (Reference) delete Reference;
+    Reference = PP;
+  }
+};
+template <>
+struct MappingTraits< Profile* > {
+  static void mapping(IO &io, Profile *&P) {
+    if (!P) P = new Profile();
+    io.mapRequired("reference",         P->Reference);
+    io.mapOptional("cycles",            P->Cycles);
+    io.mapOptional("wcet-contribution", P->WCETContribution);
+    io.mapOptional("wcet-frequency",    P->WCETFrequency);
+    io.mapOptional("criticality",       P->Criticality);
+  }
+};
+
+YAML_IS_PTR_SEQUENCE_VECTOR(Profile)
+
+
+struct Timing {
+  Name Origin;
+  ReprLevel Level;
+  Scope *ScopeRef;
+  uint64_t Cycles;
+  std::vector<Profile*> Profiles;
+
+  Timing() : Origin(""), ScopeRef(0), Cycles(0) {
+  }
+  ~Timing() {
+    if (ScopeRef) delete ScopeRef;
+    DELETE_MEMBERS(Profiles);
+  }
+};
+template <>
+struct MappingTraits< Timing* > {
+  static void mapping(IO &io, Timing *&T) {
+    if (!T) T = new Timing();
+    io.mapOptional("origin",  T->Origin);
+    io.mapOptional("level",   T->Level);
+    io.mapOptional("scope",   T->ScopeRef);
+    io.mapRequired("cycles",  T->Cycles);
+    io.mapOptional("profile", T->Profiles);
+  }
+};
+
+YAML_IS_PTR_SEQUENCE_VECTOR(Timing)
 
 // PML Documents
 //////////////////////////////////////////////////////////////////////////////
@@ -554,6 +800,8 @@ struct PMLDoc {
   std::vector<GenericFormat::MachineFunction*> MachineFunctions;
   std::vector<RelationGraph*> RelationGraphs;
   std::vector<FlowFact*> FlowFacts;
+  std::vector<ValueFact*> ValueFacts;
+  std::vector<Timing*> Timings;
 
   PMLDoc()
     : FormatVersion("pml-0.1"), TargetTriple("") {}
@@ -566,7 +814,9 @@ struct PMLDoc {
     DELETE_MEMBERS(BitcodeFunctions);
     DELETE_MEMBERS(MachineFunctions);
     DELETE_MEMBERS(RelationGraphs);
+    DELETE_MEMBERS(ValueFacts);
     DELETE_MEMBERS(FlowFacts);
+    DELETE_MEMBERS(Timings);
   }
   /// Add a function, which is owned by the document afterwards
   void addFunction(BitcodeFunction *F) {
@@ -588,12 +838,14 @@ struct PMLDoc {
 template <>
 struct MappingTraits< PMLDoc > {
   static void mapping(IO &io, PMLDoc& doc) {
-    io.mapRequired("format",   doc.FormatVersion);
-    io.mapRequired("triple",   doc.TargetTriple);
+    io.mapRequired("format",     doc.FormatVersion);
+    io.mapRequired("triple",     doc.TargetTriple);
     io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
     io.mapOptional("machine-functions",doc.MachineFunctions);
     io.mapOptional("relation-graphs",doc.RelationGraphs);
-    io.mapOptional("flowfacts", doc.FlowFacts);
+    io.mapOptional("flowfacts",  doc.FlowFacts);
+    io.mapOptional("valuefacts", doc.ValueFacts);
+    io.mapOptional("timing",     doc.Timings);
   }
 };
 
