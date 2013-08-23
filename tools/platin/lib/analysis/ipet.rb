@@ -125,7 +125,7 @@ end
 
 # ILP base class (FIXME)
 class ILP
-  attr_reader :variables, :constraints, :costs, :options, :vartype, :solvertime, :elim_steps
+  attr_reader :variables, :constraints, :costs, :options, :vartype, :solvertime
   # variables ... array of distinct, comparable items
   def initialize(options = nil)
     @solvertime = 0
@@ -135,7 +135,6 @@ class ILP
     @vartype = {}
     @eliminated = Hash.new(false)
     @constraints = Set.new
-    @elim_steps = 0
     reset_cost
   end
   # number of non-eliminated variables
@@ -263,6 +262,10 @@ class IPETEdge
     return false unless source.kind_of?(Block)
     return false unless :exit == target || target.kind_of?(Block)
     true
+  end
+  # function of source
+  def function
+    source.function
   end
   def cfg_edge
     assert("IPETEdge#cfg_edge: not a edge between blocks") { cfg_edge? }

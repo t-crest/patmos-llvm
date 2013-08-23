@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
 #
-# PSK tool set
+# platin tool set
 #
 # Simple Worst-Case Analysis using IPET
+# TODO: move logic from tools/ to analysis/
 #
 require 'platin'
 require 'ext/lpsolve'
@@ -105,10 +106,6 @@ class WcaTool
       warn("WCA: ILP failed: #{ex}") unless options.disable_ipet_diagnosis
       cycles,freqs = -1, {}
     end
-    statistics("WCA",
-               "ilp variables" => builder.ilp.num_variables,
-               "ilp constraints" => builder.ilp.constraints.length) if options.stats
-
 
     # report result
     profile = Profile.new([])
@@ -117,6 +114,7 @@ class WcaTool
     # collect edge timings
     edgefreq, edgecost = {}, Hash.new(0)
     freqs.each { |v,freq|
+      freq = freqs[v]
       edgecost = builder.ilp.get_cost(v)
       freq = freq.to_i
       if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
@@ -133,7 +131,9 @@ class WcaTool
       puts "Edge Profile:"
       freqs.map { |v,freq|
         [v,freq * builder.ilp.get_cost(v)]
-      }.sort { |a,b| b[1] <=> a[1] }.each { |v,cost|
+      }.sort_by { |v,freq|
+        [v.function, -freq]
+      }.each { |v,cost|
         puts "  #{v}: #{freqs[v]} (#{cost} cyc)"
       }
     end

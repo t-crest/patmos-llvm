@@ -208,7 +208,7 @@ class WcetTool
   end
 
   def compute_criticalities(opts)
-    # opts = opts.dup
+    opts = opts.dup
     criticality = {}
     missing_blocks, missing_edges = Set.new, Set.new
     pml.machine_functions.each { |f|
@@ -253,13 +253,15 @@ class WcetTool
         end
       end
       ff = enforce_blocks_constraint(missing_blocks ? missing_blocks : missing_edges, '.criticality')
+      tmp_opts = opts.dup
       pml.with_temporary_sections([:flowfacts,:timing]) do
         debug(opts,:wcet) { "Adding constraint to enforce different WCET path: #{ff}" }
         pml.flowfacts.push(ff)
         pml.timing.clear!
-        opts.disable_ipet_diagnosis = true
+        tmp_opts.disable_ipet_diagnosis = true
+        tmp_opts.stats = false
         begin
-          yield pml,opts,'.criticality',round
+          yield pml,tmp_opts,'.criticality',round
           timing = pml.timing.find { |t| t.origin == opts.timing_output }
           cycles = timing.cycles
         rescue InconsistentConstraintException => ex # Inconsistent problem

@@ -244,7 +244,7 @@ class LoopContextEntry < ContextEntry
     assert("LoopContextEntry#from_pml: loop is not a loop reference") { ref.kind_of?(LoopRef) }
     step = data['step']
     offset = data['offset']
-    callsite = InstructionRef.from_qname(data['callsite']).instruction if data['callsite']
+    callsite = InstructionRef.from_qname(functions, data['callsite']).instruction if data['callsite']
     LoopContextEntry.new(ref.loopblock,step,offset,callsite)
   end
 
@@ -344,7 +344,7 @@ class Context < PMLObject
     set_yaml_repr(data)
   end
   def to_pml
-    @callstring.to_a.map { |cs| cs.data }
+    @callstring.to_a.map { |cse| cse.to_pml } # recalculate to avoid sharing
   end
   def Context.from_pml(functions, data)
     cs = data.map { |ref| ContextEntry.from_pml(functions,ref) }
@@ -429,10 +429,11 @@ class ContextRef < PMLObject
   #
   # compact notation (introduced so LLVM exported does not need to fight with contexts):
   def to_pml
-    pml = @reference.data.dup # dup as we modify key
-    pml['context'] = @context.data unless @context.empty?
+    pml = @reference.to_pml # recalculate, as we modify key
+    pml['context'] = @context.to_pml unless @context.empty? # recalculate, to avoid sharing in YAML
     pml
   end
+
   def ContextRef.from_pml(functions, data)
     context = data['context'] ? Context.from_pml(functions,data['context']) : Context.empty
     ref = Reference.from_pml(functions, data)

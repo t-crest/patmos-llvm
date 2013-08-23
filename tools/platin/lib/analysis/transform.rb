@@ -105,6 +105,7 @@ class VariableElimination
 
   #
   # eliminate set of variables (which must have no cost assigned in the ILP)
+  # it is possible to restrict the ILP to a subproblem by providing a filter as a second argument
   #
   def eliminate_set(vars)
 
@@ -226,16 +227,13 @@ class VariableElimination
           end
         end
       end
-      @ilp.delete_varindex(elimvar)
       elim_vids.delete(elimvar)
     end
-
-    @ilp.reset_constraints
-    known_constraints.values.each { |cref|
-      if cref.status != :garbage
-        raise Exception.new("Internal Error: no constraint") unless cref.constraint
-        @ilp.constraints.add(cref.constraint)
-      end
+    new_constraints = []
+    known_constraints.values.select { |cref|
+      cref.status != :garbage
+    }.map { |cref|
+      cref.constraint
     }
   end
 
@@ -354,14 +352,15 @@ class FlowFactTransformation
         elim_set.push(var)
        end
     end
-    VariableElimination.new(ilp).eliminate_set(elim_set)
+    ve = VariableElimination.new(ilp)
+    new_constraints = ve.eliminate_set(elim_set)
 
     # Extract and add new flow facts
-    new_ffs = extract_flowfacts(ilp, entry, :dst, [:simplify])
+    new_ffs = extract_flowfacts(new_constraints, entry, :dst, [:simplify])
     new_ffs.each { |ff| pml.flowfacts.add(ff) }
     statistics("TRANSFORM",
                "Constraints after 'simplify' FM-elimination (#{constraints_before} =>)" =>
-               ilp.constraints.length,
+               new_constraints.length,
                "Unsimplified flowfacts copied (=>#{options.flow_fact_output})" =>
                copied.length,
                "Simplified flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" =>
@@ -379,15 +378,16 @@ class FlowFactTransformation
     elim_set = ilp.variables.select { |var|
       ilp.vartype[var] != target_level || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
     }
-    VariableElimination.new(ilp).eliminate_set(elim_set)
+    ve = VariableElimination.new(ilp)
+    new_constraints = ve.eliminate_set(elim_set)
 
     # Extract and add new flow facts
-    new_ffs = extract_flowfacts(ilp, entry, target_level, [:flowfact, :callsite])
+    new_ffs = extract_flowfacts(new_constraints, entry, target_level, [:flowfact, :callsite])
     new_ffs.each { |ff| pml.flowfacts.add(ff) }
     statistics("TRANSFORM",
                "Constraints after FM-elimination (#{constraints_before} =>)" => ilp.constraints.length,
                "transformed flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" => new_ffs.length,
-               "elimination steps" => ilp.elim_steps) if options.stats
+               "elimination steps" => ve.elim_steps) if options.stats
   end
 
 private
@@ -414,11 +414,11 @@ private
     ipet
   end
 
-  def extract_flowfacts(ilp, entry, target_level, tags = [:flowfact, :callsite])
+  def extract_flowfacts(constraints, entry, target_level, tags = [:flowfact, :callsite])
     new_flowfacts = []
     attrs = { 'origin' =>  options.flow_fact_output,
               'level'  => (target_level == :src) ? "bitcode" : "machinecode" }
-    ilp.constraints.each do |constr|
+    constraints.each do |constr|
       lhs = constr.named_lhs
       name = constr.name
 

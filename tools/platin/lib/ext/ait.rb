@@ -361,13 +361,13 @@ class AitImport
       e.each_element("value_context") { |ce|
 
         context = @contexts[ce.attributes['context']]
-        fact_pp = ContextRef.new(ins.ref, context)
 
         ce.each_element("value_step") { |se|
 
           # value_step#index ? value_step#mode?
           # value_area#mod? value_area#rem?
 
+          fact_pp = ContextRef.new(ins.ref, context)
           is_read = se.attributes['type'] == 'read'
           if is_read
             fact_variable = "mem-address-read"
@@ -433,7 +433,7 @@ class AitImport
           context = @contexts[ctx_elem.attributes['context']]
 
           # deal with aiT's special nodes
-          start_nodes, loop_nodes, return_nodes = {}, {}, {}
+          start_nodes, loop_nodes, call_nodes, return_nodes = {}, {}, {}, {}
 
           # Special Case #1: (StartNode -> Node) is ignored
           # => If the target block is a start block, ignore the edge
@@ -447,6 +447,8 @@ class AitImport
           ctx_elem.each_element("wcet_edge_call") { |call_edge|
             if loopblock = @routines[call_edge.attributes['target_routine']].loop
               loop_nodes[call_edge.attributes['source_block']] = loopblock
+            else
+              call_nodes[call_edge.attributes['source_block']] = true
             end
           }
 
@@ -476,6 +478,9 @@ class AitImport
             source = @blocks[edge.attributes['source_block']]
 
             target_block_id = edge.attributes['target_block']
+            target = @blocks[edge.attributes['target_block']]
+            is_intrablock_target = ! target.nil? && target.index > 0 && ! loop_nodes[target_block_id]
+            is_intrablock_target = true if call_nodes[target_block_id]
             target_block = if loop_nodes[target_block_id]
                              loop_nodes[target_block_id]
                            else
@@ -485,6 +490,7 @@ class AitImport
             count = edge.attributes['count'].to_i
             cum_cycles = edge.attributes['cycles'].to_i
             path_cycles = edge.attributes['path_cycles'].to_i
+            debug(options,:ait) { "Edge #{source} -> #{target.inspect} [tblock=#{target_block}] [loopnode=#{loop_nodes[target_block_id]}] [callnode=#{call_nodes[target_block_id]}[tid=#{target_block_id}] #{count} is intrablock: #{is_intrablock_target}" }
             if count > 0
               computed_path_cycles = (cum_cycles.to_f / count).to_i
               if path_cycles.to_i > 0
@@ -503,11 +509,11 @@ class AitImport
             # there is the problem of duplicated blocks, as we want to compute cycles per execution,
             # not just cummulative cycles.
             #
-            # One case is that we are given cycles for an intraprocdural edge b/i -> b/j, in different
+            # One case is that we are given cycles for an intraprocedural edge b/i -> b/j (j>0), in different
             # contexts. As there might be several aiT nodes for b/i, we need store the maximum cost for
             # the slice (b/i..b/j) in this case. The frequency is ignored here, it is determined by
             # the frequency of the block anyway.
-            # The other case is that we have cycles for an edge b/i -> b'; again there might be
+            # The other case is that we have cycles for an edge b/i -> b'/0; again there might be
             # several aiT nodes for b/i. In this case, we accumulate the frequency of (b -> b'),
             # and store the maximum cost for (b-> b').
             #
@@ -515,7 +521,7 @@ class AitImport
             # b->b' where b' is a live successor at instruction b/i.
             # Moreover, we add the maximum cost for (b/i -> b') to the edge b->b'.
 
-            if source.block == target_block
+            if source.block == target_block && is_intrablock_target
               ref = ContextRef.new(source.ref, context)
               ait_ins_cost[ref] = [ait_ins_cost[ref],path_cycles].max
             else

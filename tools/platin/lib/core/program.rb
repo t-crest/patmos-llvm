@@ -74,7 +74,7 @@ module PML
       "#<BlockRef: #{@block.qname}"
     end
     def to_pml
-      { 'block' => block.qname }
+      { 'function' => function.name, 'block' => block.name }
     end
     def BlockRef.from_qname(functions,qn)
       fn,bn = qn.split('/',2).map { |n| YAML::load(n) }
@@ -96,7 +96,7 @@ module PML
       "#<LoopRef: #{loopblock.qname}"
     end
     def to_pml
-      { 'loop' => loopblock.qname }
+      { 'function' => loopblock.function.name, 'loop' => loopblock.name }
     end
     def LoopRef.from_qname(functions,qn)
       fn,bn = qn.split('/',2).map { |n| YAML::load(n) }
@@ -146,14 +146,11 @@ module PML
       @qname = instruction.qname
       set_yaml_repr(data)
     end
-    def block
-      instruction.block
-    end
     def to_s
       "#<InstructionRef: #{@instruction.qname}>"
     end
     def to_pml
-      { 'instruction' => instruction.qname }
+      { 'function' => function.name, 'block' => block.name, 'instruction' => instruction.name }
     end
     def InstructionRef.from_qname(functions,qn)
       fn,bn,iname = qn.split('/',3).map { |n| YAML::load(n) }
