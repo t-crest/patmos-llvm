@@ -25,6 +25,7 @@
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/MemoryBuffer.h"
 
 using namespace llvm;
 
@@ -48,7 +49,11 @@ void PMLImport::initializePass()
     return;
   }
 
-  yaml::Input Input(ImportFile);
+  OwningPtr<MemoryBuffer> Buf;
+  if (MemoryBuffer::getFileOrSTDIN(ImportFile, Buf))
+    return;
+
+  yaml::Input Input(Buf->getBuffer());
 
   Input >> YDocs;
 
