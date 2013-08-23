@@ -146,28 +146,28 @@ namespace llvm {
     virtual bool doExportInstruction(const MachineInstr *Instr) { return true; }
 
     virtual void exportInstruction(MachineFunction &MF,
-                                   yaml::GenericMachineInstruction *I,
+                                   yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
                                    SmallVector<MachineOperand, 4> &Conditions,
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
                                    MachineBasicBlock *FalseSucc);
     virtual void exportCallInstruction(MachineFunction &MF,
-                                   yaml::GenericMachineInstruction *I,
+                                   yaml::MachineInstruction *I,
                                    const MachineInstr *Instr);
     virtual void exportBranchInstruction(MachineFunction &MF,
-                                   yaml::GenericMachineInstruction *I,
+                                   yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
                                    SmallVector<MachineOperand, 4> &Conditions,
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
                                    MachineBasicBlock *FalseSucc);
     virtual void exportLoadInstruction(MachineFunction &MF,
-                                   yaml::GenericMachineInstruction *I,
+                                   yaml::MachineInstruction *I,
                                    const MachineInstr *Instr);
 
     virtual void exportArgumentRegisterMapping(
-                                      yaml::GenericFormat::MachineFunction *F,
+                                      yaml::MachineFunction *F,
                                       const MachineFunction &MF);
 
   };

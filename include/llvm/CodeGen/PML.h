@@ -214,7 +214,7 @@ struct MappingTraits<Instruction*> {
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
-/// Generic MachineInstruction Specification
+/// MachineInstruction Specification
 enum BranchType { branch_none, branch_unconditional, branch_conditional,
                   branch_indirect, branch_call, branch_return, branch_any };
 template <>
@@ -229,7 +229,7 @@ struct ScalarEnumerationTraits<BranchType> {
     io.enumCase(branchtype, "any", branch_any);
   }
 };
-struct GenericMachineInstruction : Instruction {
+struct MachineInstruction : Instruction {
 
   unsigned Size;
   int64_t  Address;
@@ -238,14 +238,14 @@ struct GenericMachineInstruction : Instruction {
   std::vector<Name> BranchTargets;
   unsigned BranchDelaySlots;
 
-  GenericMachineInstruction(uint64_t Index)
+  MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
     BranchDelaySlots(0) {}
 };
 template <>
-struct MappingTraits<GenericMachineInstruction*> {
-  static void mapping(IO &io, GenericMachineInstruction *&Ins) {
-    if (!Ins) Ins = new GenericMachineInstruction(0);
+struct MappingTraits<MachineInstruction*> {
+  static void mapping(IO &io, MachineInstruction *&Ins) {
+    if (!Ins) Ins = new MachineInstruction(0);
     io.mapRequired("index",         Ins->Index);
     io.mapOptional("opcode",        Ins->Opcode, -1);
     io.mapOptional("callees",       Ins->Callees);
@@ -257,7 +257,7 @@ struct MappingTraits<GenericMachineInstruction*> {
   }
   static const bool flow = true;
 };
-YAML_IS_PTR_SEQUENCE_VECTOR(GenericMachineInstruction)
+YAML_IS_PTR_SEQUENCE_VECTOR(MachineInstruction)
 
 /// Basic Block Specification (generic)
 template<typename InstructionT>
@@ -284,7 +284,7 @@ struct Block {
 template <typename InstructionT>
 struct MappingTraits< Block<InstructionT>* > {
   static void mapping(IO &io, Block<InstructionT> *&B) {
-    if (!B) B = new Block<InstructionT>(0);
+    if (!B) B = new Block<InstructionT>(0ULL);
     io.mapRequired("name",         B->BlockName);
     io.mapOptional("mapsto",       B->MapsTo, Name(""));
     io.mapOptional("address",      B->Address, (int64_t) -1);
@@ -352,7 +352,7 @@ struct Function {
 template <typename BlockT>
 struct MappingTraits< Function<BlockT>* > {
   static void mapping(IO &io, Function<BlockT> *&Fn) {
-    if (!Fn) Fn = new Function<BlockT>(0);
+    if (!Fn) Fn = new Function<BlockT>(0ULL);
     io.mapRequired("name",      Fn->FunctionName);
     io.mapRequired("level",     Fn->Level);
     io.mapOptional("mapsto",    Fn->MapsTo, Name(""));
@@ -365,6 +365,8 @@ YAML_IS_PTR_SEQUENCE_VECTOR_1(Function)
 
 typedef Block<Instruction> BitcodeBlock;
 typedef Function<BitcodeBlock> BitcodeFunction;
+typedef Block<MachineInstruction> MachineBlock;
+typedef Function<MachineBlock> MachineFunction;
 
 /// Relation Node Type
 enum RelationNodeType { rnt_entry, rnt_exit, rnt_progress, rnt_src, rnt_dst };
@@ -521,7 +523,7 @@ template <>
 struct MappingTraits< Context* > {
   static void mapping(IO &io, Context *&C) {
     if (!C) C = new Context(0);
-    io.mapRequired("callsite", C->Callsite);
+    io.mapOptional("callsite", C->Callsite);
     io.mapOptional("loop",     C->Loop, Name(""));
     io.mapOptional("step",     C->Step, Name(""));
     io.mapOptional("offset",   C->Offset, Name(""));
@@ -783,21 +785,11 @@ YAML_IS_PTR_SEQUENCE_VECTOR(Timing)
 // PML Documents
 //////////////////////////////////////////////////////////////////////////////
 
-/// Each document defines a version of the format, and either the
-/// generic architecture, or a specialized one. Architecture specific
-/// properties are defined in the architecture description.
-struct GenericFormat {
-  typedef GenericMachineInstruction MachineInstruction;
-  typedef Block<MachineInstruction> MachineBlock;
-  typedef Function<MachineBlock> MachineFunction;
-};
-
-
 struct PMLDoc {
   StringRef FormatVersion;
   StringRef TargetTriple;
   std::vector<BitcodeFunction*> BitcodeFunctions;
-  std::vector<GenericFormat::MachineFunction*> MachineFunctions;
+  std::vector<MachineFunction*> MachineFunctions;
   std::vector<RelationGraph*> RelationGraphs;
   std::vector<FlowFact*> FlowFacts;
   std::vector<ValueFact*> ValueFacts;
@@ -823,7 +815,7 @@ struct PMLDoc {
     BitcodeFunctions.push_back(F);
   }
   /// Add a machine function, which is owned by the document afterwards
-  void addMachineFunction(GenericFormat::MachineFunction* MF) {
+  void addMachineFunction(MachineFunction* MF) {
     MachineFunctions.push_back(MF);
   }
   /// Add a relation graph, which is owned by the document afterwards

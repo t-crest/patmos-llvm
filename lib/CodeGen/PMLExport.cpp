@@ -318,12 +318,12 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   Function* F = const_cast<Function*>(MF.getFunction());
   MachineLoopInfo &MLI(P.getAnalysis<MachineLoopInfo>(*F));
 
-  yaml::GenericFormat::MachineFunction *PMF =
-     new yaml::GenericFormat::MachineFunction(MF.getFunctionNumber());
+  yaml::MachineFunction *PMF =
+     new yaml::MachineFunction(MF.getFunctionNumber());
 
   PMF->MapsTo = yaml::Name(MF.getFunction()->getName());
   PMF->Level = yaml::level_machinecode;
-  yaml::GenericFormat::MachineBlock *B;
+  yaml::MachineBlock *B;
 
   // export argument-register mapping if available
   exportArgumentRegisterMapping(PMF, MF);
@@ -331,7 +331,7 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
     B = PMF->addBlock(
-        new yaml::GenericFormat::MachineBlock(BB->getNumber()));
+        new yaml::MachineBlock(BB->getNumber()));
 
     for (MachineBasicBlock::const_pred_iterator BBPred = BB->pred_begin(),
         E = BB->pred_end(); BBPred != E; ++BBPred)
@@ -362,8 +362,8 @@ void PMLMachineExport::serialize(MachineFunction &MF)
     {
       if (!doExportInstruction(Ins)) { Index++; continue; }
 
-      yaml::GenericMachineInstruction *I = B->addInstruction(
-          new yaml::GenericMachineInstruction(Index++));
+      yaml::MachineInstruction *I = B->addInstruction(
+          new yaml::MachineInstruction(Index++));
       exportInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                         TrueSucc, FalseSucc);
     }
@@ -375,7 +375,7 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 }
 
 void PMLMachineExport::
-exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                   const MachineInstr *Ins,
                   SmallVector<MachineOperand, 4> &Conditions,
                   bool HasBranchInfo, MachineBasicBlock *TrueSucc,
@@ -406,7 +406,7 @@ exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
 }
 
 void PMLMachineExport::
-exportCallInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+exportCallInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                       const MachineInstr *Ins)
 {
   std::vector<StringRef> Callees = PII->getCalleeNames(MF, Ins);
@@ -427,7 +427,7 @@ exportCallInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
 
 void PMLMachineExport::
 exportBranchInstruction(MachineFunction &MF,
-                        yaml::GenericMachineInstruction *I,
+                        yaml::MachineInstruction *I,
                         const MachineInstr *Ins,
                         SmallVector<MachineOperand, 4> &Conditions,
                         bool HasBranchInfo, MachineBasicBlock *TrueSucc,
@@ -471,7 +471,7 @@ exportBranchInstruction(MachineFunction &MF,
 }
 
 void PMLMachineExport::
-exportLoadInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                       const MachineInstr *Ins)
 {
   // TODO attach the information to the PML instruction
@@ -529,8 +529,7 @@ exportLoadInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
 }
 
 void PMLMachineExport::
-exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *F,
-                              const MachineFunction &MF) {
+exportArgumentRegisterMapping(yaml::MachineFunction *F, const MachineFunction &MF) {
   // must be implemented entirely by target-specific exporters at this stage
 }
 

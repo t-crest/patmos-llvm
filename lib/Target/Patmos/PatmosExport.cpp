@@ -245,7 +245,7 @@ namespace llvm {
     /// exportArgumentRegisterMapping
     /// see below for implementation
     virtual void exportArgumentRegisterMapping(
-                                  yaml::GenericFormat::MachineFunction *PMF,
+                                  yaml::MachineFunction *PMF,
                                   const MachineFunction &MF);
   };
 
@@ -309,7 +309,7 @@ namespace llvm {
 
 
   void PatmosMachineExport::
-  exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *PMF,
+  exportArgumentRegisterMapping(yaml::MachineFunction *PMF,
                                 const MachineFunction &MF)
   {
       const PatmosTargetLowering *TLI =
