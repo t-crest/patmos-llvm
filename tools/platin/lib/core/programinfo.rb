@@ -238,7 +238,7 @@ module PML
     end
     def to_pml
       assert("no 'level' attribute for flow-fact") { level }
-      { 'scope' => scope.data,
+      { 'scope' => scope.data.dup,
         'lhs' => lhs.data,
         'op' => op,
         'rhs' => rhs,
@@ -418,15 +418,15 @@ module PML
     end
     def ProfileEntry.from_pml(fs, data)
       ProfileEntry.new(ContextRef.from_pml(fs,data['reference']), data['cycles'],
-                       data['wcet_frequency'], data['wcet_contribution'], data['criticality'], data)
+                       data['wcet-frequency'], data['wcet-contribution'], data['criticality'], data)
     end
     def criticality=(c)
       @criticality = c
       @data['criticality'] = c if @data
     end
     def to_pml
-      { 'reference' => reference.data, 'cycles' => cycles, 'wcet_frequency' => wcetfreq,
-        'criticality' => criticality, 'wcet_contribution' => wcet_contribution }.delete_if {|k,v| v.nil? }
+      { 'reference' => reference.data, 'cycles' => cycles, 'wcet-frequency' => wcetfreq,
+        'criticality' => criticality, 'wcet-contribution' => wcet_contribution }.delete_if {|k,v| v.nil? }
     end
     def to_s
       data

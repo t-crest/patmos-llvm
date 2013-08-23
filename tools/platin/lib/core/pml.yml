@@ -270,9 +270,9 @@ mapping:
       - &tentry
         type: map
         mapping:
-          "level": *level
           "origin":
             type: scalar
+          "level": *level
           "scope": *scope
           "cycles":
             required: true
@@ -289,10 +289,10 @@ mapping:
                   "cycles":
                     type: int
                     desc: "maximum execution time of the block in cycles (depends on the context)"
-                  "wcet_contribution":
+                  "wcet-contribution":
                     type: int
                     desc: "cycles contributed to WCET"
-                  "wcet_frequency":
+                  "wcet-frequency":
                     type: int
                     desc: "frequency on the worst-case path"
                   "criticality":
