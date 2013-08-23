@@ -1,0 +1,67 @@
+Tasks/Projects
+==============
+
+[Local FF Transformation]
+  - Goal: flow-facts that only affect one function (or parts of the program) should be translated locally
+  - Steps:
+    + restrict eliminate_set to subproblem
+    + transform flow facts locally
+    + compute (overestimated) loop bounds from local information
+  - Status: assigned to benedikt, 10% done
+
+[Symbolic Flow Facts]
+  - Goal: support flow-facts with symbolic RHS
+  - Steps:
+    + introduce symbolic domain for FF rhs
+    + translate function arguments from bitcode to machine code
+    + add aiT export for symbolic loop bounds
+  - Depends:
+    + [Local FF Transformation]
+
+[Machine Descriptions]
+  - Goal: allow to configure the target processor (in particular memories and caches)
+  - Steps:
+    + define a new section machine-description
+    + architectures provide default machine-description if none is given for WCET analysis
+    + export machine-description to aiT (standard I$,D$,scratchpad; access timing)
+
+[Call Context-sensitive IPET]
+  - Goal: allow use, transformation and elimination of call-context sensitive program information
+  - Steps:
+    + refactor IPET builder
+    + builder for context-sensitive callgraph (using infeasibility information)
+    + builder for context-sensitive IPET
+    + combine context-free and context-sensitive models for elimination
+
+[VCFG IPET]
+  - Goal: enable use, transformation and elimination of loop context-sensitive program information
+  - Steps:
+    + add IPET builder for VCFG (instead of LLVM CFG)
+    + combine LLVM CFG and VCFG for elimination
+  - Depends:
+    + [Call context-sensitive IPET]
+
+[Stack Cache Analysis]
+  - Goal: analyze stack cache
+  - Steps (TODO: Alex Jordan)
+  - Depends:
+    + [Machine Descriptions]
+
+[Method Cache Analysis]
+  -- Goal: add method cache analysis to platin
+  -- Steps:
+      + Export subfunction information
+      + find conflict-free scopes (functions)
+      + extend IPET to incorporate M$ miss-cost (see JOP)
+      + think about exporting to aiT
+      + Improvement: use a scope graph with loop/regions
+      + Improvement: compute precise cache usage using IPET (see JOP)
+   -- Depends:
+      + [Machine Descriptions]
+
+[WCET Formulas]
+  -- Port work on WCET formulas (WCET12)
+  -- Steps: ?
+  -- Depends
+     + [Symbolic Flow Facts]
+
