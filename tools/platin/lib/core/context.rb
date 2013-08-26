@@ -344,7 +344,7 @@ class Context < PMLObject
     set_yaml_repr(data)
   end
   def to_pml
-    @callstring.to_a.map { |cse| cse.to_pml } # recalculate to avoid sharing
+    @callstring.to_a.map { |cse| cse.data }
   end
   def Context.from_pml(functions, data)
     cs = data.map { |ref| ContextEntry.from_pml(functions,ref) }
@@ -427,10 +427,10 @@ class ContextRef < PMLObject
   end
 
   #
-  # compact notation (introduced so LLVM exported does not need to fight with contexts):
+  # FIXME: the notation is compact, but mixes up context references and references; reconsider
   def to_pml
-    pml = @reference.to_pml # recalculate, as we modify key
-    pml['context'] = @context.to_pml unless @context.empty? # recalculate, to avoid sharing in YAML
+    pml = @reference.data.dup
+    pml['context'] = @context.data unless @context.empty?
     pml
   end
 

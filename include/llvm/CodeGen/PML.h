@@ -809,7 +809,7 @@ struct Timing {
   Name Origin;
   ReprLevel Level;
   Scope *ScopeRef;
-  uint64_t Cycles;
+  int64_t Cycles;
   std::vector<Profile*> Profiles;
 
   Timing() : Origin(""), ScopeRef(0), Cycles(0) {

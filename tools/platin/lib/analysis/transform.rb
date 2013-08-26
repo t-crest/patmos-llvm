@@ -32,8 +32,16 @@ class ConstraintRef
     @status = :active
   end
 
+  # number of referenced variables
   def num_vars
     constraint.lhs.size
+  end
+
+  # compare by [number of elimination variables references, id]
+  def <=>(other)
+    c = num_elim_vars <=> other.num_elim_vars
+    return c unless c == 0
+    @cid <=> other.cid
   end
 
   def to_s
@@ -48,11 +56,6 @@ class ConstraintRef
   end
   def hash
     cid
-  end
-  def <=>(other)
-    c = num_elim_vars <=> other.num_elim_vars
-    return c unless c == 0
-    @cid <=> other.cid
   end
 end
 
@@ -106,8 +109,7 @@ class VariableElimination
   #
   # eliminate set of variables (which must have no cost assigned in the ILP)
   # it is possible to restrict the ILP to a subproblem by providing a filter as a second argument
-  #
-  def eliminate_set(vars)
+  def eliminate_set(vars, subproblem = nil)
 
     # set of variable ids left to eliminate
     elim_vids = Set.new
@@ -120,16 +122,13 @@ class VariableElimination
     # equations that hold a variable to eliminate
     elim_eqs = RefSet.new
 
-    # initialize variable->constraint dictionaries
-    @ilp.variable_indices.each { |vid|
-      eq_constraints[vid] = Set.new
-      bound_constraints[vid] = Set.new
-    }
-
     # initialize set of variables to eliminate
     vars.each { |v|
       raise Exception.new("VariableElimination: variable #{v} has cost assigned and cannot be eliminated") if @ilp.get_cost(v) > 0
+      vid = @ilp.index(v)
       elim_vids.add(@ilp.index(v))
+      eq_constraints[vid] = Set.new
+      bound_constraints[vid] = Set.new
     }
 
     # setup initial constraints
@@ -142,7 +141,7 @@ class VariableElimination
         dict = (constr.op == "equal") ? eq_constraints : bound_constraints
         elimeq_list = []
         constr.lhs.each { |vid,c|
-          dict[vid].add(cref)
+          dict[vid].add(cref) if dict[vid]
         }
         elim_eqs.add(cref) if constr.op == "equal" && cref.num_elim_vars > 0
       end
@@ -168,7 +167,7 @@ class VariableElimination
       if elimeq # Substitution
         # mark equation as garbage and remove it from all eq_constraints
         elimeq.status = :garbage
-        elimeq.constraint.var_indices.each { |v|
+        elimeq.elim_vars.each { |v|
           tmp = eq_constraints[v].delete(elimeq)
           raise Exception.new("Internal Error: inconstinstent eq_constraints dictionary") unless tmp
         }
@@ -178,7 +177,7 @@ class VariableElimination
           dict[elimvar].each { |subst_constr|
             # mark old constraint as garbage and remove it from dict
             subst_constr.status = :garbage
-            subst_constr.constraint.var_indices.each { |v|
+            subst_constr.elim_vars.each { |v|
               tmp = dict[v].delete(subst_constr)
               raise Exception.new("Internal Error: inconsistent constraint dictionary") unless tmp
             }
@@ -190,7 +189,7 @@ class VariableElimination
             # create new constraint reference, if necessary
             if neweq && ! known_constraints[neweq]
               cref = known_constraints[neweq] = ConstraintRef.new(known_constraints.size, neweq, elim_vids)
-              cref.constraint.var_indices.each { |v|
+              cref.elim_vars.each { |v|
                 dict[v].add(cref)
               }
               elim_eqs.add(cref) if neweq.op == "equal" && cref.num_elim_vars > 0
@@ -209,7 +208,7 @@ class VariableElimination
           end
           cref.status = :garbage
           # remove from all bound_constraints
-          cref.constraint.var_indices.each { |v|
+          cref.elim_vars.each { |v|
             tmp = bound_constraints[v].delete(cref)
             raise Exception.new("Internal Error: inconstinstent bound_constraints dictionary") unless tmp
           }
@@ -220,7 +219,7 @@ class VariableElimination
             newconstr = transitive_constraint(elimvar, l_constr.constraint, u_constr.constraint)
             if newconstr && ! known_constraints[newconstr]
               cref = known_constraints[newconstr] = ConstraintRef.new(known_constraints.size, newconstr, elim_vids)
-              cref.constraint.var_indices.each { |v|
+              cref.elim_vars.each { |v|
                 bound_constraints[v].add(cref)
               }
             end

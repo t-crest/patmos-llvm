@@ -154,11 +154,38 @@ module PML
     end
 
     def dump(io)
-      final = @data.clone
+      final = deep_data_clone # eliminate sharing to enable YAML import in LLVM
       final.delete("flowfacts") if @data["flowfacts"] == []
       final.delete("valuefacts") if @data["valuefacts"] == []
       final.delete("timing") if @data["timing"] == []
       io.write(YAML::dump(final))
+    end
+
+    def deep_data_clone
+      cloned_data = @data.dup
+      worklist = [cloned_data]
+      while ! worklist.empty?
+        d = worklist.pop
+        if d.kind_of?(Hash)
+          d.each { |k,v|
+            # compounds are always sequences (Array) or mappings (Hash)
+            if v.kind_of?(Hash) || v.kind_of?(Array)
+              d[k] = v_copy = v.dup
+              worklist.push(v_copy)
+            end
+          }
+        elsif d.kind_of?(Array)
+          d.each_with_index { |v,k|
+            if v.kind_of?(Hash) || v.kind_of?(Array)
+              d[k] = v_copy = v.dup
+              worklist.push(v_copy)
+            end
+          }
+        else
+          assert("Internal error in deep_data_clone: non-compound in worklist") { false }
+        end
+      end
+      cloned_data
     end
 
     def machine_code_only_functions
@@ -238,7 +265,21 @@ module PML
       @data = to_pml unless @data
       @data
     end
+    
+    def reset_yaml_repr
+      @data = nil
+    end
 
+    # delete YAML representation when dupping
+    def initialize_dup(new_obj)
+      super(new_obj)
+      new_obj.reset_yaml_repr
+    end
+    def initialize_clone(new_obj)
+      super(new_obj)
+      new_obj.reset_yaml_repr
+    end
+      
     private
 
     def to_pml

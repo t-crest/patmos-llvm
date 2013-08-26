@@ -45,9 +45,6 @@ class IndexedConstraint
   def get_coeff(v)
     @lhs[v]
   end
-  def var_indices
-    @lhs.keys
-  end
   def named_lhs
     named_lhs = Hash.new(0)
     @lhs.each { |vi,c| named_lhs[@ilp.var_by_index(vi)] = c }
@@ -205,11 +202,6 @@ class ILP
       terms_indexed[index(v)] += c
     }
     add_indexed_constraint(terms_indexed,op,const_rhs,name,Set.new([tag]))
-  end
-
-  # conceptually private; friend VariableElimination needs access
-  def delete_varindex(var_index)
-    @eliminated[var_index] = true
   end
 
   # conceptually private; friend VariableElimination needs access

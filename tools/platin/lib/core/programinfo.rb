@@ -1,3 +1,4 @@
+
 #
 # platin toolkit
 #
@@ -147,9 +148,6 @@ module PML
   class TermList < PMLList
     extend PMLListGen
     pml_list(:Term,[])
-    def deep_clone
-      self.dup # Terms are immutable
-    end
   end
 
   # Term (ProgramPoint, Factor)
@@ -168,11 +166,12 @@ module PML
     def ppref
       @pp.reference
     end
-    # pp and factor are immutable, we just dup them
-    # to avoid sharing in the YAML file
+
+    # pp and factor are immutable, no clone necessary
     def deep_clone
-      Term.new(pp.dup, factor)
+      Term.new(pp, factor)
     end
+
     def to_s
       "#{@factor} #{pp.qname}"
     end
@@ -227,8 +226,9 @@ module PML
 
     # deep clone: clone flow fact, lhs and attributes
     def deep_clone
-      FlowFact.new(scope, lhs.deep_clone, op, rhs, attributes.dup)
+      FlowFact.new(scope.dup, lhs.deep_clone, op, rhs, attributes.dup)
     end
+
     def FlowFact.from_pml(pml, data)
       mod = pml.functions_for_level(data['level'])
       scope = Reference.from_pml(mod,data['scope'])
@@ -236,9 +236,10 @@ module PML
       attrs = ProgramInfoObject.attributes_from_pml(pml, data)
       ff = FlowFact.new(scope, lhs, data['op'], data['rhs'], attrs, data)
     end
+
     def to_pml
       assert("no 'level' attribute for flow-fact") { level }
-      { 'scope' => scope.data.dup,
+      { 'scope' => scope.data,
         'lhs' => lhs.data,
         'op' => op,
         'rhs' => rhs,
@@ -341,7 +342,7 @@ module PML
     extend PMLListGen
     pml_list(:ValueRange)
     def dup
-      ValueSet.new(@list.dup, data.dup)
+      ValueSet.new(@list.dup)
     end
   end
 
