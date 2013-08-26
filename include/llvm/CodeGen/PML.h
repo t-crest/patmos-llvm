@@ -109,7 +109,7 @@
 
 
 /// Delete elements in a vector of pointers
-#define DELETE_MEMBERS(VEC)  \
+#define DELETE_PTR_VEC(VEC)  \
     while(! (VEC).empty()) {   \
       delete (VEC).back();     \
       (VEC).pop_back();        \
@@ -140,6 +140,12 @@ struct Name {
     NameStr.assign(name.str());
     return *this;
   }
+  bool operator==(const Name& n2) const {
+    return this->NameStr == n2.NameStr;
+  }
+  bool operator!=(const Name& n2) const {
+    return this->NameStr != n2.NameStr;
+  }
 
   /// get name as string
   StringRef getName() const {
@@ -153,12 +159,6 @@ struct Name {
     return IntName;
   }
 };
-
-/// Comparing two names
-static bool operator==(const Name n1, const Name n2) {
-  return n1.NameStr == n2.NameStr;
-}
-
 
 template<>
 struct ScalarTraits<Name> {
@@ -277,7 +277,7 @@ struct Block {
 
   Block(StringRef name): BlockName(name), Address(-1) {}
   Block(uint64_t index) : BlockName(index), Address(-1) {}
-  ~Block() { DELETE_MEMBERS(Instructions); }
+  ~Block() { DELETE_PTR_VEC(Instructions); }
 
   /// Add an instruction to the block
   /// Block takes ownership of instruction
@@ -286,7 +286,8 @@ struct Block {
     return Ins;
   }
 private:
-  Block(const Block<InstructionT>&); // Disable copy constructor  
+  Block(const Block<InstructionT>&);            // Disable copy constructor
+  Block* operator=(const Block<InstructionT>&); // Disable assignment
 };
 template <typename InstructionT>
 struct MappingTraits< Block<InstructionT>* > {
@@ -343,8 +344,8 @@ struct Function {
   Function(StringRef name) : FunctionName(name), Level(level_bitcode) {}
   Function(uint64_t name)  : FunctionName(name), Level(level_bitcode) {}
   ~Function() {
-    DELETE_MEMBERS(Arguments);
-    DELETE_MEMBERS(Blocks);
+    DELETE_PTR_VEC(Arguments);
+    DELETE_PTR_VEC(Blocks);
   }
 
   Argument* addArgument(Argument *Arg) {
@@ -356,7 +357,9 @@ struct Function {
     return B;
   }
 private:
-  Function(const Function<BlockT>&); // Disable copy constructor  
+  Function(const Function<BlockT>&);            // Disable copy constructor  
+  Function* operator=(const Function<BlockT>&); // Disable assignment
+
 };
 template <typename BlockT>
 struct MappingTraits< Function<BlockT>* > {
@@ -489,7 +492,7 @@ struct RelationGraph {
   ~RelationGraph() {
     if (SrcScope) delete SrcScope;
     if (DstScope) delete DstScope;
-    DELETE_MEMBERS(RelationNodes);
+    DELETE_PTR_VEC(RelationNodes);
   }
 
   RelationNode *getEntryNode() { return RelationNodes[EntryIndex]; }
@@ -502,7 +505,8 @@ struct RelationGraph {
     return N;
   }
 private:
-  RelationGraph(const RelationGraph&); // Disable copy constructor  
+  RelationGraph(const RelationGraph&);               // Disable copy constructor  
+  RelationGraph* operator=(const RelationGraph&);    // Disable assignment
 };
 template <>
 struct MappingTraits< RelationGraph* > {
@@ -520,51 +524,52 @@ YAML_IS_PTR_SEQUENCE_VECTOR(RelationGraph)
 // Generic program references
 //////////////////////////////////////////////////////////////////////////////
 
-struct Context {
+struct ContextEntry {
   Name Callsite;
   Name Loop;
-  Name Step;
-  Name Offset;
+  uint64_t Offset; // only meaningful if Loop is defined
+  uint64_t Step;  // only meaningful if Loop is defined
 
-  Context(Name cs)      : Callsite(cs) {}
-  Context(StringRef cs) : Callsite(cs) {}
-  Context(uint64_t cs)  : Callsite(cs) {}
+  ContextEntry(Name loop, uint64_t offset, uint64_t step) : Loop(loop), Offset(offset), Step(step)  {}
+  ContextEntry(Name callsite)                             : Callsite(callsite)                      {}
+  // for YAML I/O
+  ContextEntry() {}
 };
 template <>
-struct MappingTraits< Context* > {
-  static void mapping(IO &io, Context *&C) {
-    if (!C) C = new Context(0);
-    io.mapOptional("callsite", C->Callsite);
-    io.mapOptional("loop",     C->Loop, Name(""));
-    io.mapOptional("step",     C->Step, Name(""));
-    io.mapOptional("offset",   C->Offset, Name(""));
+struct MappingTraits< ContextEntry* > {
+  static void mapping(IO &io, ContextEntry *&C) {
+    if (!C) C = new ContextEntry();
+    io.mapOptional("callsite", C->Callsite, Name(""));
+    io.mapOptional("loop",     C->Loop,     Name(""));
+    io.mapOptional("offset",   C->Offset,   0ULL);
+    io.mapOptional("step",     C->Step,     0ULL);
   }
 };
-YAML_IS_PTR_SEQUENCE_VECTOR(Context)
+YAML_IS_PTR_SEQUENCE_VECTOR(ContextEntry)
 
 
 struct Scope {
   Name Function;
   Name Loop;
-  Context *ContextRef;
+  std::vector<ContextEntry*> Context;
 
-  Scope(Name      f) : Function(f), ContextRef(0) {}
-  Scope(StringRef f) : Function(f), ContextRef(0) {}
-  Scope(uint64_t  f) : Function(f), ContextRef(0) {}
-
+  Scope(const Name& f) : Function(f)  {}
+  Scope(StringRef   f) : Function(f)  {}
+  Scope(uint64_t    f) : Function(f)  {}
   ~Scope() {
-    if (ContextRef) delete ContextRef;
+    DELETE_PTR_VEC(Context);
   }
 private:
-  Scope(const Scope&); // Disable copy constructor
+  Scope(const Scope&);            // Disable copy constructor
+  Scope* operator=(const Scope&); // Disable assignment
 };
 template <>
 struct MappingTraits< Scope* > {
   static void mapping(IO &io, Scope *&S) {
-    if (!S) S = new Scope(0);
+    if (!S) S = new Scope(Name(""));
     io.mapRequired("function", S->Function);
-    io.mapOptional("loop",     S->Loop, Name(""));
-    io.mapOptional("context",  S->ContextRef);
+    io.mapOptional("loop",     S->Loop,    Name(""));
+    io.mapOptional("context",  S->Context, std::vector<ContextEntry*>());
   }
 };
 
@@ -575,7 +580,7 @@ struct ProgramPoint {
   Name Instruction;
   Name EdgeSource;
   Name EdgeTarget;
-  std::vector<Context*> ContextString;
+  std::vector<ContextEntry*> Context;
 
   ProgramPoint(Name      function) : Function(function) {}
   ProgramPoint(StringRef function) : Function(function) {}
@@ -584,27 +589,28 @@ struct ProgramPoint {
   : Function(function), Block(block) {}
 
   ~ProgramPoint() {
-    DELETE_MEMBERS(ContextString);
+    DELETE_PTR_VEC(Context);
   }
-  // Custom copy constructor and assignment, as the ContextString members are owned by ProgramPoint
-  ProgramPoint(const ProgramPoint& Src) :
-      Function(Src.Function),
-      Block(Src.Block),
-      Instruction(Src.Instruction),
-      EdgeSource(Src.EdgeSource),
-      EdgeTarget(Src.EdgeTarget) {
-		COPY_PTR_VEC(ContextString,Src.ContextString,Context)
+  // Custom copy constructor and assignment, as the Context members are owned by ProgramPoint
+  ProgramPoint(const ProgramPoint& Src) {
+    copyFrom(Src);
   }
-	ProgramPoint& operator=(ProgramPoint& Src) {
-		Function    = Src.Function;
-		Block       = Src.Block;
-		Instruction = Src.Instruction;
-		EdgeSource  = Src.EdgeSource;
-		EdgeTarget  = Src.EdgeTarget;
-		DELETE_MEMBERS(ContextString);
-		COPY_PTR_VEC(ContextString, Src.ContextString, Context)
-		return *this;
-	}
+  ProgramPoint& operator=(const ProgramPoint& Src) {
+    if(this == &Src)
+      return *this;
+    copyFrom(Src);
+    return *this;
+  }
+private:
+  void copyFrom(const ProgramPoint& Src) {
+    Function    = Src.Function;
+    Block       = Src.Block;
+    Instruction = Src.Instruction;
+    EdgeSource  = Src.EdgeSource;
+    EdgeTarget  = Src.EdgeTarget;
+    DELETE_PTR_VEC(Context);
+    COPY_PTR_VEC(Context, Src.Context, ContextEntry);
+  }
 	
 };
 template <>
@@ -616,7 +622,7 @@ struct MappingTraits< ProgramPoint* > {
     io.mapOptional("instruction", PP->Instruction, Name(""));
     io.mapOptional("edgesource",  PP->EdgeSource, Name(""));
     io.mapOptional("edgetarget",  PP->EdgeTarget, Name(""));
-    io.mapOptional("context",     PP->ContextString);
+    io.mapOptional("context",     PP->Context, std::vector<ContextEntry*>());
   }
 };
 
@@ -656,15 +662,15 @@ struct ValueFact {
     Values.push_back(Value(min,max));
   }
 private:
-  ValueFact(const ValueFact&); // Disable copy constructor
+  ValueFact(const ValueFact&);            // Disable copy constructor
+  ValueFact* operator=(const ValueFact&); // Disable assignment
 };
 template <>
 struct MappingTraits< ValueFact* > {
   static void mapping(IO &io, ValueFact *&VF) {
     if (!VF) VF = new ValueFact(level_machinecode);
-    io.mapOptional("origin",   VF->Origin);
-    // TODO either make level required, or define a level_none as default
-    io.mapOptional("level",    VF->Level);
+    io.mapRequired("level",    VF->Level);
+    io.mapOptional("origin",   VF->Origin,   Name(""));
     io.mapOptional("variable", VF->Variable);
     io.mapOptional("width",    VF->Width);
     io.mapOptional("values",   VF->Values);
@@ -698,17 +704,19 @@ struct Term {
   }
   // We need a custom copy-constructor, as Term owns PP
   Term(const Term& Src) : PP(0), Factor(Src.Factor) {
-		if(Src.PP) PP = new ProgramPoint(*Src.PP);
-	}
-  Term& operator=(const Term& Src) {
-		if (PP) delete PP;
-		if (Src.PP) PP = new ProgramPoint(*Src.PP);
-		else        PP = 0;
-		Factor = Src.Factor;
-		return *this;
-	}
-};
+    if(Src.PP) PP = new ProgramPoint(*Src.PP);
+  }
 
+  Term& operator=(const Term& Src) {
+    if(this == &Src)
+      return *this;
+    if (PP) delete PP;
+    if (Src.PP) PP = new ProgramPoint(*Src.PP);
+    else        PP = 0;
+    Factor = Src.Factor;
+    return *this;
+  }
+};
 template <>
 struct MappingTraits< Term > {
   static void mapping(IO &io, Term &Term) {
@@ -729,7 +737,6 @@ struct FlowFact {
   Name      RHS;
 
   FlowFact(ReprLevel lvl) : Level(lvl), ScopeRef(0), Comparison(cmp_equal) {}
-  // Factory / Memory Management
   ~FlowFact() {
     if (ScopeRef) delete ScopeRef;
   }
@@ -745,7 +752,8 @@ struct FlowFact {
     ScopeRef->Loop = Loop;
   }
 private:
-  FlowFact(const FlowFact&); // Disable copy constructor
+  FlowFact(const FlowFact&);            // Disable copy constructor
+  FlowFact* operator=(const FlowFact&); // Disable assignment
 
 };
 template <>
@@ -767,7 +775,7 @@ YAML_IS_PTR_SEQUENCE_VECTOR(FlowFact)
 // Timing
 //////////////////////////////////////////////////////////////////////////////
 
-struct Profile {
+struct ProfileEntry {
   ProgramPoint *Reference;
   uint64_t Cycles;
   uint64_t WCETContribution;
@@ -775,11 +783,11 @@ struct Profile {
   double Criticality;
 
   // only for yaml import.
-  Profile()
+  ProfileEntry()
   : Reference(0), Cycles(0), WCETContribution(0), WCETFrequency(0), Criticality(0)
   {
   }
-  ~Profile() {
+  ~ProfileEntry() {
     if (Reference) delete Reference;
   }
 
@@ -788,12 +796,13 @@ struct Profile {
     Reference = PP;
   }
 private:
-  Profile(const Profile&); // Disable copy constructor
+  ProfileEntry(const ProfileEntry&);            // Disable copy constructor
+  ProfileEntry* operator=(const ProfileEntry&); // Disable assignment
 };
 template <>
-struct MappingTraits< Profile* > {
-  static void mapping(IO &io, Profile *&P) {
-    if (!P) P = new Profile();
+struct MappingTraits< ProfileEntry* > {
+  static void mapping(IO &io, ProfileEntry *&P) {
+    if (!P) P = new ProfileEntry();
     io.mapRequired("reference",         P->Reference);
     io.mapOptional("cycles",            P->Cycles);
     io.mapOptional("wcet-contribution", P->WCETContribution);
@@ -802,7 +811,7 @@ struct MappingTraits< Profile* > {
   }
 };
 
-YAML_IS_PTR_SEQUENCE_VECTOR(Profile)
+YAML_IS_PTR_SEQUENCE_VECTOR(ProfileEntry)
 
 
 struct Timing {
@@ -810,17 +819,17 @@ struct Timing {
   ReprLevel Level;
   Scope *ScopeRef;
   int64_t Cycles;
-  std::vector<Profile*> Profiles;
+  std::vector<ProfileEntry*> Profile;
 
   Timing() : Origin(""), ScopeRef(0), Cycles(0) {
   }
   ~Timing() {
     if (ScopeRef) delete ScopeRef;
-    DELETE_MEMBERS(Profiles);
+    DELETE_PTR_VEC(Profile);
   }
 private:
-  Timing(const Timing&); // Disable copy constructor
-
+  Timing(const Timing&);            // Disable copy constructor
+  Timing* operator=(const Timing&); // Disable assignment
 };
 template <>
 struct MappingTraits< Timing* > {
@@ -830,7 +839,7 @@ struct MappingTraits< Timing* > {
     io.mapOptional("level",   T->Level);
     io.mapOptional("scope",   T->ScopeRef);
     io.mapRequired("cycles",  T->Cycles);
-    io.mapOptional("profile", T->Profiles);
+    io.mapOptional("profile", T->Profile);
   }
 };
 
@@ -857,12 +866,12 @@ struct PMLDoc {
       TargetTriple(TargetTriple) {}
 
   ~PMLDoc() {
-    DELETE_MEMBERS(BitcodeFunctions);
-    DELETE_MEMBERS(MachineFunctions);
-    DELETE_MEMBERS(RelationGraphs);
-    DELETE_MEMBERS(ValueFacts);
-    DELETE_MEMBERS(FlowFacts);
-    DELETE_MEMBERS(Timings);
+    DELETE_PTR_VEC(BitcodeFunctions);
+    DELETE_PTR_VEC(MachineFunctions);
+    DELETE_PTR_VEC(RelationGraphs);
+    DELETE_PTR_VEC(ValueFacts);
+    DELETE_PTR_VEC(FlowFacts);
+    DELETE_PTR_VEC(Timings);
   }
   /// Add a function, which is owned by the document afterwards
   void addFunction(BitcodeFunction *F) {
@@ -881,7 +890,8 @@ struct PMLDoc {
     FlowFacts.push_back(FF);
   }
 private:
-  PMLDoc(const PMLDoc&); // Disable copy constructor
+  PMLDoc(const PMLDoc&);            // Disable copy constructor
+  PMLDoc* operator=(const PMLDoc&); // Disable assignment
 };
 template <>
 struct MappingTraits< PMLDoc* > {
@@ -903,5 +913,6 @@ struct MappingTraits< PMLDoc* > {
 
 LLVM_YAML_IS_DOCUMENT_LIST_VECTOR(PMLDoc*)
 
-#undef DELETE_MEMBERS
+#undef DELETE_PTR_VEC
+#undef COPY_PTR_VEC
 #endif
