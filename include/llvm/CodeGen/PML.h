@@ -541,8 +541,8 @@ struct MappingTraits< ContextEntry* > {
     if (!C) C = new ContextEntry();
     io.mapOptional("callsite", C->Callsite, Name(""));
     io.mapOptional("loop",     C->Loop,     Name(""));
-    io.mapOptional("offset",   C->Offset,   0ULL);
-    io.mapOptional("step",     C->Step,     0ULL);
+    io.mapOptional("offset",   C->Offset,   uint64_t(0));
+    io.mapOptional("step",     C->Step,     uint64_t(0));
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(ContextEntry)
