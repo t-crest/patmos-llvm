@@ -28,7 +28,7 @@ namespace llvm {
   private:
     virtual void anchor();
 
-    std::vector<yaml::PMLDoc> YDocs;
+    std::vector<yaml::PMLDoc*> YDocs;
 
     bool Initialized;
 

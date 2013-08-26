@@ -105,7 +105,7 @@ namespace llvm {
 
     virtual void serialize(MachineFunction &MF);
 
-    virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
+    virtual void writeOutput(yaml::Output *Output) { yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr; }
 
     yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
@@ -139,7 +139,7 @@ namespace llvm {
 
     virtual void serialize(MachineFunction &MF);
 
-    virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
+    virtual void writeOutput(yaml::Output *Output) { yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr; }
 
     yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
@@ -186,7 +186,7 @@ namespace llvm {
     /// Build the Control-Flow Relation Graph connection machine code and bitcode
     virtual void serialize(MachineFunction &MF);
 
-    virtual void writeOutput(yaml::Output *Output) { *Output << YDoc; }
+    virtual void writeOutput(yaml::Output *Output) { yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr; }
 
     yaml::PMLDoc& getPMLDoc() { return YDoc; }
 

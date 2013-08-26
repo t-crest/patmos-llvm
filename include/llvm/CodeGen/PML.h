@@ -38,6 +38,10 @@
 /// At the moment, program points, contexts, .. are not shared between objects
 /// due to ownership, and to make update algorithms easier. Pointer fields can
 /// be set to NULL if they are not initialized or have no value.
+/// NB: As each struct takes ownership of its members, it is necessary to
+/// either disable copy constructors, or provide custom copy constructors
+/// and assignment operators that copy the data referenced by pointers (see
+/// Term for an example).
 
 /// Utility for declaring that a std::vector of a particular *pointer*type
 /// should be considered a YAML sequence. Must only be used in namespace
@@ -104,16 +108,21 @@
     };
 
 
-/// Utility for deleting owned members of an object
-#define DELETE_MEMBERS(vec) \
-    while(! vec.empty()) { \
-      delete vec.back(); \
-      vec.pop_back(); \
-    } \
+/// Delete elements in a vector of pointers
+#define DELETE_MEMBERS(VEC)  \
+    while(! (VEC).empty()) {   \
+      delete (VEC).back();     \
+      (VEC).pop_back();        \
+    }
+
+/// Copy vector of pointers
+#define COPY_PTR_VEC(DST, SRC, TY)			    					 \
+	for(unsigned I = 0, E = (SRC).size(); I!=E; ++I) {   \
+  	(DST).push_back(new TY(*SRC[I]));			     				 \
+  }
 
 namespace llvm {
 namespace yaml {
-
 
 /// A string representing an identifier (string,index,address)
 struct Name {
@@ -187,7 +196,6 @@ struct ScalarEnumerationTraits<ReprLevel> {
 struct Instruction {
   uint64_t Index;
   int Opcode;
-  // std::string Descr;
   std::vector<Name> Callees;
 
   Instruction(uint64_t index) : Index(index), Opcode(-1) {}
@@ -198,8 +206,6 @@ struct Instruction {
   bool hasCallees() {
     return ! Callees.empty();
   }
-
-  static const bool flow = true;
 };
 template <>
 struct MappingTraits<Instruction*> {
@@ -208,9 +214,8 @@ struct MappingTraits<Instruction*> {
     io.mapRequired("index",   Ins->Index);
     io.mapOptional("opcode",  Ins->Opcode, -1);
     io.mapOptional("callees", Ins->Callees);
-    // StringRef InsDescr(Ins.Descr);
-    // io.mapOptional("description", InsDescr, StringRef(""));
   }
+  static const bool flow = true;
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
@@ -280,6 +285,8 @@ struct Block {
     Instructions.push_back(Ins);
     return Ins;
   }
+private:
+  Block(const Block<InstructionT>&); // Disable copy constructor  
 };
 template <typename InstructionT>
 struct MappingTraits< Block<InstructionT>* > {
@@ -348,6 +355,8 @@ struct Function {
     Blocks.push_back(B);
     return B;
   }
+private:
+  Function(const Function<BlockT>&); // Disable copy constructor  
 };
 template <typename BlockT>
 struct MappingTraits< Function<BlockT>* > {
@@ -492,6 +501,8 @@ struct RelationGraph {
     RelationNodes.push_back(N);
     return N;
   }
+private:
+  RelationGraph(const RelationGraph&); // Disable copy constructor  
 };
 template <>
 struct MappingTraits< RelationGraph* > {
@@ -544,6 +555,8 @@ struct Scope {
   ~Scope() {
     if (ContextRef) delete ContextRef;
   }
+private:
+  Scope(const Scope&); // Disable copy constructor
 };
 template <>
 struct MappingTraits< Scope* > {
@@ -573,6 +586,26 @@ struct ProgramPoint {
   ~ProgramPoint() {
     DELETE_MEMBERS(ContextString);
   }
+  // Custom copy constructor and assignment, as the ContextString members are owned by ProgramPoint
+  ProgramPoint(const ProgramPoint& Src) :
+      Function(Src.Function),
+      Block(Src.Block),
+      Instruction(Src.Instruction),
+      EdgeSource(Src.EdgeSource),
+      EdgeTarget(Src.EdgeTarget) {
+		COPY_PTR_VEC(ContextString,Src.ContextString,Context)
+  }
+	ProgramPoint& operator=(ProgramPoint& Src) {
+		Function    = Src.Function;
+		Block       = Src.Block;
+		Instruction = Src.Instruction;
+		EdgeSource  = Src.EdgeSource;
+		EdgeTarget  = Src.EdgeTarget;
+		DELETE_MEMBERS(ContextString);
+		COPY_PTR_VEC(ContextString, Src.ContextString, Context)
+		return *this;
+	}
+	
 };
 template <>
 struct MappingTraits< ProgramPoint* > {
@@ -622,6 +655,8 @@ struct ValueFact {
   void addValue(int64_t min, int64_t max) {
     Values.push_back(Value(min,max));
   }
+private:
+  ValueFact(const ValueFact&); // Disable copy constructor
 };
 template <>
 struct MappingTraits< ValueFact* > {
@@ -661,6 +696,17 @@ struct Term {
   ~Term() {
     if (PP) delete PP;
   }
+  // We need a custom copy-constructor, as Term owns PP
+  Term(const Term& Src) : PP(0), Factor(Src.Factor) {
+		if(Src.PP) PP = new ProgramPoint(*Src.PP);
+	}
+  Term& operator=(const Term& Src) {
+		if (PP) delete PP;
+		if (Src.PP) PP = new ProgramPoint(*Src.PP);
+		else        PP = 0;
+		Factor = Src.Factor;
+		return *this;
+	}
 };
 
 template <>
@@ -698,6 +744,9 @@ struct FlowFact {
     ScopeRef = new Scope(Function);
     ScopeRef->Loop = Loop;
   }
+private:
+  FlowFact(const FlowFact&); // Disable copy constructor
+
 };
 template <>
 struct MappingTraits< FlowFact* > {
@@ -738,6 +787,8 @@ struct Profile {
     if (Reference) delete Reference;
     Reference = PP;
   }
+private:
+  Profile(const Profile&); // Disable copy constructor
 };
 template <>
 struct MappingTraits< Profile* > {
@@ -767,6 +818,9 @@ struct Timing {
     if (ScopeRef) delete ScopeRef;
     DELETE_MEMBERS(Profiles);
   }
+private:
+  Timing(const Timing&); // Disable copy constructor
+
 };
 template <>
 struct MappingTraits< Timing* > {
@@ -826,25 +880,28 @@ struct PMLDoc {
   void addFlowFact(FlowFact* FF) {
     FlowFacts.push_back(FF);
   }
+private:
+  PMLDoc(const PMLDoc&); // Disable copy constructor
 };
 template <>
-struct MappingTraits< PMLDoc > {
-  static void mapping(IO &io, PMLDoc& doc) {
-    io.mapRequired("format",     doc.FormatVersion);
-    io.mapRequired("triple",     doc.TargetTriple);
-    io.mapOptional("bitcode-functions",doc.BitcodeFunctions);
-    io.mapOptional("machine-functions",doc.MachineFunctions);
-    io.mapOptional("relation-graphs",doc.RelationGraphs);
-    io.mapOptional("flowfacts",  doc.FlowFacts);
-    io.mapOptional("valuefacts", doc.ValueFacts);
-    io.mapOptional("timing",     doc.Timings);
+struct MappingTraits< PMLDoc* > {
+  static void mapping(IO &io, PMLDoc *&doc) {
+		if (!doc) doc = new PMLDoc();
+    io.mapRequired("format",     doc->FormatVersion);
+    io.mapRequired("triple",     doc->TargetTriple);
+    io.mapOptional("bitcode-functions",doc->BitcodeFunctions);
+    io.mapOptional("machine-functions",doc->MachineFunctions);
+    io.mapOptional("relation-graphs",doc->RelationGraphs);
+    io.mapOptional("flowfacts",  doc->FlowFacts);
+    io.mapOptional("valuefacts", doc->ValueFacts);
+    io.mapOptional("timing",     doc->Timings);
   }
 };
 
 } // end namespace yaml
 } // end namespace llvm
 
-LLVM_YAML_IS_DOCUMENT_LIST_VECTOR(PMLDoc)
+LLVM_YAML_IS_DOCUMENT_LIST_VECTOR(PMLDoc*)
 
 #undef DELETE_MEMBERS
 #endif
