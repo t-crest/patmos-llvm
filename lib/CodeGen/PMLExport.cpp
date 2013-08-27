@@ -470,6 +470,51 @@ exportBranchInstruction(MachineFunction &MF,
   }
 }
 
+
+
+static const GlobalValue *isIndexingGlobalValue(const GEPOperator *GEP)
+{
+  // Idx = gep gv 0 var+
+  if (const GlobalValue *GV =
+        dyn_cast<GlobalValue>(GEP->getPointerOperand())) {
+    if (GEP->isInBounds()) {
+      if (const ConstantInt *CI = dyn_cast<ConstantInt>(GEP->getOperand(1))) {
+        if (CI->isZero()) {
+          return GV;
+        }
+      }
+    }
+  }
+  return NULL;
+}
+
+static const GlobalValue *isIndexingGlobalValueComp(const GEPOperator *GEP,
+                                                    int &depth)
+{
+  // Comp = gep Comp var+
+  //      | gep Base var+
+  //
+  // Base = Idx [var<-0]
+  //     (= gep gv 0+)
+
+  // Comp = gep Base var+
+  if (const ConstantExpr *CE =
+      dyn_cast<ConstantExpr>(GEP->getPointerOperand())) {
+    if (CE->isGEPWithNoNotionalOverIndexing()) {
+      const GEPOperator *GEP2 = cast<GEPOperator>(CE);
+      if (GEP2->hasAllZeroIndices()) {
+        return isIndexingGlobalValue(GEP2);
+      }
+    }
+  }
+  // Comp = gep Comp var+
+  else if (const GetElementPtrInst *GEP2 =
+                      dyn_cast<GetElementPtrInst>(GEP->getPointerOperand())) {
+    return isIndexingGlobalValueComp(cast<GEPOperator>(GEP2), ++depth);
+  }
+  return NULL;
+}
+
 void PMLMachineExport::
 exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                       const MachineInstr *Ins)
@@ -500,15 +545,49 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
 
       } else if (const Instruction *I = dyn_cast<Instruction>(V)) {
           DEBUG( dbgs() << "I: "; I->dump() );
+
           // This should be either getelementptr or inttoptr
           // at least one of the operands of getelementptr is variable:
           // - base (e.g. if passed as argument)
           // - index (for accesses to known arrays)
           //
-          // If idx0 == 0 and only the other indices is variable,
-          // we can export the RANGE (probably the most interesting case)
-          // TODO focus on this and see if exporting the others gives any
-          //      improvement
+          // Focus on fixed base as global value.
+          if (const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(I)) {
+            int depth = 0;
+
+            // 1) the pointer operand is a global address array type
+            //    with idx0==0 and in bounds, e.g.:
+            //      %arrayidx = getelementptr inbounds [217 x i64]* @arr, i32 0, i32 %i
+            if (const GlobalValue *GV =
+                              isIndexingGlobalValue(cast<GEPOperator>(GEP))) {
+              DEBUG( dbgs() << "=> GEP array access (IDX) to '"
+                  << GV->getName() << "'\n");
+            }
+            // 2) Comp = gep Base var+
+            //    Base = gep gv 0+
+            //    the pointer operand is a GEP constant expression with
+            //    global address as first operand and no overindexing
+            //      %scevgep = getelementptr i64* getelementptr inbounds ([217 x i64]* @arr, i32 0, i32 0), i32 %0
+            //
+            // 3) Comp = gep Comp var+
+            //    one more level of indirection, e.g.:
+            //      %scevgep2 = getelementptr i64* %scevgep1, i32 -2
+            //    with
+            //      %scevgep1 = getelementptr i64* getelementptr inbounds ([217 x i64]* @arr, i32 0, i32 0), i32 %i.07
+            else
+            if (const GlobalValue *GV =
+                    isIndexingGlobalValueComp(cast<GEPOperator>(GEP), depth)) {
+              DEBUG( dbgs() << "=> GEP array access (COMP, depth="
+                            << depth << ") to '" << GV->getName() << "'\n");
+            }
+            else {
+              // other GEP cases
+              DEBUG( dbgs() << "=> GEP unhandled\n" );
+            }
+          } else {
+            assert( dyn_cast<IntToPtrInst>(I) != NULL &&
+                "Unexpected pointer type instruction!");
+          }
 
       } else if (const Argument *A = dyn_cast<Argument>(V)) {
           DEBUG( dbgs() << "A: "; A->dump() );
