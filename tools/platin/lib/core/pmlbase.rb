@@ -265,7 +265,7 @@ module PML
       @data = to_pml unless @data
       @data
     end
-    
+
     def reset_yaml_repr
       @data = nil
     end
@@ -279,7 +279,7 @@ module PML
       super(new_obj)
       new_obj.reset_yaml_repr
     end
-      
+
     private
 
     def to_pml

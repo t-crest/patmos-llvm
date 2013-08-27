@@ -33,6 +33,7 @@ module PML
       @pml = pml
       @outfile = ais_file
       @options = options
+      @entry = @pml.machine_functions.by_label(@options.analysis_entry)
       @stats_generated_facts, @stats_skipped_flowfacts = 0, 0
     end
 
@@ -202,6 +203,9 @@ module PML
       supported =
         if(ff.symbolic_bound?)
           false
+        elsif(! ff.local? && ff.scope.function != @entry)
+          warn("aiT: non-local flow fact in scope #{ff.scope} not supported")
+          false
         elsif scope_bound = ff.get_loop_bound
           export_loopbound(ff,*scope_bound)
         elsif scope_cs_targets = ff.get_calltargets
@@ -211,7 +215,7 @@ module PML
         elsif(ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef))
           export_linear_constraint(ff)
         else
-          warn("aiT: unsupported flow fact type: #{ff}") unless supported
+          warn("aiT: unsupported flow fact type: #{ff}")
           false
         end
       @stats_skipped_flowfacts += 1 unless supported
@@ -387,6 +391,10 @@ class AitImport
             min,max,rem,mod  = %w{min max rem mod}.map { |k|
               Integer(area.attributes[k]) if area.attributes[k]
             }
+            # XXX: this is an aiT bug (probably because ranges are represented in a signed way)
+            if min >= 0xffff_ffff_8000_000
+              min,max = [min,max].map { |v| v - 0xffff_ffff_0000_0000 }
+            end
             debug(options,:ait) {
               sprintf("- %s 0x%08x..0x%08x (%d bytes), mod=0x%x rem=0x%x\n",
                       se.attributes['type'],min,max,max-min,mod || -1,rem || -1)

@@ -99,17 +99,16 @@ class RefSet
 end
 
 class VariableElimination
-  attr_reader :elim_steps
+  attr_reader :options, :elim_steps
 
-  def initialize(ilp)
-    @ilp = ilp
+  def initialize(ilp, options)
+    @ilp, @options = ilp, options
     @elim_steps = 0
   end
 
   #
   # eliminate set of variables (which must have no cost assigned in the ILP)
-  # it is possible to restrict the ILP to a subproblem by providing a filter as a second argument
-  def eliminate_set(vars, subproblem = nil)
+  def eliminate_set(vars)
 
     # set of variable ids left to eliminate
     elim_vids = Set.new
@@ -289,7 +288,8 @@ class VariableElimination
     rhs = u_coeff * l_constr.rhs - l_coeff * u_constr.rhs
 
     assert("Variable #{e_var} not eliminated as it should be") { terms[e_var] == 0 }
-    @ilp.create_indexed_constraint(terms, l_constr.op, rhs, l_constr.name+"<>"+u_constr.name, l_constr.tags + u_constr.tags)
+    t_constr = @ilp.create_indexed_constraint(terms, l_constr.op, rhs, l_constr.name+"<>"+u_constr.name, l_constr.tags + u_constr.tags)
+    t_constr
   end
 
 end
@@ -341,17 +341,17 @@ class FlowFactTransformation
     elim_set = []
     ilp.variables.each do |var|
       if var.kind_of?(Instruction)
-        debug(options,:ipet) { "Eliminating Instruction: #{var}" }
+        # debug(options,:ipet) { "Eliminating Instruction: #{var}" }
         elim_set.push(var)
       elsif options.transform_eliminate_edges && var.kind_of?(IPETEdge) && var.cfg_edge?
-        debug(options,:ipet) { "Eliminating IPET Edge: #{var}" }
+        # debug(options,:ipet) { "Eliminating IPET Edge: #{var}" }
         elim_set.push(var)
       elsif options.transform_eliminate_edges && var.kind_of?(Block) && var.instructions.empty?
         debug(options,:ipet) { "Eliminating empty block: #{var}" }
         elim_set.push(var)
        end
     end
-    ve = VariableElimination.new(ilp)
+    ve = VariableElimination.new(ilp, options)
     new_constraints = ve.eliminate_set(elim_set)
 
     # Extract and add new flow facts
@@ -367,26 +367,57 @@ class FlowFactTransformation
   end
 
   def transform(machine_entry, flowfacts, target_level)
-    # Build ILP for transformation
-    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
-    ilp = build_model(entry, flowfacts, :use_rg => true).ilp
-
-    # If direction up/down, eliminate all vars but dst/src
-    info "Running transformer to level #{target_level}" if options.verbose
-    constraints_before = ilp.constraints.length
-    elim_set = ilp.variables.select { |var|
-      ilp.vartype[var] != target_level || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
+    # collect local and global flowfacts
+    flowfacts_by_entry = { }
+    flowfacts.each { |ff|
+      if ff.symbolic_bound?
+        warn "No support for transformation of symbolic flow-facts at the moment: #{ff}"
+        next
+      end
+      entry = machine_entry
+      if ff.local?
+        local_entry = ff.scope.function
+        if ff.level == 'machinecode' && ! pml.bitcode_functions.by_name(local_entry.name).nil?
+          entry = local_entry
+        elsif ff.level == 'bitcode' &&  local_mc_entry = pml.machine_functions.by_label(local_entry.name)
+          entry = local_mc_entry
+        end
+      end
+      # entry = machine_entry
+      (flowfacts_by_entry[entry] ||= []).push(ff)
     }
-    ve = VariableElimination.new(ilp)
-    new_constraints = ve.eliminate_set(elim_set)
+    stats_num_constraints_before, stats_num_constraints_after, stats_elim_steps = 0,0,0
+    new_ffs = []
+    flowfacts_by_entry.each { |entry,ffs|
+      # Build ILP for transformation
+      entries = { :dst => entry, :src => pml.bitcode_functions.by_name(entry.label) }
+      ilp = build_model(entries, ffs, :use_rg => true).ilp
 
-    # Extract and add new flow facts
-    new_ffs = extract_flowfacts(new_constraints, entry, target_level, [:flowfact, :callsite])
+      # If direction up/down, eliminate all vars but dst/src
+      info "Running transformer to level #{target_level}" if options.verbose
+      elim_set = ilp.variables.select { |var|
+        ilp.vartype[var] != target_level || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
+      }
+      ve = VariableElimination.new(ilp, options)
+      new_constraints = ve.eliminate_set(elim_set)
+      # Extract and add new flow facts
+      new_ffs += extract_flowfacts(new_constraints, entries, target_level, [:flowfact, :callsite]).select { |f|
+        # FIXME: for now, we do not export interprocedural flow-facts relative to a function other than the entry,
+        # because this is not supported by any of the WCET analyses
+        f.local? || f.scope.function == machine_entry
+      }
+
+      stats_num_constraints_before += ilp.constraints.length
+      stats_num_constraints_after += new_constraints.length
+      stats_elim_steps += ve.elim_steps
+    }
     new_ffs.each { |ff| pml.flowfacts.add(ff) }
     statistics("TRANSFORM",
-               "Constraints after FM-elimination (#{constraints_before} =>)" => ilp.constraints.length,
-               "transformed flowfacts (#{options.flow_fact_srcs} => #{options.flow_fact_output})" => new_ffs.length,
-               "elimination steps" => ve.elim_steps) if options.stats
+               "#local IPET problems" => flowfacts_by_entry.length,
+               "generated flowfacts" => new_ffs.length,
+               "constraints before FM eliminations" => stats_num_constraints_before,
+               "constraints after FM eliminations" => stats_num_constraints_after,
+               "elimination steps" => stats_elim_steps) if options.stats
   end
 
 private
@@ -418,12 +449,15 @@ private
     attrs = { 'origin' =>  options.flow_fact_output,
               'level'  => (target_level == :src) ? "bitcode" : "machinecode" }
     constraints.each do |constr|
-      lhs = constr.named_lhs
       name = constr.name
+      lhs = constr.named_lhs
+      rhs = constr.rhs
 
       # Constraint is boring if it was derived from positivity and structural constraints only
-      interesting = constr.tags.any? { |tag| tags.include?(tag) }
-      next unless interesting
+      next unless constr.tags.any? { |tag| tags.include?(tag) }
+
+      # Constraint is boring if it is a positivity constraint (a x <= 0, with a < 0)
+      next if constr.rhs == 0 && constr.lhs.all? { |_,coeff| coeff <= 0 }
 
       # Simplify: edges->block if possible (lossless; see eliminate_edges for potentially lossy transformation)
       unless lhs.any? { |var,_| ! var.kind_of?(IPETEdge) }
@@ -431,7 +465,7 @@ private
         out_blocks = {}
         lhs.each { |edge,coeff| out_blocks[edge.source] = 0 }
         # (2) for each block, find minimum coeff for all of its outgoing edges
-        #     and replace edges by block
+        #     and replace min_coeff * outgoing-edges by min_coeff * block
         out_blocks.keys.each { |b|
           edges = b.successors.map { |b2| IPETEdge.new(b,b2,target_level) }
           edges = [ IPETEdge.new(b,:exit,target_level) ] if b.may_return?
@@ -443,8 +477,14 @@ private
         }
       end
 
+      # replace reference to entry block by constant
+      scope = entry[target_level]
+      entry_block = scope.blocks.first
+      rhs -= lhs[entry_block]
+      lhs[entry_block] = 0
+
       # Create flow-fact (with dealing different IPET edges)
-      terms = lhs.map { |v,c|
+      terms = lhs.select { |v,c| c != 0 }.map { |v,c|
         pp = if(v.kind_of?(IPETEdge))
                if v.cfg_edge?
                  v.cfg_edge
@@ -461,12 +501,11 @@ private
         Term.new(pp, c)
       }
       termlist = TermList.new(terms)
-      scope = entry[target_level]
       debug(options,:ipet) {
         "Adding transformed constraint #{name} #{constr.tags.to_a}: #{constr} -> in #{scope} :" +
-        "#{termlist} #{constr.op} #{constr.rhs}"
+        "#{termlist} #{constr.op} #{rhs}"
       }
-      ff = FlowFact.new(scope.ref, termlist, constr.op, constr.rhs, attrs.dup)
+      ff = FlowFact.new(scope.ref, termlist, constr.op, rhs, attrs.dup)
       new_flowfacts.push(ff)
     end
     new_flowfacts

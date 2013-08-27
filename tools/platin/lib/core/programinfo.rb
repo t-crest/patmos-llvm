@@ -29,7 +29,7 @@ module PML
       # rt: involves machine-code only function
       c.is_rt         = ff.lhs.any? { |term| @pml.machine_code_only_functions.include?(term.ppref.function.label) }
       c.is_minimal    = c.is_loop_bound || c.is_infeasible || c.is_indirect_calltarget
-      c.is_local      = c.is_minimal || ff.lhs.all? { |term| term.ppref.function == ff.scope.function }
+      c.is_local      = ff.local?
       c
     end
     def classification_group(ff)
@@ -56,10 +56,10 @@ module PML
       return true if profile == "all"
       case profile
       when "minimal"    then c.is_minimal
-      when "local"      then c.is_local
+      when "local"      then c.is_minimal || c.is_local
       # FIXME: indirect calltargets are needed on MC level to build callgraph
       when "rt-support-all"   then c.is_rt || c.is_indirect_calltarget
-      when "rt-support-local" then (c.is_rt && c.is_local) || c.is_indirect_calltarget
+      when "rt-support-local" then (c.is_rt && (c.is_local || c.is_minimal)) || c.is_indirect_calltarget
       when "rt-support-minimal" then (c.is_rt && c.is_minimal) || c.is_indirect_calltarget
       else raise Exception.new("Bad Flow-Fact Selection Profile: #{profile}")
       end
@@ -267,6 +267,10 @@ module PML
       flowfact = FlowFact.new(scoperef, TermList.new([Term.new(blockref,1)]), 'less-equal',
                               bound, attrs.dup)
       flowfact
+    end
+
+    def local?
+      lhs.all? { |term| term.ppref.function == scope.function }
     end
 
     def references_empty_block?

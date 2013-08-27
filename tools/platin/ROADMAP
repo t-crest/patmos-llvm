@@ -4,10 +4,10 @@ Tasks/Projects
 [Local FF Transformation]
   - Goal: flow-facts that only affect one function (or parts of the program) should be translated locally
   - Steps:
-    + restrict eliminate_set to subproblem
-    + transform flow facts locally
-    + compute (overestimated) loop bounds from local information
-  - Status: assigned to benedikt, 10% done
+    + eliminate_set should not modify ILP [done]
+    + transform flow facts locally [done]
+    + (optional) compute (overestimated) loop bounds from local information
+  - Status: assigned to benedikt
 
 [Symbolic Flow Facts]
   - Goal: support flow-facts with symbolic RHS
@@ -15,8 +15,9 @@ Tasks/Projects
     + introduce symbolic domain for FF rhs
     + translate function arguments from bitcode to machine code
     + add aiT export for symbolic loop bounds
-  - Depends:
-    + [Local FF Transformation]
+    + (optional) use results of aiT's value analysis to instantiate symbolic flow facts
+    + (optional) use results from SWEET's value analysis instantiate symbolic flow facts
+  - Status: assigned to benedikt
 
 [Machine Descriptions]
   - Goal: allow to configure the target processor (in particular memories and caches)
