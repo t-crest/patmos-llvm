@@ -291,10 +291,11 @@ namespace llvm {
     PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
 
-    PMLImport &PML;
+    PMLMCQuery *PML;
+    PMLQuery::BlockDoubleMap Criticalities;
 
     /// Construct a graph from a machine function.
-    agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLImport &pml)
+    agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml)
     : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()), PML(pml)
     {
       Blocks.reserve(mf->size());
@@ -387,6 +388,10 @@ namespace llvm {
           aedge *e = new aedge(last, d);
           Edges.insert(std::make_pair(last, e));
         }
+      }
+
+      if (PML) {
+        PML->getBlockCriticalityMap(Criticalities);
       }
     }
 
@@ -751,18 +756,23 @@ namespace llvm {
     void makeReady(ready_set &ready, ablock *block) {
       ready_block rb;
       rb.block = block;
-      if (block->MBB) {
-        rb.criticality = PML.getCriticality(block->MBB);
-      } else {
+
+      if (PML && block->MBB) {
+        rb.criticality = PML->getCriticality(Criticalities, *block->MBB);
+      } else if (PML) {
         double maxCrit = 0.0;
         for (ablocks::iterator i = block->SCC.begin(), ie = block->SCC.end();
              i != ie; i++)
         {
           if (!(*i)->MBB) continue;
-          maxCrit = std::max(maxCrit, PML.getCriticality((*i)->MBB));
+          maxCrit = std::max(maxCrit,
+                             PML->getCriticality(Criticalities, *(*i)->MBB));
         }
         rb.criticality = maxCrit;
+      } else {
+        rb.criticality = 1.0;
       }
+
       ready.insert(rb);
     }
 
@@ -1778,7 +1788,8 @@ namespace llvm {
       // splitting needed?
       if (total_size > STC.getMethodCacheSize()) {
         // construct a copy of the CFG.
-        agraph G(&MF, PTM, getAnalysis<PMLImport>());
+        PMLImport &PI = getAnalysis<PMLImport>();
+        agraph G(&MF, PTM, PI.createMCQuery(MF));
         G.transformSCCs();
 
         // compute regions -- i.e., split the function
