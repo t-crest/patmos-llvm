@@ -505,7 +505,7 @@ struct RelationGraph {
     return N;
   }
 private:
-  RelationGraph(const RelationGraph&);               // Disable copy constructor  
+  RelationGraph(const RelationGraph&);               // Disable copy constructor
   RelationGraph* operator=(const RelationGraph&);    // Disable assignment
 };
 template <>
@@ -587,6 +587,8 @@ struct ProgramPoint {
   ProgramPoint(uint64_t  function) : Function(function) {}
   ProgramPoint(StringRef function, StringRef block)
   : Function(function), Block(block) {}
+  ProgramPoint(uint64_t  function, uint64_t block, uint64_t instruction)
+    : Function(function), Block(block), Instruction(instruction) {}
 
   ~ProgramPoint() {
     DELETE_PTR_VEC(Context);
@@ -611,7 +613,6 @@ private:
     DELETE_PTR_VEC(Context);
     COPY_PTR_VEC(Context, Src.Context, ContextEntry);
   }
-	
 };
 template <>
 struct MappingTraits< ProgramPoint* > {
@@ -631,14 +632,17 @@ struct MappingTraits< ProgramPoint* > {
 //////////////////////////////////////////////////////////////////////////////
 
 struct Value {
+  Name Symbol;
   int64_t Min;
   int64_t Max;
   Value() : Min(INT64_MIN), Max(INT64_MAX) {}
+  Value(Name symbol) : Symbol(symbol), Min(INT64_MIN), Max(INT64_MAX) {}
   Value(int64_t min, int64_t max) : Min(min), Max(max) {}
 };
 template <>
 struct MappingTraits< Value > {
   static void mapping(IO &io, Value &V) {
+    io.mapOptional("symbol", V.Symbol, Name(""));
     io.mapOptional("min", V.Min, (int64_t)INT64_MIN);
     io.mapOptional("max", V.Max, (int64_t)INT64_MAX);
   }
@@ -650,6 +654,7 @@ struct ValueFact {
   ReprLevel Level;
   Name Variable;
   int Width;
+  Name Symbol;
   std::vector<Value> Values;
   ProgramPoint *PP;
 
@@ -660,6 +665,10 @@ struct ValueFact {
 
   void addValue(int64_t min, int64_t max) {
     Values.push_back(Value(min,max));
+  }
+
+  void addValue(Name symbol) {
+    Values.push_back(Value(symbol));
   }
 private:
   ValueFact(const ValueFact&);            // Disable copy constructor
@@ -672,7 +681,7 @@ struct MappingTraits< ValueFact* > {
     io.mapRequired("level",    VF->Level);
     io.mapOptional("origin",   VF->Origin,   Name(""));
     io.mapOptional("variable", VF->Variable);
-    io.mapOptional("width",    VF->Width);
+    io.mapOptional("width",    VF->Width, 0);
     io.mapOptional("values",   VF->Values);
     io.mapOptional("program-point", VF->PP);
   }
@@ -884,6 +893,10 @@ struct PMLDoc {
   /// Add a relation graph, which is owned by the document afterwards
   void addRelationGraph(RelationGraph* RG) {
     RelationGraphs.push_back(RG);
+  }
+  /// Add a valuefact, which is owned by the document afterwards
+  void addValueFact(ValueFact* VF) {
+    ValueFacts.push_back(VF);
   }
   /// Add a flowfact, which is owned by the document afterwards
   void addFlowFact(FlowFact* FF) {

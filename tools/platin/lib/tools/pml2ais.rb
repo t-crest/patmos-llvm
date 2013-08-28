@@ -28,6 +28,11 @@ class AisExportTool
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
       flowfacts.each { |ff| ais.export_flowfact(ff) }
 
+      valuefacts = pml.valuefacts.select { |vf|
+        vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.programpoint.context.empty?
+      }.each { |vf| ais.export_valuefact(vf) }
+
+
       statistics("AIS",
                  "exported flow facts" => ais.stats_generated_facts,
                  "unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
