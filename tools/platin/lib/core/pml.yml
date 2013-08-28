@@ -175,6 +175,8 @@ mapping:
               -
                 type: map
                 mapping:
+                  "symbol":
+                    type: str
                   "min":
                     type: int
                   "max":

@@ -488,8 +488,9 @@ yaml::ValueFact *PMLMachineExport:: createLoadGVFact(const MachineInstr *MI,
                                   MBB->getNumber(),
                                   I->Index
                                   );
-  VF->Variable = GVName;
-  VF->Origin = "llvm.mc";
+  VF->addValue(GVName);
+  VF->Variable = "mem-address-read";
+  VF->Origin   = "llvm.mc";
 
   return VF;
 }

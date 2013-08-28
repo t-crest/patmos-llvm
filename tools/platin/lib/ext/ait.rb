@@ -195,15 +195,16 @@ module PML
         set.empty? ? "0" : set.join(" + ")
       }.join(cmp_op)
       gen_fact("flow #{constr};",
-               "linear constraint on block frequencies (source: #{ff.origin})",ff)
+               "linear constraint on block frequencies (source: #{ff.origin})",
+               ff)
     end
 
     # export linear-constraint flow facts
     def export_flowfact(ff)
       supported =
-        if(ff.symbolic_bound?)
+        if ff.symbolic_bound?
           false
-        elsif(! ff.local? && ff.scope.function != @entry)
+        elsif (! ff.local?) && ff.scope.function != @entry
           warn("aiT: non-local flow fact in scope #{ff.scope} not supported")
           false
         elsif scope_bound = ff.get_loop_bound
@@ -212,7 +213,7 @@ module PML
           export_calltargets(ff,*scope_cs_targets)
         elsif scope_pp = ff.get_block_infeasible
           export_infeasible(ff,*scope_pp)
-        elsif(ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef))
+        elsif ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef)
           export_linear_constraint(ff)
         else
           warn("aiT: unsupported flow fact type: #{ff}")
@@ -221,6 +222,19 @@ module PML
       @stats_skipped_flowfacts += 1 unless supported
     end
 
+    # export value facts
+    def export_valuefact(vf)
+      rangelist = vf.values.map { |v|
+        if s = v.symbol
+          dquote(s)
+        else
+          die("No symbol for value #{v.inspect}")
+        end
+      }.join(", ")
+      gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
+               " accesses #{rangelist};",
+               "Memory address (source: #{vf.origin})", vf)
+    end
   end
 
   class APXExporter

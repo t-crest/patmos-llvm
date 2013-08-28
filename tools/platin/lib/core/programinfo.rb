@@ -351,25 +351,26 @@ module PML
   end
 
   class ValueRange < PMLObject
-      attr_reader :min,:max
-    def initialize(min, max, data =nil)
-      @min, @max = min, max
+    attr_reader :symbol, :min, :max
+    def initialize(min, max, symbol, data =nil)
+      @min, @max, @symbol = min, max, symbol
       set_yaml_repr(data)
     end
     def inspect
-      "ValueRange<min=#{min.inspect},max=#{max.inspect}>"
+      "ValueRange<min=#{min.inspect},max=#{max.inspect},symbol=#{symbol}>"
     end
     def to_s
-       range.to_s
+      symbol.to_s + range.to_s
     end
     def range
+      return nil unless max
       Range.new(min,max)
     end
     def ValueRange.from_pml(_,data)
-      ValueRange.new(data['min'],data['max'],data)
+      ValueRange.new(data['min'],data['max'],data['symbol'],data)
     end
     def to_pml
-      { 'min' => @min, 'max' => @max }
+      { 'min' => @min, 'max' => @max, 'symbol' => @symbol }
     end
   end
 
@@ -380,7 +381,7 @@ module PML
   # width: int
   # values: list of { min: x, max: x }
   class ValueFact < PMLObject
-    attr_reader :attributes
+    attr_reader :attributes, :programpoint, :variable, :width, :values
     include ProgramInfoObject
     def initialize(programpoint, variable, width, values, attrs, data = nil)
       @programpoint, @variable, @width, @values = programpoint, variable, width, values

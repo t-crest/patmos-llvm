@@ -632,14 +632,17 @@ struct MappingTraits< ProgramPoint* > {
 //////////////////////////////////////////////////////////////////////////////
 
 struct Value {
+  Name Symbol;
   int64_t Min;
   int64_t Max;
   Value() : Min(INT64_MIN), Max(INT64_MAX) {}
+  Value(Name symbol) : Symbol(symbol), Min(INT64_MIN), Max(INT64_MAX) {}
   Value(int64_t min, int64_t max) : Min(min), Max(max) {}
 };
 template <>
 struct MappingTraits< Value > {
   static void mapping(IO &io, Value &V) {
+    io.mapOptional("symbol", V.Symbol, Name(""));
     io.mapOptional("min", V.Min, (int64_t)INT64_MIN);
     io.mapOptional("max", V.Max, (int64_t)INT64_MAX);
   }
@@ -651,6 +654,7 @@ struct ValueFact {
   ReprLevel Level;
   Name Variable;
   int Width;
+  Name Symbol;
   std::vector<Value> Values;
   ProgramPoint *PP;
 
@@ -661,6 +665,10 @@ struct ValueFact {
 
   void addValue(int64_t min, int64_t max) {
     Values.push_back(Value(min,max));
+  }
+
+  void addValue(Name symbol) {
+    Values.push_back(Value(symbol));
   }
 private:
   ValueFact(const ValueFact&);            // Disable copy constructor
@@ -673,7 +681,7 @@ struct MappingTraits< ValueFact* > {
     io.mapRequired("level",    VF->Level);
     io.mapOptional("origin",   VF->Origin,   Name(""));
     io.mapOptional("variable", VF->Variable);
-    io.mapOptional("width",    VF->Width);
+    io.mapOptional("width",    VF->Width, 0);
     io.mapOptional("values",   VF->Values);
     io.mapOptional("program-point", VF->PP);
   }
