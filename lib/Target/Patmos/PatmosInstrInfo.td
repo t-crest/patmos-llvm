@@ -326,12 +326,12 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
   let neverHasSideEffects = 1 in { // due to lacking pattern
     // unconditional
     let isBarrier=1, isCodeGenOnly=1 in
-    def BRCFu : CFLb<0b10, (outs), (ins pred:$p, pcreltarget:$target),
+    def BRCFu : CFLb<0b10, (outs), (ins pred:$p, uimm22s2:$target),
                      "brcf", "$target", []>;
 
     // conditional
     let isBarrier=0 in
-    def BRCF  : CFLb<0b10, (outs), (ins predset:$p, pcreltarget:$target),
+    def BRCF  : CFLb<0b10, (outs), (ins predset:$p, uimm22s2:$target),
                      "brcf", "$target", []>;
 
     // indirect-unconditional

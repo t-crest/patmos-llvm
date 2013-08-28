@@ -369,9 +369,9 @@ bool HasALUlVariant(unsigned Opcode, unsigned &ALUlOpcode) {
 static inline
 bool HasPCRELImmediate(unsigned Opcode, const MCInstrDesc &MID) {
   uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
-  // CFLb and Opcode != call => immediate is PCrel
+  // CFLb and Opcode == BR/BRu => immediate is PCrel
   if (Format != PatmosII::FrmCFLb) return false;
-  return Opcode != Patmos::CALL;
+  return Opcode == Patmos::BR || Opcode == Patmos::BRu;
 }
 
 
