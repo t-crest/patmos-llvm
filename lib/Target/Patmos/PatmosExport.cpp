@@ -234,6 +234,7 @@ namespace llvm {
       }
 
     virtual bool doExportInstruction(const MachineInstr *Ins) {
+      if (Ins->isDebugValue()) return false;
       if (SkipSerializeInstructions) {
         if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() &&
             !Ins->getDesc().isReturn() && !Ins->getDesc().mayLoad())
