@@ -616,8 +616,8 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
               DEBUG( dbgs() << "=> GEP unhandled\n" );
             }
           } else {
-            assert( dyn_cast<IntToPtrInst>(I) != NULL &&
-                "Unexpected pointer type instruction!");
+            DEBUG( dbgs() << "Unhandled instruction referred to"
+                             " by a memory operand: "; I->dump() );
           }
 
       } else if (const Argument *A = dyn_cast<Argument>(V)) {
