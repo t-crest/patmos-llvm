@@ -505,7 +505,7 @@ struct RelationGraph {
     return N;
   }
 private:
-  RelationGraph(const RelationGraph&);               // Disable copy constructor  
+  RelationGraph(const RelationGraph&);               // Disable copy constructor
   RelationGraph* operator=(const RelationGraph&);    // Disable assignment
 };
 template <>
@@ -587,6 +587,8 @@ struct ProgramPoint {
   ProgramPoint(uint64_t  function) : Function(function) {}
   ProgramPoint(StringRef function, StringRef block)
   : Function(function), Block(block) {}
+  ProgramPoint(uint64_t  function, uint64_t block, uint64_t instruction)
+    : Function(function), Block(block), Instruction(instruction) {}
 
   ~ProgramPoint() {
     DELETE_PTR_VEC(Context);
@@ -611,7 +613,6 @@ private:
     DELETE_PTR_VEC(Context);
     COPY_PTR_VEC(Context, Src.Context, ContextEntry);
   }
-	
 };
 template <>
 struct MappingTraits< ProgramPoint* > {
@@ -884,6 +885,10 @@ struct PMLDoc {
   /// Add a relation graph, which is owned by the document afterwards
   void addRelationGraph(RelationGraph* RG) {
     RelationGraphs.push_back(RG);
+  }
+  /// Add a valuefact, which is owned by the document afterwards
+  void addValueFact(ValueFact* VF) {
+    ValueFacts.push_back(VF);
   }
   /// Add a flowfact, which is owned by the document afterwards
   void addFlowFact(FlowFact* FF) {

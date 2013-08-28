@@ -45,7 +45,8 @@ namespace llvm {
 STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
 STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
 
-STATISTIC( NumMemOp,   "Number of mem ops with pointer type");
+STATISTIC( NumMemInst,      "Number of mem ops referring to instructions");
+STATISTIC( NumMemInstExp,   "Number of exported load from array infos (GEP)");
 }
 
 /// Unfortunately, the interface for accessing successors differs
@@ -209,7 +210,6 @@ yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
   return FF;
 }
 
-
 void PMLBitcodeExport::serialize(MachineFunction &MF)
 {
   const Function *Fn = MF.getFunction();
@@ -312,6 +312,11 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
     }
   }
 }
+
+
+
+
+
 
 void PMLMachineExport::serialize(MachineFunction &MF)
 {
@@ -471,6 +476,25 @@ exportBranchInstruction(MachineFunction &MF,
 }
 
 
+yaml::ValueFact *PMLMachineExport:: createLoadGVFact(const MachineInstr *MI,
+    yaml::MachineInstruction *I, yaml::Name GVName) const
+{
+  const MachineBasicBlock *MBB = MI->getParent();
+  const MachineFunction *MF = MBB->getParent();
+
+  yaml::ValueFact *VF = new yaml::ValueFact(yaml::level_machinecode);
+
+  VF->PP = new yaml::ProgramPoint(MF->getFunctionNumber(),
+                                  MBB->getNumber(),
+                                  I->Index
+                                  );
+  VF->Variable = GVName;
+  VF->Origin = "llvm.mc";
+
+  return VF;
+}
+
+
 
 static const GlobalValue *isIndexingGlobalValue(const GEPOperator *GEP)
 {
@@ -494,7 +518,7 @@ static const GlobalValue *isIndexingGlobalValueComp(const GEPOperator *GEP,
   // Comp = gep Comp var+
   //      | gep Base var+
   //
-  // Base = Idx [var<-0]
+  // Base = Idx [var==0]
   //     (= gep gv 0+)
 
   // Comp = gep Base var+
@@ -516,7 +540,7 @@ static const GlobalValue *isIndexingGlobalValueComp(const GEPOperator *GEP,
 }
 
 void PMLMachineExport::
-exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
+exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
                       const MachineInstr *Ins)
 {
   // TODO attach the information to the PML instruction
@@ -530,7 +554,6 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
     if (V) {
       assert(V->getType()->getTypeID()==Type::PointerTyID &&
             "Value referenced by a MachineMemOperand is not a pointer!");
-      NumMemOp++; // STATISTICS
 
       // Debug output to inspect types, grep "^[GCIAPO]:" <err>
       if (const GlobalValue *G = dyn_cast<GlobalValue>(V)) {
@@ -545,6 +568,7 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
 
       } else if (const Instruction *I = dyn_cast<Instruction>(V)) {
           DEBUG( dbgs() << "I: "; I->dump() );
+          NumMemInst++; // STATISTICS
 
           // This should be either getelementptr or inttoptr
           // at least one of the operands of getelementptr is variable:
@@ -562,6 +586,9 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                               isIndexingGlobalValue(cast<GEPOperator>(GEP))) {
               DEBUG( dbgs() << "=> GEP array access (IDX) to '"
                   << GV->getName() << "'\n");
+
+              YDoc.addValueFact(createLoadGVFact(Ins, YI, GV->getName()));
+              NumMemInstExp++; // STATISTICS
             }
             // 2) Comp = gep Base var+
             //    Base = gep gv 0+
@@ -570,7 +597,7 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
             //      %scevgep = getelementptr i64* getelementptr inbounds ([217 x i64]* @arr, i32 0, i32 0), i32 %0
             //
             // 3) Comp = gep Comp var+
-            //    one more level of indirection, e.g.:
+            //    one more level of indirection, e.g. (depth=1):
             //      %scevgep2 = getelementptr i64* %scevgep1, i32 -2
             //    with
             //      %scevgep1 = getelementptr i64* getelementptr inbounds ([217 x i64]* @arr, i32 0, i32 0), i32 %i.07
@@ -579,6 +606,9 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                     isIndexingGlobalValueComp(cast<GEPOperator>(GEP), depth)) {
               DEBUG( dbgs() << "=> GEP array access (COMP, depth="
                             << depth << ") to '" << GV->getName() << "'\n");
+
+              YDoc.addValueFact(createLoadGVFact(Ins, YI, GV->getName()));
+              NumMemInstExp++; // STATISTICS
             }
             else {
               // other GEP cases
