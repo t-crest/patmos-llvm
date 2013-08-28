@@ -8,6 +8,7 @@ require 'core/utils'
 require 'core/pmlbase'
 require 'core/context'
 require 'core/program'
+require 'core/symbolic_expr'
 
 module PML
 
@@ -204,11 +205,9 @@ module PML
       assert("lhs not a list proxy") { lhs.kind_of?(PMLList) }
       assert("lhs is not a list of terms") { lhs.empty? || lhs[0].kind_of?(Term) }
 
-      # Do not handle symbolic loop bounds for now...
-      if rhs.kind_of?(String) && rhs.strip =~ /\A\d+\Z/
-        rhs = rhs.strip.to_i
-      end
       @scope, @lhs, @op, @rhs = scope, lhs, op, rhs
+      @rhs = SEInt.new(@rhs) if rhs.kind_of?(Integer)
+      @rhs = @rhs.to_i if @rhs.constant?
       @attributes = attributes
       raise Exception.new("No level attribute!") unless level
       set_yaml_repr(data)
@@ -234,7 +233,19 @@ module PML
       scope = Reference.from_pml(mod,data['scope'])
       lhs = TermList.new(data['lhs'].map { |t| Term.from_pml(mod,t) })
       attrs = ProgramInfoObject.attributes_from_pml(pml, data)
-      ff = FlowFact.new(scope, lhs, data['op'], data['rhs'], attrs, data)
+      rhs = SymbolicExpression.parse(data['rhs'])
+      rhs = rhs.map_names { |ty,name|
+        if ty == :variable # ok
+          name
+        elsif ty == :loop
+          b = scope.function.blocks.by_name(name[1..-1])
+          unless b
+            raise Exception.new("Unable to lookup loop: #{name} in #{b}")
+          end
+          b
+        end
+      }
+      ff = FlowFact.new(scope, lhs, data['op'], rhs, attrs, data)
     end
 
     def to_pml
@@ -264,6 +275,12 @@ module PML
 
     def FlowFact.loop_bound(scoperef, bound, attrs)
       blockref = ContextRef.new(BlockRef.new(scoperef.reference.loopblock),Context.empty)
+      flowfact = FlowFact.new(scoperef, TermList.new([Term.new(blockref,1)]), 'less-equal',
+                              bound, attrs.dup)
+      flowfact
+    end
+
+    def FlowFact.inner_loop_bound(scoperef, blockref, bound, attrs)
       flowfact = FlowFact.new(scoperef, TermList.new([Term.new(blockref,1)]), 'less-equal',
                               bound, attrs.dup)
       flowfact

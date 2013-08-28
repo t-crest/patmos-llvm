@@ -180,12 +180,13 @@ module PML
       end
 
       # Positivty constraints => do nothing
-      if ff.rhs >= 0 && terms.all? { |t| t.factor < 0 }
+      rhs = ff.rhs.to_i
+      if rhs >= 0 && terms.all? { |t| t.factor < 0 }
         return true
       end
 
       scope = scope.function.blocks.first.ref
-      terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0
+      terms.push(Term.new(scope,-rhs)) if rhs != 0
       terms.each { |t|
         set = (t.factor < 0) ? terms_rhs : terms_lhs
         set.push("#{t.factor.abs} (#{dquote(t.ppref.block.label)})")

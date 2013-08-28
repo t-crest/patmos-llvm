@@ -386,15 +386,17 @@ class FlowFactTransformation
       # entry = machine_entry
       (flowfacts_by_entry[entry] ||= []).push(ff)
     }
+
+    info "Running transformer to level #{target_level}" if options.verbose
     stats_num_constraints_before, stats_num_constraints_after, stats_elim_steps = 0,0,0
     new_ffs = []
+
     flowfacts_by_entry.each { |entry,ffs|
       # Build ILP for transformation
       entries = { :dst => entry, :src => pml.bitcode_functions.by_name(entry.label) }
       ilp = build_model(entries, ffs, :use_rg => true).ilp
 
       # If direction up/down, eliminate all vars but dst/src
-      info "Running transformer to level #{target_level}" if options.verbose
       elim_set = ilp.variables.select { |var|
         ilp.vartype[var] != target_level || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
       }

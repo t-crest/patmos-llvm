@@ -1,23 +1,25 @@
 Tasks/Projects
 ==============
 
-[Local FF Transformation]
-  - Goal: flow-facts that only affect one function (or parts of the program) should be translated locally
+[Direct Loop Bound Translation]
+  - Goal: The FM-based flow fact transformation does not support loop scopes or symbolic bounds
+    Therefore, we should try to translate loop bounds directly, if the control-flow graph relation
+    admits it
   - Steps:
-    + eliminate_set should not modify ILP [done]
-    + transform flow facts locally [done]
-    + (optional) compute (overestimated) loop bounds from local information
+    + Develop heuristic for translating loop bounds directly
   - Status: assigned to benedikt
 
 [Symbolic Flow Facts]
   - Goal: support flow-facts with symbolic RHS
   - Steps:
-    + introduce symbolic domain for FF rhs
+    + introduce symbolic domain for FF rhs [done]
     + translate function arguments from bitcode to machine code
     + add aiT export for symbolic loop bounds
     + (optional) use results of aiT's value analysis to instantiate symbolic flow facts
     + (optional) use results from SWEET's value analysis instantiate symbolic flow facts
   - Status: assigned to benedikt
+  - Depends:
+    + [Direct Loop Bound Translation]
 
 [Machine Descriptions]
   - Goal: allow to configure the target processor (in particular memories and caches)
@@ -66,3 +68,21 @@ Tasks/Projects
   -- Depends
      + [Symbolic Flow Facts]
 
+[Improved Trace-Analysis/WCET Integration]
+  - Goal: Trace analysis should either provide precise flow facts for evaluation purposes, provide minimal
+          missing flow facts and point them out to the developer, or suggest helpful flowfacts to the
+          developer
+  - Steps:
+    + get rid of deprecated .classification and --flow-fact-selection
+
+
+
+FINISHED TASKS
+==============
+
+[Local FF Transformation]
+  - Goal: flow-facts that only affect one function (or parts of the program) should be translated locally
+  - Steps:
+    + eliminate_set should not modify ILP
+    + transform flow facts locally
+  - Follow-Ups: [Direct Loop Bound Translation]
