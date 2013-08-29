@@ -16,19 +16,171 @@
 
 #include "llvm/Pass.h"
 #include "llvm/CodeGen/PML.h"
-
+#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/ValueMap.h"
 
 namespace llvm {
+
+  class  MachineDominatorTree;
+  struct MachinePostDominatorTree;
 
   class MachineBasicBlock;
   class MachineFunction;
   class Module;
 
+  class PMLQuery;
+  class PMLBitcodeQuery;
+  class PMLMCQuery;
+
+  /// TODO maybe move this code to PML.h, reuse for export and relation graph.
+  typedef StringMap<StringRef> PMLLabelMap;
+
+  class PMLFunctionInfo {
+  protected:
+    bool IsBitcode;
+
+    /// Map of block label (mapsto) -> ID (name)
+    PMLLabelMap BlockLabels;
+
+    /// Create an empty, unmapped function info.
+    PMLFunctionInfo(bool bitcode) : IsBitcode(bitcode) {}
+
+  private:
+    PMLFunctionInfo(const PMLFunctionInfo &); // Not implemented
+    PMLFunctionInfo& operator=(const PMLFunctionInfo &); // Not implemented
+
+  public:
+    virtual ~PMLFunctionInfo() {}
+
+    bool isBitcode() const { return IsBitcode; }
+
+    virtual bool hasMapping() const = 0;
+
+    virtual yaml::Name getName() const = 0;
+
+    virtual bool hasBlock(const yaml::Name& Name) const = 0;
+
+    /// Does there a mapping to a block name exist for a given block?
+    bool hasBlockMapping(StringRef Label) const;
+    bool hasBlockMapping(const BasicBlock &BB) const;
+    bool hasBlockMapping(const MachineBasicBlock &MBB) const;
+
+    yaml::Name getBlockName(StringRef Label) const;
+    yaml::Name getBlockName(const BasicBlock &BB) const;
+    yaml::Name getBlockName(const MachineBasicBlock &MBB) const;
+
+    /// Get the label of a block by its ID (name) at the current level.
+    /// Return either the label or an empty string if there is no mapping.
+    virtual StringRef getBlockLabel(const yaml::Name& Name) const = 0;
+
+    static StringRef getBlockLabel(const BasicBlock &BB);
+    static StringRef getBlockLabel(const MachineBasicBlock &MBB);
+  };
+
+  template<typename BlockT, bool bitcode>
+  class PMLFunctionInfoT : public PMLFunctionInfo {
+  private:
+    typedef StringMap<BlockT*> BlockMap;
+
+    yaml::Function<BlockT> *Function;
+
+    /// Map of block ID (name) -> Block
+    BlockMap Blocks;
+
+    PMLFunctionInfoT() : PMLFunctionInfo(bitcode), Function(0) {}
+  public:
+    PMLFunctionInfoT(yaml::Function<BlockT> &F)
+    : PMLFunctionInfo(bitcode), Function(&F)
+    {
+      reloadBlockInfos();
+    }
+
+    void reloadBlockInfos();
+
+    virtual bool hasMapping() const { return Function != NULL; }
+
+    virtual yaml::Name getName() const {
+      return Function ? Function->FunctionName : yaml::Name("");
+    }
+
+    static PMLFunctionInfoT<BlockT, bitcode> &getEmptyInfo() {
+      static PMLFunctionInfoT<BlockT, bitcode> emptyInfo;
+      return emptyInfo;
+    }
+
+    virtual bool hasBlock(const yaml::Name& Name) const;
+
+    virtual StringRef getBlockLabel(const yaml::Name& Name) const;
+
+    BlockT* getBlock(const yaml::Name &Name) const;
+  };
+
+  typedef PMLFunctionInfoT<yaml::BitcodeBlock,true>  PMLBitcodeFunctionInfo;
+  typedef PMLFunctionInfoT<yaml::MachineBlock,false> PMLMachineFunctionInfo;
+
+  typedef StringMap<PMLFunctionInfo*> PMLFunctionInfoMap;
+
+  // Top Level PML Index. Function- and block-IDs are only valid within a
+  // level, and need proper transformation when referenced, by label
+  // and/or by a relation-graph.
+  class PMLLevelInfo {
+  private:
+    yaml::ReprLevel Level;
+    bool IsBitcode;
+
+    /// Map of function label (mapsto) -> ID (name)
+    PMLLabelMap  FunctionLabels;
+
+    // Map of function ID (name) to function infos.
+    PMLFunctionInfoMap FunctionInfos;
+
+    PMLLevelInfo(const PMLLevelInfo&); // Not implemented
+    const PMLLevelInfo &operator=(const PMLLevelInfo&); // Not implemented
+  public:
+    PMLLevelInfo(yaml::ReprLevel lvl) : Level(lvl)
+    {
+      IsBitcode = (lvl == yaml::level_bitcode);
+    }
+    ~PMLLevelInfo()
+    {
+      for (PMLFunctionInfoMap::iterator i = FunctionInfos.begin(),
+           ie = FunctionInfos.end(); i != ie; i++)
+      {
+        delete i->second;
+      }
+    }
+
+    yaml::ReprLevel getLevel() const { return Level; }
+
+    bool isBitcode() const { return IsBitcode; }
+
+    void addFunctionInfo(yaml::BitcodeFunction &F);
+    void addFunctionInfo(yaml::MachineFunction &F);
+
+    bool hasFunctionMapping(const Function &F) const {
+      return !getFunctionInfo(F).hasMapping();
+    }
+    bool hasFunctionMapping(const MachineFunction &F) const {
+      return !getFunctionInfo(F).hasMapping();
+    }
+
+    yaml::Name getFunctionName(const Function &F) const;
+    yaml::Name getFunctionName(const MachineFunction &F) const;
+
+    PMLFunctionInfo &getFunctionInfo(const yaml::Name &Name) const;
+    PMLFunctionInfo &getFunctionInfo(const Function &F) const {
+      return getFunctionInfo(getFunctionName(F));
+    }
+    PMLFunctionInfo &getFunctionInfo(const MachineFunction &F) const {
+      return getFunctionInfo(getFunctionName(F));
+    }
+  };
+
   class PMLImport : public ImmutablePass {
   private:
     virtual void anchor();
 
-    std::vector<yaml::PMLDoc*> YDocs;
+    yaml::PMLDoc YDoc;
 
     bool Initialized;
 
@@ -36,41 +188,165 @@ namespace llvm {
     static char ID;
 
     PMLImport()
-    : ImmutablePass(ID), Initialized(false)
+    : ImmutablePass(ID), Initialized(false), BitcodeLevel(0), MachineLevel(0)
     {
       PassRegistry &Registry = *PassRegistry::getPassRegistry();
       initializePMLImportPass(Registry);
+    }
+
+    ~PMLImport() {
+      deletePMLIndex();
     }
 
     void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
     }
 
-    // TODO Maybe at some later point, we might want to load multiple PML files
-    // for different compiler phases, or a single PML file that contains
-    // multiple results that are back-annotated to different compiler phases.
-    // We will need some sort of interface to select the phase that we are
-    // currently in (no need to be able to handle multiple phases in parallel,
-    // as long as LLVM is not multithreaded), and need to export PML files at
-    // different phases.
-
     virtual void initializePass();
 
-
     /// Check if any PML infos are actually available.
-    bool isAvailable() const;
+    bool isInitialized() const;
 
-    /// TODO define a sane set of 'isAvailable' functions (?)
-    bool isAvailable(const MachineFunction *MF) const;
+    /// Create a new query object that can be used to access the imported PML
+    /// infos. Returns either a new query object or null if no data is available
+    /// for the given source level.
+    PMLBitcodeQuery* createBitcodeQuery(Pass &AnalysisProvider,
+                     const Function &F,
+                     yaml::ReprLevel SrcLevel = yaml::level_machinecode);
 
+    /// Create a new query object that can be used to access the imported PML
+    /// infos. Returns either a new query object or null if no data is available
+    /// for the given source level.
+    PMLMCQuery* createMCQuery(Pass &AnalysisProvider, const MachineFunction &MF,
+                     yaml::ReprLevel SrcLevel = yaml::level_machinecode);
 
-    /// TODO define various getters to access infos including context, ..
+  private:
 
-    uint64_t getLocalWCET(const MachineBasicBlock *MBB) const;
+    // TODO at some point we could use the PML level field to encode a phase
+    // or stage at which the infos where generated and decide based on the
+    // bitcode-functions or machine-functions field if a function is bitcode
+    // or machinecode. Level would then be something like 'export' or
+    // 'pre-ifconvert', analysis results might be attached at different levels.
+    // Then those single pointers should become maps of
+    // level->(Machine|Bitcode)LevelInfo, and the query classes should become
+    // level-aware, either by creating a query for a specific level (requiring
+    // either the user or this class to find the (closest) level that has the
+    // necessary analysis results attached to them) or by searching all/some
+    // levels for analysis results and appropriately transforming them back.
+    PMLLevelInfo *BitcodeLevel;
+    PMLLevelInfo *MachineLevel;
 
-    double getCriticality(const MachineBasicBlock *MBB) const;
+    void deletePMLIndex();
+
+    void rebuildPMLIndex();
+  };
+
+  class PMLMachineDomProvider {
 
   };
+
+  // This query class is currently designed to work only intra-procedurally.
+  // To support inter-procedural optimization and analysis, a PMLModuleQuery
+  // should probably be introduced.
+  class PMLQuery {
+  private:
+    bool IgnoreTraces;
+
+  protected:
+    yaml::PMLDoc &YDoc;
+    PMLLevelInfo &SrcLevel;
+    PMLFunctionInfo &FI;
+
+    Pass &AnalysisProvider;
+
+    MachineDominatorTree *MDom;
+    MachinePostDominatorTree *MPostDom;
+
+    PMLQuery(yaml::PMLDoc &doc, const yaml::Name &Function, PMLLevelInfo &lvl,
+             Pass &ap)
+    : IgnoreTraces(true), YDoc(doc), SrcLevel(lvl),
+      FI(lvl.getFunctionInfo(Function)),
+      AnalysisProvider(ap), MDom(0), MPostDom(0)
+    {}
+    virtual ~PMLQuery() {}
+
+  public:
+
+    void setIgnoreTraces(bool ignore) { IgnoreTraces = ignore; }
+    bool doIgnoreTraces() { return IgnoreTraces; }
+
+    virtual void resetAnalyses();
+
+    /// TODO define a sane set of 'isAvailable' functions (?)
+    bool hasFlowFacts(bool CheckForFunction = false) const;
+    bool hasValueFacts(bool CheckForFunction = false) const;
+    bool hasTimings(bool CheckForFunction = false) const;
+
+
+    /// Map Block name to value
+    typedef StringMap<double>   BlockDoubleMap;
+    typedef StringMap<uint64_t> BlockUIntMap;
+
+    /// Get a map of all criticality values for all MBBs for which a block
+    /// mapping exists.
+    bool getBlockCriticalityMap(BlockDoubleMap &Criticalities);
+
+
+  protected:
+    bool matches(const yaml::Name &Origin, yaml::ReprLevel Level) const;
+
+    bool matches(const yaml::ProgramPoint *PP) const;
+
+    bool matches(const yaml::Scope *S) const;
+
+    template<typename T>
+    typename StringMap<T>::iterator getDominatorEntry(StringMap<T> &Map,
+                                             MachineBasicBlock &MBB,
+                                             bool PostDom, bool &StrictDom);
+
+    template<typename T>
+    T getMaxDominatorValue(StringMap<T> &Map, MachineBasicBlock &MBB,
+                           T Default);
+  };
+
+  class PMLBitcodeQuery : public PMLQuery {
+  private:
+    friend class PMLImport;
+
+    // const Function &F;
+
+  protected:
+    PMLBitcodeQuery(yaml::PMLDoc &doc, const Function& f, PMLLevelInfo &lvl,
+                    Pass &AnalysisProvider)
+    : PMLQuery(doc, lvl.getFunctionName(f), lvl, AnalysisProvider)
+    {}
+
+  public:
+
+  };
+
+  class PMLMCQuery : public PMLQuery {
+  private:
+    friend class PMLImport;
+
+    // const MachineFunction &MF;
+
+  protected:
+    PMLMCQuery(yaml::PMLDoc &doc, const MachineFunction& mf, PMLLevelInfo &lvl,
+               Pass &AnalysisProvider)
+    : PMLQuery(doc, lvl.getFunctionName(mf), lvl, AnalysisProvider)
+    {}
+
+  public:
+
+    /// Get the criticality of a single block, based on the pre-calculated
+    /// criticalty map. If the block is not in the map, the CFG structure
+    /// of the function is used to calculate the criticality based on the
+    /// values in the map.
+    double getCriticality(BlockDoubleMap &Criticalities,
+                          MachineBasicBlock &MBB, double Default = 1.0);
+  };
+
 
 }
 
