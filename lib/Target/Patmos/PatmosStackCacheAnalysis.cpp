@@ -551,7 +551,7 @@ namespace llvm {
         (*i)->dump();
         dbgs() << "' ";
       }
-      dbgs() << ")\n";
+      dbgs() << ")\nbounds available: ";
       for (SCCInfos::const_iterator i(Infos.begin()), ie(Infos.end()); i != ie;
            i++) {
         dbgs() << "'" << i->first << "' ";
@@ -634,6 +634,9 @@ namespace llvm {
     /// Subtarget information (stack cache block size)
     const PatmosSubtarget &STC;
 
+    /// Target machine info
+    const PatmosTargetMachine &TM;
+
     /// Instruction information
     const TargetInstrInfo &TII;
 
@@ -645,7 +648,7 @@ namespace llvm {
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
         MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(*tm.getInstrInfo()), BI(BoundsFile)
+        TM(tm), TII(*tm.getInstrInfo()), BI(BoundsFile)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
@@ -867,8 +870,8 @@ namespace llvm {
       }
 
 #ifdef PATMOS_TRACE_CG_OCCUPANCY
-      DEBUG(dbgs() << (Maximize ? ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n" :
-                                  "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n"););
+      DEBUG(dbgs() << (Maximize ? ">>>>>>>>>>>>>>> MAX >>>>>>>>>>>>>>>>\n" :
+                                  "<<<<<<<<<<<<<<< MIN <<<<<<<<<<<<<<<<\n"););
       DEBUG(
         for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
             i++) {
@@ -1199,9 +1202,9 @@ namespace llvm {
       args.push_back(0);
 
       std::string ErrMsg;
-      if (sys::Program::ExecuteAndWait(sys::Path(Solve_ilp),
+      if (sys::Program::ExecuteAndWait(sys::Program::FindProgramByName(Solve_ilp),
                                        &args[0],0,0,0,0,&ErrMsg)) {
-        errs() << "Error: " << ErrMsg << "\n";
+        report_fatal_error("calling solver (" + Solve_ilp + "): " + ErrMsg);
       }
       else {
         // read solution
@@ -1209,15 +1212,21 @@ namespace llvm {
         sys::Path SOLname(LPname);
         SOLname.appendSuffix("sol");
 
+        if (!SOLname.canRead())
+          report_fatal_error("Failed to read ILP solution");
+
         std::ifstream IS(SOLname.c_str());
-        if (!IS.good()) {
-          errs() << "Error: Failed to read ILP solution.\n";
-        }
-        else {
-          double tmp;
-          IS >> tmp;
-          result = tmp;
-        }
+        assert(IS.good());
+
+        // read the result value
+        double tmp;
+        IS >> tmp;
+        result = tmp;
+
+        // don't go ahead when solving has failed
+        if (tmp == -1.)
+          assert(0 && "unbounded/infeasible ILP");
+
 
         SOLname.eraseFromDisk();
       }
@@ -1242,7 +1251,7 @@ namespace llvm {
       std::string ErrMsg;
       sys::Path LPname(sys::Path::GetTemporaryDirectory(&ErrMsg));
       if (LPname.isEmpty()) {
-        errs() << "Error: " << ErrMsg << "\n";
+        errs() << "Error creating temp .lp file: " << ErrMsg << "\n";
         return std::numeric_limits<unsigned int>::max();
       }
 
@@ -1912,7 +1921,7 @@ namespace llvm {
       }
 
       if (EnableViewSCAGraph)
-        ViewGraph(SCAGraph, "xxx");
+        ViewGraph(SCAGraph, "sca");
     }
 
     /// runOnModule - determine the state of the stack cache for each call site.
@@ -2100,7 +2109,7 @@ namespace llvm {
 
     static std::string getGraphName(const SpillCostAnalysisGraph &G) 
     {
-      return "xxx";
+      return "scagraph";
     }
 
     static bool isNodeHidden(const SCANode *N, const SpillCostAnalysisGraph &G)
@@ -2161,4 +2170,4 @@ namespace llvm {
         return N->getSpillCost() ? "style=filled, fillcolor=\"red\"" : "";
     }
   };
-}
+} // end namespace llvm

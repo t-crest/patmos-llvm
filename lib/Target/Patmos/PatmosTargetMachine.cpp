@@ -100,10 +100,6 @@ namespace {
         // removed before function splitter
         addPass(&UnreachableMachineBlockElimID);
       }
-
-      if (EnableStackCacheAnalysis) {
-        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
-      }
       return true;
     }
 
@@ -132,6 +128,10 @@ namespace {
 
       // All passes below this line must handle delay slots and bundles
       // correctly.
+
+      if (EnableStackCacheAnalysis) {
+        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+      }
 
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
 
