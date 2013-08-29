@@ -35,6 +35,11 @@ namespace llvm {
   /// TODO maybe move this code to PML.h, reuse for export and relation graph.
   typedef StringMap<StringRef> PMLLabelMap;
 
+  //===----------------------------------------------------------------------===//
+  /// PMLFunctionInfo - Allows to query information about imported PML functions
+  ///
+  /// Provides for example about mappings of basic blcoks
+  ///
   class PMLFunctionInfo {
   protected:
     bool IsBitcode;
@@ -77,6 +82,12 @@ namespace llvm {
     static StringRef getBlockLabel(const MachineBasicBlock &MBB);
   };
 
+  //===----------------------------------------------------------------------===//
+  /// PMLFunctionInfoT - Template implementation of PMLFunctionInfo
+  ///
+  /// Type T is instantiated to BasicBlock or MachineBlock, for bitcode and
+  /// machinecode, respectively.
+  ///
   template<typename BlockT, bool bitcode>
   class PMLFunctionInfoT : public PMLFunctionInfo {
   private:
@@ -120,9 +131,13 @@ namespace llvm {
 
   typedef StringMap<PMLFunctionInfo*> PMLFunctionInfoMap;
 
-  // Top Level PML Index. Function- and block-IDs are only valid within a
-  // level, and need proper transformation when referenced, by label
-  // and/or by a relation-graph.
+
+  //===----------------------------------------------------------------------===//
+  /// PMLLevelInfo - Provides PML information about machine code or bitcode
+  ///
+  /// Function- and block-IDs are only valid within a level, and need proper
+  /// transformation when referenced, by label and/or by a relation-graph.
+  ///
   class PMLLevelInfo {
   private:
     yaml::ReprLevel Level;
@@ -241,13 +256,15 @@ namespace llvm {
     void rebuildPMLIndex();
   };
 
-  class PMLMachineDomProvider {
 
-  };
-
-  // This query class is currently designed to work only intra-procedurally.
-  // To support inter-procedural optimization and analysis, a PMLModuleQuery
-  // should probably be introduced.
+  //===----------------------------------------------------------------------===//
+  /// PMLQuery - class to query information from the PML database
+  ///
+  /// Used to e.g. get information about imported analyses results.
+  /// This query class is currently designed to work only intra-procedurally.
+  /// To support inter-procedural optimization and analysis, a PMLModuleQuery
+  /// should probably be introduced.
+  ///
   class PMLQuery {
   private:
     bool IgnoreTraces;
