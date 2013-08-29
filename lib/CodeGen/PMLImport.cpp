@@ -37,11 +37,6 @@ static cl::opt<std::string> ImportFile("mimport-pml",
    cl::desc("Read external analysis results from PML file"),
    cl::init(""));
 
-static cl::list<std::string> ImportOrigins("mimport-origins",
-   cl::value_desc("origin"), cl::CommaSeparated,
-   cl::desc("Comma-separated list of origins that should be used by default. "
-    "Prefix origin name with '-' or '+' to exclude or include (default: all)"));
-
 INITIALIZE_PASS(PMLImport, "pml-import", "PML Import", false, true)
 
 char PMLImport::ID = 0;
