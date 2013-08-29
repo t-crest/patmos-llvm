@@ -247,8 +247,9 @@ module PML
     pml_list(:FunctionArgument,[:name])
     # customized constructor
     def initialize(function, data)
-     @list = data.map { |a| FunctionArgument.new(function, a) }
-     set_yaml_repr(data)
+      @list = data.map { |a| FunctionArgument.new(function, a) }
+      set_yaml_repr(data)
+      build_index
     end
   end
 
@@ -273,7 +274,7 @@ module PML
 
   # PML function wrapper
   class Function < ProgramPointProxy
-    attr_reader :blocks, :loops
+    attr_reader :blocks, :loops, :arguments
     def initialize(data, opts)
       set_yaml_repr(data)
       @name = data['name']
@@ -603,19 +604,29 @@ module PML
 
   # List of relation graphs (unmodifiable)
   class RelationGraphList < PMLList
+
     # non-standard pml list
+    #
     def initialize(data, srclist, dstlist)
       @list = data.map { |rgdata| RelationGraph.new(rgdata, srclist, dstlist) }
       set_yaml_repr(data)
       build_lookup
     end
+
+    # whether there is a relation graph involving function
+    # @name@ on level @level@
+    #
     def has_named?(name, level)
       ! @named[level][name].nil?
     end
+
+    # get relation graph by function's name on the specified level
+    #
     def by_name(name, level)
       assert("RelationGraphList#by_name: level != :src,:dst") { [:src,:dst].include?(level) }
       lookup(@named[level], name, "#{level}-name", false)
     end
+
     def build_lookup
       @named = { :src => {}, :dst => {} }
       @list.each do |rg|
@@ -629,10 +640,31 @@ module PML
   class RelationNodeList < PMLList
     extend PMLListGen
     pml_name_index_list(:RelationNode)
+
     def initialize(rg, data)
       @list = data.map { |n| RelationNode.new(rg, n) }
       set_yaml_repr(data)
       build_index
+      build_relation_index
+    end
+
+    # get relation graph node(s) that reference the specified basic block
+    #
+    def by_basic_block(bb, level)
+      assert("RelationNodeList#by_basic_block: level != :src,:dst") { [:src,:dst].include?(level) }
+      lookup(@basic_block_index[level], bb, "#{level}-block", false) || []
+    end
+
+private
+    def build_relation_index
+      @basic_block_index = { :src => {}, :dst => {} }
+      @list.each do |rgn|
+        [:src,:dst].each do |level|
+          bb = rgn.get_block(level)
+          next unless bb
+          (@basic_block_index[level][bb] ||= []).push(rgn)
+        end
+      end
     end
   end
 
@@ -665,14 +697,28 @@ module PML
       @qname = "#{@rg.qname}_#{@name}"
       @successors = {} # lazy initialization
     end
+
+    # get basic block for the specified level
+    # :progress and :entry provide both blocks, :src and :dst
+    # blocks on the respective level, and :exit no block
+    #
     def get_block(level)
       return nil unless data["#{level}-block"]
       rg.get_function(level).blocks.by_name(data["#{level}-block"])
     end
+
     # returns one out of [ :progress, :dst, :src, :entry, :exit ]
+    #
     def type
       data['type'].to_sym
     end
+
+    # true if this is a :dst or :src node
+    #
+    def unmapped?
+      type == :src || type == :dst
+    end
+
     def successors_matching(block, level)
       assert("successors_matching: nil argument") { ! block.nil? }
       successors(level).select { |b|

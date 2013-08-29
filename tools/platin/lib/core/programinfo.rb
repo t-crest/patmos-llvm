@@ -97,7 +97,7 @@ module PML
       data.reject! { |ff| rejects.shift }
     end
 
-    def filter(pml, ff_selection, ff_srcs, ff_levels)
+    def filter(pml, ff_selection, ff_srcs, ff_levels, exclude_symbolic = false)
       classifier = FlowFactClassifier.new(pml)
       @list.select { |ff|
         # skip if level does not match
@@ -107,6 +107,8 @@ module PML
         elsif ff_srcs != "all" && ! ff_srcs.include?(ff.origin)
           false
         elsif ! classifier.included?(ff, ff_selection)
+          false
+        elsif exclude_symbolic && ! ff.rhs.constant?
           false
         else
           true
@@ -207,7 +209,6 @@ module PML
 
       @scope, @lhs, @op, @rhs = scope, lhs, op, rhs
       @rhs = SEInt.new(@rhs) if rhs.kind_of?(Integer)
-      @rhs = @rhs.to_i if @rhs.constant?
       @attributes = attributes
       raise Exception.new("No level attribute!") unless level
       set_yaml_repr(data)
@@ -215,7 +216,7 @@ module PML
 
     # whether this flow fact has a symbolic constant (not fully supported)
     def symbolic_bound?
-      ! @rhs.kind_of?(Integer)
+      ! @rhs.constant?
     end
 
     # string representation of the flow fact
@@ -238,7 +239,7 @@ module PML
         if ty == :variable # ok
           name
         elsif ty == :loop
-          b = scope.function.blocks.by_name(name[1..-1])
+          b = scope.function.blocks.by_name(name[1..-1]).loopref
           unless b
             raise Exception.new("Unable to lookup loop: #{name} in #{b}")
           end
@@ -253,7 +254,7 @@ module PML
       { 'scope' => scope.data,
         'lhs' => lhs.data,
         'op' => op,
-        'rhs' => rhs,
+        'rhs' => rhs.to_s,
       }.merge(attributes)
     end
 
@@ -288,6 +289,18 @@ module PML
 
     def local?
       lhs.all? { |term| term.ppref.function == scope.function }
+    end
+
+    def loop_bound?
+      ! get_loop_bound.nil?
+    end
+
+    def loop_scope?
+      scope.reference.kind_of?(LoopRef)
+    end
+
+    def context_sensitive?
+      lhs.any? { |term| ! term.context.empty? } || ! scope.context.empty?
     end
 
     def references_empty_block?
@@ -387,7 +400,7 @@ module PML
       ValueRange.new(data['min'],data['max'],data['symbol'],data)
     end
     def to_pml
-      { 'min' => @min, 'max' => @max, 'symbol' => @symbol }
+      { 'min' => @min, 'max' => @max, 'symbol' => @symbol }.delete_if { |_,v| v.nil? }
     end
   end
 

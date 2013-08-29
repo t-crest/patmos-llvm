@@ -106,8 +106,8 @@ class VariableElimination
     @elim_steps = 0
   end
 
-  #
   # eliminate set of variables (which must have no cost assigned in the ILP)
+  #
   def eliminate_set(vars)
 
     # set of variable ids left to eliminate
@@ -320,9 +320,12 @@ class FlowFactTransformation
     # Filter flow facts that need to be simplified
     copy, simplify = [], []
     flowfacts.each { |ff|
-      if options.transform_eliminate_edges && ! ff.get_calltargets && ff.references_edges?
+      if options.transform_eliminate_edges && ff.references_edges? && ! ff.get_calltargets
         simplify.push(ff)
       elsif options.transform_eliminate_edges && ff.references_empty_block?
+        simplify.push(ff)
+      elsif options.transform_eliminate_edges && ! ff.loop_bound? && ff.loop_scope?
+        # replace loop scope by function scope
         simplify.push(ff)
       else
         copy.push(ff)
@@ -343,13 +346,13 @@ class FlowFactTransformation
       if var.kind_of?(Instruction)
         # debug(options,:ipet) { "Eliminating Instruction: #{var}" }
         elim_set.push(var)
-      elsif options.transform_eliminate_edges && var.kind_of?(IPETEdge) && var.cfg_edge?
-        # debug(options,:ipet) { "Eliminating IPET Edge: #{var}" }
+      elsif options.transform_eliminate_edges && var.kind_of?(IPETEdge) # && var.cfg_edge?
+        # FIXME: for now, we also eliminated call edges, because we cannot represent them in aiT
         elim_set.push(var)
       elsif options.transform_eliminate_edges && var.kind_of?(Block) && var.instructions.empty?
         debug(options,:ipet) { "Eliminating empty block: #{var}" }
         elim_set.push(var)
-       end
+      end
     end
     ve = VariableElimination.new(ilp, options)
     new_constraints = ve.eliminate_set(elim_set)
@@ -371,7 +374,6 @@ class FlowFactTransformation
     flowfacts_by_entry = { }
     flowfacts.each { |ff|
       if ff.symbolic_bound?
-        warn "No support for transformation of symbolic flow-facts at the moment: #{ff}"
         next
       end
       entry = machine_entry
@@ -414,9 +416,16 @@ class FlowFactTransformation
       stats_elim_steps += ve.elim_steps
     }
     new_ffs.each { |ff| pml.flowfacts.add(ff) }
+
+    # direct translation of loop bounds and symbolic bounds (FM difficult and not implemented)
+    sbt = SymbolicBoundTransformation.new(pml,options)
+    directly_transformed_facts = sbt.transform(flowfacts, target_level)
+    directly_transformed_facts.each { |ff| pml.flowfacts.add(ff) }
+
     statistics("TRANSFORM",
                "#local IPET problems" => flowfacts_by_entry.length,
                "generated flowfacts" => new_ffs.length,
+               "directly translated flowfacts" => directly_transformed_facts.length,
                "constraints before FM eliminations" => stats_num_constraints_before,
                "constraints after FM eliminations" => stats_num_constraints_after,
                "elimination steps" => stats_elim_steps) if options.stats
@@ -511,6 +520,193 @@ private
       new_flowfacts.push(ff)
     end
     new_flowfacts
+  end
+end
+
+class SymbolicBoundTransformation
+  attr_reader :pml, :options
+  def initialize(pml, options)
+    @pml, @options = pml, options
+  end
+  def transform(flowfacts, target_level)
+    new_ffs = []
+    level_source = (target_level == :src) ? "machinecode" : "bitcode"
+
+    # select all loop bounds at the level we are transforming from
+    ffs = {}
+    flowfacts.each { |ff|
+      next unless ff.level == level_source
+      next if ff.context_sensitive?
+      s,b = ff.get_loop_bound
+      next unless s
+      (ffs[s.reference.function]||=[]).push(ff)
+    }
+
+
+    # resolve CHRs
+    # translate blocks and arguments
+    ffs.each { |f,lbs|
+
+      # resolve CHR on bitcode level, out loops first
+      lbs_resolved = []
+      loop_bounds = {}
+      lbs.sort_by { |ff|
+        if ff.scope.reference.kind_of?(LoopRef)
+          ff.scope.reference.loopblock.loops.length
+        else
+          1024 # loops first
+        end
+      }.map { |ff|
+        # resolve CHR on bitcode level
+        ff_r, ff_triangle = resolve_chr(ff, loop_bounds)
+        unless ff_r
+          debug(options, :transform) { "Failed to resolve CHR for #{ff}" }
+          next
+        end
+        lbs_resolved.push(ff_r)
+        lbs_resolved.push(ff_triangle) if ff_triangle
+        loopscope, loopbound = ff_r.get_loop_bound
+        loop_bounds[loopscope.reference] = loopbound if loopscope
+      }
+
+      # translate
+      lbs_resolved.each { |ff|
+        debug(options, :transform) { "Attempting to transform: #{ff}" }
+        # translate blocks and variables
+        ff_t = translate_blocks_and_variables(ff, target_level)
+        unless ff_t
+          debug(options, :transform) { "Failed to translate blocks for #{ff}" }
+          next
+        else
+          debug(options, :transform) { "Translated flow fact:    #{ff_t}" }
+        end
+        new_ffs.push(ff_t)
+      }
+    }
+    new_ffs
+  end
+
+  def translate_blocks_and_variables(ff, target_level)
+
+    # get relation graph
+    function = ff.scope.function
+    ff_level = ff.level == 'machinecode' ? :dst : :src
+
+    if ff.context_sensitive?
+      debug(options, :transform) { "Cannot transform context-sensitive symbolic flow fact" }
+      return nil
+    elsif ! ff.local?
+      debug(options, :transform) { "Cannot transform non-local symbolic flow fact" }
+      return nil
+    elsif non_block_ref = ff.lhs.find { |t| ! t.ppref.kind_of?(BlockRef) }
+      debug(options, :transform) { "Cannot transform symbolic flow fact referencing edges: #{non_block_ref}" }
+      return nil
+    elsif ! pml.relation_graphs.has_named?(function.name, ff_level)
+      debug(options, :transform) { "Cannot transform symbolic flow fact without relation graph" }
+      return nil
+    end
+    rg = @pml.relation_graphs.by_name(function.name, ff_level)
+
+    # Simple Strategy:
+    # for all referenced blocks B (including the loop block and loops
+    # in CHR expressions, if applicable):
+    #   if all relation graph nodes in involving B are progress nodes (B,B'),
+    #   map B to B' (note there is only one such progress node for each B)
+    #
+    blockmap = {}
+    loopblock = ff.scope.reference.loopblock if ff.scope.reference.kind_of?(LoopRef)
+    blocks = ff.lhs.map { |t| t.ppref.block }
+    blocks.push(loopblock) if loopblock
+    blocks.concat(ff.rhs.referenced_loops.map { |lref| lref.loopblock })
+    blocks.each { |b|
+      ns = rg.nodes.by_basic_block(b, ff_level)
+      return nil if ns.length != 1
+      n = ns.first
+      return nil if n.unmapped?
+      # find (unique) progress node for B
+      nb = n.get_block(target_level)
+      if b.loopheader? && ! nb.loopheader?
+        warn("SymbolicBoundTransformation: not a loop header mapping: #{b} -> #{nb}")
+      end
+      blockmap[b] = nb
+    }
+    scope_ref_mapped =
+      if loopblock
+        blockmap[loopblock].loopref
+      else
+        rg.get_function(target_level).ref
+      end
+    lhs_mapped = ff.lhs.map { |t|
+      mref = BlockRef.new(blockmap[t.ppref.block])
+      Term.new(ContextRef.new(mref, Context.empty),t.factor)
+    }
+    rhs_mapped = ff.rhs.map_names { |ty,n|
+      if ty == :variable
+        if ff_level == :dst
+          warn("Mapping of registers to bitcode variables is not available")
+          return nil
+        end
+        mf = rg.get_function(target_level)
+        argument = mf.arguments.by_name(n)
+        if ! argument
+          warn("No function argument #{n} for function #{mf.label}")
+          return nil
+        end
+        if argument.registers.length != 1
+          warn("Argument #{n} of #{mf.label} is not mapped to one register but #{argument.registers.inspect}")
+          return nil
+        end
+        argument.registers.first
+      elsif ty == :loop
+        blockmap[n.loopblock].loopref
+      end
+    }
+    attrs = { 'origin' =>  options.flow_fact_output,
+              'level'  => (target_level == :src) ? "bitcode" : "machinecode" }
+    scope_mapped = ContextRef.new(scope_ref_mapped, Context.empty)
+    FlowFact.new(scope_mapped, TermList.new(lhs_mapped), ff.op, rhs_mapped, attrs)
+  end
+
+
+  # resolve chain of recurrences
+  def resolve_chr(ff, loop_bounds)
+    ff_triangle = nil
+    return [ff,ff_triangle] unless ff.symbolic_bound?
+
+    s, b = ff.get_loop_bound
+    refd_loops = b.referenced_loops
+    return [ff,ff_triangle] if refd_loops.empty?
+
+    parent_loop = s.reference.loopblock.loops[1]
+    if(refd_loops.size != 1 || refd_loops.first.loopblock != parent_loop)
+      debug(options,:transform) {
+        "A loop different from the parent loop is referenced in a CHR. We cannot compute "+
+        "a global bound for #{ff} at the moment (parent loop: #{parent_loop}, referenced loop: #{refd_loops.inspect}"
+      }
+      return nil
+    end
+
+    rb =
+      begin
+        b.resolve_loops(loop_bounds)
+      rescue NoLoopBoundAvailableException => ex
+        debug(options, :transform) { "Failed to resolve loop CHR, because outer loop bound for (#{ex.loop}) is not available" }
+        return nil
+      end
+    ff_new = FlowFact.loop_bound(s,rb,ff.attributes)
+    debug(options,:transform) { "CHR      loop bound: #{ff}" }
+    debug(options,:transform) { "Resolved loop bound: #{ff_new}" }
+
+    if b.kind_of?(SEAffineRec)
+      rbglob = b.global_bound(loop_bounds)
+      ff_triangle = FlowFact.inner_loop_bound(ContextRef.new(refd_loops.first, s.context),
+                                            ContextRef.new(s.reference.loopblock.ref, Context.empty),
+                                            rbglob,
+                                            ff.attributes)
+      debug(options, :transform) {  "Triangle loop bound: #{ff_triangle} #{ff_triangle.symbolic_bound? ? '(ignored)' : ''}" }
+      ff_triangle = nil if ff_triangle.symbolic_bound?
+    end
+    [ff_new, ff_triangle]
   end
 end
 

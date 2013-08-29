@@ -33,6 +33,15 @@ class SymbolicExpression
     raise Exception.new("SymbolicExpression#to_i: not constant")
   end
 
+  # map all symbolic names in the symbolic expression
+  # map_names yields a pair [type, name] to the caller
+  #   [:variable, v] ... Variable name
+  #   [:loop, l]     ... Loop block used in a CHR
+  #
+  def map_names
+    raise Exception.new("map_names not implemented for #{self.class}")
+  end
+
   def constant;            nil  ; end
   def constant?;           false; end
   def chainOfRecurrences?; false; end
@@ -265,7 +274,8 @@ class SEAffineRec < SymbolicExpression
   def global_bound(lenv)
     x = lenv[@loopheader]
     if ! @b.constant? || @b.to_i == 0
-      raise Exception.new("SEAffineRec#global_bound: not possible to calculate global bound for non-constant/zero b")
+      raise Exception.new("SEAffineRec#global_bound: not possible to calculate global bound for"+
+                          "non-constant/zero #{@b}::#{@b.class} in #{self}")
     end
     if @b.to_i > 0
       lb = @b.add(-@a,-1).sdiv(@b).smax(0)
@@ -374,10 +384,10 @@ private
     /-?\d+/.r.map { |v| SEInt.new(v.to_i) }
   end
   def loopname
-    /%[A-Za-z\.0-9_]+/.r
+    /[%@A-Za-z_][A-Za-z\.0-9_]*/.r
   end
   def variable
-    /%[A-Za-z\.0-9_]+/.r.map { |v| SEVar.new(v) }
+    loopname.map { |v| SEVar.new(v) }
   end
 end
 

@@ -532,10 +532,15 @@ class IPETBuilder
   def add_flowfact(ff, tag = :flowfact)
     model = ff.level == "machinecode" ? @mc_model : @bc_model
     raise Exception.new("IPETBuilder#add_flowfact: cannot add bitcode flowfact without using relation graph") unless model
-    lhs = []
+    unless ff.rhs.constant?
+      warn("IPETBuilder#add_flowfact: cannot add flowfact with symbolic RHS to IPET: #{ff}")
+      return false
+    end
+    lhs, rhs = [], ff.rhs.to_i
     ff.lhs.each { |term|
       unless term.context.empty?
         warn("IPETBuilder#add_flowfact: context sensitive program points not supported: #{ff}")
+        return false
       end
       if term.ppref.kind_of?(FunctionRef)
         lhs += model.function_frequency(term.ppref.function, term.factor)
@@ -556,9 +561,9 @@ class IPETBuilder
       return false
     end
     if scope.reference.kind_of?(FunctionRef)
-      lhs += model.function_frequency(scope.reference.function, -ff.rhs)
+      lhs += model.function_frequency(scope.reference.function, -rhs)
     elsif scope.reference.kind_of?(LoopRef)
-      lhs += model.sum_loop_entry(scope.reference.loopblock, -ff.rhs)
+      lhs += model.sum_loop_entry(scope.reference.loopblock, -rhs)
     else
       raise Exception.new("IPETBuilder#add_flowfact: Unknown scope type: #{scope.reference.class}")
     end

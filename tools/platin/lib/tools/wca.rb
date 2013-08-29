@@ -59,7 +59,8 @@ class WcaTool
     flowfacts = pml.flowfacts.filter(pml,
                                      options.flow_fact_selection,
                                      options.flow_fact_srcs,
-                                     ["machinecode","bitcode"])
+                                     ["machinecode","bitcode"],
+                                     true)
     ff_levels = if options.use_relation_graph then ["bitcode","machinecode"] else ["machinecode"] end
 
     # Refine Control-Flow Model

@@ -140,13 +140,6 @@ class TransformTool
     # Select flow facts
     flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["bitcode","machinecode"])
 
-    # resolve flow facts if possible
-    # FIXME: we won't do this in FlowFactList
-    add_flow_facts = self.resolve_symbolic_bounds(flowfacts)
-
-    # Ignore symbolic loop bounds for now
-    flowfacts.reject! { |ff| ff.symbolic_bound? }
-
     # Start transformation
     fft = FlowFactTransformation.new(pml,options)
     if options.transform_action == "copy"
@@ -157,6 +150,8 @@ class TransformTool
         fft.transform(entry, flowfacts, target_level)
       end
     elsif options.transform_action == "simplify"
+      # Ignore symbolic loop bounds for now
+      flowfacts.reject! { |ff| ff.symbolic_bound? }
       fft.simplify(entry, flowfacts)
     else
       die("Bad transformation action --transform-action=#{options.transform_action}")
@@ -165,72 +160,6 @@ class TransformTool
     pml
   end
 
-  # resolve triangle-loop recurrences where possible
-  # XXX PLAYGROUND
-  def TransformTool.resolve_symbolic_bounds(ffs)
-    new_ffs = []
-    by_loop = Hash.new
-    dependencies = Hash.new
-    ffs.each { |ff|
-      s, b = ff.get_loop_bound
-      if ff.symbolic_bound?
-        ff.rhs.referenced_loops.each { |l| (dependencies[ff]||=Set.new).add(l) }
-      end
-      if s && s.context.empty?
-        # if there is more than on loop bound, we should decide which one to take,
-        # or instantiate multiple loop bounds. Not relevant in practice, probably.
-        if by_loop[s.reference]
-        end
-        b = SEInt.new(b) if b.kind_of?(Integer)
-        by_loop[s.reference] = b
-      end
-    }
-    ffs.sort { |a,b|
-      sa, ba = a.get_loop_bound
-      sb, bb = b.get_loop_bound
-      if sb && (dependencies[a]||[]).include?(sb.reference)
-        1  # a depends on b and should be processed later
-      elsif sa && (dependencies[b]||[]).include?(sa.reference)
-        -1 # b depends on a and should be processed later
-      else
-        0
-      end
-    }.each { |ff,ix|
-
-      s, b = ff.get_loop_bound
-      next unless s && ff.symbolic_bound?
-
-      refd_loops = b.referenced_loops
-      next if refd_loops.empty?
-
-      parent_loop = s.reference.loopblock.loops[1]
-      if(refd_loops.size != 1 && refd_loops.first != parent_loop)
-        warn "A loop different from the parent loop is referenced in a CHR: #{ff} -> #{refd_loops.inspect}"
-        next
-      end
-
-      begin
-        rb = b.resolve_loops(by_loop)
-      rescue NoLoopBoundAvailableException => ex
-        warn("Failed to resolve loop CHR, because outer loop bound for (#{ex.loop}) is not available")
-        next
-      end
-      ff_new = FlowFact.loop_bound(s,rb,ff.attributes)
-      info "CHR      loop bound: #{ff}"
-      info "Resolved loop bound: #{ff_new}"
-      if s && s.context.empty?
-        by_loop[s.reference] = rb
-      end
-      if b.kind_of?(SEAffineRec)
-        rbglob = b.global_bound(by_loop)
-        ff_global = FlowFact.inner_loop_bound(ContextRef.new(refd_loops.first.loopref, s.context),
-                                              ContextRef.new(s.reference, Context.empty),
-                                              rbglob,
-                                              ff.attributes)
-        info "Triangle loop bound   : #{ff_global}"
-      end
-    }
-  end
 end
 
 if __FILE__ == $0

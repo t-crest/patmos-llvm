@@ -166,20 +166,34 @@ module PML
         return false
       end
 
-      assert("export_linear_constraint: not in function scope") { scope.reference.kind_of?(FunctionRef) }
+      # we only export either (a) local flowfacts (b) flowfacts in the scope of the analysis entry
+      type = :unsupported
+      if ! scope.reference.kind_of?(FunctionRef)
+        warn("aiT: linear constraint not in function scope (unsupported): #{ff}")
+        return false
+      end
+      if scope.reference.function == @entry
+        type = :global
+      elsif ff.local?
+        type = :local
+      else
+        warn("aiT: no support for interprocededural flow-facts not relative to analysis entry: #{ff}")
+        return false
+      end
 
       # no support for edges in aiT
       unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
         warn("Constraint not supported by aiT (not a block ref): #{ff}")
         return false
       end
+
       # no support for empty basic blocks (typically at -O0)
       if terms.any? { |t| t.ppref.block.instructions.empty? }
         warn("Constraint not supported by aiT (empty basic block): #{ff})")
         return false
       end
 
-      # Positivty constraints => do nothing
+      # Positivity constraints => do nothing
       rhs = ff.rhs.to_i
       if rhs >= 0 && terms.all? { |t| t.factor < 0 }
         return true
@@ -414,7 +428,7 @@ class AitImport
               sprintf("- %s 0x%08x..0x%08x (%d bytes), mod=0x%x rem=0x%x\n",
                       se.attributes['type'],min,max,max-min,mod || -1,rem || -1)
             } if unpredictable
-            values.push(ValueRange.new(min,max))
+            values.push(ValueRange.new(min,max,nil))
           }
           value_analysis_stats[(unpredictable ? 'un' : '') + 'predictable ' + (is_read ? 'reads' : 'writes')] += 1
           fact_values = ValueSet.new(values)
