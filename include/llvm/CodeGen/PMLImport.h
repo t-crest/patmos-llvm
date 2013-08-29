@@ -21,6 +21,9 @@
 
 namespace llvm {
 
+  class  MachineDominatorTree;
+  struct MachinePostDominatorTree;
+
   class MachineBasicBlock;
   class MachineFunction;
   class Module;
@@ -207,13 +210,14 @@ namespace llvm {
     /// Create a new query object that can be used to access the imported PML
     /// infos. Returns either a new query object or null if no data is available
     /// for the given source level.
-    PMLBitcodeQuery* createBitcodeQuery(const Function &F,
+    PMLBitcodeQuery* createBitcodeQuery(Pass &AnalysisProvider,
+                     const Function &F,
                      yaml::ReprLevel SrcLevel = yaml::level_machinecode);
 
     /// Create a new query object that can be used to access the imported PML
     /// infos. Returns either a new query object or null if no data is available
     /// for the given source level.
-    PMLMCQuery* createMCQuery(const MachineFunction &MF,
+    PMLMCQuery* createMCQuery(Pass &AnalysisProvider, const MachineFunction &MF,
                      yaml::ReprLevel SrcLevel = yaml::level_machinecode);
 
   private:
@@ -237,6 +241,13 @@ namespace llvm {
     void rebuildPMLIndex();
   };
 
+  class PMLMachineDomProvider {
+
+  };
+
+  // This query class is currently designed to work only intra-procedurally.
+  // To support inter-procedural optimization and analysis, a PMLModuleQuery
+  // should probably be introduced.
   class PMLQuery {
   private:
     bool IgnoreTraces;
@@ -246,15 +257,25 @@ namespace llvm {
     PMLLevelInfo &SrcLevel;
     PMLFunctionInfo &FI;
 
-    PMLQuery(yaml::PMLDoc &doc, const yaml::Name &Function, PMLLevelInfo &lvl)
+    Pass &AnalysisProvider;
+
+    MachineDominatorTree *MDom;
+    MachinePostDominatorTree *MPostDom;
+
+    PMLQuery(yaml::PMLDoc &doc, const yaml::Name &Function, PMLLevelInfo &lvl,
+             Pass &ap)
     : IgnoreTraces(true), YDoc(doc), SrcLevel(lvl),
-      FI(lvl.getFunctionInfo(Function))
+      FI(lvl.getFunctionInfo(Function)),
+      AnalysisProvider(ap), MDom(0), MPostDom(0)
     {}
+    virtual ~PMLQuery() {}
 
   public:
 
     void setIgnoreTraces(bool ignore) { IgnoreTraces = ignore; }
     bool doIgnoreTraces() { return IgnoreTraces; }
+
+    virtual void resetAnalyses();
 
     /// TODO define a sane set of 'isAvailable' functions (?)
     bool hasFlowFacts(bool CheckForFunction = false) const;
@@ -277,6 +298,15 @@ namespace llvm {
     bool matches(const yaml::ProgramPoint *PP) const;
 
     bool matches(const yaml::Scope *S) const;
+
+    template<typename T>
+    typename StringMap<T>::iterator getDominatorEntry(StringMap<T> &Map,
+                                             MachineBasicBlock &MBB,
+                                             bool PostDom, bool &StrictDom);
+
+    template<typename T>
+    T getMaxDominatorValue(StringMap<T> &Map, MachineBasicBlock &MBB,
+                           T Default);
   };
 
   class PMLBitcodeQuery : public PMLQuery {
@@ -286,8 +316,9 @@ namespace llvm {
     // const Function &F;
 
   protected:
-    PMLBitcodeQuery(yaml::PMLDoc &doc, const Function& f, PMLLevelInfo &lvl)
-    : PMLQuery(doc, lvl.getFunctionName(f), lvl)
+    PMLBitcodeQuery(yaml::PMLDoc &doc, const Function& f, PMLLevelInfo &lvl,
+                    Pass &AnalysisProvider)
+    : PMLQuery(doc, lvl.getFunctionName(f), lvl, AnalysisProvider)
     {}
 
   public:
@@ -298,19 +329,22 @@ namespace llvm {
   private:
     friend class PMLImport;
 
-    const MachineFunction &MF;
+    // const MachineFunction &MF;
+
+  protected:
+    PMLMCQuery(yaml::PMLDoc &doc, const MachineFunction& mf, PMLLevelInfo &lvl,
+               Pass &AnalysisProvider)
+    : PMLQuery(doc, lvl.getFunctionName(mf), lvl, AnalysisProvider)
+    {}
 
   public:
-    PMLMCQuery(yaml::PMLDoc &doc, const MachineFunction& mf, PMLLevelInfo &lvl)
-    : PMLQuery(doc, lvl.getFunctionName(mf), lvl), MF(mf)
-    {}
 
     /// Get the criticality of a single block, based on the pre-calculated
     /// criticalty map. If the block is not in the map, the CFG structure
     /// of the function is used to calculate the criticality based on the
     /// values in the map.
     double getCriticality(BlockDoubleMap &Criticalities,
-                          const MachineBasicBlock &MBB);
+                          MachineBasicBlock &MBB, double Default = 1.0);
   };
 
 

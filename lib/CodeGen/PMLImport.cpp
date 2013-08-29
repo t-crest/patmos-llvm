@@ -18,6 +18,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/CodeGen/PML.h"
 #include "llvm/CodeGen/PMLImport.h"
+#include "llvm/CodeGen/MachineDominators.h"
+#include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/Support/CFG.h"
@@ -109,24 +111,26 @@ void PMLImport::rebuildPMLIndex() {
   }
 }
 
-PMLBitcodeQuery* PMLImport::createBitcodeQuery(const Function &F,
+PMLBitcodeQuery* PMLImport::createBitcodeQuery(Pass &AnalysisProvider,
+                                               const Function &F,
                                                yaml::ReprLevel SrcLevel)
 {
   if (!Initialized) return 0;
   PMLLevelInfo *Lvl = (SrcLevel == yaml::level_bitcode) ? BitcodeLevel :
                                                           MachineLevel;
   if (!Lvl) return 0;
-  return new PMLBitcodeQuery(YDoc, F, *Lvl);
+  return new PMLBitcodeQuery(YDoc, F, *Lvl, AnalysisProvider);
 }
 
-PMLMCQuery* PMLImport::createMCQuery(const MachineFunction &MF,
+PMLMCQuery* PMLImport::createMCQuery(Pass &AnalysisProvider,
+                                     const MachineFunction &MF,
                                      yaml::ReprLevel SrcLevel)
 {
   if (!Initialized) return 0;
   PMLLevelInfo *Lvl = (SrcLevel == yaml::level_bitcode) ? BitcodeLevel :
                                                           MachineLevel;
   if (!Lvl) return 0;
-  return new PMLMCQuery(YDoc, MF, *Lvl);
+  return new PMLMCQuery(YDoc, MF, *Lvl, AnalysisProvider);
 }
 
 
@@ -319,6 +323,11 @@ PMLFunctionInfo &PMLLevelInfo::getFunctionInfo(const yaml::Name &Name) const
 
 
 
+void PMLQuery::resetAnalyses()
+{
+  MDom = 0;
+  MPostDom = 0;
+}
 
 bool PMLQuery::hasValueFacts(bool CheckForFunction) const
 {
@@ -390,6 +399,84 @@ bool PMLQuery::matches(const yaml::Scope *S) const
   return S->Function == FI.getName();
 }
 
+template<typename T>
+typename StringMap<T>::iterator PMLQuery::getDominatorEntry(StringMap<T> &Map,
+                                               MachineBasicBlock &MBB,
+                                               bool PostDom, bool &StrictDom)
+{
+  StringRef Name;
+
+  // Check the node itself without looking into the dom tree, but only
+  // if we are not looking for strict dominators only.
+  if (!StrictDom) {
+    Name = FI.getBlockName(MBB).getName();
+
+    // Check if we have a direct mapping
+    BlockDoubleMap::iterator it = Map.find(Name);
+    if (it != Map.end()) {
+      return it;
+    }
+  }
+  MachineDomTreeNode *Node;
+
+  // Check any strict dominators for a mapping
+  if (PostDom) {
+    if (!MPostDom) MPostDom =
+                  &AnalysisProvider.getAnalysis<MachinePostDominatorTree>();
+
+    Node = MPostDom->getNode(&MBB);
+  } else {
+    if (!MDom) MDom = &AnalysisProvider.getAnalysis<MachineDominatorTree>();
+
+    Node = MDom->getNode(&MBB);
+  }
+  if (!Node) {
+    report_fatal_error("Could not find dominator tree node for basic block " +
+                       MBB.getFullName());
+  }
+
+  // We already checked the node itself, go to direct dominator
+  Node = Node->getIDom();
+
+  while (Node) {
+    Name = FI.getBlockName(*Node->getBlock()).getName();
+
+    // Check if we have a direct mapping
+    BlockDoubleMap::iterator it = Map.find(Name);
+    if (it != Map.end()) {
+      StrictDom = true;
+      return it;
+    }
+
+    Node = Node->getIDom();
+  }
+
+  return Map.end();
+}
+
+template<typename T>
+T PMLQuery::getMaxDominatorValue(StringMap<T> &Map,
+                                 MachineBasicBlock &MBB, T Default)
+{
+  if (Map.empty()) return Default;
+
+  bool StrictDom = false;
+
+  typename StringMap<T>::iterator it =
+                                 getDominatorEntry(Map, MBB, false, StrictDom);
+  T DomValue = (it != Map.end()) ? it->second : Default;
+
+  if (it != Map.end() && !StrictDom) {
+    // We have an entry in the map that matches exactly, no need to continue
+    return DomValue;
+  }
+
+  typename StringMap<T>::iterator pit =
+                                 getDominatorEntry(Map, MBB, true, StrictDom);
+  T PostDomValue = (pit != Map.end()) ? pit->second : Default;
+
+  return std::max(DomValue, PostDomValue);
+}
 
 
 bool PMLQuery::getBlockCriticalityMap(BlockDoubleMap &Criticalitites)
@@ -426,20 +513,7 @@ bool PMLQuery::getBlockCriticalityMap(BlockDoubleMap &Criticalitites)
 }
 
 double PMLMCQuery::getCriticality(BlockDoubleMap &Criticalities,
-                                  const MachineBasicBlock &MBB)
+                                  MachineBasicBlock &MBB, double Default)
 {
-  if (Criticalities.empty()) return 1.0;
-
-  StringRef Name = FI.getBlockName(MBB).getName();
-
-  // Check if we have a direct mapping
-  BlockDoubleMap::iterator it = Criticalities.find(Name);
-  if (it != Criticalities.end()) {
-    return it->second;
-  }
-
-  // TODO search for a pre- and post-dominator that is in the map, take the max.
-
-
-  return 1.0;
+  return getMaxDominatorValue(Criticalities, MBB, Default);
 }

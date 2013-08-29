@@ -63,6 +63,7 @@
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineDominators.h"
+#include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -1757,6 +1758,8 @@ namespace llvm {
 
     void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.addRequired<PMLImport>();
+      AU.addRequired<MachineDominatorTree>();
+      AU.addRequired<MachinePostDominatorTree>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -1789,7 +1792,7 @@ namespace llvm {
       if (total_size > STC.getMethodCacheSize()) {
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
-        agraph G(&MF, PTM, PI.createMCQuery(MF));
+        agraph G(&MF, PTM, PI.createMCQuery(*this, MF));
         G.transformSCCs();
 
         // compute regions -- i.e., split the function
