@@ -307,6 +307,8 @@ class RecorderSpecification
   end
 
   def RecorderSpecification.help(out=$stderr)
+    out.puts("== Trace Recorder Specification ==")
+    out.puts("")
     out.puts("spec              := <spec-item>,...")
     out.puts("spec-item         := <scope-selection> ':' <entity-selection>")
     out.puts("scope-selection   :=   'g' (=analysis-entry-scope)")

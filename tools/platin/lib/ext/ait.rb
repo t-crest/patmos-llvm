@@ -69,7 +69,7 @@ module PML
   class AISExporter
 
     attr_reader :stats_generated_facts,  :stats_skipped_flowfacts
-    attr_reader :outfile
+    attr_reader :outfile, :options
 
     def initialize(pml,ais_file,options)
       @pml = pml
@@ -279,6 +279,8 @@ module PML
       ffs.each { |ff|
         if scope_bound = ff.get_loop_bound
           scope,bound = scope_bound
+          next if options.ais_disable_export.include?('loop-bounds')
+          next if ! bound.constant? && options.ais_disable_export.include?('symbolic-loop-bounds')
           (loop_bounds[scope]||=[]).push([bound,ff])
         else
           supported = export_flowfact(ff)
@@ -292,21 +294,28 @@ module PML
 
     # export linear-constraint flow facts
     def export_flowfact(ff)
+      assert("export_flowfact: loop bounds need to be exported separately") { ff.get_loop_bound.nil? }
+
       if (! ff.local?) && ff.scope.function != @entry
         warn("aiT: non-local flow fact in scope #{ff.scope} not supported")
         false
-      elsif scope_bound = ff.get_loop_bound
-        scope, bound = scope_bound
-        export_loopbounds(scope,[bound,ff])
+
       elsif ff.symbolic_bound?
         debug(options, :ait) { "Symbolic Bounds only supported for loop bounds" }
         false
+
       elsif scope_cs_targets = ff.get_calltargets
+        return false if options.ais_disable_export.include?('call-targets')
         export_calltargets(ff,*scope_cs_targets)
+
       elsif scope_pp = ff.get_block_infeasible
+        return false if options.ais_disable_export.include?('infeasible-code')
         export_infeasible(ff,*scope_pp)
+
       elsif ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef)
+        return false if options.ais_disable_export.include?('flow-constraints')
         export_linear_constraint(ff)
+
       else
         warn("aiT: unsupported flow fact type: #{ff}")
         false
