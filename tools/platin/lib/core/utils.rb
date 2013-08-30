@@ -181,6 +181,22 @@ module PML
 
 end
 
+class String
+  # Count number of spaces before the first non-space,
+  # and decrease the indent of the text by this amount.
+  #
+  # Convenient for indented HEREDOC help messages
+  #
+  # Inspired by ActiveSupport's strip_heredoc.
+  def strip_heredoc
+    first_indent = 0
+    self.sub(/\A(\s*)/) {
+      first_indent = $1.length
+      $2
+    }.gsub!(/^[ \t]{0,#{first_indent}}/,'')
+  end
+end
+
 # 1.8 compat
 if RUBY_VERSION =~ /^1\.8\.?/
   class Range
