@@ -125,7 +125,7 @@ namespace llvm {
 
     yaml::ValueFact *createLoadGVFact(const MachineInstr *MI,
                                       yaml::MachineInstruction *I,
-                                      yaml::Name GVName) const;
+                                      std::set<const GlobalValue*> &GVs) const;
   protected:
     TargetMachine &TM;
 

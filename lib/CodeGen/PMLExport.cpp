@@ -45,8 +45,7 @@ namespace llvm {
 STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
 STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
 
-STATISTIC( NumMemInst,      "Number of mem ops referring to instructions");
-STATISTIC( NumMemInstExp,   "Number of exported load from array infos (GEP)");
+STATISTIC( NumMemExp,   "Number of exported load from array infos");
 }
 
 /// Unfortunately, the interface for accessing successors differs
@@ -477,7 +476,7 @@ exportBranchInstruction(MachineFunction &MF,
 
 
 yaml::ValueFact *PMLMachineExport:: createLoadGVFact(const MachineInstr *MI,
-    yaml::MachineInstruction *I, yaml::Name GVName) const
+    yaml::MachineInstruction *I, std::set<const GlobalValue*> &GVs) const
 {
   const MachineBasicBlock *MBB = MI->getParent();
   const MachineFunction *MF = MBB->getParent();
@@ -488,7 +487,12 @@ yaml::ValueFact *PMLMachineExport:: createLoadGVFact(const MachineInstr *MI,
                                   MBB->getNumber(),
                                   I->Index
                                   );
-  VF->addValue(GVName);
+  for (std::set<const GlobalValue*>::iterator SI = GVs.begin(), SE = GVs.end();
+      SI != SE; ++SI) {
+
+    VF->addValue((*SI)->getName());
+    DEBUG( dbgs() << "=> to " << (*SI)->getName() << "\n");
+  }
   VF->Variable = "mem-address-read";
   VF->Origin   = "llvm.mc";
 
@@ -497,55 +501,72 @@ yaml::ValueFact *PMLMachineExport:: createLoadGVFact(const MachineInstr *MI,
 
 
 
-static const GlobalValue *isIndexingGlobalValue(const GEPOperator *GEP)
+// Check for a array access of the form
+//  GEP GV 0 idx+
+// On success return GV, otherwise NULL.
+static const GlobalValue *isIndexingGV(const GEPOperator *GEP)
 {
-  // Idx = gep gv 0 var+
-  if (const GlobalValue *GV =
-        dyn_cast<GlobalValue>(GEP->getPointerOperand())) {
-    if (GEP->isInBounds()) {
-      if (const ConstantInt *CI = dyn_cast<ConstantInt>(GEP->getOperand(1))) {
-        if (CI->isZero()) {
-          return GV;
-        }
-      }
+  const GlobalValue *GV;
+  if ( (GV = dyn_cast<GlobalValue>(GEP->getPointerOperand())) &&
+      GEP->isInBounds()) {
+    const ConstantInt *CI;
+    if ( (CI = dyn_cast<ConstantInt>(GEP->getOperand(1))) && CI->isZero()) {
+      return GV;
     }
   }
   return NULL;
 }
 
-static const GlobalValue *isIndexingGlobalValueComp(const GEPOperator *GEP,
-                                                    int &depth)
-{
-  // Comp = gep Comp var+
-  //      | gep Base var+
-  //
-  // Base = Idx [var==0]
-  //     (= gep gv 0+)
 
-  // Comp = gep Base var+
-  if (const ConstantExpr *CE =
-      dyn_cast<ConstantExpr>(GEP->getPointerOperand())) {
-    if (CE->isGEPWithNoNotionalOverIndexing()) {
-      const GEPOperator *GEP2 = cast<GEPOperator>(CE);
-      if (GEP2->hasAllZeroIndices()) {
-        return isIndexingGlobalValue(GEP2);
+// This function does not return a single value but rather follows the
+// operands of a given value and collects the accesses to global arrays
+// in a set. This is due to the possible joins at phi nodes.
+// If the resulting set contains NULL, we don't know anything about the access,
+// otherwise we know that the access goes to either of the GVs in the set.
+//
+// Comp = GEP GV 0 idx+ // this is the base case, GV is added to the set
+//      | GEP Comp idx+
+//      | PHI Comp+
+//      | ?  // in all other cases we add NULL
+//      ;
+static void isIndexingGVComp(const Value *V,
+                             std::set<const GlobalValue*> &collect,
+                             std::set<const Value*> &visited)
+{
+
+  visited.insert(V);
+  if (const GEPOperator *GEP = dyn_cast<GEPOperator>(V)) {
+    if (const GlobalValue *GV = isIndexingGV(GEP)) {
+      // base case: indexing a global array, return that array
+      collect.insert(GV);
+    } else {
+      // check for computed pointer operand
+      const Value *V2 = GEP->getPointerOperand();
+      if (!visited.count(V2)) {
+        isIndexingGVComp(V2, collect, visited);
       }
     }
+    return;
+  } else if (const PHINode *PHI = dyn_cast<PHINode>(V)) {
+    DEBUG( dbgs() << "=> "; PHI->dump() );
+    for (PHINode::const_op_iterator OI = PHI->op_begin(), OE = PHI->op_end();
+        OI!=OE; ++OI) {
+      const Value *OV = cast<Value>(OI);
+      if (!visited.count(OV)) {
+        isIndexingGVComp(OV, collect, visited);
+      }
+    }
+    return;
   }
-  // Comp = gep Comp var+
-  else if (const GetElementPtrInst *GEP2 =
-                      dyn_cast<GetElementPtrInst>(GEP->getPointerOperand())) {
-    return isIndexingGlobalValueComp(cast<GEPOperator>(GEP2), ++depth);
-  }
-  return NULL;
+  // the value is different from any node we can handle (e.g. inttoptr)
+  collect.insert(NULL);
 }
+
 
 void PMLMachineExport::
 exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
                       const MachineInstr *Ins)
 {
-  // TODO attach the information to the PML instruction
-  //
   // FIXME maybe there should be only one memoperand here anyway? bundles?
   for(MachineInstr::mmo_iterator I=Ins->memoperands_begin(),
                                  E=Ins->memoperands_end(); I!=E; ++I) {
@@ -556,82 +577,39 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
       assert(V->getType()->getTypeID()==Type::PointerTyID &&
             "Value referenced by a MachineMemOperand is not a pointer!");
 
-      // Debug output to inspect types, grep "^[GCIAPO]:" <err>
-      if (const GlobalValue *G = dyn_cast<GlobalValue>(V)) {
-          DEBUG( dbgs() << "G: "; G->dump() );
-          // A subclass of Constant
-          // Global value of which we know the address EXACTLY
-
-      } else if (const Constant *C = dyn_cast<Constant>(V)) {
-          DEBUG( dbgs() << "C: "; C->dump() );
-          // this also captures getelementptr with constant operands
-          // we know the address EXACTLY
-
-      } else if (const Instruction *I = dyn_cast<Instruction>(V)) {
-          DEBUG( dbgs() << "I: "; I->dump() );
-          NumMemInst++; // STATISTICS
-
-          // This should be either getelementptr or inttoptr
-          // at least one of the operands of getelementptr is variable:
-          // - base (e.g. if passed as argument)
-          // - index (for accesses to known arrays)
-          //
-          // Focus on fixed base as global value.
-          if (const GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(I)) {
-            int depth = 0;
-
-            // 1) the pointer operand is a global address array type
-            //    with idx0==0 and in bounds, e.g.:
-            //      %arrayidx = getelementptr inbounds [217 x i64]* @arr, i32 0, i32 %i
-            if (const GlobalValue *GV =
-                              isIndexingGlobalValue(cast<GEPOperator>(GEP))) {
-              DEBUG( dbgs() << "=> GEP array access (IDX) to '"
-                  << GV->getName() << "'\n");
-
-              YDoc.addValueFact(createLoadGVFact(Ins, YI, GV->getName()));
-              NumMemInstExp++; // STATISTICS
-            }
-            // 2) Comp = gep Base var+
-            //    Base = gep gv 0+
-            //    the pointer operand is a GEP constant expression with
-            //    global address as first operand and no overindexing
-            //      %scevgep = getelementptr i64* getelementptr inbounds ([217 x i64]* @arr, i32 0, i32 0), i32 %0
-            //
-            // 3) Comp = gep Comp var+
-            //    one more level of indirection, e.g. (depth=1):
-            //      %scevgep2 = getelementptr i64* %scevgep1, i32 -2
-            //    with
-            //      %scevgep1 = getelementptr i64* getelementptr inbounds ([217 x i64]* @arr, i32 0, i32 0), i32 %i.07
-            else
-            if (const GlobalValue *GV =
-                    isIndexingGlobalValueComp(cast<GEPOperator>(GEP), depth)) {
-              DEBUG( dbgs() << "=> GEP array access (COMP, depth="
-                            << depth << ") to '" << GV->getName() << "'\n");
-
-              YDoc.addValueFact(createLoadGVFact(Ins, YI, GV->getName()));
-              NumMemInstExp++; // STATISTICS
-            }
-            else {
-              // other GEP cases
-              DEBUG( dbgs() << "=> GEP unhandled\n" );
-            }
-          } else {
-            DEBUG( dbgs() << "Unhandled instruction referred to"
-                             " by a memory operand: "; I->dump() );
-          }
+      if (const Constant *C = dyn_cast<Constant>(V)) {
+        DEBUG( dbgs() << "C: "; C->dump() );
+        // global variable, GEP to global array with const indices, etc
+        // => we know the address EXACTLY, we don't follow and collect
+        // (the set only contains approximations otherwise)
+        // TODO export as well?
 
       } else if (const Argument *A = dyn_cast<Argument>(V)) {
-          DEBUG( dbgs() << "A: "; A->dump() );
-          // pointers passed as function arguments
+        DEBUG( dbgs() << "A: "; A->dump() );
+        // a pointer passed as function argument
 
       } else if (const PseudoSourceValue *P =
-                            dyn_cast<PseudoSourceValue>(V)) {
-          DEBUG( dbgs() << "P: "; P->dump() );
-          // this captures locations on the stack frame
+          dyn_cast<PseudoSourceValue>(V)) {
+        DEBUG( dbgs() << "P: "; P->dump() );
+        // this is a location on the stack frame
 
       } else {
-          DEBUG( dbgs() << "O: "; V->dump() );
-          // ??? anything we forgot?
+        DEBUG( dbgs() << "V: "; V->dump() );
+
+        std::set<const Value*> visited; // mark nodes we already have visited
+        std::set<const GlobalValue*> collect;
+        // follow the values and collect them in the collect set
+        isIndexingGVComp(V, collect, visited);
+
+        // a value of NULL means we don't have more precise information
+        // and it could be any location
+        if ( !collect.count(NULL) ) {
+          assert( collect.size() >= 1 );
+          DEBUG( dbgs() << "=> GEP array access (#visited=" << visited.size()
+                        << ")\n");
+          YDoc.addValueFact(createLoadGVFact(Ins, YI, collect));
+          NumMemExp++; // STATISTICS
+        }
       }
     }
   }
