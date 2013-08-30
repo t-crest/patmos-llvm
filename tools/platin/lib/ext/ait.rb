@@ -232,6 +232,10 @@ module PML
           die("No symbol for value #{v.inspect}")
         end
       }.join(", ")
+      if ! vf.programpoint.reference.instruction.address
+        die("Cannot obtain address for instruction "+
+            "(forgot 'platin extract-symbols'?)")
+      end
       gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
                " accesses #{rangelist};",
                "Memory address (source: #{vf.origin})", vf)
