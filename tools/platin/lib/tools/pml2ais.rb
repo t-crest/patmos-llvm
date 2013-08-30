@@ -26,7 +26,7 @@ class AisExportTool
 
       pml.machine_functions.each { |func| ais.export_jumptables(func) }
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
-      flowfacts.each { |ff| ais.export_flowfact(ff) }
+      ais.export_flowfacts(flowfacts)
 
       valuefacts = pml.valuefacts.select { |vf|
         vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.programpoint.context.empty?

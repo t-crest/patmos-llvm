@@ -320,7 +320,9 @@ class FlowFactTransformation
     # Filter flow facts that need to be simplified
     copy, simplify = [], []
     flowfacts.each { |ff|
-      if options.transform_eliminate_edges && ff.references_edges? && ! ff.get_calltargets
+      if ff.symbolic_bound?
+        copy.push(ff)
+      elsif options.transform_eliminate_edges && ff.references_edges? && ! ff.get_calltargets
         simplify.push(ff)
       elsif options.transform_eliminate_edges && ff.references_empty_block?
         simplify.push(ff)
@@ -373,9 +375,7 @@ class FlowFactTransformation
     # collect local and global flowfacts
     flowfacts_by_entry = { }
     flowfacts.each { |ff|
-      if ff.symbolic_bound?
-        next
-      end
+      next if ff.symbolic_bound?
       entry = machine_entry
       if ff.local?
         local_entry = ff.scope.function
@@ -450,7 +450,9 @@ private
 
     # Build IPET (no cost) and add flow facts
     ipet.build(entry, :mbb_variables => true) { |edge| 0 }
-    flowfacts.each { |ff| ipet.add_flowfact(ff) }
+    flowfacts.each { |ff|
+      ipet.add_flowfact(ff) unless ff.symbolic_bound?
+    }
     ipet.refine(entry, flowfacts)
     ipet
   end
@@ -674,17 +676,7 @@ class SymbolicBoundTransformation
     return [ff,ff_triangle] unless ff.symbolic_bound?
 
     s, b = ff.get_loop_bound
-    refd_loops = b.referenced_loops
-    return [ff,ff_triangle] if refd_loops.empty?
-
-    parent_loop = s.reference.loopblock.loops[1]
-    if(refd_loops.size != 1 || refd_loops.first.loopblock != parent_loop)
-      debug(options,:transform) {
-        "A loop different from the parent loop is referenced in a CHR. We cannot compute "+
-        "a global bound for #{ff} at the moment (parent loop: #{parent_loop}, referenced loop: #{refd_loops.inspect}"
-      }
-      return nil
-    end
+    return [ff,ff_triangle] if b.referenced_loops.empty?
 
     rb =
       begin
@@ -698,12 +690,24 @@ class SymbolicBoundTransformation
     debug(options,:transform) { "Resolved loop bound: #{ff_new}" }
 
     if b.kind_of?(SEAffineRec)
-      rbglob = b.global_bound(loop_bounds)
-      ff_triangle = FlowFact.inner_loop_bound(ContextRef.new(refd_loops.first, s.context),
-                                            ContextRef.new(s.reference.loopblock.ref, Context.empty),
-                                            rbglob,
-                                            ff.attributes)
+      referenced_loop = b.loopheader
+      parent_loops = s.reference.loopblock.loops[1..-1]
+      # 379382
+      refd_loop_bound = loop_bounds[referenced_loop.loopblock]
+      sum = b.loop_bound_sum(refd_loop_bound)
+      while parent_loops.first != referenced_loop.loopblock
+        ind_bound = loop_bounds[parent_loops.shift]
+        debug(options,:transform) {
+          "A loop different from the parent loop is referenced in a CHR - multiplying sum by indepent bound #{ind_bound}"
+        }
+        sum = ind_bound * sum
+      end
+      ff_triangle = FlowFact.inner_loop_bound(ContextRef.new(b.loopheader, s.context),
+                                              ContextRef.new(s.reference.loopblock.ref, Context.empty),
+                                              sum,
+                                              ff.attributes)
       debug(options, :transform) {  "Triangle loop bound: #{ff_triangle} #{ff_triangle.symbolic_bound? ? '(ignored)' : ''}" }
+      # HACK: Symbolic triangle bounds are not yet supported
       ff_triangle = nil if ff_triangle.symbolic_bound?
     end
     [ff_new, ff_triangle]

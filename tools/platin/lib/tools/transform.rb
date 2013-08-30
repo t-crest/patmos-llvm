@@ -151,7 +151,6 @@ class TransformTool
       end
     elsif options.transform_action == "simplify"
       # Ignore symbolic loop bounds for now
-      flowfacts.reject! { |ff| ff.symbolic_bound? }
       fft.simplify(entry, flowfacts)
     else
       die("Bad transformation action --transform-action=#{options.transform_action}")

@@ -25,18 +25,38 @@ class NoLoopBoundAvailableException < Exception
   end
 end
 
+# Symbolic Expressions, for example loop bounds depending on an argument
+# The syntax used is that of LLVM, as we import their Scalar Evolution
+# expressions
 class SymbolicExpression
+
+  # Parse symbolic expression (LLVM 3.4's Scalar Evolution Expression format)
   def SymbolicExpression.parse(str)
     SymbolicExpressionParser.parse(str)
   end
+
+  # Convert constant expression to integer. Fails if expression is not #constant?
   def to_i
     raise Exception.new("SymbolicExpression#to_i: not constant")
   end
 
+  # Evaluate the symbolic expression, given the variable environment env
+  # and the loop environment lenv. The latter is optional, and only needed
+  # if chains of recurrences are present.
+  #
+  # +env+::  a map from variable names (+String+) to values (+Integer+)
+  # +lenv+:: a loop environent
+  #
+  def eval(env, lenv = nil)
+    raise Exception.new("SEAFfineRec#eval: no loop environment given") unless lenv
+    resolve_loops(lenv).eval(env,lenv)
+  end
+
   # map all symbolic names in the symbolic expression
-  # map_names yields a pair [type, name] to the caller
-  #   [:variable, v] ... Variable name
-  #   [:loop, l]     ... Loop block used in a CHR
+  # +map_names+ yields a pair +[type, name]+ to the caller
+  #
+  #  - +[:variable, v]+ ... Variable name
+  #  - +[:loop, l]+     ... Loop block used in a CHR
   #
   def map_names
     raise Exception.new("map_names not implemented for #{self.class}")
@@ -70,13 +90,67 @@ class SEInt < SymbolicExpression
   def eval(_,lenv=nil);     @num  ; end
   def resolve_loops(lenv) ; self ; end
   def referenced_loops ; Set.new; end
+  def referenced_vars  ; Set.new; end
   def map_names(&block) ; self ; end
+end
+
+class SEVar < SymbolicExpression
+  attr_reader :var
+  def initialize(str)
+    @var = str
+  end
+
+  def eval(env, lenv)
+    if v = env[@var]
+      v
+    else
+      raise Exception.new("SymbolicExpression#eval: unknown variable #{@var}")
+    end
+  end
+
+  def referenced_vars
+    Set[@var]
+  end
+
+  def map_names(&block)
+    new_name = block.call(:variable,@var)
+    SEVar.new(new_name)
+  end
+
+  def referenced_loops
+    Set.new
+  end
+
+  def resolve_loops(lenv)
+    self
+  end
+
+  def to_s
+    @var.to_s
+  end
 end
 
 class SEBinary < SymbolicExpression
   attr_reader :op, :a, :b
   def initialize(op, a, b)
     @op, @a, @b = op, a, b
+  end
+
+  def SEBinary.create(op, a, b)
+    a = SEInt.new(a) if a.kind_of?(Integer)
+    b = SEInt.new(b) if b.kind_of?(Integer)
+    expr = SEBinary.new(op, a, b)
+    if a.constant? && b.constant?
+      SEInt.new(expr.eval({}))
+    elsif lunit(op) && a.constant == lunit(op)
+      b
+    elsif runit(op) && b.constant == runit(op)
+      a
+    elsif zero(op) && (a.constant == zero(op) || b.constant == zero(op))
+      SEInt.new(zero(op))
+    else
+      expr
+    end
   end
 
   def SEBinary.unit(op)
@@ -108,23 +182,6 @@ class SEBinary < SymbolicExpression
   #
   def SEBinary.commutative?(op)
     op == '+' || op == '*'
-  end
-
-  def SEBinary.create(op, a, b)
-    a = SEInt.new(a) if a.kind_of?(Integer)
-    b = SEInt.new(b) if b.kind_of?(Integer)
-    expr = SEBinary.new(op, a, b)
-    if a.constant? && b.constant?
-      SEInt.new(expr.eval({}))
-    elsif lunit(op) && a.constant == lunit(op)
-      b
-    elsif runit(op) && b.constant == runit(op)
-      a
-    elsif zero(op) && (a.constant == zero(op) || b.constant == zero(op))
-      SEInt.new(zero(op))
-    else
-      expr
-    end
   end
 
   def SEBinary.fold(op, *args)
@@ -185,36 +242,18 @@ class SEBinary < SymbolicExpression
     SEBinary.create(@op, @a.map_names(&block), @b.map_names(&block))
   end
 
+  def referenced_vars
+    @a.referenced_vars + @b.referenced_vars
+  end
+
   def referenced_loops
     @a.referenced_loops + @b.referenced_loops
   end
 end
 
-class SEVar < SymbolicExpression
-
-  def initialize(str)
-    @var = str
-  end
-
-  def eval(env, lenv)
-    if v = env[@var]
-      v
-    else
-      raise Exception.new("SymbolicExpression#eval: unknown variable #{@var}")
-    end
-  end
-
-  def map_names(&block)
-    new_name = block.call(:variable,@var)
-    SEVar.new(new_name)
-  end
-
-  def to_s; "#{@var}"; end
-  def resolve_loops(lenv); self; end
-  def referenced_loops ; Set.new ; end
-end
-
 class SEAffineRec < SymbolicExpression
+
+  attr_reader :loopheader
 
   def initialize(a,b,loopheader,flags='')
     @a, @b, @loopheader, @flags = a, b, loopheader, flags
@@ -227,54 +266,92 @@ class SEAffineRec < SymbolicExpression
     resolve_loops(lenv).eval(env,lenv)
   end
 
-  # Calculate loop bound given the loop bound of loops this recurrence depends on.
-  # If x is the maximum trip count of the dependent loop, i_max is (x-1).
-  # The expression smax(0, a + b * i) then takes its maximum at
-  #   a + b * i_max | b >= 0
-  #   a             | b < 0
   def resolve_loops(lenv)
+    loop_bound(lenv)
+  end
+
+  # Calculate loop bound given the loop bound of loops this recurrence depends on.
+  # If x is the maximum trip count of the dependent loop, the expression
+  # +smax(0, a + b * i)+ takes its maximum at
+  #     a + b * (x-1) | b >= 0
+  #     a             | b < 0
+  def loop_bound(lenv)
     raise NoLoopBoundAvailableException.new("No loop bound for outer loop",@loopheader) unless lenv[@loopheader]
     ub = @a + @b * (lenv[@loopheader] - 1)
     @a.smax(0).smax(ub)
   end
 
-  # The maximum trip count of the inner loop is given by
-  # ``smax(0, a + b * i)'', where i is the current iteration of
-  # the outer loop (starting from 0). b needs to constant.
+  # Calculate the execution frequency of the loop bounded by this recurrence
+  # relative to the referenced loop's entry-edges (i.e., its preheader).
+  # Typical application are total bounds for triangle loops.
   #
-  # The closed form for the number of header executions relative to
-  # the entry of the outer loops is thus (if x is the maximum trip count of the outer loop)
-  #  (1) smax(0,a+b*i)[0..x)
+  # == Computation of loop bound sums
   #
-  # The expression a+b*i is positive if
-  #  (2) i >= (-a /r b) | b >= 0
-  #      i <= (a /r -b) | b <  0 (this case is treated seperately in (3a..6a))
+  # First assume that this recurrence specifies the loop bound for Lj,
+  # and that the loop referenced by this recurrence Li is the parent loop
+  # of Lj.
+  #
+  # The maximum trip count of Lj is +smax(0, a + b * i)+, where i
+  # is the current iteration of the loop Li.
+  #
+  # The closed form for the number of time the header of Lj is executed
+  # relative to the entry-edge frequency of the referenced loop Li is thus
+  #
+  #   (1) smax(0,a+b*i)[0..xi)
+  #       where xi is the maximum trip count of Li
+  #
+  # In the following, we require that +b+ is constant.
+  #
+  # The expression +a+b*i+ is positive if
+  #
+  #   (2) i >= (-a /r b) | b >= 0
+  #       i <= (a /r -b) | b <  0 (this case is treated seperately in (3a..6a))
+  #
   # which is the case if
-  #  (3) i >= ceil(-a /r b) = (-a+b-1 /s b) = lb
-  # and thus we can get rid of the maximum to obtain
-  #  (4) (a+b*i)[lb..x)
-  # with lb = max((b-1-a) /s b),0)
   #
-  # Now first assume that x >= lb >= 0; then
-  #  (5) (a+b*i)[lb..x) = (a+b*i)[0..x) - (a+b*i)[0..lb)
-  #                     = (x-lb)*a + x*(x-1)*b /s 2 - lb*(lb-1)*b /s 2
+  #   (3) i >= ceil(-a /r b) = (-a+b-1 /s b) = lb
+  #
+  # and thus we can get rid of the maximum to obtain
+  #
+  #   (4) (a+b*i)[lb..x)
+  #       where lb = max((b-1-a) /s b),0)
+  #
+  # Now first assume that +x >= lb >= 0+; then
+  #
+  #   (5) (a+b*i)[lb..x) = (a+b*i)[0..x) - (a+b*i)[0..lb)
+  #                      = (x-lb)*a + x*(x-1)*b /s 2 - lb*(lb-1)*b /s 2
   #
   # Next we deal the special case x < lb (which should result in 0)
-  #  (6) max(x-lb, 0) * a + max(x*max(x-1,0) - lb*(lb-1), 0) /u 2 * b
-  # This is the same as (5) for x >= lb >= 0; for (x < lb) we get 0 as expected
   #
-  # Now for b < 0:
+  #   (6) max(x-lb, 0) * a + max(x*max(x-1,0) - lb*(lb-1), 0) /u 2 * b
   #
-  # (3a) i <= a /r -b <= (a-b-1 /s -b)
-  # (4a) (a+b*i)[0..end)
-  #   where ub  = ((a-b-1) /s -b) + 1
-  #         end = max(0,min(ub,x)))
-  # (5a) (a+b*i)[0..end) = end * a + end*(end-1) /u 2 * b (note that end >= 0)
+  # This is the same as (5) for +x >= lb >= 0+; for +x < lb+ we get 0 as expected
   #
-  def global_bound(lenv)
-    x = lenv[@loopheader]
+  # Now for +b < 0+:
+  #
+  #   (3a) i <= a /r -b <= (a-b-1 /s -b)
+  #   (4a) (a+b*i)[0..end)
+  #        where ub  = ((a-b-1) /s -b) + 1
+  #              end = max(0,min(ub,x)))
+  #   (5a) (a+b*i)[0..end) = end * a + end*(end-1) /u 2 * b (note that end >= 0)
+  #
+  # == Nested Independent Loops
+  #
+  # Note that +loop_bound_sum+ only provides the correct number of iterations
+  # if Li is the direct parent of Lj in the loop nest tree.
+  #
+  # If the loop nest tree has a path
+  #  Li -> L1 -> ... -> Ln -> Lj
+  #
+  # then the execution frequency of Lj's header block relative to the
+  # frequency of Li's entry edges (or Li's preheader, if it exists) is
+  #
+  #      (7) x1 * ... * xn * smax(0,a+b*i)[0..xi)
+  #          where x1,...,xn,xi is the maximum trip count of L1,...,Ln,Li
+  def loop_bound_sum(outer_loop_bound)
+    x = outer_loop_bound
     if ! @b.constant? || @b.to_i == 0
-      raise Exception.new("SEAffineRec#global_bound: not possible to calculate global bound for"+
+      raise Exception.new("SEAffineRec#loop_bound_sum: not possible to calculate total bound for"+
                           "non-constant/zero #{@b}::#{@b.class} in #{self}")
     end
     if @b.to_i > 0
@@ -294,9 +371,13 @@ class SEAffineRec < SymbolicExpression
   end
 
   def referenced_loops
-    s = Set.new
+    s = @a.referenced_loops + @b.referenced_loops
     s.add(@loopheader)
     s
+  end
+
+  def referenced_vars
+    @a.referenced_vars + @b.referenced_vars
   end
 
   def map_names(&block)
