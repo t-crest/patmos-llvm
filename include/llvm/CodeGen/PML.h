@@ -147,6 +147,14 @@ struct Name {
     return this->NameStr != n2.NameStr;
   }
 
+  bool empty() const {
+    return NameStr.empty();
+  }
+
+  bool isInteger() const {
+    return NameStr.find_first_not_of("0123456789") == std::string::npos;
+  }
+
   /// get name as string
   StringRef getName() const {
     return StringRef(NameStr);
@@ -505,7 +513,7 @@ struct RelationGraph {
     return N;
   }
 private:
-  RelationGraph(const RelationGraph&);               // Disable copy constructor  
+  RelationGraph(const RelationGraph&);               // Disable copy constructor
   RelationGraph* operator=(const RelationGraph&);    // Disable assignment
 };
 template <>
@@ -559,9 +567,20 @@ struct Scope {
   ~Scope() {
     DELETE_PTR_VEC(Context);
   }
-private:
-  Scope(const Scope&);            // Disable copy constructor
-  Scope* operator=(const Scope&); // Disable assignment
+
+  Scope(const Scope& Src)
+  : Function(Src.Function), Loop(Src.Loop)
+  {
+    COPY_PTR_VEC(Context, Src.Context, ContextEntry);
+  }
+  Scope& operator=(Scope& Src) {
+    if (this == &Src) return *this;
+    Function = Src.Function;
+    Loop     = Src.Loop;
+    DELETE_PTR_VEC(Context);
+    COPY_PTR_VEC(Context, Src.Context, ContextEntry);
+    return *this;
+  }
 };
 template <>
 struct MappingTraits< Scope* > {
@@ -587,6 +606,8 @@ struct ProgramPoint {
   ProgramPoint(uint64_t  function) : Function(function) {}
   ProgramPoint(StringRef function, StringRef block)
   : Function(function), Block(block) {}
+  ProgramPoint(uint64_t  function, uint64_t block, uint64_t instruction)
+    : Function(function), Block(block), Instruction(instruction) {}
 
   ~ProgramPoint() {
     DELETE_PTR_VEC(Context);
@@ -611,7 +632,6 @@ private:
     DELETE_PTR_VEC(Context);
     COPY_PTR_VEC(Context, Src.Context, ContextEntry);
   }
-	
 };
 template <>
 struct MappingTraits< ProgramPoint* > {
@@ -631,14 +651,17 @@ struct MappingTraits< ProgramPoint* > {
 //////////////////////////////////////////////////////////////////////////////
 
 struct Value {
+  Name Symbol;
   int64_t Min;
   int64_t Max;
   Value() : Min(INT64_MIN), Max(INT64_MAX) {}
+  Value(Name symbol) : Symbol(symbol), Min(INT64_MIN), Max(INT64_MAX) {}
   Value(int64_t min, int64_t max) : Min(min), Max(max) {}
 };
 template <>
 struct MappingTraits< Value > {
   static void mapping(IO &io, Value &V) {
+    io.mapOptional("symbol", V.Symbol, Name(""));
     io.mapOptional("min", V.Min, (int64_t)INT64_MIN);
     io.mapOptional("max", V.Max, (int64_t)INT64_MAX);
   }
@@ -650,6 +673,7 @@ struct ValueFact {
   ReprLevel Level;
   Name Variable;
   int Width;
+  Name Symbol;
   std::vector<Value> Values;
   ProgramPoint *PP;
 
@@ -660,6 +684,10 @@ struct ValueFact {
 
   void addValue(int64_t min, int64_t max) {
     Values.push_back(Value(min,max));
+  }
+
+  void addValue(Name symbol) {
+    Values.push_back(Value(symbol));
   }
 private:
   ValueFact(const ValueFact&);            // Disable copy constructor
@@ -672,7 +700,7 @@ struct MappingTraits< ValueFact* > {
     io.mapRequired("level",    VF->Level);
     io.mapOptional("origin",   VF->Origin,   Name(""));
     io.mapOptional("variable", VF->Variable);
-    io.mapOptional("width",    VF->Width);
+    io.mapOptional("width",    VF->Width, 0);
     io.mapOptional("values",   VF->Values);
     io.mapOptional("program-point", VF->PP);
   }
@@ -784,7 +812,8 @@ struct ProfileEntry {
 
   // only for yaml import.
   ProfileEntry()
-  : Reference(0), Cycles(0), WCETContribution(0), WCETFrequency(0), Criticality(0)
+  : Reference(0), Cycles(0), WCETContribution(0), WCETFrequency(0),
+    Criticality(-1.0)
   {
   }
   ~ProfileEntry() {
@@ -794,6 +823,10 @@ struct ProfileEntry {
   void setReference(ProgramPoint *PP) {
     if (Reference) delete Reference;
     Reference = PP;
+  }
+
+  bool hasCriticality() const {
+    return Criticality >= 0.0;
   }
 private:
   ProfileEntry(const ProfileEntry&);            // Disable copy constructor
@@ -807,7 +840,7 @@ struct MappingTraits< ProfileEntry* > {
     io.mapOptional("cycles",            P->Cycles);
     io.mapOptional("wcet-contribution", P->WCETContribution);
     io.mapOptional("wcet-frequency",    P->WCETFrequency);
-    io.mapOptional("criticality",       P->Criticality);
+    io.mapOptional("criticality",       P->Criticality, -1.0);
   }
 };
 
@@ -821,8 +854,7 @@ struct Timing {
   int64_t Cycles;
   std::vector<ProfileEntry*> Profile;
 
-  Timing() : Origin(""), ScopeRef(0), Cycles(0) {
-  }
+  Timing(ReprLevel lvl) : Origin(""), Level(lvl), ScopeRef(0), Cycles(0) {}
   ~Timing() {
     if (ScopeRef) delete ScopeRef;
     DELETE_PTR_VEC(Profile);
@@ -834,7 +866,7 @@ private:
 template <>
 struct MappingTraits< Timing* > {
   static void mapping(IO &io, Timing *&T) {
-    if (!T) T = new Timing();
+    if (!T) T = new Timing(level_machinecode);
     io.mapOptional("origin",  T->Origin);
     io.mapOptional("level",   T->Level);
     io.mapOptional("scope",   T->ScopeRef);
@@ -853,10 +885,10 @@ struct PMLDoc {
   StringRef TargetTriple;
   std::vector<BitcodeFunction*> BitcodeFunctions;
   std::vector<MachineFunction*> MachineFunctions;
-  std::vector<RelationGraph*> RelationGraphs;
-  std::vector<FlowFact*> FlowFacts;
+  std::vector<RelationGraph*>   RelationGraphs;
+  std::vector<FlowFact*>  FlowFacts;
   std::vector<ValueFact*> ValueFacts;
-  std::vector<Timing*> Timings;
+  std::vector<Timing*>    Timings;
 
   PMLDoc()
     : FormatVersion("pml-0.1"), TargetTriple("") {}
@@ -885,10 +917,53 @@ struct PMLDoc {
   void addRelationGraph(RelationGraph* RG) {
     RelationGraphs.push_back(RG);
   }
+  /// Add a valuefact, which is owned by the document afterwards
+  void addValueFact(ValueFact* VF) {
+    ValueFacts.push_back(VF);
+  }
   /// Add a flowfact, which is owned by the document afterwards
   void addFlowFact(FlowFact* FF) {
     FlowFacts.push_back(FF);
   }
+
+  bool empty() {
+    return BitcodeFunctions.empty() && MachineFunctions.empty() &&
+           RelationGraphs.empty() && ValueFacts.empty() &&
+           FlowFacts.empty() && Timings.empty();
+  }
+
+  /// Merge another PML doc into this one, transferring ownership of all childs.
+  void mergePML(PMLDoc &Doc) {
+    // TODO check for duplicate keys, merge recursively?
+
+    if (TargetTriple.empty()) TargetTriple = Doc.TargetTriple;
+
+    BitcodeFunctions.insert(BitcodeFunctions.end(),
+                            Doc.BitcodeFunctions.begin(),
+                            Doc.BitcodeFunctions.end());
+    Doc.BitcodeFunctions.clear();
+    MachineFunctions.insert(MachineFunctions.end(),
+                            Doc.MachineFunctions.begin(),
+                            Doc.MachineFunctions.end());
+    Doc.MachineFunctions.clear();
+    RelationGraphs.insert(RelationGraphs.end(),
+                            Doc.RelationGraphs.begin(),
+                            Doc.RelationGraphs.end());
+    Doc.RelationGraphs.clear();
+    ValueFacts.insert(ValueFacts.end(),
+                            Doc.ValueFacts.begin(),
+                            Doc.ValueFacts.end());
+    Doc.ValueFacts.clear();
+    FlowFacts.insert(FlowFacts.end(),
+                            Doc.FlowFacts.begin(),
+                            Doc.FlowFacts.end());
+    Doc.FlowFacts.clear();
+    Timings.insert(Timings.end(),
+                            Doc.Timings.begin(),
+                            Doc.Timings.end());
+    Doc.Timings.clear();
+  }
+
 private:
   PMLDoc(const PMLDoc&);            // Disable copy constructor
   PMLDoc* operator=(const PMLDoc&); // Disable assignment
@@ -896,7 +971,7 @@ private:
 template <>
 struct MappingTraits< PMLDoc* > {
   static void mapping(IO &io, PMLDoc *&doc) {
-		if (!doc) doc = new PMLDoc();
+    if (!doc) doc = new PMLDoc();
     io.mapRequired("format",     doc->FormatVersion);
     io.mapRequired("triple",     doc->TargetTriple);
     io.mapOptional("bitcode-functions",doc->BitcodeFunctions);
@@ -905,6 +980,25 @@ struct MappingTraits< PMLDoc* > {
     io.mapOptional("flowfacts",  doc->FlowFacts);
     io.mapOptional("valuefacts", doc->ValueFacts);
     io.mapOptional("timing",     doc->Timings);
+  }
+};
+
+struct PMLDocList {
+  typedef std::vector<PMLDoc*>::iterator iterator;
+  typedef std::vector<PMLDoc*>::const_iterator const_iterator;
+
+  std::vector<PMLDoc*> YDocs;
+
+  ~PMLDocList() {
+    DELETE_PTR_VEC(YDocs);
+  }
+
+  /// Merge all documents into a single document and clear this list.
+  void mergeInto(PMLDoc &YDoc) {
+    for (iterator i = YDocs.begin(), ie = YDocs.end(); i != ie; i++) {
+      YDoc.mergePML(**i);
+    }
+    DELETE_PTR_VEC(YDocs);
   }
 };
 

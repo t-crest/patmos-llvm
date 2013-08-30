@@ -180,12 +180,13 @@ module PML
       end
 
       # Positivty constraints => do nothing
-      if ff.rhs >= 0 && terms.all? { |t| t.factor < 0 }
+      rhs = ff.rhs.to_i
+      if rhs >= 0 && terms.all? { |t| t.factor < 0 }
         return true
       end
 
       scope = scope.function.blocks.first.ref
-      terms.push(Term.new(scope,-ff.rhs)) if ff.rhs != 0
+      terms.push(Term.new(scope,-rhs)) if rhs != 0
       terms.each { |t|
         set = (t.factor < 0) ? terms_rhs : terms_lhs
         set.push("#{t.factor.abs} (#{dquote(t.ppref.block.label)})")
@@ -195,15 +196,16 @@ module PML
         set.empty? ? "0" : set.join(" + ")
       }.join(cmp_op)
       gen_fact("flow #{constr};",
-               "linear constraint on block frequencies (source: #{ff.origin})",ff)
+               "linear constraint on block frequencies (source: #{ff.origin})",
+               ff)
     end
 
     # export linear-constraint flow facts
     def export_flowfact(ff)
       supported =
-        if(ff.symbolic_bound?)
+        if ff.symbolic_bound?
           false
-        elsif(! ff.local? && ff.scope.function != @entry)
+        elsif (! ff.local?) && ff.scope.function != @entry
           warn("aiT: non-local flow fact in scope #{ff.scope} not supported")
           false
         elsif scope_bound = ff.get_loop_bound
@@ -212,7 +214,7 @@ module PML
           export_calltargets(ff,*scope_cs_targets)
         elsif scope_pp = ff.get_block_infeasible
           export_infeasible(ff,*scope_pp)
-        elsif(ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef))
+        elsif ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef)
           export_linear_constraint(ff)
         else
           warn("aiT: unsupported flow fact type: #{ff}")
@@ -221,6 +223,23 @@ module PML
       @stats_skipped_flowfacts += 1 unless supported
     end
 
+    # export value facts
+    def export_valuefact(vf)
+      rangelist = vf.values.map { |v|
+        if s = v.symbol
+          dquote(s)
+        else
+          die("No symbol for value #{v.inspect}")
+        end
+      }.join(", ")
+      if ! vf.programpoint.reference.instruction.address
+        die("Cannot obtain address for instruction "+
+            "(forgot 'platin extract-symbols'?)")
+      end
+      gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
+               " accesses #{rangelist};",
+               "Memory address (source: #{vf.origin})", vf)
+    end
   end
 
   class APXExporter

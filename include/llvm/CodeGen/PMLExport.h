@@ -123,6 +123,9 @@ namespace llvm {
     PMLInstrInfo *PII;
     Pass &P;
 
+    yaml::ValueFact *createLoadGVFact(const MachineInstr *MI,
+                                      yaml::MachineInstruction *I,
+                                      std::set<const GlobalValue*> &GVs) const;
   protected:
     TargetMachine &TM;
 

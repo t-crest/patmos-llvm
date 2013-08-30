@@ -93,7 +93,7 @@ module PML
       set_yaml_repr(data)
     end
     def to_s
-      "#<LoopRef: #{loopblock.qname}"
+      "#<LoopRef: #{loopblock.qname}>"
     end
     def to_pml
       { 'function' => loopblock.function.name, 'loop' => loopblock.name }
