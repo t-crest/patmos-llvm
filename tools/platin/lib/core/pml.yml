@@ -1,4 +1,13 @@
 type:      map
+desc: >-
+ stores program and analysis (meta)-information, including
+ 
+ - properties of IR- and machine code,
+
+ - analysis configurations (analysis goals, execution platform timing, assumptions)
+
+ - results from control-flow analysis, value analysis, WCET analysis
+class: Document
 mapping:
   "format":
     type: str
@@ -7,36 +16,40 @@ mapping:
   "triple":
     type: str
     desc: "LLVM target triple (e.g., patmos-unknown-unknown-elf)"
-  "machine-functions": &funlist
+  "machine-functions":
     type: seq
-    desc: "list of functions"
+    desc: "list of machine-code functions"
     sequence:
       - &function
         type: map
-        desc: "function description"
+        class: Function
+        desc: >-
+          structure, control-flow and properties of a (C-style) function [super=ProgramPoint]
         mapping:
           "name":
             type: scalar
             required: yes
             unique: yes
-            desc: "unique name of the function"
+            desc: "unique name of the function [indexed]"
           "level": &level
             type: str
             enum: [bitcode,machinecode]
             required: yes
-            desc: "representation level"
+            desc: "representation level [indexed,type=RepresentationLevel]"
           "mapsto":
             type: scalar
-            desc: "corresponding function on the next higher-level representation (if any)"
-          "hash":
-            type: scalar
-            desc: "checksum characterizing the function"
+            desc: "corresponding function on the next higher-level representation (if any) [indexed]"
+          "hash": &hash
+            type: str
+            desc: "checksum (SHA-128) characterizing the function [type=CheckSum]"
           "arguments":
             type: seq
-            desc: "the function's formal arguments"
+            desc: "formal arguments of the function"
             sequence:
               - &argument
                 type: map
+                class: Argument
+                desc: "function argument"
                 mapping:
                   "index":
                     type: int
@@ -45,7 +58,7 @@ mapping:
                   "name":
                     type: str
                     unique: true
-                    desc: "name of the argument"
+                    desc: "name of the argument [indexed]"
                   "registers":
                     type: seq
                     desc: "registers assigned to the formal argument"
@@ -58,6 +71,8 @@ mapping:
             sequence:
               - &block
                 type: map
+                desc: "basic block"
+                class: Block
                 mapping:
                   "name":
                     type: scalar
@@ -66,25 +81,32 @@ mapping:
                     desc: "name of the basic block (unique within the function)"
                   "mapsto":
                     type: scalar
-                    desc: "corresponding block on the high-level representation (if any)"
+                    desc: "corresponding block on the high-level representation (if any) [indexed]"
                   "address":
                     type: int
-                    desc: "address of the block in the linked binary"
-                  "successors": &namelist
+                    desc: "address of the block in the linked binary [type=Address,indexed]"
+                  "successors":
                     type: seq
-                    desc: "list of basic blocks"
-                    sequence:
+                    desc: "list of possible control-flow successors"
+                    sequence: &blockseq
                       -
                         type: scalar
                         desc: "name of the referenced basic block"
-                  "predecessors": *namelist
-                  "loops": *namelist
+                  "predecessors":
+                    type: seq
+                    desc: "list of possible control-flow predecessors"
+                    sequence: *blockseq
+                  "loops":
+                    type: seq
+                    desc: "list of loops this block is member of (innermost first)"
+                    sequence: *blockseq
                   "instructions":
                     type: seq
                     desc: "list of the basic block's instructions"
                     sequence:
                       - &instruction
                         type: map
+                        class: Instruction
                         mapping:
                           "index":
                              type: int
@@ -93,114 +115,187 @@ mapping:
                              desc: "index of the instruction in the block's instruction list"
                           "opcode":
                              type: scalar
-                             desc: "scalar characterizing the instruction's type"
+                             desc: "characterization of the instruction"
                           "branch-type":
                              type: str
                              enum: [unconditional, conditional, call, return, indirect, any]
-                             desc: "the kind of branch this instruction realizes (if any)"
-                          "branch-targets": *namelist
+                             desc: "the kind of branch this instruction realizes (if any) [type=BranchType]"
+                          "branch-targets":
+                             type: seq
+                             desc: "blocks this instruction may branch to"
+                             sequence: *blockseq
                           "branch-delay-slots":
                              type: int
-                          "callees": *namelist
+                             desc: "number of branch delay slots this instruction executes (if any)"
+                          "callees":
+                             type: seq
+                             desc: "list of possible control-flow successors"
+                             sequence:
+                               - &funseq
+                                 type: scalar
+                                 desc: "name of the referenced function"
                           "size":
                              type: int
                              desc: "size of the instruction in the binary"
                           "address":
                              type: int
-                             desc: "address of the instruction in the linked binary"
-  "bitcode-functions": *funlist
+                             desc: "address of the instruction in the linked binary [type=Address, indexed]"
+  "bitcode-functions":
+    type: seq
+    desc: "list of bitcode functions"
+    sequence:
+      - *function
   "relation-graphs":
     type: seq
+    desc: "list of relation graphs"
+    class: RelationGraph
     sequence:
-      - &rglist
+      - &relationgraph
         type: map
+        class: RelationGraph
+        desc: >-
+         a relation graph captures the control-flow relation between
+         two control-flow graphs
+         (see http://doi.acm.org/10.1145/2465554.2465567).
         mapping:
-          "src": &rgscope
+          "src":
             type: map
+            desc: Source scope of the relation graph
             required: yes
-            mapping:
+            mapping: &rgscopemap
               "function":
                  type: scalar
               "level": *level
-          "dst": *rgscope
+          "dst": &rgscope
+            type: map
+            desc: Destination scope of the relation graph
+            required: yes
+            mapping: *rgscopemap
           "nodes":
             type: seq
             sequence:
               - &rgnode
                 type: map
+                desc: node in a relation graph
+                class: RelationGraphNode
                 mapping:
                   "name":
                     type: int
+                    desc: unique name of the relation graph node
                     required: yes
                     unique: yes
                   "type":
                     type: str
+                    desc: type of the relation graph node
+                    enum: [ entry, progress, src, dst, exit]
                     required: yes
                   "src-block":
                     type: scalar
+                    desc: >-
+                      referenced block in the +src+ control-flow graph
+                      valid for types +entry+, +progress+ and +src+
                   "dst-block":
                     type: scalar
-                  "src-successors": &rgnodelist
+                    desc: >-
+                      referenced block in the +dst+ control-flow graph
+                      valid for types +entry+, +progress+ and +dst+
+                  "src-successors":
                     type: seq
-                    sequence:
-                      -
-                        type: scalar
-                  "dst-successors": *rgnodelist
+                    desc: >-
+                      list of successors blocks in the +src+ control-flow grapph
+                    sequence: *blockseq
+                  "dst-successors":
+                    type: seq
+                    desc: >-
+                      list of successors blocks in the +dst+ control-flow grapph
+                    sequence: *blockseq
           "status":
             type: str
+            desc: >-
+              indicates whether the compiler detected errors during the construction
+              of the control-flow relation graph
             enum: [valid,corrected,invalid]
   "valuefacts":
     type: seq
+    desc: list of value facts, providing information on the value of variables
     sequence:
       - &valuefact
         type: map
+        class: ValueFact
         desc: >-
           information on the possible value of variables
           at a certain point in the program
         mapping:
-          "origin":
+          "origin": &origin
             type: str
+            desc: name of the analysis that generated this information
           "level": *level
           "variable":
             type: str
             desc: >-
               description of the variable this fact refers to
-              mem-address-read ... memory address the instruction reads from
-              mem-address-write ... memory address the instruction writes to
+
+              +mem-address-read+::  memory address the instruction reads from
+              +mem-address-write+:: memory address the instruction writes to
           "width":
             type: int
+            desc: bitwidthe of the affected variables
           "values":
             type: seq
+            desc: set union of possible value ranges
             sequence:
-              -
+              - &valuerange
                 type: map
+                class: ValueRange
+                desc: specifies a (contigous) range of values
                 mapping:
                   "symbol":
+                    desc: >-
+                      symbolic the name of a range interval (e.g., the name of an array)
+                      defaults to the set of all possible values, if not specified
                     type: str
                   "min":
                     type: int
+                    desc: >-
+                      smallest value in the specified interval (relative to +symbol+, if specified)
                   "max":
                     type: int
+                    desc: >-
+                      largest value in the specified interval (relative to +symbol+, if specified)
           "program-point": &program-point
             type: map
+            class: ProgramPointReference
+            desc: >-
+              Refers to the execution of a program point (function, block, instruction, edge) in
+              a matching execution context
             mapping:
               "function":
                 type: scalar
+                required: true
+                desc: function the referenced program point is defined in
               "block":
                 type: scalar
+                desc: >-
+                  block the referenced program point is defined in
+                  needs to be specified for blocks, instructions and edges
               "instruction":
                  type: scalar
+                 desc: >-
+                   name of the instruction, if the object references an instruction
               "edgesource":
                   type: any
-                  desc: "TODO"
+                  desc: TODO
               "edgetarget":
-                  type: any
+                  type: scalar
                   desc: "TODO"
               "context": &context
                 type: seq
                 sequence:
                   - &contextentry
                     type: map
+                    class: ContextEntry
+                    desc: >-
+                      An entry of the callstring that specifies the context (which qualifies a program point or scope)
                     mapping:
                       "callsite":
                         desc: >-
@@ -212,36 +307,44 @@ mapping:
                         type: scalar
                       "step":
                         desc: >-
-                          loop step (context applies to all iterations of the form (offest + k step))
+                          loop step (loop context entry applies to all iterations of the form <tt>offest + k step</tt>)
                         type: scalar
                       "offset":
                         type: scalar
+                        desc: >-
+                          loop offset (loop context entry applies to all iterations of the form <tt>offest + k step</tt>)
   "flowfacts":
     type: seq
     sequence:
       - &flowfact
         type: map
+        class: FlowFact
         desc: >-
-          linear flow constraint of the form
-          (variable-lhs) <> (constant-rhs)
+          Flow constraint providing additional information about the control-flow.
+          All flow constraints need to be linear and are represented in the form
+          <tt>(variable-lhs) <> (constant-rhs)</tt>
         mapping:
-          "origin":
-            type: str
-            desc: "the source this flow fact originated from"
+          "origin": *origin
           "level": *level
           "classification":
             type: any
             desc: "DEPRECATED"
-          "scope": &scope
+          "scope": &scoperef
             type: map
+            class: ScopeReference
             desc: >-
-              the flow fact applies to every execution of the given
-              function or loop (in the specified context)
-            mapping: &scoperef
+              an analysis result referencing a scope holds for every
+              execution of the scope in a matching execution context
+            mapping:
               "function":
                 type: scalar
+                required: true
+                desc: the function this scopes begins and ends in
               "loop":
                 type: scalar
+                desc: >-
+                  If specified, the scope spans from the execution of one entry edge of this
+                  loop to the execution of one exit edge (in the same call context).
               "context": *context
           "lhs":
             type: seq
@@ -251,8 +354,14 @@ mapping:
             sequence:
               - &term
                 type: map
+                class: Term
+                desc: >-
+                  A variable term of the form <tt>a * x</tt>, where
+                  +a+ is constant _factor_, and +x+ is the frequency
+                  of the specified <em>program point</em>
                 mapping:
                   "factor":
+                    desc: the constant factor of this term
                     type: int
                   "program-point": *program-point
           "op":
@@ -264,18 +373,20 @@ mapping:
             desc: >-
               constant right-hand side of the constraint
               either an integer (non-symbolic constant)
-              or a string representing a symbolic constant
+              or a string in LLVM's scalar evolution format
+              that reprents a symbolic constant
             type: scalar
   "timing":
     type: seq
     sequence:
-      - &tentry
+      -
         type: map
+        class: TimingEntry
+        desc: timing analysis (WCET analysis) result
         mapping:
-          "origin":
-            type: scalar
+          "origin": *origin
           "level": *level
-          "scope": *scope
+          "scope": *scoperef
           "cycles":
             required: true
             desc: "maximum execution time of the scope"
@@ -286,6 +397,10 @@ mapping:
             sequence:
               -
                 type: map
+                desc: >-
+                  an entry in the execution time profile; specifies cycles, WCET contribution,
+                  WCET frequency or criticality of a program point
+                class: ProfileEntry
                 mapping:
                   "reference": *program-point
                   "cycles":
