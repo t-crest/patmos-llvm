@@ -418,3 +418,70 @@ mapping:
                   "criticality":
                     type: float
                     desc: "characterization of the block's influence on the worst-case execution time"
+  "machine-configuration":
+    type: map
+    class: MachineConfig
+    desc: "configuration of the execution platform (memory areas, timing, etc.)"
+    mapping:
+      "memory-areas":
+        type: seq
+        desc: "list of memory area descriptions"
+        sequence:
+          -
+            type: map
+            class: MemoryArea
+            mapping:
+              "name":
+                type: str
+                desc: unique name of the memory area
+                required: yes
+                unique: yes
+              "type":
+                type: str
+                desc: type / address space
+                enum: [ code, data, scratchpad ]
+                required: yes
+              "cache":
+                type: str
+                desc: name of the cache configured for this memory area (possibly bypassed)
+              "address-range": *valuerange
+              "access-timing":
+                type: map
+                desc: time to access memory area in cycles
+                mapping:
+                  "load-word":
+                    type: int
+                    desc: time to load a single word
+                  "load-line":
+                    type: int
+                    desc: time to load a (single) cache line (fixed cache line size)
+                  "load-line-burst":
+                    type: int
+                    desc: time to load subsequent cache lines (burst access)
+      "caches":
+        type: seq
+        desc: "list of cache configurations"
+        sequence:
+          -
+            type: map
+            class: CacheConfig
+            mapping:
+              "name":
+                type: str
+                desc: unique name of the cache
+              "type":
+                type: str
+                desc: type of the cache
+                enum: [ "standard", "method-cache", "stack-cache" ]
+              "policy":
+                type: str
+                desc: replacement policy
+              "associativity":
+                type: int
+                desc: associativity of the cache
+              "line-size":
+                type: int
+                desc: size of a cache line
+              "size":
+                type: int
+                desc: size of the cache in bytes
