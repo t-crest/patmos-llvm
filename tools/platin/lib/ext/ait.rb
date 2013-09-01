@@ -101,7 +101,9 @@ module PML
       @outfile.puts "# export block timings"
       @outfile.puts "global \"export_all_block_times\" = 1;"
 
-      # TODO any additional header stuff to generate (context, entry, ...)?
+      if @options.ais_header_file
+        @outfile.puts(File.read(@options.ais_header_file))
+      end
     end
 
     def gen_fact(ais_instr, descr, derived_from=nil)

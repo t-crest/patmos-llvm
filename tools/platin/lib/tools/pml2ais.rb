@@ -10,7 +10,10 @@ include PML
 class AisExportTool
 
   def AisExportTool.add_config_options(opts)
-    opts.on("--ais-disable-exports LIST","AIS information that should not be exported (see --help-ais)") { |list|
+    opts.on("--ais-header-file FILE", "the contents of this file is copied verbatim to the final AIS file") { |file|
+      opts.option.ais_header_file = file
+    }
+    opts.on("--ais-disable-exports LIST","AIS information that should not be exported (see --help=ais)") { |list|
       opts.options.ais_disable_export = Set.new(list.split(/\s*,\s*/))
     }
     opts.add_check { |options| options.ais_disable_export = Set.new if options.ais_disable_export.nil? }
@@ -29,7 +32,8 @@ class AisExportTool
         flow-constraints     ... linear flow constraints
         infeasible-code      ... program points that are never executed
         call-targets         ... targets of (indirect) function calls
-        value-ranges         ... value ranges of variables
+        mem-addresses        ... value ranges of accesses memory addresses
+        stack-cache          ... information about stack cache behavior
         EOF
     }
   end
@@ -42,6 +46,7 @@ class AisExportTool
 
   def AisExportTool.run(pml, options)
     needs_options(options, :ais_file, :flow_fact_selection, :flow_fact_srcs)
+    options.ais_disable_export = Set.new unless options.ais_disable_export
 
     File.open(options.ais_file, "w") { |outfile|
       ais = AISExporter.new(pml, outfile, options)
@@ -51,7 +56,7 @@ class AisExportTool
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
       ais.export_flowfacts(flowfacts)
 
-      unless options.ais_disable_export.include?('value-ranges')
+      unless options.ais_disable_export.include?('mem-addresses')
         valuefacts = pml.valuefacts.select { |vf|
           vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.programpoint.context.empty?
         }.each { |vf|
@@ -59,14 +64,15 @@ class AisExportTool
         }
       end
 
-      pml.machine_functions.each { |func|
-        func.blocks.each { |mbb|
-          mbb.instructions.each { |ins|
-            ais.export_stack_cache_annotation(:fill, ins, ins.sc_fill) if ins.sc_fill
+      unless options.ais_disable_export.include?('stack-cache')
+        pml.machine_functions.each { |func|
+          func.blocks.each { |mbb|
+            mbb.instructions.each { |ins|
+              ais.export_stack_cache_annotation(:fill, ins, ins.sc_fill) if ins.sc_fill
+            }
           }
         }
-      }
-
+      end
       statistics("AIS",
                  "exported flow facts" => ais.stats_generated_facts,
                  "unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
