@@ -17,6 +17,7 @@
 #include "PatmosCallGraphBuilder.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosStackCacheAnalysis.h"
 #include "PatmosTargetMachine.h"
 #include "InstPrinter/PatmosInstPrinter.h"
 #include "llvm/IR/Function.h"
@@ -237,11 +238,20 @@ namespace llvm {
       if (Ins->isDebugValue()) return false;
       if (SkipSerializeInstructions) {
         if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() &&
-            !Ins->getDesc().isReturn() && !Ins->getDesc().mayLoad())
+            !Ins->getDesc().isReturn() && !Ins->getDesc().mayLoad() &&
+            Ins->getOpcode() != Patmos::SENSi)
           return false;
       }
       return true;
     }
+
+    virtual void exportInstruction(MachineFunction &MF,
+                                   yaml::MachineInstruction *I,
+                                   const MachineInstr *Instr,
+                                   SmallVector<MachineOperand, 4> &Conditions,
+                                   bool HasBranchInfo,
+                                   MachineBasicBlock *TrueSucc,
+                                   MachineBasicBlock *FalseSucc);
 
     /// exportArgumentRegisterMapping
     /// see below for implementation
@@ -272,6 +282,7 @@ namespace llvm {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
       AU.addRequired<PatmosCallGraphBuilder>();
+      AU.addRequired<PatmosStackCacheAnalysisInfo>();
       PMLModuleExportPass::getAnalysisUsage(AU);
     }
 
@@ -471,6 +482,26 @@ namespace llvm {
       }
     }
 
+    void PatmosMachineExport::
+    exportInstruction(MachineFunction &MF,
+                      yaml::MachineInstruction *I,
+                      const MachineInstr *Instr,
+                      SmallVector<MachineOperand, 4> &Conditions,
+                      bool HasBranchInfo,
+                      MachineBasicBlock *TrueSucc,
+                      MachineBasicBlock *FalseSucc) {
+
+      PatmosStackCacheAnalysisInfo *SCA =
+       &P.getAnalysis<PatmosStackCacheAnalysisInfo>();
+
+      if (SCA->isValid() && Instr->getOpcode() == Patmos::SENSi) {
+        PatmosStackCacheAnalysisInfo::FillSpillCounts::iterator it;
+        assert((it = SCA->Ensures.find(Instr)) != SCA->Ensures.end());
+        I->StackCacheFill = it->second;
+      }
+      return PMLMachineExport::exportInstruction(MF, I, Instr, Conditions,
+          HasBranchInfo, TrueSucc, FalseSucc);
+    }
 
 
 } // end namespace llvm

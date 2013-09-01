@@ -339,6 +339,20 @@ module PML
                " accesses #{rangelist};",
                "Memory address (source: #{vf.origin})", vf)
     end
+
+    # export stack cache instruction annotation
+    def export_stack_cache_annotation(type, ins, value)
+      assert("cannot annotate stack cache instruction w/o instruction addresses") { ins.address }
+      if(type == :fill)
+        feature = "stack_cache_fill_count"
+      elsif(type == :spill)
+        feature = "stack_cache_spill_count"
+      else
+        die("aiT: unknown stack cache annotation")
+      end
+
+      gen_fact("instruction 0x#{ins.address.to_s(16)} features \"#{feature}\" = #{value}", "source: stack cache analysis")
+    end
   end
 
   class APXExporter

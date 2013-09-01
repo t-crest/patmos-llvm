@@ -59,6 +59,14 @@ class AisExportTool
         }
       end
 
+      pml.machine_functions.each { |func|
+        func.blocks.each { |mbb|
+          mbb.instructions.each { |ins|
+            ais.export_stack_cache_annotation(:fill, ins, ins.sc_fill) if ins.sc_fill
+          }
+        }
+      }
+
       statistics("AIS",
                  "exported flow facts" => ais.stats_generated_facts,
                  "unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats
