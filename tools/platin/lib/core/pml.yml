@@ -140,6 +140,9 @@ mapping:
                           "address":
                              type: int
                              desc: "address of the instruction in the linked binary [type=Address, indexed]"
+                          "stack-cache-fill"
+			     type: int
+			     desc: "TODO"
   "bitcode-functions":
     type: seq
     desc: "list of bitcode functions"
