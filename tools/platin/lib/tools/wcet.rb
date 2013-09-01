@@ -45,6 +45,8 @@ end
 # Clients may subclass the WcetTool to implement benchmark drivers
 #
 class WcetTool
+  attr_reader :additional_report_info
+
   TOOLS = [ ExtractSymbolsTool,
             AnalyzeTraceTool,
             WcaTool,
@@ -53,6 +55,7 @@ class WcetTool
   attr_reader :pml, :options
   def initialize(pml, opts)
     @pml, @options = pml, opts.dup
+    @additional_report_info = {}
   end
 
   def analysis_entry
@@ -77,16 +80,17 @@ class WcetTool
     options.trace_analysis = true if options.use_trace_facts
     trace_analysis if options.trace_analysis
     sweet_analysis if options.enable_sweet
-
     transform_down(["llvm.bc"],"llvm")
+
     flow_srcs = ["llvm"]
     flow_srcs.push("trace") if options.use_trace_facts
     flow_srcs.push("sweet") if options.enable_sweet
+
     # FIXME: check if this is necessary (CFRG testsuite)
     flow_srcs.push("trace.support") if options.enable_sweet && options.trace_analysis
 
     wcet_analysis(flow_srcs)
-    report
+    report(additional_report_info)
     pml
   end
 
