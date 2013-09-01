@@ -76,6 +76,14 @@ class SymbolicExpression
   def smin(o);  SEBinary.create('smin',self,o) ; end
   def umin(o);  SEBinary.create('umin',self,o) ; end
   def sdiv(o);  SEBinary.create('/s',self,o) ; end
+  def ==(other)
+    return false if other.nil?
+    unless other.kind_of?(SymbolicExpression)
+      raise Exception.new("unexpected comparsion with symbolic expression")
+    end
+    return super(other)
+  end
+  def eql?(other); self == other ; end
 end
 
 class SEInt < SymbolicExpression

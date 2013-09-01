@@ -329,7 +329,7 @@ module PML
     def get_block_infeasible
       s,b,rhs = get_block_frequency_bound
       return nil unless s
-      return nil unless rhs == 0
+      return nil unless rhs.constant? && rhs.to_i == 0
       return [scope,b]
     end
 

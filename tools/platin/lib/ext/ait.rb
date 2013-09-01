@@ -183,7 +183,7 @@ module PML
         }
         bound.to_ais
       }
-      bound = "min(#{ais_bounds.join(",")})"
+      bound = ais_bounds.length == 1 ? ais_bounds.first : "min(#{ais_bounds.join(",")})"
 
       # As we export loop header bounds, we should say the loop header is 'at the end'
       # of the loop (confirmed by absint (Gernot))
