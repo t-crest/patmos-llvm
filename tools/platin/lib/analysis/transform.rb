@@ -627,14 +627,22 @@ class SymbolicBoundTransformation
       return nil if n.unmapped?
       # find (unique) progress node for B
       nb = n.get_block(target_level)
-      if b.loopheader? && ! nb.loopheader?
-        warn("SymbolicBoundTransformation: not a loop header mapping: #{b} -> #{nb}")
-      end
       blockmap[b] = nb
     }
     scope_ref_mapped =
       if loopblock
-        blockmap[loopblock].loopref
+        mapped_loopblock =  blockmap[loopblock]
+        if ! mapped_loopblock.loopheader?
+          debug(options, :transform) { "SymbolicBoundTransformation: not a loop header mapping: #{loopblock} -> #{mapped_loopblock}" }
+          # Note: The frequency of the header of the loop nb is member of
+          # provides an upper bound to the frequency of nb
+          mapped_loopblock = mapped_loopblock.loops.first
+          unless mapped_loopblock
+            debug(options, :transform) { "SymbolicBoundTransformation: loop header maps to non-loop node" }
+            return nil
+          end
+        end
+        mapped_loopblock.loopref
       else
         rg.get_function(target_level).ref
       end
