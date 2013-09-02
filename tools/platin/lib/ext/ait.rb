@@ -108,7 +108,7 @@ module PML
 
     def gen_fact(ais_instr, descr, derived_from=nil)
       @stats_generated_facts += 1
-      @outfile.puts(ais_instr+" # "+descr)
+      @outfile.puts(ais_instr+";" +" # "+descr)
       debug(@options,:ait) {
         s = " derived from #{derived_from}" if derived_from
         "Wrote AIS instruction: #{ais_instr}#{s}"
@@ -133,7 +133,7 @@ module PML
             targets = successors.uniq.map { |succ|
               dquote(succ.label)
             }.join(", ")
-            gen_fact("instruction #{instr} branches to #{targets};","jumptable (source: llvm)",ins)
+            gen_fact("instruction #{instr} branches to #{targets}","jumptable (source: llvm)",ins)
           end
         end
       end
@@ -152,7 +152,7 @@ module PML
       block = callsite.block
       location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
       called = targets.map { |f| dquote(f.function.label) }.join(", ")
-      gen_fact("instruction #{location} calls #{called} ;",
+      gen_fact("instruction #{location} calls #{called}",
                "global indirect call targets (source: #{ff.origin})",ff)
     end
 
@@ -177,7 +177,7 @@ module PML
             user_reg = "@arg_#{v}"
             @extracted_arguments[ [loopblock.function,v] ] = user_reg
             fentry = dquote(loopblock.function.label)
-            gen_fact("instruction #{fentry} is entered with #{user_reg} = trace(reg #{v}) ;",
+            gen_fact("instruction #{fentry} is entered with #{user_reg} = trace(reg #{v})",
                      "extracted argument for symbolic loop bound")
           end
         }
@@ -188,7 +188,7 @@ module PML
       # As we export loop header bounds, we should say the loop header is 'at the end'
       # of the loop (confirmed by absint (Gernot))
       loopname = dquote(loopblock.label)
-      gen_fact("loop #{loopname} max #{bound} end ; ",
+      gen_fact("loop #{loopname} max #{bound} end",
                "global loop header bound (source: #{origins.to_a.join(", ")})")
     end
 
@@ -207,7 +207,7 @@ module PML
         warn("aiT: no support for program points referencing empty blocks: #{ff}")
         return false
       end
-      gen_fact("instruction #{insname} is never executed ;",
+      gen_fact("instruction #{insname} is never executed",
                "globally infeasible block (source: #{ff.origin})",ff)
     end
 
@@ -270,7 +270,7 @@ module PML
       constr = [terms_lhs, terms_rhs].map { |set|
         set.empty? ? "0" : set.join(" + ")
       }.join(cmp_op)
-      gen_fact("flow #{constr};",
+      gen_fact("flow #{constr}",
                "linear constraint on block frequencies (source: #{ff.origin})",
                ff)
     end
@@ -338,7 +338,7 @@ module PML
             "(forgot 'platin extract-symbols'?)")
       end
       gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
-               " accesses #{rangelist};",
+               " accesses #{rangelist}",
                "Memory address (source: #{vf.origin})", vf)
     end
 
