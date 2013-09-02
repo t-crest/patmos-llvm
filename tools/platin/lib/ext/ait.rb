@@ -326,9 +326,6 @@ module PML
 
     # export value facts
     def export_valuefact(vf)
-      die("Unsupported valuefact") unless
-        ["mem-address-read", "mem-address-write"].include? vf.variable
-      accesstype = (vf.variable == "mem-address-read") ? "reads" : "writes"
       rangelist = vf.values.map { |v|
         if s = v.symbol
           dquote(s)
@@ -336,11 +333,12 @@ module PML
           die("No symbol for value #{v.inspect}")
         end
       }.join(", ")
-      die("Cannot obtain address for instruction "+
-          "(forgot 'platin extract-symbols'?)") unless
-          vf.programpoint.reference.instruction.address
+      if ! vf.programpoint.reference.instruction.address
+        die("Cannot obtain address for instruction "+
+            "(forgot 'platin extract-symbols'?)")
+      end
       gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
-               " #{accesstype} #{rangelist}",
+               " accesses #{rangelist}",
                "Memory address (source: #{vf.origin})", vf)
     end
 
