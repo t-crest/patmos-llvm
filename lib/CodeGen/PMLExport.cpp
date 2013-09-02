@@ -388,6 +388,7 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   I->Opcode = Ins->getOpcode();
   I->Size = PII->getSize(Ins);
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
+  I->BranchType = yaml::branch_none;
 
   if (Ins->getDesc().isCall()) {
     I->BranchType = yaml::branch_call;
@@ -397,12 +398,10 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
-  } else if (Ins->getDesc().mayLoad()) {
-    exportLoadInstruction(MF, I, Ins);
-    I->BranchType = yaml::branch_none;
-  } else {
-    I->BranchType = yaml::branch_none;
+  } else if (Ins->getDesc().mayLoad() || Ins->getDesc().mayStore()) {
+    exportMemInstruction(MF, I, Ins);
   }
+
   // XXX: maybe a good idea (descriptions)
   // raw_string_ostream ss(I->Descr);
   // Ins->print(ss);
@@ -475,7 +474,7 @@ exportBranchInstruction(MachineFunction &MF,
 }
 
 
-yaml::ValueFact *PMLMachineExport:: createLoadGVFact(const MachineInstr *MI,
+yaml::ValueFact *PMLMachineExport:: createMemGVFact(const MachineInstr *MI,
     yaml::MachineInstruction *I, std::set<const GlobalValue*> &GVs) const
 {
   const MachineBasicBlock *MBB = MI->getParent();
@@ -493,7 +492,11 @@ yaml::ValueFact *PMLMachineExport:: createLoadGVFact(const MachineInstr *MI,
     VF->addValue((*SI)->getName());
     DEBUG( dbgs() << "=> to " << (*SI)->getName() << "\n");
   }
-  VF->Variable = "mem-address-read";
+  if (MI->mayLoad()) {
+    VF->Variable = "mem-address-read";
+  } else {
+    VF->Variable = "mem-address-write";
+  }
   VF->Origin   = "llvm.mc";
 
   return VF;
@@ -564,14 +567,14 @@ static void isIndexingGVComp(const Value *V,
 
 
 void PMLMachineExport::
-exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
+exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
                       const MachineInstr *Ins)
 {
   // FIXME maybe there should be only one memoperand here anyway? bundles?
   for(MachineInstr::mmo_iterator I=Ins->memoperands_begin(),
                                  E=Ins->memoperands_end(); I!=E; ++I) {
     MachineMemOperand *MO = *I;
-    assert(MO->isLoad());
+    assert(MO->isLoad() || MO->isStore());
     const Value *V = MO->getValue();
     if (V) {
       assert(V->getType()->getTypeID()==Type::PointerTyID &&
@@ -607,7 +610,7 @@ exportLoadInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
           assert( collect.size() >= 1 );
           DEBUG( dbgs() << "=> GEP array access (#visited=" << visited.size()
                         << ")\n");
-          YDoc.addValueFact(createLoadGVFact(Ins, YI, collect));
+          YDoc.addValueFact(createMemGVFact(Ins, YI, collect));
           NumMemExp++; // STATISTICS
         }
       }
