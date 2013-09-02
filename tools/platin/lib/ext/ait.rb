@@ -24,16 +24,59 @@ module PML
     end
   end
 
+  class SymbolicExpression
+    def to_ais
+      raise Exception.new("#{self.class}#to_ais: no translation available")
+    end
+  end
+  class SEInt
+    def to_ais ; self.to_s ; end
+  end
+  class SEVar
+    def to_ais ; "reg #{self}" ; end
+  end
+  class SEBinary
+    def to_ais
+      left,right = self.a, self.b
+      if SEBinary.commutative?(op) && left.constant? && ! right.constant?
+        left, right = right, left
+      end
+      lexpr, rexpr = [left,right].map { |v| v.to_ais }
+      # simplify (x * -1) to (-x)
+      if right.constant? && right.constant == -1 && op == '*'
+        return "-(#{lexpr})"
+      end
+      # simplify (a + -b) to (a - b)
+      if right.constant? && right.constant < 0 && op == '+'
+        return "#{lexpr} - #{-right}"
+      end
+      # translation of all other ops
+      case op
+      when '+'    then "(#{lexpr} + #{rexpr})"
+      when '*'    then "(#{lexpr} * #{rexpr})"
+      when '/u'   then "(#{lexpr} / #{rexpr})"
+      when 'umax' then "max(#{lexpr},#{rexpr})"
+      when 'umin' then "min(#{lexpr},#{rexpr})"
+      # FIXME: how do we deal with signed variables?
+      when 'smax' then "max(#{lexpr},#{rexpr})"
+      when 'smin' then "min(#{lexpr},#{rexpr})"
+      when '/s'   then "(#{lexpr} / #{rexpr})"
+      else        raise Exception.new("SymbolicExpression#eval: unknown binary operator #{@op}")
+      end
+    end
+  end
+
   class AISExporter
 
     attr_reader :stats_generated_facts,  :stats_skipped_flowfacts
-    attr_reader :outfile
+    attr_reader :outfile, :options
 
     def initialize(pml,ais_file,options)
       @pml = pml
       @outfile = ais_file
       @options = options
       @entry = @pml.machine_functions.by_label(@options.analysis_entry)
+      @extracted_arguments = {}
       @stats_generated_facts, @stats_skipped_flowfacts = 0, 0
     end
 
@@ -58,12 +101,14 @@ module PML
       @outfile.puts "# export block timings"
       @outfile.puts "global \"export_all_block_times\" = 1;"
 
-      # TODO any additional header stuff to generate (context, entry, ...)?
+      if @options.ais_header_file
+        @outfile.puts(File.read(@options.ais_header_file))
+      end
     end
 
     def gen_fact(ais_instr, descr, derived_from=nil)
       @stats_generated_facts += 1
-      @outfile.puts(ais_instr+" # "+descr)
+      @outfile.puts(ais_instr+";" +" # "+descr)
       debug(@options,:ait) {
         s = " derived from #{derived_from}" if derived_from
         "Wrote AIS instruction: #{ais_instr}#{s}"
@@ -88,7 +133,7 @@ module PML
             targets = successors.uniq.map { |succ|
               dquote(succ.label)
             }.join(", ")
-            gen_fact("instruction #{instr} branches to #{targets};","jumptable (source: llvm)",ins)
+            gen_fact("instruction #{instr} branches to #{targets}","jumptable (source: llvm)",ins)
           end
         end
       end
@@ -107,28 +152,44 @@ module PML
       block = callsite.block
       location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
       called = targets.map { |f| dquote(f.function.label) }.join(", ")
-      gen_fact("instruction #{location} calls #{called} ;",
+      gen_fact("instruction #{location} calls #{called}",
                "global indirect call targets (source: #{ff.origin})",ff)
     end
 
     # export loop bounds
-    def export_loopbound(ff, scope, bound)
-      # As we export loop header bounds, we should say the loop header is 'at the end'
-      # of the loop (confirmed by absint (Gernot))
+    def export_loopbounds(scope, bounds_and_ffs)
 
-      # we do not support symbolic loop bounds yet
-      if ff.symbolic_bound?
-        warn("aiT: no support for symbolic loop bounds")
-        return false
-      end
       # context-sensitive facts not yet supported
       unless scope.context.empty?
         warn("aiT: no support for callcontext-sensitive loop bounds")
         return false
       end
-      loopname = dquote(scope.reference.loopblock.label)
-      gen_fact("loop #{loopname} max #{bound} end ; ",
-               "global loop header bound (source: #{ff.origin})",ff)
+      loopblock = scope.reference.loopblock
+
+      origins = Set.new
+      ais_bounds = bounds_and_ffs.map { |bound,ff|
+        # (1) collect registers needed (and safe)
+        # (2) generate symbolic expression
+        origins.add(ff.origin)
+        bound.referenced_vars.each { |v|
+          user_reg = @extracted_arguments[ [loopblock.function,v] ]
+          unless user_reg
+            user_reg = "@arg_#{v}"
+            @extracted_arguments[ [loopblock.function,v] ] = user_reg
+            fentry = dquote(loopblock.function.label)
+            gen_fact("instruction #{fentry} is entered with #{user_reg} = trace(reg #{v})",
+                     "extracted argument for symbolic loop bound")
+          end
+        }
+        bound.to_ais
+      }
+      bound = ais_bounds.length == 1 ? ais_bounds.first : "min(#{ais_bounds.join(",")})"
+
+      # As we export loop header bounds, we should say the loop header is 'at the end'
+      # of the loop (confirmed by absint (Gernot))
+      loopname = dquote(loopblock.label)
+      gen_fact("loop #{loopname} max #{bound} end",
+               "global loop header bound (source: #{origins.to_a.join(", ")})")
     end
 
     # export global infeasibles
@@ -146,7 +207,7 @@ module PML
         warn("aiT: no support for program points referencing empty blocks: #{ff}")
         return false
       end
-      gen_fact("instruction #{insname} is never executed ;",
+      gen_fact("instruction #{insname} is never executed",
                "globally infeasible block (source: #{ff.origin})",ff)
     end
 
@@ -166,20 +227,34 @@ module PML
         return false
       end
 
-      assert("export_linear_constraint: not in function scope") { scope.reference.kind_of?(FunctionRef) }
+      # we only export either (a) local flowfacts (b) flowfacts in the scope of the analysis entry
+      type = :unsupported
+      if ! scope.reference.kind_of?(FunctionRef)
+        warn("aiT: linear constraint not in function scope (unsupported): #{ff}")
+        return false
+      end
+      if scope.reference.function == @entry
+        type = :global
+      elsif ff.local?
+        type = :local
+      else
+        warn("aiT: no support for interprocededural flow-facts not relative to analysis entry: #{ff}")
+        return false
+      end
 
       # no support for edges in aiT
       unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
         warn("Constraint not supported by aiT (not a block ref): #{ff}")
         return false
       end
+
       # no support for empty basic blocks (typically at -O0)
       if terms.any? { |t| t.ppref.block.instructions.empty? }
         warn("Constraint not supported by aiT (empty basic block): #{ff})")
         return false
       end
 
-      # Positivty constraints => do nothing
+      # Positivity constraints => do nothing
       rhs = ff.rhs.to_i
       if rhs >= 0 && terms.all? { |t| t.factor < 0 }
         return true
@@ -195,32 +270,58 @@ module PML
       constr = [terms_lhs, terms_rhs].map { |set|
         set.empty? ? "0" : set.join(" + ")
       }.join(cmp_op)
-      gen_fact("flow #{constr};",
+      gen_fact("flow #{constr}",
                "linear constraint on block frequencies (source: #{ff.origin})",
                ff)
     end
 
+    # export set of flow facts (minimum of loop bounds)
+    def export_flowfacts(ffs)
+      loop_bounds = {}
+      ffs.each { |ff|
+        if scope_bound = ff.get_loop_bound
+          scope,bound = scope_bound
+          next if options.ais_disable_export.include?('loop-bounds')
+          next if ! bound.constant? && options.ais_disable_export.include?('symbolic-loop-bounds')
+          (loop_bounds[scope]||=[]).push([bound,ff])
+        else
+          supported = export_flowfact(ff)
+          @stats_skipped_flowfacts += 1 unless supported
+        end
+      }
+      loop_bounds.each { |scope,bounds_and_ffs|
+        export_loopbounds(scope, bounds_and_ffs)
+      }
+    end
+
     # export linear-constraint flow facts
     def export_flowfact(ff)
-      supported =
-        if ff.symbolic_bound?
-          false
-        elsif (! ff.local?) && ff.scope.function != @entry
-          warn("aiT: non-local flow fact in scope #{ff.scope} not supported")
-          false
-        elsif scope_bound = ff.get_loop_bound
-          export_loopbound(ff,*scope_bound)
-        elsif scope_cs_targets = ff.get_calltargets
-          export_calltargets(ff,*scope_cs_targets)
-        elsif scope_pp = ff.get_block_infeasible
-          export_infeasible(ff,*scope_pp)
-        elsif ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef)
-          export_linear_constraint(ff)
-        else
-          warn("aiT: unsupported flow fact type: #{ff}")
-          false
-        end
-      @stats_skipped_flowfacts += 1 unless supported
+      assert("export_flowfact: loop bounds need to be exported separately") { ff.get_loop_bound.nil? }
+
+      if (! ff.local?) && ff.scope.function != @entry
+        warn("aiT: non-local flow fact in scope #{ff.scope} not supported")
+        false
+
+      elsif ff.symbolic_bound?
+        debug(options, :ait) { "Symbolic Bounds only supported for loop bounds" }
+        false
+
+      elsif scope_cs_targets = ff.get_calltargets
+        return false if options.ais_disable_export.include?('call-targets')
+        export_calltargets(ff,*scope_cs_targets)
+
+      elsif scope_pp = ff.get_block_infeasible
+        return false if options.ais_disable_export.include?('infeasible-code')
+        export_infeasible(ff,*scope_pp)
+
+      elsif ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef)
+        return false if options.ais_disable_export.include?('flow-constraints')
+        export_linear_constraint(ff)
+
+      else
+        warn("aiT: unsupported flow fact type: #{ff}")
+        false
+      end
     end
 
     # export value facts
@@ -237,8 +338,22 @@ module PML
             "(forgot 'platin extract-symbols'?)")
       end
       gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
-               " accesses #{rangelist};",
+               " accesses #{rangelist}",
                "Memory address (source: #{vf.origin})", vf)
+    end
+
+    # export stack cache instruction annotation
+    def export_stack_cache_annotation(type, ins, value)
+      assert("cannot annotate stack cache instruction w/o instruction addresses") { ins.address }
+      if(type == :fill)
+        feature = "stack_cache_fill_count"
+      elsif(type == :spill)
+        feature = "stack_cache_spill_count"
+      else
+        die("aiT: unknown stack cache annotation")
+      end
+
+      gen_fact("instruction 0x#{ins.address.to_s(16)} features \"#{feature}\" = #{value}", "source: stack cache analysis")
     end
   end
 
@@ -418,7 +533,7 @@ class AitImport
               sprintf("- %s 0x%08x..0x%08x (%d bytes), mod=0x%x rem=0x%x\n",
                       se.attributes['type'],min,max,max-min,mod || -1,rem || -1)
             } if unpredictable
-            values.push(ValueRange.new(min,max))
+            values.push(ValueRange.new(min,max,nil))
           }
           value_analysis_stats[(unpredictable ? 'un' : '') + 'predictable ' + (is_read ? 'reads' : 'writes')] += 1
           fact_values = ValueSet.new(values)

@@ -8,31 +8,71 @@ require 'ext/ait'
 include PML
 
 class AisExportTool
+
   def AisExportTool.add_config_options(opts)
-    opts.on("-g", "--[no-]ais-header", "Generate AIS header (=true)") { |b| opts.options.ais_header = b }
-    opts.add_check { |options| options.ais_header = true if options.ais_header.nil? }
+    opts.on("--ais-header-file FILE", "the contents of this file is copied verbatim to the final AIS file") { |file|
+      opts.option.ais_header_file = file
+    }
+    opts.on("--ais-disable-exports LIST","AIS information that should not be exported (see --help=ais)") { |list|
+      opts.options.ais_disable_export = Set.new(list.split(/\s*,\s*/))
+    }
+    opts.add_check { |options| options.ais_disable_export = Set.new if options.ais_disable_export.nil? }
+    opts.register_help_topic('ais') { |io|
+      io.puts <<-EOF.strip_heredoc
+        == AIS Exporter ==
+
+        The option --ais-disable-export controls which information is not exported
+        (default is export everything) and takes a comma-separated list
+        including one or more of the following types of information:
+
+        header               ... specification of the compiler
+        jumptables           ... targets of indirect branches
+        loop-bounds          ... all loop bound specifications
+        symbolic-loop-bounds ... loop bounds that depend on the value of an argument/register
+        flow-constraints     ... linear flow constraints
+        infeasible-code      ... program points that are never executed
+        call-targets         ... targets of (indirect) function calls
+        mem-addresses        ... value ranges of accesses memory addresses
+        stack-cache          ... information about stack cache behavior
+        EOF
+    }
   end
+
   def AisExportTool.add_options(opts)
     AisExportTool.add_config_options(opts)
     opts.ais_file(true)
     opts.flow_fact_selection
   end
+
   def AisExportTool.run(pml, options)
     needs_options(options, :ais_file, :flow_fact_selection, :flow_fact_srcs)
+    options.ais_disable_export = Set.new unless options.ais_disable_export
 
     File.open(options.ais_file, "w") { |outfile|
       ais = AISExporter.new(pml, outfile, options)
-      ais.gen_header if options.ais_header
+      ais.gen_header unless options.ais_disable_export.include?('header')
 
       pml.machine_functions.each { |func| ais.export_jumptables(func) }
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
-      flowfacts.each { |ff| ais.export_flowfact(ff) }
+      ais.export_flowfacts(flowfacts)
 
-      valuefacts = pml.valuefacts.select { |vf|
-        vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.programpoint.context.empty?
-      }.each { |vf| ais.export_valuefact(vf) }
+      unless options.ais_disable_export.include?('mem-addresses')
+        valuefacts = pml.valuefacts.select { |vf|
+          vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.programpoint.context.empty?
+        }.each { |vf|
+          ais.export_valuefact(vf)
+        }
+      end
 
-
+      unless options.ais_disable_export.include?('stack-cache')
+        pml.machine_functions.each { |func|
+          func.blocks.each { |mbb|
+            mbb.instructions.each { |ins|
+              ais.export_stack_cache_annotation(:fill, ins, ins.sc_fill) if ins.sc_fill
+            }
+          }
+        }
+      end
       statistics("AIS",
                  "exported flow facts" => ais.stats_generated_facts,
                  "unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats

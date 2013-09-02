@@ -250,10 +250,11 @@ struct MachineInstruction : Instruction {
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
   unsigned BranchDelaySlots;
+  unsigned StackCacheFill;
 
   MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
-    BranchDelaySlots(0) {}
+    BranchDelaySlots(0), StackCacheFill(0) {}
 };
 template <>
 struct MappingTraits<MachineInstruction*> {
@@ -267,6 +268,7 @@ struct MappingTraits<MachineInstruction*> {
     io.mapOptional("branch-type",   Ins->BranchType, branch_none);
     io.mapOptional("branch-delay-slots", Ins->BranchDelaySlots, 0U);
     io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
+    io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
   }
   static const bool flow = true;
 };

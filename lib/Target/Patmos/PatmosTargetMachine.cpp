@@ -14,6 +14,7 @@
 #include "Patmos.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosMachineScheduler.h"
+#include "PatmosStackCacheAnalysis.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
@@ -100,10 +101,6 @@ namespace {
         // removed before function splitter
         addPass(&UnreachableMachineBlockElimID);
       }
-
-      if (EnableStackCacheAnalysis) {
-        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
-      }
       return true;
     }
 
@@ -134,6 +131,15 @@ namespace {
       // correctly.
 
       addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+
+
+      // this is pseudo pass that may hold results from SC analysis
+      // (currently for PML export)
+      addPass(createPatmosStackCacheAnalysisInfo(getPatmosTargetMachine()));
+
+      if (EnableStackCacheAnalysis) {
+        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+      }
 
       return true;
     }

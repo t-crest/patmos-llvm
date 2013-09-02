@@ -24,6 +24,7 @@
 #include "Patmos.h"
 #include "PatmosCallGraphBuilder.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosStackCacheAnalysis.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/ADT/SCCIterator.h"
@@ -41,12 +42,22 @@
 
 using namespace llvm;
 
+INITIALIZE_PASS(PatmosStackCacheAnalysisInfo, "scainfo",
+                "Stack Cache Analysis Info", false, true)
+namespace llvm {
+char PatmosStackCacheAnalysisInfo::ID = 0;
+
+ModulePass *createPatmosStackCacheAnalysisInfo(const PatmosTargetMachine &tm) {
+  return new PatmosStackCacheAnalysisInfo(tm);
+}
+}
+
 /// This is expected to be a program that takes one argument specifying the name
 /// of a LP file to solve and generate a file with the same name and an appended
 /// suffix .sol containing the numeric value of the integer solution of the LP.
 static cl::opt<std::string> Solve_ilp(
   "mpatmos-ilp-solver",
-  cl::init("solve_ilp"),
+  cl::init("solve_ilp.sh"),
   cl::desc("Path to an ILP solver."),
   cl::Hidden);
 
@@ -65,12 +76,22 @@ static cl::opt<bool> EnableViewSCAGraph(
   cl::desc("Show the Spill Cost analysis after the Patmos Stack Cache Analysis."),
   cl::Hidden);
 
+/// EnableEnsureOpt - Option to enable ensure optimization during analysis
+static cl::opt<bool> EnableEnsureOpt(
+  "mpatmos-sca-remove-ensures",
+  cl::init(false),
+  cl::desc("Remove unnecessary ensure instructions during Stack Cache Analysis."),
+  cl::Hidden);
+
 namespace llvm {
   /// Count the number of SENS instructions removed.
-  STATISTIC(RemovedSENS, "Useless SENS instructions removed.");
+  STATISTIC(RemovedSENS, "SENS instructions removed (zero fills).");
+
+  /// Count the number of SENS instructions that could be removed.
+  STATISTIC(NonFillingSENS, "SENS instructions fill no data.");
 
   /// Count the number of SENS instructions that could not be removed.
-  STATISTIC(RemainingSENS, "SENS instructions remaining.");
+  STATISTIC(FillingSENS, "SENS instructions filling data.");
 
   /// Count the number of SENS instructions that potentially have to fill the 
   /// total size given as their argument.
@@ -551,7 +572,7 @@ namespace llvm {
         (*i)->dump();
         dbgs() << "' ";
       }
-      dbgs() << ")\n";
+      dbgs() << ")\nbounds available: ";
       for (SCCInfos::const_iterator i(Infos.begin()), ie(Infos.end()); i != ie;
            i++) {
         dbgs() << "'" << i->first << "' ";
@@ -634,6 +655,9 @@ namespace llvm {
     /// Subtarget information (stack cache block size)
     const PatmosSubtarget &STC;
 
+    /// Target machine info
+    const PatmosTargetMachine &TM;
+
     /// Instruction information
     const TargetInstrInfo &TII;
 
@@ -645,7 +669,7 @@ namespace llvm {
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
         MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(*tm.getInstrInfo()), BI(BoundsFile)
+        TM(tm), TII(*tm.getInstrInfo()), BI(BoundsFile)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
@@ -655,6 +679,7 @@ namespace llvm {
     {
       AU.setPreservesAll();
       AU.addRequired<PatmosCallGraphBuilder>();
+      AU.addRequired<PatmosStackCacheAnalysisInfo>();
 
       ModulePass::getAnalysisUsage(AU);
     }
@@ -867,8 +892,8 @@ namespace llvm {
       }
 
 #ifdef PATMOS_TRACE_CG_OCCUPANCY
-      DEBUG(dbgs() << (Maximize ? ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n" :
-                                  "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n"););
+      DEBUG(dbgs() << (Maximize ? ">>>>>>>>>>>>>>> MAX >>>>>>>>>>>>>>>>\n" :
+                                  "<<<<<<<<<<<<<<< MIN <<<<<<<<<<<<<<<<\n"););
       DEBUG(
         for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
             i++) {
@@ -1028,14 +1053,14 @@ namespace llvm {
       }
     }
 
-    /// removeEnsures - Does what it says. SENS instructions can be removed if
+    /// analyzeEnsures - Does what it says. SENS instructions can be removed if
     /// the preceding calls plus the current frame on the stack cache fit into
     /// the stack cache.
     // TODO: take care of predication, i.e., predicated SENS/CALL instructions
     // might be mangled and they might not match one to one.
     // TODO: check for STCr
-    void removeEnsures(MBBs &WL, MBBUInt &INs, SIZEs &ENSs, MCGNode *Node,
-                       MachineBasicBlock *MBB)
+    void analyzeEnsures(MBBs &WL, MBBUInt &INs, SIZEs &ENSs, MCGNode *Node,
+                        MachineBasicBlock *MBB)
     {
       // track maximum stack occupancy of children in the call graph -- 
       // initialize from predecessors in the CFG.
@@ -1089,12 +1114,18 @@ namespace llvm {
       }
     }
 
-    /// removeEnsures - Does what it says. SENS instructions can be removed if
+    /// analyzeEnsures - Does what it says.
+    /// SENS instructions can be removed if
     /// the preceding calls plus the current frame on the stack cache fit into
     /// the stack cache.
-    void removeEnsures(const MCallGraph &G)
+    void analyzeEnsures(const MCallGraph &G)
     {
       const MCGNodes &nodes(G.getNodes());
+
+      // we store analysis results in a pseudo pass
+      PatmosStackCacheAnalysisInfo *info =
+       &getAnalysis<PatmosStackCacheAnalysisInfo>();
+      info->setValid();
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
@@ -1120,10 +1151,10 @@ namespace llvm {
 
             // update the basic block's information, potentially putting any of
             // its successors on the work list.
-            removeEnsures(WL, INs, ENSs, *i, MBB);
+            analyzeEnsures(WL, INs, ENSs, *i, MBB);
           }
 
-          // actually remove ensure instructions
+          // actually remove ensure instructions (if requested)
           for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
               i++) {
             unsigned int ensure = i->first->getOperand(2).getImm() *
@@ -1138,14 +1169,19 @@ namespace llvm {
 #endif // PATMOS_TRACE_DETAILED_RESULTS
 
             if (i->second == 0) {
-              i->first->getParent()->erase(i->first);
-              RemovedSENS++;
+              if (EnableEnsureOpt) {
+                i->first->getParent()->erase(i->first);
+                RemovedSENS++;
+              } else {
+                NonFillingSENS++;
+              }
             }
             else {
               if (i->second == ensure)
                 FullyFillingSENS++;
-              RemainingSENS++;
+              FillingSENS++;
             }
+            info->Ensures[i->first] = i->second;
           }
 
 #ifdef PATMOS_TRACE_SENS_REMOVAL
@@ -1199,9 +1235,9 @@ namespace llvm {
       args.push_back(0);
 
       std::string ErrMsg;
-      if (sys::Program::ExecuteAndWait(sys::Path(Solve_ilp),
+      if (sys::Program::ExecuteAndWait(sys::Program::FindProgramByName(Solve_ilp),
                                        &args[0],0,0,0,0,&ErrMsg)) {
-        errs() << "Error: " << ErrMsg << "\n";
+        report_fatal_error("calling ILP solver (" + Solve_ilp + "): " + ErrMsg);
       }
       else {
         // read solution
@@ -1209,15 +1245,21 @@ namespace llvm {
         sys::Path SOLname(LPname);
         SOLname.appendSuffix("sol");
 
+        if (!SOLname.canRead())
+          report_fatal_error("Failed to read ILP solution");
+
         std::ifstream IS(SOLname.c_str());
-        if (!IS.good()) {
-          errs() << "Error: Failed to read ILP solution.\n";
-        }
-        else {
-          double tmp;
-          IS >> tmp;
-          result = tmp;
-        }
+        assert(IS.good());
+
+        // read the result value
+        double tmp;
+        IS >> tmp;
+        result = tmp;
+
+        // don't go ahead when solving has failed
+        if (tmp == -1.)
+          assert(0 && "unbounded/infeasible ILP");
+
 
         SOLname.eraseFromDisk();
       }
@@ -1242,7 +1284,7 @@ namespace llvm {
       std::string ErrMsg;
       sys::Path LPname(sys::Path::GetTemporaryDirectory(&ErrMsg));
       if (LPname.isEmpty()) {
-        errs() << "Error: " << ErrMsg << "\n";
+        errs() << "Error creating temp .lp file: " << ErrMsg << "\n";
         return std::numeric_limits<unsigned int>::max();
       }
 
@@ -1912,7 +1954,7 @@ namespace llvm {
       }
 
       if (EnableViewSCAGraph)
-        ViewGraph(SCAGraph, "xxx");
+        ViewGraph(SCAGraph, "sca");
     }
 
     /// runOnModule - determine the state of the stack cache for each call site.
@@ -1931,8 +1973,8 @@ namespace llvm {
       // compute call-graph-level information on maximal stack cache occupancy
       computeMinMaxOccupancy(G, true);
 
-      // remove useless SENS instructions
-      removeEnsures(G);
+      // compute ensure behavior and optionally remove useless SENS instructions
+      analyzeEnsures(G);
 
       // compute call-graph-level information on minimal stack cache occupancy
       computeMinMaxOccupancy(G, false);
@@ -2100,7 +2142,7 @@ namespace llvm {
 
     static std::string getGraphName(const SpillCostAnalysisGraph &G) 
     {
-      return "xxx";
+      return "scagraph";
     }
 
     static bool isNodeHidden(const SCANode *N, const SpillCostAnalysisGraph &G)
@@ -2161,4 +2203,4 @@ namespace llvm {
         return N->getSpillCost() ? "style=filled, fillcolor=\"red\"" : "";
     }
   };
-}
+} // end namespace llvm

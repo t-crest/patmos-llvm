@@ -128,17 +128,34 @@ class LpSolveILP < ILP
   SLACK=10000000
   BIGM= 10000000
   def diagnose_unbounded(problem, freqmap)
-    $stderr.puts "#{lp_solve_error_msg(problem)} PROBLEM - starting diagnosis"
+    debug(options, :ilp) { "#{lp_solve_error_msg(problem)} PROBLEM - starting diagnosis" }
     @do_diagnose = false
     variables.each do |v|
       add_constraint([[v,1]],"less-equal",BIGM,"__debug_upper_bound_v#{index(v)}",:debug)
     end
     @eps = 1.0
     cycles,freq = self.solve_max
-    freq.each do |v,k|
-      if k >= BIGM - 1.0
-        $stderr.puts "UNBOUNDED: #{v.to_s.ljust(40)} #{k.to_s.rjust(8)}"
+    unbounded = freq.map { |v,k|
+      (k >= BIGM - 1.0) ? v : nil
+    }.compact
+    unbounded_functions, unbounded_loops = Set.new, Set.new
+    unbounded.each { |v|
+      next unless v.kind_of?(IPETEdge) && v.source.kind_of?(Block)
+      if v.source == v.source.function.blocks.first
+        unbounded_functions.add(v.source.function)
       end
+    }
+    unbounded.each { |v|
+      next unless v.kind_of?(IPETEdge) && v.source.kind_of?(Block)
+      if ! unbounded_functions.include?(v.source.function) && v.source.loopheader?
+        unbounded_loops.add(v.source)
+      end
+    }
+    if unbounded_functions.empty? && unbounded_loops.empty?
+      warn("LPSolve: Unbounded variables: #{unbounded.join(", ")}")
+    else
+      warn("LPSolve: Unbounded functions: #{unbounded_functions.to_a.join(", ")}") unless unbounded_functions.empty?
+      warn("LPSolve: Unbounded loops: #{unbounded_loops.to_a.join(", ")}") unless unbounded_loops.empty?
     end
     @do_diagnose = true
   end

@@ -143,12 +143,11 @@ class AnalyzeTraceTool
     Architecture.simulator_options(opts)
     opts.trace_entry
     opts.callstring_length
-    opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help-recorders)") { |recorder_spec|
+    opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help=recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
     }
-    opts.on_tail("--help-recorders", "help on recorder specifications") {
-      RecorderSpecification.help($stderr)
-      exit 0
+    opts.register_help_topic('recorders') { |io|
+      RecorderSpecification.help(io)
     }
     opts.add_check { |options|
       options.recorder_spec = DEFAULT_RECORDER_SPEC unless options.recorder_spec
