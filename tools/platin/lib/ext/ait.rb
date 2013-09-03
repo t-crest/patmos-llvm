@@ -66,6 +66,72 @@ module PML
     end
   end
 
+  class AISUnsupportedProgramPoint < Exception
+    def initialize(pp, msg = "information references program point not supported by AIS exporter")
+      super("#{msg} (#{pp} :: #{pp.class})")
+      @pp = pp
+    end
+  end
+
+  #
+  # Extend program points with #ais_ref
+  #
+
+  class Function
+    def ais_ref
+      if self.label
+        dquote(self.label)
+      elsif self.address
+        "0x#{address.to_s(16)}"
+      else
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbol' ?)")
+      end
+    end
+  end
+
+  class Block
+    def ais_ref
+      if instructions.empty?
+        raise AISUnsupportedProgramPoint.new(self, "impossible to reference an empty block")
+      end
+      if label
+        dquote(label)
+      elsif address
+        "0x#{address.to_s(16)}"
+      else
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbol' ?)")
+      end
+    end
+  end
+
+  class Instruction
+    def ais_ref(opts = {})
+      if address && block.label
+        "#{block.ais_ref} + #{self.address - block.address} bytes"
+      elsif opts[:branch_index]
+        "#{block.ais_ref} + #{opts[:branch_index]} branches"
+      elsif address
+        "0x#{address.to_s(16)}"
+      else
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor symbolic offset available (forgot 'platin extract-symbol' ?)")
+        # FIXME: we first have to check whether our idea of instruction counting and aiT's match
+        # "#{block.ais_ref} + #{self.index} instructions"
+      end
+    end
+  end
+
+  class Loop
+    # no automatic translation for loops
+    def ais_ref
+      raise AISUnsupportedProgramPoint.new(self)
+    end
+  end
+  class Edge
+    def ais_ref
+      raise AISUnsupportedProgramPoint.new(self)
+    end
+  end
+
   class AISExporter
 
     attr_reader :stats_generated_facts,  :stats_skipped_flowfacts
@@ -116,24 +182,19 @@ module PML
       true
     end
 
+
     # Export jumptables for a function
     def export_jumptables(func)
       func.blocks.each do |mbb|
         branches = 0
         mbb.instructions.each do |ins|
-          branches += 1 if ins.branch_type != "none"
+          branches += 1 if ins.branch_type && ins.branch_type != "none"
           if ins.branch_type == 'indirect'
-            label = ins.block.label
-            instr = if ins.address
-                      "#{dquote(label)} + #{ins.address - ins.block.address} bytes"
-                    else
-                      "#{dquote(label)} + #{branches} branches"
-                    end
             successors = ins.branch_targets ? ins.branch_targets : mbb.successors
             targets = successors.uniq.map { |succ|
-              dquote(succ.label)
+              succ.ais_ref
             }.join(", ")
-            gen_fact("instruction #{instr} branches to #{targets}","jumptable (source: llvm)",ins)
+            gen_fact("instruction #{ins.ais_ref(:branch_index => branches)} branches to #{targets}","jumptable (source: llvm)",ins)
           end
         end
       end
@@ -149,10 +210,8 @@ module PML
         return false
       end
 
-      block = callsite.block
-      location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
-      called = targets.map { |f| dquote(f.function.label) }.join(", ")
-      gen_fact("instruction #{location} calls #{called}",
+      called = targets.map { |f| f.ais_ref }.join(", ")
+      gen_fact("instruction #{callsite.ais_ref} calls #{called}",
                "global indirect call targets (source: #{ff.origin})",ff)
     end
 
@@ -176,8 +235,7 @@ module PML
           unless user_reg
             user_reg = "@arg_#{v}"
             @extracted_arguments[ [loopblock.function,v] ] = user_reg
-            fentry = dquote(loopblock.function.label)
-            gen_fact("instruction #{fentry} is entered with #{user_reg} = trace(reg #{v})",
+            gen_fact("instruction #{loopblock.function.ais_ref} is entered with #{user_reg} = trace(reg #{v})",
                      "extracted argument for symbolic loop bound")
           end
         }
@@ -194,7 +252,6 @@ module PML
 
     # export global infeasibles
     def export_infeasible(ff, scope, pp)
-      insname = dquote(pp.block.label)
 
       # context-sensitive facts not yet supported
       unless scope.context.empty? && pp.context.empty?
@@ -207,11 +264,12 @@ module PML
         warn("aiT: no support for program points referencing empty blocks: #{ff}")
         return false
       end
-      gen_fact("instruction #{insname} is never executed",
+      gen_fact("instruction #{pp.block.ais_ref} is never executed",
                "globally infeasible block (source: #{ff.origin})",ff)
     end
 
     def export_linear_constraint(ff)
+
       terms_lhs, terms_rhs = [],[]
       terms = ff.lhs.dup
       scope = ff.scope
@@ -264,7 +322,7 @@ module PML
       terms.push(Term.new(scope,-rhs)) if rhs != 0
       terms.each { |t|
         set = (t.factor < 0) ? terms_rhs : terms_lhs
-        set.push("#{t.factor.abs} (#{dquote(t.programpoint.block.label)})")
+        set.push("#{t.factor.abs} (#{t.programpoint.block.ais_ref})")
       }
       cmp_op = "<="
       constr = [terms_lhs, terms_rhs].map { |set|
@@ -338,11 +396,7 @@ module PML
           die("No symbol for value #{v.inspect}")
         end
       }.join(", ")
-      if ! vf.programpoint.address
-        die("Cannot obtain address for instruction "+
-            "(forgot 'platin extract-symbols'?)")
-      end
-      gen_fact("instruction 0x#{vf.programpoint.address.to_s(16)}" +
+      gen_fact("instruction #{vf.programpoint.ais_ref}" +
                " accesses #{rangelist}",
                "Memory address (source: #{vf.origin})", vf)
     end
@@ -358,7 +412,7 @@ module PML
         die("aiT: unknown stack cache annotation")
       end
 
-      gen_fact("instruction 0x#{ins.address.to_s(16)} features \"#{feature}\" = #{value}", "source: stack cache analysis")
+      gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{value}", "source: stack cache analysis")
     end
   end
 
