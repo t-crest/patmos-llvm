@@ -22,8 +22,8 @@ The following platin tools are available and supported:
 
 The following tools are available for internal use only:
 
-  ait2pml         ... Add aiT analysis results to the PML database
   pml2ais         ... Translate program information to aiT's AIS format
+  ait2pml         ... Add aiT analysis results to the PML database
   ff2pml          ... Translate SWEET flowfacts to PML
   wca             ... Calculate WCET cost using lp_solve
 
@@ -99,7 +99,7 @@ shift
 if [ -z "${COMMAND}" ] ; then
     usage
     exit 1
-elif [ "${COMMAND}" == "help" ] ; then
+elif [ "${COMMAND}" == "help" -o "${COMMAND}" == "--help" ] ; then
     if [ -z "${1}" ] ; then
 	usage
     else
@@ -107,5 +107,14 @@ elif [ "${COMMAND}" == "help" ] ; then
     fi
     exit 0
 fi
+
+# Define command script
+COMMAND_SCRIPT="${LIBDIR}"/tools/"${COMMAND}".rb
+if [ ! -e "${COMMAND_SCRIPT}" ] ; then
+    echo "Unknown command '${COMMAND}' (could not find implementation)" >&2
+    usage
+    exit 1
+fi
+
 # Run command
-exec ${RUBY} -I ${LIBDIR} ${LIBDIR}/tools/"${COMMAND}".rb "${@}"
+exec ${RUBY} -I "${LIBDIR}" "${COMMAND_SCRIPT}" "${@}"

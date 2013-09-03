@@ -73,21 +73,42 @@ function run() {
     fi
 }
 
+function detect_gem_command {
+    GEM19s="gem1.9.1 gem1.9 gem"
+    for g19 in ${GEM19s} ; do
+        if [ ! -z "`which ${g19}  2>/dev/null`" ] ; then
+            GEM="$g19"
+            return
+        fi
+    done
+}
+detect_gem_command
+
+# A note on GEM_PATH (as of ruby 1.9.3 / gem 1.8.11):
+# * GEM_PATH should be a colon separated list of directories
+#   caveat: if there is a *trailing* colon, the GEM_PATH environment
+#   variable is *ignored*
+# * if GEM_PATH is set, the lookup path for gems is global repo and
+#   all directories listed in GEM_PATH
+# * if GEM_PATH is not set, the lookup path for gems is global repo
+#   *and* the user local repository
+#
+# Therefore, if we need gems from the user local repository and from
+# the platin-specific gem repository, we need to include the
+# user local repositories in GEM_PATH. As we do not know about them
+# we simply read 'gem env gempath' and add all directories to
+# GEM_PATH.
+
 function install_binary() {
     install "${BINARY}" "${SRC_DIR}/platin"
     if [ -z "${DRYRUN}" ] ; then
 	cat <<EOF >"${BINARY}"
 #!/bin/bash
 
-# Installer
 RELATIVE_LIBDIR="../lib/platin"
+CURRENT_GEM_PATH=\$(${GEM} env gempath)
+export GEM_PATH="${GEM_DIR}:\${CURRENT_GEM_PATH}"
 
-# Local Gems
-if [ -z "\${GEM_PATH}" ] ; then
-  export GEM_PATH="${GEM_DIR}"
-else
-  export GEM_PATH="${GEM_DIR}:\${GEM_PATH}"
-fi
 # Executable
 EOF
 	cat "${SRC_DIR}/platin"  >> "${BINARY}"
@@ -103,17 +124,6 @@ for libfile in $(cd "${SRC_DIR}/lib" ; find "." -name '*.rb' -o -name '*.yml') ;
     install "${DST}" "${SRC}"
 done
 
-function detect_gem_command {
-    GEM19s="gem1.9.1 gem1.9 gem"
-    for g19 in ${GEM19s} ; do
-        if [ ! -z "`which ${g19}  2>/dev/null`" ] ; then
-            GEM="$g19"
-            return
-        fi
-    done
-}
-
-detect_gem_command
 if [ ! -z "${GEM}" ] ; then
     if [ -z "${GEM_PATH}" ] ; then
 	export GEM_PATH="${GEM_DIR}"
@@ -139,7 +149,7 @@ if [ ! -z "${GEM}" ] ; then
 		fi
 	    fi
 	fi
-    done	
+    done
 else
     echo "WARNING: did not find 'gem' command; skipping ruby library checks" >&2
 fi
