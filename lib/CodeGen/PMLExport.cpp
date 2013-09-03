@@ -44,6 +44,8 @@ using namespace llvm;
 namespace llvm {
 STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
 STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
+STATISTIC( NumSymbolicBoundsNonArg,
+           "Number of symbolic header bounds NOT exported (non-arguments)");
 
 STATISTIC( NumMemExp,   "Number of exported load from array infos");
 }
@@ -260,6 +262,9 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
             // bump statistic counter
             NumSymbolicBounds++;
+          } else {
+            // bump statistic counter
+            NumSymbolicBoundsNonArg++;
           }
         }
       }
