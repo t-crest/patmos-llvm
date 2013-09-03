@@ -188,7 +188,7 @@ module PML
     end
 
     def to_s
-      "#{@factor} #{ppref.qname}"
+      "#{@factor} #{ppref}"
     end
     def to_pml
       { 'factor' => @factor, 'program-point' => @ppref.data }
@@ -233,7 +233,7 @@ module PML
 
     # string representation of the flow fact
     def to_s
-      "FlowFact<#{attributes.map {|k,v| "#{k}=#{v}"}.join(",")},in #{scope}: #{lhs} #{op} #{rhs}>"
+      "#<FlowFact #{attributes.map {|k,v| "#{k}=#{v}"}.join(",")}, in #{scope}: #{lhs} #{op} #{rhs}>"
     end
 
     # deep clone: clone flow fact, lhs and attributes
@@ -406,7 +406,7 @@ module PML
       "ValueRange<min=#{min.inspect},max=#{max.inspect},symbol=#{symbol}>"
     end
     def to_s
-      symbol.to_s + range.to_s
+      symbol.to_s + (range ? range.to_s : '')
     end
     def range
       return nil unless max
@@ -452,9 +452,13 @@ module PML
         'width' => @width,
         'values' => @values.data }.merge(attributes)
     end
+
+    # string representation of the value fact
     def to_s
-      data.to_s
+      vs = values.map { |vr| vr.to_s }.join(", ")
+      "#<ValueFact #{attributes.map {|k,v| "#{k}=#{v}"}.join(",")}, at #{ppref}: #{variable}#{"[width=#{width}]" if width} \\in {#{vs}}>"
     end
+
   end
 
   # List of timing entries (modifiable)
@@ -520,8 +524,9 @@ module PML
       pml['profile'] = @profile.data if @profile
       pml
     end
+
     def to_s
-      "#<TimingEntry: scope=#{scope}, cycles=#{cycles} cycles,#{attributes.map{|k,v|"#{k}=#{v}"}.join(",")}>"
+      "#<TimingEntry #{attributes.map {|k,v| "#{k}=#{v}"}.join(",")}, in #{scope}: #{cycles} cycles>"
     end
   end
 
