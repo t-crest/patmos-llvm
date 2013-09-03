@@ -1,32 +1,37 @@
 Tasks/Projects
 ==============
 
-[Direct Loop Bound Translation]
-  - Goal: The FM-based flow fact transformation does not support loop scopes or symbolic bounds
-    Therefore, we should try to translate loop bounds directly, if the control-flow graph relation
-    admits it
+[Refactor References]
+  - Goal: Distinguishing between references to program-points, and program points themselves was
+    a bad idea at the platin API level; we should fix this
   - Steps:
-    + Develop heuristic for translating loop bounds directly
-  - Status: assigned to benedikt
+    + Remove References in platin, and only deal with them at the PML level
+  - Assigned to: bendikt
 
-[Symbolic Flow Facts]
-  - Goal: support flow-facts with symbolic RHS
+[Improved aiT Program-Point Export]
+  - Goal: We should export program points symbolically, if possible, using a unified
+    API
   - Steps:
-    + introduce symbolic domain for FF rhs [done]
-    + translate function arguments from bitcode to machine code
-    + add aiT export for symbolic loop bounds
-    + (optional) use results of aiT's value analysis to instantiate symbolic flow facts
-    + (optional) use results from SWEET's value analysis instantiate symbolic flow facts
-  - Status: assigned to benedikt
-  - Depends:
-    + [Direct Loop Bound Translation]
+    + Extend aiT export to provide symbolic pp export
+  - Depends
+    + [Refactor References]
+  - Assigned to: bendikt
 
 [Machine Descriptions]
   - Goal: allow to configure the target processor (in particular memories and caches)
   - Steps:
-    + define a new section machine-description
+    + define a new section machine-description [done]
     + architectures provide default machine-description if none is given for WCET analysis
     + export machine-description to aiT (standard I$,D$,scratchpad; access timing)
+  - Assigned to: benedikt
+
+[Analysis Descriptions]
+  - Goal: allow to describe planned and carried out program analysis in a PML section
+  - Steps:
+    + define a new section analyses
+    + analysis results (value facts, flow facts, timing) should reference analyses
+    + allow to configure the set of analysis run using PML
+    + clang driver
 
 [Call Context-sensitive IPET]
   - Goal: allow use, transformation and elimination of call-context sensitive program information
@@ -44,11 +49,6 @@ Tasks/Projects
   - Depends:
     + [Call context-sensitive IPET]
 
-[Stack Cache Analysis]
-  - Goal: analyze stack cache
-  - Steps (TODO: Alex Jordan)
-  - Depends:
-    + [Machine Descriptions]
 
 [Method Cache Analysis]
   -- Goal: add method cache analysis to platin
@@ -82,7 +82,21 @@ FINISHED TASKS
 
 [Local FF Transformation]
   - Goal: flow-facts that only affect one function (or parts of the program) should be translated locally
-  - Steps:
-    + eliminate_set should not modify ILP
-    + transform flow facts locally
   - Follow-Ups: [Direct Loop Bound Translation]
+
+[Direct Loop Bound Translation]
+  - Goal: The FM-based flow fact transformation does not support loop scopes or symbolic bounds
+    Therefore, we should try to translate loop bounds directly, if the control-flow graph relation
+    admits it
+
+[Symbolic Flow Facts]
+  - Goal: support flow-facts with symbolic RHS
+  - Follow-Ups:
+    + (deferred) use results of aiT's value analysis to instantiate symbolic flow facts
+    + (deferred) use results from SWEET's value analysis instantiate symbolic flow facts
+
+[Stack Cache Analysis]
+  - Goal: analyze stack cache
+  - Follow-Ups:
+    + (deferred) stack cache analysis for platin/wca
+
