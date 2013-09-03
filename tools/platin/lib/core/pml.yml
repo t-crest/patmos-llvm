@@ -134,6 +134,9 @@ mapping:
                                - &funseq
                                  type: scalar
                                  desc: "name of the referenced function"
+                          "bundled":
+                            type: bool
+                            desc: "If true, this instruction is bundled with the next instruction"
                           "size":
                              type: int
                              desc: "size of the instruction in the binary"
@@ -143,6 +146,23 @@ mapping:
                           "stack-cache-fill"
 			     type: int
 			     desc: "TODO"
+          "subfunctions":
+            type: seq
+            desc: "subfunctions of the function"
+            sequence:
+              - &subfunction
+                type: map
+                desc: "subfunction"
+                mapping:
+                  "name":
+                    type: scalar
+                    required: yes
+                    unique: yes
+                    desc: "name of the subfunction, usually the name of the entry block"
+                  "blocks":
+                    type: seq
+                    desc: "list of blocks in the subfunction"
+                    sequence: *blockseq
   "bitcode-functions":
     type: seq
     desc: "list of bitcode functions"

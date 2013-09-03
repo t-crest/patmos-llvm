@@ -366,9 +366,14 @@ void PMLMachineExport::serialize(MachineFunction &MF)
         Conditions, false);
 
     unsigned Index = 0;
-    for (MachineBasicBlock::iterator Ins = BB->begin(), E = BB->end();
-        Ins != E; ++Ins)
+    for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
+        E = BB->instr_end(); Ins != E; ++Ins)
     {
+      // We do not export the bundle pseudo instruction itself, skip them.
+      if (Ins->isBundle()) continue;
+      // Do not export any Pseudo instructions with zero size
+      if (Ins->isPseudo()) continue;
+
       if (!doExportInstruction(Ins)) { Index++; continue; }
 
       yaml::MachineInstruction *I = B->addInstruction(
@@ -377,6 +382,8 @@ void PMLMachineExport::serialize(MachineFunction &MF)
                         TrueSucc, FalseSucc);
     }
   }
+
+  exportSubfunctions(MF, PMF);
 
   // TODO: we do not compute a hash yet
   PMF->Hash = StringRef("0");
@@ -394,6 +401,7 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   I->Size = PII->getSize(Ins);
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
   I->BranchType = yaml::branch_none;
+  I->Bundled = Ins->isBundledWithSucc();
 
   if (Ins->getDesc().isCall()) {
     I->BranchType = yaml::branch_call;

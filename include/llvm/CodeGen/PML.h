@@ -252,9 +252,11 @@ struct MachineInstruction : Instruction {
   unsigned BranchDelaySlots;
   unsigned StackCacheFill;
 
+  bool Bundled;
+
   MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
-    BranchDelaySlots(0), StackCacheFill(0) {}
+    BranchDelaySlots(0), StackCacheFill(0), Bundled(false) {}
 };
 template <>
 struct MappingTraits<MachineInstruction*> {
@@ -269,6 +271,7 @@ struct MappingTraits<MachineInstruction*> {
     io.mapOptional("branch-delay-slots", Ins->BranchDelaySlots, 0U);
     io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
     io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
+    io.mapOptional("bundled",       Ins->Bundled, false);
   }
   static const bool flow = true;
 };
@@ -341,6 +344,31 @@ struct MappingTraits<Argument*> {
 YAML_IS_PTR_SEQUENCE_VECTOR(Argument)
 
 
+struct Subfunction {
+  Name SFName;
+  std::vector<Name> Blocks;
+
+  Subfunction(uint64_t index) : SFName(index) {}
+  Subfunction(StringRef name) : SFName(name) {}
+
+  void addBlock(StringRef block) {
+    Blocks.push_back(yaml::Name(block));
+  }
+  void addBlock(uint64_t index) {
+    Blocks.push_back(yaml::Name(index));
+  }
+};
+template <>
+struct MappingTraits<Subfunction*> {
+  static void mapping(IO &io, Subfunction*& S) {
+    if (!S) S = new Subfunction("");
+    io.mapRequired("name",      S->SFName);
+    io.mapRequired("blocks",    S->Blocks);
+  }
+};
+YAML_IS_PTR_SEQUENCE_VECTOR(Subfunction)
+
+
 /// basic functions
 template <typename BlockT>
 struct Function {
@@ -350,12 +378,14 @@ struct Function {
   StringRef Hash;
   std::vector<Argument*> Arguments;
   std::vector<BlockT*> Blocks;
+  std::vector<Subfunction*> Subfunctions;
 
   Function(StringRef name) : FunctionName(name), Level(level_bitcode) {}
   Function(uint64_t name)  : FunctionName(name), Level(level_bitcode) {}
   ~Function() {
     DELETE_PTR_VEC(Arguments);
     DELETE_PTR_VEC(Blocks);
+    DELETE_PTR_VEC(Subfunctions);
   }
 
   Argument* addArgument(Argument *Arg) {
@@ -366,6 +396,10 @@ struct Function {
     Blocks.push_back(B);
     return B;
   }
+  Subfunction* addSubfunction(Subfunction *S) {
+    Subfunctions.push_back(S);
+    return S;
+  }
 private:
   Function(const Function<BlockT>&);            // Disable copy constructor  
   Function* operator=(const Function<BlockT>&); // Disable assignment
@@ -375,12 +409,13 @@ template <typename BlockT>
 struct MappingTraits< Function<BlockT>* > {
   static void mapping(IO &io, Function<BlockT> *&Fn) {
     if (!Fn) Fn = new Function<BlockT>(0ULL);
-    io.mapRequired("name",      Fn->FunctionName);
-    io.mapRequired("level",     Fn->Level);
-    io.mapOptional("mapsto",    Fn->MapsTo, Name(""));
-    io.mapOptional("arguments", Fn->Arguments);
-    io.mapOptional("hash",      Fn->Hash);
-    io.mapRequired("blocks",    Fn->Blocks);
+    io.mapRequired("name",        Fn->FunctionName);
+    io.mapRequired("level",       Fn->Level);
+    io.mapOptional("mapsto",      Fn->MapsTo, Name(""));
+    io.mapOptional("arguments",   Fn->Arguments);
+    io.mapOptional("hash",        Fn->Hash);
+    io.mapRequired("blocks",      Fn->Blocks);
+    io.mapOptional("subfunctions",Fn->Subfunctions);
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR_1(Function)

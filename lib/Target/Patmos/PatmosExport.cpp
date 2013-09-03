@@ -234,8 +234,8 @@ namespace llvm {
         (void)RetCC_Patmos;
       }
 
+
     virtual bool doExportInstruction(const MachineInstr *Ins) {
-      if (Ins->isDebugValue()) return false;
       if (SkipSerializeInstructions) {
         if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() &&
             !Ins->getDesc().isReturn() && !Ins->getDesc().mayLoad() &&
@@ -258,6 +258,9 @@ namespace llvm {
     virtual void exportArgumentRegisterMapping(
                                   yaml::MachineFunction *PMF,
                                   const MachineFunction &MF);
+
+    virtual void exportSubfunctions(MachineFunction &MF,
+                                        yaml::MachineFunction *PMF);
   };
 
 
@@ -503,6 +506,26 @@ namespace llvm {
           HasBranchInfo, TrueSucc, FalseSucc);
     }
 
+
+    void PatmosMachineExport::exportSubfunctions(MachineFunction &MF,
+                                                 yaml::MachineFunction *PMF)
+    {
+      // TODO use some PML mapping function to get the unique label for MBBs
+      yaml::Subfunction *S = new yaml::Subfunction(MF.begin()->getNumber());
+      const PatmosMachineFunctionInfo *PMFI =
+                                        MF.getInfo<PatmosMachineFunctionInfo>();
+
+      for (MachineFunction::iterator bb = MF.begin(), be = MF.end(); bb != be;
+           bb++)
+      {
+        if (bb != MF.begin() && PMFI->isMethodCacheRegionEntry(bb)) {
+          PMF->addSubfunction(S);
+          S = new yaml::Subfunction(bb->getNumber());
+        }
+        S->addBlock(bb->getNumber());
+      }
+      PMF->addSubfunction(S);
+    }
 
 } // end namespace llvm
 

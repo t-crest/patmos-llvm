@@ -173,6 +173,8 @@ namespace llvm {
                                       yaml::MachineFunction *F,
                                       const MachineFunction &MF);
 
+    virtual void exportSubfunctions(MachineFunction &MF,
+                                    yaml::MachineFunction *PMF) { }
   };
 
   class PMLRelationGraphExport : public PMLExport {
