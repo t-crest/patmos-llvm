@@ -2,50 +2,38 @@
 #
 # run all tools with all known options (testing)
 usage() {
-    echo "Usage: ${0} bindir outdir module.bc"
-    echo "<bindir> will contain module.elf, module.elf.pml and module.elf.bc"
+    echo "Usage: ${0} workdir module.elf module.pml module.bc"
     echo "<outdir> will contain module.{ais,xml,apx,..}"
+    echo "PLATIN: path to platin executable"
     echo "FF_SELECT selection of flow facts (=all,local,minimal)"
     echo "VERBOSE if set, all executed commands are shown"
-    echo "PATMOS_CFLAGS is passed to patmos-clang"
     exit 1
 }
 
-if [ -z "${3}" ] ; then usage ; fi
+if [ -z "${4}" ] ; then usage ; fi
 
-BINDIR="${1}"
-OUTDIR="${2}"
-BC="${3}"
-BENCHMARK="bench-trace"
+OUTDIR="${1}"
+ELF="${2}"
+PML="${3}"
+ELFBC="${4}"
+if [ -z "${PLATIN}" ] ; then PLATIN_EXECUTABLE=./platin ; else PLATIN_EXECUTABLE="${PLATIN}" ; fi
+BENCHMARK="wcet"
 
-M=$(basename "${BC}" .bc)
-ELF="${BINDIR}/${M}.elf"
-PML="${BINDIR}/${M}.elf.pml"
-ELFBC="${BINDIR}/${M}.elf.bc"
-if [ -z "${PATMOS_CFLAGS}" ] ; then
-    PATMOS_CFLAGS="-O1"
-fi
-if [ ! -e "${BC}" ] ; then echo "${BC} not found" ; usage ; fi
-if [ -z "`which patmos-clang`" ] ; then echo "patmos-clang command not found" ; exit 1 ; fi
-set -x
-patmos-clang ${PATMOS_CFLAGS} -o "${ELF}" -mpreemit-bitcode="${ELFBC}" -mserialize="${PML}" "${BC}"
-set +x
-if [ $? -ne 0 ] ; then
-    echo "Compilation failed (${BINDIR}/${M}.log)"
-    exit 1
-fi
+M=$(basename "${PML}" .pml)
+if [ ! -e "${PML}" ] ; then echo "${PML} not found" ; usage ; fi
+
 # analyze
 MO="${OUTDIR}/${M}"
-
 PATMOS_OBJDUMP=$(which patmos-llvm-objdump)
+
 function platin-wrapper() {
     if [ ! -z "${VERBOSE}" ] ; then
-        echo ./platin "$@"
+        echo "${PLATIN_EXECUTABLE}" "$@"
     fi
-    ./platin "$@"
+    "${PLATIN_EXECUTABLE}" "$@"
     if [ $? -ne 0 ] ; then
         echo "ERROR: platin command failed" >&2
-        echo ./platin "$@" >&2
+        echo "${PLATIN_EXECUTABLE}" "$@" >&2
         exit 1
     fi
 }
@@ -74,7 +62,7 @@ ${PLATIN} transform -i "${MO}.pml" -o "${MO}.pml" --flow-fact-input trace.bitcod
 ${PLATIN} wca -i "${MO}.pml" -o "${MO}.pml"  --timing-output wca-tracebc-${FF_SELECT} --flow-fact-input trace.trafo,trace.support --flow-fact-selection all --analysis-entry main --stats
 
 # aiT analysis
-${PLATIN} pml2ais --ais "${MO}.ais" -g --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --apx "${MO}.apx" \
+${PLATIN} pml2ais --ais "${MO}.ais"  --flow-fact-input trace --flow-fact-selection ${FF_SELECT} --analysis-entry main --apx "${MO}.apx" \
     --binary "${ELF}" --ait-report-prefix "${MO}.ait" --stats "${MO}.pml"
 a3patmos -b "${MO}.apx"
 ${PLATIN} ait2pml --input "${MO}.pml" --output "${MO}.pml" --timing-output aiT-trace-${FF_SELECT} --ait-report-prefix "${MO}.ait" --stats

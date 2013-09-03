@@ -105,24 +105,28 @@ class TransformTool
   def TransformTool.add_options(opts)
     opts.analysis_entry
     opts.flow_fact_selection
+    opts.generates_flowfacts
     opts.on("--validate", "Validate relation graph") { opts.options.validate = true }
     opts.on("--transform-action ACTION", "action to perform (=down,up,copy,simplify)") { |action|
       opts.options.transform_action = action
     }
-    opts.on("--transform-eliminate-edges", "eliminate edges in favor of blocks") {
-      opts.options.transform_eliminated_edges = true
+    opts.on("--[no-]transform-eliminate-edges", "eliminate edges in favor of blocks") { |b|
+      opts.options.transform_eliminated_edges = b
     }
     RelationGraphValidationTool.add_options(opts, false)
     opts.add_check { |options|
       if options.validate
         RelationGraphValidationTool.check_options(options)
       end
+      if options.transform_action == 'simplify' && options.transform_eliminate_edges.nil?
+        options.transform_eliminate_edges = true
+      end
     }
   end
 
   # pml ... PML for the prgoam
   def TransformTool.run(pml,options)
-    needs_options(options,:flow_fact_selection,:flow_fact_srcs,:transform_action,:analysis_entry)
+    needs_options(options,:flow_fact_selection,:flow_fact_srcs,:transform_action,:analysis_entry, :flow_fact_output)
 
     #require 'perftools'
     #PerfTools::CpuProfiler.start("/tmp/platin-transform")
