@@ -14,9 +14,11 @@ module PML
 
   # Flow fact classification and selection
   class FlowFactClassifier
+
     def initialize(pml)
       @pml = pml
     end
+
     # FIXME: cache
     def classify(ff)
       c = OpenStruct.new
@@ -25,18 +27,26 @@ module PML
       # context-independent block infeasibility
       c.is_infeasible = ! ff.get_block_infeasible.nil?
       # context-independent calltarget restriction
-      (_,cs,_)      = ff.get_calltargets
-      c.is_indirect_calltarget = cs && cs.instruction.unresolved_call?
-      # rt: involves machine-code only function
-      c.is_rt         = ff.lhs.any? { |term| @pml.machine_code_only_functions.include?(term.ppref.function.label) }
+      (_,cs,_)        = ff.get_calltargets
+      c.is_indirect_calltarget = cs && cs.programpoint.unresolved_call?
+
+      # rt: involves machine-code only function (usually from compiler-rt or operating system)
+      if @pml
+        c.is_rt       = ff.lhs.any? { |term| @pml.machine_code_only_functions.include?(term.programpoint.function.label) }
+      else
+        c.is_rt       = false
+      end
+
       c.is_minimal    = c.is_loop_bound || c.is_infeasible || c.is_indirect_calltarget
       c.is_local      = ff.local?
       c
     end
+
     def classification_group(ff)
       c = classify(ff)
       group_for_classification(c)
     end
+
     def group_for_classification(c)
       s = if c.is_loop_bound
             "loop-bound"
@@ -52,6 +62,7 @@ module PML
       s = "#{s}-rt" if c.is_rt
       s
     end
+
     def included?(ff, profile)
       c = classify(ff)
       return true if profile == "all"
@@ -156,30 +167,31 @@ module PML
   # Term (ProgramPoint, Factor)
   # Immutable
   class Term < PMLObject
-    attr_reader :factor, :pp
+    attr_reader :factor, :ppref
     def initialize(pp,factor,data=nil)
-      pp = ContextRef.new(pp, Context.empty) if pp.kind_of?(Reference)
+      pp = ContextRef.new(pp, Context.empty) if pp.kind_of?(ProgramPoint)
+      assert("Term#initialize: pp not a programpoint reference") { pp.kind_of?(ContextRef) }
       assert("Term#initialize: not a context-sensitive reference: #{pp} :: #{pp.class}") { pp.kind_of?(ContextRef) }
-      @pp,@factor = pp,factor
+      @ppref, @factor = pp,factor
       set_yaml_repr(data)
     end
     def context
-      @pp.context
+      @ppref.context
     end
-    def ppref
-      @pp.reference
+    def programpoint
+      @ppref.programpoint
     end
 
     # pp and factor are immutable, no clone necessary
     def deep_clone
-      Term.new(pp, factor)
+      Term.new(@ppref, @factor)
     end
 
     def to_s
-      "#{@factor} #{pp.qname}"
+      "#{@factor} #{ppref.qname}"
     end
     def to_pml
-      { 'factor' => factor, 'program-point' => pp.data }
+      { 'factor' => @factor, 'program-point' => @ppref.data }
     end
     def Term.from_pml(mod,data)
       Term.new(ContextRef.from_pml(mod,data['program-point']), data['factor'])
@@ -202,7 +214,7 @@ module PML
     include ProgramInfoObject
 
     def initialize(scope, lhs, op, rhs, attributes, data = nil)
-      scope = ContextRef.new(scope,Context.empty) if scope.kind_of?(Reference)
+      scope = ContextRef.new(scope, Context.empty) if scope.kind_of?(ProgramPoint)
       assert("scope not a reference") { scope.kind_of?(ContextRef) }
       assert("lhs not a list proxy") { lhs.kind_of?(PMLList) }
       assert("lhs is not a list of terms") { lhs.empty? || lhs[0].kind_of?(Term) }
@@ -229,9 +241,13 @@ module PML
       FlowFact.new(scope.dup, lhs.deep_clone, op, rhs, attributes.dup)
     end
 
+    def classification_group(pml = nil)
+      FlowFactClassifier.new(pml).classification_group(self)
+    end
+
     def FlowFact.from_pml(pml, data)
       mod = pml.functions_for_level(data['level'])
-      scope = Reference.from_pml(mod,data['scope'])
+      scope = ContextRef.from_pml(mod,data['scope'])
       lhs = TermList.new(data['lhs'].map { |t| Term.from_pml(mod,t) })
       attrs = ProgramInfoObject.attributes_from_pml(pml, data)
       rhs = SymbolicExpression.parse(data['rhs'])
@@ -239,7 +255,7 @@ module PML
         if ty == :variable # ok
           name
         elsif ty == :loop
-          b = scope.function.blocks.by_name(name[1..-1]).loopref
+          b = scope.function.blocks.by_name(name[1..-1]).loop
           unless b
             raise Exception.new("Unable to lookup loop: #{name} in #{b}")
           end
@@ -274,9 +290,9 @@ module PML
       flowfact
     end
 
-    def FlowFact.loop_bound(scoperef, bound, attrs)
-      blockref = ContextRef.new(BlockRef.new(scoperef.reference.loopblock),Context.empty)
-      flowfact = FlowFact.new(scoperef, TermList.new([Term.new(blockref,1)]), 'less-equal',
+    def FlowFact.loop_bound(scope, bound, attrs)
+      blockref = ContextRef.new(scope.programpoint.loopheader, Context.empty)
+      flowfact = FlowFact.new(scope, TermList.new([Term.new(blockref,1)]), 'less-equal',
                               bound, attrs.dup)
       flowfact
     end
@@ -288,7 +304,7 @@ module PML
     end
 
     def local?
-      lhs.all? { |term| term.ppref.function == scope.function }
+      lhs.all? { |term| term.programpoint.function == scope.function }
     end
 
     def loop_bound?
@@ -296,7 +312,7 @@ module PML
     end
 
     def loop_scope?
-      scope.reference.kind_of?(LoopRef)
+      scope.programpoint.kind_of?(Loop)
     end
 
     def context_sensitive?
@@ -304,23 +320,23 @@ module PML
     end
 
     def references_empty_block?
-      lhs.any? { |t| t.ppref.kind_of?(BlockRef) && t.ppref.block.instructions.empty? }
+      lhs.any? { |t| t.programpoint.kind_of?(Block) && t.programpoint.instructions.empty? }
     end
 
     def references_edges?
-      lhs.any? { |t| t.ppref.kind_of?(EdgeRef) }
+      lhs.any? { |t| t.programpoint.kind_of?(Edge) }
     end
 
     def blocks_constraint?
-      lhs.all? { |t| t.ppref.kind_of?(BlockRef) }
+      lhs.all? { |t| t.programpoint.kind_of?(Block) }
     end
 
     # if this constraint is a loop bound, return loop scope and bound
     def get_loop_bound
       s,b,rhs = get_block_frequency_bound
       return nil unless s
-      return nil unless s.reference.kind_of?(LoopRef)
-      return nil unless s.reference.loopblock == b.reference.block && b.context.empty?
+      return nil unless s.programpoint.kind_of?(Loop)
+      return nil unless s.programpoint.loopheader == b.programpoint.block && b.context.empty?
       [s,rhs]
     end
 
@@ -335,32 +351,32 @@ module PML
 
     # if this is a flowfact constraining the frequency of a single block,
     # return [scope, block, freq]
-    #  block  ... BlockRef
+    #  block  ... Block
     #  freq   ... Integer
     def get_block_frequency_bound
       return nil unless lhs.list.length == 1
       term = lhs.list.first
       return nil unless term.factor == 1
-      return nil unless term.ppref.kind_of?(BlockRef)
-      [scope, term.pp, rhs]
+      return nil unless term.programpoint.kind_of?(Block)
+      [scope, term.ppref, rhs]
     end
 
     # if this is a calltarget-* flowfact, return [scope, cs, targets]:
-    #   cs      ... ContextRef <InstructionRef>
-    #   targets ... [FunctionRef]
+    #   cs      ... ContextRef <Instruction>
+    #   targets ... [Function]
     def get_calltargets
       callsite_candidate = lhs.list.select { |term|
-        term.factor == 1 && term.ppref.kind_of?(InstructionRef)
+        term.factor == 1 && term.programpoint.kind_of?(Instruction)
       }
       return nil unless callsite_candidate.length == 1
-      callsite_ref = callsite_candidate.first.pp
+      callsite_ref = callsite_candidate.first.ppref
       opposite_factor = -1
       targets = []
       lhs.each { |term|
         next if term == callsite_candidate.first
         return nil unless term.factor == opposite_factor
-        return nil unless term.ppref.kind_of?(FunctionRef)
-        targets.push(term.ppref)
+        return nil unless term.programpoint.kind_of?(Function)
+        targets.push(term.programpoint)
       }
       [scope, callsite_ref, targets]
     end
@@ -411,12 +427,16 @@ module PML
   # width: int
   # values: list of { min: x, max: x }
   class ValueFact < PMLObject
-    attr_reader :attributes, :programpoint, :variable, :width, :values
+    attr_reader :attributes, :ppref, :variable, :width, :values
     include ProgramInfoObject
-    def initialize(programpoint, variable, width, values, attrs, data = nil)
-      @programpoint, @variable, @width, @values = programpoint, variable, width, values
+    def initialize(ppref, variable, width, values, attrs, data = nil)
+      assert("ValueFact#initialize: program point reference has wrong type (#{ppref.class})") { ppref.kind_of?(ContextRef) }
+      @ppref, @variable, @width, @values = ppref, variable, width, values
       @attributes = attrs
       set_yaml_repr(data)
+    end
+    def programpoint
+      @ppref.programpoint
     end
     def ValueFact.from_pml(pml, data)
       fs = pml.functions_for_level(data['level'])
@@ -427,7 +447,7 @@ module PML
                     data)
     end
     def to_pml
-      { 'program-point' => @programpoint.data,
+      { 'program-point' => @ppref.data,
         'variable' => @variable,
         'width' => @width,
         'values' => @values.data }.merge(attributes)
@@ -477,6 +497,8 @@ module PML
 
     def initialize(scope, cycles, profile, attrs, data = nil)
       @scope = scope
+      @scope = ContextRef.new(@scope, Context.empty) if scope.kind_of?(ProgramPoint)
+      assert("TimingEntry#initialize: not a programpoint reference") { @scope.kind_of?(ContextRef) }
       @cycles = cycles
       @profile = profile
       @attributes = attrs
@@ -489,7 +511,7 @@ module PML
     def TimingEntry.from_pml(pml, data)
       fs = pml.functions_for_level(data['level'])
       profile = data['profile'] ? Profile.from_pml(fs, data['profile']) : nil
-      TimingEntry.new(Reference.from_pml(fs,data['scope']), data['cycles'],
+      TimingEntry.new(ContextRef.from_pml(fs,data['scope']), data['cycles'],
                       profile,
                       ProgramInfoObject.attributes_from_pml(pml,data), data)
     end

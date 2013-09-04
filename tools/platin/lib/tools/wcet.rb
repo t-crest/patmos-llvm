@@ -216,7 +216,7 @@ class WcetTool
     criticality = {}
     missing_blocks, missing_edges = Set.new, Set.new
     pml.machine_functions.each { |f|
-      f.blocks.each { |b| missing_blocks.add(b.ref) }
+      f.blocks.each { |b| missing_blocks.add(b) }
       f.edges.each { |e| missing_edges.add(e) }
     }
     timing = pml.timing.find { |t| t.origin == opts.timing_output }
@@ -236,10 +236,10 @@ class WcetTool
         found_new_edge = false
         timing.profile.each { |t|
           next unless t.wcetfreq > 0
-          unless criticality[t.reference.reference]
-            criticality[t.reference.reference] = cycles
-            missing_blocks.delete(t.reference.reference.source.ref) if missing_blocks
-            missing_edges.delete(t.reference.reference)
+          unless criticality[t.reference.programpoint]
+            criticality[t.reference.programpoint] = cycles
+            missing_blocks.delete(t.reference.programpoint.source) if missing_blocks
+            missing_edges.delete(t.reference.programpoint)
             found_new_edge = true
           end
         }
@@ -295,7 +295,7 @@ class WcetTool
 
   def enforce_blocks_constraint(edges_or_blocks, origin)
     attrs = { 'level' => 'machinecode', 'origin' => origin }
-    scoperef = analysis_entry.ref
+    scoperef = analysis_entry
     terms = edges_or_blocks.map { |ppref|
       Term.new(ppref, -1)
     }

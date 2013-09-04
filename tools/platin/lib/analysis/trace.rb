@@ -479,9 +479,9 @@ class FunctionRecorder
   end
   def scope
     if @context
-      ContextRef.new(@function.ref, @context)
+      ContextRef.new(@function, @context)
     else
-      @function.ref
+      @function
     end
   end
   def active?

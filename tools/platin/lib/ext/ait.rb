@@ -164,7 +164,7 @@ module PML
         warn("aiT: no support for callcontext-sensitive loop bounds")
         return false
       end
-      loopblock = scope.reference.loopblock
+      loopblock = scope.programpoint.loopheader
 
       origins = Set.new
       ais_bounds = bounds_and_ffs.map { |bound,ff|
@@ -203,7 +203,7 @@ module PML
       end
 
       # no support for empty basic blocks (typically at -O0)
-      if pp.reference.block.instructions.empty?
+      if pp.programpoint.block.instructions.empty?
         warn("aiT: no support for program points referencing empty blocks: #{ff}")
         return false
       end
@@ -229,11 +229,11 @@ module PML
 
       # we only export either (a) local flowfacts (b) flowfacts in the scope of the analysis entry
       type = :unsupported
-      if ! scope.reference.kind_of?(FunctionRef)
+      if ! scope.programpoint.kind_of?(Function)
         warn("aiT: linear constraint not in function scope (unsupported): #{ff}")
         return false
       end
-      if scope.reference.function == @entry
+      if scope.programpoint == @entry
         type = :global
       elsif ff.local?
         type = :local
@@ -243,13 +243,13 @@ module PML
       end
 
       # no support for edges in aiT
-      unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
+      unless terms.all? { |t| t.programpoint.kind_of?(Block) }
         warn("Constraint not supported by aiT (not a block ref): #{ff}")
         return false
       end
 
       # no support for empty basic blocks (typically at -O0)
-      if terms.any? { |t| t.ppref.block.instructions.empty? }
+      if terms.any? { |t| t.programpoint.block.instructions.empty? }
         warn("Constraint not supported by aiT (empty basic block): #{ff})")
         return false
       end
@@ -260,11 +260,11 @@ module PML
         return true
       end
 
-      scope = scope.function.blocks.first.ref
+      scope = scope.function.blocks.first
       terms.push(Term.new(scope,-rhs)) if rhs != 0
       terms.each { |t|
         set = (t.factor < 0) ? terms_rhs : terms_lhs
-        set.push("#{t.factor.abs} (#{dquote(t.ppref.block.label)})")
+        set.push("#{t.factor.abs} (#{dquote(t.programpoint.block.label)})")
       }
       cmp_op = "<="
       constr = [terms_lhs, terms_rhs].map { |set|
@@ -314,7 +314,7 @@ module PML
         return false if options.ais_disable_export.include?('infeasible-code')
         export_infeasible(ff,*scope_pp)
 
-      elsif ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef)
+      elsif ff.blocks_constraint? || ff.scope.programpoint.kind_of?(Function)
         return false if options.ais_disable_export.include?('flow-constraints')
         export_linear_constraint(ff)
 
@@ -326,6 +326,11 @@ module PML
 
     # export value facts
     def export_valuefact(vf)
+      assert("AisExport#export_valuefact: programpoint is not an instruction (#{vf.programpoint.class})") { vf.programpoint.kind_of?(Instruction) }
+      if ! vf.ppref.context.empty?
+        warn("AisExport#export_valuefact: cannot export context-sensitive program point")
+        return false
+      end
       rangelist = vf.values.map { |v|
         if s = v.symbol
           dquote(s)
@@ -333,11 +338,11 @@ module PML
           die("No symbol for value #{v.inspect}")
         end
       }.join(", ")
-      if ! vf.programpoint.reference.instruction.address
+      if ! vf.programpoint.address
         die("Cannot obtain address for instruction "+
             "(forgot 'platin extract-symbols'?)")
       end
-      gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
+      gen_fact("instruction 0x#{vf.programpoint.address.to_s(16)}" +
                " accesses #{rangelist}",
                "Memory address (source: #{vf.origin})", vf)
     end
@@ -413,7 +418,7 @@ class AitImport
   def read_result_file(file)
     doc = Document.new(File.read(file))
     cycles = doc.elements["results/result[1]/cycles"].text.to_i
-    scope = pml.machine_functions.by_label(options.analysis_entry).ref
+    scope = pml.machine_functions.by_label(options.analysis_entry)
     TimingEntry.new(scope,
                     cycles,
                     nil,
@@ -505,7 +510,7 @@ class AitImport
           # value_step#index ? value_step#mode?
           # value_area#mod? value_area#rem?
 
-          fact_pp = ContextRef.new(ins.ref, context)
+          fact_pp = ContextRef.new(ins, context)
           is_read = se.attributes['type'] == 'read'
           if is_read
             fact_variable = "mem-address-read"
@@ -664,7 +669,7 @@ class AitImport
             # Moreover, we add the maximum cost for (b/i -> b') to the edge b->b'.
 
             if source.block == target_block && is_intrablock_target
-              ref = ContextRef.new(source.ref, context)
+              ref = ContextRef.new(source, context)
               ait_ins_cost[ref] = [ait_ins_cost[ref],path_cycles].max
             else
               pml_edge = source.block.edge_to(target_block ? target_block : nil)
@@ -696,8 +701,8 @@ class AitImport
     }
     ait_ins_cost.each { |cref, path_cycles|
       context = cref.context
-      if cref.reference.kind_of?(InstructionRef)
-        ins = cref.instruction
+      if cref.programpoint.kind_of?(Instruction)
+        ins = cref.programpoint
         ins.block.outgoing_edges.each { |pml_edge|
           if ins.live_successor?(pml_edge.target)
             # info "Adding cost to intrablock edge #{pml_edge}: #{path_cycles}"
@@ -707,7 +712,9 @@ class AitImport
           end
         }
       else
-        pml_edge = cref.reference
+        pml_edge = cref.programpoint
+        assert("read_wcet_analysis_result: expecting Edge type") { pml_edge.kind_of?(Edge) }
+
         # info "Adding cost to intraprocedural edge #{pml_edge}: #{path_cycles}"
         (edge_cycles[pml_edge]||=Hash.new(0))[context] += path_cycles
       end

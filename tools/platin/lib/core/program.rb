@@ -8,156 +8,6 @@ require 'core/pmlbase'
 
 module PML
 
-  class Reference < PMLObject
-    include QNameObject
-    def Reference.from_pml(functions, data)
-      fname = data['function']
-      bname = data['block']
-      lname = data['loop']
-      iname = data['instruction']
-      is_edge = ! data['edgesource'].nil?
-
-      # support for compact notation
-      return InstructionRef.from_qname(functions,iname) if iname && ! bname
-      return LoopRef.from_qname(functions,data['loop']) if lname && ! fname
-      return BlockRef.from_qname(functions,bname)       if bname && ! fname
-      assert("PML Reference: no function attribute") { fname }
-      function = functions.by_name(fname)
-
-      if (lname || bname)
-        block = function.blocks.by_name(lname || bname)
-        if iname
-          instruction = block.instructions[iname]
-          return InstructionRef.new(instruction,data)
-        elsif lname
-          return LoopRef.new(block,data)
-        else
-          return BlockRef.new(block,data)
-        end
-      elsif is_edge
-        src = data['edgesource']
-        bb_src = function.blocks.by_name(src)
-        bb_dst = function.blocks.by_name(data['edgetarget']) if data['edgetarget']
-        return EdgeRef.new(bb_src, bb_dst, data)
-      else
-        return FunctionRef.new(function, data)
-      end
-    end
-  end
-
-  # Qualified name for functions
-  class FunctionRef < Reference
-    attr_reader :function
-    def initialize(function, data = nil)
-      @function = function
-      @qname = function.qname
-      set_yaml_repr(data)
-    end
-    def to_s
-      "#<FunctionRef: #{function}>"
-    end
-    def to_pml
-      { 'function' => @function.name }
-    end
-  end
-
-  # Qualified name for blocks
-  class BlockRef < Reference
-    attr_reader :function, :block, :qname
-    def initialize(block, data = nil)
-      @block = block
-      @function = block.function
-      @qname = block.qname
-      set_yaml_repr(data)
-    end
-    def to_s
-      "#<BlockRef: #{@block.qname}"
-    end
-    def to_pml
-      { 'function' => function.name, 'block' => block.name }
-    end
-    def BlockRef.from_qname(functions,qn)
-      fn,bn = qn.split('/',2).map { |n| YAML::load(n) }
-      functions.by_name(fn).blocks.by_name(bn).ref
-    end
-  end
-
-  # Qualified name for loops
-  class LoopRef < Reference
-    attr_reader :function, :loopblock, :qname
-    def initialize(block, data = nil)
-      die("Block#loopref: #{block.qname} is not a loop header") unless block.loopheader?
-      @loopblock = block
-      @function = block.function
-      @qname = block.qname
-      set_yaml_repr(data)
-    end
-    def to_s
-      "#<LoopRef: #{loopblock.qname}>"
-    end
-    def to_pml
-      { 'function' => loopblock.function.name, 'loop' => loopblock.name }
-    end
-    def LoopRef.from_qname(functions,qn)
-      fn,bn = qn.split('/',2).map { |n| YAML::load(n) }
-      LoopRef.new(functions.by_name(fn).blocks.by_name(bn))
-    end
-  end
-
-  class EdgeRef < Reference
-    attr_reader :source, :target
-    def initialize(source, target, data = nil)
-      assert("PML EdgeRef: source and target need to be blocks, not #{source.class}/#{target.class}") {
-        source.kind_of?(Block) && (target.nil? || target.kind_of?(Block))
-      }
-      assert("PML EdgeRef: source and target function need to match") { target.nil? || source.function == target.function }
-
-      @source, @target = source, target
-      @name = "#{source.name}->#{target ? target.name : '' }"
-      @qname = "#{source.qname}->#{target ? target.name : '' }"
-      set_yaml_repr(data)
-    end
-    def ref
-      self
-    end
-    def exitedge?
-      target.nil?
-    end
-    def function
-      source.function
-    end
-    def to_s
-      "#{source.to_s}->#{target ? target.qname : 'exit'}"
-    end
-    def to_pml
-      pml = { 'function' => source.function.name,
-        'edgesource' => source.name }
-      pml['edgetarget'] = target.name if target
-      pml
-    end
-  end
-
-  # Qualified name for instructions
-  class InstructionRef < Reference
-    attr_reader :function, :block, :instruction
-    def initialize(instruction, data = nil)
-      @instruction = instruction
-      @block, @function = instruction.block, instruction.function
-      @qname = instruction.qname
-      set_yaml_repr(data)
-    end
-    def to_s
-      "#<InstructionRef: #{@instruction.qname}>"
-    end
-    def to_pml
-      { 'function' => function.name, 'block' => block.name, 'instruction' => instruction.name }
-    end
-    def InstructionRef.from_qname(functions,qn)
-      fn,bn,iname = qn.split('/',3).map { |n| YAML::load(n) }
-      functions.by_name(fn).blocks.by_name(bn).instructions[iname].ref
-    end
-  end
-
   # List of functions in the program
   class FunctionList < PMLList
     extend PMLListGen
@@ -230,15 +80,103 @@ module PML
   end
 
   # References to Program Points (functions, blocks, instructions)
-  class ProgramPointProxy < PMLObject
+  class ProgramPoint < PMLObject
     include QNameObject
     attr_reader :name
     def address ; data['address'] ; end
     def address=(addr); data['address'] = addr; end
+
+    def ProgramPoint.from_pml(functions, data)
+      fname = data['function']
+      bname = data['block']
+      lname = data['loop']
+      iname = data['instruction']
+      is_edge = ! data['edgesource'].nil?
+
+      assert("ProgramPoint.from_pml: no function attribute: #{data}") { fname }
+      function = functions.by_name(fname)
+
+      if (lname || bname)
+        block = function.blocks.by_name(lname || bname)
+        if iname
+          instruction = block.instructions[iname]
+          return instruction
+        elsif lname
+          return Loop.new(block)
+        else
+          return block
+        end
+      elsif is_edge
+        src = data['edgesource']
+        bb_src = function.blocks.by_name(src)
+        bb_dst = function.blocks.by_name(data['edgetarget']) if data['edgetarget']
+        return Edge.new(bb_src, bb_dst)
+      else
+        return function
+      end
+    end
   end
 
   # PML call graph
   class Callgraph < PMLObject
+  end
+
+  # Qualified name for loops
+  class Loop < ProgramPoint
+    attr_reader :function, :loopheader, :qname
+    def initialize(block, data = nil)
+      die("Loop#initialize: #{block.qname} is not a loop header") unless block.loopheader?
+      @loopheader = block
+      @function = block.function
+      @qname = block.qname
+      set_yaml_repr(data)
+    end
+    def loops
+      @loopheader.loops
+    end
+    def to_s
+      "#<Loop: #{loopheader.qname}>"
+    end
+    def to_pml_ref
+      { 'function' => loopheader.function.name, 'loop' => loopheader.name }
+    end
+    def Loop.from_qname(functions,qn)
+      fn,bn = qn.split('/',2).map { |n| YAML::load(n) }
+      Loop.new(functions.by_name(fn).blocks.by_name(bn))
+    end
+  end
+
+  class Edge < ProgramPoint
+    attr_reader :source, :target
+    def initialize(source, target, data = nil)
+      assert("PML Edge: source and target need to be blocks, not #{source.class}/#{target.class}") {
+        source.kind_of?(Block) && (target.nil? || target.kind_of?(Block))
+      }
+      assert("PML Edge: source and target function need to match") { target.nil? || source.function == target.function }
+
+      @source, @target = source, target
+      @name = "#{source.name}->#{target ? target.name : '' }"
+      @qname = "#{source.qname}->#{target ? target.name : '' }"
+      set_yaml_repr(data)
+    end
+    def ref
+      self
+    end
+    def exitedge?
+      target.nil?
+    end
+    def function
+      source.function
+    end
+    def to_s
+      "#{source.to_s}->#{target ? target.qname : 'exit'}"
+    end
+    def to_pml_ref
+      pml = { 'function' => source.function.name,
+        'edgesource' => source.name }
+      pml['edgetarget'] = target.name if target
+      pml
+    end
   end
 
   # PML function arguments
@@ -273,7 +211,7 @@ module PML
   end
 
   # PML function wrapper
-  class Function < ProgramPointProxy
+  class Function < ProgramPoint
     attr_reader :blocks, :loops, :arguments
     def initialize(data, opts)
       set_yaml_repr(data)
@@ -289,9 +227,6 @@ module PML
         end
       end
     end
-    def ref
-      FunctionRef.new(self)
-    end
     def [](k)
       assert("Function: do not access blocks/loops directly") { k!='blocks'&&k!='loops'}
       data[k]
@@ -303,6 +238,12 @@ module PML
       s = name
       s = "(#{data['mapsto']})#{s}" if data['mapsto']
       s
+    end
+    def to_pml_ref
+      { 'function' => name }
+    end
+    def function
+      self
     end
     def entry_block
       blocks.first
@@ -342,7 +283,7 @@ module PML
   end # of class Function
 
   # Class representing PML Basic Blocks
-  class Block < ProgramPointProxy
+  class Block < ProgramPoint
     attr_reader :function,:instructions,:loopnest
     def initialize(function,data)
       set_yaml_repr(data)
@@ -358,6 +299,7 @@ module PML
     def mapsto
       data['mapsto']
     end
+
     # loops (not ready at initialization time)
     def loops
       return @loops if @loops
@@ -406,12 +348,12 @@ module PML
 
     # edge to the given target block (reference)
     def edge_to(target)
-      EdgeRef.new(self, target)
+      Edge.new(self, target)
     end
 
     # edge to the function exit
     def edge_to_exit
-      EdgeRef.new(self, nil)
+      Edge.new(self, nil)
     end
 
     # yields outgoing edges (references)
@@ -492,14 +434,23 @@ module PML
       ".LBB#{fname}_#{bname}"
     end
 
-    # reference to this block
-    def ref
-      BlockRef.new(self)
+    # ProgramPoint#block (return self)
+    def block
+      self
     end
 
     # reference to the loop represented by the block (needs to be the header of a reducible loop)
-    def loopref
-      LoopRef.new(self)
+    def loop
+      Loop.new(self)
+    end
+
+    def Block.from_qname(functions,qn)
+      fn,bn = qn.split('/',2).map { |n| YAML::load(n) }
+      functions.by_name(fn).blocks.by_name(bn)
+    end
+
+    def to_pml_ref
+      { 'function' => function.name, 'block' => name }
     end
 
     # string representation
@@ -513,7 +464,7 @@ module PML
   end
 
   # Proxy for PML instructions
-  class Instruction < ProgramPointProxy
+  class Instruction < ProgramPoint
     attr_reader :block
     def initialize(block,data)
       set_yaml_repr(data)
@@ -525,8 +476,14 @@ module PML
     def index
       data['index']
     end
-    def ref
-      InstructionRef.new(self)
+
+    def to_pml_ref
+      { 'function' => function.name, 'block' => block.name, 'instruction' => name }
+    end
+
+    def Instruction.from_qname(functions,qn)
+      fn,bn,iname = qn.split('/',3).map { |n| YAML::load(n) }
+      functions.by_name(fn).blocks.by_name(bn).instructions[iname]
     end
 
     # type of branch this instruction realizes (if any)
@@ -589,6 +546,12 @@ module PML
     def function
       block.function
     end
+
+    # ProgramPoint#instruction (return self)
+    def instruction
+      self
+    end
+
     # the next instruction in the instruction list, or the first instruction of the only successor block
     def next
       block.instructions[index+1] || (block.next ? block.next.instructions.first : nil)

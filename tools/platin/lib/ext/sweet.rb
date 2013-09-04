@@ -348,7 +348,7 @@ class SweetFlowFactImport
       when "=" ; "equal"
       else     ; raise Exception.new("Bad constraint op: #{ffsrc.constraint.op}")
       end
-    flowfact = FlowFact.new(scope.ref, TermList.new(terms), op, ffsrc.constraint.rhs,
+    flowfact = FlowFact.new(scope, TermList.new(terms), op, ffsrc.constraint.rhs,
                             @fact_attributes.dup)
     flowfact
   end
@@ -357,7 +357,7 @@ class SweetFlowFactImport
     if pp.kind_of?(SWEET::Edge)
       srcpp, dstpp = [pp.src,pp.target].map { |bpp| lookup_program_point(bpp) }
       raise UnsupportedFlowFactException.new("interprocedural edges not yet supported") if srcpp.function != dstpp.function
-      if srcpp.kind_of?(EdgeRef) || dstpp.kind_of?(EdgeRef)
+      if srcpp.kind_of?(Edge) || dstpp.kind_of?(Edge)
         raise UnsupportedFlowFactException.new("ALF edges involving LLVM edges are not supported")
       elsif dstpp.kind_of?(Instruction)
         raise UnsupportedFlowFactException.new("intrablock edges are not supported") if dstpp.ins
@@ -365,9 +365,9 @@ class SweetFlowFactImport
         srcpp = srcpp.block
       end
       assert("supported SWEET edges should reference blocks") { srcpp.kind_of?(Block) && dstpp.kind_of?(Block) }
-      EdgeRef.new(srcpp, dstpp)
+      Edge.new(srcpp, dstpp)
     else
-      lookup_program_point(pp).ref
+      lookup_program_point(pp)
     end
   end
 
@@ -380,7 +380,7 @@ class SweetFlowFactImport
     if targetblockname
       # ignore instruction for edges
       targetblock = @functions.by_name(targetfunname).blocks.by_name(targetblockname)
-      EdgeRef.new(block,targetblock)
+      Edge.new(block,targetblock)
     elsif insname
       block.instructions[insname.to_i]
     else

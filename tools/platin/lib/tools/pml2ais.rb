@@ -58,7 +58,7 @@ class AisExportTool
 
       unless options.ais_disable_export.include?('mem-addresses')
         valuefacts = pml.valuefacts.select { |vf|
-          vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.programpoint.context.empty?
+          vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.ppref.context.empty?
         }.each { |vf|
           ais.export_valuefact(vf)
         }

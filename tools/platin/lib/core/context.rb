@@ -179,8 +179,8 @@ class CallContextEntry < ContextEntry
     { 'callsite' => @callsite.qname }
   end
   def CallContextEntry.from_pml(functions, data)
-    ref = InstructionRef.from_qname(functions,data['callsite'])
-    assert("CallContextEntry#from_pml: callsite is not an instruction") { ref.kind_of?(InstructionRef) }
+    ref = Instruction.from_qname(functions,data['callsite'])
+    assert("CallContextEntry#from_pml: callsite is not an instruction") { ref.kind_of?(Instruction) }
     CallContextEntry.new(ref.instruction, data)
   end
   def dup
@@ -240,12 +240,12 @@ class LoopContextEntry < ContextEntry
   end
 
   def LoopContextEntry.from_pml(functions, data)
-    ref = LoopRef.from_qname(functions,data['loop'])
-    assert("LoopContextEntry#from_pml: loop is not a loop reference") { ref.kind_of?(LoopRef) }
+    ref = Loop.from_qname(functions,data['loop'])
+    assert("LoopContextEntry#from_pml: loop is not a loop reference") { ref.kind_of?(Loop) }
     step = data['step']
     offset = data['offset']
-    callsite = InstructionRef.from_qname(functions, data['callsite']).instruction if data['callsite']
-    LoopContextEntry.new(ref.loopblock,step,offset,callsite)
+    callsite = Instruction.from_qname(functions, data['callsite']).instruction if data['callsite']
+    LoopContextEntry.new(ref.loopheader,step,offset,callsite)
   end
 
   #
@@ -416,59 +416,60 @@ class Context < PMLObject
 end
 
 #
-# program point reference + context
+# program point + context
 class ContextRef < PMLObject
-  attr_reader :reference, :context
-  def initialize(ref, context, data = nil)
-    assert("ContextRef: reference has bad type #{ref.class}") { ref.kind_of?(Reference) }
+  attr_reader :programpoint, :context
+  def initialize(pp, context, data = nil)
+    assert("ContextRef: programpoint has bad type #{pp.class}") { pp.kind_of?(ProgramPoint) }
     assert("ContextRef: context has bad type #{context.class}") { context.kind_of?(Context) }
-    @reference, @context = ref, context
+    @programpoint, @context = pp, context
     set_yaml_repr(data)
   end
 
   #
-  # FIXME: the notation is compact, but mixes up context references and references; reconsider
+  # FIXME: the notation is compact, but merges YAML representation of programpoint references and context
+  # Is this a good idea?
   def to_pml
-    pml = @reference.data.dup
+    pml = @programpoint.to_pml_ref
     pml['context'] = @context.data unless @context.empty?
     pml
   end
 
   def ContextRef.from_pml(functions, data)
     context = data['context'] ? Context.from_pml(functions,data['context']) : Context.empty
-    ref = Reference.from_pml(functions, data)
-    ContextRef.new(ref, context, data)
+    pp = ProgramPoint.from_pml(functions, data)
+    ContextRef.new(pp, context, data)
   end
   def function
-    reference.function
+    programpoint.function
   end
   def block
-    reference.block
+    programpoint.block
   end
   def instruction
-    reference.instruction
+    programpoint.instruction
   end
   def loop
-    reference.loop
+    programpoint.loop
   end
   def qname
-    "#{reference.qname}#{context.qname}"
+    "#{programpoint.qname}#{context.qname}"
   end
   def inspect
-    "ContextRef<reference=#{reference.inspect},context=#{context.inspect}>"
+    "ContextRef<programpoint=#{programpoint.inspect},context=#{context.inspect}>"
   end
   def to_s
-    "#{reference}#{context.qname}"
+    "#{programpoint}#{context.qname}"
   end
   def ==(other)
     return false if other.nil?
     return false unless other.kind_of?(ContextRef)
-    @reference == other.reference && @context == other.context
+    @programpoint == other.programpoint && @context == other.context
   end
   def eql?(other); self == other ; end
   def hash
     return @hash if @hash
-    @hash = @reference.hash * 31 + @context.hash
+    @hash = @programpoint.hash * 31 + @context.hash
   end
   def <=>(other)
     hash <=> other.hash

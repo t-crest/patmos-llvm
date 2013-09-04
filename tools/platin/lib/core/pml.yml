@@ -40,7 +40,7 @@ mapping:
             type: scalar
             desc: "corresponding function on the next higher-level representation (if any) [indexed]"
           "hash": &hash
-            type: str
+            type: scalar
             desc: "checksum (SHA-128) characterizing the function [type=CheckSum]"
           "arguments":
             type: seq
@@ -143,9 +143,9 @@ mapping:
                           "address":
                              type: int
                              desc: "address of the instruction in the linked binary [type=Address, indexed]"
-                          "stack-cache-fill"
-			     type: int
-			     desc: "TODO"
+                          "stack-cache-fill":
+                             type: int
+                             desc: "TODO"
           "subfunctions":
             type: seq
             desc: "subfunctions of the function"
@@ -171,7 +171,6 @@ mapping:
   "relation-graphs":
     type: seq
     desc: "list of relation graphs"
-    class: RelationGraph
     sequence:
       - &relationgraph
         type: map

@@ -110,7 +110,7 @@ class WcaTool
 
     # report result
     profile = Profile.new([])
-    report = TimingEntry.new(machine_entry.ref, cycles, profile,
+    report = TimingEntry.new(machine_entry, cycles, profile,
                              'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
     # collect edge timings
     edgefreq, edgecost = {}, Hash.new(0)
