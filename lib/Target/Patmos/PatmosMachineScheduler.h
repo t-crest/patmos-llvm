@@ -46,14 +46,12 @@ public:
 
 class PatmosVLIWSchedStrategy : public MachineSchedStrategy {
 
-  const TargetSchedModel *SchedModel;
-  const TargetRegisterInfo *TRI;
+  //const TargetSchedModel *SchedModel;
+  //const TargetRegisterInfo *TRI;
 
 public:
 
-
-  PatmosVLIWSchedStrategy():
-    SchedModel(0), TRI(0) {}
+  PatmosVLIWSchedStrategy() {}
 
   virtual void initialize(ScheduleDAGMI *dag);
 
