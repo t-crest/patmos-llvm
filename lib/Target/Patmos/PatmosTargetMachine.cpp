@@ -100,7 +100,20 @@ namespace {
         // removed before function splitter
         addPass(&UnreachableMachineBlockElimID);
       }
+      if (getOptLevel() != CodeGenOpt::None) {
+        // Add the standard basic block placement before the post-RA scheduler
+        // as it creates and removes branches.
+        TargetPassConfig::addBlockPlacement();
+      }
       return true;
+    }
+
+    virtual void addBlockPlacement() {
+      // The block placement passes are added after the post-RA scheduler.
+      // We do want to have our branches created by this pass scheduled by the
+      // post-RA scheduler and we do not handle delay-slots in
+      // PatmosInstrInfo.InsertBranch|RemoveBranch, so we disable the default
+      // pass here and add them in PreSched2 instead.
     }
 
     /// addPreEmitPass - This pass may be implemented by targets that want to run
