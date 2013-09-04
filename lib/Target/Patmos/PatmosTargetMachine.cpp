@@ -70,10 +70,9 @@ namespace {
         enablePass(&MachineSchedulerID);
         MachineSchedRegistry::setDefault(createPatmosVLIWMachineSched);
       }
-      if (TM->getSubtargetImpl()->usePostRAMIScheduler(getOptLevel())) {
-        // TODO setup MI scheduler as post-RA scheduler
-        // (substitute PostRASchdeulerID)
-
+      if (TM->getSubtargetImpl()->usePatmosPostRAScheduler(getOptLevel())) {
+        initializePatmosPostRASchedulerPass(*PassRegistry::getPassRegistry());
+        substitutePass(&PostRASchedulerID, &PatmosPostRASchedulerID);
       }
     }
 
@@ -111,20 +110,18 @@ namespace {
 
       // Post-RA MI Scheduler does bundling and delay slots itself. Otherwise,
       // add passes to handle them.
-      if (!getPatmosSubtarget().usePostRAMIScheduler(getOptLevel())) {
+      if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
 
         if (getPatmosSubtarget().enableBundling(getOptLevel())) {
           addPass(createPatmosPacketizer(getPatmosTargetMachine()));
         }
 
-        // disable the filler if we have bundles, the filler does not handle
-        // them properly at the moment.
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
                                                 false));
-      }
 
-      if (getPatmosSubtarget().enableBundling(getOptLevel())) {
-        addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
+        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
+          addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
+        }
       }
 
       // All passes below this line must handle delay slots and bundles

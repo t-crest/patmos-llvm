@@ -29,6 +29,7 @@ namespace llvm {
 
   void initializePatmosCallGraphBuilderPass(PassRegistry&);
   void initializePatmosStackCacheAnalysisInfoPass(PassRegistry&);
+  void initializePatmosPostRASchedulerPass(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
   FunctionPass *createPatmosDelaySlotFillerPass(PatmosTargetMachine &tm,
@@ -47,6 +48,8 @@ namespace llvm {
   ModulePass *createPatmosCallGraphBuilder();
   ModulePass *createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm);
   ModulePass *createPatmosStackCacheAnalysisInfo(const PatmosTargetMachine &tm);
+
+  extern char &PatmosPostRASchedulerID;
 } // end namespace llvm;
 
 #endif // _LLVM_TARGET_PATMOS_H_
