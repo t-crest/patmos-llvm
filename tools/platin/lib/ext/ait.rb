@@ -7,6 +7,8 @@
 require 'platin'
 
 module PML
+
+  # option extensions for aiT
   class OptionParser
     def apx_file(mandatory=true)
       self.on("-a", "--apx FILE", "APX file for a3") { |f| options.apx_file = f }
@@ -24,6 +26,19 @@ module PML
     end
   end
 
+  # core extensions for aiT
+  class ValueRange
+    def to_ais
+      if s = self.symbol
+        dquote(s)
+      else
+        self.class.range_to_ais(range)
+      end
+    end
+    def ValueRange.range_to_ais(range)
+      sprintf("0x%08x .. 0x%08x",range.min,range.max)
+    end
+  end
   class SymbolicExpression
     def to_ais
       raise Exception.new("#{self.class}#to_ais: no translation available")
@@ -153,23 +168,47 @@ module PML
       @outfile.puts 'compiler "patmos-llvm";'
       @outfile.puts ''
 
-      @outfile.puts "# clock rate (disabled)"
-      @outfile.puts "#clock exactly 134 MHz;"
-      @outfile.puts ""
-
-      @outfile.puts "# configure method cache (disabled)"
-      @outfile.puts "#area 0x00000000 .. 0xffffffff access code locked;"
-      @outfile.puts ""
-
-      @outfile.puts "# configure abstract interpretation (disabled)"
-      @outfile.puts "#interproc flexible, max-length=inf, max-unroll=4, default-unroll=2;"
-
-      @outfile.puts "# export block timings"
-      @outfile.puts "global \"export_all_block_times\" = 1;"
+      export_machine_description
 
       if @options.ais_header_file
         @outfile.puts(File.read(@options.ais_header_file))
       end
+      @outfile.puts
+    end
+
+    def export_machine_description
+      @pml.arch.config.caches.each { |cache|
+        case cache.name
+        when 'method-cache'
+          # not yet supported
+        when 'data-cache'
+          gen_fact("cache data size=#{cache.size}, associativity=#{cache.associativity}, line-size=#{cache.line_size},"+
+                   "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
+        when 'instruction-cache'
+          gen_fact("cache code size=#{cache.size}, associativity=#{cache.associativity}, line-size=#{cache.line_size},"+
+                   "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
+        when 'stack-cache'
+          # not directly supported (additional cost via platin)
+        end
+      }
+      @pml.arch.config.memory_areas.each { |area|
+        kw = if area.type == 'code' then 'code' else 'data' end
+        tt_read_beat = area.memory.read_latency + area.memory.read_transfer_time
+        tt_write_beat = area.memory.write_latency + area.memory.write_transfer_time
+        tt_read_cache_line = area.memory.read_latency +
+                             area.memory.read_transfer_time * area.memory.blocks_per_line(area.cache.block_size)
+        properties = [ "#{kw} read transfer-time = [#{tt_read_beat},#{tt_read_cache_line}]" ]
+        if area.cache.name == 'method-cache'
+          properties.push("#{kw} locked")
+        elsif area.cache
+          properties.push("#{kw} cached")
+        end
+        if area.type != 'code'
+          properties.push("#{kw} write time = #{tt_write_beat}")
+        end
+        gen_fact("area #{area.address_range.to_ais} access #{properties.join(", ")}",
+                 "PML machine configuration")
+      }
     end
 
     def gen_fact(ais_instr, descr, derived_from=nil)
@@ -389,13 +428,7 @@ module PML
         warn("AisExport#export_valuefact: cannot export context-sensitive program point")
         return false
       end
-      rangelist = vf.values.map { |v|
-        if s = v.symbol
-          dquote(s)
-        else
-          die("No symbol for value #{v.inspect}")
-        end
-      }.join(", ")
+      rangelist = vf.values.map { |v| v.to_ais }.join(", ")
       gen_fact("instruction #{vf.programpoint.ais_ref}" +
                " accesses #{rangelist}",
                "Memory address (source: #{vf.origin})", vf)
@@ -691,7 +724,7 @@ class AitImport
             count = edge.attributes['count'].to_i
             cum_cycles = edge.attributes['cycles'].to_i
             path_cycles = edge.attributes['path_cycles'].to_i
-            debug(options,:ait) { "Edge #{source} -> #{target.inspect} [tblock=#{target_block}] [loopnode=#{loop_nodes[target_block_id]}] [callnode=#{call_nodes[target_block_id]}[tid=#{target_block_id}] #{count} is intrablock: #{is_intrablock_target}" }
+
             if count > 0
               computed_path_cycles = (cum_cycles.to_f / count).to_i
               if path_cycles.to_i > 0

@@ -210,9 +210,34 @@ module PML
     end
   end
 
+  class SubFunctionList < PMLList
+    extend PMLListGen
+    pml_list(:SubFunction,[:name])
+
+    # customized constructor
+    def initialize(function, data)
+      @list = data.map { |a| SubFunction.new(function, a) }
+      set_yaml_repr(data)
+      build_index
+    end
+  end
+
+  class SubFunction < PMLObject
+    attr_reader :name, :blocks
+
+    def initialize(function, data)
+      blocknames = data['blocks']
+      assert("subfunction: empty block list") { ! blocknames.empty? }
+      @name = data['name']
+      @function = function
+      @blocks = blocknames.map { |bname| function.blocks.by_name(bname) }
+      set_yaml_repr(data)
+    end
+  end
+
   # PML function wrapper
   class Function < ProgramPoint
-    attr_reader :blocks, :loops, :arguments
+    attr_reader :blocks, :loops, :arguments, :subfunctions
     def initialize(data, opts)
       set_yaml_repr(data)
       @name = data['name']
@@ -220,12 +245,13 @@ module PML
       @loops = []
       @labelkey = opts[:labelkey]
       @blocks = BlockList.new(self, data['blocks'])
-      @arguments = ArgumentList.new(self, data['arguments'] || [])
       @blocks.each do |block|
         if(block.loopheader?)
           @loops.push(block)
         end
       end
+      @arguments = ArgumentList.new(self, data['arguments'] || [])
+      @subfunctions = SubFunctionList.new(self, data['subfunctions'] || [])
     end
     def [](k)
       assert("Function: do not access blocks/loops directly") { k!='blocks'&&k!='loops'}

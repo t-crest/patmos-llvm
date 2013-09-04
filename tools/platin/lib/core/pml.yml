@@ -152,6 +152,7 @@ mapping:
             sequence:
               - &subfunction
                 type: map
+                class: SubFunction
                 desc: "subfunction"
                 mapping:
                   "name":
@@ -442,6 +443,39 @@ mapping:
     class: MachineConfig
     desc: "configuration of the execution platform (memory areas, timing, etc.)"
     mapping:
+      "memories":
+        type: seq
+        desc: "internal/external memory and their timing"
+        sequence:
+          -
+            type: map
+            class: MemoryConfig
+            mapping:
+              "name":
+                type: str
+                desc: >-
+                  Name of the internal or external memory; by convention
+                  'main' should be used for (conventional) main memory
+                required: yes
+                unique: yes
+              "size":
+                type: int
+                desc: size in bytes
+              "transfer-size":
+                type: int
+                desc: number of bytes for a single access (block size)
+              "read-latency":
+                type: int
+                desc: latency per read request
+              "read-transfer-time":
+                type: int
+                desc: "cycles to the transfer one block from memory (excluding per-request latency)"
+              "write-latency":
+                type: int
+                desc: latency per write request
+              "write-transfer-time":
+                type: int
+                desc: "cycles to the transfer one block from memory (excluding per-request latency)"
       "memory-areas":
         type: seq
         desc: "list of memory area descriptions"
@@ -458,25 +492,15 @@ mapping:
               "type":
                 type: str
                 desc: type / address space
-                enum: [ code, data, scratchpad ]
+                enum: [ code, data ]
                 required: yes
               "cache":
                 type: str
                 desc: name of the cache configured for this memory area (possibly bypassed)
+              "memory":
+                type: str
+                desc: name of the internal or external memory this area is mapped to
               "address-range": *valuerange
-              "access-timing":
-                type: map
-                desc: time to access memory area in cycles
-                mapping:
-                  "load-word":
-                    type: int
-                    desc: time to load a single word
-                  "load-line":
-                    type: int
-                    desc: time to load a (single) cache line (fixed cache line size)
-                  "load-line-burst":
-                    type: int
-                    desc: time to load subsequent cache lines (burst access)
       "caches":
         type: seq
         desc: "list of cache configurations"
@@ -491,16 +515,69 @@ mapping:
               "type":
                 type: str
                 desc: type of the cache
-                enum: [ "standard", "method-cache", "stack-cache" ]
+                enum: [ "set-associative", "method-cache", "stack-cache" ]
               "policy":
                 type: str
-                desc: replacement policy
+                desc: "replacement / update policy"
               "associativity":
                 type: int
-                desc: associativity of the cache
-              "line-size":
+                desc: "associativity of the cache (if applicable)"
+              "block-size":
                 type: int
-                desc: size of a cache line
+                desc: size of a cache block/cache line (in bytes)
               "size":
                 type: int
-                desc: size of the cache in bytes
+                desc: size of the cache (in bytes)
+  "analysis-configurations":
+    type: seq
+    desc: configuration of analyses
+    sequence:
+      -
+        type: map
+        class: AnalysisConfig
+        desc: WCET analysis configuration
+        mapping:
+          "name":
+            type: scalar
+            desc: >-
+              unique name of the analysis, or 'default' for the default tool configurations
+            unique: true
+          "program-entry":
+            type: str
+            desc: >-
+              Label of the program (or process) entry point (a function),
+              the starting point for value analysis and trace analysis.
+              For simple systems, this is usually 'main'; in the presence
+              of an operating system, the entry point of the process to
+              be analyzed
+          "analysis-entry":
+            type: str
+            desc: >-
+              Label of the function that is subject to (WCET) analysis.
+          "tool-configurations":
+            type: seq
+            desc: >-
+              Key-Value pairs configuring tools for the analysis
+            sequence:
+              -
+                type: map
+                class: ToolConfig
+                desc: Configuration of an analysis tool
+                mapping:
+                  "name":
+                    type: str
+                    desc: >-
+                      unique name of the tool
+                    unique: true
+                  "configuration": &configuration
+                    type: seq
+                    desc: "key-value pairs"
+                    sequence:
+                      -
+                        type: map
+                        desc: "key-value pair"
+                        mapping:
+                          "key":
+                            type: str
+                          "value":
+                            type: scalar

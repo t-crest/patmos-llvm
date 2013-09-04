@@ -370,7 +370,7 @@ class WcetTool
   end
 
   def WcetTool.run(pml,options)
-    # needs_options(:binary_file, :input)
+    needs_options(:input)
     WcetTool.new(pml,options).run_in_outdir
   end
 
@@ -381,7 +381,7 @@ class WcetTool
     opts.binary_file(true)
     opts.flow_fact_selection
     opts.calculates_wcet
-
+    opts.on("--batch", "run in batch processing mode, reading analysis targets and configuration from PML file") { opts.options.batch = true }
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d }
     opts.on("--enable-trace-analysis", "run trace analysis") { |d| opts.options.trace_analysis = true }
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }

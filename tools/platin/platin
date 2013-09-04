@@ -4,7 +4,7 @@
 
 # Set library path for installation
 
-KNOWN_COMMANDS="wcet analyze-trace extract-symbols pml transform wca visualize ait2pml pml2ais sweet ff2pml"
+KNOWN_COMMANDS="wcet tool-config pml analyze-trace extract-symbols transform visualize ait2pml pml2ais sweet ff2pml wca"
 usage() {
     cat <<EOF >&2
 usage: platin <command> [<args>]
@@ -12,17 +12,17 @@ usage: platin <command> [<args>]
 The following platin tools are available and supported:
 
   wcet            ... Calculate WCET (main driver)
-
+  tool-config     ... configure tools, so the same HW config is used in compiler,WCA and simulator
+  pml             ... Validate/Inspect/Visualize/Merge PML files
   analyze-trace   ... Analyze simulator trace and generate flow facts
   extract-symbols ... Extract addresses of symbols from ELF file
-  pml             ... Validate/Inspect/Visualize/Merge PML files
   sweet           ... Run SWEET analysis tool
   transform       ... Transform flowfacts from bitcode to machinecode (and vice versa)
   visualize       ... Visualize IR and MC CFGs as well as relation graphs [alpha]
+  pml2ais         ... Translate program information to aiT's AIS format
 
 The following tools are available for internal use only:
 
-  pml2ais         ... Translate program information to aiT's AIS format
   ait2pml         ... Add aiT analysis results to the PML database
   ff2pml          ... Translate SWEET flowfacts to PML
   wca             ... Calculate WCET cost using lp_solve
