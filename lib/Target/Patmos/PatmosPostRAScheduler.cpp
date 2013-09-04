@@ -46,6 +46,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetLowering.h"
@@ -58,12 +59,8 @@ STATISTIC(NumNoops, "Number of noops inserted");
 STATISTIC(NumStalls, "Number of pipeline stalls");
 STATISTIC(NumFixedAnti, "Number of fixed anti-dependencies");
 
-#ifndef NDEBUG
 static cl::opt<bool> ViewPostRASchedDAGs("view-postra-sched-dags", cl::Hidden,
   cl::desc("Pop up a window to show PostRASched dags after they are processed"));
-#else
-static bool ViewPostRASchedDAGs = false;
-#endif
 
 // DAG subtrees must have at least this many nodes.
 static const unsigned MinSubtreeSize = 8;
@@ -780,4 +777,84 @@ void ScheduleDAGPostRA::releasePredecessors(SUnit *SU) {
        I != E; ++I) {
     releasePred(SU, &*I);
   }
+}
+
+//===----------------------------------------------------------------------===//
+// GraphWriter support for ScheduleDAGMI.
+//===----------------------------------------------------------------------===//
+
+namespace llvm {
+
+template<> struct GraphTraits<
+  ScheduleDAGPostRA*> : public GraphTraits<ScheduleDAG*> {};
+
+template<>
+struct DOTGraphTraits<ScheduleDAGPostRA*> : public DefaultDOTGraphTraits {
+
+  DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
+
+  static std::string getGraphName(const ScheduleDAG *G) {
+    return G->MF.getName();
+  }
+
+  static bool renderGraphFromBottomUp() {
+    return true;
+  }
+
+  static bool isNodeHidden(const SUnit *Node, const ScheduleDAG *Graph) {
+    return (Node->NumPreds > 10 || Node->NumSuccs > 10);
+  }
+
+  static bool hasNodeAddressLabel(const SUnit *Node,
+                                  const ScheduleDAG *Graph) {
+    return false;
+  }
+
+  /// If you want to override the dot attributes printed for a particular
+  /// edge, override this method.
+  static std::string getEdgeAttributes(const SUnit *Node,
+                                       SUnitIterator EI,
+                                       const ScheduleDAG *Graph) {
+    if (EI.isArtificialDep())
+      return "color=cyan,style=dashed";
+    if (EI.isCtrlDep())
+      return "color=blue,style=dashed";
+    return "";
+  }
+
+  static std::string getNodeLabel(const SUnit *SU, const ScheduleDAG *G) {
+    std::string Str;
+    raw_string_ostream SS(Str);
+    SS << "SU(" << SU->NodeNum << ')';
+    return SS.str();
+  }
+  static std::string getNodeDescription(const SUnit *SU, const ScheduleDAG *G) {
+    return G->getGraphNodeLabel(SU);
+  }
+
+  static std::string getNodeAttributes(const SUnit *N,
+                                       const ScheduleDAG *Graph) {
+    std::string Str("shape=Mrecord");
+    const SchedDFSResult *DFS =
+      static_cast<const ScheduleDAGPostRA*>(Graph)->getDFSResult();
+    if (DFS) {
+      Str += ",style=filled,fillcolor=\"#";
+      Str += DOT::getColorString(DFS->getSubtreeID(N));
+      Str += '"';
+    }
+    return Str;
+  }
+};
+} // namespace llvm
+
+/// viewGraph - Pop up a ghostview window with the reachable parts of the DAG
+/// rendered using 'dot'.
+///
+void ScheduleDAGPostRA::viewGraph(const Twine &Name, const Twine &Title) {
+  ViewGraph(this, Name, false, Title);
+}
+
+/// Out-of-line implementation with no arguments is handy for gdb.
+void ScheduleDAGPostRA::viewGraph() {
+  viewGraph(getDAGName(), "Scheduling-Units Graph for " + getDAGName());
 }

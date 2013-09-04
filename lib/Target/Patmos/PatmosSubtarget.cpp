@@ -84,7 +84,7 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
 bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                    TargetSubtargetInfo::AntiDepBreakMode& Mode,
                                    RegClassVector& CriticalPathRCs) const {
-  return hasPostRAScheduler(OptLevel) && !usePatmosPostRAScheduler(OptLevel);
+  return hasPostRAScheduler(OptLevel);
 }
 
 bool PatmosSubtarget::enableBundling(CodeGenOpt::Level OptLevel) const {

@@ -239,6 +239,9 @@ namespace llvm {
 
     BitVector &getScheduledTrees() { return ScheduledTrees; }
 
+    void viewGraph(const Twine &Name, const Twine &Title) LLVM_OVERRIDE;
+    void viewGraph() LLVM_OVERRIDE;
+
   protected:
 
     /// Apply each ScheduleDAGMutation step in order. This allows different

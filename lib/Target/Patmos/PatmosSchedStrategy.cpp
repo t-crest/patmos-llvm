@@ -50,6 +50,10 @@ bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
   if (MI->getDesc().isTerminator() || MI->isLabel())
     return true;
 
+  // Do not schedule over inline asm (?)
+  if (MI->isInlineAsm())
+    return true;
+
   // All CFL instructions are boundaries, we only handle one CFL per region.
   return MI->isBarrier() || MI->isBranch() || MI->isCall() || MI->isReturn();
 }
