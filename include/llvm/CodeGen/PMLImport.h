@@ -35,10 +35,10 @@ namespace llvm {
   /// TODO maybe move this code to PML.h, reuse for export and relation graph.
   typedef StringMap<StringRef> PMLLabelMap;
 
-  //===----------------------------------------------------------------------===//
+  //===--------------------------------------------------------------------===//
   /// PMLFunctionInfo - Allows to query information about imported PML functions
   ///
-  /// Provides for example about mappings of basic blcoks
+  /// Provides for example about mappings of basic blocks
   ///
   class PMLFunctionInfo {
   protected:
@@ -82,7 +82,7 @@ namespace llvm {
     static StringRef getBlockLabel(const MachineBasicBlock &MBB);
   };
 
-  //===----------------------------------------------------------------------===//
+  //===--------------------------------------------------------------------===//
   /// PMLFunctionInfoT - Template implementation of PMLFunctionInfo
   ///
   /// Type T is instantiated to BasicBlock or MachineBlock, for bitcode and
@@ -132,7 +132,7 @@ namespace llvm {
   typedef StringMap<PMLFunctionInfo*> PMLFunctionInfoMap;
 
 
-  //===----------------------------------------------------------------------===//
+  //===--------------------------------------------------------------------===//
   /// PMLLevelInfo - Provides PML information about machine code or bitcode
   ///
   /// Function- and block-IDs are only valid within a level, and need proper
@@ -257,7 +257,7 @@ namespace llvm {
   };
 
 
-  //===----------------------------------------------------------------------===//
+  //===--------------------------------------------------------------------===//
   /// PMLQuery - class to query information from the PML database
   ///
   /// Used to e.g. get information about imported analyses results.

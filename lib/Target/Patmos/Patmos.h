@@ -39,6 +39,7 @@ namespace llvm {
                                        std::string& BitcodeFilename);
   FunctionPass *createPatmosPacketizer(PatmosTargetMachine &tm);
   FunctionPass *createPatmosBundleSanitizer(PatmosTargetMachine &tm);
+  FunctionPass *createPatmosBypassFromPMLPass(PatmosTargetMachine &tm);
   ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
                                            std::string& Filename,
                                            std::string& BitcodeFilename,

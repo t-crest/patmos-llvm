@@ -1728,6 +1728,8 @@ namespace llvm {
       for(ablocks::iterator i(Blocks.begin()), ie(Blocks.end()); i != ie; i++) {
         delete *i;
       }
+
+      if (PML) delete PML;
     }
   };
 
