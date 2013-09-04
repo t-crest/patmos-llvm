@@ -141,6 +141,10 @@ namespace {
         addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
 
+      // following pass is a peephole pass that does neither modify
+      // the control structure nor the size of basic blocks.
+      addPass(createPatmosBypassFromPMLPass(getPatmosTargetMachine()));
+
       return true;
     }
 
