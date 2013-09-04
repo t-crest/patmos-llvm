@@ -18,6 +18,7 @@
 #include "PatmosSchedStrategy.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosTargetMachine.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/LatencyPriorityQueue.h"
@@ -32,9 +33,31 @@
 #include "llvm/Target/TargetSubtargetInfo.h"
 using namespace llvm;
 
+bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
+  unsigned SchedTreeA = DFSResult->getSubtreeID(A);
+  unsigned SchedTreeB = DFSResult->getSubtreeID(B);
+  if (SchedTreeA != SchedTreeB) {
+    // Unscheduled trees have lower priority.
+    if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
+      return ScheduledTrees->test(SchedTreeB);
+
+    // Trees with shallower connections have have lower priority.
+    if (DFSResult->getSubtreeLevel(SchedTreeA)
+        != DFSResult->getSubtreeLevel(SchedTreeB)) {
+      return DFSResult->getSubtreeLevel(SchedTreeA)
+        < DFSResult->getSubtreeLevel(SchedTreeB);
+    }
+  }
+  if (MaximizeILP)
+    return DFSResult->getILP(A) < DFSResult->getILP(B);
+  else
+    return DFSResult->getILP(A) > DFSResult->getILP(B);
+}
+
+
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
                                             const PatmosTargetMachine &PTM)
-: PII(*PTM.getInstrInfo())
+: PII(*PTM.getInstrInfo()), DAG(0), Cmp(true)
 {
   EnableBundles = PTM.getSubtargetImpl()->enableBundling(PTM.getOptLevel());
 }
@@ -58,24 +81,70 @@ bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
   return MI->isBarrier() || MI->isBranch() || MI->isCall() || MI->isReturn();
 }
 
-void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *DAG)
+void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
 {
-  AvailableQueue.initNodes(DAG->SUnits);
+  DAG = dag;
+  //AvailableQueue.initNodes(DAG->SUnits);
+
+  DAG->computeDFSResult();
+  Cmp.DFSResult = DAG->getDFSResult();
+  Cmp.ScheduledTrees = &DAG->getScheduledTrees();
+  ReadyQ.clear();
+}
+
+void PatmosPostRASchedStrategy::registerRoots()
+{
+  /*
+  // Add all leaves to Available queue.
+  for (unsigned i = 0, e = DAG->SUnits.size(); i != e; ++i) {
+    // It is available if it has no predecessors.
+    SUnit &SU = DAG->SUnits[i];
+    if (!SU.NumPredsLeft && !SU.isAvailable) {
+      AvailableQueue.push(&SU);
+      SU.isAvailable = true;
+    }
+  }
+  */
+
+  // Restore the heap in ReadyQ with the updated DFS results.
+  std::make_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
 }
 
 void PatmosPostRASchedStrategy::finalize(ScheduleDAGPostRA *DAG)
 {
-  AvailableQueue.releaseState();
+  //AvailableQueue.releaseState();
 }
 
-SUnit *PatmosPostRASchedStrategy::pickNode(bool &IsTopNode)
+bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
+                                         bool &IsBundled)
 {
-  return 0;
+  if (ReadyQ.empty()) return false;
+  std::pop_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
+  SU = ReadyQ.back();
+  ReadyQ.pop_back();
+  IsTopNode = false;
+  DEBUG(dbgs() << "Pick node " << "SU(" << SU->NodeNum << ") "
+        << " ILP: " << DAG->getDFSResult()->getILP(SU)
+        << " Tree: " << DAG->getDFSResult()->getSubtreeID(SU) << " @"
+        << DAG->getDFSResult()->getSubtreeLevel(
+          DAG->getDFSResult()->getSubtreeID(SU)) << '\n'
+        << "Scheduling " << *SU->getInstr());
+  return true;
 }
 
-void PatmosPostRASchedStrategy::schedNode(SUnit *SU, bool IsTopNode)
+void PatmosPostRASchedStrategy::schedNode(SUnit *SU, bool IsTopNode,
+                                          bool IsBundled)
+{
+  //AvailableQueue.scheduledNode(SU);
+}
+
+void PatmosPostRASchedStrategy::schedNoop(bool IsTopNode)
 {
 
+}
+
+void PatmosPostRASchedStrategy::scheduleTree(unsigned SubtreeID) {
+  std::make_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
 }
 
 void PatmosPostRASchedStrategy::releaseTopNode(SUnit *SU)
@@ -99,7 +168,10 @@ void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 
   // If all the node's predecessors are scheduled, this node is ready
   // to be scheduled. Ignore the special ExitSU node.
-  PendingQueue.push_back(SU);
+  //PendingQueue.push_back(SU);
+
+  ReadyQ.push_back(SU);
+  std::push_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
 }
 
 

@@ -36,6 +36,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineInstrBundle.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterClassInfo.h"
@@ -130,8 +131,6 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
   PassConfig = &getAnalysis<TargetPassConfig>();
   AA = &getAnalysis<AliasAnalysis>();
 
-  const TargetInstrInfo *TII = MF->getTarget().getInstrInfo();
-
   RegClassInfo->runOnMachineFunction(*MF);
 
   AntiDepMode = TargetSubtargetInfo::ANTIDEP_NONE;
@@ -174,22 +173,28 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
     for(MachineBasicBlock::iterator RegionEnd = MBB->end();
         RegionEnd != MBB->begin(); RegionEnd = Scheduler->begin()) {
 
-      // Avoid decrementing RegionEnd for blocks with no terminator.
-      if (RegionEnd != MBB->end()
-          || Scheduler->isSchedulingBoundary(llvm::prior(RegionEnd), MBB, *MF))
-      {
-        --RegionEnd;
-        // Count the boundary instruction.
-        --RemainingInstrs;
+      // Skip the terminator instruction in case the scheduler cannot handle
+      // them.
+      if (!Scheduler->canHandleTerminators()) {
+        if (RegionEnd != MBB->end() ||
+            Scheduler->isSchedulingBoundary(RegionEnd, MBB, *MF))
+        {
+          RegionEnd = llvm::prior(RegionEnd);
+          --RemainingInstrs;
+        }
       }
 
       // The next region starts above the previous region. Look backward in the
       // instruction stream until we find the nearest boundary.
-      MachineBasicBlock::iterator I = RegionEnd;
+      MachineBasicBlock::iterator I = llvm::prior(RegionEnd);
+      --RemainingInstrs;
       for(;I != MBB->begin(); --I, --RemainingInstrs) {
-        if (TII->isSchedulingBoundary(llvm::prior(I), MBB, *MF))
+        if (Scheduler->isSchedulingBoundary(llvm::prior(I), MBB, *MF))
           break;
+        assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
       }
+      assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
+
       // Notify the scheduler of the region, even if we may skip scheduling
       // it. Perhaps it still needs to be bundled.
       Scheduler->enterRegion(MBB, I, RegionEnd, RemainingInstrs);
@@ -244,7 +249,8 @@ PostRASchedContext::~PostRASchedContext() {
 ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
                                      PostRASchedStrategy *S)
   : ScheduleDAGInstrs(*C->MF, *C->MLI, *C->MDT, /*IsPostRA=*/true),
-    SchedImpl(S), DFSResult(0), Topo(SUnits, &ExitSU), AA(C->AA)
+    SchedImpl(S), DFSResult(0), Topo(SUnits, &ExitSU), AA(C->AA),
+    LiveRegs(TRI->getNumRegs())
 {
   assert((C->AntiDepMode == TargetSubtargetInfo::ANTIDEP_NONE ||
           MRI.tracksLiveness()) &&
@@ -258,6 +264,8 @@ ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
   else if (C->AntiDepMode == TargetSubtargetInfo::ANTIDEP_CRITICAL) {
     AntiDepBreak = new CriticalAntiDepBreaker(MF, *C->RegClassInfo);
   }
+
+  CanHandleTerminators = S->canHandleTerminators();
 }
 
 ScheduleDAGPostRA::~ScheduleDAGPostRA() {
@@ -362,13 +370,21 @@ void ScheduleDAGPostRA::schedule() {
   initQueues(TopRoots, BotRoots);
 
   bool IsTopNode = false;
-  while (SUnit *SU = SchedImpl->pickNode(IsTopNode)) {
-    assert(!SU->isScheduled && "Node already scheduled");
+  bool IsBundled = false;
+  SUnit *SU;
 
-    scheduleMI(SU, IsTopNode);
+  while (SchedImpl->pickNode(SU, IsTopNode, IsBundled))
+  {
+    assert((!SU || !SU->isScheduled) && "Node already scheduled");
 
-    updateQueues(SU, IsTopNode);
+    scheduleMI(SU, IsTopNode, IsBundled);
+
+    updateQueues(SU, IsTopNode, IsBundled);
   }
+
+  finishTopBundle();
+  finishBottomBundle();
+
   assert(CurrentTop == CurrentBottom && "Nonempty unscheduled zone.");
 
   SchedImpl->finalize(this);
@@ -381,6 +397,15 @@ void ScheduleDAGPostRA::schedule() {
       dumpSchedule();
       dbgs() << '\n';
     });
+}
+
+void ScheduleDAGPostRA::finalizeSchedule()
+{
+  ScheduleDAGInstrs::finalizeSchedule();
+
+  // Finalize all bundles
+  // TODO should we do this by calling the finalize pass instead?
+  finalizeBundles(MF);
 }
 
 /// This is normally called from the main scheduler loop but may also be invoked
@@ -457,24 +482,71 @@ void ScheduleDAGPostRA::initQueues(ArrayRef<SUnit*> TopRoots,
   CurrentTop = nextIfDebug(RegionBegin, RegionEnd);
 
   CurrentBottom = RegionEnd;
+
+  TopBundleMIs.clear();
+  BottomBundleMIs.clear();
 }
 
 /// Move an instruction and update register pressure.
-void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode) {
+void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
   // Move the instruction to its new location in the instruction stream.
-  MachineInstr *MI = SU->getInstr();
+  MachineInstr *MI = SU ? SU->getInstr() : NULL;
 
   if (IsTopNode) {
     assert(SU->isTopReady() && "node still has unscheduled dependencies");
+    if (!IsBundled)
+      finishTopBundle();
+    if (MI) {
+      TopBundleMIs.push_back(MI);
+    } else {
+      TII->insertNoop(*BB, CurrentTop);
+    }
+  }
+  else {
+    assert(SU->isBottomReady() && "node still has unscheduled dependencies");
+    if (!IsBundled)
+      finishBottomBundle();
+    if (MI) {
+      BottomBundleMIs.push_back(MI);
+    } else {
+      TII->insertNoop(*BB, CurrentBottom);
+      CurrentBottom = llvm::prior(CurrentBottom);
+    }
+  }
+}
+
+void ScheduleDAGPostRA::finishTopBundle()
+{
+  if (TopBundleMIs.empty()) return;
+
+  for (size_t i = 0; i < TopBundleMIs.size(); i++) {
+    MachineInstr *MI = TopBundleMIs[i];
+
     if (&*CurrentTop == MI)
       CurrentTop = nextIfDebug(++CurrentTop, CurrentBottom);
     else {
       moveInstruction(MI, CurrentTop);
     }
-
   }
-  else {
-    assert(SU->isBottomReady() && "node still has unscheduled dependencies");
+
+  // Bundle instructions, including all debug instructions
+  if (TopBundleMIs.size() > 1) {
+    MachineBasicBlock::instr_iterator MI = llvm::next(TopBundleMIs[0]);
+    for (;MI != CurrentTop; MI++) {
+      MI->bundleWithPred();
+    }
+  }
+
+  TopBundleMIs.clear();
+}
+
+void ScheduleDAGPostRA::finishBottomBundle()
+{
+  if (BottomBundleMIs.empty()) return;
+
+  for (int i = (int)BottomBundleMIs.size() - 1; i >= 0; i--) {
+    MachineInstr *MI = BottomBundleMIs[i];
+
     MachineBasicBlock::iterator priorII =
       priorNonDebug(CurrentBottom, CurrentTop);
     if (&*priorII == MI)
@@ -487,10 +559,21 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode) {
       CurrentBottom = MI;
     }
   }
+
+  // Bundle instructions, including all debug instructions
+  if (BottomBundleMIs.size() > 1) {
+    MachineBasicBlock::instr_iterator MI = *CurrentBottom;
+    for (;MI != *BottomBundleMIs.back(); MI++) {
+      MI->bundleWithSucc();
+    }
+  }
+
+  BottomBundleMIs.clear();
 }
 
 /// Update scheduler queues after scheduling an instruction.
-void ScheduleDAGPostRA::updateQueues(SUnit *SU, bool IsTopNode) {
+void ScheduleDAGPostRA::updateQueues(SUnit *SU, bool IsTopNode, bool IsBundled)
+{
   // Release dependent instructions for scheduling.
   if (IsTopNode)
     releaseSuccessors(SU);
@@ -509,7 +592,7 @@ void ScheduleDAGPostRA::updateQueues(SUnit *SU, bool IsTopNode) {
   }
 
   // Notify the scheduling strategy after updating the DAG.
-  SchedImpl->schedNode(SU, IsTopNode);
+  SchedImpl->schedNode(SU, IsTopNode, IsBundled);
 }
 
 /// Reinsert any remaining debug_values, just like the PostRA scheduler.
@@ -535,16 +618,6 @@ void ScheduleDAGPostRA::placeDebugValues() {
   FirstDbgValue = NULL;
 }
 
-/// Print the schedule before exiting the region.
-void ScheduleDAGPostRA::exitRegion() {
-  DEBUG({
-      dbgs() << "*** Final schedule ***\n";
-      dumpSchedule();
-      dbgs() << '\n';
-    });
-  ScheduleDAGInstrs::exitRegion();
-}
-
 /// FinishBlock - Clean up register live-range state.
 ///
 void ScheduleDAGPostRA::finishBlock() {
@@ -564,6 +637,8 @@ void ScheduleDAGPostRA::dumpSchedule() const {
   for (MachineBasicBlock::iterator MI = begin(), ME = end(); MI != ME; ++MI) {
     if (SUnit *SU = getSUnit(&(*MI)))
       SU->dump(this);
+    else if (MI->isDebugValue())
+      dbgs() << "Debug Value\n";
     else
       dbgs() << "Missing SUnit\n";
   }

@@ -18,6 +18,20 @@
 
 namespace llvm {
 
+  /// Order nodes by the ILP metric. Copied from MachineScheduler.
+  struct ILPOrder {
+    const SchedDFSResult *DFSResult;
+    const BitVector *ScheduledTrees;
+    bool MaximizeILP;
+
+    ILPOrder(bool MaxILP): DFSResult(0), ScheduledTrees(0), MaximizeILP(MaxILP) {}
+
+    /// \brief Apply a less-than relation on node priority.
+    ///
+    /// (Return true if A comes after B in the Q.)
+    bool operator()(const SUnit *A, const SUnit *B) const;
+  };
+
   class PatmosPostRASchedStrategy : public PostRASchedStrategy  {
   private:
     const PatmosInstrInfo &PII;
@@ -25,15 +39,24 @@ namespace llvm {
     /// Should we create bundles?
     bool EnableBundles;
 
+    /// The current DAG that we are scheduling
+    ScheduleDAGPostRA *DAG;
+
+    /// Copied from the ILPSchedStrategy from MachineScheduler
+
+    static const unsigned SubtreeLimit = 16;
+    ILPOrder Cmp;
+    std::vector<SUnit*> ReadyQ;
+
     /// AvailableQueue - The priority queue to use for the available SUnits.
     ///
-    LatencyPriorityQueue AvailableQueue;
+    //LatencyPriorityQueue AvailableQueue;
 
     /// PendingQueue - This contains all of the instructions whose operands have
     /// been issued, but their results are not ready yet (due to the latency of
     /// the operation).  Once the operands becomes available, the instruction is
     /// added to the AvailableQueue.
-    std::vector<SUnit*> PendingQueue;
+    //std::vector<SUnit*> PendingQueue;
 
   public:
     PatmosPostRASchedStrategy(const PatmosTargetMachine &PTM);
@@ -45,20 +68,30 @@ namespace llvm {
                                                 const MachineBasicBlock *MBB,
                                                 const MachineFunction &MF);
 
+    /// canHandleTerminators - Return true if this strategy schedules terminator
+    /// instructions properly.
+    virtual bool canHandleTerminators() { return true; }
 
     /// Initialize the strategy after building the DAG for a new region.
     virtual void initialize(ScheduleDAGPostRA *DAG);
 
     virtual void finalize(ScheduleDAGPostRA *DAG);
 
-    /// Pick the next node to schedule, or return NULL. Set IsTopNode to true to
-    /// schedule the node at the top of the unscheduled region. Otherwise it will
-    /// be scheduled at the bottom.
-    virtual SUnit *pickNode(bool &IsTopNode);
+    /// Notify this strategy that all roots have been released (including those
+    /// that depend on EntrySU or ExitSU).
+    virtual void registerRoots();
 
-    /// Notify MachineSchedStrategy that ScheduleDAGMI has scheduled an
+    virtual bool pickNode(SUnit *&SU, bool &IsTopNode, bool &IsBundled);
+
+    /// \brief Scheduler callback to notify that a new subtree is scheduled.
+    virtual void scheduleTree(unsigned SubtreeID);
+
+    /// Notify PostRASchedStrategy that ScheduleDAGPostRA has scheduled an
     /// instruction and updated scheduled/remaining flags in the DAG nodes.
-    virtual void schedNode(SUnit *SU, bool IsTopNode);
+    virtual void schedNode(SUnit *SU, bool IsTopNode, bool IsBundled);
+
+    /// Notify PostRASchedStrategy that a NOOP has been scheduled.
+    virtual void schedNoop(bool IsTopNode);
 
     /// When all predecessor dependencies have been resolved, free this node for
     /// top-down scheduling.

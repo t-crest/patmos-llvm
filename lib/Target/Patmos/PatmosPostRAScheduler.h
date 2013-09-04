@@ -115,6 +115,10 @@ namespace llvm {
                                                 const MachineBasicBlock *MBB,
                                                 const MachineFunction &MF) = 0;
 
+    /// canHandleTerminators - Return true if this strategy schedules terminator
+    /// instructions properly.
+    virtual bool canHandleTerminators() { return false; }
+
     /// Initialize the strategy after building the DAG for a new region.
     virtual void initialize(ScheduleDAGPostRA *DAG) = 0;
 
@@ -125,21 +129,27 @@ namespace llvm {
     /// that depend on EntrySU or ExitSU).
     virtual void registerRoots() {}
 
-    /// Pick the next node to schedule, or return NULL. Set IsTopNode to true to
-    /// schedule the node at the top of the unscheduled region. Otherwise it will
-    /// be scheduled at the bottom.
-    virtual SUnit *pickNode(bool &IsTopNode) = 0;
+    /// Pick the next node to schedule. Return true if there is another node
+    /// to be scheduled. If SU is null, a NOOP is inserted. If IsBundled is
+    /// set to true, the instruction is bundled with the previously scheduled
+    /// instruction. If IsTopNode is true, the node is scheduled at the top,
+    /// otherwise at the bottom of the region.
+    virtual bool pickNode(SUnit *&SU, bool &IsTopNode, bool &IsBundled) = 0;
 
     /// \brief Scheduler callback to notify that a new subtree is scheduled.
     virtual void scheduleTree(unsigned SubtreeID) {}
 
-    /// Notify MachineSchedStrategy that ScheduleDAGMI has scheduled an
+    /// Notify PostRASchedStrategy that ScheduleDAGPostRA has scheduled an
     /// instruction and updated scheduled/remaining flags in the DAG nodes.
-    virtual void schedNode(SUnit *SU, bool IsTopNode) = 0;
+    virtual void schedNode(SUnit *SU, bool IsTopNode, bool IsBundled) = 0;
+
+    /// Notify PostRASchedStrategy that a NOOP has been scheduled.
+    virtual void schedNoop(bool IsTopNode) {}
 
     /// When all predecessor dependencies have been resolved, free this node for
     /// top-down scheduling.
     virtual void releaseTopNode(SUnit *SU) = 0;
+
     /// When all successor dependencies have been resolved, free this node for
     /// bottom-up scheduling.
     virtual void releaseBottomNode(SUnit *SU) = 0;
@@ -174,6 +184,10 @@ namespace llvm {
     /// The bottom of the unscheduled zone.
     MachineBasicBlock::iterator CurrentBottom;
 
+    // Vector of instructions assigned to the current packet.
+    SmallVector<MachineInstr*, 4> TopBundleMIs;
+    SmallVector<MachineInstr*, 4> BottomBundleMIs;
+
     /// LiveRegs - true if the register is live.
     BitVector LiveRegs;
 
@@ -204,6 +218,10 @@ namespace llvm {
                                                 const MachineBasicBlock *MBB,
                                                 const MachineFunction &MF);
 
+    /// canHandleTerminators - Return true if this strategy schedules terminator
+    /// instructions properly.
+    virtual bool canHandleTerminators() { return CanHandleTerminators; }
+
     /// startBlock - Initialize register live-range state for scheduling in
     /// this block.
     ///
@@ -214,9 +232,6 @@ namespace llvm {
                              MachineBasicBlock::iterator begin,
                              MachineBasicBlock::iterator end,
                              unsigned endcount);
-
-    /// Notify that the scheduler has finished scheduling the current region.
-    virtual void exitRegion();
 
     /// Schedule - Schedule the instruction range using list scheduling.
     ///
@@ -229,6 +244,8 @@ namespace llvm {
     /// finishBlock - Clean up register live-range state.
     ///
     virtual void finishBlock();
+
+    virtual void finalizeSchedule();
 
     /// Compute a DFSResult after DAG building is complete, and before any
     /// queue comparisons.
@@ -252,10 +269,14 @@ namespace llvm {
     void initQueues(ArrayRef<SUnit*> TopRoots, ArrayRef<SUnit*> BotRoots);
 
     /// Move an instruction and update register pressure.
-    void scheduleMI(SUnit *SU, bool IsTopNode);
+    void scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled);
+
+    void finishTopBundle();
+
+    void finishBottomBundle();
 
     /// Update scheduler DAG and queues after scheduling an instruction.
-    void updateQueues(SUnit *SU, bool IsTopNode);
+    void updateQueues(SUnit *SU, bool IsTopNode, bool IsBundled);
 
     /// Reinsert debug_values recorded in ScheduleDAGInstrs::DbgValues.
     void placeDebugValues();
