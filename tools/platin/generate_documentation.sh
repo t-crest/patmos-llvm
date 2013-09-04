@@ -10,3 +10,7 @@ mkdir -p "${OUTDIR}"
 "${RUBY}" "${SRC_DIR}/ext/generate_pml_doc.rb" "${SRC_DIR}/lib/core/pml.yml" > "${OUTDIR}"/pmldoc.rb
 "${RDOC}" "${OUTDIR}"/pmldoc.rb -o "${OUTDIR}"/pml
 "${RDOC}" "${SRC_DIR}"/lib -o "${OUTDIR}"/platin
+if [ ! -z "${PLATIN_DOCUMENTATION_SITE}" ] ; then
+    rsync -a --delete "${OUTDIR}"/pml    "${PLATIN_DOCUMENTATION_SITE}"
+    rsync -a --delete "${OUTDIR}"/platin "${PLATIN_DOCUMENTATION_SITE}"
+fi

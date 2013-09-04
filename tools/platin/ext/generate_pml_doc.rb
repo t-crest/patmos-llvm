@@ -27,7 +27,9 @@ class String
     first_line_indent = $1.length
     add_indent = ' ' * ([new_indent - first_line_indent, 0].max)
     del_indent_count = [new_indent - first_line_indent, 0].min.abs
-    self.gsub(/^([ \t]{0,#{del_indent_count}})/, add_indent)
+    self.gsub(/^([ \t]{0,#{del_indent_count}})(\s*)(\S)/) {
+      add_indent+$2.to_s+$3
+    }
   end
 end
 
