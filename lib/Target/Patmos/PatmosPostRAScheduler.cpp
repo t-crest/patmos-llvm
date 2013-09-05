@@ -63,6 +63,13 @@ STATISTIC(NumFixedAnti, "Number of fixed anti-dependencies");
 static cl::opt<bool> ViewPostRASchedDAGs("view-postra-sched-dags", cl::Hidden,
   cl::desc("Pop up a window to show PostRASched dags after they are processed"));
 
+static cl::opt<std::string>
+EnableAntiDepBreaking("mpatmos-break-anti-dependencies",
+                      cl::desc("Break post-RA scheduling anti-dependencies: "
+                               "\"critical\", \"all\", or \"none\""),
+                      cl::init("none"), cl::Hidden);
+
+
 // DAG subtrees must have at least this many nodes.
 static const unsigned MinSubtreeSize = 8;
 
@@ -144,7 +151,14 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
                                 CriticalPathRCs))
     return false;
 
-  // TODO Check for antidep breaking override...
+  // Check for antidep breaking override...
+  if (EnableAntiDepBreaking.getPosition() > 0) {
+    AntiDepMode = (EnableAntiDepBreaking == "all")
+      ? TargetSubtargetInfo::ANTIDEP_ALL
+      : ((EnableAntiDepBreaking == "critical")
+         ? TargetSubtargetInfo::ANTIDEP_CRITICAL
+         : TargetSubtargetInfo::ANTIDEP_NONE);
+  }
 
   // TODO this should be created by some factory..
   const PatmosTargetMachine *PTM =
@@ -269,8 +283,18 @@ ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
 }
 
 ScheduleDAGPostRA::~ScheduleDAGPostRA() {
+  for (MutationList::iterator it = Mutations.begin(), ie = Mutations.end();
+       it != ie; it++)
+  {
+    delete &*it;
+  }
   delete AntiDepBreak;
   delete SchedImpl;
+}
+
+void ScheduleDAGPostRA::addMutation(ScheduleDAGPostRAMutation *M)
+{
+  Mutations.push_back(M);
 }
 
 bool ScheduleDAGPostRA::canAddEdge(SUnit *SuccSU, SUnit *PredSU) {
@@ -299,7 +323,11 @@ bool ScheduleDAGPostRA::isSchedulingBoundary(const MachineInstr *MI,
 
 void ScheduleDAGPostRA::postprocessDAG()
 {
-  // TODO use DAG mutators to post-process DAG
+  for (MutationList::iterator it = Mutations.begin(), ie = Mutations.end();
+         it != ie; it++)
+  {
+    (*it)->apply(this);
+  }
 }
 
 /// StartBlock - Initialize register live-range state for scheduling in
@@ -900,7 +928,7 @@ struct DOTGraphTraits<ScheduleDAGPostRA*> : public DefaultDOTGraphTraits {
   static std::string getNodeLabel(const SUnit *SU, const ScheduleDAG *G) {
     std::string Str;
     raw_string_ostream SS(Str);
-    SS << "SU(" << SU->NodeNum << ')';
+    SS << "SU(" << SU->NodeNum << ")[" << SU->Latency << "]";
     return SS.str();
   }
   static std::string getNodeDescription(const SUnit *SU, const ScheduleDAG *G) {

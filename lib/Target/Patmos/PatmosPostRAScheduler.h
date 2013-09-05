@@ -156,8 +156,17 @@ namespace llvm {
 
   };
 
+  /// Mutate the DAG as a postpass after normal DAG building.
+  class ScheduleDAGPostRAMutation {
+  public:
+    virtual ~ScheduleDAGPostRAMutation() {}
+
+    virtual void apply(ScheduleDAGPostRA *DAG) = 0;
+  };
 
   class ScheduleDAGPostRA : public ScheduleDAGInstrs {
+
+    typedef std::vector<ScheduleDAGPostRAMutation*> MutationList;
 
     /// SchedImpl - The schedule strategy to use.
     ///
@@ -178,6 +187,9 @@ namespace llvm {
     /// AA - AliasAnalysis for making memory reference queries.
     AliasAnalysis *AA;
 
+    /// Mutations to postprocess the DAGs
+    MutationList Mutations;
+
     /// The top of the unscheduled zone.
     MachineBasicBlock::iterator CurrentTop;
 
@@ -196,7 +208,7 @@ namespace llvm {
 
     ~ScheduleDAGPostRA();
 
-    // TODO add function to add DAG Mutators to the ScheduleDAG.
+    void addMutation(ScheduleDAGPostRAMutation *M);
 
     /// \brief True if an edge can be added from PredSU to SuccSU without creating
     /// a cycle.
