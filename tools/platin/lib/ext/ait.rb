@@ -99,7 +99,7 @@ module PML
       elsif self.address
         "0x#{address.to_s(16)}"
       else
-        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbol' ?)")
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbols'?)")
       end
     end
   end
@@ -114,7 +114,7 @@ module PML
       elsif address
         "0x#{address.to_s(16)}"
       else
-        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbol' ?)")
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbols'?)")
       end
     end
   end
@@ -128,7 +128,7 @@ module PML
       elsif address
         "0x#{address.to_s(16)}"
       else
-        raise AISUnsupportedProgramPoint.new(self, "neither address nor symbolic offset available (forgot 'platin extract-symbol' ?)")
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor symbolic offset available (forgot 'platin extract-symbols'?)")
         # FIXME: we first have to check whether our idea of instruction counting and aiT's match
         # "#{block.ais_ref} + #{self.index} instructions"
       end

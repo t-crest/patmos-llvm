@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "post-RA-sched"
-#include "AggressiveAntiDepBreaker.h"
+#include "llvm/CodeGen/AggressiveAntiDepBreaker.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstr.h"

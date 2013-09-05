@@ -67,8 +67,8 @@ void PMLImport::initializePass()
 
   Input >> Docs.YDocs;
 
-  if (!Input.error()) {
-    return;
+  if (Input.error()) {
+    report_fatal_error("PMLImport: error reading yaml");
   }
 
   Docs.mergeInto(YDoc);

@@ -20,7 +20,7 @@ using namespace llvm;
 PatmosHazardRecognizer::PatmosHazardRecognizer(PatmosTargetMachine &tm,
                        const InstrItineraryData *ItinData,
                        const ScheduleDAG *DAG, bool PostRA)
-  : ScheduleHazardRecognizer(), PTM(tm)
+  : ScheduleHazardRecognizer()
 {
 }
 
