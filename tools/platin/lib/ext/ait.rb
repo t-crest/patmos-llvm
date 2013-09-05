@@ -195,13 +195,21 @@ module PML
         kw = if area.type == 'code' then 'code' else 'data' end
         tt_read_beat = area.memory.read_latency + area.memory.read_transfer_time
         tt_write_beat = area.memory.write_latency + area.memory.write_transfer_time
-        tt_read_cache_line = area.memory.read_latency +
-                             area.memory.read_transfer_time * area.memory.blocks_per_line(area.cache.block_size)
-        properties = [ "#{kw} read transfer-time = [#{tt_read_beat},#{tt_read_cache_line}]" ]
-        if area.cache.name == 'method-cache'
+        if area.cache
+          tt_read_cache_line = area.memory.read_latency +
+            area.memory.read_transfer_time * area.memory.blocks_per_line(area.cache.block_size)
+          properties = [ "#{kw} read transfer-time = [#{tt_read_beat},#{tt_read_cache_line}]" ]
+        else
+          properties = [ "#{kw} read transfer-time = [#{tt_read_beat},#{tt_read_beat}]" ]
+        end
+        if area.cache
+          if area.cache.name == 'method-cache'
+            properties.push("#{kw} locked")
+          else
+            properties.push("#{kw} cached")
+          end
+        elsif area.type == 'scratchpad'
           properties.push("#{kw} locked")
-        elsif area.cache
-          properties.push("#{kw} cached")
         end
         if area.type != 'code'
           properties.push("#{kw} write time = #{tt_write_beat}")
