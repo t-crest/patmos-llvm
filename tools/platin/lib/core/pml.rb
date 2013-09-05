@@ -105,6 +105,11 @@ class PMLDoc
 
   def dump(io)
     final = deep_data_clone # eliminate sharing to enable YAML import in LLVM
+
+    # XXX: we do not export machine-configuration and analysis-configurations for now
+    # The trouble is that we first need to mirror those sections for LLVM's yaml-io :(
+    final.delete("machine-configuration")
+    final.delete("analysis-configurations")
     final.delete("flowfacts") if @data["flowfacts"] == []
     final.delete("valuefacts") if @data["valuefacts"] == []
     final.delete("timing") if @data["timing"] == []

@@ -2,6 +2,11 @@
 #
 # ruby-runner
 
+# the installer will inject code to detect the ruby executable before
+if [ -z "${RUBY}" ] ; then
+    RUBY=ruby
+fi
+
 # Set library path for installation
 
 KNOWN_COMMANDS="wcet tool-config pml analyze-trace extract-symbols transform visualize ait2pml pml2ais sweet ff2pml wca"
@@ -52,38 +57,6 @@ list_unknown_commands() {
 	if [ -z "${known}" ]; then echo ${name} ; fi
     done
 }
-
-detect_ruby() {
-    RUBY19s="ruby1.9 ruby1.9.1 ruby1.9.2 ruby1.9.3"
-    RUBY_VERSION=`ruby -e 'puts RUBY_VERSION'`
-
-    if [[ "${RUBY_VERSION}" =~ ^1.8 ]] ; then
-	RUBY=ruby
-	RUBY18=ruby
-    elif [[ "${RUBY_VERSION}" =~ ^1.9 ]] ; then
-	RUBY=ruby
-	RUBY19=ruby
-    elif [ ! -z "${RUBY_VERSION}" ] ; then
-	RUBY=ruby
-    fi
-    if [ -z "${RUBY19}" ] ; then
-	for r19 in ${RUBY19s} ; do
-	    if [ ! -z "`which ${r19}`" ] ; then
-		RUBY=${r19}
-		RUBY19=${r19}
-		break
-	    fi
-	done
-    fi
-    if [ -z "${RUBY}" ] ; then
-	echo "ruby not found. Please install ruby (e.g., sudo aptitude install ruby1.9.1)" >&2
-	exit 1
-    elif [ -z "${RUBY19}" ] ; then
-	echo "ruby1.9 not found. Falling back to unsupported ruby version `${RUBY} -v`"
-    fi
-}
-
-detect_ruby
 
 # Set LIBDIR fallback
 if [ -z "${RELATIVE_LIBDIR}" ] ; then
