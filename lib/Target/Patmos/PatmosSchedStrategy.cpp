@@ -86,6 +86,15 @@ void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
   DAG = dag;
   //AvailableQueue.initNodes(DAG->SUnits);
 
+  // TODO remove barriers between loads/stores with different memory type
+  // TODO remove any dependency between instructions with mutually exclusive
+  //      predicates
+  // TODO set latency of anti-dependencies to loads to -1 (?)
+  // TODO GPRs are always bypassed, reduce latency of Data edges to ExitSU by 1
+  // TODO RET and CALL have implicit deps on the return values and call
+  //      arguments. Remove all those edges to schedule them into the delay slot
+  //      if the registers are not actually used by CALL and RET
+
   DAG->computeDFSResult();
   Cmp.DFSResult = DAG->getDFSResult();
   Cmp.ScheduledTrees = &DAG->getScheduledTrees();

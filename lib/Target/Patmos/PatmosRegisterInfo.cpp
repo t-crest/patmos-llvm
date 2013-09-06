@@ -92,10 +92,10 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Patmos::S4);
   Reserved.set(Patmos::SS);
   Reserved.set(Patmos::ST);
-  Reserved.set(Patmos::S7);
-  Reserved.set(Patmos::S8);
-  Reserved.set(Patmos::S9);
-  Reserved.set(Patmos::S10);
+  Reserved.set(Patmos::SRB);
+  Reserved.set(Patmos::SRO);
+  Reserved.set(Patmos::SXB);
+  Reserved.set(Patmos::SXO);
   Reserved.set(Patmos::S11);
   Reserved.set(Patmos::S12);
   Reserved.set(Patmos::S13);
