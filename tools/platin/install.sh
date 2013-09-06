@@ -131,10 +131,21 @@ exec \${RUBY} -I "\${LIBDIR}" "\${COMPILER_SCRIPT}" "\${@}"
 EOF
     fi
 }
+function install_late_bypass() {
+  local dir="${SRC_DIR}/ext/patch_loads"
+  if make -C $dir 2>&1 > /dev/null ; then
+    DST="${INSTALL_DIR}/lib/platin/ext/patch_loads"
+    install "${DST}" "${dir}/patch_loads"
+  else
+    info "Warning: could not build patch_loads tool." \
+         "platin late-bypass will not work."
+  fi
+}
 
 
 install_binary
 install_wcet_compiler
+install_late_bypass
 
 for libfile in $(cd "${SRC_DIR}/lib" ; find "." -name '*.rb' -o -name '*.yml') ; do
     SRC="${SRC_DIR}/lib/${libfile}"
