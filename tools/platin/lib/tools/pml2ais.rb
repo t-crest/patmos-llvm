@@ -57,8 +57,10 @@ class AisExportTool
       ais.export_flowfacts(flowfacts)
 
       unless options.ais_disable_export.include?('mem-addresses')
-        valuefacts = pml.valuefacts.select { |vf|
-          vf.level == "machinecode" && vf.origin == "llvm.mc" && vf.ppref.context.empty?
+        pml.valuefacts.select { |vf|
+          vf.level == "machinecode" && vf.origin == "llvm.mc" &&
+            vf.ppref.context.empty? &&
+            ['mem-address-read', 'mem-address-write'].include?(vf.variable)
         }.each { |vf|
           ais.export_valuefact(vf)
         }
