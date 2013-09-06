@@ -46,9 +46,9 @@ public:
   /// getInstrItins - Return the instruction itineraries based on subtarget.
   const InstrItineraryData &getInstrItineraryData() const { return InstrItins; }
 
-  bool hasFPU() { return HasFPU; }
+  bool hasFPU() const { return HasFPU; }
 
-  bool hasMethodCache() { return HasMethodCache; }
+  bool hasMethodCache() const { return HasMethodCache; }
 
   virtual bool enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                     TargetSubtargetInfo::AntiDepBreakMode& Mode,
