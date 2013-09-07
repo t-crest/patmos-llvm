@@ -383,6 +383,8 @@ void ScheduleDAGPostRA::schedule() {
 
   postprocessDAG();
 
+  SchedImpl->postprocessDAG(this);
+
   SmallVector<SUnit*, 8> TopRoots, BotRoots;
   findRootsAndBiasEdges(TopRoots, BotRoots);
 

@@ -87,10 +87,9 @@ bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
   return MI->isBarrier() || MI->isBranch() || MI->isCall() || MI->isReturn();
 }
 
-void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
+void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 {
   DAG = dag;
-  //AvailableQueue.initNodes(DAG->SUnits);
 
   CFL = NULL;
 
@@ -106,11 +105,9 @@ void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
     }
   }
 
-  PatmosSubtarget *PST = PTM.getSubtargetImpl();
+  const PatmosSubtarget *PST = PTM.getSubtargetImpl();
 
   DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
-  CurrCycle = 0;
-  EndBundle = false;
 
   // Reduce latencies to the exit node.
   updateExitLatencies(dag->ExitSU);
@@ -140,6 +137,20 @@ void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
 
   // TODO set latency of anti-dependencies to loads to -1 (?)
 
+  // TODO SWS and LWS do not have ST as implicit def edges
+  // TODO CALL has chain edges to all SWS/.. instructions, remove
+  // TODO MFS $r1 = $s0 has edges to all SWS/SENS/.. instructions, remove
+
+}
+
+
+void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
+{
+  CurrCycle = 0;
+  EndBundle = false;
+
+  //AvailableQueue.initNodes(DAG->SUnits);
+
   DAG->computeDFSResult();
   Cmp.DFSResult = DAG->getDFSResult();
   Cmp.ScheduledTrees = &DAG->getScheduledTrees();
@@ -164,9 +175,11 @@ void PatmosPostRASchedStrategy::registerRoots()
   std::make_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
 }
 
-void PatmosPostRASchedStrategy::finalize(ScheduleDAGPostRA *DAG)
+void PatmosPostRASchedStrategy::finalize(ScheduleDAGPostRA *dag)
 {
   //AvailableQueue.releaseState();
+
+  DAG = NULL;
 }
 
 bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,

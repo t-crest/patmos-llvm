@@ -89,6 +89,9 @@ namespace llvm {
     /// instructions properly.
     virtual bool canHandleTerminators() { return true; }
 
+    /// Postprocess the scheduling DAG before initializing the scheduler.
+    virtual void postprocessDAG(ScheduleDAGPostRA *DAG);
+
     /// Initialize the strategy after building the DAG for a new region.
     virtual void initialize(ScheduleDAGPostRA *DAG);
 
