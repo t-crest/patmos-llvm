@@ -393,4 +393,18 @@ PatmosRegisterInfo::requiresRegisterScavenging(const MachineFunction &MF) const
   return false; //FIXME
 }
 
+bool PatmosRegisterInfo::isRReg(unsigned RegNo) const
+{
+  return Patmos::RRegsRegClass.contains(RegNo);
+}
+
+bool PatmosRegisterInfo::isSReg(unsigned RegNo) const
+{
+  return Patmos::SRegsRegClass.contains(RegNo);
+}
+
+bool PatmosRegisterInfo::isPReg(unsigned RegNo) const
+{
+  return Patmos::PRegsRegClass.contains(RegNo);
+}
 

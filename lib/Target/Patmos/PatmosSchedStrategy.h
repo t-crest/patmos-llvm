@@ -32,9 +32,14 @@ namespace llvm {
     bool operator()(const SUnit *A, const SUnit *B) const;
   };
 
+  class  PatmosTargetMachine;
+  struct PatmosRegisterInfo;
+
   class PatmosPostRASchedStrategy : public PostRASchedStrategy  {
   private:
+    const PatmosTargetMachine &PTM;
     const PatmosInstrInfo &PII;
+    const PatmosRegisterInfo &PRI;
 
     /// Should we create bundles?
     bool EnableBundles;
@@ -57,6 +62,18 @@ namespace llvm {
     /// the operation).  Once the operands becomes available, the instruction is
     /// added to the AvailableQueue.
     //std::vector<SUnit*> PendingQueue;
+
+    /// The branch instruction in this region, or NULL.
+    SUnit *CFL;
+
+    /// Keep track of the delay slot cycles of the branch delay
+    unsigned int DelaySlot;
+
+    /// Already scheduled cycles to the end of the region.
+    unsigned int CurrCycle;
+
+    /// Set to true if the next instruction must not be bundled.
+    bool EndBundle;
 
   public:
     PatmosPostRASchedStrategy(const PatmosTargetMachine &PTM);
@@ -102,8 +119,30 @@ namespace llvm {
     virtual void releaseBottomNode(SUnit *SU);
 
   private:
-    void pickBundle();
 
+    /// Remove dependencies to a call or return due to implicit uses of the
+    /// return values, arguments or caller saved registers.
+    /// Does not remove dependencies to return info registers.
+    void removeImplicitCFLDeps(SUnit &Ret);
+
+    /// Adapt latencies to the exit node.
+    void updateExitLatencies(SUnit &ExitSU);
+
+    /// Remove barrier and memory deps between instructions that access
+    /// different memory types and cannot alias.
+    void removeTypedMemBarriers();
+
+    /// Remove all dependencies between instructions with mutually exclusive
+    /// predicates.
+    void removeExclusivePredDeps();
+
+    /// Check if the operand of an instruction is actually used by
+    /// the instruction or if it is just return info, arguments or caller saved
+    /// registers.
+    bool isExplicitCFLOperand(MachineInstr *MI, MachineOperand &MO);
+
+    /// Get the latency to the exit node of a node.
+    unsigned computeExitLatency(SUnit &SU);
   };
 
 }

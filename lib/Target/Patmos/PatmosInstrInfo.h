@@ -80,6 +80,8 @@ public:
   ///
   virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
 
+  const PatmosRegisterInfo &getPatmosRegisterInfo() const { return RI; }
+
   /// findCommutedOpIndices - If specified MI is commutable, return the two
   /// operand indices that would swap value. Return false if the instruction
   /// is not in a form which this routine understands.

@@ -17,6 +17,7 @@
 #define DEBUG_TYPE "post-RA-sched"
 #include "PatmosSchedStrategy.h"
 #include "PatmosInstrInfo.h"
+#include "PatmosRegisterInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/Statistic.h"
@@ -31,6 +32,9 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
+
+#include <algorithm>
+
 using namespace llvm;
 
 bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
@@ -57,7 +61,9 @@ bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
                                             const PatmosTargetMachine &PTM)
-: PII(*PTM.getInstrInfo()), DAG(0), Cmp(true)
+: PTM(PTM), PII(*PTM.getInstrInfo()), PRI(PII.getPatmosRegisterInfo()),
+  DAG(0), Cmp(true), CFL(NULL), DelaySlot(0),
+  CurrCycle(0), EndBundle(false)
 {
   EnableBundles = PTM.getSubtargetImpl()->enableBundling(PTM.getOptLevel());
 }
@@ -86,14 +92,53 @@ void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
   DAG = dag;
   //AvailableQueue.initNodes(DAG->SUnits);
 
-  // TODO remove barriers between loads/stores with different memory type
-  // TODO remove any dependency between instructions with mutually exclusive
-  //      predicates
+  CFL = NULL;
+
+  // Find the branch/call/ret instruction if available
+  for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
+       ie = DAG->SUnits.rend(); it != ie; it++)
+  {
+    MachineInstr *MI = it->getInstr();
+    if (!MI) continue;
+    if (isPatmosCFL(MI->getOpcode(), MI->getDesc().TSFlags)) {
+      CFL = &*it;
+      break;
+    }
+  }
+
+  PatmosSubtarget *PST = PTM.getSubtargetImpl();
+
+  DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
+  CurrCycle = 0;
+  EndBundle = false;
+
+  // Reduce latencies to the exit node.
+  updateExitLatencies(dag->ExitSU);
+
+  if (CFL) {
+    // Add an artificial dep from CFL to exit for the delay slot
+    SDep DelayDep(CFL, SDep::Artificial);
+    DelayDep.setLatency(DelaySlot + 1);
+    DelayDep.setMinLatency(DelaySlot + 1);
+    DAG->ExitSU.addPred(DelayDep);
+
+    CFL->isScheduleLow = true;
+
+    // RET and CALL have implicit deps on the return values and call
+    // arguments. Remove all those edges to schedule them into the delay slot
+    // if the registers are not actually used by CALL and RET
+    if (CFL->getInstr()->isReturn() || CFL->getInstr()->isCall())
+      removeImplicitCFLDeps(*CFL);
+  }
+
+  // remove barriers between loads/stores with different memory type
+  removeTypedMemBarriers();
+
+  // remove any dependency between instructions with mutually exclusive
+  // predicates
+  removeExclusivePredDeps();
+
   // TODO set latency of anti-dependencies to loads to -1 (?)
-  // TODO GPRs are always bypassed, reduce latency of Data edges to ExitSU by 1
-  // TODO RET and CALL have implicit deps on the return values and call
-  //      arguments. Remove all those edges to schedule them into the delay slot
-  //      if the registers are not actually used by CALL and RET
 
   DAG->computeDFSResult();
   Cmp.DFSResult = DAG->getDFSResult();
@@ -144,6 +189,14 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
 void PatmosPostRASchedStrategy::schedNode(SUnit *SU, bool IsTopNode,
                                           bool IsBundled)
 {
+  MachineInstr *MI = SU->getInstr();
+  if (MI->isInlineAsm() ||
+      getPatmosFormat(MI->getDesc().TSFlags) == PatmosII::FrmALUl)
+  {
+    assert(!IsBundled && "Trying to bundle ALUl or inline asm");
+    EndBundle = true;
+  }
+
   //AvailableQueue.scheduledNode(SU);
 }
 
@@ -184,3 +237,145 @@ void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 }
 
 
+/// Remove dependencies to a return or call due to implicit uses of the return
+/// value registers, arguments or callee saved regs. Does not remove
+// dependencies to return info registers.
+void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
+{
+  SmallVector<SDep*,2> RemoveDeps;
+
+  for (SUnit::pred_iterator it = SU.Preds.begin(), ie = SU.Preds.end();
+       it != ie; it++)
+  {
+    if (!it->getSUnit()) continue;
+    // We only handle Data, Anti and Output deps here.
+    if (it->getKind() == SDep::Order) continue;
+
+    MachineInstr *MI = SU.getInstr();
+
+    // Check if it is actually only an implicit use, not a normal operand
+    bool IsImplicit = true;
+    for (unsigned i = 0; i < MI->getNumOperands(); i++) {
+      MachineOperand &MO = MI->getOperand(i);
+
+      if (!MO.isReg()) continue;
+
+      // Check if the register is actually used or defined by the instruction,
+      // either explicit or via a special register
+      if (!isExplicitCFLOperand(MI, MO)) continue;
+
+      // MO is an used/defined operand, check if it is defined or used by the
+      // predecessor
+      if (it->getKind() == SDep::Data) {
+        // .. easy for Deps, since we know the register.
+        if (MO.getReg() == it->getReg()) {
+          IsImplicit = false;
+          break;
+        }
+      } else if (MO.isDef() && (!MO.isImplicit())) {
+        // for Anti and Output dependency we need to check the registers of
+        // the predecessor.
+        MachineInstr *PredMI = it->getSUnit()->getInstr();
+
+        for (unsigned j = 0; j < PredMI->getNumOperands(); j++) {
+          MachineOperand &PredMO = PredMI->getOperand(i);
+          if (PredMO.isReg() && PredMO.getReg() == MO.getReg()) {
+            IsImplicit = false;
+            break;
+          }
+        }
+      }
+    }
+
+    if (IsImplicit) {
+      RemoveDeps.push_back(&*it);
+    }
+  }
+
+  // Remove found implicit deps, add deps to exit node
+  while (!RemoveDeps.empty()) {
+    SDep *Dep = RemoveDeps.back();
+    RemoveDeps.pop_back();
+
+    SDep ExitDep(Dep->getSUnit(), SDep::Artificial);
+    ExitDep.setLatency( computeExitLatency(*Dep->getSUnit()) );
+
+    SU.removePred(*Dep);
+    DAG->ExitSU.addPred(ExitDep);
+  }
+}
+
+void PatmosPostRASchedStrategy::updateExitLatencies(SUnit &ExitSU)
+{
+  for (SUnit::pred_iterator it = ExitSU.Preds.begin(), ie = ExitSU.Preds.end();
+       it != ie; it++)
+  {
+    if (it->getLatency() < 1) continue;
+    if (!it->isArtificial()) continue;
+
+    SUnit *PredSU = it->getSUnit();
+    if (!PredSU || !PredSU->getInstr()) continue;
+
+    // NOTE: We could also implement Subtarget.adjustSchedDependency(), but this
+    // way this is more integrated with the scheduling algorithm.
+
+    it->setLatency( computeExitLatency(*PredSU) );
+  }
+}
+
+/// Remove barrier and memory deps between instructions that access
+/// different memory types and cannot alias.
+void PatmosPostRASchedStrategy::removeTypedMemBarriers()
+{
+
+}
+
+/// Remove all dependencies between instructions with mutually exclusive
+/// predicates.
+void PatmosPostRASchedStrategy::removeExclusivePredDeps()
+{
+
+}
+
+bool PatmosPostRASchedStrategy::isExplicitCFLOperand(MachineInstr *MI,
+                                                     MachineOperand &MO)
+{
+  if (!MO.isImplicit()) return true;
+
+  if (MO.getReg() == Patmos::SRB || MO.getReg() == Patmos::SRO ||
+      MO.getReg() == Patmos::SXB || MO.getReg() == Patmos::SXO)
+  {
+    return true;
+  }
+
+  return false;
+}
+
+unsigned PatmosPostRASchedStrategy::computeExitLatency(SUnit &SU) {
+  MachineInstr *PredMI = SU.getInstr();
+  if (!PredMI) return 0;
+
+  // TODO we should actually look into the following region/MBBs and check
+  // if they are already scheduled and if we actually need a latency > 1 on
+  // loads.
+  unsigned Latency = 0;
+
+  for (unsigned i = 0; i < PredMI->getNumOperands(); i++) {
+    MachineOperand &MO = PredMI->getOperand(i);
+    if (!MO.isReg() || !MO.isDef()) continue;
+
+    // Get the default latency as the write cycle of the operand.
+    unsigned OpLatency = DAG->getSchedModel()->computeOperandLatency(PredMI,
+                                                      i, NULL, 0, false);
+
+    // Patmos specific: GPRs are always bypassed and read in cycle 1, so we can
+    // reduce the latency of edges to ExitSU by 1.
+    if (PRI.isRReg(MO.getReg()) && OpLatency > 0) {
+      OpLatency--;
+    }
+
+    Latency = std::max(Latency, OpLatency);
+  }
+
+  return Latency;
+}

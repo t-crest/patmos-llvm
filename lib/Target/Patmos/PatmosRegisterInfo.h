@@ -65,6 +65,10 @@ public:
     return A;
   }
 
+  bool isRReg(unsigned RegNo) const;
+  bool isSReg(unsigned RegNo) const;
+  bool isPReg(unsigned RegNo) const;
+
   /// hasReservedSpillSlot - Return true if target has reserved a spill slot in
   /// the stack frame of the given function for the specified register. e.g. On
   /// x86, if the frame register is required, the first fixed stack object is

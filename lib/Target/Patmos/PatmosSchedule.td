@@ -157,7 +157,7 @@ def PatmosGenericItineraries : ProcessorItineraries<
 			      [ NoBypass, NoBypass, PB_GPR, NoBypass, PB_GPR ] >,
     InstrItinData<IIC_STCi,   [ InstrStage<1, [FU_ALU0]> ],
 			      // write to SS/ST in MEM stage, read in EX
-                              [ 2, 2, 3, 3, 2, 2 ]>,
+                              [ 2, 2, 0, 3, 3, 2, 2 ]>,
     InstrItinData<IIC_STCr,   [ InstrStage<1, [FU_ALU0]> ],
 			      // write to SS/ST in MEM stage, read in EX
                               [ 2, 2, 1, 3, 3, 2, 2 ], 
@@ -173,7 +173,7 @@ def PatmosGenericItineraries : ProcessorItineraries<
                               [ 2, 2, 2, 2 ], 
 			      [ PB_GPR, NoBypass, NoBypass, NoBypass ] >,
     InstrItinData<IIC_CFLb,   [ InstrStage<1, [FU_ALU0]> ], 
-                              [ 2, 2 ] >,
+                              [ 2, 2, 0 ] >,
     InstrItinData<IIC_CFLi,   [ InstrStage<1, [FU_ALU0]> ],
                               [ 2, 2, 1 ], 
 			      [ NoBypass, NoBypass, PB_GPR ] >,
