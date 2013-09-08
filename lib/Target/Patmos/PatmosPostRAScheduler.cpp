@@ -409,7 +409,11 @@ void ScheduleDAGPostRA::schedule() {
 
     scheduleMI(SU, IsTopNode, IsBundled);
 
-    updateQueues(SU, IsTopNode, IsBundled);
+    if (SU) {
+      updateQueues(SU, IsTopNode, IsBundled);
+    } else {
+      SchedImpl->schedNoop(IsTopNode);
+    }
   }
 
   finishTopBundle();
@@ -523,22 +527,44 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
   MachineInstr *MI = SU ? SU->getInstr() : NULL;
 
   if (IsTopNode) {
-    assert(SU->isTopReady() && "node still has unscheduled dependencies");
+    assert((!SU || SU->isTopReady()) &&
+           "node still has unscheduled dependencies");
+
     if (!IsBundled)
       finishTopBundle();
     if (MI) {
+      DEBUG(dbgs() << "Pick top node SU(" << SU->NodeNum << ") ");
+      DEBUG( if (DFSResult) dbgs()
+            << " ILP: " << DFSResult->getILP(SU)
+            << " Tree: " << DFSResult->getSubtreeID(SU) << " @"
+            << DFSResult->getSubtreeLevel(DFSResult->getSubtreeID(SU)) << '\n');
+      DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
+
       TopBundleMIs.push_back(MI);
     } else {
+      DEBUG(dbgs() << "Scheduling NOOP at top\n");
+
       TII->insertNoop(*BB, CurrentTop);
     }
   }
   else {
-    assert(SU->isBottomReady() && "node still has unscheduled dependencies");
+    assert((!SU || SU->isBottomReady()) &&
+           "node still has unscheduled dependencies");
+
     if (!IsBundled)
       finishBottomBundle();
     if (MI) {
+      DEBUG(dbgs() << "Pick bottom node SU(" << SU->NodeNum << ") ");
+      DEBUG( if (DFSResult) dbgs()
+            << " ILP: " << DFSResult->getILP(SU)
+            << " Tree: " << DFSResult->getSubtreeID(SU) << " @"
+            << DFSResult->getSubtreeLevel(DFSResult->getSubtreeID(SU)) << '\n');
+      DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
+
       BottomBundleMIs.push_back(MI);
     } else {
+      DEBUG(dbgs() << "Scheduling NOOP at bottom\n");
+
       TII->insertNoop(*BB, CurrentBottom);
       CurrentBottom = llvm::prior(CurrentBottom);
     }
@@ -548,6 +574,9 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
 void ScheduleDAGPostRA::finishTopBundle()
 {
   if (TopBundleMIs.empty()) return;
+
+  DEBUG(dbgs() << "Finishing top bundle of size "
+               << TopBundleMIs.size() << "\n");
 
   for (size_t i = 0; i < TopBundleMIs.size(); i++) {
     MachineInstr *MI = TopBundleMIs[i];
@@ -573,6 +602,9 @@ void ScheduleDAGPostRA::finishTopBundle()
 void ScheduleDAGPostRA::finishBottomBundle()
 {
   if (BottomBundleMIs.empty()) return;
+
+  DEBUG(dbgs() << "Finishing bottom bundle of size "
+               << BottomBundleMIs.size() << "\n");
 
   for (int i = (int)BottomBundleMIs.size() - 1; i >= 0; i--) {
     MachineInstr *MI = BottomBundleMIs[i];

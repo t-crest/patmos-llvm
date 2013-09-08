@@ -26,10 +26,71 @@ namespace llvm {
 
     ILPOrder(bool MaxILP): DFSResult(0), ScheduledTrees(0), MaximizeILP(MaxILP) {}
 
-    /// \brief Apply a less-than relation on node priority.
+    /// \brief Apply a greater-than relation on node priority.
     ///
-    /// (Return true if A comes after B in the Q.)
+    /// (Return true if A has higher priority than B)
     bool operator()(const SUnit *A, const SUnit *B) const;
+  };
+
+  /// This class manages a list of pending and available instructions and
+  /// allows to pick the best instruction or bundle currently available.
+  class PatmosLatencyQueue {
+  private:
+
+    /// Max number of slots to fill when selecting a bundle.
+    unsigned IssueWidth;
+
+    ILPOrder Cmp;
+
+    /// PendingQueue - This contains all of the instructions whose operands have
+    /// been issued, but their results are not ready yet (due to the latency of
+    /// the operation).  Once the operands becomes available, the instruction is
+    /// added to the AvailableQueue.
+    std::vector<SUnit*> PendingQueue;
+
+    /// AvailableQueue - The priority queue to use for the available SUnits.
+    std::vector<SUnit*> AvailableQueue;
+
+  public:
+    PatmosLatencyQueue() : IssueWidth(1), Cmp(true) {}
+
+    unsigned getIssueWidth() const { return IssueWidth; }
+
+    void setIssueWidth(unsigned width) { IssueWidth = width; }
+
+    void setDFSResult(ScheduleDAGPostRA *DAG);
+
+    void clear();
+
+    void initialize();
+
+    /// Select a bundle for the current cycle. The selected instructions are
+    /// put into bundle in the correct issue order. If no instruction can be
+    /// issued, false is returned.
+    bool selectBundle(std::vector<SUnit*> &Bundle);
+
+    /// Go back one cycle and update availability queue. If no more
+    /// instructions need to be scheduled, return false.
+    bool recedeCycle(unsigned CurrCycle);
+
+    /// Notify the queue that this instruction has now been scheduled.
+    void scheduled(SUnit *SU, unsigned CurrCycle);
+
+    /// Notify the queue that a new subtree is now getting scheduled.
+    void scheduledTree(unsigned SubtreeID);
+
+    /// put an instruction into the pending queue when all its successors have
+    /// been scheduled.
+    void makePending(SUnit *SU);
+
+  protected:
+    bool canIssueInSlot(SUnit *SU, unsigned Slot);
+
+    /// Try to add an instruction to the bundle, return true if succeeded.
+    /// \param Width the current width of the bundle, will be updated.
+    bool addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU, unsigned &Width);
+
+    unsigned getNumUsedSlots(SUnit *SU);
   };
 
   class  PatmosTargetMachine;
@@ -37,43 +98,24 @@ namespace llvm {
 
   class PatmosPostRASchedStrategy : public PostRASchedStrategy  {
   private:
+    /// Copied from the ILPSchedStrategy from MachineScheduler
+    static const unsigned SubtreeLimit = 16;
+
     const PatmosTargetMachine &PTM;
     const PatmosInstrInfo &PII;
     const PatmosRegisterInfo &PRI;
 
-    /// Should we create bundles?
-    bool EnableBundles;
-
     /// The current DAG that we are scheduling
     ScheduleDAGPostRA *DAG;
 
-    /// Copied from the ILPSchedStrategy from MachineScheduler
-
-    static const unsigned SubtreeLimit = 16;
-    ILPOrder Cmp;
-    std::vector<SUnit*> ReadyQ;
-
-    /// AvailableQueue - The priority queue to use for the available SUnits.
-    ///
-    //LatencyPriorityQueue AvailableQueue;
-
-    /// PendingQueue - This contains all of the instructions whose operands have
-    /// been issued, but their results are not ready yet (due to the latency of
-    /// the operation).  Once the operands becomes available, the instruction is
-    /// added to the AvailableQueue.
-    //std::vector<SUnit*> PendingQueue;
-
-    /// The branch instruction in this region, or NULL.
-    SUnit *CFL;
-
-    /// Keep track of the delay slot cycles of the branch delay
-    unsigned int DelaySlot;
+    /// The queue of pending and available instructions.
+    PatmosLatencyQueue ReadyQ;
 
     /// Already scheduled cycles to the end of the region.
     unsigned int CurrCycle;
 
-    /// Set to true if the next instruction must not be bundled.
-    bool EndBundle;
+    /// The current bundle that we are emitting
+    std::vector<SUnit*> CurrBundle;
 
   public:
     PatmosPostRASchedStrategy(const PatmosTargetMachine &PTM);

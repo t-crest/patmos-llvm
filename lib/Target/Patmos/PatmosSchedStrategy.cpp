@@ -38,34 +38,238 @@
 using namespace llvm;
 
 bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
+  // Always prefer instructions with ScheduleLow flag.
+  if (A->isScheduleLow) return true;
+
+  // TODO check this .. prefer instructions that make others available, have
+  // highest depth, ..
+
   unsigned SchedTreeA = DFSResult->getSubtreeID(A);
   unsigned SchedTreeB = DFSResult->getSubtreeID(B);
   if (SchedTreeA != SchedTreeB) {
     // Unscheduled trees have lower priority.
     if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
-      return ScheduledTrees->test(SchedTreeB);
+      return ScheduledTrees->test(SchedTreeA);
 
     // Trees with shallower connections have have lower priority.
     if (DFSResult->getSubtreeLevel(SchedTreeA)
         != DFSResult->getSubtreeLevel(SchedTreeB)) {
       return DFSResult->getSubtreeLevel(SchedTreeA)
-        < DFSResult->getSubtreeLevel(SchedTreeB);
+             > DFSResult->getSubtreeLevel(SchedTreeB);
     }
   }
   if (MaximizeILP)
-    return DFSResult->getILP(A) < DFSResult->getILP(B);
-  else
     return DFSResult->getILP(A) > DFSResult->getILP(B);
+  else
+    return DFSResult->getILP(A) < DFSResult->getILP(B);
 }
+
+
+void PatmosLatencyQueue::setDFSResult(ScheduleDAGPostRA *DAG)
+{
+  Cmp.DFSResult = DAG->getDFSResult();
+  Cmp.ScheduledTrees = &DAG->getScheduledTrees();
+}
+
+void PatmosLatencyQueue::initialize()
+{
+  std::sort(AvailableQueue.begin(), AvailableQueue.end(), Cmp);
+}
+
+void PatmosLatencyQueue::clear()
+{
+  PendingQueue.clear();
+  AvailableQueue.clear();
+}
+
+/// Select a bundle for the current cycle. The selected instructions are
+/// put into bundle in the correct issue order. If no instruction can be
+/// issued, false is returned.
+bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
+{
+  if (AvailableQueue.empty()) return false;
+
+  // Find best bundle:
+  // - Ensure that instructions that MUST be scheduled go into the bundle.
+  // - find best pair of available programs, e.g. two stores with exclusive
+  //   predicates and highest ILP/.., but only if at least one of those instr.
+  //   has high priority.
+  // - find best instructions that fit into the bundle with highest ILP/..
+
+  unsigned CurrWidth = 0;
+  // If the bundle is not empty, we should calculate the initial width
+  assert(Bundle.empty());
+
+  std::vector<bool> Selected;
+  Selected.resize(AvailableQueue.size());
+
+  // Make sure that all instructions with ScheduleLow flag go into the bundle.
+  for (unsigned i = 0; i < AvailableQueue.size() && CurrWidth < IssueWidth; i++)
+  {
+    SUnit *SU = AvailableQueue[i];
+    if (!SU->isScheduleLow) break;
+
+    if (addToBundle(Bundle, SU, CurrWidth)) {
+      Selected[i] = true;
+    }
+  }
+
+  // Check if any of the highest <IssueWidth> instructions can be
+  // scheduled only with a single other instruction in this queue, or if there
+  // is any instruction in the queue that can only be scheduled with the highest
+  // ones. Pick them in any case
+
+
+
+  // TODO magic goes here..
+
+
+
+  // Try to fill up the bundle with instructions from the queue by best effort
+  for (unsigned i = 0; i < AvailableQueue.size() && CurrWidth < IssueWidth; i++)
+  {
+    if (Selected[i]) continue;
+    SUnit *SU = AvailableQueue[i];
+
+    // check the width. ignore the width for the first instruction to allow
+    // ALUl even when bundling is disabled.
+    unsigned width = getNumUsedSlots(SU);
+    if (!Bundle.empty() && CurrWidth + width > IssueWidth) continue;
+
+    addToBundle(Bundle, SU, CurrWidth);
+  }
+
+  return true;
+}
+
+/// Go back one cycle and update availability queue. If no more
+/// instructions need to be scheduled, return false.
+bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
+{
+  if (PendingQueue.empty() && AvailableQueue.empty()) {
+    return false;
+  }
+
+  unsigned avail = 0;
+  for (unsigned i = 0; i < PendingQueue.size() - avail; i++) {
+    SUnit *SU = PendingQueue[i];
+
+    if (SU->getHeight() <= CurrCycle) {
+      // remove the instruction from pending
+      avail++;
+      PendingQueue[i] = *(PendingQueue.end() - avail);
+
+      // Make the instruction available
+      AvailableQueue.push_back(SU);
+      std::inplace_merge(AvailableQueue.begin(), AvailableQueue.end() - 1,
+                         AvailableQueue.end(), Cmp);
+    }
+  }
+
+  PendingQueue.resize(PendingQueue.size() - avail);
+
+  return true;
+}
+
+/// Notify the queue that this instruction has now been scheduled.
+void PatmosLatencyQueue::scheduled(SUnit *SU, unsigned CurrCycle)
+{
+  SU->setHeightToAtLeast(CurrCycle);
+
+  AvailableQueue.erase(std::remove(AvailableQueue.begin(), AvailableQueue.end(),
+                                   SU), AvailableQueue.end());
+}
+
+void PatmosLatencyQueue::scheduledTree(unsigned SubtreeID)
+{
+  std::sort(AvailableQueue.begin(), AvailableQueue.end(), Cmp);
+}
+
+/// put an instruction into the pending queue when all its successors have
+/// been scheduled.
+void PatmosLatencyQueue::makePending(SUnit *SU)
+{
+  PendingQueue.push_back(SU);
+}
+
+bool PatmosLatencyQueue::canIssueInSlot(SUnit *SU, unsigned Slot)
+{
+  if (Slot == 0) return true;
+
+  MachineInstr *MI = SU->getInstr();
+  if (!MI) return false;
+
+  // TODO get this somehow from the SchedModel, i.e. check if FU_ALU1 is used.
+  // We could/should use the HazardRecognizer to check if we have the resources,
+  // but it is difficult to keep the HazardRecognizer state in sync.
+
+  switch (getPatmosFormat(MI->getDesc().TSFlags)) {
+  case PatmosII::FrmALUc:
+  case PatmosII::FrmALUi:
+  case PatmosII::FrmALUp:
+    return true;
+  }
+
+  return false;
+}
+
+bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
+                                     unsigned &CurrWidth)
+{
+  // check the width. ignore the width for the first instruction to allow
+  // ALUl even when bundling is disabled.
+  unsigned Width = getNumUsedSlots(SU);
+  if (!Bundle.empty() && CurrWidth + Width > IssueWidth) {
+    return false;
+  }
+
+  // This is not quite correct, the slot might depend on the width of the
+  // previously scheduled instructions, but for the current ISA it makes
+  // no difference since no instruction can be scheduled with an ALUl.
+  if (canIssueInSlot(SU, Bundle.size())) {
+    Bundle.push_back(SU);
+    CurrWidth += Width;
+    return true;
+  }
+
+  assert(!Bundle.empty() &&
+        "Not able to issue an instruction in an empty bundle.");
+
+  // we need to rearrange instructions.. this is a quick hack and might
+  // be improved.
+  if (canIssueInSlot(SU, 0) && canIssueInSlot(Bundle[0], Bundle.size())) {
+    Bundle.push_back(Bundle[0]);
+    Bundle[0] = SU;
+    CurrWidth += Width;
+    return true;
+  }
+
+  return false;
+}
+
+unsigned PatmosLatencyQueue::getNumUsedSlots(SUnit *SU)
+{
+  // TODO get this from SchedModel (the uops of an instruction).
+  if (getPatmosFormat(SU->getInstr()->getDesc().TSFlags) == PatmosII::FrmALUl) {
+    return 2;
+  }
+  return 1;
+}
+
+
 
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
                                             const PatmosTargetMachine &PTM)
 : PTM(PTM), PII(*PTM.getInstrInfo()), PRI(PII.getPatmosRegisterInfo()),
-  DAG(0), Cmp(true), CFL(NULL), DelaySlot(0),
-  CurrCycle(0), EndBundle(false)
+  DAG(0), CurrCycle(0)
 {
-  EnableBundles = PTM.getSubtargetImpl()->enableBundling(PTM.getOptLevel());
+  const PatmosSubtarget *PS = PTM.getSubtargetImpl();
+
+  unsigned IssueWidth = PS->enableBundling(PTM.getOptLevel()) ?
+                        PS->getSchedModel()->IssueWidth : 1;
+
+  ReadyQ.setIssueWidth(IssueWidth);
 }
 
 bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
@@ -79,7 +283,9 @@ bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
   if (MI->getDesc().isTerminator() || MI->isLabel())
     return true;
 
-  // Do not schedule over inline asm (?)
+  // Do not schedule over inline asm
+  // TODO This is not actually really required, but it makes things a bit less
+  // error-prone. Check if we want to remove that restriction or not.
   if (MI->isInlineAsm())
     return true;
 
@@ -91,7 +297,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 {
   DAG = dag;
 
-  CFL = NULL;
+  SUnit *CFL = NULL;
 
   // Find the branch/call/ret instruction if available
   for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
@@ -107,12 +313,22 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
   const PatmosSubtarget *PST = PTM.getSubtargetImpl();
 
-  DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
+  unsigned DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
 
   // Reduce latencies to the exit node.
   updateExitLatencies(dag->ExitSU);
 
   if (CFL) {
+    // RET and CALL have implicit deps on the return values and call
+    // arguments. Remove all those edges to schedule them into the delay slot
+    // if the registers are not actually used by CALL and RET
+    if (CFL->getInstr()->isReturn() || CFL->getInstr()->isCall())
+      removeImplicitCFLDeps(*CFL);
+
+    // TODO if CFL is a branch and we do not have enough roots/single preds of
+    // roots, i.e. not enough ILP to fill delay slots, replace CFL with a
+    // non-delayed branch
+
     // Add an artificial dep from CFL to exit for the delay slot
     SDep DelayDep(CFL, SDep::Artificial);
     DelayDep.setLatency(DelaySlot + 1);
@@ -120,12 +336,6 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     DAG->ExitSU.addPred(DelayDep);
 
     CFL->isScheduleLow = true;
-
-    // RET and CALL have implicit deps on the return values and call
-    // arguments. Remove all those edges to schedule them into the delay slot
-    // if the registers are not actually used by CALL and RET
-    if (CFL->getInstr()->isReturn() || CFL->getInstr()->isCall())
-      removeImplicitCFLDeps(*CFL);
   }
 
   // remove barriers between loads/stores with different memory type
@@ -135,11 +345,12 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
   // predicates
   removeExclusivePredDeps();
 
-  // TODO set latency of anti-dependencies to loads to -1 (?)
-
   // TODO SWS and LWS do not have ST as implicit def edges
   // TODO CALL has chain edges to all SWS/.. instructions, remove
   // TODO MFS $r1 = $s0 has edges to all SWS/SENS/.. instructions, remove
+
+  // TODO set latency of anti-dependencies to loads to -1 / find a way to
+  // put instructions on pending queue if there is only an anti-dep to a load.
 
 }
 
@@ -147,55 +358,53 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
 {
   CurrCycle = 0;
-  EndBundle = false;
-
-  //AvailableQueue.initNodes(DAG->SUnits);
+  CurrBundle.clear();
+  ReadyQ.clear();
 
   DAG->computeDFSResult();
-  Cmp.DFSResult = DAG->getDFSResult();
-  Cmp.ScheduledTrees = &DAG->getScheduledTrees();
-  ReadyQ.clear();
+  ReadyQ.setDFSResult(DAG);
 }
 
 void PatmosPostRASchedStrategy::registerRoots()
 {
-  /*
-  // Add all leaves to Available queue.
-  for (unsigned i = 0, e = DAG->SUnits.size(); i != e; ++i) {
-    // It is available if it has no predecessors.
-    SUnit &SU = DAG->SUnits[i];
-    if (!SU.NumPredsLeft && !SU.isAvailable) {
-      AvailableQueue.push(&SU);
-      SU.isAvailable = true;
-    }
-  }
-  */
-
-  // Restore the heap in ReadyQ with the updated DFS results.
-  std::make_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
+  ReadyQ.initialize();
 }
 
 void PatmosPostRASchedStrategy::finalize(ScheduleDAGPostRA *dag)
 {
-  //AvailableQueue.releaseState();
-
   DAG = NULL;
 }
 
 bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
                                          bool &IsBundled)
 {
-  if (ReadyQ.empty()) return false;
-  std::pop_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
-  SU = ReadyQ.back();
-  ReadyQ.pop_back();
+  /// We schedule at the bottom only.
   IsTopNode = false;
-  DEBUG(dbgs() << "Pick node " << "SU(" << SU->NodeNum << ") "
-        << " ILP: " << DAG->getDFSResult()->getILP(SU)
-        << " Tree: " << DAG->getDFSResult()->getSubtreeID(SU) << " @"
-        << DAG->getDFSResult()->getSubtreeLevel(
-          DAG->getDFSResult()->getSubtreeID(SU)) << '\n'
-        << "Scheduling " << *SU->getInstr());
+
+  if (CurrBundle.empty()) {
+    IsBundled = false;
+
+    // Not emitting a bundle at the moment, go back one cycle ..
+    if (!ReadyQ.recedeCycle(++CurrCycle))
+      return false;
+
+    // .. and try to get a new bundle.
+    if (!ReadyQ.selectBundle(CurrBundle)) {
+      // emit a NOOP if nothing is available.
+
+      // TODO try to reschedule an already scheduled node from a later bundle
+
+      SU = NULL;
+      return true;
+    }
+  } else {
+    IsBundled = true;
+  }
+
+  // emit an instruction from the current bundle
+  SU = CurrBundle.front();
+  CurrBundle.erase(CurrBundle.begin());
+
   return true;
 }
 
@@ -207,19 +416,24 @@ void PatmosPostRASchedStrategy::schedNode(SUnit *SU, bool IsTopNode,
       getPatmosFormat(MI->getDesc().TSFlags) == PatmosII::FrmALUl)
   {
     assert(!IsBundled && "Trying to bundle ALUl or inline asm");
-    EndBundle = true;
   }
 
-  //AvailableQueue.scheduledNode(SU);
+  // TODO keep track of nodes that have been scheduled inside a bundle and
+  // where no predecessor has been scheduled yet, i.e., which might be moved up
+  if (IsBundled && !SU->isScheduleLow) {
+
+  }
+
+  ReadyQ.scheduled(SU, CurrCycle);
 }
 
 void PatmosPostRASchedStrategy::schedNoop(bool IsTopNode)
 {
-
 }
 
-void PatmosPostRASchedStrategy::scheduleTree(unsigned SubtreeID) {
-  std::make_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
+void PatmosPostRASchedStrategy::scheduleTree(unsigned SubtreeID)
+{
+  ReadyQ.scheduledTree(SubtreeID);
 }
 
 void PatmosPostRASchedStrategy::releaseTopNode(SUnit *SU)
@@ -230,23 +444,7 @@ void PatmosPostRASchedStrategy::releaseTopNode(SUnit *SU)
 
 void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 {
-  // Standard scheduler algorithms will recompute the depth of the successor
-  // here as such:
-  //   SuccSU->setDepthToAtLeast(SU->getDepth() + SuccEdge->getLatency());
-  //
-  // However, we lazily compute node depth instead. Note that
-  // ScheduleNodeTopDown has already updated the depth of this node which causes
-  // all descendents to be marked dirty. Setting the successor depth explicitly
-  // here would cause depth to be recomputed for all its ancestors. If the
-  // successor is not yet ready (because of a transitively redundant edge) then
-  // this causes depth computation to be quadratic in the size of the DAG.
-
-  // If all the node's predecessors are scheduled, this node is ready
-  // to be scheduled. Ignore the special ExitSU node.
-  //PendingQueue.push_back(SU);
-
-  ReadyQ.push_back(SU);
-  std::push_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
+  ReadyQ.makePending(SU);
 }
 
 
