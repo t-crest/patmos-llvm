@@ -189,7 +189,9 @@ void ScheduleDAGVLIW::listScheduleTopDown() {
     // Check to see if any of the pending instructions are ready to issue.  If
     // so, add them to the available queue.
     for (unsigned i = 0, e = PendingQueue.size(); i != e; ++i) {
-      if (PendingQueue[i]->getDepth() == CurCycle) {
+      if (PendingQueue[i]->getDepth() == CurCycle ||
+          PendingQueue[i]->getDepth() == CurCycle - 1)
+      {
         AvailableQueue->push(PendingQueue[i]);
         PendingQueue[i]->isAvailable = true;
         PendingQueue[i] = PendingQueue.back();
