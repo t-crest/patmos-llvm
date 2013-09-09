@@ -405,14 +405,21 @@ void ScheduleDAGPostRA::schedule() {
 
   while (SchedImpl->pickNode(SU, IsTopNode, IsBundled))
   {
-    assert((!SU || !SU->isScheduled) && "Node already scheduled");
+    if (SU && SU->isScheduled) {
+      rescheduleMI(SU, IsTopNode, IsBundled);
 
-    scheduleMI(SU, IsTopNode, IsBundled);
+      SchedImpl->reschedNode(SU, IsTopNode, IsBundled);
+    }
+    else {
+      scheduleMI(SU, IsTopNode, IsBundled);
 
-    if (SU) {
-      updateQueues(SU, IsTopNode, IsBundled);
-    } else {
-      SchedImpl->schedNoop(IsTopNode);
+      if (SU) {
+        updateQueues(SU, IsTopNode, IsBundled);
+
+        SchedImpl->schedNode(SU, IsTopNode, IsBundled);
+      } else {
+        SchedImpl->schedNoop(IsTopNode);
+      }
     }
   }
 
@@ -571,6 +578,46 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
   }
 }
 
+void ScheduleDAGPostRA::rescheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
+  // Move the instruction to its new location in the instruction stream.
+  MachineInstr *MI = SU ? SU->getInstr() : NULL;
+
+  // TODO check if the instruction is inside the currently built bundle.
+
+  // Remove the instruction from a bundle, if it is inside one
+  bool InsideBundle = MI->isBundledWithPred() && MI->isBundledWithSucc();
+
+  if (MI->isBundledWithPred()) MI->unbundleFromPred();
+  if (MI->isBundledWithSucc()) MI->unbundleFromSucc();
+  if (InsideBundle) {
+    // reconnect the bundle
+    MI->getPrevNode()->bundleWithSucc();
+  }
+
+  if (IsTopNode) {
+    assert(SU->isTopReady() && "node still has unscheduled dependencies");
+
+    if (!IsBundled) {
+      finishTopBundle();
+    }
+    DEBUG(dbgs() << "Rescheduling top node SU(" << SU->NodeNum << ") ");
+    DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
+
+    TopBundleMIs.push_back(MI);
+  }
+  else {
+    assert(SU->isBottomReady() && "node still has unscheduled dependencies");
+
+    if (!IsBundled) {
+      finishBottomBundle();
+    }
+    DEBUG(dbgs() << "Reschedule bottom node SU(" << SU->NodeNum << ") ");
+    DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
+
+    BottomBundleMIs.push_back(MI);
+  }
+}
+
 void ScheduleDAGPostRA::finishTopBundle()
 {
   if (TopBundleMIs.empty()) return;
@@ -652,9 +699,6 @@ void ScheduleDAGPostRA::updateQueues(SUnit *SU, bool IsTopNode, bool IsBundled)
       SchedImpl->scheduleTree(SubtreeID);
     }
   }
-
-  // Notify the scheduling strategy after updating the DAG.
-  SchedImpl->schedNode(SU, IsTopNode, IsBundled);
 }
 
 /// Reinsert any remaining debug_values, just like the PostRA scheduler.

@@ -349,9 +349,8 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
   // TODO CALL has chain edges to all SWS/.. instructions, remove
   // TODO MFS $r1 = $s0 has edges to all SWS/SENS/.. instructions, remove
 
-  // TODO set latency of anti-dependencies to loads to -1 / find a way to
-  // put instructions on pending queue if there is only an anti-dep to a load.
-
+  // TODO remove edges from MUL to other MULs to overlap MUL and MFS for
+  //      pipelined muls.
 }
 
 
@@ -427,6 +426,11 @@ void PatmosPostRASchedStrategy::schedNode(SUnit *SU, bool IsTopNode,
   ReadyQ.scheduled(SU, CurrCycle);
 }
 
+void PatmosPostRASchedStrategy::reschedNode(SUnit *SU, bool IsTopNode,
+                                            bool IsBundled)
+{
+}
+
 void PatmosPostRASchedStrategy::schedNoop(bool IsTopNode)
 {
 }
@@ -487,7 +491,6 @@ void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
         // for Anti and Output dependency we need to check the registers of
         // the predecessor.
         MachineInstr *PredMI = it->getSUnit()->getInstr();
-
         for (unsigned j = 0; j < PredMI->getNumOperands(); j++) {
           MachineOperand &PredMO = PredMI->getOperand(i);
           if (PredMO.isReg() && PredMO.getReg() == MO.getReg()) {

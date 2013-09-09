@@ -152,6 +152,10 @@ namespace llvm {
     /// instruction and updated scheduled/remaining flags in the DAG nodes.
     virtual void schedNode(SUnit *SU, bool IsTopNode, bool IsBundled);
 
+    /// Notify PostRASchedStrategy that ScheduleDAGPostRA has rescheduled an
+    /// instruction.
+    virtual void reschedNode(SUnit *SU, bool IsTopNode, bool IsBundled);
+
     /// Notify PostRASchedStrategy that a NOOP has been scheduled.
     virtual void schedNoop(bool IsTopNode);
 

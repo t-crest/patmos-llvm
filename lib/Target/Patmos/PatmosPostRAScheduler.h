@@ -149,6 +149,12 @@ namespace llvm {
     /// Notify PostRASchedStrategy that a NOOP has been scheduled.
     virtual void schedNoop(bool IsTopNode) {}
 
+    /// Notify PostRASchedStrategy that ScheduleDAGPostRA has rescheduled an
+    /// instruction.
+    virtual void reschedNode(SUnit *SU, bool IsTopNode, bool IsBundled) {
+      assert("Instruction has already been scheduled");
+    }
+
     /// When all predecessor dependencies have been resolved, free this node for
     /// top-down scheduling.
     virtual void releaseTopNode(SUnit *SU) = 0;
@@ -285,6 +291,8 @@ namespace llvm {
 
     /// Move an instruction and update register pressure.
     void scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled);
+
+    void rescheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled);
 
     void finishTopBundle();
 
