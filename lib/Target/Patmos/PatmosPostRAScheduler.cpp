@@ -405,21 +405,18 @@ void ScheduleDAGPostRA::schedule() {
 
   while (SchedImpl->pickNode(SU, IsTopNode, IsBundled))
   {
-    if (SU && SU->isScheduled) {
-      rescheduleMI(SU, IsTopNode, IsBundled);
+    scheduleMI(SU, IsTopNode, IsBundled);
 
+    if (SU && SU->isScheduled) {
       SchedImpl->reschedNode(SU, IsTopNode, IsBundled);
     }
+    else if (SU) {
+      updateQueues(SU, IsTopNode, IsBundled);
+
+      SchedImpl->schedNode(SU, IsTopNode, IsBundled);
+    }
     else {
-      scheduleMI(SU, IsTopNode, IsBundled);
-
-      if (SU) {
-        updateQueues(SU, IsTopNode, IsBundled);
-
-        SchedImpl->schedNode(SU, IsTopNode, IsBundled);
-      } else {
-        SchedImpl->schedNoop(IsTopNode);
-      }
+      SchedImpl->schedNoop(IsTopNode);
     }
   }
 
@@ -457,8 +454,20 @@ void ScheduleDAGPostRA::moveInstruction(MachineInstr *MI,
   if (&*RegionBegin == MI)
     ++RegionBegin;
 
+  bool InsideBundle = MI->isBundledWithPred() && MI->isBundledWithSucc();
+  MachineInstr *PrevMI = InsideBundle ? MI->getPrevNode() : NULL;
+
+  // Remove the instruction from a bundle, if it is inside one
+  if (MI->isBundledWithPred()) MI->unbundleFromPred();
+  if (MI->isBundledWithSucc()) MI->unbundleFromSucc();
+
   // Update the instruction stream.
   BB->splice(InsertPos, BB, MI);
+
+  if (InsideBundle) {
+    // reconnect the old bundle
+    PrevMI->bundleWithSucc();
+  }
 
   // Recede RegionBegin if an instruction moves above the first.
   if (RegionBegin == InsertPos)
@@ -578,46 +587,6 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
   }
 }
 
-void ScheduleDAGPostRA::rescheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
-  // Move the instruction to its new location in the instruction stream.
-  MachineInstr *MI = SU ? SU->getInstr() : NULL;
-
-  // TODO check if the instruction is inside the currently built bundle.
-
-  // Remove the instruction from a bundle, if it is inside one
-  bool InsideBundle = MI->isBundledWithPred() && MI->isBundledWithSucc();
-
-  if (MI->isBundledWithPred()) MI->unbundleFromPred();
-  if (MI->isBundledWithSucc()) MI->unbundleFromSucc();
-  if (InsideBundle) {
-    // reconnect the bundle
-    MI->getPrevNode()->bundleWithSucc();
-  }
-
-  if (IsTopNode) {
-    assert(SU->isTopReady() && "node still has unscheduled dependencies");
-
-    if (!IsBundled) {
-      finishTopBundle();
-    }
-    DEBUG(dbgs() << "Rescheduling top node SU(" << SU->NodeNum << ") ");
-    DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
-
-    TopBundleMIs.push_back(MI);
-  }
-  else {
-    assert(SU->isBottomReady() && "node still has unscheduled dependencies");
-
-    if (!IsBundled) {
-      finishBottomBundle();
-    }
-    DEBUG(dbgs() << "Reschedule bottom node SU(" << SU->NodeNum << ") ");
-    DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
-
-    BottomBundleMIs.push_back(MI);
-  }
-}
-
 void ScheduleDAGPostRA::finishTopBundle()
 {
   if (TopBundleMIs.empty()) return;
@@ -713,13 +682,21 @@ void ScheduleDAGPostRA::placeDebugValues() {
          DI = DbgValues.end(), DE = DbgValues.begin(); DI != DE; --DI) {
     std::pair<MachineInstr *, MachineInstr *> P = *prior(DI);
     MachineInstr *DbgValue = P.first;
-    MachineBasicBlock::iterator OrigPrevMI = P.second;
-    if (&*RegionBegin == DbgValue)
-      ++RegionBegin;
-    BB->splice(++OrigPrevMI, BB, DbgValue);
-    if (OrigPrevMI == llvm::prior(RegionEnd))
-      RegionEnd = DbgValue;
+    MachineBasicBlock::instr_iterator OrigPrevMI = P.second;
+
+    while (OrigPrevMI->isBundledWithSucc()) {
+      // Move the pointer to the end of the bundle so that the debug value is
+      // placed after the bundle, not inside the bundle.
+      // TODO we might want to put the debug value inside he bundle as close as
+      // possible to the original instruction (?) Then we probably need to split
+      // the bundle first and connect it afterwards, since splice does not
+      // handle bundles.
+      OrigPrevMI++;
+    }
+
+    moveInstruction(DbgValue, ++OrigPrevMI);
   }
+
   DbgValues.clear();
   FirstDbgValue = NULL;
 }

@@ -292,8 +292,6 @@ namespace llvm {
     /// Move an instruction and update register pressure.
     void scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled);
 
-    void rescheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled);
-
     void finishTopBundle();
 
     void finishBottomBundle();
