@@ -1182,8 +1182,9 @@ namespace llvm {
               FillingSENS++;
             }
 
-            // update the analysis info pseudo pass
-            info->Ensures[i->first] = i->second;
+            // update the analysis info pseudo pass (convert bytes to blocks)
+            assert(i->second % STC.getStackCacheBlockSize() == 0);
+            info->Ensures[i->first] = i->second  / STC.getStackCacheBlockSize();
           }
 
 #ifdef PATMOS_TRACE_SENS_REMOVAL
@@ -1963,7 +1964,10 @@ namespace llvm {
               if (I->getOpcode() == Patmos::SRESi)
                 break;
             assert(I != MBB.end());
-            info->Reserves[I] = tmp;
+            assert(tmp % STC.getStackCacheBlockSize() == 0);
+
+            // convert bytes back to blocks
+            info->Reserves[I] = tmp / STC.getStackCacheBlockSize();
           }
         }
       }
