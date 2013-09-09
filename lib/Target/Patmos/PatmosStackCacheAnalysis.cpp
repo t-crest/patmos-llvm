@@ -95,14 +95,14 @@ namespace llvm {
 
   /// Count the number of SENS instructions that potentially have to fill the 
   /// total size given as their argument.
-  STATISTIC(FullyFillingSENS, "SENS instructions fully filling.");
+  STATISTIC(FullyFillingSENS, "SENS instructions fully filling (thereof).");
 
   /// Count the number of SRES instructions potentially spilling.
   STATISTIC(SpillingSRES, "SRES instructions potentially spilling.");
 
   /// Count the number of SRES instructions potentially fully spilling the total 
   /// szie given as their argument.
-  STATISTIC(FullySpillingSRES, "SRES instructions fully spilling.");
+  STATISTIC(FullySpillingSRES, "SRES instructions fully spilling (thereof).");
 
   /// Count the number of SRES instructions that certainly do not spill.
   STATISTIC(NonSpillingSRES, "SRES instructions guaranteed to not spill.");
@@ -1181,6 +1181,8 @@ namespace llvm {
                 FullyFillingSENS++;
               FillingSENS++;
             }
+
+            // update the analysis info pseudo pass
             info->Ensures[i->first] = i->second;
           }
 
@@ -1934,6 +1936,9 @@ namespace llvm {
         }
       }
 
+      PatmosStackCacheAnalysisInfo *info =
+       &getAnalysis<PatmosStackCacheAnalysisInfo>();
+
       // statistics of SRES instructions (functions for now)
       for(MCGNodes::const_iterator i(G.getNodes().begin()),
           ie(G.getNodes().end()); i != ie; i++) {
@@ -1949,6 +1954,16 @@ namespace llvm {
               if (tmp == reserved)
                 FullySpillingSRES++;
             }
+
+            // update the analysis info pseudo pass
+            // (needs to find the SRES instruction first)
+            MachineBasicBlock &MBB = (*i)->getMF()->front();
+            MachineBasicBlock::const_iterator I, E;
+            for (I = MBB.begin(), E = MBB.end(); I != E; ++I)
+              if (I->getOpcode() == Patmos::SRESi)
+                break;
+            assert(I != MBB.end());
+            info->Reserves[I] = tmp;
           }
         }
       }

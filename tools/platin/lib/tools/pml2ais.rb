@@ -71,6 +71,7 @@ class AisExportTool
           func.blocks.each { |mbb|
             mbb.instructions.each { |ins|
               ais.export_stack_cache_annotation(:fill, ins, ins.sc_fill) if ins.sc_fill
+              ais.export_stack_cache_annotation(:spill, ins, ins.sc_spill) if ins.sc_spill
             }
           }
         }
