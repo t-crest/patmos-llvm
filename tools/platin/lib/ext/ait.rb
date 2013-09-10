@@ -7,6 +7,8 @@
 require 'platin'
 
 module PML
+
+  # option extensions for aiT
   class OptionParser
     def apx_file(mandatory=true)
       self.on("-a", "--apx FILE", "APX file for a3") { |f| options.apx_file = f }
@@ -24,6 +26,19 @@ module PML
     end
   end
 
+  # core extensions for aiT
+  class ValueRange
+    def to_ais
+      if s = self.symbol
+        dquote(s)
+      else
+        self.class.range_to_ais(range)
+      end
+    end
+    def ValueRange.range_to_ais(range)
+      sprintf("0x%08x .. 0x%08x",range.min,range.max)
+    end
+  end
   class SymbolicExpression
     def to_ais
       raise Exception.new("#{self.class}#to_ais: no translation available")
@@ -66,6 +81,72 @@ module PML
     end
   end
 
+  class AISUnsupportedProgramPoint < Exception
+    def initialize(pp, msg = "information references program point not supported by AIS exporter")
+      super("#{msg} (#{pp} :: #{pp.class})")
+      @pp = pp
+    end
+  end
+
+  #
+  # Extend program points with #ais_ref
+  #
+
+  class Function
+    def ais_ref
+      if self.label
+        dquote(self.label)
+      elsif self.address
+        "0x#{address.to_s(16)}"
+      else
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbols'?)")
+      end
+    end
+  end
+
+  class Block
+    def ais_ref
+      if instructions.empty?
+        raise AISUnsupportedProgramPoint.new(self, "impossible to reference an empty block")
+      end
+      if label
+        dquote(label)
+      elsif address
+        "0x#{address.to_s(16)}"
+      else
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor label available (forgot 'platin extract-symbols'?)")
+      end
+    end
+  end
+
+  class Instruction
+    def ais_ref(opts = {})
+      if address && block.label
+        "#{block.ais_ref} + #{self.address - block.address} bytes"
+      elsif opts[:branch_index]
+        "#{block.ais_ref} + #{opts[:branch_index]} branches"
+      elsif address
+        "0x#{address.to_s(16)}"
+      else
+        raise AISUnsupportedProgramPoint.new(self, "neither address nor symbolic offset available (forgot 'platin extract-symbols'?)")
+        # FIXME: we first have to check whether our idea of instruction counting and aiT's match
+        # "#{block.ais_ref} + #{self.index} instructions"
+      end
+    end
+  end
+
+  class Loop
+    # no automatic translation for loops
+    def ais_ref
+      raise AISUnsupportedProgramPoint.new(self)
+    end
+  end
+  class Edge
+    def ais_ref
+      raise AISUnsupportedProgramPoint.new(self)
+    end
+  end
+
   class AISExporter
 
     attr_reader :stats_generated_facts,  :stats_skipped_flowfacts
@@ -87,23 +168,55 @@ module PML
       @outfile.puts 'compiler "patmos-llvm";'
       @outfile.puts ''
 
-      @outfile.puts "# clock rate (disabled)"
-      @outfile.puts "#clock exactly 134 MHz;"
-      @outfile.puts ""
-
-      @outfile.puts "# configure method cache (disabled)"
-      @outfile.puts "#area 0x00000000 .. 0xffffffff access code locked;"
-      @outfile.puts ""
-
-      @outfile.puts "# configure abstract interpretation (disabled)"
-      @outfile.puts "#interproc flexible, max-length=inf, max-unroll=4, default-unroll=2;"
-
-      @outfile.puts "# export block timings"
-      @outfile.puts "global \"export_all_block_times\" = 1;"
+      export_machine_description
 
       if @options.ais_header_file
         @outfile.puts(File.read(@options.ais_header_file))
       end
+      @outfile.puts
+    end
+
+    def export_machine_description
+      @pml.arch.config.caches.each { |cache|
+        case cache.name
+        when 'method-cache'
+          # not yet supported
+        when 'data-cache'
+          gen_fact("cache data size=#{cache.size}, associativity=#{cache.associativity}, line-size=#{cache.line_size},"+
+                   "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
+        when 'instruction-cache'
+          gen_fact("cache code size=#{cache.size}, associativity=#{cache.associativity}, line-size=#{cache.line_size},"+
+                   "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
+        when 'stack-cache'
+          # not directly supported (additional cost via platin)
+        end
+      }
+      @pml.arch.config.memory_areas.each { |area|
+        kw = if area.type == 'code' then 'code' else 'data' end
+        tt_read_beat = area.memory.read_latency + area.memory.read_transfer_time
+        tt_write_beat = area.memory.write_latency + area.memory.write_transfer_time
+        if area.cache
+          tt_read_cache_line = area.memory.read_latency +
+            area.memory.read_transfer_time * area.memory.blocks_per_line(area.cache.block_size)
+          properties = [ "#{kw} read transfer-time = [#{tt_read_beat},#{tt_read_cache_line}]" ]
+        else
+          properties = [ "#{kw} read transfer-time = [#{tt_read_beat},#{tt_read_beat}]" ]
+        end
+        if area.cache
+          if area.cache.name == 'method-cache'
+            properties.push("#{kw} locked")
+          else
+            properties.push("#{kw} cached")
+          end
+        elsif area.type == 'scratchpad'
+          properties.push("#{kw} locked")
+        end
+        if area.type != 'code'
+          properties.push("#{kw} write time = #{tt_write_beat}")
+        end
+        gen_fact("area #{area.address_range.to_ais} access #{properties.join(", ")}",
+                 "PML machine configuration")
+      }
     end
 
     def gen_fact(ais_instr, descr, derived_from=nil)
@@ -116,24 +229,19 @@ module PML
       true
     end
 
+
     # Export jumptables for a function
     def export_jumptables(func)
       func.blocks.each do |mbb|
         branches = 0
         mbb.instructions.each do |ins|
-          branches += 1 if ins.branch_type != "none"
+          branches += 1 if ins.branch_type && ins.branch_type != "none"
           if ins.branch_type == 'indirect'
-            label = ins.block.label
-            instr = if ins.address
-                      "#{dquote(label)} + #{ins.address - ins.block.address} bytes"
-                    else
-                      "#{dquote(label)} + #{branches} branches"
-                    end
             successors = ins.branch_targets ? ins.branch_targets : mbb.successors
             targets = successors.uniq.map { |succ|
-              dquote(succ.label)
+              succ.ais_ref
             }.join(", ")
-            gen_fact("instruction #{instr} branches to #{targets}","jumptable (source: llvm)",ins)
+            gen_fact("instruction #{ins.ais_ref(:branch_index => branches)} branches to #{targets}","jumptable (source: llvm)",ins)
           end
         end
       end
@@ -149,10 +257,8 @@ module PML
         return false
       end
 
-      block = callsite.block
-      location = "#{dquote(block.label)} + #{callsite.instruction.address - block.address} bytes"
-      called = targets.map { |f| dquote(f.function.label) }.join(", ")
-      gen_fact("instruction #{location} calls #{called}",
+      called = targets.map { |f| f.ais_ref }.join(", ")
+      gen_fact("instruction #{callsite.ais_ref} calls #{called}",
                "global indirect call targets (source: #{ff.origin})",ff)
     end
 
@@ -164,7 +270,7 @@ module PML
         warn("aiT: no support for callcontext-sensitive loop bounds")
         return false
       end
-      loopblock = scope.reference.loopblock
+      loopblock = scope.programpoint.loopheader
 
       origins = Set.new
       ais_bounds = bounds_and_ffs.map { |bound,ff|
@@ -176,8 +282,7 @@ module PML
           unless user_reg
             user_reg = "@arg_#{v}"
             @extracted_arguments[ [loopblock.function,v] ] = user_reg
-            fentry = dquote(loopblock.function.label)
-            gen_fact("instruction #{fentry} is entered with #{user_reg} = trace(reg #{v})",
+            gen_fact("instruction #{loopblock.function.ais_ref} is entered with #{user_reg} = trace(reg #{v})",
                      "extracted argument for symbolic loop bound")
           end
         }
@@ -194,7 +299,6 @@ module PML
 
     # export global infeasibles
     def export_infeasible(ff, scope, pp)
-      insname = dquote(pp.block.label)
 
       # context-sensitive facts not yet supported
       unless scope.context.empty? && pp.context.empty?
@@ -203,15 +307,16 @@ module PML
       end
 
       # no support for empty basic blocks (typically at -O0)
-      if pp.reference.block.instructions.empty?
+      if pp.programpoint.block.instructions.empty?
         warn("aiT: no support for program points referencing empty blocks: #{ff}")
         return false
       end
-      gen_fact("instruction #{insname} is never executed",
+      gen_fact("instruction #{pp.block.ais_ref} is never executed",
                "globally infeasible block (source: #{ff.origin})",ff)
     end
 
     def export_linear_constraint(ff)
+
       terms_lhs, terms_rhs = [],[]
       terms = ff.lhs.dup
       scope = ff.scope
@@ -229,11 +334,11 @@ module PML
 
       # we only export either (a) local flowfacts (b) flowfacts in the scope of the analysis entry
       type = :unsupported
-      if ! scope.reference.kind_of?(FunctionRef)
+      if ! scope.programpoint.kind_of?(Function)
         warn("aiT: linear constraint not in function scope (unsupported): #{ff}")
         return false
       end
-      if scope.reference.function == @entry
+      if scope.programpoint == @entry
         type = :global
       elsif ff.local?
         type = :local
@@ -243,13 +348,13 @@ module PML
       end
 
       # no support for edges in aiT
-      unless terms.all? { |t| t.ppref.kind_of?(BlockRef) }
+      unless terms.all? { |t| t.programpoint.kind_of?(Block) }
         warn("Constraint not supported by aiT (not a block ref): #{ff}")
         return false
       end
 
       # no support for empty basic blocks (typically at -O0)
-      if terms.any? { |t| t.ppref.block.instructions.empty? }
+      if terms.any? { |t| t.programpoint.block.instructions.empty? }
         warn("Constraint not supported by aiT (empty basic block): #{ff})")
         return false
       end
@@ -260,11 +365,11 @@ module PML
         return true
       end
 
-      scope = scope.function.blocks.first.ref
+      scope = scope.function.blocks.first
       terms.push(Term.new(scope,-rhs)) if rhs != 0
       terms.each { |t|
         set = (t.factor < 0) ? terms_rhs : terms_lhs
-        set.push("#{t.factor.abs} (#{dquote(t.ppref.block.label)})")
+        set.push("#{t.factor.abs} (#{t.programpoint.block.ais_ref})")
       }
       cmp_op = "<="
       constr = [terms_lhs, terms_rhs].map { |set|
@@ -314,7 +419,7 @@ module PML
         return false if options.ais_disable_export.include?('infeasible-code')
         export_infeasible(ff,*scope_pp)
 
-      elsif ff.blocks_constraint? || ff.scope.reference.kind_of?(FunctionRef)
+      elsif ff.blocks_constraint? || ff.scope.programpoint.kind_of?(Function)
         return false if options.ais_disable_export.include?('flow-constraints')
         export_linear_constraint(ff)
 
@@ -326,18 +431,13 @@ module PML
 
     # export value facts
     def export_valuefact(vf)
-      rangelist = vf.values.map { |v|
-        if s = v.symbol
-          dquote(s)
-        else
-          die("No symbol for value #{v.inspect}")
-        end
-      }.join(", ")
-      if ! vf.programpoint.reference.instruction.address
-        die("Cannot obtain address for instruction "+
-            "(forgot 'platin extract-symbols'?)")
+      assert("AisExport#export_valuefact: programpoint is not an instruction (#{vf.programpoint.class})") { vf.programpoint.kind_of?(Instruction) }
+      if ! vf.ppref.context.empty?
+        warn("AisExport#export_valuefact: cannot export context-sensitive program point")
+        return false
       end
-      gen_fact("instruction 0x#{vf.programpoint.reference.instruction.address.to_s(16)}" +
+      rangelist = vf.values.map { |v| v.to_ais }.join(", ")
+      gen_fact("instruction #{vf.programpoint.ais_ref}" +
                " accesses #{rangelist}",
                "Memory address (source: #{vf.origin})", vf)
     end
@@ -353,7 +453,7 @@ module PML
         die("aiT: unknown stack cache annotation")
       end
 
-      gen_fact("instruction 0x#{ins.address.to_s(16)} features \"#{feature}\" = #{value}", "source: stack cache analysis")
+      gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{value}", "SC blocks (source: llvm sca)")
     end
   end
 
@@ -413,7 +513,7 @@ class AitImport
   def read_result_file(file)
     doc = Document.new(File.read(file))
     cycles = doc.elements["results/result[1]/cycles"].text.to_i
-    scope = pml.machine_functions.by_label(options.analysis_entry).ref
+    scope = pml.machine_functions.by_label(options.analysis_entry)
     TimingEntry.new(scope,
                     cycles,
                     nil,
@@ -505,7 +605,7 @@ class AitImport
           # value_step#index ? value_step#mode?
           # value_area#mod? value_area#rem?
 
-          fact_pp = ContextRef.new(ins.ref, context)
+          fact_pp = ContextRef.new(ins, context)
           is_read = se.attributes['type'] == 'read'
           if is_read
             fact_variable = "mem-address-read"
@@ -632,7 +732,7 @@ class AitImport
             count = edge.attributes['count'].to_i
             cum_cycles = edge.attributes['cycles'].to_i
             path_cycles = edge.attributes['path_cycles'].to_i
-            debug(options,:ait) { "Edge #{source} -> #{target.inspect} [tblock=#{target_block}] [loopnode=#{loop_nodes[target_block_id]}] [callnode=#{call_nodes[target_block_id]}[tid=#{target_block_id}] #{count} is intrablock: #{is_intrablock_target}" }
+
             if count > 0
               computed_path_cycles = (cum_cycles.to_f / count).to_i
               if path_cycles.to_i > 0
@@ -664,7 +764,7 @@ class AitImport
             # Moreover, we add the maximum cost for (b/i -> b') to the edge b->b'.
 
             if source.block == target_block && is_intrablock_target
-              ref = ContextRef.new(source.ref, context)
+              ref = ContextRef.new(source, context)
               ait_ins_cost[ref] = [ait_ins_cost[ref],path_cycles].max
             else
               pml_edge = source.block.edge_to(target_block ? target_block : nil)
@@ -696,8 +796,8 @@ class AitImport
     }
     ait_ins_cost.each { |cref, path_cycles|
       context = cref.context
-      if cref.reference.kind_of?(InstructionRef)
-        ins = cref.instruction
+      if cref.programpoint.kind_of?(Instruction)
+        ins = cref.programpoint
         ins.block.outgoing_edges.each { |pml_edge|
           if ins.live_successor?(pml_edge.target)
             # info "Adding cost to intrablock edge #{pml_edge}: #{path_cycles}"
@@ -707,7 +807,9 @@ class AitImport
           end
         }
       else
-        pml_edge = cref.reference
+        pml_edge = cref.programpoint
+        assert("read_wcet_analysis_result: expecting Edge type") { pml_edge.kind_of?(Edge) }
+
         # info "Adding cost to intraprocedural edge #{pml_edge}: #{path_cycles}"
         (edge_cycles[pml_edge]||=Hash.new(0))[context] += path_cycles
       end

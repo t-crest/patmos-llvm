@@ -151,7 +151,7 @@ bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB) const {
   // pass, has marked all entry blocks already.
   const PatmosMachineFunctionInfo *PMFI =
                                        MF->getInfo<PatmosMachineFunctionInfo>();
-  return PMFI->isMethodCacheRegionEntry(MBB);;
+  return PMFI->isMethodCacheRegionEntry(MBB);
 }
 
 

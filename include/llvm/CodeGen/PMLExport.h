@@ -122,9 +122,9 @@ namespace llvm {
 
     PMLInstrInfo *PII;
 
-    yaml::ValueFact *createLoadGVFact(const MachineInstr *MI,
-                                      yaml::MachineInstruction *I,
-                                      std::set<const GlobalValue*> &GVs) const;
+    yaml::ValueFact *createMemGVFact(const MachineInstr *MI,
+                                     yaml::MachineInstruction *I,
+                                     std::set<const GlobalValue*> &GVs) const;
   protected:
     Pass &P;
     TargetMachine &TM;
@@ -165,7 +165,7 @@ namespace llvm {
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
                                    MachineBasicBlock *FalseSucc);
-    virtual void exportLoadInstruction(MachineFunction &MF,
+    virtual void exportMemInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,
                                    const MachineInstr *Instr);
 
@@ -173,6 +173,8 @@ namespace llvm {
                                       yaml::MachineFunction *F,
                                       const MachineFunction &MF);
 
+    virtual void exportSubfunctions(MachineFunction &MF,
+                                    yaml::MachineFunction *PMF) { }
   };
 
   class PMLRelationGraphExport : public PMLExport {

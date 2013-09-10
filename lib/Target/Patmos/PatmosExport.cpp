@@ -234,8 +234,8 @@ namespace llvm {
         (void)RetCC_Patmos;
       }
 
+
     virtual bool doExportInstruction(const MachineInstr *Ins) {
-      if (Ins->isDebugValue()) return false;
       if (SkipSerializeInstructions) {
         if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() &&
             !Ins->getDesc().isReturn() && !Ins->getDesc().mayLoad() &&
@@ -258,6 +258,9 @@ namespace llvm {
     virtual void exportArgumentRegisterMapping(
                                   yaml::MachineFunction *PMF,
                                   const MachineFunction &MF);
+
+    virtual void exportSubfunctions(MachineFunction &MF,
+                                        yaml::MachineFunction *PMF);
   };
 
 
@@ -494,15 +497,43 @@ namespace llvm {
       PatmosStackCacheAnalysisInfo *SCA =
        &P.getAnalysis<PatmosStackCacheAnalysisInfo>();
 
-      if (SCA->isValid() && Instr->getOpcode() == Patmos::SENSi) {
-        PatmosStackCacheAnalysisInfo::FillSpillCounts::iterator it;
-        assert((it = SCA->Ensures.find(Instr)) != SCA->Ensures.end());
-        I->StackCacheFill = it->second;
+      if (SCA->isValid()) {
+        if (Instr->getOpcode() == Patmos::SENSi) {
+          PatmosStackCacheAnalysisInfo::FillSpillCounts::iterator it =
+            SCA->Ensures.find(Instr);
+          assert(it != SCA->Ensures.end());
+          I->StackCacheFill = it->second;
+        } else if (Instr->getOpcode() == Patmos::SRESi) {
+          PatmosStackCacheAnalysisInfo::FillSpillCounts::iterator it =
+            SCA->Reserves.find(Instr);
+          assert(it != SCA->Reserves.end());
+          I->StackCacheSpill = it->second;
+        }
       }
       return PMLMachineExport::exportInstruction(MF, I, Instr, Conditions,
           HasBranchInfo, TrueSucc, FalseSucc);
     }
 
+
+    void PatmosMachineExport::exportSubfunctions(MachineFunction &MF,
+                                                 yaml::MachineFunction *PMF)
+    {
+      // TODO use some PML mapping function to get the unique label for MBBs
+      yaml::Subfunction *S = new yaml::Subfunction(MF.begin()->getNumber());
+      const PatmosMachineFunctionInfo *PMFI =
+                                        MF.getInfo<PatmosMachineFunctionInfo>();
+
+      for (MachineFunction::iterator bb = MF.begin(), be = MF.end(); bb != be;
+           bb++)
+      {
+        if (bb != MF.begin() && PMFI->isMethodCacheRegionEntry(bb)) {
+          PMF->addSubfunction(S);
+          S = new yaml::Subfunction(bb->getNumber());
+        }
+        S->addBlock(bb->getNumber());
+      }
+      PMF->addSubfunction(S);
+    }
 
 } // end namespace llvm
 

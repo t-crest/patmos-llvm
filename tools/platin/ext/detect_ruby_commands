@@ -1,0 +1,46 @@
+#
+# scripts to detect ruby>1.8,gem and rdoc
+#
+
+detect_ruby() {
+    RUBY19s="ruby1.9 ruby1.9.1 ruby1.9.2 ruby1.9.3"
+    RUBY_VERSION=`ruby -e 'puts RUBY_VERSION'`
+
+    if [[ "${RUBY_VERSION}" =~ ^1.8 ]] ; then
+	RUBY=ruby
+	RUBY18=ruby
+    elif [[ "${RUBY_VERSION}" =~ ^1.9 ]] ; then
+	RUBY=ruby
+	RUBY19=ruby
+    elif [ ! -z "${RUBY_VERSION}" ] ; then
+	RUBY=ruby
+    fi
+    if [ -z "${RUBY19}" ] ; then
+	for r19 in ${RUBY19s} ; do
+	    if [ ! -z "`which ${r19}`" ] ; then
+		RUBY=${r19}
+		RUBY19=${r19}
+		break
+	    fi
+	done
+    fi
+    if [ -z "${RUBY}" ] ; then
+	echo "ruby not found. Please install ruby (e.g., sudo aptitude install ruby1.9.1)" >&2
+	exit 1
+    elif [ -z "${RUBY19}" ] ; then
+	echo "ruby1.9 not found. Falling back to unsupported ruby version `${RUBY} -v`"
+    fi
+}
+
+function detect_gem_command {
+    GEM19s="gem1.9.1 gem1.9 gem"
+    for g19 in ${GEM19s} ; do
+        if [ ! -z "`which ${g19}  2>/dev/null`" ] ; then
+            GEM="$g19"
+            break
+        fi
+    done
+    if [ -z "${GEM}" ] ; then
+        echo "gem not found. Please make sure there is a 'gem' command for managing ruby libraries" >&2
+    fi
+}

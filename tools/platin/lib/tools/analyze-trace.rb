@@ -95,7 +95,7 @@ class AnalyzeTraceTool
       outpml.timing.add(TimingEntry.new(global.scope,global.results.cycles.max,nil,fact_context))
     end
 
-    flow_facts_before = @pml.flowfacts.length
+    flowfacts_before = @pml.flowfacts.length
 
     @main_recorder.recorders.each { |recorder|
       scope = recorder.scope
@@ -105,10 +105,10 @@ class AnalyzeTraceTool
       recorder.results.calltargets.each do |pp,receiverset|
         cs, call_context = pp
         next unless cs.unresolved_call? || cs.callees.size != receiverset.size
-        caller_ref = InstructionRef.new(cs, call_context)
+        caller_ref = ContextRef.new(cs, call_context)
         receiver_call_context = call_context.push(cs,call_context.length+1)
         receivers = receiverset.map { |f|
-          ContextRef.new(FunctionRef.new(f), receiver_call_context)
+          ContextRef.new(f, receiver_call_context)
         }
         ff = FlowFact.calltargets(scope, caller_ref, receivers, fact_context)
         debug(options,:trace) { "Adding trace flowfact #{ff}" }
@@ -119,19 +119,19 @@ class AnalyzeTraceTool
         block, call_context = pp
         type = (freq.max == 0) ? "infeasible" : "block"
         next unless recorder.report_block_frequencies || type == "infeasible"
-        block_ref = ContextRef.new(BlockRef.new(block), call_context)
+        block_ref = ContextRef.new(block, call_context)
         outpml.flowfacts.add(FlowFact.block_frequency(scope, block_ref, freq, fact_context))
       end
       # Export loop header bounds (mandatory for WCET analysis) for global analyses
       if recorder.global?
         recorder.results.loopbounds.each do |pp,bound|
-          loop, call_context = pp
-          loop_ref = ContextRef.new(LoopRef.new(loop), call_context)
+          loopheader, call_context = pp
+          loop_ref = ContextRef.new(Loop.new(loopheader), call_context)
           outpml.flowfacts.add(FlowFact.loop_bound(loop_ref, bound.max, fact_context))
         end
       end
     }
-    statistics("TRACE", "extracted flow-flact hypotheses" => outpml.flowfacts.length - flow_facts_before) if @options.stats
+    statistics("TRACE", "extracted flow-flact hypotheses" => outpml.flowfacts.length - flowfacts_before) if @options.stats
     outpml
   end
 

@@ -367,7 +367,7 @@ let isCall=1, hasDelaySlot=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20, RFB, RFO,
-          SM, SL, SH, S7, S8, S9, S10, S11, S12, S13, S14, S15] in {
+          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
 
   // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
@@ -390,13 +390,14 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
 //  Miscellaneous Instructions...
 //===----------------------------------------------------------------------===//
 
-def SRESi  : STCi<0b00, (outs), (ins pred:$p, uimm18s2:$imm), "sres",   "$imm", []>;
-def SENSi  : STCi<0b01, (outs), (ins pred:$p, uimm18s2:$imm), "sens",   "$imm", []>;
-def SFREEi : STCi<0b10, (outs), (ins pred:$p, uimm18s2:$imm), "sfree",  "$imm", []>;
-def SSPILLi: STCi<0b11, (outs), (ins pred:$p, uimm18s2:$imm), "sspill", "$imm", []>;
-def SENSr  : STCr<0b01, (outs), (ins pred:$p, RRegs:$rs), "sens",   "$rs", []>;
-def SSPILLr: STCr<0b11, (outs), (ins pred:$p, RRegs:$rs), "sspill", "$rs", []>;
-
+let Defs = [SS, ST], Uses = [SS, ST] in {
+  def SRESi  : STCi<0b00, (outs), (ins pred:$p, uimm18s2:$imm), "sres",   "$imm", []>;
+  def SENSi  : STCi<0b01, (outs), (ins pred:$p, uimm18s2:$imm), "sens",   "$imm", []>;
+  def SFREEi : STCi<0b10, (outs), (ins pred:$p, uimm18s2:$imm), "sfree",  "$imm", []>;
+  def SSPILLi: STCi<0b11, (outs), (ins pred:$p, uimm18s2:$imm), "sspill", "$imm", []>;
+  def SENSr  : STCr<0b01, (outs), (ins pred:$p, RRegs:$rs), "sens",   "$rs", []>;
+  def SSPILLr: STCr<0b11, (outs), (ins pred:$p, RRegs:$rs), "sspill", "$rs", []>;
+}
 
 //===----------------------------------------------------------------------===//
 // Arithmetic Instructions
@@ -518,7 +519,7 @@ let isAsCheapAsAMove = 1, imm = 0, ImmOpNo = 0 in {
   let Constraints = "$old = $rd", isCodeGenOnly = 1 in
   def CMOV : ALUi<0b0000, (outs RRegs:$rd), (ins predset:$p, RRegs:$old, RRegs:$new),
                   "mov", "$rd = $new",
-                  [(set RRegs:$rd, (select predsel:$p, RRegs:$new, RRegs:$old))]> 
+                  [(set RRegs:$rd, (select predsel:$p, RRegs:$new, RRegs:$old))], IIC_ALUic> 
   {
     bits<5> new;
     let rs1 = new;
@@ -689,6 +690,7 @@ let neverHasSideEffects = 1 in // mayLoad is set in format
 multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
 {
   // load from stack cache
+  let Uses = [ST] in
   def S  : LDT<ty, 0b0, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
                asmop # "s", "$rd = [${ra:addrmod}${imm:addrmod}]",
@@ -722,13 +724,13 @@ multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
     def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
                  "d" # asmop # "c", "[${ra:addrmod}${imm:addrmod}]",
-                 [], IIC_LD>;
+                 [], IIC_LDd>;
 
     // load from main memory (no pattern to match)
     def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/),
                  (ins pred:$p, RRegs:$ra, immTy:$imm),
                  "d" # asmop # "m", "[${ra:addrmod}${imm:addrmod}]",
-                 [], IIC_LD>;
+                 [], IIC_LDd>;
   }
 }
 
@@ -752,6 +754,7 @@ let neverHasSideEffects = 1 in // mayStore is set in format
 multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
 {
   // store to stack cache
+  let Uses = [ST] in
   def S  : STT<ty, 0b00, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "s", "[${ra:addrmod}${imm:addrmod}] = $rs",

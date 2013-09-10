@@ -70,10 +70,9 @@ namespace {
         enablePass(&MachineSchedulerID);
         MachineSchedRegistry::setDefault(createPatmosVLIWMachineSched);
       }
-      if (TM->getSubtargetImpl()->usePostRAMIScheduler(getOptLevel())) {
-        // TODO setup MI scheduler as post-RA scheduler
-        // (substitute PostRASchdeulerID)
-
+      if (TM->getSubtargetImpl()->usePatmosPostRAScheduler(getOptLevel())) {
+        initializePatmosPostRASchedulerPass(*PassRegistry::getPassRegistry());
+        substitutePass(&PostRASchedulerID, &PatmosPostRASchedulerID);
       }
     }
 
@@ -101,7 +100,20 @@ namespace {
         // removed before function splitter
         addPass(&UnreachableMachineBlockElimID);
       }
+      if (getOptLevel() != CodeGenOpt::None) {
+        // Add the standard basic block placement before the post-RA scheduler
+        // as it creates and removes branches.
+        TargetPassConfig::addBlockPlacement();
+      }
       return true;
+    }
+
+    virtual void addBlockPlacement() {
+      // The block placement passes are added after the post-RA scheduler.
+      // We do want to have our branches created by this pass scheduled by the
+      // post-RA scheduler and we do not handle delay-slots in
+      // PatmosInstrInfo.InsertBranch|RemoveBranch, so we disable the default
+      // pass here and add them in PreSched2 instead.
     }
 
     /// addPreEmitPass - This pass may be implemented by targets that want to run
@@ -111,26 +123,26 @@ namespace {
 
       // Post-RA MI Scheduler does bundling and delay slots itself. Otherwise,
       // add passes to handle them.
-      if (!getPatmosSubtarget().usePostRAMIScheduler(getOptLevel())) {
+      if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
 
         if (getPatmosSubtarget().enableBundling(getOptLevel())) {
           addPass(createPatmosPacketizer(getPatmosTargetMachine()));
         }
 
-        // disable the filler if we have bundles, the filler does not handle
-        // them properly at the moment.
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
                                                 false));
-      }
 
-      if (getPatmosSubtarget().enableBundling(getOptLevel())) {
-        addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
+        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
+          addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
+        }
       }
 
       // All passes below this line must handle delay slots and bundles
       // correctly.
 
-      addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+      if (getPatmosSubtarget().hasMethodCache()) {
+        addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+      }
 
 
       // this is pseudo pass that may hold results from SC analysis
@@ -140,6 +152,10 @@ namespace {
       if (EnableStackCacheAnalysis) {
         addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
+
+      // following pass is a peephole pass that does neither modify
+      // the control structure nor the size of basic blocks.
+      addPass(createPatmosBypassFromPMLPass(getPatmosTargetMachine()));
 
       return true;
     }

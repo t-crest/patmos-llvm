@@ -75,8 +75,8 @@ static const unsigned RRegsTable[] = {
 };
 static const unsigned SRegsTable[] = {
     Patmos::S0,  Patmos::SM,  Patmos::SL,  Patmos::SH,
-    Patmos::S4,  Patmos::SS,  Patmos::ST,  Patmos::S7,
-    Patmos::S8,  Patmos::S9,  Patmos::S10, Patmos::S11,
+    Patmos::S4,  Patmos::SS,  Patmos::ST,  Patmos::SRB,
+    Patmos::SRO, Patmos::SXB, Patmos::SXO, Patmos::S11,
     Patmos::S12, Patmos::S13, Patmos::S14, Patmos::S15,
 };
 static const unsigned PRegsTable[] = {

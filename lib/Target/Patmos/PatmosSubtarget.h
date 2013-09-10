@@ -46,9 +46,9 @@ public:
   /// getInstrItins - Return the instruction itineraries based on subtarget.
   const InstrItineraryData &getInstrItineraryData() const { return InstrItins; }
 
-  bool hasFPU() { return HasFPU; }
+  bool hasFPU() const { return HasFPU; }
 
-  bool hasMethodCache() { return HasMethodCache; }
+  bool hasMethodCache() const { return HasMethodCache; }
 
   virtual bool enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                     TargetSubtargetInfo::AntiDepBreakMode& Mode,
@@ -63,9 +63,9 @@ public:
   /// Return true if the MI Pre-RA Scheduler should be used.
   bool usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const;
 
-  /// Return true if the MI Scheduler should be used instead of the default 
-  /// Post-RA scheduler.
-  bool usePostRAMIScheduler(CodeGenOpt::Level OptLevel) const;
+  /// Return true if the Patmos scheduler should be used instead of the default
+  /// post-RA scheduler.
+  bool usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const;
 
   /////////////////////////////////////////////////////////////////////////////
   // Patmos specific architecture parameters (cache sizes, types, features,..)
@@ -108,6 +108,9 @@ public:
 
   /// Return the latency of MUL instructions
   unsigned getMULLatency() const { return 3; }
+
+  /// Get the width of an instruction.
+  unsigned getIssueWidth(unsigned SchedClass) const;
 
   /// Check if a given schedule class can be issued in a given slot.
   /// @see PatmosInstrInfo::canIssueInSlot

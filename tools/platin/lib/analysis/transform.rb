@@ -277,7 +277,7 @@ class VariableElimination
     l_coeff = l_constr.get_coeff(e_var)
     u_coeff = u_constr.get_coeff(e_var)
     assert("Not a lower bound for #{e_var}: #{l_constr.inspect}") { l_coeff < 0 }
-    assert("Not an upper bound for #{e_var}: #{u_constr.inspect}") unless u_coeff > 0
+    assert("Not an upper bound for #{e_var}: #{u_constr.inspect}") { u_coeff > 0 }
 
     l_constr.lhs.each { |v,c|
       terms[v] += u_coeff * c
@@ -503,13 +503,13 @@ private
                  v.cfg_edge
                elsif v.call_edge?
                  ctx = Context.from_list([CallContextEntry.new(v.source)])
-                 ContextRef.new(v.target.ref, ctx)
+                 ContextRef.new(v.target, ctx)
                else
                  assert("FlowFactTransformation: relation graph edge not eliminated") { ! v.relation_graph_edge? }
                  raise Exception.new("Bad IPETEdge: #{v}")
                end
              else
-               v.ref
+               v
              end
         Term.new(pp, c)
       }
@@ -518,7 +518,7 @@ private
         "Adding transformed constraint #{name} #{constr.tags.to_a}: #{constr} -> in #{scope} :" +
         "#{termlist} #{constr.op} #{rhs}"
       }
-      ff = FlowFact.new(scope.ref, termlist, constr.op, rhs, attrs.dup)
+      ff = FlowFact.new(scope, termlist, constr.op, rhs, attrs.dup)
       new_flowfacts.push(ff)
     end
     new_flowfacts
@@ -541,7 +541,7 @@ class SymbolicBoundTransformation
       next if ff.context_sensitive?
       s,b = ff.get_loop_bound
       next unless s
-      (ffs[s.reference.function]||=[]).push(ff)
+      (ffs[s.programpoint.function]||=[]).push(ff)
     }
 
 
@@ -553,8 +553,8 @@ class SymbolicBoundTransformation
       lbs_resolved = []
       loop_bounds = {}
       lbs.sort_by { |ff|
-        if ff.scope.reference.kind_of?(LoopRef)
-          ff.scope.reference.loopblock.loops.length
+        if ff.scope.programpoint.kind_of?(Loop)
+          ff.scope.programpoint.loops.length
         else
           1024 # loops first
         end
@@ -568,7 +568,7 @@ class SymbolicBoundTransformation
         lbs_resolved.push(ff_r)
         lbs_resolved.push(ff_triangle) if ff_triangle
         loopscope, loopbound = ff_r.get_loop_bound
-        loop_bounds[loopscope.reference] = loopbound if loopscope
+        loop_bounds[loopscope.programpoint] = loopbound if loopscope
       }
 
       # translate
@@ -600,7 +600,7 @@ class SymbolicBoundTransformation
     elsif ! ff.local?
       debug(options, :transform) { "Cannot transform non-local symbolic flow fact" }
       return nil
-    elsif non_block_ref = ff.lhs.find { |t| ! t.ppref.kind_of?(BlockRef) }
+    elsif non_block_ref = ff.lhs.find { |t| ! t.programpoint.kind_of?(Block) }
       debug(options, :transform) { "Cannot transform symbolic flow fact referencing edges: #{non_block_ref}" }
       return nil
     elsif ! pml.relation_graphs.has_named?(function.name, ff_level)
@@ -616,10 +616,10 @@ class SymbolicBoundTransformation
     #   map B to B' (note there is only one such progress node for each B)
     #
     blockmap = {}
-    loopblock = ff.scope.reference.loopblock if ff.scope.reference.kind_of?(LoopRef)
-    blocks = ff.lhs.map { |t| t.ppref.block }
+    loopblock = ff.scope.programpoint.loopheader if ff.scope.programpoint.kind_of?(Loop)
+    blocks = ff.lhs.map { |t| t.programpoint }
     blocks.push(loopblock) if loopblock
-    blocks.concat(ff.rhs.referenced_loops.map { |lref| lref.loopblock })
+    blocks.concat(ff.rhs.referenced_loops.map { |lref| lref.loopheader })
     blocks.each { |b|
       ns = rg.nodes.by_basic_block(b, ff_level)
       return nil if ns.length != 1
@@ -642,13 +642,12 @@ class SymbolicBoundTransformation
             return nil
           end
         end
-        mapped_loopblock.loopref
+        mapped_loopblock.loop
       else
-        rg.get_function(target_level).ref
+        rg.get_function(target_level)
       end
     lhs_mapped = ff.lhs.map { |t|
-      mref = BlockRef.new(blockmap[t.ppref.block])
-      Term.new(ContextRef.new(mref, Context.empty),t.factor)
+      Term.new(ContextRef.new(blockmap[t.programpoint], Context.empty),t.factor)
     }
     rhs_mapped = ff.rhs.map_names { |ty,n|
       if ty == :variable
@@ -668,7 +667,7 @@ class SymbolicBoundTransformation
         end
         argument.registers.first
       elsif ty == :loop
-        blockmap[n.loopblock].loopref
+        blockmap[n.loopheader].loop
       end
     }
     attrs = { 'origin' =>  options.flow_fact_output,
@@ -699,11 +698,11 @@ class SymbolicBoundTransformation
 
     if b.kind_of?(SEAffineRec)
       referenced_loop = b.loopheader
-      parent_loops = s.reference.loopblock.loops[1..-1]
+      parent_loops = s.programpoint.loops[1..-1]
       # 379382
-      refd_loop_bound = loop_bounds[referenced_loop.loopblock]
+      refd_loop_bound = loop_bounds[referenced_loop.loopheader]
       sum = b.loop_bound_sum(refd_loop_bound)
-      while parent_loops.first != referenced_loop.loopblock
+      while parent_loops.first != referenced_loop.loopheader
         ind_bound = loop_bounds[parent_loops.shift]
         debug(options,:transform) {
           "A loop different from the parent loop is referenced in a CHR - multiplying sum by indepent bound #{ind_bound}"
@@ -711,7 +710,7 @@ class SymbolicBoundTransformation
         sum = ind_bound * sum
       end
       ff_triangle = FlowFact.inner_loop_bound(ContextRef.new(b.loopheader, s.context),
-                                              ContextRef.new(s.reference.loopblock.ref, Context.empty),
+                                              ContextRef.new(s.programpoint.loopheader, Context.empty),
                                               sum,
                                               ff.attributes)
       debug(options, :transform) {  "Triangle loop bound: #{ff_triangle} #{ff_triangle.symbolic_bound? ? '(ignored)' : ''}" }

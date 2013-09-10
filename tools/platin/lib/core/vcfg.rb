@@ -30,8 +30,8 @@ end
 # Flat Control-Flow Model, consists of a set of virtual CFGs
 class ControlFlowModel
   attr_reader :ctx_manager, :vcfgs
-  def initialize(function_list, entry, flow_facts, ctx_manager, arch, opts = {})
-    @function_list, @entry, @flowfacts, @ctx_manager, @arch, @opts = function_list, entry, flow_facts, ctx_manager, arch, opts.dup
+  def initialize(function_list, entry, flowfacts, ctx_manager, arch, opts = {})
+    @function_list, @entry, @flowfacts, @ctx_manager, @arch, @opts = function_list, entry, flowfacts, ctx_manager, arch, opts.dup
     @vcfgs = { @entry => VCFG.new(@entry, arch) }
     @locations, @scope_entries, @scope_exits = {}, {}, {}
     extract_flow_refinements
@@ -147,13 +147,13 @@ private
     @flowfacts.each do |ff|
       # set indirect call targets
       scope,cs,targets = ff.get_calltargets
-      if scope && scope.kind_of?(FunctionRef) && scope.function == @entry && scope.any_context?
+      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.any_context?
         target_vcfgs = targets.map { |fref| get_vcfg(fref.function) }
         get_callnode(cs.instruction).refine_calltargets(to_bounded_stack(cs.context), target_vcfgs)
       end
       # set infeasible blocks
       scope,bref = ff.get_block_infeasible
-      if scope && scope.kind_of?(FunctionRef) && scope.function == @entry && scope.any_context?
+      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.any_context?
         get_vcfg(bref.function).get_blockstart(bref.block).set_infeasible(to_bounded_stack(bref.context))
       end
     end

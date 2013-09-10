@@ -209,7 +209,7 @@ class SEBinary < SymbolicExpression
   # optimized creation for commutative operators
   #
   def SEBinary.collect_fold(op, *args)
-    assert("SEBinary#collect_fold: #{op} is not commutative") unless SEBinary.commutative?(op)
+    assert("SEBinary#collect_fold: #{op} is not commutative") { SEBinary.commutative?(op) }
     todo, done = args, []
     while ! todo.empty?
       expr = todo.pop

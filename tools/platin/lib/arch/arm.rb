@@ -94,13 +94,18 @@ class ExtractSymbols
 end
 
 class Architecture < PML::Architecture
-  def initialize(triple)
-    @triple = triple
+  attr_reader :config
+  def initialize(triple, config)
+    @triple, @config = triple, config
   end
   def Architecture.simulator_options(opts)
   end
+  def config_for_clang
+  end
+  def config_for_simulator
+  end
   def simulator_trace(options)
-    M5SimulatorTrace.new(options.binary_file, options)
+    M5SimulatorTrace.new(options.binary_file, self, options)
   end
   def extract_symbols(extractor, pml, options)
     prefix="arm-#{@triple[2]}-#{@triple[3]}"
@@ -109,7 +114,7 @@ class Architecture < PML::Architecture
   end
 end
 
-end # module patmos
+end # module ARM
 
 # Extend PML
 module PML

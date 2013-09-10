@@ -396,8 +396,8 @@ class IPETModel
       [IPETEdge.new(block,succ,level), factor]
     }
   end
-  def sum_loop_entry(loopblock, factor=1)
-    sum_incoming(loopblock,factor).reject { |edge,factor|
+  def sum_loop_entry(loop, factor=1)
+    sum_incoming(loop.loopheader,factor).reject { |edge,factor|
       edge.backedge?
     }
   end
@@ -510,12 +510,12 @@ class IPETBuilder
       # set indirect call targets
       model = (ff.level == "machinecode") ? :dst : :src
       scope,cs,targets = ff.get_calltargets
-      if scope && scope.reference.kind_of?(FunctionRef) && scope.function == entry[model]
+      if scope && scope.programpoint.kind_of?(Function) && scope.function == entry[model]
         add_calltargets(cs.instruction, targets.map { |t| t.function} , model)
       end
       # set infeasible blocks
       scope,bref = ff.get_block_infeasible
-      if scope && scope.reference.kind_of?(FunctionRef) && scope.function == entry[model]
+      if scope && scope.programpoint.kind_of?(Function) && scope.function == entry[model]
         set_infeasible(bref.block, model)
       end
     end
@@ -542,17 +542,17 @@ class IPETBuilder
         warn("IPETBuilder#add_flowfact: context sensitive program points not supported: #{ff}")
         return false
       end
-      if term.ppref.kind_of?(FunctionRef)
-        lhs += model.function_frequency(term.ppref.function, term.factor)
-      elsif term.ppref.kind_of?(BlockRef)
-        lhs += model.block_frequency(term.ppref.block, term.factor)
-      elsif term.ppref.kind_of?(EdgeRef)
-        lhs += model.edgeref_frequency(term.ppref, term.factor)
-      elsif term.ppref.kind_of?(InstructionRef)
+      if term.programpoint.kind_of?(Function)
+        lhs += model.function_frequency(term.programpoint, term.factor)
+      elsif term.programpoint.kind_of?(Block)
+        lhs += model.block_frequency(term.programpoint, term.factor)
+      elsif term.programpoint.kind_of?(Edge)
+        lhs += model.edgeref_frequency(term.programpoint, term.factor)
+      elsif term.programpoint.kind_of?(Instruction)
         # XXX: exclusively used in refinement for now
         return false
       else
-        raise Exception.new("IPETBuilder#add_flowfact: Unknown reference type: #{term.ppref.class}")
+        raise Exception.new("IPETBuilder#add_flowfact: Unknown programpoint type: #{term.programpoint.class}")
       end
     }
     scope = ff.scope
@@ -560,12 +560,12 @@ class IPETBuilder
       warn("IPETBUilder#add_flowfact: context sensitive scopes not supported: #{ff}")
       return false
     end
-    if scope.reference.kind_of?(FunctionRef)
-      lhs += model.function_frequency(scope.reference.function, -rhs)
-    elsif scope.reference.kind_of?(LoopRef)
-      lhs += model.sum_loop_entry(scope.reference.loopblock, -rhs)
+    if scope.programpoint.kind_of?(Function)
+      lhs += model.function_frequency(scope.programpoint, -rhs)
+    elsif scope.programpoint.kind_of?(Loop)
+      lhs += model.sum_loop_entry(scope.programpoint, -rhs)
     else
-      raise Exception.new("IPETBuilder#add_flowfact: Unknown scope type: #{scope.reference.class}")
+      raise Exception.new("IPETBuilder#add_flowfact: Unknown scope type: #{scope.programpoint.class}")
     end
     begin
       name = "ff_#{@ffcount+=1}"

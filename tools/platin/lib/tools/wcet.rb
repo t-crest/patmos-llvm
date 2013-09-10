@@ -216,7 +216,7 @@ class WcetTool
     criticality = {}
     missing_blocks, missing_edges = Set.new, Set.new
     pml.machine_functions.each { |f|
-      f.blocks.each { |b| missing_blocks.add(b.ref) }
+      f.blocks.each { |b| missing_blocks.add(b) }
       f.edges.each { |e| missing_edges.add(e) }
     }
     timing = pml.timing.find { |t| t.origin == opts.timing_output }
@@ -236,10 +236,10 @@ class WcetTool
         found_new_edge = false
         timing.profile.each { |t|
           next unless t.wcetfreq > 0
-          unless criticality[t.reference.reference]
-            criticality[t.reference.reference] = cycles
-            missing_blocks.delete(t.reference.reference.source.ref) if missing_blocks
-            missing_edges.delete(t.reference.reference)
+          unless criticality[t.reference.programpoint]
+            criticality[t.reference.programpoint] = cycles
+            missing_blocks.delete(t.reference.programpoint.source) if missing_blocks
+            missing_edges.delete(t.reference.programpoint)
             found_new_edge = true
           end
         }
@@ -295,7 +295,7 @@ class WcetTool
 
   def enforce_blocks_constraint(edges_or_blocks, origin)
     attrs = { 'level' => 'machinecode', 'origin' => origin }
-    scoperef = analysis_entry.ref
+    scoperef = analysis_entry
     terms = edges_or_blocks.map { |ppref|
       Term.new(ppref, -1)
     }
@@ -370,7 +370,7 @@ class WcetTool
   end
 
   def WcetTool.run(pml,options)
-    # needs_options(:binary_file, :input)
+    needs_options(:input)
     WcetTool.new(pml,options).run_in_outdir
   end
 
@@ -381,7 +381,7 @@ class WcetTool
     opts.binary_file(true)
     opts.flow_fact_selection
     opts.calculates_wcet
-
+    opts.on("--batch", "run in batch processing mode, reading analysis targets and configuration from PML file") { opts.options.batch = true }
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d }
     opts.on("--enable-trace-analysis", "run trace analysis") { |d| opts.options.trace_analysis = true }
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }

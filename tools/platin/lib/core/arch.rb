@@ -18,16 +18,24 @@ class Architecture
       klass.simulator_options(opts)
     }
   end
-  def Architecture.from_triple(triple)
+  def Architecture.from_triple(triple, machine_config)
     archname = triple.first
     die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]
-    @@register[archname].new(triple)
+    @@register[archname].new(triple, machine_config)
   end
 end
 
 
 # configuration of the execution platform (memory areas, timing, etc.)
 class MachineConfig < PMLObject
+  ##
+  # :attr_reader: memories
+  #
+  # internal/external memory and their timing
+  # * YAML key: +memories+
+  # * Type: [ -> MemoryConfig ]
+  attr_reader :memories
+
   ##
   # :attr_reader: memory_areas
   #
@@ -44,25 +52,138 @@ class MachineConfig < PMLObject
   # * Type: [ -> CacheConfig ]
   attr_reader :caches
 
-  def initialize(memory_areas, caches, data)
-    @memory_areas, @caches = memory_areas, caches
+  def initialize(memories, caches, memory_areas, data = nil)
+    @memories, @caches, @memory_areas = memories, caches, memory_areas
     set_yaml_repr(data)
   end
 
   def MachineConfig.from_pml(ctx, data)
-    MachineConfig.new(
-      data['memory-areas'] ? MemoryAreaList.from_pml(ctx, data['memory-areas']) : nil,
-      data['caches'] ? CacheConfigList.from_pml(ctx, data['caches']) : nil,
-      data)
+    memories = MemoryConfigList.from_pml(ctx, data['memories'] || [])
+    caches   = CacheConfigList.from_pml(ctx, data['caches'] || [])
+    areas    = MemoryAreaList.from_pml([memories,caches], data['memory-areas'] || [])
+    MachineConfig.new(memories, caches, areas, data)
   end
   def to_pml
-    { "memory-areas" => memory_areas.to_pml,
+    { "memories" => memories.to_pml,
+      "memory-areas" => memory_areas.to_pml,
       "caches" => caches.to_pml
     }.delete_if { |k,v| v.nil? }
   end
+
+  def main_memory
+    if @memories.size == 1
+      @memories.first
+    else
+      @memories.by_name('main')
+    end
+  end
 end
 
+class MemoryConfigList < PMLList
+  extend PMLListGen
+  pml_list :MemoryConfig, [:name]
+end
+
+class MemoryConfig < PMLObject
+  ##
+  # :attr_reader: name
+  #
+  # name of the internal or external memory
+  # * YAML key: +name+
+  # * Type: <tt>str</tt>
+  attr_reader :name
+
+  ##
+  # :attr_reader: size
+  #
+  # size in bytes
+  # * YAML key: +size+
+  # * Type: <tt>int</tt>
+  attr_reader :size
+
+  ##
+  # :attr_reader: transfer_size
+  #
+  # number of bytes for a single access (block size)
+  # * YAML key: +transfer-size+
+  # * Type: <tt>int</tt>
+  attr_reader :transfer_size
+
+  # we need to transfer ceil(line size / transfer-size) blocks
+  # for one cache line
+  def blocks_per_line(cache_line_size)
+    (cache_line_size + transfer_size - 1) / transfer_size
+  end
+
+  ##
+  # :attr_reader: read_latency
+  #
+  # latency per read request
+  # * YAML key: +read-latency+
+  # * Type: <tt>int</tt>
+  attr_reader :read_latency
+
+  ##
+  # :attr_reader: read_transfer_time
+  #
+  # cycles to the transfer one block from memory (excluding per-request latency)
+  # * YAML key: +read-transfer-time+
+  # * Type: <tt>int</tt>
+  attr_reader :read_transfer_time
+
+  ##
+  # :attr_reader: write_latency
+  #
+  # latency per write request
+  # * YAML key: +write-latency+
+  # * Type: <tt>int</tt>
+  attr_reader :write_latency
+
+  ##
+  # :attr_reader: write_transfer_time
+  #
+  # cycles to the transfer one block from memory (excluding per-request latency)
+  # * YAML key: +write-transfer-time+
+  # * Type: <tt>int</tt>
+  attr_reader :write_transfer_time
+
+  def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
+                 write_transfer_time, data=nil)
+    @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time =
+      name, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time
+    set_yaml_repr(data)
+  end
+
+  def MemoryConfig.from_pml(ctx, data)
+    MemoryConfig.new(
+      data['name'],
+      data['size'],
+      data['transfer-size'],
+      data['read-latency'],
+      data['read-transfer-time'],
+      data['write-latency'],
+      data['write-transfer-time'],
+      data)
+  end
+  def to_pml
+    { "name" => name,
+      "size" => size,
+      "transfer-size" => transfer_size,
+      "read-latency" => read_latency,
+      "read-transfer-time" => read_transfer_time,
+      "write-latency" => write_latency,
+      "write-transfer-time" => write_transfer_time,
+    }.delete_if { |k,v| v.nil? }
+  end
+end # class MemoryConfig
+
+
 # list of cache configurations
+class CacheConfigList < PMLList
+  extend PMLListGen
+  pml_list :CacheConfig, [:name], [:type]
+end
+
 class CacheConfig < PMLObject
   ##
   # :attr_reader: name
@@ -97,12 +218,17 @@ class CacheConfig < PMLObject
   attr_reader :associativity
 
   ##
-  # :attr_reader: line_size
+  # :attr_reader: block_size
   #
-  # size of a cache line
-  # * YAML key: +line-size+
+  # size of a cache block / cache line
+  # * YAML key: +block-size+
   # * Type: <tt>int</tt>
-  attr_reader :line_size
+  attr_reader :block_size
+
+  # synonymous at the moment
+  def line_size
+    block_size
+  end
 
   ##
   # :attr_reader: size
@@ -112,9 +238,9 @@ class CacheConfig < PMLObject
   # * Type: <tt>int</tt>
   attr_reader :size
 
-  def initialize(name, type, policy, associativity, line_size, size, data = nil)
-    @name, @type, @policy, @associativity, @line_size, @size =
-      name, type, policy, associativity, line_size, size
+  def initialize(name, type, policy, associativity, block_size, size, data = nil)
+    @name, @type, @policy, @associativity, @block_size, @size =
+      name, type, policy, associativity, block_size, size
     set_yaml_repr(data)
   end
 
@@ -124,7 +250,7 @@ class CacheConfig < PMLObject
       data['type'],
       data['policy'],
       data['associativity'],
-      data['line-size'],
+      data['block-size'],
       data['size'],
       data)
   end
@@ -133,11 +259,16 @@ class CacheConfig < PMLObject
       "type" => type,
       "policy" => policy,
       "associativity" => associativity,
-      "line-size" => line_size,
+      "block-size" => block_size,
       "size" => size
     }.delete_if { |k,v| v.nil? }
   end
 end # class CacheConfig
+
+class MemoryAreaList < PMLList
+  extend PMLListGen
+  pml_list :MemoryArea,[:name],[:type]
+end
 
 # list of memory area descriptions
 class MemoryArea < PMLObject
@@ -166,41 +297,43 @@ class MemoryArea < PMLObject
   attr_reader :cache
 
   ##
+  # :attr_reader: memory
+  #
+  # name of the internal or external memory this area is mapped to
+  # * YAML key: +memory+
+  # * Type: <tt>str</tt>
+  attr_reader :memory
+
+  ##
   # :attr_reader: address_range
   #
   # * YAML key: +address-range+
   # * Type: -> ValueRange
   attr_reader :address_range
 
-  ##
-  # :attr_reader: access_timing
-  #
-  # time to access memory area in cycles
-  # * YAML key: +access-timing+
-  # * Type: <tt>{load-word: int, load-line: int, load-line-burst: int}</tt>
-  attr_reader :access_timing
 
-  def initialize(name, type, cache, address_range, access_timing, data = nil)
-    @name, @type, @cache, @address_range, @access_timing =
-      name, type, cache, address_range, access_timing
+  def initialize(name, type, cache, memory, address_range,data = nil)
+    @name, @type, @cache, @memory, @address_range =
+      name, type, cache, memory, address_range
     set_yaml_repr(data)
   end
 
-  def MemoryArea.from_pml(ctx, data)
+  def MemoryArea.from_pml(memories_caches, data)
+    memories, caches = memories_caches
     MemoryArea.new(
       data['name'],
       data['type'],
-      data['cache'],
-      data['address-range'] ? ValueRange.from_pml(ctx, data['address-range']) : nil,
-      data['access-timing'],
+      data['cache'] ?  caches.by_name(data['cache']) : nil,
+      data['memory'] ? memories.by_name(data['memory']) : nil,
+      data['address-range'] ? ValueRange.from_pml(nil, data['address-range']) : nil,
       data)
   end
   def to_pml
     { "name" => name,
       "type" => type,
-      "cache" => cache,
-      "address-range" => address_range.to_pml,
-      "access-timing" => access_timing
+      "cache" => cache.name,
+      "memory" => memory.name,
+      "address-range" => address_range.to_pml
     }.delete_if { |k,v| v.nil? }
   end
 end # class MemoryArea

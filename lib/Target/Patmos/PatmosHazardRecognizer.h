@@ -23,7 +23,7 @@ namespace llvm {
 /// the scheduling itinerary.
 class PatmosHazardRecognizer : public ScheduleHazardRecognizer {
 private:
-  PatmosTargetMachine &PTM;
+  // PatmosTargetMachine &PTM;
 
 public:
   PatmosHazardRecognizer(PatmosTargetMachine &tm,

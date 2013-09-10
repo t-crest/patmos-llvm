@@ -116,8 +116,9 @@ class PseudoInst<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
 // ALUi - Arithmetic Immediate
 //
 class ALUi<bits<4> func,
-      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : PatmosInst<outs, ins, op, asmstr, pattern, FALUi, IIC_ALUi> {
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern,
+      InstrItinClass itin = IIC_ALUi>
+  : PatmosInst<outs, ins, op, asmstr, pattern, FALUi, itin> {
 
   // unbound fields
   bits<5> rd;

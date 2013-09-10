@@ -71,11 +71,51 @@ class PMLTool
     }
   end
 
+  def print_flowfacts(io = $stdout)
+    print_by_origin(pml.flowfacts.list, "flowfacts", io) { |ffs|
+      ffs.group_by { |ff|
+        ff.classification_group(@pml)
+      }.each { |klass,ffs2|
+        puts "--- #{klass} ---"
+        ffs2.each { |ff|
+          puts ff
+        }
+      }
+    }
+  end
+
+  def print_valuefacts(io = $stdout)
+    print_by_origin(pml.valuefacts.list, "valuefacts", io) { |vfs|
+      vfs.each { |vf| puts vf }
+    }
+  end
+
+  def print_timings(io = $stdout)
+    print_by_origin(pml.timing.list, "timings", io) { |tes|
+      tes.each { |te| puts te }
+    }
+  end
+
+  def print_by_origin(set, setname, io)
+    set.group_by { |info|
+      info.origin
+    }.each { |origin,infos|
+      io.puts "=== #{setname} generate by #{origin} ==="
+      yield infos
+    }
+    puts "" unless set.empty?
+  end
+
   def PMLTool.run(pml,options)
     tool = PMLTool.new(pml, options)
     if(options.validate)
       tool.validate
     end
+
+    tool.print_flowfacts if options.print_flowfacts
+    tool.print_valuefacts if options.print_valuefacts
+    tool.print_timings if options.print_timings
+
     if(options.stats)
       stats = {}
       stats['machine code functions'] = pml.machine_functions.length
@@ -100,6 +140,12 @@ class PMLTool
     PMLTool.add_config_options(opts)
     opts.writes_pml # output option => merge
     opts.on("--validate", "validate PML file") { opts.options.validate=true }
+    opts.on("--print-flowfacts", "print flowfacts in PML file") { opts.options.print_flowfacts = true }
+    opts.on("--print-valuefacts", "print valuefacts in PML file") { opts.options.print_valuefacts = true }
+    opts.on("--print-timings", "print timings in PML file") { opts.options.print_timings = true }
+    opts.on("--print-all", "print all analysis results stored in PML file") {
+      opts.options.print_flowfacts = opts.options.print_valuefacts = opts.options.print_timing = true
+    }
   end
 end
 
