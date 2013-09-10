@@ -255,7 +255,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
         case BRCFRu:newopc = BRCFR;break;
         case BRCFTu:newopc = BRCFT;break;
         default:
-          assert(MI->isConditionalBranch());
+          assert(MI->isConditionalBranch() ||
+                 (MI->isIndirectBranch() && MI->isBarrier()) );
           break;
       }
     } else { // NOT predicated
@@ -268,7 +269,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
         case BRCFR:newopc = BRCFRu;break;
         case BRCFT:newopc = BRCFTu;break;
         default:
-          assert(MI->isUnconditionalBranch());
+          assert(MI->isUnconditionalBranch() ||
+                 (MI->isIndirectBranch() && MI->isBarrier()) );
           break;
       }
     }
