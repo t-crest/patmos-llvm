@@ -134,6 +134,10 @@ mapping:
                                - &funseq
                                  type: scalar
                                  desc: "name of the referenced function"
+                          "memmmode":
+                             type: str
+                             enum: [load, store]
+                             desc: "the mode of the memory access (if any) [type=MemMode]"
                           "bundled":
                             type: bool
                             desc: "If true, this instruction is bundled with the next instruction"

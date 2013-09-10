@@ -314,6 +314,10 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
       // TODO: use PMLInstrInfo to try to get call info about bitcode calls
       I->addCallee(StringRef("__any__"));
     }
+  } else if (isa<LoadInst>(II)) {
+    I->MemMode = yaml::memmode_load;
+  } else if (isa<StoreInst>(II)) {
+    I->MemMode = yaml::memmode_store;
   }
 }
 
@@ -401,6 +405,7 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   I->Size = PII->getSize(Ins);
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
   I->BranchType = yaml::branch_none;
+  I->MemMode = yaml::memmode_none;
   I->Bundled = Ins->isBundledWithSucc();
 
   if (Ins->getDesc().isCall()) {
@@ -411,7 +416,11 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
-  } else if (Ins->getDesc().mayLoad() || Ins->getDesc().mayStore()) {
+  } else if (Ins->getDesc().mayLoad()) {
+    I->MemMode = yaml::memmode_load;
+    exportMemInstruction(MF, I, Ins);
+  } else if (Ins->getDesc().mayStore()) {
+    I->MemMode = yaml::memmode_store;
     exportMemInstruction(MF, I, Ins);
   }
 
@@ -497,7 +506,7 @@ yaml::ValueFact *PMLMachineExport:: createMemGVFact(const MachineInstr *MI,
 
   VF->PP = new yaml::ProgramPoint(MF->getFunctionNumber(),
                                   MBB->getNumber(),
-                                  I->Index
+                                  I->Index.getNameAsInteger()
                                   );
   for (std::set<const GlobalValue*>::iterator SI = GVs.begin(), SE = GVs.end();
       SI != SE; ++SI) {

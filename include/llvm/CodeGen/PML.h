@@ -199,14 +199,26 @@ struct ScalarEnumerationTraits<ReprLevel> {
     io.enumCase(level, "machinecode", level_machinecode);
   }
 };
+/// Memory Access Mode (load, store)
+enum MemMode { memmode_none, memmode_load, memmode_store };
+template <>
+struct ScalarEnumerationTraits<MemMode> {
+  static void enumeration(IO &io, MemMode& memmodetype) {
+    io.enumCase(memmodetype, "", memmode_none);
+    io.enumCase(memmodetype, "load", memmode_load);
+    io.enumCase(memmodetype, "store", memmode_store);
+  }
+};
 
 /// Instruction Specification (generic)
 struct Instruction {
-  uint64_t Index;
+  Name Index;
   int Opcode;
   std::vector<Name> Callees;
+  enum MemMode MemMode;
 
-  Instruction(uint64_t index) : Index(index), Opcode(-1) {}
+  Instruction(uint64_t index)
+    : Index(index), Opcode(-1), MemMode(memmode_none) {}
 
   void addCallee(const StringRef function) {
     Callees.push_back(yaml::Name(function));
@@ -222,6 +234,7 @@ struct MappingTraits<Instruction*> {
     io.mapRequired("index",   Ins->Index);
     io.mapOptional("opcode",  Ins->Opcode, -1);
     io.mapOptional("callees", Ins->Callees);
+    io.mapOptional("memmode-type",   Ins->MemMode, memmode_none);
   }
   static const bool flow = true;
 };
@@ -274,6 +287,7 @@ struct MappingTraits<MachineInstruction*> {
     io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
     io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
     io.mapOptional("stack-cache-spill", Ins->StackCacheSpill, 0U);
+    io.mapOptional("memmode",   Ins->MemMode, memmode_none);
     io.mapOptional("bundled",       Ins->Bundled, false);
   }
   static const bool flow = true;
@@ -290,6 +304,8 @@ struct Block {
   std::vector<Name> Predecessors;
   std::vector<Name> Loops;
   std::vector<InstructionT*> Instructions;
+
+  typedef std::vector<InstructionT*> InstrList;
 
   Block(StringRef name): BlockName(name), Address(-1) {}
   Block(uint64_t index) : BlockName(index), Address(-1) {}
