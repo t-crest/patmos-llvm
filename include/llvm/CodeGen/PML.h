@@ -251,12 +251,14 @@ struct MachineInstruction : Instruction {
   std::vector<Name> BranchTargets;
   unsigned BranchDelaySlots;
   unsigned StackCacheFill;
+  unsigned StackCacheSpill;
 
   bool Bundled;
 
   MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
-    BranchDelaySlots(0), StackCacheFill(0), Bundled(false) {}
+    BranchDelaySlots(0), StackCacheFill(0), StackCacheSpill(0),
+    Bundled(false) {}
 };
 template <>
 struct MappingTraits<MachineInstruction*> {
@@ -271,6 +273,7 @@ struct MappingTraits<MachineInstruction*> {
     io.mapOptional("branch-delay-slots", Ins->BranchDelaySlots, 0U);
     io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
     io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
+    io.mapOptional("stack-cache-spill", Ins->StackCacheSpill, 0U);
     io.mapOptional("bundled",       Ins->Bundled, false);
   }
   static const bool flow = true;

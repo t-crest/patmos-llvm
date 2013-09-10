@@ -224,6 +224,12 @@ namespace llvm {
 
   protected:
     void initSUnits();
+
+    /// addRegDeps - Add register data dependencies. If Defs is true, only
+    /// check defs of SU, otherwise only check use operands of SU. Returns
+    /// true if SU has VReg definition.
+    bool addRegDeps(SUnit *SU, bool Defs);
+
     void addPhysRegDataDeps(SUnit *SU, unsigned OperIdx);
     void addPhysRegDeps(SUnit *SU, unsigned OperIdx);
     void addVRegDefDeps(SUnit *SU, unsigned OperIdx);

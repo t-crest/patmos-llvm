@@ -453,7 +453,7 @@ module PML
         die("aiT: unknown stack cache annotation")
       end
 
-      gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{value}", "source: stack cache analysis")
+      gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{value}", "SC blocks (source: llvm sca)")
     end
   end
 

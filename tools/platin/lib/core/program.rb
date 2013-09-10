@@ -557,6 +557,10 @@ module PML
       data['stack-cache-fill']
     end
 
+    def sc_spill
+      data['stack-cache-spill']
+    end
+
     # whether the given block is still a successor if we are at this instruction in the current block
     def live_successor?(target)
       ix = index

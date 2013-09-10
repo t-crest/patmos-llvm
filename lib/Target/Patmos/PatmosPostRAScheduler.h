@@ -119,6 +119,9 @@ namespace llvm {
     /// instructions properly.
     virtual bool canHandleTerminators() { return false; }
 
+    /// Postprocess the scheduling DAG before initializing the scheduler.
+    virtual void postprocessDAG(ScheduleDAGPostRA *DAG) = 0;
+
     /// Initialize the strategy after building the DAG for a new region.
     virtual void initialize(ScheduleDAGPostRA *DAG) = 0;
 
@@ -146,6 +149,12 @@ namespace llvm {
     /// Notify PostRASchedStrategy that a NOOP has been scheduled.
     virtual void schedNoop(bool IsTopNode) {}
 
+    /// Notify PostRASchedStrategy that ScheduleDAGPostRA has rescheduled an
+    /// instruction.
+    virtual void reschedNode(SUnit *SU, bool IsTopNode, bool IsBundled) {
+      assert("Instruction has already been scheduled");
+    }
+
     /// When all predecessor dependencies have been resolved, free this node for
     /// top-down scheduling.
     virtual void releaseTopNode(SUnit *SU) = 0;
@@ -156,8 +165,17 @@ namespace llvm {
 
   };
 
+  /// Mutate the DAG as a postpass after normal DAG building.
+  class ScheduleDAGPostRAMutation {
+  public:
+    virtual ~ScheduleDAGPostRAMutation() {}
+
+    virtual void apply(ScheduleDAGPostRA *DAG) = 0;
+  };
 
   class ScheduleDAGPostRA : public ScheduleDAGInstrs {
+
+    typedef std::vector<ScheduleDAGPostRAMutation*> MutationList;
 
     /// SchedImpl - The schedule strategy to use.
     ///
@@ -178,6 +196,9 @@ namespace llvm {
     /// AA - AliasAnalysis for making memory reference queries.
     AliasAnalysis *AA;
 
+    /// Mutations to postprocess the DAGs
+    MutationList Mutations;
+
     /// The top of the unscheduled zone.
     MachineBasicBlock::iterator CurrentTop;
 
@@ -196,7 +217,7 @@ namespace llvm {
 
     ~ScheduleDAGPostRA();
 
-    // TODO add function to add DAG Mutators to the ScheduleDAG.
+    void addMutation(ScheduleDAGPostRAMutation *M);
 
     /// \brief True if an edge can be added from PredSU to SuccSU without creating
     /// a cycle.

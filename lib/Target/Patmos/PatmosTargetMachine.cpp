@@ -140,7 +140,9 @@ namespace {
       // All passes below this line must handle delay slots and bundles
       // correctly.
 
-      addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+      if (getPatmosSubtarget().hasMethodCache()) {
+        addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+      }
 
 
       // this is pseudo pass that may hold results from SC analysis

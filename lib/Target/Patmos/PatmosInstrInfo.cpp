@@ -228,6 +228,19 @@ CreateTargetScheduleState(const TargetMachine *TM,
 
 bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
   using namespace Patmos;
+
+  if (MI->isBundle()) {
+    bool changed = false;
+
+    MachineBasicBlock::instr_iterator it = MI;
+
+    while ((++it)->isBundledWithPred()) {
+      changed |= fixOpcodeForGuard(it);
+    }
+
+    return changed;
+  }
+
   unsigned opc = MI->getOpcode();
   int newopc = -1;
 
@@ -242,7 +255,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
         case BRCFRu:newopc = BRCFR;break;
         case BRCFTu:newopc = BRCFT;break;
         default:
-          assert(MI->isConditionalBranch());
+          assert(MI->isConditionalBranch() ||
+                 (MI->isIndirectBranch() && MI->isBarrier()) );
           break;
       }
     } else { // NOT predicated
@@ -255,7 +269,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
         case BRCFR:newopc = BRCFRu;break;
         case BRCFT:newopc = BRCFTu;break;
         default:
-          assert(MI->isUnconditionalBranch());
+          assert(MI->isUnconditionalBranch() ||
+                 (MI->isIndirectBranch() && MI->isBarrier()) );
           break;
       }
     }
@@ -468,11 +483,26 @@ bool PatmosInstrInfo::hasCall(const MachineInstr *MI) const {
 }
 
 
+unsigned PatmosInstrInfo::getIssueWidth(const MachineInstr *MI) const
+{
+  if (MI->isInlineAsm())
+    return PST.getSchedModel()->IssueWidth;
+
+  return PST.getIssueWidth(MI->getDesc().SchedClass);
+}
+
 bool PatmosInstrInfo::canIssueInSlot(const MCInstrDesc &MID,
-                                     unsigned Slot) const {
+                                     unsigned Slot) const
+{
   return PST.canIssueInSlot(MID.getSchedClass(), Slot);
 }
 
+bool PatmosInstrInfo::canIssueInSlot(const MachineInstr *MI,
+                                     unsigned Slot) const
+{
+  if (MI->isPseudo()) return true;
+  return canIssueInSlot(MI->getDesc(), Slot);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -486,6 +516,34 @@ getBranchTarget(const MachineInstr *MI) const {
   assert(MI->isBranch() && !MI->isIndirectBranch() &&
          "Not a direct branch instruction!");
   return MI->getOperand(2).getMBB();
+}
+
+bool PatmosInstrInfo::mayFallthrough(MachineBasicBlock &MBB) const {
+
+  int maxLookback = PST.getCFLDelaySlotCycles(false);
+
+  // find last terminator
+  for(MachineBasicBlock::reverse_iterator t(MBB.rbegin()),
+      te(MBB.rend()); t != te && maxLookback >= 0; t++)
+  {
+    MachineInstr *mi = &*t;
+
+    if (!mi->isPseudo(MachineInstr::AllInBundle)) {
+      maxLookback--;
+    }
+
+    // skip non-terminator instructions
+    if (!mi->isTerminator()) {
+      continue;
+    }
+
+    // fix opcode for branch instructions to set barrier flag correctly
+    fixOpcodeForGuard(mi);
+
+    return !mi->isBarrier();
+  }
+
+  return true;
 }
 
 bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,

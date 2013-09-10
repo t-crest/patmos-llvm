@@ -80,6 +80,8 @@ public:
   ///
   virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
 
+  const PatmosRegisterInfo &getPatmosRegisterInfo() const { return RI; }
+
   /// findCommutedOpIndices - If specified MI is commutable, return the two
   /// operand indices that would swap value. Return false if the instruction
   /// is not in a form which this routine understands.
@@ -192,12 +194,15 @@ public:
   /// Correctly deals with inline assembler and bundles.
   bool hasCall(const MachineInstr *MI) const;
 
+  /// getIssueWidth - Get the number of slots required for this instruction.
+  /// For instructions that must be scheduled on its own this returns the
+  /// maximum issue width of the processor.
+  unsigned getIssueWidth(const MachineInstr *MI) const;
+
   /// Check if we can issue an instruction in a given slot
   bool canIssueInSlot(const MCInstrDesc &MID, unsigned Slot) const;
 
-  bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const {
-    return canIssueInSlot(MI->getDesc(), Slot);
-  }
+  bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const;
 
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling
@@ -206,6 +211,9 @@ public:
 
   /// getBranchTarget - Get the target machine basic block for direct branches
   MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
+
+  /// mayFalltrough - Check if the block might fall through to the next block.
+  bool mayFallthrough(MachineBasicBlock &MBB) const;
 
   /// AnalyzeBranch - Analyze the branching code at the end of MBB, returning
   /// true if it cannot be understood (e.g. it's a switch dispatch or isn't

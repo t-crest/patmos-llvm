@@ -236,6 +236,34 @@ void ScheduleDAGInstrs::addSchedBarrierDeps() {
   }
 }
 
+bool ScheduleDAGInstrs::addRegDeps(SUnit *SU, bool Defs) {
+  bool HasVRegDef = false;
+  MachineInstr *MI = SU->getInstr();
+
+  for (unsigned j = 0, n = MI->getNumOperands(); j != n; ++j) {
+    const MachineOperand &MO = MI->getOperand(j);
+    if (!MO.isReg()) continue;
+    if (MO.isDef() != Defs) continue;
+
+    unsigned Reg = MO.getReg();
+    if (Reg == 0) continue;
+
+    if (TRI->isPhysicalRegister(Reg))
+      addPhysRegDeps(SU, j);
+    else {
+      assert(!IsPostRA && "Virtual register encountered!");
+      if (MO.isDef()) {
+        HasVRegDef = true;
+        addVRegDefDeps(SU, j);
+      }
+      else if (MO.readsReg()) // ignore undef operands
+        addVRegUseDeps(SU, j);
+    }
+  }
+
+  return HasVRegDef;
+}
+
 /// MO is an operand of SU's instruction that defines a physical register. Add
 /// data dependencies from SU to any uses of the physical register.
 void ScheduleDAGInstrs::addPhysRegDataDeps(SUnit *SU, unsigned OperIdx) {
@@ -757,25 +785,11 @@ void ScheduleDAGInstrs::buildSchedGraph(AliasAnalysis *AA,
     assert(SU && "No SUnit mapped to this MI");
 
     // Add register-based dependencies (data, anti, and output).
-    bool HasVRegDef = false;
-    for (unsigned j = 0, n = MI->getNumOperands(); j != n; ++j) {
-      const MachineOperand &MO = MI->getOperand(j);
-      if (!MO.isReg()) continue;
-      unsigned Reg = MO.getReg();
-      if (Reg == 0) continue;
+    // Check definitions first before uses, to avoid having implicit defs
+    // kill uses of this SU.
+    bool HasVRegDef = addRegDeps(SU, true);
+    addRegDeps(SU, false);
 
-      if (TRI->isPhysicalRegister(Reg))
-        addPhysRegDeps(SU, j);
-      else {
-        assert(!IsPostRA && "Virtual register encountered!");
-        if (MO.isDef()) {
-          HasVRegDef = true;
-          addVRegDefDeps(SU, j);
-        }
-        else if (MO.readsReg()) // ignore undef operands
-          addVRegUseDeps(SU, j);
-      }
-    }
     // If we haven't seen any uses in this scheduling region, create a
     // dependence edge to ExitSU to model the live-out latency. This is required
     // for vreg defs with no in-region use, and prefetches with no vreg def.

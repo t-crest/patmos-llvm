@@ -397,37 +397,11 @@ namespace llvm {
     }
 
     /// mayFallThrough - Return true in case the block terminates with a 
-    /// non-barrier branche or without any branch at all, false in case the 
+    /// non-barrier branch or without any branch at all, false in case the
     /// block terminates with a barrier branch.
     static bool mayFallThrough(PatmosTargetMachine &PTM, MachineBasicBlock *MBB)
     {
-      if (MBB->succ_empty())
-        return false;
-
-      int maxLookback =
-                         PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
-
-      // TODO optimize: skip the min number of delay slot cycles, only look at
-      // exactly local and non-local positions.
-
-      // find last terminator
-      for(MachineBasicBlock::reverse_iterator t(MBB->rbegin()),
-          te(MBB->rend()); t != te; t++, maxLookback--)
-      {
-        MachineInstr *mi = &*t;
-
-        // skip non-terminator instructions
-        if (!mi->isTerminator()) {
-          // any branches further back will not be a barrier, assuming there is
-          // no dead code.
-          if (maxLookback == 0) break;
-          continue;
-        }
-
-        return !mi->isBarrier();
-      }
-
-      return true;
+      return PTM.getInstrInfo()->mayFallthrough(*MBB);
     }
 
     static unsigned int getInstrSize(MachineInstr *MI, PatmosTargetMachine &PTM)
@@ -1245,6 +1219,8 @@ namespace llvm {
 
       // fix-up needed?
       if (target != layout_successor) {
+        assert(target);
+
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                DebugLoc(), TII.get(Patmos::BRu))).addMBB(target);
@@ -1343,7 +1319,10 @@ namespace llvm {
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         BR->setDesc(TII.get(opcode));
 
-        MachineBasicBlock::iterator II = BR; II++;
+        MachineBasicBlock::instr_iterator II = BR;
+        // move past the end of the BR bundle
+        while (II->isBundledWithSucc()) II++;
+        II++;
         for (unsigned i = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
              i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false); i++) {
           AddDefaultPred(BuildMI(*BR->getParent(), II,
@@ -1380,7 +1359,7 @@ namespace llvm {
           MachineInstr *mi = &*j;
 
           // skip non-terminator instructions and returns
-          if (!mi->isTerminator() || mi->isReturn())
+          if (!mi->isTerminator() || mi->isReturn() || mi->isBundle())
             continue;
 
           switch (mi->getOpcode()) {
@@ -1475,6 +1454,8 @@ namespace llvm {
     {
       MachineFunction *MF = Pred->getParent();
 
+      assert(NewSucc && "Trying to replace successor with a null pointer.");
+
       Pred->replaceSuccessor(OldSucc, NewSucc);
 
       // Iterate over all instructions, there can be cond. and uncond. branches
@@ -1484,7 +1465,7 @@ namespace llvm {
         MachineInstr *mi = &*j;
 
         // skip non-terminator instructions and returns
-        if (!mi->isTerminator() || mi->isReturn())
+        if (!mi->isTerminator() || mi->isReturn() || mi->isBundle())
           continue;
 
         switch (mi->getOpcode()) {
@@ -1592,6 +1573,8 @@ namespace llvm {
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
+        if (i->isBundle()) continue;
+
         if (PTM.getInstrInfo()->hasCall(i)) hasCall = true;
 
         if (i->isBranch()) numBranches++;

@@ -63,6 +63,13 @@ STATISTIC(NumFixedAnti, "Number of fixed anti-dependencies");
 static cl::opt<bool> ViewPostRASchedDAGs("view-postra-sched-dags", cl::Hidden,
   cl::desc("Pop up a window to show PostRASched dags after they are processed"));
 
+static cl::opt<std::string>
+EnableAntiDepBreaking("mpatmos-break-anti-dependencies",
+                      cl::desc("Break post-RA scheduling anti-dependencies: "
+                               "\"critical\", \"all\", or \"none\""),
+                      cl::init("none"), cl::Hidden);
+
+
 // DAG subtrees must have at least this many nodes.
 static const unsigned MinSubtreeSize = 8;
 
@@ -144,7 +151,14 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
                                 CriticalPathRCs))
     return false;
 
-  // TODO Check for antidep breaking override...
+  // Check for antidep breaking override...
+  if (EnableAntiDepBreaking.getPosition() > 0) {
+    AntiDepMode = (EnableAntiDepBreaking == "all")
+      ? TargetSubtargetInfo::ANTIDEP_ALL
+      : ((EnableAntiDepBreaking == "critical")
+         ? TargetSubtargetInfo::ANTIDEP_CRITICAL
+         : TargetSubtargetInfo::ANTIDEP_NONE);
+  }
 
   // TODO this should be created by some factory..
   const PatmosTargetMachine *PTM =
@@ -199,8 +213,8 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
       // it. Perhaps it still needs to be bundled.
       Scheduler->enterRegion(MBB, I, RegionEnd, RemainingInstrs);
 
-      // Skip empty scheduling regions (0 or 1 schedulable instructions).
-      if (I == RegionEnd || I == llvm::prior(RegionEnd)) {
+      // Skip empty scheduling regions.
+      if (I == RegionEnd) {
         // Close the current region. Bundle the terminator if needed.
         // This invalidates 'RegionEnd' and 'I'.
         Scheduler->exitRegion();
@@ -269,8 +283,18 @@ ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
 }
 
 ScheduleDAGPostRA::~ScheduleDAGPostRA() {
+  for (MutationList::iterator it = Mutations.begin(), ie = Mutations.end();
+       it != ie; it++)
+  {
+    delete &*it;
+  }
   delete AntiDepBreak;
   delete SchedImpl;
+}
+
+void ScheduleDAGPostRA::addMutation(ScheduleDAGPostRAMutation *M)
+{
+  Mutations.push_back(M);
 }
 
 bool ScheduleDAGPostRA::canAddEdge(SUnit *SuccSU, SUnit *PredSU) {
@@ -299,7 +323,11 @@ bool ScheduleDAGPostRA::isSchedulingBoundary(const MachineInstr *MI,
 
 void ScheduleDAGPostRA::postprocessDAG()
 {
-  // TODO use DAG mutators to post-process DAG
+  for (MutationList::iterator it = Mutations.begin(), ie = Mutations.end();
+         it != ie; it++)
+  {
+    (*it)->apply(this);
+  }
 }
 
 /// StartBlock - Initialize register live-range state for scheduling in
@@ -355,6 +383,8 @@ void ScheduleDAGPostRA::schedule() {
 
   postprocessDAG();
 
+  SchedImpl->postprocessDAG(this);
+
   SmallVector<SUnit*, 8> TopRoots, BotRoots;
   findRootsAndBiasEdges(TopRoots, BotRoots);
 
@@ -375,11 +405,19 @@ void ScheduleDAGPostRA::schedule() {
 
   while (SchedImpl->pickNode(SU, IsTopNode, IsBundled))
   {
-    assert((!SU || !SU->isScheduled) && "Node already scheduled");
-
     scheduleMI(SU, IsTopNode, IsBundled);
 
-    updateQueues(SU, IsTopNode, IsBundled);
+    if (SU && SU->isScheduled) {
+      SchedImpl->reschedNode(SU, IsTopNode, IsBundled);
+    }
+    else if (SU) {
+      updateQueues(SU, IsTopNode, IsBundled);
+
+      SchedImpl->schedNode(SU, IsTopNode, IsBundled);
+    }
+    else {
+      SchedImpl->schedNoop(IsTopNode);
+    }
   }
 
   finishTopBundle();
@@ -416,8 +454,20 @@ void ScheduleDAGPostRA::moveInstruction(MachineInstr *MI,
   if (&*RegionBegin == MI)
     ++RegionBegin;
 
+  bool InsideBundle = MI->isBundledWithPred() && MI->isBundledWithSucc();
+  MachineInstr *PrevMI = InsideBundle ? MI->getPrevNode() : NULL;
+
+  // Remove the instruction from a bundle, if it is inside one
+  if (MI->isBundledWithPred()) MI->unbundleFromPred();
+  if (MI->isBundledWithSucc()) MI->unbundleFromSucc();
+
   // Update the instruction stream.
   BB->splice(InsertPos, BB, MI);
+
+  if (InsideBundle) {
+    // reconnect the old bundle
+    PrevMI->bundleWithSucc();
+  }
 
   // Recede RegionBegin if an instruction moves above the first.
   if (RegionBegin == InsertPos)
@@ -493,22 +543,44 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
   MachineInstr *MI = SU ? SU->getInstr() : NULL;
 
   if (IsTopNode) {
-    assert(SU->isTopReady() && "node still has unscheduled dependencies");
+    assert((!SU || SU->isTopReady()) &&
+           "node still has unscheduled dependencies");
+
     if (!IsBundled)
       finishTopBundle();
     if (MI) {
+      DEBUG(dbgs() << "Pick top node SU(" << SU->NodeNum << ") ");
+      DEBUG( if (DFSResult) dbgs()
+            << " ILP: " << DFSResult->getILP(SU)
+            << " Tree: " << DFSResult->getSubtreeID(SU) << " @"
+            << DFSResult->getSubtreeLevel(DFSResult->getSubtreeID(SU)) << '\n');
+      DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
+
       TopBundleMIs.push_back(MI);
     } else {
+      DEBUG(dbgs() << "Scheduling NOOP at top\n");
+
       TII->insertNoop(*BB, CurrentTop);
     }
   }
   else {
-    assert(SU->isBottomReady() && "node still has unscheduled dependencies");
+    assert((!SU || SU->isBottomReady()) &&
+           "node still has unscheduled dependencies");
+
     if (!IsBundled)
       finishBottomBundle();
     if (MI) {
+      DEBUG(dbgs() << "Pick bottom node SU(" << SU->NodeNum << ") ");
+      DEBUG( if (DFSResult) dbgs()
+            << " ILP: " << DFSResult->getILP(SU)
+            << " Tree: " << DFSResult->getSubtreeID(SU) << " @"
+            << DFSResult->getSubtreeLevel(DFSResult->getSubtreeID(SU)) << '\n');
+      DEBUG(dbgs() << "Scheduling " << *SU->getInstr());
+
       BottomBundleMIs.push_back(MI);
     } else {
+      DEBUG(dbgs() << "Scheduling NOOP at bottom\n");
+
       TII->insertNoop(*BB, CurrentBottom);
       CurrentBottom = llvm::prior(CurrentBottom);
     }
@@ -518,6 +590,9 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
 void ScheduleDAGPostRA::finishTopBundle()
 {
   if (TopBundleMIs.empty()) return;
+
+  DEBUG(dbgs() << "Finishing top bundle of size "
+               << TopBundleMIs.size() << "\n");
 
   for (size_t i = 0; i < TopBundleMIs.size(); i++) {
     MachineInstr *MI = TopBundleMIs[i];
@@ -543,6 +618,9 @@ void ScheduleDAGPostRA::finishTopBundle()
 void ScheduleDAGPostRA::finishBottomBundle()
 {
   if (BottomBundleMIs.empty()) return;
+
+  DEBUG(dbgs() << "Finishing bottom bundle of size "
+               << BottomBundleMIs.size() << "\n");
 
   for (int i = (int)BottomBundleMIs.size() - 1; i >= 0; i--) {
     MachineInstr *MI = BottomBundleMIs[i];
@@ -590,9 +668,6 @@ void ScheduleDAGPostRA::updateQueues(SUnit *SU, bool IsTopNode, bool IsBundled)
       SchedImpl->scheduleTree(SubtreeID);
     }
   }
-
-  // Notify the scheduling strategy after updating the DAG.
-  SchedImpl->schedNode(SU, IsTopNode, IsBundled);
 }
 
 /// Reinsert any remaining debug_values, just like the PostRA scheduler.
@@ -607,13 +682,21 @@ void ScheduleDAGPostRA::placeDebugValues() {
          DI = DbgValues.end(), DE = DbgValues.begin(); DI != DE; --DI) {
     std::pair<MachineInstr *, MachineInstr *> P = *prior(DI);
     MachineInstr *DbgValue = P.first;
-    MachineBasicBlock::iterator OrigPrevMI = P.second;
-    if (&*RegionBegin == DbgValue)
-      ++RegionBegin;
-    BB->splice(++OrigPrevMI, BB, DbgValue);
-    if (OrigPrevMI == llvm::prior(RegionEnd))
-      RegionEnd = DbgValue;
+    MachineBasicBlock::instr_iterator OrigPrevMI = P.second;
+
+    while (OrigPrevMI->isBundledWithSucc()) {
+      // Move the pointer to the end of the bundle so that the debug value is
+      // placed after the bundle, not inside the bundle.
+      // TODO we might want to put the debug value inside he bundle as close as
+      // possible to the original instruction (?) Then we probably need to split
+      // the bundle first and connect it afterwards, since splice does not
+      // handle bundles.
+      OrigPrevMI++;
+    }
+
+    moveInstruction(DbgValue, ++OrigPrevMI);
   }
+
   DbgValues.clear();
   FirstDbgValue = NULL;
 }
@@ -900,7 +983,7 @@ struct DOTGraphTraits<ScheduleDAGPostRA*> : public DefaultDOTGraphTraits {
   static std::string getNodeLabel(const SUnit *SU, const ScheduleDAG *G) {
     std::string Str;
     raw_string_ostream SS(Str);
-    SS << "SU(" << SU->NodeNum << ')';
+    SS << "SU(" << SU->NodeNum << ")[" << SU->Latency << "]";
     return SS.str();
   }
   static std::string getNodeDescription(const SUnit *SU, const ScheduleDAG *G) {
