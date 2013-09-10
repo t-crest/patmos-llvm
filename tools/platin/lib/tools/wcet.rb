@@ -40,6 +40,9 @@ class AitTool
   end
 end
 
+# number of overestimated cycles always tolerated
+CHECK_OVERESTIMATION_TOLERANCE=10
+
 #
 # WCET Analysis command line tool
 # Clients may subclass the WcetTool to implement benchmark drivers
@@ -331,11 +334,14 @@ class WcetTool
         if te.cycles + 1 < trace_cycles
           die("wcet check: cycles for #{te.origin} (#{te.cycles}) less than measurement (#{trace_cycles})")
         end
-        if options.runcheck_factor && te.cycles > trace_cycles * options.runcheck_factor
-          die <<-EOF
-          WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) larger than
-          measurement (#{trace_cycles}) times #{options.runcheck_factor})
-          EOF
+        if options.runcheck_factor
+          tolerated_overestimation = (trace_cycles * options.runcheck_factor) + CHECK_OVERESTIMATION_TOLERANCE
+          if te.cycles > tolerated_overestimation
+            die <<-EOF.strip_heredoc
+              WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) larger than
+              measurement (#{trace_cycles}) times #{options.runcheck_factor})
+            EOF
+          end
         end
       }
     end
