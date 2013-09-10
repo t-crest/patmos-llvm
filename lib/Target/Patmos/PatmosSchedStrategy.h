@@ -91,6 +91,8 @@ namespace llvm {
     /// been scheduled.
     void makePending(SUnit *SU);
 
+    void dump();
+
   protected:
     bool canIssueInSlot(SUnit *SU, unsigned Slot);
 

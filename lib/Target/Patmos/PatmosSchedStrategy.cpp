@@ -39,7 +39,9 @@ using namespace llvm;
 
 bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
   // Always prefer instructions with ScheduleLow flag.
-  if (A->isScheduleLow) return true;
+  if (A->isScheduleLow != B->isScheduleLow) {
+    return A->isScheduleLow;
+  }
 
   // TODO check this .. prefer instructions that make others available, have
   // highest depth, ..
@@ -247,6 +249,27 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   return false;
 }
 
+void PatmosLatencyQueue::dump()
+{
+  dbgs() << "PendingQueue:";
+  for (unsigned i = 0; i < PendingQueue.size(); i++) {
+    SUnit *SU = PendingQueue[i];
+    if (i > 0) dbgs() << ",";
+    dbgs() << " SU(" << SU->NodeNum << "): Height " << SU->getHeight() <<
+              " Depth " << SU->getDepth();
+    if (SU->isScheduleLow) dbgs() << " low ";
+  }
+  dbgs() << "\nAvailableQueue:";
+  for (unsigned i = 0; i < AvailableQueue.size(); i++) {
+    SUnit *SU = AvailableQueue[i];
+    if (i > 0) dbgs() << ",";
+    dbgs() << " SU(" << SU->NodeNum << ") Height " << SU->getHeight() <<
+              " Depth " << SU->getDepth();
+    if (SU->isScheduleLow) dbgs() << " low ";
+  }
+  dbgs() << "\n";
+}
+
 
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
@@ -370,6 +393,9 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
     // Not emitting a bundle at the moment, go back one cycle ..
     if (!ReadyQ.recedeCycle(++CurrCycle))
       return false;
+
+    DEBUG(dbgs() << "\nPicking node in cycle " << CurrCycle << "\n";
+          ReadyQ.dump());
 
     // .. and try to get a new bundle.
     if (!ReadyQ.selectBundle(CurrBundle)) {
