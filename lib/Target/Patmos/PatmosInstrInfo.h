@@ -194,6 +194,10 @@ public:
   /// Correctly deals with inline assembler and bundles.
   bool hasCall(const MachineInstr *MI) const;
 
+  /// getCallee - try to get the called function, or null if this is not a
+  /// call, if the call target is unknown or if there is more than one callee.
+  const Function *getCallee(const MachineInstr *MI) const;
+
   /// getIssueWidth - Get the number of slots required for this instruction.
   /// For instructions that must be scheduled on its own this returns the
   /// maximum issue width of the processor.

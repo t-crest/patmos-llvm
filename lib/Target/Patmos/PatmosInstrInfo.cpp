@@ -17,6 +17,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosHazardRecognizer.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -482,6 +483,40 @@ bool PatmosInstrInfo::hasCall(const MachineInstr *MI) const {
   }
 }
 
+const Function *PatmosInstrInfo::getCallee(const MachineInstr *MI) const
+{
+  const Function *F = NULL;
+
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator it = MI;
+
+    while ((++it)->isBundledWithPred()) {
+      if (!it->isCall()) continue;
+      if (F) return NULL;
+      F = getCallee(it);
+      if (!F) return NULL;
+    }
+
+    return F;
+  }
+
+  // get target
+  const MachineOperand &MO(MI->getOperand(2));
+
+  // try to find the target of the call
+  if (MO.isGlobal()) {
+    // is the global value a function?
+    F = dyn_cast<Function>(MO.getGlobal());
+  }
+  else if (MO.isSymbol()) {
+    // find the function in the current module
+    const Module &M = *MI->getParent()->getParent()->getFunction()->getParent();
+
+    F = dyn_cast_or_null<Function>(M.getNamedValue(MO.getSymbolName()));
+  }
+
+  return F;
+}
 
 unsigned PatmosInstrInfo::getIssueWidth(const MachineInstr *MI) const
 {
@@ -520,7 +555,9 @@ getBranchTarget(const MachineInstr *MI) const {
 
 bool PatmosInstrInfo::mayFallthrough(MachineBasicBlock &MBB) const {
 
-  int maxLookback = PST.getCFLDelaySlotCycles(false);
+  // Look back 1 slot further than the call to catch the case where a SENS
+  // is scheduled after an noreturn call delay slot.
+  int maxLookback = PST.getCFLDelaySlotCycles(false) + 1;
 
   // find last terminator
   for(MachineBasicBlock::reverse_iterator t(MBB.rbegin()),
@@ -530,6 +567,13 @@ bool PatmosInstrInfo::mayFallthrough(MachineBasicBlock &MBB) const {
 
     if (!mi->isPseudo(MachineInstr::AllInBundle)) {
       maxLookback--;
+    }
+
+    if (mi->isCall()) {
+      const Function *F = getCallee(mi);
+      if (F && F->hasFnAttribute(Attribute::NoReturn)) {
+        return false;
+      }
     }
 
     // skip non-terminator instructions

@@ -1217,10 +1217,13 @@ namespace llvm {
       MachineBasicBlock *fallthrough = block->MBB;
       MachineBasicBlock *target = block->FallthroughTarget;
 
+      if (!target) {
+        // No target, the block might contain a call to a noreturn function.
+        return;
+      }
+
       // fix-up needed?
       if (target != layout_successor) {
-        assert(target);
-
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                DebugLoc(), TII.get(Patmos::BRu))).addMBB(target);
