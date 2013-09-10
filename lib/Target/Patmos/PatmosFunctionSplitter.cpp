@@ -1487,7 +1487,7 @@ namespace llvm {
         MachineInstr *mi = &*j;
 
         // skip non-terminator instructions and returns
-        if (!mi->isTerminator() || mi->isReturn())
+        if (!mi->isTerminator() || mi->isReturn() || mi->isBundle())
           continue;
 
         switch (mi->getOpcode()) {
