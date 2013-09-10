@@ -4,6 +4,7 @@
 # small tool to configure clang and pasim with the right machine configuration
 #
 require 'platin'
+require 'ext/ait'
 include PML
 
 class ToolConfigTool
@@ -20,15 +21,30 @@ class ToolConfigTool
     when 'clang'
       opts = pml.arch.config_for_clang
       roots = pml.analysis_configurations.map { |cs| cs.program_entry }.inject(Set.new) { |s,v| s.add(v) if v; s }.to_a
-      roots = ['main'] if roots.empty?
-      opts.push("-mserialize=#{options.output.to_s.inspect}")
-      opts.push("-mserialize-roots=#{roots.join(",").inspect}")
+      opts.push("-mserialize=#{options.output.to_s}") if options.output
+      opts.push("-mserialize-roots=#{roots.join(",")}") unless roots.empty?
+      puts opts.map { |opt| escape(opt) }.join(" ")
     when 'simulator'
       opts = pml.arch.config_for_simulator
+      puts opts.map { |opt| escape(opt) }.join(" ")
+    when 'ait'
+      AISExporter.new(pml,$stdout,options).export_header
     else
-      die("platin tool configuration: Unknown tool specified: #{options.tool} (clang,simulator)")
+      die("platin tool configuration: Unknown tool specified: #{options.tool} (clang,simulator,ait)")
     end
-    puts opts.join(" ")
+  end
+
+  # The nicest way to use tool-config is like this
+  #   patmos-clang $(platin tool-config -t clang -i config.pml) config.c -o config
+  # However, it is not possible (as far as i know), to probably deal with spaces (or
+  # mor generally, the IFS character) this way.
+  # We thus escape using single quotes, but only if necessary
+  def ToolConfigTool.escape(str)
+    if str =~ /[\t ]/
+      "'" + str.gsub(/[\\']/) { |c| "\\#{c}" } + "'"
+    else
+      str
+    end
   end
 end
 

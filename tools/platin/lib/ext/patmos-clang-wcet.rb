@@ -4,9 +4,10 @@ require 'ostruct'
 require 'tempfile'
 
 def usage(err)
-  $stderr.puts(err)
+  $stderr.puts(err) unless err.to_s.empty?
   $stderr.puts
-  $stderr.puts("Usage: #{$0} -mconfig=<config.pml> [--wcet-guided-optimization] [--platin-wcet-options=<optstr>]  <clang-option>..")
+  $stderr.puts("Usage: patmos-clang-wcet [-c|-S|-E] <clang-option>..")
+  $stderr.puts("Usage: patmos-clang-wcet -mconfig=<config.pml> [--wcet-guided-optimization] [--platin-wcet-options=<optstr>]  <clang-option>..")
   $stderr.puts("")
   $stderr.puts("This is a wrapper for patmos-clang (when producing binaries)")
   $stderr.puts("patmos-cc will configure the hardware settings for you")
@@ -22,8 +23,14 @@ def run(cmd)
 end
 
 usage("") unless ARGV.length > 0
+
+exec("patmos-clang", *ARGV) if ARGV.any? { |arg| arg == "-c" || arg == "-S" || arg == "-E" }
+
+usage("") if ARGV.include?('--help')
+
 options = OpenStruct.new
 args = []
+
 ARGV.each_with_index { |arg,ix|
   if arg =~ /^-mconfig=(.*)$/
     options.configfile = $1
@@ -63,12 +70,12 @@ platin_derived_options += " --debug" if options.debug
 platin_derived_options += " #{options.platin_wcet_options}"
 outfile =
   if options.save_temps
-    Proc.new { |fname|
-      fname
+    Proc.new { |fname,ext|
+      fname+ext
     }
   else
-    Proc.new { |fname|
-      Tempfile.new(fname).path
+    Proc.new { |fname,ext|
+      Tempfile.new([fname,ext]).path
     }
   end
 
@@ -76,21 +83,22 @@ outfile =
 clang_argstr = args.map { |a| a.inspect }.join(" ")
 
 # intermediate files
-llvminput  = outfile.call(options.outfile + ".llvm-input.pml")
-llvmoutput = outfile.call(options.outfile + ".llvm-output.pml")
+llvminput  = outfile.call(options.outfile,".llvm-input.pml")
+llvmoutput = outfile.call(options.outfile,".llvm-output.pml")
+linked_bitcode = outfile.call(options.outfile,".elf.bc")
 
 # compile, serializing pml, elf, bc
 config=`platin tool-config -t clang -i #{options.configfile} -o #{llvmoutput}`.chomp
-run("patmos-clang #{config} #{clang_argstr}")
+run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr}")
 
 if options.guided_optimization
 
   # compute WCETs
-  run("platin wcet --batch  -i #{options.configfile} -i #{llvmoutput} -b #{options.outfile} -o #{llvminput} #{platin_derived_options}")
+  run("platin wcet --batch  -i #{options.configfile} -i #{llvmoutput} -b #{options.outfile} -o #{llvminput} #{platin_derived_options} --report")
 
   # recompile, serialize pml, elf, bc
   config=`platin tool-config -t clang -i #{llvminput} -o #{llvmoutput}`.chomp
-  run("patmos-clang #{config} -mimport-pml=#{llvminput} #{clang_argstr}")
+  run("patmos-clang #{config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
 end
 
 # compute WCETs and report

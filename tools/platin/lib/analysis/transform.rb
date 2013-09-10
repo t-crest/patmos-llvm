@@ -5,6 +5,7 @@
 #
 require 'core/utils'
 require 'core/pml'
+require 'analysis/ilp'
 require 'analysis/ipet'
 require 'set'
 module PML
@@ -336,7 +337,7 @@ class FlowFactTransformation
     copied = pml.flowfacts.add_copies(copy, options.flow_fact_output)
 
     # Build ILP for transformation
-    entry = { :dst => machine_entry, :src => pml.bitcode_functions.by_name(machine_entry.label) }
+    entry = { 'machinecode' => machine_entry, 'bitcode' => pml.bitcode_functions.by_name(machine_entry.label) }
     ipet = build_model(entry, copied, builder_opts)
     simplify.each { |ff| ipet.add_flowfact(ff, :simplify) }
 
@@ -360,7 +361,7 @@ class FlowFactTransformation
     new_constraints = ve.eliminate_set(elim_set)
 
     # Extract and add new flow facts
-    new_ffs = extract_flowfacts(new_constraints, entry, :dst, [:simplify])
+    new_ffs = extract_flowfacts(new_constraints, entry, 'machinecode', [:simplify])
     new_ffs.each { |ff| pml.flowfacts.add(ff) }
     statistics("TRANSFORM",
                "Constraints after 'simplify' FM-elimination (#{constraints_before} =>)" =>
@@ -395,12 +396,12 @@ class FlowFactTransformation
 
     flowfacts_by_entry.each { |entry,ffs|
       # Build ILP for transformation
-      entries = { :dst => entry, :src => pml.bitcode_functions.by_name(entry.label) }
+      entries = { 'machinecode' => entry, 'bitcode' => pml.bitcode_functions.by_name(entry.label) }
       ilp = build_model(entries, ffs, :use_rg => true).ilp
 
       # If direction up/down, eliminate all vars but dst/src
       elim_set = ilp.variables.select { |var|
-        ilp.vartype[var] != target_level || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
+        ilp.vartype[var] != target_level.to_sym || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
       }
       ve = VariableElimination.new(ilp, options)
       new_constraints = ve.eliminate_set(elim_set)
@@ -434,10 +435,13 @@ class FlowFactTransformation
 private
 
   #
-  # entry      ... { :dst => <machine-function , :src => <bitcode-function> }
-  # flowfacts  ... [ <FlowFact f> ]
-  # opts  :use_rg          => <boolean> ... whether to enable relation graphs
-  #       :mbb_variables => <boolean> ... add variables representing basic blocks
+  # Parameters:
+  # +entry+::  <tt>{ 'machine-code' => Function, 'bitcode' => Function } </tt>
+  # +flowfacts+:: a +FlowFact+ list
+  #
+  # Options (+opts+):
+  #  +:use_rg+::        whether to enable relation graphs
+  #  +:mbb_variables+:: add variables representing basic blocks
   #
   def build_model(entry, flowfacts, opts = { :use_rg => false })
     # ILP for transformation
@@ -449,18 +453,15 @@ private
     ipet = IPETBuilder.new(pml,builder_opts,ilp)
 
     # Build IPET (no cost) and add flow facts
-    ipet.build(entry, :mbb_variables => true) { |edge| 0 }
-    flowfacts.each { |ff|
-      ipet.add_flowfact(ff) unless ff.symbolic_bound?
-    }
-    ipet.refine(entry, flowfacts)
+    ffs = flowfacts.select { |ff| ! ff.symbolic_bound? }
+    ipet.build(entry, ffs, :mbb_variables => true) { |edge| 0 }
     ipet
   end
 
   def extract_flowfacts(constraints, entry, target_level, tags = [:flowfact, :callsite])
     new_flowfacts = []
     attrs = { 'origin' =>  options.flow_fact_output,
-              'level'  => (target_level == :src) ? "bitcode" : "machinecode" }
+              'level'  =>  target_level }
     constraints.each do |constr|
       name = constr.name
       lhs = constr.named_lhs
@@ -532,7 +533,7 @@ class SymbolicBoundTransformation
   end
   def transform(flowfacts, target_level)
     new_ffs = []
-    level_source = (target_level == :src) ? "machinecode" : "bitcode"
+    level_source = (target_level == "bitcode") ? "machinecode" : "bitcode"
 
     # select all loop bounds at the level we are transforming from
     ffs = {}
@@ -592,8 +593,8 @@ class SymbolicBoundTransformation
 
     # get relation graph
     function = ff.scope.function
-    ff_level = ff.level == 'machinecode' ? :dst : :src
-
+    rg_src_level    = ff.level == 'bitcode' ? :src : :dst
+    rg_target_level = ff.level == 'bitcode' ? :dst : :src
     if ff.context_sensitive?
       debug(options, :transform) { "Cannot transform context-sensitive symbolic flow fact" }
       return nil
@@ -603,11 +604,11 @@ class SymbolicBoundTransformation
     elsif non_block_ref = ff.lhs.find { |t| ! t.programpoint.kind_of?(Block) }
       debug(options, :transform) { "Cannot transform symbolic flow fact referencing edges: #{non_block_ref}" }
       return nil
-    elsif ! pml.relation_graphs.has_named?(function.name, ff_level)
+    elsif ! pml.relation_graphs.has_named?(function.name, rg_src_level)
       debug(options, :transform) { "Cannot transform symbolic flow fact without relation graph" }
       return nil
     end
-    rg = @pml.relation_graphs.by_name(function.name, ff_level)
+    rg = @pml.relation_graphs.by_name(function.name, rg_src_level)
 
     # Simple Strategy:
     # for all referenced blocks B (including the loop block and loops
@@ -621,12 +622,12 @@ class SymbolicBoundTransformation
     blocks.push(loopblock) if loopblock
     blocks.concat(ff.rhs.referenced_loops.map { |lref| lref.loopheader })
     blocks.each { |b|
-      ns = rg.nodes.by_basic_block(b, ff_level)
+      ns = rg.nodes.by_basic_block(b, rg_src_level)
       return nil if ns.length != 1
       n = ns.first
       return nil if n.unmapped?
       # find (unique) progress node for B
-      nb = n.get_block(target_level)
+      nb = n.get_block(rg_target_level)
       blockmap[b] = nb
     }
     scope_ref_mapped =
@@ -636,7 +637,7 @@ class SymbolicBoundTransformation
           debug(options, :transform) { "SymbolicBoundTransformation: not a loop header mapping: #{loopblock} -> #{mapped_loopblock}" }
           # Note: The frequency of the header of the loop nb is member of
           # provides an upper bound to the frequency of nb
-          mapped_loopblock = mapped_loopblock.loops.first
+          mapped_loopblock = mapped_loopblock.loops.first.loopheader
           unless mapped_loopblock
             debug(options, :transform) { "SymbolicBoundTransformation: loop header maps to non-loop node" }
             return nil
@@ -644,18 +645,18 @@ class SymbolicBoundTransformation
         end
         mapped_loopblock.loop
       else
-        rg.get_function(target_level)
+        rg.get_function(rg_target_level)
       end
     lhs_mapped = ff.lhs.map { |t|
       Term.new(ContextRef.new(blockmap[t.programpoint], Context.empty),t.factor)
     }
     rhs_mapped = ff.rhs.map_names { |ty,n|
       if ty == :variable
-        if ff_level == :dst
+        if ff.level == 'machinecode'
           warn("Mapping of registers to bitcode variables is not available")
           return nil
         end
-        mf = rg.get_function(target_level)
+        mf = rg.get_function(rg_target_level)
         argument = mf.arguments.by_name(n)
         if ! argument
           warn("No function argument #{n} for function #{mf.label}")
@@ -671,7 +672,7 @@ class SymbolicBoundTransformation
       end
     }
     attrs = { 'origin' =>  options.flow_fact_output,
-              'level'  => (target_level == :src) ? "bitcode" : "machinecode" }
+              'level'  =>  target_level }
     scope_mapped = ContextRef.new(scope_ref_mapped, Context.empty)
     FlowFact.new(scope_mapped, TermList.new(lhs_mapped), ff.op, rhs_mapped, attrs)
   end
@@ -699,11 +700,10 @@ class SymbolicBoundTransformation
     if b.kind_of?(SEAffineRec)
       referenced_loop = b.loopheader
       parent_loops = s.programpoint.loops[1..-1]
-      # 379382
       refd_loop_bound = loop_bounds[referenced_loop.loopheader]
       sum = b.loop_bound_sum(refd_loop_bound)
-      while parent_loops.first != referenced_loop.loopheader
-        ind_bound = loop_bounds[parent_loops.shift]
+      while parent_loops.first != referenced_loop
+        ind_bound = loop_bounds[parent_loops.shift.loopheader]
         debug(options,:transform) {
           "A loop different from the parent loop is referenced in a CHR - multiplying sum by indepent bound #{ind_bound}"
         }

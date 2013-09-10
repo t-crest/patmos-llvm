@@ -15,7 +15,7 @@ module PML
 
     # customized constructor
     def initialize(data, opts)
-       @list = data.map { |f| Function.new(f, opts) }
+       @list = data.map { |f| Function.new(self, f, opts) }
        set_yaml_repr(data)
        build_index
     end
@@ -102,7 +102,7 @@ module PML
           instruction = block.instructions[iname]
           return instruction
         elsif lname
-          return Loop.new(block)
+          return block.loop
         else
           return block
         end
@@ -129,20 +129,29 @@ module PML
       @loopheader = block
       @function = block.function
       @qname = block.qname
+      @blocks = [] # Initialized by Function
       set_yaml_repr(data)
     end
     def loops
       @loopheader.loops
     end
+
+    def blocks
+      @blocks
+    end
+    def add_block(b)
+      @blocks.push(b)
+    end
+
     def to_s
-      "#<Loop: #{loopheader.qname}>"
+      "#<Loop: #{loopheader}>"
     end
     def to_pml_ref
       { 'function' => loopheader.function.name, 'loop' => loopheader.name }
     end
     def Loop.from_qname(functions,qn)
       fn,bn = qn.split('/',2).map { |n| YAML::load(n) }
-      Loop.new(functions.by_name(fn).blocks.by_name(bn))
+      functions.by_name(fn).blocks.by_name(bn).loop
     end
   end
 
@@ -223,31 +232,59 @@ module PML
   end
 
   class SubFunction < PMLObject
+    include QNameObject
     attr_reader :name, :blocks
-
     def initialize(function, data)
       blocknames = data['blocks']
       assert("subfunction: empty block list") { ! blocknames.empty? }
       @name = data['name']
+      @qname = "SF:#{function}/#{name}"
       @function = function
       @blocks = blocknames.map { |bname| function.blocks.by_name(bname) }
       set_yaml_repr(data)
+    end
+    def to_s
+      "#{qname}->#{last.name}"
+    end
+    def function
+      entry.function
+    end
+    def entry
+      @blocks.first
+    end
+    def last
+      @blocks.last
+    end
+    def size
+      assert("SubFunction#size: no addresses available") { entry.address }
+      if last.instructions.empty?
+        last.address - entry.address
+      else
+        linstr = last.instructions.list.last
+        linstr.address + linstr.size  - entry.address
+      end
     end
   end
 
   # PML function wrapper
   class Function < ProgramPoint
-    attr_reader :blocks, :loops, :arguments, :subfunctions
-    def initialize(data, opts)
+    attr_reader :module, :blocks, :loops, :arguments, :subfunctions
+    def initialize(mod, data, opts)
       set_yaml_repr(data)
       @name = data['name']
+      @module = mod
       @qname = name
       @loops = []
       @labelkey = opts[:labelkey]
       @blocks = BlockList.new(self, data['blocks'])
       @blocks.each do |block|
         if(block.loopheader?)
-          @loops.push(block)
+          @loops.push(block.loop)
+        end
+      end
+      @blocks.each do |block|
+        block.loops.each do |loop|
+          loop.add_block(block)
         end
       end
       @arguments = ArgumentList.new(self, data['arguments'] || [])
@@ -329,7 +366,7 @@ module PML
     # loops (not ready at initialization time)
     def loops
       return @loops if @loops
-      @loops = (data['loops']||[]).map { |l| function.blocks.by_name(l) }
+      @loops = (data['loops']||[]).map { |l| function.blocks.by_name(l).loop }
     end
 
     # returns true if a CFG edge from the given source node to this block is a back edge
@@ -340,7 +377,7 @@ module PML
       # if the source is in the same loop, our loops are a suffix of theirs
       # as loop nests form a tree, the suffices are equal if there first element is
       source_loop_index = source.loopnest - loopnest
-      source.loops[source_loop_index] == self
+      source.loops[source_loop_index] == self.loop
     end
 
     # returns true if a CFG edge from this block to the given target is an exit edge
@@ -467,7 +504,9 @@ module PML
 
     # reference to the loop represented by the block (needs to be the header of a reducible loop)
     def loop
-      Loop.new(self)
+      assert("Block#loop: not a loop header") { self.loopheader? }
+      return @loop if @loop
+      @loop = Loop.new(self)
     end
 
     def Block.from_qname(functions,qn)
@@ -522,9 +561,17 @@ module PML
       ! callees.empty?
     end
 
-    # calless of this instruction
+    # calless of this instruction (labels)
     def callees
       data['callees'] || []
+    end
+
+    # called functions
+    def called_functions
+      return nil if unresolved_call?
+      data['callees'].map { |n|
+        block.function.module.by_label(n)
+      }
     end
 
     # whether this instruction is an indirect (unresolved) call

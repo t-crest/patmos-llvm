@@ -187,14 +187,14 @@ class MachineTraceMonitor < TraceMonitor
 
   def handle_loopheader(b)
     if b.loopheader?
-      if b.loopnest == @loopstack.length && @loopstack[-1].name != b.name
+      if b.loopnest == @loopstack.length && @loopstack[-1].loopheader.name != b.name
         publish(:loopexit, @loopstack.pop, @cycles)
       end
       if b.loopnest == @loopstack.length
-        publish(:loopcont, b, @cycles)
+        publish(:loopcont, b.loop, @cycles)
       else
-        @loopstack.push b
-        publish(:loopenter, b, @cycles)
+        @loopstack.push b.loop
+        publish(:loopenter, b.loop, @cycles)
       end
     end
   end
@@ -440,17 +440,17 @@ class RecorderScheduler
     (@executed_blocks[bb.function] ||= Set.new).add(bb)
     @active.values.each { |recorder| recorder.block(bb, cycles) }
   end
-  def loopenter(bb, cycles)
+  def loopenter(loop, cycles)
     return unless @running
-    @active.values.each { |recorder| recorder.loopenter(bb, cycles) }
+    @active.values.each { |recorder| recorder.loopenter(loop, cycles) }
   end
-  def loopcont(bb, cycles)
+  def loopcont(loop, cycles)
     return unless @running
-    @active.values.each { |recorder| recorder.loopcont(bb, cycles) }
+    @active.values.each { |recorder| recorder.loopcont(loop, cycles) }
   end
-  def loopexit(bb, cycles)
+  def loopexit(loop, cycles)
     return unless @running
-    @active.values.each { |recorder| recorder.loopexit(bb, cycles) }
+    @active.values.each { |recorder| recorder.loopexit(loop, cycles) }
   end
   def eof ; end
   def method_missing(event, *args)
@@ -504,17 +504,20 @@ class FunctionRecorder
     # puts "#{self}: visiting #{bb} active:#{active?} calllimit:#{@calllimit}"
     results.increment_block(in_context(bb)) if @record_block_frequencies
   end
-  def loopenter(bb, cycles)
+  def loopenter(loop, cycles)
     return unless active?
-    results.start_loop(in_context(bb)) if @record_loopheaders
+    assert("loopenter: not a loop") { loop.kind_of?(Loop) }
+    results.start_loop(in_context(loop)) if @record_loopheaders
   end
-  def loopcont(bb, _)
+  def loopcont(loop, _)
     return unless active?
-    results.increment_loop(in_context(bb)) if @record_loopheaders
+    assert("loopcont: not a loop") { loop.kind_of?(Loop) }
+    results.increment_loop(in_context(loop)) if @record_loopheaders
   end
-  def loopexit(bb, _)
+  def loopexit(loop, _)
     return unless active?
-    results.stop_loop(in_context(bb)) if @record_loopheaders
+    assert("loopexit: not a loop") { loop.kind_of?(Loop) }
+    results.stop_loop(in_context(loop)) if @record_loopheaders
   end
   def ret(rsite,csite,cycles)
     if @callstack.length == 0
@@ -630,18 +633,18 @@ end
 
 # Records progress node trace
 class ProgressTraceRecorder
-  attr_reader :level, :trace, :internal_preds
+  attr_reader :trace, :internal_preds
   def initialize(pml, entry, is_machine_code, options)
     @pml, @options = pml, options
-    @trace, @entry, @level = [], entry, is_machine_code ? :dst : :src
+    @trace, @entry, @rg_level = [], entry, is_machine_code ? :dst : :src
     @internal_preds, @pred_list = [], []
     @rg_callstack = []
   end
   # set current relation graph
   # if there is no relation graph, skip function
   def function(callee,callsite,cycles)
-    @rg = @pml.relation_graphs.by_name(callee.name, @level)
-    debug(@options,:trace) { "Call to rg for #{@level}-#{callee}: #{@rg.nodes.first}" } if rg
+    @rg = @pml.relation_graphs.by_name(callee.name, @rg_level)
+    debug(@options,:trace) { "Call to rg for #{@rg_level}-#{callee}: #{@rg.nodes.first}" } if rg
     @rg_callstack.push(@node)
     @node = nil
   end
@@ -654,16 +657,16 @@ class ProgressTraceRecorder
         first_node.type == :entry
       }
       assert("at_entry == at first block") {
-        bb == first_node.get_block(level)
+        bb == first_node.get_block(@rg_level)
       }
       @node = first_node
       # debug(@options, :trace) { "Visiting first node: #{@node} (#{bb})" }
       return
     end
     # find matching successor progress node
-    succs = @node.successors_matching(bb, @level)
+    succs = @node.successors_matching(bb, @rg_level)
     assert("progress trace: no (unique) successor (but #{succs.length}) at #{@node}, "+
-           "following #{@node.get_block(@level)}->#{bb} (level #{@level})") {
+           "following #{@node.get_block(@rg_level)}->#{bb} (level #{@rg_level})") {
       succs.length == 1
     }
     succ = succs.first
@@ -680,9 +683,9 @@ class ProgressTraceRecorder
   # set current relation graph
   def ret(rsite,csite,cycles)
     return if csite.nil?
-    @rg = @pml.relation_graphs.by_name(csite.function.name, @level)
+    @rg = @pml.relation_graphs.by_name(csite.function.name, @rg_level)
     @node = @rg_callstack.pop
-    debug(@options, :trace) { "Return to rg for #{@level}-#{csite.function}: #{@rg.nodes.first}" } if @rg
+    debug(@options, :trace) { "Return to rg for #{@rg_level}-#{csite.function}: #{@rg.nodes.first}" } if @rg
   end
   def eof ; end
   def method_missing(event, *args); end

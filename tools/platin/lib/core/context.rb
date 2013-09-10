@@ -92,6 +92,7 @@ class ContextTree
   # Add a value in the context, given as (reversed) context list
   # For example, the context list for the callstack suffix
   # f/1 -> g/2 should be [g/2, f/1].
+  # Example: <tt>@infeasible.set(callstring.to_a, true)@</tt>
   def set(ctx_list, value)
     node = @root
     ctx_list.each do |ctx_item|

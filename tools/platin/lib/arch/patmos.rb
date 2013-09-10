@@ -98,6 +98,10 @@ class Architecture < PML::Architecture
   def method_cache
     @config.caches.by_name('method-cache')
   end
+  def subfunction_miss_cost(sf)
+    memory = @config.memory_areas.by_name('code').memory
+    memory.read_delay(method_cache.bytes_to_blocks(sf.size) * method_cache.block_size)
+  end
   def stack_cache
     @config.caches.by_name('stack-cache')
   end
@@ -106,6 +110,10 @@ class Architecture < PML::Architecture
   end
   def instruction_cache
     @config.caches.by_name('instruction-cache')
+  end
+  def path_wcet(ilist)
+    # puts ilist.first.inspect unless ilist.empty?
+    ilist.length
   end
 
   def config_for_clang
@@ -167,6 +175,14 @@ class Architecture < PML::Architecture
         opts.push("lru#{dc.associativity}")
       else
         opts.push("no")
+      end
+    else
+      # if data is mapped to single-cycle access memory,
+      # use an 'ideal' data cache
+      data_area = @config.memory_areas.by_name('data')
+      if data_area.memory.ideal?
+        opts.push("--dckind")
+        opts.push("ideal")
       end
     end
     if sc = stack_cache

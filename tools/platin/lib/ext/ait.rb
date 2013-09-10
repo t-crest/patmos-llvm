@@ -26,7 +26,9 @@ module PML
     end
   end
 
-  # core extensions for aiT
+  #
+  # Extend ValueRange and SymbolicExpression (and subclasses) with +#to_ais+
+  #
   class ValueRange
     def to_ais
       if s = self.symbol
@@ -89,9 +91,8 @@ module PML
   end
 
   #
-  # Extend program points with #ais_ref
+  # Extend program points with +#ais_ref+
   #
-
   class Function
     def ais_ref
       if self.label
@@ -141,12 +142,14 @@ module PML
       raise AISUnsupportedProgramPoint.new(self)
     end
   end
+
   class Edge
     def ais_ref
       raise AISUnsupportedProgramPoint.new(self)
     end
   end
 
+  # class to export PML information to AIS
   class AISExporter
 
     attr_reader :stats_generated_facts,  :stats_skipped_flowfacts
@@ -162,7 +165,7 @@ module PML
     end
 
     # Generate a global AIS header
-    def gen_header
+    def export_header
       # TODO get compiler type depending on YAML arch type
       @outfile.puts '# configure compiler'
       @outfile.puts 'compiler "patmos-llvm";'
@@ -718,7 +721,10 @@ class AitImport
             next if start_nodes[source_block_id]
             next if return_nodes[source_block_id]
             source = @blocks[edge.attributes['source_block']]
-
+            unless source
+              warn("Could not find block corresponding to #{edge.attributes['source_block']}")
+              next
+            end
             target_block_id = edge.attributes['target_block']
             target = @blocks[edge.attributes['target_block']]
             is_intrablock_target = ! target.nil? && target.index > 0 && ! loop_nodes[target_block_id]

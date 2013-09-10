@@ -50,7 +50,7 @@ class AisExportTool
 
     File.open(options.ais_file, "w") { |outfile|
       ais = AISExporter.new(pml, outfile, options)
-      ais.gen_header unless options.ais_disable_export.include?('header')
+      ais.export_header unless options.ais_disable_export.include?('header')
 
       pml.machine_functions.each { |func| ais.export_jumptables(func) }
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])

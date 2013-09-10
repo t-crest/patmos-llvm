@@ -210,7 +210,7 @@ end
 class Hash
   def dump(io=$>)
     self.each do |k,v|
-      puts "#{k.ljust(24)} #{v}"
+      puts "#{k.to_s.ljust(24)} #{v}"
     end
   end
 end
