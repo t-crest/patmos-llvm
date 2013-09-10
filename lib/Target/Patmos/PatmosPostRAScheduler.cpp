@@ -59,6 +59,9 @@ using namespace llvm;
 STATISTIC(NumNoops, "Number of noops inserted");
 STATISTIC(NumStalls, "Number of pipeline stalls");
 STATISTIC(NumFixedAnti, "Number of fixed anti-dependencies");
+STATISTIC(NumBundled, "Number of bundles with size > 1");
+STATISTIC(NumNotBundled, "Number of instructions not bundled");
+STATISTIC(NumRescheduled, "Number of rescheduled instructions");
 
 static cl::opt<bool> ViewPostRASchedDAGs("view-postra-sched-dags", cl::Hidden,
   cl::desc("Pop up a window to show PostRASched dags after they are processed"));
@@ -454,8 +457,12 @@ void ScheduleDAGPostRA::moveInstruction(MachineInstr *MI,
   if (&*RegionBegin == MI)
     ++RegionBegin;
 
+  bool Bundled = MI->isBundled();
   bool InsideBundle = MI->isBundledWithPred() && MI->isBundledWithSucc();
   MachineInstr *PrevMI = InsideBundle ? MI->getPrevNode() : NULL;
+
+  // update statistics when rescheduling nodes
+
 
   // Remove the instruction from a bundle, if it is inside one
   if (MI->isBundledWithPred()) MI->unbundleFromPred();
@@ -610,6 +617,9 @@ void ScheduleDAGPostRA::finishTopBundle()
     for (;MI != CurrentTop; MI++) {
       MI->bundleWithPred();
     }
+    NumBundled++;
+  } else {
+    NumNotBundled++;
   }
 
   TopBundleMIs.clear();
@@ -644,6 +654,9 @@ void ScheduleDAGPostRA::finishBottomBundle()
     for (;MI != *BottomBundleMIs.back(); MI++) {
       MI->bundleWithSucc();
     }
+    NumBundled++;
+  } else {
+    NumNotBundled++;
   }
 
   BottomBundleMIs.clear();
