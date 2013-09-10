@@ -133,7 +133,7 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
 
     // check the width. ignore the width for the first instruction to allow
     // ALUl even when bundling is disabled.
-    unsigned width = getNumUsedSlots(SU);
+    unsigned width = PII.getIssueWidth(SU->getInstr());
     if (!Bundle.empty() && CurrWidth + width > IssueWidth) continue;
 
     addToBundle(Bundle, SU, CurrWidth);
@@ -194,23 +194,11 @@ void PatmosLatencyQueue::makePending(SUnit *SU)
 
 bool PatmosLatencyQueue::canIssueInSlot(SUnit *SU, unsigned Slot)
 {
-  if (Slot == 0) return true;
-
+  assert(SU);
+  if (!SU->getInstr()) return true;
   MachineInstr *MI = SU->getInstr();
-  if (!MI) return false;
 
-  // TODO get this somehow from the SchedModel, i.e. check if FU_ALU1 is used.
-  // We could/should use the HazardRecognizer to check if we have the resources,
-  // but it is difficult to keep the HazardRecognizer state in sync.
-
-  switch (getPatmosFormat(MI->getDesc().TSFlags)) {
-  case PatmosII::FrmALUc:
-  case PatmosII::FrmALUi:
-  case PatmosII::FrmALUp:
-    return true;
-  }
-
-  return false;
+  return PII.canIssueInSlot(MI, Slot);
 }
 
 bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
@@ -218,10 +206,22 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
 {
   // check the width. ignore the width for the first instruction to allow
   // ALUl even when bundling is disabled.
-  unsigned Width = getNumUsedSlots(SU);
+  unsigned Width = PII.getIssueWidth(SU->getInstr());
   if (!Bundle.empty() && CurrWidth + Width > IssueWidth) {
     return false;
   }
+
+  // Inline Asm always gets scheduled on its own.
+  if (SU->getInstr()->isInlineAsm()) {
+    if (!Bundle.empty())
+      return false;
+    Bundle.push_back(SU);
+    CurrWidth = IssueWidth;
+    return true;
+  }
+
+  // TODO We could/should use the HazardRecognizer to check if we have the
+  // resources, but it is difficult to keep the HazardRecognizer state in sync.
 
   // This is not quite correct, the slot might depend on the width of the
   // previously scheduled instructions, but for the current ISA it makes
@@ -233,7 +233,7 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   }
 
   assert(!Bundle.empty() &&
-        "Not able to issue an instruction in an empty bundle.");
+        "Not able to issue the instruction in an empty bundle?");
 
   // we need to rearrange instructions.. this is a quick hack and might
   // be improved.
@@ -247,29 +247,13 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   return false;
 }
 
-unsigned PatmosLatencyQueue::getNumUsedSlots(SUnit *SU)
-{
-  // TODO get this from SchedModel (the uops of an instruction).
-  if (getPatmosFormat(SU->getInstr()->getDesc().TSFlags) == PatmosII::FrmALUl) {
-    return 2;
-  }
-  return 1;
-}
-
-
 
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
                                             const PatmosTargetMachine &PTM)
 : PTM(PTM), PII(*PTM.getInstrInfo()), PRI(PII.getPatmosRegisterInfo()),
-  DAG(0), CurrCycle(0)
+  DAG(0), ReadyQ(PTM), CurrCycle(0)
 {
-  const PatmosSubtarget *PS = PTM.getSubtargetImpl();
-
-  unsigned IssueWidth = PS->enableBundling(PTM.getOptLevel()) ?
-                        PS->getSchedModel()->IssueWidth : 1;
-
-  ReadyQ.setIssueWidth(IssueWidth);
 }
 
 bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,

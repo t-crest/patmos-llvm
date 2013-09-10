@@ -109,6 +109,9 @@ public:
   /// Return the latency of MUL instructions
   unsigned getMULLatency() const { return 3; }
 
+  /// Get the width of an instruction.
+  unsigned getIssueWidth(unsigned SchedClass) const;
+
   /// Check if a given schedule class can be issued in a given slot.
   /// @see PatmosInstrInfo::canIssueInSlot
   bool canIssueInSlot(unsigned SchedClass, unsigned Slot) const;

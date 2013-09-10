@@ -113,6 +113,9 @@ bool PatmosSubtarget::usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const
   return hasPostRAScheduler(OptLevel) && !DisablePatmosPostRA;
 }
 
+unsigned PatmosSubtarget::getIssueWidth(unsigned SchedClass) const {
+  return InstrItins.getNumMicroOps(SchedClass);
+}
 
 bool PatmosSubtarget::canIssueInSlot(unsigned SchedClass, unsigned Slot) const {
   const InstrStage* IS = InstrItins.beginStage(SchedClass);

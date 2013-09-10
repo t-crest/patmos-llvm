@@ -213,8 +213,8 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
       // it. Perhaps it still needs to be bundled.
       Scheduler->enterRegion(MBB, I, RegionEnd, RemainingInstrs);
 
-      // Skip empty scheduling regions (0 or 1 schedulable instructions).
-      if (I == RegionEnd || I == llvm::prior(RegionEnd)) {
+      // Skip empty scheduling regions.
+      if (I == RegionEnd) {
         // Close the current region. Bundle the terminator if needed.
         // This invalidates 'RegionEnd' and 'I'.
         Scheduler->exitRegion();

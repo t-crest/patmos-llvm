@@ -468,11 +468,26 @@ bool PatmosInstrInfo::hasCall(const MachineInstr *MI) const {
 }
 
 
+unsigned PatmosInstrInfo::getIssueWidth(const MachineInstr *MI) const
+{
+  if (MI->isInlineAsm())
+    return PST.getSchedModel()->IssueWidth;
+
+  return PST.getIssueWidth(MI->getDesc().SchedClass);
+}
+
 bool PatmosInstrInfo::canIssueInSlot(const MCInstrDesc &MID,
-                                     unsigned Slot) const {
+                                     unsigned Slot) const
+{
   return PST.canIssueInSlot(MID.getSchedClass(), Slot);
 }
 
+bool PatmosInstrInfo::canIssueInSlot(const MachineInstr *MI,
+                                     unsigned Slot) const
+{
+  if (MI->isPseudo()) return true;
+  return canIssueInSlot(MI->getDesc(), Slot);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //

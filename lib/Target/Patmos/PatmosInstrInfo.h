@@ -194,12 +194,15 @@ public:
   /// Correctly deals with inline assembler and bundles.
   bool hasCall(const MachineInstr *MI) const;
 
+  /// getIssueWidth - Get the number of slots required for this instruction.
+  /// For instructions that must be scheduled on its own this returns the
+  /// maximum issue width of the processor.
+  unsigned getIssueWidth(const MachineInstr *MI) const;
+
   /// Check if we can issue an instruction in a given slot
   bool canIssueInSlot(const MCInstrDesc &MID, unsigned Slot) const;
 
-  bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const {
-    return canIssueInSlot(MI->getDesc(), Slot);
-  }
+  bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const;
 
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling

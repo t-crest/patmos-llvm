@@ -36,6 +36,7 @@ namespace llvm {
   /// allows to pick the best instruction or bundle currently available.
   class PatmosLatencyQueue {
   private:
+    const PatmosInstrInfo &PII;
 
     /// Max number of slots to fill when selecting a bundle.
     unsigned IssueWidth;
@@ -52,7 +53,14 @@ namespace llvm {
     std::vector<SUnit*> AvailableQueue;
 
   public:
-    PatmosLatencyQueue() : IssueWidth(1), Cmp(true) {}
+    PatmosLatencyQueue(const PatmosTargetMachine &PTM)
+    : PII(*PTM.getInstrInfo()), Cmp(true)
+    {
+      const PatmosSubtarget &PST = *PTM.getSubtargetImpl();
+
+      IssueWidth = PST.enableBundling(PTM.getOptLevel()) ?
+                   PST.getSchedModel()->IssueWidth : 1;
+    }
 
     unsigned getIssueWidth() const { return IssueWidth; }
 
@@ -89,8 +97,6 @@ namespace llvm {
     /// Try to add an instruction to the bundle, return true if succeeded.
     /// \param Width the current width of the bundle, will be updated.
     bool addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU, unsigned &Width);
-
-    unsigned getNumUsedSlots(SUnit *SU);
   };
 
   class  PatmosTargetMachine;
