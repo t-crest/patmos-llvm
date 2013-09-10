@@ -228,6 +228,19 @@ CreateTargetScheduleState(const TargetMachine *TM,
 
 bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
   using namespace Patmos;
+
+  if (MI->isBundle()) {
+    bool changed = false;
+
+    MachineBasicBlock::instr_iterator it = MI;
+
+    while ((++it)->isBundledWithPred()) {
+      changed |= fixOpcodeForGuard(it);
+    }
+
+    return changed;
+  }
+
   unsigned opc = MI->getOpcode();
   int newopc = -1;
 
@@ -501,6 +514,34 @@ getBranchTarget(const MachineInstr *MI) const {
   assert(MI->isBranch() && !MI->isIndirectBranch() &&
          "Not a direct branch instruction!");
   return MI->getOperand(2).getMBB();
+}
+
+bool PatmosInstrInfo::mayFallthrough(MachineBasicBlock &MBB) const {
+
+  int maxLookback = PST.getCFLDelaySlotCycles(false);
+
+  // find last terminator
+  for(MachineBasicBlock::reverse_iterator t(MBB.rbegin()),
+      te(MBB.rend()); t != te && maxLookback >= 0; t++)
+  {
+    MachineInstr *mi = &*t;
+
+    if (!mi->isPseudo(MachineInstr::AllInBundle)) {
+      maxLookback--;
+    }
+
+    // skip non-terminator instructions
+    if (!mi->isTerminator()) {
+      continue;
+    }
+
+    // fix opcode for branch instructions to set barrier flag correctly
+    fixOpcodeForGuard(mi);
+
+    return !mi->isBarrier();
+  }
+
+  return true;
 }
 
 bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,

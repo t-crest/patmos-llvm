@@ -212,6 +212,9 @@ public:
   /// getBranchTarget - Get the target machine basic block for direct branches
   MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
 
+  /// mayFalltrough - Check if the block might fall through to the next block.
+  bool mayFallthrough(MachineBasicBlock &MBB) const;
+
   /// AnalyzeBranch - Analyze the branching code at the end of MBB, returning
   /// true if it cannot be understood (e.g. it's a switch dispatch or isn't
   /// implemented for a target).
