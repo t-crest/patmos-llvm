@@ -1343,7 +1343,10 @@ namespace llvm {
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         BR->setDesc(TII.get(opcode));
 
-        MachineBasicBlock::iterator II = BR; II++;
+        MachineBasicBlock::instr_iterator II = BR;
+        // move past the end of the BR bundle
+        while (II->isBundledWithSucc()) II++;
+        II++;
         for (unsigned i = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
              i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false); i++) {
           AddDefaultPred(BuildMI(*BR->getParent(), II,
@@ -1380,7 +1383,7 @@ namespace llvm {
           MachineInstr *mi = &*j;
 
           // skip non-terminator instructions and returns
-          if (!mi->isTerminator() || mi->isReturn())
+          if (!mi->isTerminator() || mi->isReturn() || mi->isBundle())
             continue;
 
           switch (mi->getOpcode()) {
