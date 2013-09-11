@@ -815,6 +815,18 @@ public:
                                 const MachineInstr *UseMI,
                                 unsigned UseIdx) const;
 
+  /// getOperandDefLatency - Compute and return the use operand latency of a
+  /// given def only.
+  /// In most cases, the static scheduling itinerary was enough to determine the
+  /// operand latency. But it may not be possible for instructions with variable
+  /// number of defs / uses.
+  ///
+  /// This is a raw interface to the itinerary that may be directly overriden by
+  /// a target. Use computeDefOperandLatency to get the best estimate of latency.
+  virtual int getDefOperandLatency(const InstrItineraryData *ItinData,
+                                   const MachineInstr *DefMI,
+                                   unsigned DefIdx) const;
+
   /// computeOperandLatency - Compute and return the latency of the given data
   /// dependent def and use when the operand indices are already known.
   ///
