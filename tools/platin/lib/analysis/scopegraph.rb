@@ -31,50 +31,114 @@ class ScopeGraph
     end
   end
 
-  class FunctionNode < Node
-    attr_reader :function
-    def initialize(function, context)
-      super("#F#{function.qname}", context)
-      @function = function
+  class CFAdapter
+    attr_reader :entry
+    def initialize(entry)
+      @entry = entry
+      @predecessors, @successors = {}, {}
     end
+    def successors(node)
+      @successors[node] ||= []
+    end
+    def predecessors(node)
+      @predecessors[node] ||= []
+    end
+    def add_edge(source,target)
+      predecessors(target).push(source)
+      successors(source).push(target)
+    end
+  end
+
+  class RegionNode < Node
+    attr_reader :function, :blocks, :entry_block
+
+    def size
+      @blocks.size
+    end
+
+    # adapter that provides control-flow successors and predecessors
+    # for all scopegraph successors of this node
+    def subgraph_adapter
+      # (1) compute mapping from blocks to subscope
+      block_container = {}
+      successors.each { |subscope|
+        subscope.blocks.each { |block|
+          block_container[block] = subscope
+        }
+      }
+      adapter = CFAdapter.new(block_container[entry_block])
+      # (2) add edges
+      successors.each { |subscope|
+        subscope.blocks.each { |block|
+          block.successors.each { |succblock|
+            succscope = block_container[succblock]
+            next unless succscope # infeasible block
+            if succscope != subscope
+              adapter.add_edge(subscope, succscope)
+            end
+          }
+        }
+      }
+      adapter
+    end
+protected
+    def initialize(name, context, function, entry_block, blocks)
+      super(name, context)
+      @function, @entry_block, @blocks = function, entry_block, blocks
+    end
+  end
+
+  class FunctionNode < RegionNode
+    attr_reader :function, :blocks
+    def initialize(function, context, blocks = nil)
+      super("#F#{function.qname}", context, function, function.entry_block, blocks || function.blocks)
+    end
+
     def entry
       @function.entry_block
-    end
-    def blocks
-      @function.blocks
     end
     def to_s
       "F:#{function}#{context.qname}"
     end
   end
 
-  class LoopNode < Node
-    attr_reader :function,:loop
-    def initialize(loop, context)
-      super("#L#{loop.qname}", context)
-      @function = loop.function
+  class LoopNode < RegionNode
+    attr_reader :loop
+    def initialize(loop, context, blocks = nil)
+      super("#L#{loop.qname}", context, loop.function, loop.loopheader, blocks || loop.blocks)
       @loop = loop
     end
     def entry
       @loop.loopheader
-    end
-    def blocks
-      @loop.blocks
     end
     def to_s
       "L:#{loop}#{context.qname}"
     end
   end
 
-  class RegionNode < Node
-    attr_reader :function, :entryblock, :blocks
-    def initialize(entryblock, blocks, context)
-      super("#R#{entryblock}", context)
-      @function = entryblock.function
-      @entryblock, @blocks = entryblock, blocks
+  class BlockNode < Node
+    attr_reader :function, :block
+    def initialize(block, context)
+      super("#B#{block}", context)
+      @function = block.function
+      @block = block
+    end
+    def blocks
+      [block]
     end
     def to_s
-      "R:#{entryblock}#{context.qname}"
+      "B:#{block}#{context.qname}"
+    end
+    def subgraph_adapter
+      adapter = CFAdapter.new(successors.first)
+      pred = nil
+      successors.each { |s|
+        if pred
+          adapter.add_edge(pred, s)
+        end
+        pred = s
+      }
+      adapter
     end
   end
 
@@ -110,24 +174,9 @@ class ScopeGraph
     }
   end
 
-  # Topological sort for connected, acyclic graph
-  # Concise implementation of a beautiful algorithm (Kahn '62)
   def topological_order
     return @topo if @topo
-    @topo, worklist, vpcount = [], [@entry_node], Hash.new(0)
-    while ! worklist.empty?
-      node = worklist.pop
-      @topo.push(node)
-      node.successors.each { |n|
-        vc = (vpcount[n] += 1)
-        if vc == n.predecessors.length
-          vpcount.delete(n)
-          worklist.push(n)
-        end
-      }
-    end
-    assert("topological_order: not all nodes marked") { vpcount.empty? }
-    @topo
+    @topo = topological_sort(@entry_node)
   end
 
   def root
@@ -140,7 +189,7 @@ private
     @nodeset = {}
     @visited = {}
     @calldepth = calldepth
-    @entry_node = add_node(FunctionNode.new(entry_function, Context.empty))
+    @entry_node = add_function_node(entry_function, Context.empty)
     @worklist = [@entry_node]
     while ! @worklist.empty?
       fn = @worklist.pop
@@ -155,14 +204,15 @@ private
       next if @refinement.infeasible_block?(b, node.context)
       # if block is in a loop, create loop node if necessary
       lnode = build_loop_node_for_block(node, b)
-      bnode = add_node(RegionNode.new(b,[b],lnode.context))
+      bnode = add_node(BlockNode.new(b,lnode.context))
       lnode.add_successor(bnode)
       b.callsites.each { |c|
         raise Exception.new("unresolved call") if c.unresolved_call?
         cnode = add_node(CallSiteNode.new(c,bnode.context))
         bnode.add_successor(cnode)
         @refinement.calltargets(c, node.context).each { |f|
-          callee_node = add_node(FunctionNode.new(f, Context.empty)) # XXX: callstrings
+          new_context = Context.empty  # XXX: callstrings
+          callee_node = add_function_node(f, new_context)
           cnode.add_successor(callee_node)
           @worklist.push(callee_node)
         }
@@ -179,7 +229,7 @@ private
       b.loops.reverse.each { |loop|
         current_node = get_loop_node(loop,ctx)
         if current_node.nil?
-          current_node = add_node(LoopNode.new(loop, ctx))
+          current_node = add_loop_node(loop, ctx)
           parent_node.add_successor(current_node)
         end
         parent_node = current_node
@@ -187,6 +237,16 @@ private
       innermost_loop_node = parent_node
     end
     innermost_loop_node
+  end
+
+  def add_function_node(function, context)
+    blocks = function.blocks.select { |fb| ! @refinement.infeasible_block?(fb, context) }
+    add_node(FunctionNode.new(function, context, blocks))
+  end
+
+  def add_loop_node(loop, context)
+    blocks = loop.blocks.select { |fb| ! @refinement.infeasible_block?(fb, context) }
+    add_node(LoopNode.new(loop, context, blocks))
   end
 
   def add_node(n)

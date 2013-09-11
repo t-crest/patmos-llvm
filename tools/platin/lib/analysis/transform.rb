@@ -395,26 +395,31 @@ class FlowFactTransformation
     new_ffs = []
 
     flowfacts_by_entry.each { |entry,ffs|
-      # Build ILP for transformation
-      entries = { 'machinecode' => entry, 'bitcode' => pml.bitcode_functions.by_name(entry.label) }
-      ilp = build_model(entries, ffs, :use_rg => true).ilp
+      begin
+        # Build ILP for transformation
+        entries = { 'machinecode' => entry, 'bitcode' => pml.bitcode_functions.by_name(entry.label) }
+        ilp = build_model(entries, ffs, :use_rg => true).ilp
 
-      # If direction up/down, eliminate all vars but dst/src
-      elim_set = ilp.variables.select { |var|
-        ilp.vartype[var] != target_level.to_sym || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
-      }
-      ve = VariableElimination.new(ilp, options)
-      new_constraints = ve.eliminate_set(elim_set)
-      # Extract and add new flow facts
-      new_ffs += extract_flowfacts(new_constraints, entries, target_level, [:flowfact, :callsite]).select { |f|
-        # FIXME: for now, we do not export interprocedural flow-facts relative to a function other than the entry,
-        # because this is not supported by any of the WCET analyses
-        f.local? || f.scope.function == machine_entry
-      }
+        # If direction up/down, eliminate all vars but dst/src
+        elim_set = ilp.variables.select { |var|
+          ilp.vartype[var] != target_level.to_sym || ! var.kind_of?(IPETEdge) || ! var.cfg_edge?
+        }
+        ve = VariableElimination.new(ilp, options)
+        new_constraints = ve.eliminate_set(elim_set)
 
-      stats_num_constraints_before += ilp.constraints.length
-      stats_num_constraints_after += new_constraints.length
-      stats_elim_steps += ve.elim_steps
+        # Extract and add new flow facts
+        new_ffs += extract_flowfacts(new_constraints, entries, target_level, [:flowfact, :callsite]).select { |f|
+          # FIXME: for now, we do not export interprocedural flow-facts relative to a function other than the entry,
+          # because this is not supported by any of the WCET analyses
+          f.local? || f.scope.function == machine_entry
+        }
+
+        stats_num_constraints_before += ilp.constraints.length
+        stats_num_constraints_after += new_constraints.length
+        stats_elim_steps += ve.elim_steps
+      rescue Exception => ex
+        warn("Failed to transfrom flowfacts for entry #{entry}: #{ex}")
+      end
     }
     new_ffs.each { |ff| pml.flowfacts.add(ff) }
 

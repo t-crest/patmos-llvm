@@ -6,6 +6,7 @@
 require 'core/utils'
 require 'core/pml'
 require 'analysis/ipet'
+require 'analysis/cache_region_analysis'
 require 'analysis/vcfg'
 require 'ext/lpsolve'
 
@@ -81,6 +82,9 @@ class WCA
         end
       @pml.arch.path_wcet(src.instructions)
     end
+
+    # run cache analyses
+    CacheAnalysis.new(builder.refinement['machinecode'], @pml, @options).analyze(entry['machinecode'], builder)
 
     # END: remove me soon
 

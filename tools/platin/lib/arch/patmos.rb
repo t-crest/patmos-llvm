@@ -100,7 +100,8 @@ class Architecture < PML::Architecture
   end
   def subfunction_miss_cost(sf)
     memory = @config.memory_areas.by_name('code').memory
-    memory.read_delay(method_cache.bytes_to_blocks(sf.size) * method_cache.block_size)
+    # this matches the simulator implementation (read 4 bytes size, then read method)
+    memory.read_delay(4) + memory.read_delay(sf.size)
   end
   def stack_cache
     @config.caches.by_name('stack-cache')

@@ -1,7 +1,9 @@
 #!/usr/bin/env ruby
 # Prototype for patmos-clang driver replacement for WCET guided optimization
+
 require 'ostruct'
 require 'tempfile'
+require 'fileutils'
 
 def usage(err)
   $stderr.puts(err) unless err.to_s.empty?
@@ -90,15 +92,17 @@ linked_bitcode = outfile.call(options.outfile,".elf.bc")
 # compile, serializing pml, elf, bc
 config=`platin tool-config -t clang -i #{options.configfile} -o #{llvmoutput}`.chomp
 run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr}")
+#run("patmos-clang #{config} -nodefaultlibs -nostartfiles -o #{options.outfile} #{linked_bitcode}")
 
 if options.guided_optimization
+  FileUtils.cp(options.outfile, options.outfile + ".preopt")
 
   # compute WCETs
   run("platin wcet --batch  -i #{options.configfile} -i #{llvmoutput} -b #{options.outfile} -o #{llvminput} #{platin_derived_options} --report")
 
   # recompile, serialize pml, elf, bc
-  config=`platin tool-config -t clang -i #{llvminput} -o #{llvmoutput}`.chomp
-  run("patmos-clang #{config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
+  #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
+  run("patmos-clang #{config}  -mimport-pml=#{llvminput} #{clang_argstr}")
 end
 
 # compute WCETs and report

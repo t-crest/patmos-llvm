@@ -38,6 +38,35 @@ module PML
     end
   end
 
+  # Topological sort for connected, acyclic graph
+  # Concise implementation of a beautiful algorithm (Kahn '62)
+  #
+  # This implementation performs a yopological sort of nodes that
+  # respond to +successors+ and +predecessors+.
+  # If nodes have a different interface, the
+  # second parameter can be used to provide
+  # an object that responds to +successors(node)+
+  # and +predecessors(node)+.
+  def topological_sort(entry, graph_trait = nil)
+    topo = []
+    worklist = WorkList.new([entry])
+    vpcount = Hash.new(0)
+    worklist.process { |node|
+      topo.push(node)
+      succs = graph_trait ? graph_trait.successors(node) : node.successors
+      succs.each { |succ|
+        vc = (vpcount[succ] += 1)
+        preds = graph_trait ? graph_trait.predecessors(succ) : succ.predecessors
+        if vc == preds.length
+          vpcount.delete(succ)
+          worklist.enqueue(succ)
+        end
+      }
+    }
+    assert("topological_order: not all nodes marked") { vpcount.empty? }
+    topo
+  end
+
   # calculate the reachable set from entry,
   # where the provided block needs to compute
   # the successors of an item
