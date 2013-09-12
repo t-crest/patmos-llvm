@@ -510,6 +510,17 @@ namespace llvm {
           I->StackCacheSpill = it->second;
         }
       }
+      if (Instr->mayLoad() || Instr->mayStore()) {
+        const PatmosInstrInfo *PII =
+          static_cast<const PatmosInstrInfo*>(TM.getInstrInfo());
+        switch (PII->getMemType(Instr)) {
+          case PatmosII::MEM_S: I->MemType = yaml::Name("stack");  break;
+          case PatmosII::MEM_L: I->MemType = yaml::Name("local");  break;
+          case PatmosII::MEM_M: I->MemType = yaml::Name("memory"); break;
+          case PatmosII::MEM_C: I->MemType = yaml::Name("cache");  break;
+          default: /*NOP*/;
+        }
+      }
       return PMLMachineExport::exportInstruction(MF, I, Instr, Conditions,
           HasBranchInfo, TrueSucc, FalseSucc);
     }

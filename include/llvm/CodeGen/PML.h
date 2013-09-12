@@ -234,7 +234,7 @@ struct MappingTraits<Instruction*> {
     io.mapRequired("index",   Ins->Index);
     io.mapOptional("opcode",  Ins->Opcode, -1);
     io.mapOptional("callees", Ins->Callees);
-    io.mapOptional("memmode-type",   Ins->MemMode, memmode_none);
+    io.mapOptional("memmode",   Ins->MemMode, memmode_none);
   }
   static const bool flow = true;
 };
@@ -265,13 +265,14 @@ struct MachineInstruction : Instruction {
   unsigned BranchDelaySlots;
   unsigned StackCacheFill;
   unsigned StackCacheSpill;
+  Name MemType;
 
   bool Bundled;
 
   MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
     BranchDelaySlots(0), StackCacheFill(0), StackCacheSpill(0),
-    Bundled(false) {}
+    MemType(Name("")), Bundled(false) {}
 };
 template <>
 struct MappingTraits<MachineInstruction*> {
@@ -288,6 +289,7 @@ struct MappingTraits<MachineInstruction*> {
     io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
     io.mapOptional("stack-cache-spill", Ins->StackCacheSpill, 0U);
     io.mapOptional("memmode",   Ins->MemMode, memmode_none);
+    io.mapOptional("memtype",   Ins->MemType, Name(""));
     io.mapOptional("bundled",       Ins->Bundled, false);
   }
   static const bool flow = true;
