@@ -24,6 +24,7 @@ namespace llvm {
   class  MachineDominatorTree;
   struct MachinePostDominatorTree;
 
+  class MachineInstr;
   class MachineBasicBlock;
   class MachineFunction;
   class Module;
@@ -80,6 +81,9 @@ namespace llvm {
 
     static StringRef getBlockLabel(const BasicBlock &BB);
     static StringRef getBlockLabel(const MachineBasicBlock &MBB);
+
+    /// Get a unique label of a memory instruction
+    virtual yaml::Name getMemInstrLabel(const yaml::ProgramPoint *PP) = 0;
   };
 
   //===--------------------------------------------------------------------===//
@@ -92,13 +96,17 @@ namespace llvm {
   class PMLFunctionInfoT : public PMLFunctionInfo {
   private:
     typedef StringMap<BlockT*> BlockMap;
+    typedef StringMap<StringMap<int> > MemInstrLabelMap;
 
     yaml::Function<BlockT> *Function;
 
     /// Map of block ID (name) -> Block
     BlockMap Blocks;
+    /// Map of block ID -> (instr ID -> MemInstrLabel)
+    MemInstrLabelMap MemInstrLabels;
 
     PMLFunctionInfoT() : PMLFunctionInfo(bitcode), Function(0) {}
+
   public:
     PMLFunctionInfoT(yaml::Function<BlockT> &F)
     : PMLFunctionInfo(bitcode), Function(&F)
@@ -123,7 +131,13 @@ namespace llvm {
 
     virtual StringRef getBlockLabel(const yaml::Name& Name) const;
 
+    virtual yaml::Name getMemInstrLabel(const yaml::ProgramPoint *PP);
+
     BlockT* getBlock(const yaml::Name &Name) const;
+
+    yaml::Function<BlockT> *getFunction() const {
+      return Function;
+    }
   };
 
   typedef PMLFunctionInfoT<yaml::BitcodeBlock,true>  PMLBitcodeFunctionInfo;
@@ -288,6 +302,8 @@ namespace llvm {
     virtual ~PMLQuery() {}
 
   public:
+    typedef std::vector<const yaml::ValueFact *> ValueFactList;
+    typedef StringMap<ValueFactList> ValueFactsMap;
 
     void setIgnoreTraces(bool ignore) { IgnoreTraces = ignore; }
     bool doIgnoreTraces() { return IgnoreTraces; }
@@ -308,6 +324,11 @@ namespace llvm {
     /// mapping exists.
     bool getBlockCriticalityMap(BlockDoubleMap &Criticalities);
 
+    // Get a memory instruction label for a given program point.
+    // Returns an empty label if the value fact is not a mem instruction.
+    yaml::Name getMemInstrLabel(const yaml::ProgramPoint *PP) const {
+      return FI.getMemInstrLabel(PP);
+    }
 
   protected:
     bool matches(const yaml::Name &Origin, yaml::ReprLevel Level) const;
@@ -362,6 +383,13 @@ namespace llvm {
     /// values in the map.
     double getCriticality(BlockDoubleMap &Criticalities,
                           MachineBasicBlock &MBB, double Default = 1.0);
+
+    /// return value facts referring to memory access information
+    /// in a map BBName -> ValueFact
+    bool getMemFacts(const MachineFunction &MF, ValueFactsMap &MemFacts) const;
+
+    ValueFactList& getBBMemFacts(ValueFactsMap &MemFacts,
+                                 const MachineBasicBlock &MBB) const;
   };
 
 

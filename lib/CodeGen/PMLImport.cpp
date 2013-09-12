@@ -210,6 +210,7 @@ void PMLFunctionInfoT<BlockT,bitcode>::reloadBlockInfos()
 {
   BlockLabels.clear();
   Blocks.clear();
+  MemInstrLabels.clear();
 
   if (!Function) return;
 
@@ -222,8 +223,26 @@ void PMLFunctionInfoT<BlockT,bitcode>::reloadBlockInfos()
                                    BB->BlockName.getName());
     }
     Blocks.GetOrCreateValue(BB->BlockName.getName(), BB);
+
+    int meminstr_cnt = 0;
+    for (typename BlockT::InstrList::iterator i = BB->Instructions.begin(),
+        ie = BB->Instructions.end(); i != ie; ++i) {
+      yaml::Instruction *I = *i;
+      // iterate over all instructions in BB, create a label for mem
+      // instructions, put them into MemInstrLabels map (using BB->BlockName
+      // and the Instruction Name as keys).
+      switch (I->MemMode) {
+        case yaml::memmode_load:
+        case yaml::memmode_store:
+          MemInstrLabels[BB->BlockName.getName()][I->Index.getName()] =
+            meminstr_cnt++;
+          break;
+        default: /*NOP*/;
+      }
+    }
   }
 }
+
 
 template<typename BlockT, bool bitcode>
 bool PMLFunctionInfoT<BlockT,bitcode>::hasBlock(const yaml::Name &N) const
@@ -236,6 +255,25 @@ BlockT* PMLFunctionInfoT<BlockT,bitcode>::getBlock(const yaml::Name &N) const
 {
   return Blocks.lookup(N.getName());
 }
+
+
+template<typename BlockT, bool bitcode>
+yaml::Name PMLFunctionInfoT<BlockT,bitcode>::getMemInstrLabel(
+                                            const yaml::ProgramPoint *PP)
+{
+  // lookup MemInstrLabels with PP->Block and PP->Instruction
+  if (MemInstrLabels.count(PP->Block.getName())) {
+    if (MemInstrLabels[PP->Block.getName()].count(PP->Instruction.getName())) {
+      return yaml::Name(
+          MemInstrLabels[PP->Block.getName()][PP->Instruction.getName()]
+          );
+    }
+  }
+  return yaml::Name("");
+
+}
+
+
 
 /* Note: this code generates warnings about missing declarations with clang 3.3.
  * However, we do not actually need it anyway, because we instantiate all
@@ -505,6 +543,40 @@ bool PMLQuery::getBlockCriticalityMap(BlockDoubleMap &Criticalitites)
   }
 
   return found;
+}
+
+bool PMLMCQuery::
+getMemFacts(const MachineFunction &MF, ValueFactsMap &MemFacts) const
+{
+  bool inserted = false;
+  // place all value facts with mem-address-read in a map, lookup by
+  // program point
+  for (std::vector<yaml::ValueFact*>::const_iterator
+      i = YDoc.ValueFacts.begin(), ie = YDoc.ValueFacts.end(); i != ie; ++i) {
+
+    const yaml::ValueFact *VF = *i;
+    if (!matches(VF->Origin, VF->Level)) continue;
+
+    if (VF->Variable.getName() != "mem-address-read" &&
+        VF->Variable.getName() != "mem-address-write") continue;
+
+    if (!matches(VF->PP)) continue;
+
+    yaml::Name Label = FI.getMemInstrLabel(VF->PP);
+    if (Label.empty()) continue;
+
+    // put the value fact into a list of facts, for each BB separately
+    MemFacts[FI.getBlockLabel(VF->PP->Block)].push_back(VF);
+    inserted = true;
+  }
+  return inserted;
+}
+
+PMLQuery::ValueFactList& PMLMCQuery::
+getBBMemFacts(ValueFactsMap &MemFacts, const MachineBasicBlock &MBB) const
+{
+  // TODO if there is no 1:1 mapping, try to obtain it e.g. from relation graph
+  return MemFacts[FI.getBlockLabel(MBB)];
 }
 
 double PMLMCQuery::getCriticality(BlockDoubleMap &Criticalities,
