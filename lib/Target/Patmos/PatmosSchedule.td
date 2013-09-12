@@ -116,7 +116,7 @@ def PatmosGenericItineraries : ProcessorItineraries<
 			      [ PB_GPR, NoBypass, NoBypass, PB_GPR ] >,
     InstrItinData<IIC_ALUic,  [ InstrStage<1, [FU_ALU0, FU_ALU1]> ], 
 			      // the old value if CMOV is not actually read
-                              [ 2, 2, 2, 1, 2 ],
+                              [ 2, 2, 2, 1, 1 ],
 			      [ PB_GPR, NoBypass, NoBypass, PB_GPR, PB_GPR] >,
     InstrItinData<IIC_ALUr,   [ InstrStage<1, [FU_ALU0, FU_ALU1]> ],
                               [ 2, 2, 2, 1, 1 ], 
@@ -128,7 +128,7 @@ def PatmosGenericItineraries : ProcessorItineraries<
                               [ 2, 2, 2, 2, 2, 2, 2 ] >, 
     InstrItinData<IIC_ALUl,   [ InstrStage<1, [FU_ALU0]> ],
                               [ 2, 2, 2, 1, 1 ], 
-			      [ NoBypass, NoBypass, NoBypass, PB_GPR, PB_GPR ],
+			      [ PB_GPR, NoBypass, NoBypass, PB_GPR, PB_GPR ],
 			      2 >,
     InstrItinData<IIC_ALUm,   // Start FU_MUL in the same cycle as the ALU, 
 			      // reserve the MUL unit for 3 cycles (non-pipelined mul)
@@ -180,7 +180,7 @@ def PatmosGenericItineraries : ProcessorItineraries<
     InstrItinData<IIC_CFLr,   [ InstrStage<1, [FU_ALU0]> ],
                               [ 2, 2, 1, 1 ], 
 			      [ NoBypass, NoBypass, PB_GPR, PB_GPR ] >,
-    InstrItinData<IIC_Pseudo, [ InstrStage<0, [FU_ALU0]> ]>
+    InstrItinData<IIC_Pseudo, [ InstrStage<1, [FU_ALU0]> ]>
   ]>;
 
 def PatmosGenericModel : SchedMachineModel {
