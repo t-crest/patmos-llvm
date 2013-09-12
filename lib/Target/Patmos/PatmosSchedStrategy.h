@@ -182,9 +182,6 @@ namespace llvm {
     /// Does not remove dependencies to return info registers.
     void removeImplicitCFLDeps(SUnit &Ret);
 
-    /// Adapt latencies to the exit node.
-    void updateExitLatencies(SUnit &ExitSU);
-
     /// Remove barrier and memory deps between instructions that access
     /// different memory types and cannot alias.
     void removeTypedMemBarriers();

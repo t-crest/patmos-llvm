@@ -539,6 +539,40 @@ bool PatmosInstrInfo::canIssueInSlot(const MachineInstr *MI,
   return canIssueInSlot(MI->getDesc(), Slot);
 }
 
+int PatmosInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
+                              const MachineInstr *DefMI, unsigned DefIdx,
+                              const MachineInstr *UseMI,
+                              unsigned UseIdx) const
+{
+  if (UseMI->isInlineAsm()) {
+    // For inline asm we do not have a use cycle for our operands, so we use
+    // the default def latency instead.
+    return getDefOperandLatency(ItinData, DefMI, DefIdx);
+  }
+
+  return TargetInstrInfo::getOperandLatency(ItinData, DefMI, DefIdx,
+                                                      UseMI, UseIdx);
+}
+
+int PatmosInstrInfo::getDefOperandLatency(const InstrItineraryData *ItinData,
+                                          const MachineInstr *DefMI,
+                                          unsigned DefIdx) const
+{
+  int Latency = TargetInstrInfo::getDefOperandLatency(ItinData, DefMI, DefIdx);
+
+  const MachineOperand &MO = DefMI->getOperand(DefIdx);
+
+  // Patmos specific: GPRs are always bypassed and read in cycle 1, so we can
+  // reduce the latency of edges to ExitSU by 1.
+  if (MO.isReg() && MO.isDef() && RI.isRReg(MO.getReg()) && Latency > 0) {
+    Latency--;
+  }
+
+  return Latency;
+}
+
+
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Branch handling

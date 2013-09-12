@@ -208,6 +208,15 @@ public:
 
   bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const;
 
+  virtual int getOperandLatency(const InstrItineraryData *ItinData,
+                                const MachineInstr *DefMI, unsigned DefIdx,
+                                const MachineInstr *UseMI,
+                                unsigned UseIdx) const;
+
+  virtual int getDefOperandLatency(const InstrItineraryData *ItinData,
+                                   const MachineInstr *DefMI,
+                                   unsigned DefIdx) const;
+
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling
   /////////////////////////////////////////////////////////////////////////////

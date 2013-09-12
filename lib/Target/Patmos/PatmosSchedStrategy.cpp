@@ -322,9 +322,6 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
   unsigned DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
 
-  // Reduce latencies to the exit node.
-  updateExitLatencies(dag->ExitSU);
-
   if (CFL) {
     // RET and CALL have implicit deps on the return values and call
     // arguments. Remove all those edges to schedule them into the delay slot
@@ -529,24 +526,6 @@ void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
   }
 }
 
-void PatmosPostRASchedStrategy::updateExitLatencies(SUnit &ExitSU)
-{
-  for (SUnit::pred_iterator it = ExitSU.Preds.begin(), ie = ExitSU.Preds.end();
-       it != ie; it++)
-  {
-    if (it->getLatency() < 1) continue;
-    if (!it->isArtificial()) continue;
-
-    SUnit *PredSU = it->getSUnit();
-    if (!PredSU || !PredSU->getInstr()) continue;
-
-    // NOTE: We could also implement Subtarget.adjustSchedDependency(), but this
-    // way this is more integrated with the scheduling algorithm.
-
-    it->setLatency( computeExitLatency(*PredSU) );
-  }
-}
-
 /// Remove barrier and memory deps between instructions that access
 /// different memory types and cannot alias.
 void PatmosPostRASchedStrategy::removeTypedMemBarriers()
@@ -591,12 +570,6 @@ unsigned PatmosPostRASchedStrategy::computeExitLatency(SUnit &SU) {
     // Get the default latency as the write cycle of the operand.
     unsigned OpLatency = DAG->getSchedModel()->computeOperandLatency(PredMI,
                                                       i, NULL, 0, false);
-
-    // Patmos specific: GPRs are always bypassed and read in cycle 1, so we can
-    // reduce the latency of edges to ExitSU by 1.
-    if (PRI.isRReg(MO.getReg()) && OpLatency > 0) {
-      OpLatency--;
-    }
 
     Latency = std::max(Latency, OpLatency);
   }

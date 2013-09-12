@@ -457,12 +457,18 @@ void ScheduleDAGPostRA::moveInstruction(MachineInstr *MI,
   if (&*RegionBegin == MI)
     ++RegionBegin;
 
-  bool Bundled = MI->isBundled();
   bool InsideBundle = MI->isBundledWithPred() && MI->isBundledWithSucc();
   MachineInstr *PrevMI = InsideBundle ? MI->getPrevNode() : NULL;
 
   // update statistics when rescheduling nodes
-
+  if (!InsideBundle &&
+      ((MI->isBundledWithPred() && !MI->getPrevNode()->isBundledWithPred()) ||
+       (MI->isBundledWithSucc() && !MI->getNextNode()->isBundledWithSucc())))
+  {
+    // We remove the second-last instruction from a bundle, update stats
+    NumBundled--;
+    NumNotBundled++;
+  }
 
   // Remove the instruction from a bundle, if it is inside one
   if (MI->isBundledWithPred()) MI->unbundleFromPred();
