@@ -183,7 +183,25 @@ protected
     @entry_node
   end
 
+  # check that there is a BlockNode for every feasible basic block
+  def assert_complete
+    blocks = {}
+    sg.bottom_up.each { |node|
+      if node.kind_of?(ScopeGraph::CallSiteNode)
+        blocks[node] = Set.new
+        next
+      end
+      blocks[node] = node.successors.map { |s| blocks[s] }.inject { |a,b| a+b }
+      if node.kind_of?(ScopeGraph::BlockNode)
+        blocks[node] = Set[node.block]
+      else
+        assert("scopegraph needs to have block node for every basic block") { blocks[node] == Set[*node.blocks] }
+      end
+    }
+  end
+
 private
+
   def build(entry_function, calldepth)
     @nodes = []
     @nodeset = {}
@@ -197,6 +215,7 @@ private
       build_function(fn)
     end
   end
+
   def build_function(node)
     @visited[node] = true
     node.function.blocks.each { |b|

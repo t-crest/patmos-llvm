@@ -200,10 +200,7 @@ class IPETModel
   # Therefore, we use <= instead of = for call equations
   def add_callsite(callsite, fs)
     # variable for callsite
-    ilp.add_variable(callsite, level.to_sym)
-    # frequency of call instruction = frequency of block
-    lhs = [ [callsite,1] ] + block_frequency(callsite.block,-1)
-    ilp.add_constraint(lhs, "equal", 0, "callsite_#{callsite.qname}",:callsite)
+    add_instruction(callsite)
 
     # create call edges (callsite -> f) for each called function f
     # the sum of all calledge frequencies is (less than or) equal to the callsite frequency
@@ -220,6 +217,15 @@ class IPETModel
 
     # return call edges
     calledges
+  end
+
+  def add_instruction(instruction)
+    return if ilp.has_variable?(instruction)
+    # variable for instruction
+    ilp.add_variable(instruction, level.to_sym)
+    # frequency of instruction = frequency of block
+    lhs = [ [instruction,1] ] + block_frequency(instruction.block,-1)
+    ilp.add_constraint(lhs, "equal", 0, "instruction_#{instruction.qname}",:instruction)
   end
 
   # frequency of analysis entry is 1
@@ -242,14 +248,8 @@ class IPETModel
     ilp.add_constraint(lhs,"equal",0,"structural_#{block.qname}",:structural)
   end
 
-  # frequency of incoming edges is frequency of block
-  def add_block_variable_constraint(block)
-    lhs = block_frequency(block) + [[block, -1]]
-    ilp.add_constraint(lhs,"equal",0,"block_#{block.qname}", :structural)
-  end
-
   # frequency of incoming is frequency of outgoing edges is 0
-  def add_infeasible_block(block)
+  def add_infeasible_block_constraint(block)
     add_block_constraint(block)
     unless block.predecessors.empty?
       ilp.add_constraint(sum_incoming(block),"equal",0,"structural_#{block.qname}_0in",:infeasible)
@@ -257,6 +257,14 @@ class IPETModel
     unless block.successors.empty?
       ilp.add_constraint(sum_outgoing(block),"equal",0,"structural_#{block.qname}_0out",:infeasible)
     end
+  end
+
+  # frequency of incoming edges is frequency of block
+  def add_block(block)
+    return if ilp.has_variable?(block)
+    ilp.add_variable(block)
+    lhs = block_frequency(block) + [[block, -1]]
+    ilp.add_constraint(lhs,"equal",0,"block_#{block.qname}", :structural)
   end
 
   def function_frequency(function, factor = 1)
@@ -350,13 +358,12 @@ class IPETBuilder
       f.blocks.each_with_index do |block,ix|
         next if block.predecessors.empty? && ix != 0 # exclude data blocks (for e.g. ARM)
         if @mc_model.infeasible?(block)
-          @mc_model.add_infeasible_block(block)
+          @mc_model.add_infeasible_block_constraint(block)
           next
         end
         @mc_model.add_block_constraint(block)
         if opts[:mbb_variables]
-          @ilp.add_variable(block)
-          @mc_model.add_block_variable_constraint(block)
+          @mc_model.add_block(block)
         end
         block.callsites.each do |cs|
           call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets(cs))

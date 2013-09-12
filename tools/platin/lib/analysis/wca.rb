@@ -105,13 +105,17 @@ class WCA
     profile = Profile.new([])
     report = TimingEntry.new(machine_entry, cycles, profile,
                              'level' => 'machinecode', 'origin' => @options.timing_output || 'platin')
-    # collect edge timings
+    # collect edge timings (TODO: add cache timings)
     edgefreq, edgecost = {}, Hash.new(0)
     freqs.each { |v,freq|
       edgecost = builder.ilp.get_cost(v)
       freq = freq.to_i
       if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
-        next if v.kind_of?(SubFunction)
+
+        next if v.kind_of?(SubFunction) # MC cost
+        next if v.kind_of?(Instruction) # Stack-Cache Cost
+        next if v.kind_of?(CacheTag)    # Set-associative cache cost
+
         die("ILP cost: not an IPET edge") unless v.kind_of?(IPETEdge)
         die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
         die("ILP cost: target is not a block") unless v.target == :exit || v.target.kind_of?(Block)

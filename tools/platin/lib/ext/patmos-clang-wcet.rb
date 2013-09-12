@@ -31,6 +31,7 @@ exec("patmos-clang", *ARGV) if ARGV.any? { |arg| arg == "-c" || arg == "-S" || a
 usage("") if ARGV.include?('--help')
 
 options = OpenStruct.new
+options.override = {}
 args = []
 
 ARGV.each_with_index { |arg,ix|
@@ -49,6 +50,10 @@ ARGV.each_with_index { |arg,ix|
     options.outfile = arg
   elsif arg == "-save-temps"
     options.save_temps = true
+  elsif arg =~ /-mpatmos-method-cache-size=(.*)$/ # override method cache for compiler
+    options.override[:mc_cache_size] = true
+  elsif arg =~ /-mpatmos-method-cache-block-size=(.*)/ # override
+    options.override[:mc_block_size] = true
   elsif arg == '-v'
     $verbose = true # hack, but this is really prototypical for now
     options.verbose = true
@@ -58,6 +63,8 @@ ARGV.each_with_index { |arg,ix|
 }
 if ! options.configfile
   usage("Option --config=<config.pml> missing.")
+elsif ! File.exist?(options.configfile)
+  usage("Configuration file #{options.configfile} does not exist.")
 end
 if ! options.outfile
   usage("Option -o <binary> missing.")
@@ -91,6 +98,9 @@ linked_bitcode = outfile.call(options.outfile,".elf.bc")
 
 # compile, serializing pml, elf, bc
 config=`platin tool-config -t clang -i #{options.configfile} -o #{llvmoutput}`.chomp
+config.sub!(/-mpatmos-method-cache-size=\S+/,'') if options.override[:mc_cache_size]
+config.sub!(/-mpatmos-method-cache-block-size=\S+/,'') if options.override[:mc_block_size]
+
 run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr}")
 #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -o #{options.outfile} #{linked_bitcode}")
 
@@ -102,11 +112,11 @@ if options.guided_optimization
 
   # recompile, serialize pml, elf, bc
   #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
-  run("patmos-clang #{config}  -mimport-pml=#{llvminput} #{clang_argstr}")
+  run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} -mimport-pml=#{llvminput} #{clang_argstr}")
 end
 
 # compute WCETs and report
-run("platin wcet --batch -i #{options.configfile} -i #{llvmoutput} -b #{options.outfile} -o #{options.pmloutput} #{platin_derived_options} --report")
+run("platin wcet --batch -i #{options.configfile} --bitcode #{linked_bitcode} -i #{llvmoutput} -b #{options.outfile} -o #{options.pmloutput} #{platin_derived_options} --report")
 
 unless options.save_temps
   File.unlink(llvminput)

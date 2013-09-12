@@ -181,6 +181,12 @@ class ILP
   def add_cost(variable, cost)
     @costs[variable] += cost
   end
+
+  # add a new variable, if necessary
+  def has_variable?(v)
+    ! @indexmap[v].nil?
+  end
+
   # add a new variable
   def add_variable(v, vartype= :machinecode)
     raise Exception.new("Duplicate variable: #{v}") if @indexmap[v]

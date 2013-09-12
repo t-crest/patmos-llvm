@@ -178,12 +178,19 @@ class MemoryConfig < PMLObject
       "write-transfer-time" => write_transfer_time,
     }.delete_if { |k,v| v.nil? }
   end
+
   def read_delay(bytes)
     read_latency + bytes_to_blocks(bytes) * read_transfer_time
   end
+
+  def write_delay(bytes)
+    write_latency + bytes_to_blocks(bytes) * write_transfer_time
+  end
+
   def bytes_to_blocks(bytes)
     (bytes+transfer_size-1)/transfer_size
   end
+
   def ideal?
     [read_latency, read_transfer_time, write_latency, write_transfer_time].all? { |t| t == 0 }
   end

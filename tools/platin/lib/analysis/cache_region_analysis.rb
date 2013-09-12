@@ -127,6 +127,11 @@ class CacheAnalysis
       ica.analyze(scope_graph)
       ica.add_miss_cost(ipet_builder)
     end
+    if sc = @pml.arch.stack_cache
+      sca = StackCacheAnalysis.new(sc, @pml, @options)
+      sca.analyze(scope_graph)
+      sca.add_miss_cost(ipet_builder)
+    end
     if dc = @pml.arch.data_cache
       dca = DataCacheAnalysis.new(dc, @pml, @options)
       dca.analyze(scope_graph)
@@ -136,9 +141,15 @@ class CacheAnalysis
 end
 
 class CacheRegionAnalysis
+  attr_reader :pml, :options
 
   def initialize(pml, options)
     @pml, @options = pml, options
+  end
+
+  def analyze(scopegraph)
+    @load_tag_constraints = {}
+    collect_tag_constraints(scopegraph)
   end
 
   # Analyze computes +load_tag_constraints+, that map
@@ -148,21 +159,20 @@ class CacheRegionAnalysis
   # means that the number of times X is loaded into the cache is
   # bounded by the frequency of function +compute+ times 2 plus the
   # frequency of the loop entry edges of the loop +main/3+.
-  def analyze(scopegraph)
-    @load_tag_constraints = {}
+  def collect_tag_constraints(scopegraph)
     @all_tags = {}
     @conflict_free = {}
     scopegraph.bottom_up.each { |node|
       if conflict_free?(node)
         # if the node is conflict free, just mark it (unless it is the entry)
-        debug(@options, :cache) { "Conflict-free: #{node}" }
+        debug(options, :cache) { "Conflict-free: #{node}" }
         if node == scopegraph.root
           @all_tags[node].each { |t|
             increment_load_tag_bound(t,node)
           }
         end
       else
-        debug(@options, :cache) { "Conflicts in: #{node}" }
+        debug(options, :cache) { "Conflicts in: #{node}" }
         # and account for the miss cost of all
         # conflict-free subscopes
         analyze_conflict_scope(node)
@@ -179,8 +189,8 @@ class CacheRegionAnalysis
     @load_tag_constraints.each { |tag, bound|
       tag_var = add_variable_for_tag(tag, ipet_builder)
       miss_cost = miss_cost_for_tag(tag)
-      debug(@options, :cache) { "Cost for loading #{tag}: #{miss_cost} (#{tag.size})" }
-      debug(@options, :cache) { "Frequency bound of loading #{tag}: #{bound.inspect}" }
+      debug(options, :cache) { "Cost for loading #{tag}: #{miss_cost} (#{tag.size})" }
+      debug(options, :cache) { "Frequency bound of loading #{tag}: #{bound.inspect}" }
       ipet_builder.ilp.add_cost(tag_var, miss_cost)
       terms = Hash.new(0)
       terms[tag_var] += 1
@@ -209,10 +219,6 @@ class CacheRegionAnalysis
     }
   end
 
-  def tags_fit_in_cache?(tags)
-    tags.inject(0) { |sz, tag| sz + blocks_for_tag(tag) } <= associativity
-  end
-
 protected
 
   # Our progress on a benchmark that performs bad:
@@ -224,12 +230,12 @@ protected
   #    - measured                     99738
   def analyze_conflict_scope(node)
 
-    # We might need to load each (that is, *the*) locally
+    # We might need to load each (only one for method cache) locally
     # accessed tag once per execution of the node ...
     get_local_tags(node).each { |t|
       increment_load_tag_bound(t, node)
     }
-
+    return if node.successors.empty?
     # We want to form large conflict-free subregions of region scopes and block scopes
     # Here we use a simple greedy heuristic
     if node.kind_of?(ScopeGraph::BlockNode) || node.kind_of?(ScopeGraph::FunctionNode) || node.kind_of?(ScopeGraph::LoopNode)
@@ -285,17 +291,11 @@ protected
            false
          else
            tags = get_all_tags(scope_node)
+           debug(options, :cache) { |&iop| iop.call("TAGS for scope #{scope_node} (#{@set})");tags.each { |tag| iop.call("TAG: #{tag}") } }
            if tags_fit_in_cache?(tags)
              true
-           elsif ! scope_node.kind_of?(ScopeGraph::LoopNode)
-             maximum_accessed_blocks = compute_maximum_accessed_blocks(scope_node)
-
-             debug(@options, :cache) {
-                  maximum_size = maximum_accessed_blocks * block_size
-                  total_size = tags.inject(0) { |sz, tag| sz + bytes_for_tag(tag) }
-                 "total_size: #{total_size}, maximum_size: #{maximum_size}"
-             }
-             maximum_accessed_blocks <= associativity
+           elsif tags_fit_in_cache_precise?(scope_node)
+             true
            else
              false
            end
@@ -310,19 +310,22 @@ protected
   end
 
   def increment_load_tag_bound(tag, node)
-    debug(@options,:cache) { "Execution of #{tag} is bounded by #{node}" }
+    debug(options,:cache) { "Execution of #{tag} is bounded by #{node}" }
     (@load_tag_constraints[tag]||=Hash.new(0))[node] += 1
   end
 end
 
 class MethodCacheAnalysis < CacheRegionAnalysis
+
   def initialize(mc, pml, options)
-    @mc, @pml, @options = mc, pml, options
+    super(@pml, @options)
+    @mc = mc
   end
 
   def analyze(scopegraph)
-    assert_complete_sg(scopegraph)
-    super(scopegraph)
+    scopegraph.assert_complete
+    @load_tag_constraints = {}
+    collect_tag_constraints(scopegraph)
   end
 
   def cache_symbol
@@ -335,8 +338,9 @@ class MethodCacheAnalysis < CacheRegionAnalysis
   end
 
   def miss_cost_for_tag(subfunction)
-    @pml.arch.subfunction_miss_cost(subfunction)
+    pml.arch.subfunction_miss_cost(subfunction)
   end
+
 
   def access_blocks(subfunction)
     accesses = Hash.new(0)
@@ -350,20 +354,20 @@ class MethodCacheAnalysis < CacheRegionAnalysis
   end
 
   def block_size
-    @pml.arch.method_cache.block_size
+    pml.arch.method_cache.block_size
   end
 
   def cache_size
-    @pml.arch.method_cache.size
+    pml.arch.method_cache.size
   end
 
   def associativity
-    assert("Bad method cache associativity") { @pml.arch.method_cache.associativity == cache_size / block_size }
-    @pml.arch.method_cache.associativity
+    assert("Bad method cache associativity") { pml.arch.method_cache.associativity == cache_size / block_size }
+    pml.arch.method_cache.associativity
   end
 
   def blocks_for_tag(subfunction)
-    @pml.arch.method_cache.bytes_to_blocks(subfunction.size)
+    pml.arch.method_cache.bytes_to_blocks(subfunction.size)
   end
 
   def bytes_for_tag(subfunction)
@@ -402,9 +406,20 @@ class MethodCacheAnalysis < CacheRegionAnalysis
     end
   end
 
-  def compute_maximum_accessed_blocks(scope_node)
-    # simple DFA approximation
-    count_tags_dfa(scope_node, TagCountDomain.empty).total { |t| blocks_for_tag(t) }
+  def tags_fit_in_cache?(tags)
+    tags.inject(0) { |sz, tag| sz + blocks_for_tag(tag) } <= associativity
+  end
+
+  def tags_fit_in_cache_precise?(scope_node)
+    return false unless scope_node.kind_of?(ScopeGraph::LoopNode)
+    tags = get_all_tags(scope_node)
+    maximum_accessed_blocks = count_tags_dfa(scope_node, TagCountDomain.empty).total { |t| blocks_for_tag(t) }
+    debug(options, :cache) {
+      maximum_size = maximum_accessed_blocks * block_size
+      total_size = tags.inject(0) { |sz, tag| sz + bytes_for_tag(tag) }
+      "COMPARISON: total_size: #{total_size}, maximum_size: #{maximum_size}"
+    }
+    maximum_accessed_blocks <= associativity
   end
 
   def count_tags_dfa(scope_node, initial)
@@ -451,22 +466,165 @@ class MethodCacheAnalysis < CacheRegionAnalysis
     r
   end
 
-private
 
-  # check that there is a BlockNode for every basic block
-  def assert_complete_sg(sg)
-    blocks = {}
-    sg.bottom_up.each { |node|
-      if node.kind_of?(ScopeGraph::CallSiteNode)
-        blocks[node] = Set.new
-        next
-      end
-      blocks[node] = node.successors.map { |s| blocks[s] }.inject { |a,b| a+b }
-      if node.kind_of?(ScopeGraph::BlockNode)
-        blocks[node] = Set[node.block]
-      else
-        assert("scopegraph needs to have block node for every basic block") { blocks[node] == Set[*node.blocks] }
-      end
+end
+
+class CacheTag
+  include QNameObject
+  attr_reader :function
+  attr_reader :addr
+  # function is just for debugging purposes...
+  def initialize(function, addrspace, addr)
+    @function, @addr = function,addr
+    @qname = sprintf("%s:0x%x", addrspace.to_s, addr)
+  end
+  def size
+    32
+  end
+  def to_s
+    @qname + "(#{@function})"
+  end
+end
+
+class SetAssociativeCacheAnalysis < CacheRegionAnalysis
+  attr_reader :cache
+  def initialize(cache, pml, options)
+    super(pml, options)
+    @cache = cache
+    @offset_bits = Math.log2(cache.line_size).to_i
+  end
+protected
+  def tags_fit_in_cache?(tags)
+    tags.length <= associativity
+  end
+  def tags_fit_in_cache_precise?(scope_node)
+    false
+  end
+  def associativity
+    cache.associativity
+  end
+  def get_cache_lines(first_address, last_address)
+    lines = []
+    addr = get_cache_line(first_address)
+    while addr <= last_address
+      lines.push(addr)
+      addr += cache.line_size
+    end
+    lines
+  end
+  def get_cache_line(addr)
+    addr & ~(cache.line_size - 1)
+  end
+  def get_cache_set(addr)
+    (addr >> @offset_bits) & (cache.associativity - 1)
+  end
+end
+
+class InstructionCacheAnalysis < SetAssociativeCacheAnalysis
+  def initialize(ic, pml, options)
+    super(ic, pml, options)
+    @access_blocks = {}
+  end
+  def analyze(scope_graph)
+    @load_tag_constraints = {}
+    0.upto(associativity-1) { |set|
+      @set = set
+      collect_tag_constraints(scope_graph)
+    }
+  end
+
+  def add_variable_for_tag(cache_tag, ipet_builder)
+    ipet_builder.ilp.add_variable(cache_tag)
+    cache_tag
+  end
+
+  def miss_cost_for_tag(_)
+    pml.arch.config.main_memory.read_delay(cache.line_size)
+  end
+
+  def access_blocks(cache_tag)
+    @access_blocks[cache_tag]
+  end
+
+  def add_access(cache_tag, block)
+    @access_blocks[cache_tag] ||= Hash.new(0)
+    @access_blocks[cache_tag][block] += 1
+  end
+
+  # FIXME: this function should not have side effects !!!
+  def get_local_tags(node)
+    case node
+    when ScopeGraph::FunctionNode
+      Set.new
+    when ScopeGraph::LoopNode
+      Set.new
+    when ScopeGraph::BlockNode
+      # overapproximate: all cache lines in the current set possible loaded by the block
+      return Set.new if node.block.instructions.empty?
+      last_ins = node.block.instructions.last
+      lines = get_cache_lines(node.block.address, last_ins.address + last_ins.size - 1).select { |line|
+        get_cache_set(line) == @set
+      }
+      tags = lines.map { |line|
+        tag = CacheTag.new(node.block.function,cache_symbol,line)
+        add_access(tag, node.block)
+        tag
+      }
+      Set[*tags]
+    when ScopeGraph::CallSiteNode
+      # might need to reload cache lines on return
+      ins = node.callsite
+      lines = get_cache_lines(ins.address, ins.address + ins.size - 1).select { |line|
+        get_cache_set(line) == @set
+      }
+      tags = lines.map { |line|
+        tag = CacheTag.new(ins.function,cache_symbol,line)
+        add_access(tag, ins.block)
+        tag
+      }
+      Set[*tags]
+    else
+      assert("Unknown scopegraph node type: #{node.class}") { false }
+    end
+  end
+  def cache_symbol
+    :instruction_cache
+  end
+end
+
+class DataCacheAnalysis < CacheRegionAnalysis
+  def initialize(dc, pml, options)
+    raise Exception.new("Cache Region Analysis for data memory accesses not yet implemented")
+  end
+end
+
+class StackCacheAnalysis
+  def initialize(cache, pml, options)
+    @cache, @pml, @options = cache, pml, options
+  end
+  def analyze(scope_graph)
+    @fill_blocks, @spill_blocks = Hash.new(0), Hash.new(0)
+    scope_graph.bottom_up.each { |n|
+      next unless n.kind_of?(ScopeGraph::FunctionNode)
+      f = n.function
+      f.instructions.each { |i|
+        if i.sc_fill.to_i > 0
+          @fill_blocks[i] += i.sc_fill
+        elsif i.sc_spill.to_i > 0
+          @spill_blocks[i] += i.sc_spill
+        end
+      }
+    }
+  end
+  def add_miss_cost(ipet_builder)
+    ilp = ipet_builder.ilp
+    @fill_blocks.each { |instruction,fill_blocks|
+      ipet_builder.mc_model.add_instruction(instruction)
+      ilp.add_cost(instruction, @pml.arch.config.main_memory.read_delay(fill_blocks*@cache.block_size))
+    }
+    @spill_blocks.each { |instruction,spill_blocks|
+      ipet_builder.mc_model.add_instruction(instruction)
+      ilp.add_cost(instruction, @pml.arch.config.main_memory.write_delay(spill_blocks*@cache.block_size))
     }
   end
 end
@@ -497,14 +655,25 @@ class TagCountDomain
   end
   def TagCountDomain.join(vs)
     return TagCountDomain.empty if vs.empty?
-    return vs.first if vs.size == 1
-    additional = vs.map { |v| v.additional }.max
-    common = vs.map { |v| v.tags }.inject { |s1,s2| s1.intersection(s2) }
-    new_additional = vs.map { |v|
-      (v.tags - common).map { |t| yield t }.inject(0) {|a,b| a+b }
-    }.max
-    r = TagCountDomain.new(common, additional + new_additional)
-    puts "JOIN #{vs} => #{r}"
+    joined = vs.first
+    vs[1..-1].each { |v2|
+      joined = TagCountDomain.join2(joined, v2) { |t| yield t }
+    }
+    joined
+  end
+  def TagCountDomain.join2(v1,v2)
+    common = v1.tags.intersection(v2.tags)
+    v1_only = v1.tags - common
+    v2_only = v2.tags - common
+    new_tags = common
+    new_additional = [v1,v2].map { |v| v.additional }.max
+    if v1_only.empty? || v2_only.empty?
+      new_tags = v1.tags + v2.tags
+    else
+      new_additional += [v1_only,v2_only].map { |t| yield t }.inject(0) { |a,b| a+b }
+      puts "JOIN results in #{v1} \/ #{v2} ADDITIONAL #{new_additional}"
+    end
+    r = TagCountDomain.new(new_tags, new_additional)
     r
   end
 end
