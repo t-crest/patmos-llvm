@@ -372,7 +372,7 @@ void PMLMachineExport::serialize(MachineFunction &MF)
       // We do not export the bundle pseudo instruction itself, skip them.
       if (Ins->isBundle()) continue;
       // Do not export any Pseudo instructions with zero size
-      if (Ins->isPseudo()) continue;
+      if (Ins->isPseudo() && !Ins->isInlineAsm()) continue;
 
       if (!doExportInstruction(Ins)) { Index++; continue; }
 
