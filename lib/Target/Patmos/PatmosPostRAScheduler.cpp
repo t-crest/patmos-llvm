@@ -269,9 +269,9 @@ ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
     SchedImpl(S), DFSResult(0), Topo(SUnits, &ExitSU), AA(C->AA),
     LiveRegs(TRI->getNumRegs())
 {
-  assert((C->AntiDepMode == TargetSubtargetInfo::ANTIDEP_NONE ||
-          MRI.tracksLiveness()) &&
-         "Live-ins must be accurate for anti-dependency breaking");
+  // We need liveness infos for accurate latencies between schedule regions
+  assert(MRI.tracksLiveness() &&
+         "Live-ins must be accurate for post-RA scheduling");
 
   AntiDepBreak = NULL;
   if (C->AntiDepMode == TargetSubtargetInfo::ANTIDEP_ALL) {

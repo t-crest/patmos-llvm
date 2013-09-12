@@ -88,6 +88,10 @@ public:
     return false; //FIXME
   }
 
+  virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const {
+    return true;
+  }
+
   virtual void eliminateFrameIndex(MachineBasicBlock::iterator II,
                                    int SPAdj, unsigned FIOperandNum,
 		                   RegScavenger *RS = NULL) const;
