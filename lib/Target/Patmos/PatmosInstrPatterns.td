@@ -224,7 +224,7 @@ def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
 def : Pat<(PatmosCall tglobaladdr:$sym), (CALL tglobaladdr:$sym)>;
 def : Pat<(PatmosCall texternalsym:$sym), (CALL texternalsym:$sym)>;
 
-def : Pat<(PatmosReturn ), (RET RFB, RFO)>;
+def : Pat<(PatmosReturn ), (RET)>;
 
 // inverted branch condition
 def : Pat<(brcond (notcc predselinv:$p), bb:$target), (BR predselinv:$p, bb:$target)>;

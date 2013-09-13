@@ -73,11 +73,11 @@ def R23 : PatmosGPR<23, "r23">, DwarfRegNum<[23]>;
 def R24 : PatmosGPR<24, "r24">, DwarfRegNum<[24]>;
 def R25 : PatmosGPR<25, "r25">, DwarfRegNum<[25]>;
 def R26 : PatmosGPR<26, "r26">, DwarfRegNum<[26]>;
-def RTR : PatmosGPR<27, "r27">, DwarfRegNum<[27]>; // reserved temporary register
-def RFP : PatmosGPR<28, "r28">, DwarfRegNum<[28]>; // frame ptr
-def RSP : PatmosGPR<29, "r29">, DwarfRegNum<[29]>; // stack ptr
-def RFB : PatmosGPR<30, "r30">, DwarfRegNum<[30]>; // return info: function base
-def RFO : PatmosGPR<31, "r31">, DwarfRegNum<[31]>; // return info: function offset
+def R27 : PatmosGPR<27, "r27">, DwarfRegNum<[27]>;
+def R28 : PatmosGPR<28, "r28">, DwarfRegNum<[28]>;
+def RTR : PatmosGPR<29, "r29">, DwarfRegNum<[29]>; // reserved temporary register
+def RFP : PatmosGPR<30, "r30">, DwarfRegNum<[30]>; // frame ptr
+def RSP : PatmosGPR<31, "r31">, DwarfRegNum<[31]>; // stack ptr
 
 def P0  : PatmosPRED<0, "p0">, DwarfRegNum<[50]>;
 def P1  : PatmosPRED<1, "p1">, DwarfRegNum<[51]>;
@@ -127,13 +127,11 @@ def RRegs : RegisterClass<"Patmos", [i32], 32,
    // scratch registers (caller saved)
    R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20,
    // preserved registers (callee saved)
-   R21, R22, R23, R24, R25, R26,
+   R21, R22, R23, R24, R25, R26, R27, R28,
    // temp register
    RTR,
    // frame pointer, stack pointer (callee saved)
-   RFP, RSP,
-   // return info: funcion base pointer, function offset (callee saved)
-   RFB, RFO)>;
+   RFP, RSP)>;
 
 def SRegs : RegisterClass<"Patmos", [i32], 32,
   (add S0, SM, SL, SH, S4, SS, ST, SRB,

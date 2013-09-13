@@ -379,17 +379,12 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
 
   // load the current function base if it needs to be passed to call sites
   if (MF.getFrameInfo()->hasCalls()) {
-    // load long immediate: current function symbol into RFB
-    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::LIl), Patmos::RFB))
-      .addGlobalAddress(MF.getFunction());
     // If we have calls, we need to spill the call link registers
-    MRI.setPhysRegUsed(Patmos::RFB);
-    MRI.setPhysRegUsed(Patmos::RFO);
+    MRI.setPhysRegUsed(Patmos::SRB);
+    MRI.setPhysRegUsed(Patmos::SRO);
   } else {
-    // If we do not have calls, we keep r30/r31 in registers. They are marked
-    // as reserved, so they are not used by the register allocator.
-    MRI.setPhysRegUnused(Patmos::RFB);
-    MRI.setPhysRegUnused(Patmos::RFO);
+    MRI.setPhysRegUnused(Patmos::SRB);
+    MRI.setPhysRegUnused(Patmos::SRO);
   }
 
   // If we need to spill S0, try to find an unused scratch register that we can

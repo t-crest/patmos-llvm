@@ -1420,8 +1420,7 @@ namespace llvm {
     }
 
     /// rewriteCode - Rewrite branches crossing from one region to another
-    /// to non-cache variants, also insert fix-ups on code regions containing
-    /// calls.
+    /// to non-cache variants.
     void rewriteCode()
     {
       // check regular control-flow edges
@@ -1434,23 +1433,6 @@ namespace llvm {
       for(aedges::iterator i(BackEdges.begin()), ie(BackEdges.end()); i != ie;
           i++) {
         rewriteEdge(i->second->Src, i->second->Dst);
-      }
-
-      // insert fix-up code to handle calls within code regions -- skip the 
-      // function's first block though since this is handled in the function 
-      // epilog already.
-      const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
-      for(ablocks::iterator i(++Blocks.begin()), ie(Blocks.end()); i != ie;
-          i++) {
-        // Only consider region entries that contain a call
-        if ((*i)->Region == (*i) && (*i)->HasCall) {
-          MachineBasicBlock *MBB = (*i)->MBB;
-
-          // load long immediate of the current basic block's address into RFB
-          AddDefaultPred(BuildMI(*MBB, MBB->instr_begin(), DebugLoc(),
-                                 TII.get(Patmos::LIl),
-                                 Patmos::RFB)).addMBB(MBB);
-        }
       }
     }
 
@@ -1566,12 +1548,6 @@ namespace llvm {
                                           ablock *region, unsigned &region_size,
                                           ablock *block)
     {
-      bool hasCall = block->SCCSize == 0 || region == block ? block->HasCall
-                                                          : block->HasCallinSCC;
-      // If we have a call here but the region is not yet marked as having
-      // calls, we need a fixup for the first time in this region.
-      bool needsCallFixup = (hasCall && !region->HasCall);
-
       bool mayFallthrough = block->FallthroughTarget != 0;
 
       // TODO analyze successors, check if all of them fit with max margins
@@ -1581,39 +1557,33 @@ namespace llvm {
       // check how many branches we actually have in this block!
       int numBranches = block->NumBranches;
 
-      return getMaxBlockMargin(PTM, needsCallFixup, mightExit,
-                               mayFallthrough, numBranches);
+      return getMaxBlockMargin(PTM, mightExit, mayFallthrough, numBranches);
     }
 
     static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
                                           MachineBasicBlock *MBB)
     {
-      // TODO analyze MBB, check if we have a call, count number of branches
-      int hasCall = true;
+      // TODO analyze MBB, count number of branches
       int numBranches = 0;
 
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
-        if (PTM.getInstrInfo()->hasCall(i)) hasCall = true;
-
         if (i->isBranch()) numBranches++;
       }
 
       bool mayFallthrough = mayFallThrough(PTM, MBB);
 
-      return getMaxBlockMargin(PTM, hasCall, true, mayFallthrough, numBranches);
+      return getMaxBlockMargin(PTM, true, mayFallthrough, numBranches);
     }
 
     /// getMaxRegionMargin - Get the maximum number of bytes needed to be
     /// added to a basic block.
-    /// needsCallFixup - does this block contain the first call in this region
     /// mightExitRegion - we might exit the region after this block
     /// mightFallthrough - Does this block end with an unconditional branch?
     /// numBranchesToFix - Number of branches in the block that might exit the
     ///                    region.
     static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
-                                        bool needsCallFixup = true,
                                         bool mightExitRegion = true,
                                         bool mightFallthrough = true,
                                         int numBranchesToFix = 0)
@@ -1630,7 +1600,7 @@ namespace llvm {
         branch_fixups = 4 +
              (mightExitRegion ? exitDelay : localDelay) * 4;
       }
-      return branch_fixups + (needsCallFixup ? 8 : 0);
+      return branch_fixups;
     }
 
     /// splitBlock - Split a basic block into smaller blocks that each fit into
@@ -1638,11 +1608,9 @@ namespace llvm {
     static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize,
                                    PatmosTargetMachine &PTM)
     {
-      unsigned int branchFixup = getMaxBlockMargin(PTM, false, true, false, 1);
+      unsigned int branchFixup = getMaxBlockMargin(PTM, true, false, 1);
 
       // make a new block
-      // TODO we could check if we actually have a call and only add the
-      // call fixup costs in this case.
       unsigned int curr_size = getMaxBlockMargin(PTM);
 
       unsigned int total_size = 0;

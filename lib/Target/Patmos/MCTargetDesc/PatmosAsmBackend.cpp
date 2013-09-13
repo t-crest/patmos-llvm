@@ -43,7 +43,7 @@ static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     Value >>= 1;
     break;
   case FK_Patmos_WO_7:
-  case FK_Patmos_abs_CFLb:
+  case FK_Patmos_abs_CFLi:
   case FK_Patmos_PCrel:
     Value >>= 2;
     break;
@@ -145,7 +145,7 @@ public:
       { "FK_Patmos_SO_7" ,       25,      7,   0 }, // 1 bit shifted, unsigned (half-word aligned)
       { "FK_Patmos_WO_7" ,       25,      7,   0 }, // 2 bit shifted, unsigned (word aligned)
       { "FK_Patmos_abs_ALUi",    20,     12,   0 }, // ALU immediate, unsigned
-      { "FK_Patmos_abs_CFLb",    10,     22,   0 }, // 2 bit shifted, unsigned, for call
+      { "FK_Patmos_abs_CFLi",    10,     22,   0 }, // 2 bit shifted, unsigned, for call
       { "FK_Patmos_abs_ALUl",    32,     32,   0 }, // ALU immediate, unsigned
       { "FK_Patmos_stc",         14,     18,   0 }, // 2 bit shifted, unsigned, for stack control
       { "FK_Patmos_PCrel",       10,     22,   MCFixupKindInfo::FKF_IsPCRel }, // 2 bit shifted, signed, PC relative

@@ -370,12 +370,12 @@ bool HasALUlVariant(unsigned Opcode, unsigned &ALUlOpcode) {
 }
 
 /// HasPCrelImmediate - check if the instruction with the given opcode and
-/// MID has a PC relative immediate (Format == CFLb && Opcode != CALL).
+/// MID has a PC relative immediate (Format == CFLi && Opcode == BR/BRu).
 static inline
 bool HasPCRELImmediate(unsigned Opcode, const MCInstrDesc &MID) {
   uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
-  // CFLb and Opcode == BR/BRu => immediate is PCrel
-  if (Format != PatmosII::FrmCFLb) return false;
+  // CFLi and Opcode == BR/BRu => immediate is PCrel
+  if (Format != PatmosII::FrmCFLi) return false;
   return Opcode == Patmos::BR || Opcode == Patmos::BRu;
 }
 

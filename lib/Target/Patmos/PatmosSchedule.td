@@ -47,7 +47,6 @@ def IIC_SPCw   : InstrItinClass;
 def IIC_SPCt   : InstrItinClass;
 def IIC_SPCf   : InstrItinClass;
 // control flow ops (only in first slot)
-def IIC_CFLb   : InstrItinClass;
 def IIC_CFLi   : InstrItinClass;
 def IIC_CFLr   : InstrItinClass;
 // pseudos
@@ -172,11 +171,8 @@ def PatmosGenericItineraries : ProcessorItineraries<
 			      // MFS read from special reg in EX
                               [ 2, 2, 2, 2 ], 
 			      [ PB_GPR, NoBypass, NoBypass, NoBypass ] >,
-    InstrItinData<IIC_CFLb,   [ InstrStage<1, [FU_ALU0]> ], 
+    InstrItinData<IIC_CFLi,   [ InstrStage<1, [FU_ALU0]> ], 
                               [ 2, 2, 0 ] >,
-    InstrItinData<IIC_CFLi,   [ InstrStage<1, [FU_ALU0]> ],
-                              [ 2, 2, 1 ], 
-			      [ NoBypass, NoBypass, PB_GPR ] >,
     InstrItinData<IIC_CFLr,   [ InstrStage<1, [FU_ALU0]> ],
                               [ 2, 2, 1, 1 ], 
 			      [ NoBypass, NoBypass, PB_GPR, PB_GPR ] >,

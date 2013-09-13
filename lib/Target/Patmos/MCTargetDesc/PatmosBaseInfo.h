@@ -76,11 +76,15 @@ namespace PatmosII {
     /// FrmSTCr - This form is for instructions of the STC format (stack control, register).
     FrmSTCr     = 9,
 
-    /// FrmCFLb - This form is for instructions of the CFLb format (flow control, 22bit immediate).
-    FrmCFLb     = 10,
+    /// FrmCFLi - This form is for instructions of the CFLi format (flow control, 22bit immediate).
+    FrmCFLi     = 10,
 
-    /// FrmCFLb - This form is for instructions of the CFLi format (flow control, indirect).
-    FrmCFLi     = 11,
+    /// FrmCFLri - This form is for instructions of the CFLri format (flow control, implicit registers).
+    FrmCFLri    = 11,
+    /// FrmCFLrs - This form is for instructions of the CFLrs format (flow control, single register).
+    FrmCFLrs    = 12,
+    /// FrmCFLrt - This form is for instructions of the CFLrt format (flow control, two registers).
+    FrmCFLrt    = 13,
 
     FormMask    = 0x0F
   };
@@ -118,11 +122,13 @@ inline static bool hasPatmosImmediate(uint64_t TSFlags) {
 
 inline static bool isPatmosCFL(unsigned opcode, uint64_t TSFlags) {
   switch (TSFlags & PatmosII::FormMask) {
-  case PatmosII::FrmCFLb:
   case PatmosII::FrmCFLi:
+  case PatmosII::FrmCFLri:
+  case PatmosII::FrmCFLrs:
+  case PatmosII::FrmCFLrt:
     return true;
   }
-  return opcode == Patmos::RET;
+  return false;
 }
 
 inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
@@ -131,7 +137,7 @@ inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
   case PatmosII::FrmSTT:  return 7;
   case PatmosII::FrmALUi: return 12;
   case PatmosII::FrmSTCi: return 22;
-  case PatmosII::FrmCFLb: return 22;
+  case PatmosII::FrmCFLi: return 22;
   case PatmosII::FrmALUl: return 32;
   }
   return 0;
@@ -175,11 +181,11 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   case R24: return 24;
   case R25: return 25;
   case R26: return 26;
-  case RTR: return 27;
-  case RFP: return 28;
-  case RSP: return 29;
-  case RFB: return 30;
-  case RFO: return 31;
+  case R27: return 27;
+  case R28: return 28;
+  case RTR: return 29;
+  case RFP: return 30;
+  case RSP: return 31;
   default:
     llvm_unreachable("Unknown Patmos register!");
   }

@@ -204,13 +204,6 @@ bool PatmosPacketizerList::isSoloInstruction(MachineInstr *MI) {
 
   switch (getPatmosFormat(MI->getDesc().TSFlags)) {
 
-  // call instructions must be scheduled as solo instruction due to the
-  // fixed delay slot size restriction.
-  case PatmosII::FrmCFLb:
-    return MI->getOpcode() == Patmos::CALL;
-  case PatmosII::FrmCFLi:
-    return MI->getOpcode() == Patmos::CALLR;
-
   // 64bit instructions cannot be bundled with other instructions.
   case PatmosII::FrmALUl:
     return true;

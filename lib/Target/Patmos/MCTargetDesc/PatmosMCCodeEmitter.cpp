@@ -239,10 +239,10 @@ PatmosMCCodeEmitter::addSymbolRefFixups(const MCInst &MI, const MCOperand& MO,
   case PatmosII::FrmALUi:
     FixupKind = FK_Patmos_abs_ALUi;
     break;
-  case PatmosII::FrmCFLb:
-    // call immediate is absolute, other CFL immediate instructions are PC-rel
+  case PatmosII::FrmCFLi:
+    // br immediate is PC-rel, other CFL immediate instructions are absolute
     FixupKind = HasPCRELImmediate(MI.getOpcode(), MID) ? FK_Patmos_PCrel :
-                                                         FK_Patmos_abs_CFLb;
+                                                         FK_Patmos_abs_CFLi;
     break;
   case PatmosII::FrmSTCi:
     FixupKind = FK_Patmos_stc;

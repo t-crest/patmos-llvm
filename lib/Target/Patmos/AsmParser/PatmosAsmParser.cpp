@@ -432,7 +432,7 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       }
     }
 
-    if (Format == PatmosII::FrmCFLb || Format == PatmosII::FrmSTCi) {
+    if (Format == PatmosII::FrmCFLi || Format == PatmosII::FrmSTCi) {
       const MCOperand &MCO = Inst.getOperand(ImmOpNo);
       if (!MCO.isExpr()) {
         assert(MCO.isImm() && "expected immediate operand for ALUi format");

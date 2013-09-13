@@ -35,8 +35,8 @@ namespace Patmos {
     /// ALU 12 bit immediate data/absolute byte address fixup, unsigned, resulting in R_PATMOS_ALUI_ABS.
     FK_Patmos_abs_ALUi,
 
-    /// Call direct fixup, 22bit immediate unsigned absolute word address, resulting in R_PATMOS_CFLB_ABS
-    FK_Patmos_abs_CFLb,
+    /// Call direct fixup, 22bit immediate unsigned absolute word address, resulting in R_PATMOS_CFLI_ABS
+    FK_Patmos_abs_CFLi,
 
     /// 32bit ALU immediate data/absolute byte address, resulting in R_PATMOS_ALUL_ABS
     /// (same as FK_Data_4, but with 4 byte offset)
@@ -45,7 +45,7 @@ namespace Patmos {
     /// Stack control fixup, 18bit immediate unsigned absolute word size, emitted as immediate
     FK_Patmos_stc,
 
-    /// PC relative word addresses, 22 bit immediate, resulting in R_PATMOS_CFLB_PCREL
+    /// PC relative word addresses, 22 bit immediate, resulting in R_PATMOS_CFLI_PCREL
     FK_Patmos_PCrel,
 
     // Marker
