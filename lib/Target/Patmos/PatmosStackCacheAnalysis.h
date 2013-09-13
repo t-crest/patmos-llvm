@@ -10,13 +10,20 @@
 // Analysis results from the stack cache analysis.
 // This is a dummy pass that holds analysis results when SCA runs. Other passes
 // can require it without affecting the analysis behavior itself.
-// XXX There is probably a cleaner way to handle this...
+//
+// TODO We could store the results with either the PatmosMachineFunctionInfo,
+//      or with the analysis pass itself (assuming the analysis pass runs late).
+//      Keeping things separate is a good thing though..
 //
 //===----------------------------------------------------------------------===//
+#ifndef PATMOSSTACKCACHEANALYSIS
+#define PATMOSSTACKCACHEANALYSIS
 
+#include "Patmos.h"
 #include "llvm/CodeGen/MachineModulePass.h"
 
 namespace llvm {
+
 class PatmosStackCacheAnalysisInfo : public MachineModulePass {
   bool Valid;
 
@@ -48,4 +55,7 @@ public:
 
   static char ID; // Pass identification, replacement for typeid
 };
+
 } // End llvm namespace
+
+#endif
