@@ -416,12 +416,14 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
-  } else if (Ins->getDesc().mayLoad()) {
-    I->MemMode = yaml::memmode_load;
-    exportMemInstruction(MF, I, Ins);
-  } else if (Ins->getDesc().mayStore()) {
-    I->MemMode = yaml::memmode_store;
-    exportMemInstruction(MF, I, Ins);
+  } else if (!Ins->isInlineAsm()) {
+    if (Ins->getDesc().mayLoad()) {
+      I->MemMode = yaml::memmode_load;
+      exportMemInstruction(MF, I, Ins);
+    } else if (Ins->getDesc().mayStore()) {
+      I->MemMode = yaml::memmode_store;
+      exportMemInstruction(MF, I, Ins);
+    }
   }
 
   // XXX: maybe a good idea (descriptions)

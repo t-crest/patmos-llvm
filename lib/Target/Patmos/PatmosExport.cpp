@@ -510,7 +510,7 @@ namespace llvm {
           I->StackCacheSpill = it->second;
         }
       }
-      if (Instr->mayLoad() || Instr->mayStore()) {
+      if (!Instr->isInlineAsm() && (Instr->mayLoad() || Instr->mayStore())) {
         const PatmosInstrInfo *PII =
           static_cast<const PatmosInstrInfo*>(TM.getInstrInfo());
         switch (PII->getMemType(Instr)) {
