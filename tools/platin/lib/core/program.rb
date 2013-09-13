@@ -561,6 +561,18 @@ module PML
       data['stack-cache-spill']
     end
 
+    def memmode
+      data['memmode']
+    end
+
+    def memtype
+      data['memtype']
+    end
+
+    def memtype=(mt)
+      data['memtype'] = mt
+    end
+
     # whether the given block is still a successor if we are at this instruction in the current block
     def live_successor?(target)
       ix = index
