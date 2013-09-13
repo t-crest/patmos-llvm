@@ -350,11 +350,11 @@ void ScheduleDAGPostRA::enterRegion(MachineBasicBlock *bb,
                  MachineBasicBlock::iterator begin,
                  MachineBasicBlock::iterator end,
                  unsigned endcount) {
-  ScheduleDAGInstrs::enterRegion(bb, begin, end, endcount);
-
-  // TODO only if we did not just start the block?
-  if (AntiDepBreak != NULL)
+  // Call observe over the range of the previously scheduled region
+  if (AntiDepBreak != NULL && end != bb->end())
     AntiDepBreak->Observe(end, endcount, EndIndex);
+
+  ScheduleDAGInstrs::enterRegion(bb, begin, end, endcount);
 }
 
 /// Schedule - Schedule the instruction range using list scheduling.
