@@ -32,15 +32,16 @@ class LateBypassTool
   end
 
   def LateBypassTool.run(pml, options)
+    needs_options(options, :binary_file)
     # default range threshold = 2^24
     options.range_threshold = (1 << 24) if options.range_threshold.nil?
 
     # select all valuefacts that come from aiT describing a load[/store]
     # possibly accessing a large address range
     valuefacts = pml.valuefacts.select { |vf|
-      vf.level == "machinecode" &&
+        vf.level == "machinecode" &&
         vf.origin == "aiT" &&
-        vf.programpoint.kind_of?(Instruction) &&
+        vf.programpoint.kind_of?(PML::Instruction) &&
         # skip store instructions for now
         #['mem-address-read', 'mem-address-write'].include?(vf.variable) &&
         ['mem-address-read'].include?(vf.variable) &&
@@ -62,12 +63,12 @@ class LateBypassTool
     unless addresses.empty?
       # if we have a list of addresses of instructions to rewrite,
       # we first backup the binary if desired
-      FileUtils.cp(options.binary, "#{options.binary}.bak") if options.backup
+      FileUtils.cp(options.binary_file, "#{options.binary_file}.bak") if options.backup
 
       # get the external patch_loads program and feed every address to it
-      info "Rewriting instructions"
+      info "Rewriting #{addresses.size} instructions"
       IO.popen(
-        ["#{File.dirname(__FILE__)}/../ext/patch_loads", options.binary],
+        ["#{File.dirname(__FILE__)}/../ext/patch_loads", options.binary_file],
         'w') { |f|
           addresses.each { |addr| f.puts(addr) }
       }
@@ -87,7 +88,7 @@ if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
 Rewrite load from unknown memory access addresses to bypass-cache loads.
 EOF
-  options, args = PML::optparse([:binary], "binary.elf", SYNOPSIS) do |opts|
+  options, args = PML::optparse([:binary_file], "binary.elf", SYNOPSIS) do |opts|
     opts.needs_pml
     opts.writes_pml
     LateBypassTool.add_options(opts)
