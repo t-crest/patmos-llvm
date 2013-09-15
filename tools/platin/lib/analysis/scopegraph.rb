@@ -186,13 +186,13 @@ protected
   # check that there is a BlockNode for every feasible basic block
   def assert_complete
     blocks = {}
-    sg.bottom_up.each { |node|
-      if node.kind_of?(ScopeGraph::CallSiteNode)
+    self.bottom_up.each { |node|
+      if node.kind_of?(CallSiteNode)
         blocks[node] = Set.new
         next
       end
       blocks[node] = node.successors.map { |s| blocks[s] }.inject { |a,b| a+b }
-      if node.kind_of?(ScopeGraph::BlockNode)
+      if node.kind_of?(BlockNode)
         blocks[node] = Set[node.block]
       else
         assert("scopegraph needs to have block node for every basic block") { blocks[node] == Set[*node.blocks] }

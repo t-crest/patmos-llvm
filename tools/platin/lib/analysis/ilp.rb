@@ -210,7 +210,9 @@ class ILP
     terms_lhs.each { |v,c|
       terms_indexed[index(v)] += c
     }
-    add_indexed_constraint(terms_indexed,op,const_rhs,name,Set.new([tag]))
+    c = add_indexed_constraint(terms_indexed,op,const_rhs,name,Set.new([tag]))
+    debug(options, :ilp) { "Adding constraint: #{terms_lhs} #{op} #{const_rhs} => #{c}" }
+    c
   end
 
   # conceptually private; friend VariableElimination needs access

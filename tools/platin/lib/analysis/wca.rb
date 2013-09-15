@@ -112,9 +112,10 @@ class WCA
       freq = freq.to_i
       if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
 
-        next if v.kind_of?(SubFunction) # MC cost
-        next if v.kind_of?(Instruction) # Stack-Cache Cost
-        next if v.kind_of?(CacheTag)    # Set-associative cache cost
+        next if v.kind_of?(SubFunction)         # MC cost
+        next if v.kind_of?(Instruction)         # Stack-Cache Cost
+        next if v.kind_of?(InstructionCacheTag) # IC Tag
+        next if v.kind_of?(DataCacheTag)        # IC Tag
 
         die("ILP cost: not an IPET edge") unless v.kind_of?(IPETEdge)
         die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
@@ -129,7 +130,7 @@ class WCA
       freqs.map { |v,freq|
         [v,freq * builder.ilp.get_cost(v)]
       }.sort_by { |v,freq|
-        [v.function, -freq]
+        [v.function || machine_entry, -freq]
       }.each { |v,cost|
         puts "  #{v}: #{freqs[v]} (#{cost} cyc)"
       }

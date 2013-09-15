@@ -156,8 +156,14 @@ class WcetTool
   end
 
   def wcet_analysis(srcs)
-    wcet_analysis_platin(srcs) if options.enable_wca
-    wcet_analysis_ait(srcs) unless options.disable_ait
+    run_wca = options.enable_wca
+    begin
+      wcet_analysis_ait(srcs) unless options.disable_ait
+    rescue Exception => ex
+      warn("a3 WCET analysis failed: #{ex}. Trying platin WCET analysis.")
+      run_wca = true
+    end
+    wcet_analysis_platin(srcs) if run_wca
   end
 
   def wcet_analysis_platin(srcs)
@@ -400,7 +406,6 @@ class WcetTool
     opts.alf_file(Proc.new { false })
     opts.sweet_options
     opts.sweet_flowfact_file(Proc.new { false })
-
     opts.on("--check [FACTOR]", "check that analyzed WCET is higher than MOET [and less than MOET * FACTOR]") { |factor|
       opts.options.runcheck = true
       opts.options.runcheck_factor = factor.to_f

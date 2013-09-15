@@ -240,6 +240,13 @@ class IPETModel
     ilp.add_constraint(lhs,"equal",0,"callers_#{function}",:callsite)
   end
 
+  # add cost to basic block
+  def add_block_cost(block, cost)
+    block_frequency(block).each { |edge,c|
+      ilp.add_cost(edge, c * cost)
+    }
+  end
+
   # frequency of incoming is frequency of outgoing edges
   def add_block_constraint(block)
     return if block.predecessors.empty?
