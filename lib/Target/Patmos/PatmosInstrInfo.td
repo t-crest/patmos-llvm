@@ -165,7 +165,8 @@ def uimm18   : Operand<i32>, PatLeaf<(imm), [{return isUInt<18>(N->getZExtValue(
 // Call/Branch
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
 def imm22    : Operand<i32>, PatLeaf<(imm), [{return isInt <22>(N->getSExtValue());}]>;
-
+// Trap
+def uimm5    : Operand<i32>, PatLeaf<(imm), [{return isUInt<5>(N->getZExtValue());}]>;
 
 // 32-bit bitmask transformed to a bit number
 def uimm5mask : Operand<i32>, PatLeaf<(imm), [{
@@ -371,20 +372,31 @@ let isCall=1, hasDelaySlot=1,
 
   // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
-  def CALL : CFLi<0b100  , (outs), (ins pred:$p, uimm22s2:$target),
+  def CALL : CFLi<0b100, (outs), (ins pred:$p, uimm22s2:$target),
                   "call", "$target", [(PatmosCall uimm22s2:$target)]>;
 
   def CALLR: CFLrs<0b00, (outs), (ins pred:$p, RRegs:$rs),
                    "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1, Uses = [SRB, SRO],
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
     neverHasSideEffects = 1 in { // due to missing pattern
-  def RET  : CFLri<0b00, (outs), (ins pred:$p),
-                   "ret", "", []>;
+  let  Uses = [SRB, SRO] in
+    def RET  : CFLri<0b00, (outs), (ins pred:$p),
+                     "ret", "", []>;
+  let  Uses = [SXB, SXO] in
+    def XRET : CFLri<0b01, (outs), (ins pred:$p),
+                     "xret", "", []>;
 }
 
-
+let isCall=1, hasDelaySlot=0,
+  // Traps are like calls and may overwrite caller saved registers
+  Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
+          R17, R18, R19, R20,
+          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
+  def TRAP : CFLi<0b011, (outs), (ins pred:$p, uimm5:$target),
+  	  	   	 	  "trap", "$target", []>;
+}	
 
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions...

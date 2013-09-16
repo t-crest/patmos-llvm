@@ -48,6 +48,7 @@ def IIC_SPCt   : InstrItinClass;
 def IIC_SPCf   : InstrItinClass;
 // control flow ops (only in first slot)
 def IIC_CFLi   : InstrItinClass;
+def IIC_CFLt   : InstrItinClass;
 def IIC_CFLr   : InstrItinClass;
 // pseudos
 def IIC_Pseudo : InstrItinClass;
