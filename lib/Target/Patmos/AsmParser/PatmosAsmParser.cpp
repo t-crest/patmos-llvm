@@ -137,24 +137,29 @@ struct PatmosOperand : public MCParsedAsmOperand {
 
     SMLoc StartLoc, EndLoc;
 
+    struct TokOp {
+      const char *Data;
+      unsigned Length;
+    };
+
+    struct RegOp {
+      unsigned RegNum;
+    };
+
+    struct ImmOp {
+      const MCExpr *Val;
+    };
+
+    struct MemOp {
+      unsigned Base;
+      const MCExpr *Off;
+    };
+
     union {
-      struct {
-        const char *Data;
-        unsigned Length;
-      } Tok;
-
-      struct {
-        unsigned RegNum;
-      } Reg;
-
-      struct {
-        const MCExpr *Val;
-      } Imm;
-
-      struct {
-        unsigned Base;
-        const MCExpr *Off;
-      } Mem;
+      struct TokOp Tok;
+      struct RegOp Reg;
+      struct ImmOp Imm;
+      struct MemOp Mem;
     };
 
     PatmosOperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
@@ -537,6 +542,10 @@ ParseRegister(unsigned &RegNo, bool Required) {
         .Case("sh", Patmos::SH)
         .Case("ss", Patmos::SS)
         .Case("st", Patmos::ST)
+        .Case("srb", Patmos::SRB)
+        .Case("sro", Patmos::SRO)
+        .Case("sxb", Patmos::SXB)
+        .Case("sxo", Patmos::SXO)
         .Default(0);
     }
 

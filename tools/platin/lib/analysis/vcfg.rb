@@ -30,8 +30,8 @@ end
 # Flat Control-Flow Model, consists of a set of virtual CFGs
 class ControlFlowModel
   attr_reader :ctx_manager, :vcfgs
-  def initialize(function_list, entry, flow_facts, ctx_manager, arch, opts = {})
-    @function_list, @entry, @flowfacts, @ctx_manager, @arch, @opts = function_list, entry, flow_facts, ctx_manager, arch, opts.dup
+  def initialize(function_list, entry, flowfacts, ctx_manager, arch, opts = {})
+    @function_list, @entry, @flowfacts, @ctx_manager, @arch, @opts = function_list, entry, flowfacts, ctx_manager, arch, opts.dup
     @vcfgs = { @entry => VCFG.new(@entry, arch) }
     @locations, @scope_entries, @scope_exits = {}, {}, {}
     extract_flow_refinements
@@ -147,13 +147,13 @@ private
     @flowfacts.each do |ff|
       # set indirect call targets
       scope,cs,targets = ff.get_calltargets
-      if scope && scope.kind_of?(FunctionRef) && scope.function == @entry && scope.any_context?
+      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.any_context?
         target_vcfgs = targets.map { |fref| get_vcfg(fref.function) }
         get_callnode(cs.instruction).refine_calltargets(to_bounded_stack(cs.context), target_vcfgs)
       end
       # set infeasible blocks
       scope,bref = ff.get_block_infeasible
-      if scope && scope.kind_of?(FunctionRef) && scope.function == @entry && scope.any_context?
+      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.any_context?
         get_vcfg(bref.function).get_blockstart(bref.block).set_infeasible(to_bounded_stack(bref.context))
       end
     end
@@ -201,7 +201,7 @@ class VCFG
         end
         # if successor is a loop header, we insert loop enter/cont nodes
         if succblock.loopheader?
-          if predblock.loops.include?(succblock) # continue
+          if predblock.loops.include?(succblock.loop) # continue
             prednode = insert_loop_node(prednode, succblock, :cont)
           else
             prednode = insert_loop_node(prednode, succblock, :enter)
@@ -258,8 +258,7 @@ private
           current_node.last_index = index + current_instruction.delay_slots
           index = current_node.last_index + 1
           split_node = current_node
-          current_instruction.branch_targets.each { |bix|
-            succblock = function.blocks[bix]
+          current_instruction.branch_targets.each { |succblock|
             add_block_predecessor(block_predecessors,succblock,split_node)
           }
         else
@@ -566,7 +565,7 @@ class Interpreter
       loc = @queue.pop
       inval = @in[loc]
       outval  = @semantics.transfer_value(loc.node, inval)
-      loc.successors.each { |loc| 
+      loc.successors.each { |loc|
         if change = @semantics.merge(@in[loc],outval)
           @in[loc] = change[1]
           @queue.unshift(loc)

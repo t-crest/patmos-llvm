@@ -15,6 +15,7 @@
 #include "PatmosTargetMachine.h"
 #include "PatmosMachineScheduler.h"
 #include "PatmosSinglePathInfo.h"
+#include "PatmosStackCacheAnalysis.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
@@ -73,10 +74,9 @@ namespace {
         enablePass(&MachineSchedulerID);
         MachineSchedRegistry::setDefault(createPatmosVLIWMachineSched);
       }
-      if (TM->getSubtargetImpl()->usePostRAMIScheduler(getOptLevel())) {
-        // TODO setup MI scheduler as post-RA scheduler
-        // (substitute PostRASchdeulerID)
-
+      if (TM->getSubtargetImpl()->usePatmosPostRAScheduler(getOptLevel())) {
+        initializePatmosPostRASchedulerPass(*PassRegistry::getPassRegistry());
+        substitutePass(&PostRASchedulerID, &PatmosPostRASchedulerID);
       }
     }
 
@@ -93,6 +93,7 @@ namespace {
       return false;
     }
 
+    //
     /// addPreISelPasses - This method should add any "last minute" LLVM->LLVM
     /// passes (which are run just before instruction selector).
     virtual bool addPreISel() {
@@ -108,6 +109,42 @@ namespace {
     }
 
 
+
+    /// addPreSched2 - This method may be implemented by targets that want to
+    /// run passes after prolog-epilog insertion and before the second instruction
+    /// scheduling pass.  This should return true if -print-machineinstrs should
+    /// print after these passes.
+    virtual bool addPreSched2() {
+      if (PatmosSinglePathInfo::isEnabled()) {
+        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+        addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
+        return true;
+      } else {
+        if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
+          addPass(&IfConverterID);
+          // If-converter might create unreachable blocks (bug?), need to be
+          // removed before function splitter
+          addPass(&UnreachableMachineBlockElimID);
+        }
+        if (getOptLevel() != CodeGenOpt::None) {
+          // Add the standard basic block placement before the post-RA scheduler
+          // as it creates and removes branches.
+          TargetPassConfig::addBlockPlacement();
+        }
+      }
+      return false;
+    }
+
+
+    virtual void addBlockPlacement() {
+      // The block placement passes are added after the post-RA scheduler.
+      // We do want to have our branches created by this pass scheduled by the
+      // post-RA scheduler and we do not handle delay-slots in
+      // PatmosInstrInfo.InsertBranch|RemoveBranch, so we disable the default
+      // pass here and add them in PreSched2 instead.
+    }
+
+
     /// addPreEmitPass - This pass may be implemented by targets that want to run
     /// passes immediately before machine code is emitted.  This should return
     /// true if -print-machineinstrs should print out the code after the passes.
@@ -115,26 +152,39 @@ namespace {
 
       // Post-RA MI Scheduler does bundling and delay slots itself. Otherwise,
       // add passes to handle them.
-      if (!getPatmosSubtarget().usePostRAMIScheduler(getOptLevel())) {
+      if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
 
         if (getPatmosSubtarget().enableBundling(getOptLevel())) {
           addPass(createPatmosPacketizer(getPatmosTargetMachine()));
         }
 
-        // disable the filler if we have bundles, the filler does not handle
-        // them properly at the moment.
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
                                                 false));
-      }
 
-      if (getPatmosSubtarget().enableBundling(getOptLevel())) {
-        addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
+        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
+          addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
+        }
       }
 
       // All passes below this line must handle delay slots and bundles
       // correctly.
 
-      addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+      if (getPatmosSubtarget().hasMethodCache()) {
+        addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
+      }
+
+
+      // this is pseudo pass that may hold results from SC analysis
+      // (currently for PML export)
+      addPass(createPatmosStackCacheAnalysisInfo(getPatmosTargetMachine()));
+
+      if (EnableStackCacheAnalysis) {
+        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+      }
+
+      // following pass is a peephole pass that does neither modify
+      // the control structure nor the size of basic blocks.
+      addPass(createPatmosBypassFromPMLPass(getPatmosTargetMachine()));
 
       return true;
     }
@@ -174,30 +224,6 @@ namespace {
       return false;
     }
 
-
-    /// addPreSched2 - This method may be implemented by targets that want to
-    /// run passes after prolog-epilog insertion and before the second instruction
-    /// scheduling pass.  This should return true if -print-machineinstrs should
-    /// print after these passes.
-    virtual bool addPreSched2() {
-      if (PatmosSinglePathInfo::isEnabled()) {
-        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
-        addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
-      } else {
-        if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
-          addPass(&IfConverterID);
-          // If-converter might create unreachable blocks (bug?), need to be
-          // removed before function splitter
-          addPass(&UnreachableMachineBlockElimID);
-        }
-      }
-
-      if (EnableStackCacheAnalysis) {
-        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
-      }
-
-      return true;
-    }
 
   };
 } // namespace

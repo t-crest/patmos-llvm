@@ -25,9 +25,12 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/PML.h"
 #include "llvm/CodeGen/PMLExport.h"
+#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -41,6 +44,10 @@ using namespace llvm;
 namespace llvm {
 STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
 STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
+STATISTIC( NumSymbolicBoundsNonArg,
+           "Number of symbolic header bounds NOT exported (non-arguments)");
+
+STATISTIC( NumMemExp,   "Number of exported load from array infos");
 }
 
 /// Unfortunately, the interface for accessing successors differs
@@ -67,10 +74,6 @@ template <> struct FlowGraphTrait<MachineBasicBlock> {
     return Name(BB->getNumber());
   }
 };
-
-bool operator==(const Name n1, const Name n2) {
-  return n1.NameStr == n2.NameStr;
-}
 
 } // end namespace yaml
 } // end namespace llvm
@@ -192,24 +195,21 @@ yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
                                                  yaml::Name RHS) const {
   const Function *Fn = BB->getParent();
 
-  yaml::FlowFact *FF = new yaml::FlowFact();
+  yaml::FlowFact *FF = new yaml::FlowFact(yaml::level_bitcode);
 
-  FF->Scope = FF->createLoop(yaml::Name(Fn->getName()),
-                             yaml::Name(BB->getName()));
+  FF->setLoopScope(yaml::Name(Fn->getName()), yaml::Name(BB->getName()));
 
   yaml::ProgramPoint *Block =
-    FF->createBlock(yaml::Name(Fn->getName()),
-                    yaml::Name(BB->getName()));
+                       new yaml::ProgramPoint(Fn->getName(), BB->getName());
+
   FF->addTermLHS(Block, 1LL);
   FF->RHS = RHS;
   FF->Comparison = yaml::cmp_less_equal;
-  FF->Level = yaml::level_bitcode;
   FF->Origin = "llvm.bc";
   FF->Classification = "loop-global";
 
   return FF;
 }
-
 
 void PMLBitcodeExport::serialize(MachineFunction &MF)
 {
@@ -229,7 +229,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
     // export loop information
     Loop *Loop = LI.getLoopFor(BI);
-    if (Loop) {
+    if (Loop && Loop->getHeader() == &*BI) {
       if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
 
         // check for constant loop bound
@@ -244,7 +244,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
         }
         // check for non-constant, symbolic loop bound
         const SCEV *BECount = SE.getBackedgeTakenCount(Loop);
-        if (!isa<SCEVCouldNotCompute>(BECount)) {
+        if (!isa<SCEVCouldNotCompute>(BECount) || !isa<SCEVConstant>(BECount)) {
           // check for Arguments using visitor
           SCEVCheckFormalArgs CheckFA;
           visitAll(BECount, CheckFA);
@@ -262,6 +262,9 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
             // bump statistic counter
             NumSymbolicBounds++;
+          } else {
+            // bump statistic counter
+            NumSymbolicBoundsNonArg++;
           }
         }
       }
@@ -311,20 +314,29 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
       // TODO: use PMLInstrInfo to try to get call info about bitcode calls
       I->addCallee(StringRef("__any__"));
     }
+  } else if (isa<LoadInst>(II)) {
+    I->MemMode = yaml::memmode_load;
+  } else if (isa<StoreInst>(II)) {
+    I->MemMode = yaml::memmode_store;
   }
 }
+
+
+
+
+
 
 void PMLMachineExport::serialize(MachineFunction &MF)
 {
   Function* F = const_cast<Function*>(MF.getFunction());
   MachineLoopInfo &MLI(P.getAnalysis<MachineLoopInfo>(*F));
 
-  yaml::GenericFormat::MachineFunction *PMF =
-     new yaml::GenericFormat::MachineFunction(MF.getFunctionNumber());
+  yaml::MachineFunction *PMF =
+     new yaml::MachineFunction(MF.getFunctionNumber());
 
   PMF->MapsTo = yaml::Name(MF.getFunction()->getName());
   PMF->Level = yaml::level_machinecode;
-  yaml::GenericFormat::MachineBlock *B;
+  yaml::MachineBlock *B;
 
   // export argument-register mapping if available
   exportArgumentRegisterMapping(PMF, MF);
@@ -332,7 +344,7 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
   {
     B = PMF->addBlock(
-        new yaml::GenericFormat::MachineBlock(BB->getNumber()));
+        new yaml::MachineBlock(BB->getNumber()));
 
     for (MachineBasicBlock::const_pred_iterator BBPred = BB->pred_begin(),
         E = BB->pred_end(); BBPred != E; ++BBPred)
@@ -358,17 +370,24 @@ void PMLMachineExport::serialize(MachineFunction &MF)
         Conditions, false);
 
     unsigned Index = 0;
-    for (MachineBasicBlock::iterator Ins = BB->begin(), E = BB->end();
-        Ins != E; ++Ins)
+    for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
+        E = BB->instr_end(); Ins != E; ++Ins)
     {
+      // We do not export the bundle pseudo instruction itself, skip them.
+      if (Ins->isBundle()) continue;
+      // Do not export any Pseudo instructions with zero size
+      if (Ins->isPseudo() && !Ins->isInlineAsm()) continue;
+
       if (!doExportInstruction(Ins)) { Index++; continue; }
 
-      yaml::GenericMachineInstruction *I = B->addInstruction(
-          new yaml::GenericMachineInstruction(Index++));
+      yaml::MachineInstruction *I = B->addInstruction(
+          new yaml::MachineInstruction(Index++));
       exportInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                         TrueSucc, FalseSucc);
     }
   }
+
+  exportSubfunctions(MF, PMF);
 
   // TODO: we do not compute a hash yet
   PMF->Hash = StringRef("0");
@@ -376,7 +395,7 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 }
 
 void PMLMachineExport::
-exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                   const MachineInstr *Ins,
                   SmallVector<MachineOperand, 4> &Conditions,
                   bool HasBranchInfo, MachineBasicBlock *TrueSucc,
@@ -385,6 +404,9 @@ exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
   I->Opcode = Ins->getOpcode();
   I->Size = PII->getSize(Ins);
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
+  I->BranchType = yaml::branch_none;
+  I->MemMode = yaml::memmode_none;
+  I->Bundled = Ins->isBundledWithSucc();
 
   if (Ins->getDesc().isCall()) {
     I->BranchType = yaml::branch_call;
@@ -394,9 +416,16 @@ exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
   } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
-  } else {
-    I->BranchType = yaml::branch_none;
+  } else if (!Ins->isInlineAsm()) {
+    if (Ins->getDesc().mayLoad()) {
+      I->MemMode = yaml::memmode_load;
+      exportMemInstruction(MF, I, Ins);
+    } else if (Ins->getDesc().mayStore()) {
+      I->MemMode = yaml::memmode_store;
+      exportMemInstruction(MF, I, Ins);
+    }
   }
+
   // XXX: maybe a good idea (descriptions)
   // raw_string_ostream ss(I->Descr);
   // Ins->print(ss);
@@ -404,7 +433,7 @@ exportInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
 }
 
 void PMLMachineExport::
-exportCallInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
+exportCallInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                       const MachineInstr *Ins)
 {
   std::vector<StringRef> Callees = PII->getCalleeNames(MF, Ins);
@@ -425,7 +454,7 @@ exportCallInstruction(MachineFunction &MF, yaml::GenericMachineInstruction *I,
 
 void PMLMachineExport::
 exportBranchInstruction(MachineFunction &MF,
-                        yaml::GenericMachineInstruction *I,
+                        yaml::MachineInstruction *I,
                         const MachineInstr *Ins,
                         SmallVector<MachineOperand, 4> &Conditions,
                         bool HasBranchInfo, MachineBasicBlock *TrueSucc,
@@ -469,9 +498,153 @@ exportBranchInstruction(MachineFunction &MF,
 }
 
 
+yaml::ValueFact *PMLMachineExport:: createMemGVFact(const MachineInstr *MI,
+    yaml::MachineInstruction *I, std::set<const GlobalValue*> &GVs) const
+{
+  const MachineBasicBlock *MBB = MI->getParent();
+  const MachineFunction *MF = MBB->getParent();
+
+  yaml::ValueFact *VF = new yaml::ValueFact(yaml::level_machinecode);
+
+  VF->PP = new yaml::ProgramPoint(MF->getFunctionNumber(),
+                                  MBB->getNumber(),
+                                  I->Index.getNameAsInteger()
+                                  );
+  for (std::set<const GlobalValue*>::iterator SI = GVs.begin(), SE = GVs.end();
+      SI != SE; ++SI) {
+
+    VF->addValue((*SI)->getName());
+    DEBUG( dbgs() << "=> to " << (*SI)->getName() << "\n");
+  }
+  if (MI->mayLoad()) {
+    VF->Variable = "mem-address-read";
+  } else {
+    VF->Variable = "mem-address-write";
+  }
+  VF->Origin   = "llvm.mc";
+
+  return VF;
+}
+
+
+
+// Check for a array access of the form
+//  GEP GV 0 idx+
+// On success return GV, otherwise NULL.
+static const GlobalValue *isIndexingGV(const GEPOperator *GEP)
+{
+  const GlobalValue *GV;
+  if ( (GV = dyn_cast<GlobalValue>(GEP->getPointerOperand())) &&
+      GEP->isInBounds()) {
+    const ConstantInt *CI;
+    if ( (CI = dyn_cast<ConstantInt>(GEP->getOperand(1))) && CI->isZero()) {
+      return GV;
+    }
+  }
+  return NULL;
+}
+
+
+// This function does not return a single value but rather follows the
+// operands of a given value and collects the accesses to global arrays
+// in a set. This is due to the possible joins at phi nodes.
+// If the resulting set contains NULL, we don't know anything about the access,
+// otherwise we know that the access goes to either of the GVs in the set.
+//
+// Comp = GEP GV 0 idx+ // this is the base case, GV is added to the set
+//      | GEP Comp idx+
+//      | PHI Comp+
+//      | ?  // in all other cases we add NULL
+//      ;
+static void isIndexingGVComp(const Value *V,
+                             std::set<const GlobalValue*> &collect,
+                             std::set<const Value*> &visited)
+{
+
+  visited.insert(V);
+  if (const GEPOperator *GEP = dyn_cast<GEPOperator>(V)) {
+    if (const GlobalValue *GV = isIndexingGV(GEP)) {
+      // base case: indexing a global array, return that array
+      collect.insert(GV);
+    } else {
+      // check for computed pointer operand
+      const Value *V2 = GEP->getPointerOperand();
+      if (!visited.count(V2)) {
+        isIndexingGVComp(V2, collect, visited);
+      }
+    }
+    return;
+  } else if (const PHINode *PHI = dyn_cast<PHINode>(V)) {
+    DEBUG( dbgs() << "=> "; PHI->dump() );
+    for (PHINode::const_op_iterator OI = PHI->op_begin(), OE = PHI->op_end();
+        OI!=OE; ++OI) {
+      const Value *OV = cast<Value>(OI);
+      if (!visited.count(OV)) {
+        isIndexingGVComp(OV, collect, visited);
+      }
+    }
+    return;
+  }
+  // the value is different from any node we can handle (e.g. inttoptr)
+  collect.insert(NULL);
+}
+
+
 void PMLMachineExport::
-exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *F,
-                              const MachineFunction &MF) {
+exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
+                      const MachineInstr *Ins)
+{
+  // FIXME maybe there should be only one memoperand here anyway? bundles?
+  for(MachineInstr::mmo_iterator I=Ins->memoperands_begin(),
+                                 E=Ins->memoperands_end(); I!=E; ++I) {
+    MachineMemOperand *MO = *I;
+    assert(MO->isLoad() || MO->isStore());
+    const Value *V = MO->getValue();
+    if (V) {
+      assert(V->getType()->getTypeID()==Type::PointerTyID &&
+            "Value referenced by a MachineMemOperand is not a pointer!");
+
+      if (const Constant *C = dyn_cast<Constant>(V)) {
+        DEBUG( dbgs() << "C: "; C->dump() );
+        // global variable, GEP to global array with const indices, etc
+        // => we know the address EXACTLY, we don't follow and collect
+        // (the set only contains approximations otherwise)
+        // TODO export as well?
+
+      } else if (const Argument *A = dyn_cast<Argument>(V)) {
+        DEBUG( dbgs() << "A: "; A->dump() );
+        // a pointer passed as function argument
+
+      } else if (const PseudoSourceValue *P =
+          dyn_cast<PseudoSourceValue>(V)) {
+        DEBUG( dbgs() << "P: "; P->dump() );
+        // this is a location on the stack frame
+
+      } else {
+        DEBUG( dbgs() << "V: "; V->dump() );
+
+        std::set<const Value*> visited; // mark nodes we already have visited
+        std::set<const GlobalValue*> collect;
+        // follow the values and collect them in the collect set
+        isIndexingGVComp(V, collect, visited);
+
+        // a value of NULL means we don't have more precise information
+        // and it could be any location
+        if ( !collect.count(NULL) ) {
+          assert( collect.size() >= 1 );
+          DEBUG( dbgs() << "=> GEP array access (#visited=" << visited.size()
+                        << ")\n");
+          YDoc.addValueFact(createMemGVFact(Ins, YI, collect));
+          NumMemExp++; // STATISTICS
+        }
+      }
+    }
+  }
+
+}
+
+void PMLMachineExport::
+exportArgumentRegisterMapping(yaml::MachineFunction *F, const MachineFunction &MF) {
   // must be implemented entirely by target-specific exporters at this stage
 }
 
@@ -729,9 +902,9 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF)
       delete RG; // also deletes scopes and nodes
     /// Create Graph
     yaml::RelationScope *DstScope = new yaml::RelationScope(
-        yaml::Name(MF.getFunctionNumber()), yaml::level_machinecode);
+        MF.getFunctionNumber(), yaml::level_machinecode);
     yaml::RelationScope *SrcScope = new yaml::RelationScope(
-        yaml::Name(BF->getName()), yaml::level_bitcode);
+        BF->getName(), yaml::level_bitcode);
     RG = new yaml::RelationGraph(SrcScope, DstScope);
     RG->getEntryNode()->setSrcBlock(
         yaml::FlowGraphTrait<const BasicBlock>::getName(

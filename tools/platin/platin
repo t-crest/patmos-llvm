@@ -2,9 +2,15 @@
 #
 # ruby-runner
 
+# the installer will inject code to detect the ruby executable before
+if [ -z "${RUBY}" ] ; then
+    RUBY=ruby
+fi
+
 # Set library path for installation
 
-KNOWN_COMMANDS="wcet analyze-trace extract-symbols pml transform wca visualize ait2pml pml2ais sweet ff2pml"
+KNOWN_COMMANDS="wcet tool-config pml analyze-trace extract-symbols \
+      transform visualize ait2pml pml2ais sweet ff2pml wca late-bypass"
 usage() {
     cat <<EOF >&2
 usage: platin <command> [<args>]
@@ -12,20 +18,25 @@ usage: platin <command> [<args>]
 The following platin tools are available and supported:
 
   wcet            ... Calculate WCET (main driver)
-
+  tool-config     ... configure tools, so the same HW config is used in
+                      compiler, WCA and simulator
+  pml             ... Validate/Inspect/Visualize/Merge PML files
   analyze-trace   ... Analyze simulator trace and generate flow facts
   extract-symbols ... Extract addresses of symbols from ELF file
-  pml             ... Validate/Inspect/Visualize/Merge PML files
   sweet           ... Run SWEET analysis tool
-  transform       ... Transform flowfacts from bitcode to machinecode (and vice versa)
-  visualize       ... Visualize IR and MC CFGs as well as relation graphs [alpha]
+  transform       ... Transform flowfacts from bitcode to machinecode
+                      (and vice versa)
+  visualize       ... Visualize IR and MC CFGs as well as relation graphs
+                      [alpha]
+  pml2ais         ... Translate program information to aiT's AIS format
 
 The following tools are available for internal use only:
 
   ait2pml         ... Add aiT analysis results to the PML database
-  pml2ais         ... Translate program information to aiT's AIS format
   ff2pml          ... Translate SWEET flowfacts to PML
   wca             ... Calculate WCET cost using lp_solve
+  late-bypass     ... Rewrite memory instructions in the binary to bypass
+                      the data cache
 
 EOF
     UNKNOWN=`echo $(list_unknown_commands)`
@@ -53,38 +64,6 @@ list_unknown_commands() {
     done
 }
 
-detect_ruby() {
-    RUBY19s="ruby1.9 ruby1.9.1 ruby1.9.2 ruby1.9.3"
-    RUBY_VERSION=`ruby -e 'puts RUBY_VERSION'`
-
-    if [[ "${RUBY_VERSION}" =~ ^1.8 ]] ; then
-	RUBY=ruby
-	RUBY18=ruby
-    elif [[ "${RUBY_VERSION}" =~ ^1.9 ]] ; then
-	RUBY=ruby
-	RUBY19=ruby
-    elif [ ! -z "${RUBY_VERSION}" ] ; then
-	RUBY=ruby
-    fi
-    if [ -z "${RUBY19}" ] ; then
-	for r19 in ${RUBY19s} ; do
-	    if [ ! -z "`which ${r19}`" ] ; then
-		RUBY=${r19}
-		RUBY19=${r19}
-		break
-	    fi
-	done
-    fi
-    if [ -z "${RUBY}" ] ; then
-	echo "ruby not found. Please install ruby (e.g., sudo aptitude install ruby1.9.1)" >&2
-	exit 1
-    elif [ -z "${RUBY19}" ] ; then
-	echo "ruby1.9 not found. Falling back to unsupported ruby version `${RUBY} -v`"
-    fi
-}
-
-detect_ruby
-
 # Set LIBDIR fallback
 if [ -z "${RELATIVE_LIBDIR}" ] ; then
     RELATIVE_LIBDIR=lib
@@ -99,7 +78,7 @@ shift
 if [ -z "${COMMAND}" ] ; then
     usage
     exit 1
-elif [ "${COMMAND}" == "help" ] ; then
+elif [ "${COMMAND}" == "help" -o "${COMMAND}" == "--help" ] ; then
     if [ -z "${1}" ] ; then
 	usage
     else
@@ -107,5 +86,14 @@ elif [ "${COMMAND}" == "help" ] ; then
     fi
     exit 0
 fi
+
+# Define command script
+COMMAND_SCRIPT="${LIBDIR}"/tools/"${COMMAND}".rb
+if [ ! -e "${COMMAND_SCRIPT}" ] ; then
+    echo "Unknown command '${COMMAND}' (could not find implementation)" >&2
+    usage
+    exit 1
+fi
+
 # Run command
-exec ${RUBY} -I ${LIBDIR} ${LIBDIR}/tools/"${COMMAND}".rb "${@}"
+exec ${RUBY} -I "${LIBDIR}" "${COMMAND_SCRIPT}" "${@}"

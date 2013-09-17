@@ -61,10 +61,10 @@ static cl::opt<bool> DisablePostRA("mpatmos-disable-post-ra",
                      cl::init(true),
                      cl::desc("Disable any post-RA scheduling."));
 
-static cl::opt<bool> DisableMIPostRA("mpatmos-disable-post-ra-misched",
-                     cl::init(true),
+static cl::opt<bool> DisablePatmosPostRA("mpatmos-disable-post-ra-patmos",
+                     cl::init(false),
                      cl::desc("Use the standard LLVM post-RA scheduler instead "
-                              "of the new MI scheduler."));
+                              "of the Patmos post-RA scheduler."));
 
 
 PatmosSubtarget::PatmosSubtarget(const std::string &TT,
@@ -84,7 +84,7 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
 bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                    TargetSubtargetInfo::AntiDepBreakMode& Mode,
                                    RegClassVector& CriticalPathRCs) const {
-  return hasPostRAScheduler(OptLevel) && !usePostRAMIScheduler(OptLevel);
+  return hasPostRAScheduler(OptLevel);
 }
 
 bool PatmosSubtarget::enableBundling(CodeGenOpt::Level OptLevel) const {
@@ -109,10 +109,13 @@ bool PatmosSubtarget::usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
   return !DisableMIPreRA;
 }
 
-bool PatmosSubtarget::usePostRAMIScheduler(CodeGenOpt::Level OptLevel) const {
-  return hasPostRAScheduler(OptLevel) && !DisableMIPostRA;
+bool PatmosSubtarget::usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const {
+  return hasPostRAScheduler(OptLevel) && !DisablePatmosPostRA;
 }
 
+unsigned PatmosSubtarget::getIssueWidth(unsigned SchedClass) const {
+  return InstrItins.getNumMicroOps(SchedClass);
+}
 
 bool PatmosSubtarget::canIssueInSlot(unsigned SchedClass, unsigned Slot) const {
   const InstrStage* IS = InstrItins.beginStage(SchedClass);

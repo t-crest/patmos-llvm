@@ -13,24 +13,6 @@ include PML
 require 'rexml/document'
 include REXML
 
-class AitAnalyzeTool
-  def AitAnalyzeTool.add_config_options(opts)
-    opts.on("--a3-command COMMAND", "path to a3patmos executable (=a3patmos)") { |cmd| opts.options.a3 = cmd }
-    opts.add_check { |options| options.a3 = "a3patmos" unless options.a3 }
-  end
-  def AitAnalyzeTool.add_options(opts, mandatory = true)
-    AitAnalyzeTool.add_config_options(opts)
-    opts.apx_file(mandatory)
-  end
-  def AitAnalyzeTool.run(pml, options)
-    needs_options(options, :a3, :apx_file)
-
-    unless safe_system("#{options.a3} -b #{options.apx_file}")
-      die "aiT (command: '#{options.a3}') failed batch processing #{options.apx_file} (exit status #{$?})"
-    end
-  end
-end
-
 class AitImportTool
   def AitImportTool.add_config_options(opts)
     opts.on("--[no-]import-addresses", "import memory address range identified during value analysis (=true)") { |b|
@@ -60,6 +42,26 @@ class AitImportTool
     end
     AitImport.new(pml,options).run
     pml
+  end
+end
+
+# Tool to run a3patmos
+# XXX: Internal tool; move into different directory; these tools are not visible on the command line)
+class AitAnalyzeTool
+  def AitAnalyzeTool.add_config_options(opts)
+    opts.on("--a3-command COMMAND", "path to a3patmos executable (=a3patmos)") { |cmd| opts.options.a3 = cmd }
+    opts.add_check { |options| options.a3 = "a3patmos" unless options.a3 }
+  end
+  def AitAnalyzeTool.add_options(opts, mandatory = true)
+    AitAnalyzeTool.add_config_options(opts)
+    opts.apx_file(mandatory)
+  end
+  def AitAnalyzeTool.run(pml, options)
+    needs_options(options, :a3, :apx_file)
+
+    unless safe_system("#{options.a3} -b #{options.apx_file}")
+      die "aiT (command: '#{options.a3}') failed batch processing #{options.apx_file} (exit status #{$?})"
+    end
   end
 end
 

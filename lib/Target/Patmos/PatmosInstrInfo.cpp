@@ -17,6 +17,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosHazardRecognizer.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -233,6 +234,19 @@ CreateTargetScheduleState(const TargetMachine *TM,
 
 bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
   using namespace Patmos;
+
+  if (MI->isBundle()) {
+    bool changed = false;
+
+    MachineBasicBlock::instr_iterator it = MI;
+
+    while ((++it)->isBundledWithPred()) {
+      changed |= fixOpcodeForGuard(it);
+    }
+
+    return changed;
+  }
+
   unsigned opc = MI->getOpcode();
   int newopc = -1;
 
@@ -247,7 +261,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
         case BRCFRu:newopc = BRCFR;break;
         case BRCFTu:newopc = BRCFT;break;
         default:
-          assert(MI->isConditionalBranch());
+          assert(MI->isConditionalBranch() ||
+                 (MI->isIndirectBranch() && MI->isBarrier()) );
           break;
       }
     } else { // NOT predicated
@@ -260,7 +275,8 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
         case BRCFR:newopc = BRCFRu;break;
         case BRCFT:newopc = BRCFTu;break;
         default:
-          assert(MI->isUnconditionalBranch());
+          assert(MI->isUnconditionalBranch() ||
+                 (MI->isIndirectBranch() && MI->isBarrier()) );
           break;
       }
     }
@@ -472,11 +488,94 @@ bool PatmosInstrInfo::hasCall(const MachineInstr *MI) const {
   }
 }
 
+const Function *PatmosInstrInfo::getCallee(const MachineInstr *MI) const
+{
+  const Function *F = NULL;
+
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator it = MI;
+
+    while ((++it)->isBundledWithPred()) {
+      if (!it->isCall()) continue;
+      if (F) return NULL;
+      F = getCallee(it);
+      if (!F) return NULL;
+    }
+
+    return F;
+  }
+
+  // get target
+  const MachineOperand &MO(MI->getOperand(2));
+
+  // try to find the target of the call
+  if (MO.isGlobal()) {
+    // is the global value a function?
+    F = dyn_cast<Function>(MO.getGlobal());
+  }
+  else if (MO.isSymbol()) {
+    // find the function in the current module
+    const Module &M = *MI->getParent()->getParent()->getFunction()->getParent();
+
+    F = dyn_cast_or_null<Function>(M.getNamedValue(MO.getSymbolName()));
+  }
+
+  return F;
+}
+
+unsigned PatmosInstrInfo::getIssueWidth(const MachineInstr *MI) const
+{
+  if (MI->isInlineAsm())
+    return PST.getSchedModel()->IssueWidth;
+
+  return PST.getIssueWidth(MI->getDesc().SchedClass);
+}
 
 bool PatmosInstrInfo::canIssueInSlot(const MCInstrDesc &MID,
-                                     unsigned Slot) const {
+                                     unsigned Slot) const
+{
   return PST.canIssueInSlot(MID.getSchedClass(), Slot);
 }
+
+bool PatmosInstrInfo::canIssueInSlot(const MachineInstr *MI,
+                                     unsigned Slot) const
+{
+  if (MI->isPseudo()) return true;
+  return canIssueInSlot(MI->getDesc(), Slot);
+}
+
+int PatmosInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
+                              const MachineInstr *DefMI, unsigned DefIdx,
+                              const MachineInstr *UseMI,
+                              unsigned UseIdx) const
+{
+  if (UseMI->isInlineAsm()) {
+    // For inline asm we do not have a use cycle for our operands, so we use
+    // the default def latency instead.
+    return getDefOperandLatency(ItinData, DefMI, DefIdx);
+  }
+
+  return TargetInstrInfo::getOperandLatency(ItinData, DefMI, DefIdx,
+                                                      UseMI, UseIdx);
+}
+
+int PatmosInstrInfo::getDefOperandLatency(const InstrItineraryData *ItinData,
+                                          const MachineInstr *DefMI,
+                                          unsigned DefIdx) const
+{
+  int Latency = TargetInstrInfo::getDefOperandLatency(ItinData, DefMI, DefIdx);
+
+  const MachineOperand &MO = DefMI->getOperand(DefIdx);
+
+  // Patmos specific: GPRs are always bypassed and read in cycle 1, so we can
+  // reduce the latency of edges to ExitSU by 1.
+  if (MO.isReg() && MO.isDef() && RI.isRReg(MO.getReg()) && Latency > 0) {
+    Latency--;
+  }
+
+  return Latency;
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -491,6 +590,43 @@ getBranchTarget(const MachineInstr *MI) const {
   assert(MI->isBranch() && !MI->isIndirectBranch() &&
          "Not a direct branch instruction!");
   return MI->getOperand(2).getMBB();
+}
+
+bool PatmosInstrInfo::mayFallthrough(MachineBasicBlock &MBB) const {
+
+  // Look back 1 slot further than the call to catch the case where a SENS
+  // is scheduled after an noreturn call delay slot.
+  int maxLookback = PST.getCFLDelaySlotCycles(false) + 1;
+
+  // find last terminator
+  for(MachineBasicBlock::reverse_iterator t(MBB.rbegin()),
+      te(MBB.rend()); t != te && maxLookback >= 0; t++)
+  {
+    MachineInstr *mi = &*t;
+
+    if (!mi->isPseudo(MachineInstr::AllInBundle)) {
+      maxLookback--;
+    }
+
+    if (mi->isCall()) {
+      const Function *F = getCallee(mi);
+      if (F && F->hasFnAttribute(Attribute::NoReturn)) {
+        return false;
+      }
+    }
+
+    // skip non-terminator instructions
+    if (!mi->isTerminator()) {
+      continue;
+    }
+
+    // fix opcode for branch instructions to set barrier flag correctly
+    fixOpcodeForGuard(mi);
+
+    return !mi->isBarrier();
+  }
+
+  return true;
 }
 
 bool PatmosInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,

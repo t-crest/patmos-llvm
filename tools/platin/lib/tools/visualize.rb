@@ -6,6 +6,7 @@
 #
 require 'set'
 require 'platin'
+require 'analysis/scopegraph'
 include PML
 
 begin
@@ -24,15 +25,44 @@ class Visualizer
     g.output( :png => "#{outfile}" )
     info("#{outfile} ok") if options.verbose
   end
+protected
+  def digraph(label)
+    g = GraphViz.new(:G, :type => :digraph)
+    g.node[:shape] = "rectangle"
+    g[:label] = label
+    g
+  end
 end
+class ScopeGraphVisualizer < Visualizer
+  def initialize(pml, options) ; @pml, @options = pml, options ; end
+  def visualize_scopegraph(function)
+    g  = digraph("Scopegraph for #{function}")
+    refinement = ControlFlowRefinement.new(function, 'machinecode')
+    sg = ScopeGraph.new(function, refinement, @pml, @options)
+    nodes, nids = {}, {}
+    sg.nodes.each_with_index { |n,i| nids[n] = i }
+    sg.nodes.each { |node|
+      nid = nids[node]
+      label = node.to_s
+      nodes[node] = g.add_nodes(nid.to_s, :label => label)
+    }
+    sg.nodes.each { |n|
+      n.successors.each { |s|
+        g.add_edges(nodes[n],nodes[s])
+      }
+    }
+    g
+  end
+end
+
 class FlowGraphVisualizer < Visualizer
   def initialize(pml, options) ; @pml, @options = pml, options ; end
   def visualize_vcfg(function, arch)
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
     vcfg = VCFG.new(function, arch)
-    name = function['name'].to_s
-    name << "/#{function['mapsto']}" if function['mapsto']
+    name = function.name.to_s
+    name << "/#{function.mapsto}" if function.mapsto
     g[:label] = "CFG for " + name
     nodes = {}
     vcfg.nodes.each do |node|
@@ -46,15 +76,14 @@ class FlowGraphVisualizer < Visualizer
         label += "CALL #{node.callsite.callees.map { |c| "#{c}()" }.join(",")}"
       elsif node.kind_of?(BlockSliceNode)
         block = node.block
+        addr = block.instructions[node.first_index].address
+        label += sprintf("0x%x: ",addr) if addr
         label += "#{block.name}"
-        label << "(#{block['mapsto']})" if block['mapsto']
+        label << "(#{block.mapsto})" if block.mapsto
         label << " [#{node.first_index}..#{node.last_index}]"
       elsif node.kind_of?(LoopStateNode)
         label += "LOOP #{node.action} #{node.loop.name}"
       end
-      #    block['instructions'].each do |ins|
-      #      label << "\n#{ins['opcode']} #{ins['size']}"
-      #    end
       nodes[nid] = g.add_nodes(nid.to_s, :label => label)
     end
     vcfg.nodes.each do |node|
@@ -67,15 +96,15 @@ class FlowGraphVisualizer < Visualizer
   def visualize_cfg(function)
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
-    name = function['name'].to_s
-    name << "/#{function['mapsto']}" if function['mapsto']
+    name = function.name.to_s
+    name << "/#{function.mapsto}" if function.mapsto
     g[:label] = "CFG for " + name
     nodes = {}
     function.blocks.each do |block|
       bid = block.name
       label = "#{block.name}"
-      label << " (#{block['mapsto']})" if block['mapsto']
-      label << " L#{block.loops.map {|b| b.name}.join(",")}" unless block.loops.empty?
+      label << " (#{block.mapsto})" if block.mapsto
+      label << " L#{block.loops.map {|b| b.loopheader.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
       if options.show_calls
         block.instructions.each do |ins|
@@ -84,8 +113,8 @@ class FlowGraphVisualizer < Visualizer
           end
         end
       end
-      #    block['instructions'].each do |ins|
-      #      label << "\n#{ins['opcode']} #{ins['size']}"
+      #    block.instructions.each do |ins|
+      #      label << "\n#{ins.opcode} #{ins.size}"
       #    end
       nodes[bid] = g.add_nodes(bid.to_s, :label => label)
     end
@@ -123,6 +152,7 @@ class RelationGraphVisualizer < Visualizer
     g
   end
 end
+
 # HTML Index Pages for convenient debugging
 # XXX: quick hack
 class HtmlIndexPages
@@ -186,6 +216,17 @@ class VisualizeTool
     html = HtmlIndexPages.new if options.html
     targets.each do |target|
       # Visualize the bitcode, machine code and relation graphs
+      sgv = ScopeGraphVisualizer.new(pml,options)
+      begin
+        mf = pml.machine_functions.by_label(target)
+        graph = sgv.visualize_scopegraph(mf)
+        file = File.join(outdir, target + ".sg" + ".png")
+        sgv.generate(graph , file)
+        html.add(target,"sg",file) if options.html
+      rescue Exception => detail
+        puts "Failed to visualize scopegraph for #{target}: #{detail}"
+        puts detail.backtrace
+      end
       fgv = FlowGraphVisualizer.new(pml, options)
       begin
         bf = pml.bitcode_functions.by_name(target)

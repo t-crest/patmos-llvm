@@ -38,6 +38,35 @@ module PML
     end
   end
 
+  # Topological sort for connected, acyclic graph
+  # Concise implementation of a beautiful algorithm (Kahn '62)
+  #
+  # This implementation performs a yopological sort of nodes that
+  # respond to +successors+ and +predecessors+.
+  # If nodes have a different interface, the
+  # second parameter can be used to provide
+  # an object that responds to +successors(node)+
+  # and +predecessors(node)+.
+  def topological_sort(entry, graph_trait = nil)
+    topo = []
+    worklist = WorkList.new([entry])
+    vpcount = Hash.new(0)
+    worklist.process { |node|
+      topo.push(node)
+      succs = graph_trait ? graph_trait.successors(node) : node.successors
+      succs.each { |succ|
+        vc = (vpcount[succ] += 1)
+        preds = graph_trait ? graph_trait.predecessors(succ) : succ.predecessors
+        if vc == preds.length
+          vpcount.delete(succ)
+          worklist.enqueue(succ)
+        end
+      }
+    }
+    assert("topological_order: not all nodes marked") { vpcount.empty? }
+    topo
+  end
+
   # calculate the reachable set from entry,
   # where the provided block needs to compute
   # the successors of an item
@@ -111,7 +140,8 @@ module PML
   end
 
   def die(msg)
-    $stderr.puts(format_msg("FATAL",msg))
+    pos = Thread.current.backtrace[1]
+    $stderr.puts(format_msg("FATAL",pos+": "+msg))
     # $stderr.puts Thread.current.backtrace
     exit 1
   end
@@ -180,6 +210,22 @@ module PML
 
 end
 
+class String
+  # Count number of spaces before the first non-space,
+  # and decrease the indent of the text by this amount.
+  #
+  # Convenient for indented HEREDOC help messages
+  #
+  # Inspired by ActiveSupport's strip_heredoc.
+  def strip_heredoc
+    first_indent = 0
+    self.sub(/\A(\s*)/) {
+      first_indent = $1.length
+      $2
+    }.gsub!(/^[ \t]{0,#{first_indent}}/,'')
+  end
+end
+
 # 1.8 compat
 if RUBY_VERSION =~ /^1\.8\.?/
   class Range
@@ -193,7 +239,7 @@ end
 class Hash
   def dump(io=$>)
     self.each do |k,v|
-      puts "#{k.ljust(24)} #{v}"
+      puts "#{k.to_s.ljust(24)} #{v}"
     end
   end
 end

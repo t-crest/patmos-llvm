@@ -35,22 +35,23 @@ using namespace llvm;
 
 namespace llvm {
 
-
+// TODO share code with the PatmosPostRAScheduleDAG, use a new
+// VLIWMachineSchedStrategy interface suited for VLIW scheduling (?)
 class PatmosVLIWScheduler : public ScheduleDAGMI {
 public:
   PatmosVLIWScheduler(MachineSchedContext *C, MachineSchedStrategy *S);
 };
 
+
+
 class PatmosVLIWSchedStrategy : public MachineSchedStrategy {
 
-  const TargetSchedModel *SchedModel;
-  const TargetRegisterInfo *TRI;
+  //const TargetSchedModel *SchedModel;
+  //const TargetRegisterInfo *TRI;
 
 public:
 
-
-  PatmosVLIWSchedStrategy():
-    SchedModel(0), TRI(0) {}
+  PatmosVLIWSchedStrategy() {}
 
   virtual void initialize(ScheduleDAGMI *dag);
 
@@ -63,6 +64,8 @@ public:
   virtual void releaseBottomNode(SUnit *SU);
 
 };
+
+
 
 } // namespace
 

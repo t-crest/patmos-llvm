@@ -65,6 +65,10 @@ public:
     return A;
   }
 
+  bool isRReg(unsigned RegNo) const;
+  bool isSReg(unsigned RegNo) const;
+  bool isPReg(unsigned RegNo) const;
+
   /// hasReservedSpillSlot - Return true if target has reserved a spill slot in
   /// the stack frame of the given function for the specified register. e.g. On
   /// x86, if the frame register is required, the first fixed stack object is
@@ -89,10 +93,6 @@ public:
   virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const {
     return true;
   }
-
-#if 0
-  const TargetRegisterClass* getPointerRegClass(unsigned Kind = 0) const;
-#endif
 
   virtual void eliminateFrameIndex(MachineBasicBlock::iterator II,
                                    int SPAdj, unsigned FIOperandNum,

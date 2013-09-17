@@ -71,11 +71,11 @@ class ExtractSymbols
           if ins_addr = (@instruction_addresses[function.label]||{})[ins_index]
             warn("Heuristic found wrong address: #{instruction}: #{addr}, not #{ins_addr}") if addr != ins_addr
             addr = ins_addr
-          elsif instruction['size'] == 0
+          elsif instruction.size == 0
             debug(@options,:elf) { "Size 0 for instruction #{instruction}" }
           end
           instruction.address = addr
-          addr += instruction['size']
+          addr += instruction.size
           ins_index += 1
         end
       end

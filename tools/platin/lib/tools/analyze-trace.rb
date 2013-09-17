@@ -38,7 +38,7 @@ class AnalyzeTraceTool
     @executed_blocks = @main_recorder.executed_blocks
     @infeasible_functions = Set.new
     @executed_blocks.each do |function,bset|
-      function.each_callsite do |cs|
+      function.callsites.each do |cs|
         next if cs.unresolved_call?
         cs.callees.each do |callee|
           f = @pml.machine_functions.by_label(callee)
@@ -61,9 +61,9 @@ class AnalyzeTraceTool
       warn "Reachable function #{function} never executed by trace"
     end
     @executed_blocks.each do |function,bset|
-      function.loops.each do |block|
-        unless bset.include?(block)
-          warn "Loop #{block} not executed by trace"
+      function.loops.each do |loop|
+        unless bset.include?(loop.loopheader)
+          warn "Loop #{loop} not executed by trace"
         end
       end
     end
@@ -92,10 +92,10 @@ class AnalyzeTraceTool
     global_recorders = @main_recorder.global_recorders
     if ! global_recorders.empty?
       global = global_recorders.first
-      outpml.timing.add(TimingEntry.new(global.scope,global.results.cycles.max,BlockTimingList.new([]),fact_context))
+      outpml.timing.add(TimingEntry.new(global.scope,global.results.cycles.max,nil,fact_context))
     end
 
-    flow_facts_before = @pml.flowfacts.length
+    flowfacts_before = @pml.flowfacts.length
 
     @main_recorder.recorders.each { |recorder|
       scope = recorder.scope
@@ -105,31 +105,33 @@ class AnalyzeTraceTool
       recorder.results.calltargets.each do |pp,receiverset|
         cs, call_context = pp
         next unless cs.unresolved_call? || cs.callees.size != receiverset.size
-        caller_ref = InstructionRef.new(cs, call_context)
+        caller_ref = ContextRef.new(cs, call_context)
         receiver_call_context = call_context.push(cs,call_context.length+1)
         receivers = receiverset.map { |f|
-          ContextRef.new(FunctionRef.new(f), receiver_call_context)
+          ContextRef.new(f, receiver_call_context)
         }
-        outpml.flowfacts.add(FlowFact.calltargets(scope, caller_ref, receivers, fact_context))
+        ff = FlowFact.calltargets(scope, caller_ref, receivers, fact_context)
+        debug(options,:trace) { "Adding trace flowfact #{ff}" }
+        outpml.flowfacts.add(ff)
       end
       # Export block frequencies; infeasible blocks are necessary for WCET analysis
       recorder.results.blockfreqs.each do |pp,freq|
         block, call_context = pp
         type = (freq.max == 0) ? "infeasible" : "block"
         next unless recorder.report_block_frequencies || type == "infeasible"
-        block_ref = ContextRef.new(BlockRef.new(block), call_context)
+        block_ref = ContextRef.new(block, call_context)
         outpml.flowfacts.add(FlowFact.block_frequency(scope, block_ref, freq, fact_context))
       end
       # Export loop header bounds (mandatory for WCET analysis) for global analyses
       if recorder.global?
         recorder.results.loopbounds.each do |pp,bound|
           loop, call_context = pp
-          loop_ref = ContextRef.new(LoopRef.new(loop), call_context)
+          loop_ref = ContextRef.new(loop, call_context)
           outpml.flowfacts.add(FlowFact.loop_bound(loop_ref, bound.max, fact_context))
         end
       end
     }
-    statistics("TRACE", "extracted flow-flact hypotheses" => outpml.flowfacts.length - flow_facts_before) if @options.stats
+    statistics("TRACE", "extracted flow-flact hypotheses" => outpml.flowfacts.length - flowfacts_before) if @options.stats
     outpml
   end
 
@@ -141,12 +143,11 @@ class AnalyzeTraceTool
     Architecture.simulator_options(opts)
     opts.trace_entry
     opts.callstring_length
-    opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help-recorders)") { |recorder_spec|
+    opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help=recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
     }
-    opts.on_tail("--help-recorders", "help on recorder specifications") {
-      RecorderSpecification.help($stderr)
-      exit 0
+    opts.register_help_topic('recorders') { |io|
+      RecorderSpecification.help(io)
     }
     opts.add_check { |options|
       options.recorder_spec = DEFAULT_RECORDER_SPEC unless options.recorder_spec

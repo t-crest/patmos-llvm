@@ -17,6 +17,7 @@
 #include "PatmosCallGraphBuilder.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosStackCacheAnalysis.h"
 #include "PatmosTargetMachine.h"
 #include "InstPrinter/PatmosInstPrinter.h"
 #include "llvm/IR/Function.h"
@@ -233,19 +234,33 @@ namespace llvm {
         (void)RetCC_Patmos;
       }
 
+
     virtual bool doExportInstruction(const MachineInstr *Ins) {
       if (SkipSerializeInstructions) {
-        if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() && !Ins->getDesc().isReturn())
+        if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() &&
+            !Ins->getDesc().isReturn() && !Ins->getDesc().mayLoad() &&
+            Ins->getOpcode() != Patmos::SENSi)
           return false;
       }
       return true;
     }
 
+    virtual void exportInstruction(MachineFunction &MF,
+                                   yaml::MachineInstruction *I,
+                                   const MachineInstr *Instr,
+                                   SmallVector<MachineOperand, 4> &Conditions,
+                                   bool HasBranchInfo,
+                                   MachineBasicBlock *TrueSucc,
+                                   MachineBasicBlock *FalseSucc);
+
     /// exportArgumentRegisterMapping
     /// see below for implementation
     virtual void exportArgumentRegisterMapping(
-                                  yaml::GenericFormat::MachineFunction *PMF,
+                                  yaml::MachineFunction *PMF,
                                   const MachineFunction &MF);
+
+    virtual void exportSubfunctions(MachineFunction &MF,
+                                        yaml::MachineFunction *PMF);
   };
 
 
@@ -270,6 +285,7 @@ namespace llvm {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
       AU.addRequired<PatmosCallGraphBuilder>();
+      AU.addRequired<PatmosStackCacheAnalysisInfo>();
       PMLModuleExportPass::getAnalysisUsage(AU);
     }
 
@@ -308,7 +324,7 @@ namespace llvm {
 
 
   void PatmosMachineExport::
-  exportArgumentRegisterMapping(yaml::GenericFormat::MachineFunction *PMF,
+  exportArgumentRegisterMapping(yaml::MachineFunction *PMF,
                                 const MachineFunction &MF)
   {
       const PatmosTargetLowering *TLI =
@@ -437,7 +453,8 @@ namespace llvm {
           // FIXME
           // we don't add it immediately to PMF, as we only support
           // arguments in registers at this point
-          yaml::Argument *Arg = new yaml::Argument(I->getName(), FAIdx);
+          std::string ArgName = ("\"%" + I->getName() + "\"").str();
+          yaml::Argument *Arg = new yaml::Argument(ArgName, FAIdx);
           bool allInRegs = true;
 
           // get all registers with OrigArgIndex == FAIdx
@@ -468,7 +485,66 @@ namespace llvm {
       }
     }
 
+    void PatmosMachineExport::
+    exportInstruction(MachineFunction &MF,
+                      yaml::MachineInstruction *I,
+                      const MachineInstr *Instr,
+                      SmallVector<MachineOperand, 4> &Conditions,
+                      bool HasBranchInfo,
+                      MachineBasicBlock *TrueSucc,
+                      MachineBasicBlock *FalseSucc) {
 
+      PatmosStackCacheAnalysisInfo *SCA =
+       &P.getAnalysis<PatmosStackCacheAnalysisInfo>();
+
+      if (SCA->isValid()) {
+        if (Instr->getOpcode() == Patmos::SENSi) {
+          PatmosStackCacheAnalysisInfo::FillSpillCounts::iterator it =
+            SCA->Ensures.find(Instr);
+          assert(it != SCA->Ensures.end());
+          I->StackCacheFill = it->second;
+        } else if (Instr->getOpcode() == Patmos::SRESi) {
+          PatmosStackCacheAnalysisInfo::FillSpillCounts::iterator it =
+            SCA->Reserves.find(Instr);
+          assert(it != SCA->Reserves.end());
+          I->StackCacheSpill = it->second;
+        }
+      }
+      if (!Instr->isInlineAsm() && (Instr->mayLoad() || Instr->mayStore())) {
+        const PatmosInstrInfo *PII =
+          static_cast<const PatmosInstrInfo*>(TM.getInstrInfo());
+        switch (PII->getMemType(Instr)) {
+          case PatmosII::MEM_S: I->MemType = yaml::Name("stack");  break;
+          case PatmosII::MEM_L: I->MemType = yaml::Name("local");  break;
+          case PatmosII::MEM_M: I->MemType = yaml::Name("memory"); break;
+          case PatmosII::MEM_C: I->MemType = yaml::Name("cache");  break;
+          default: /*NOP*/;
+        }
+      }
+      return PMLMachineExport::exportInstruction(MF, I, Instr, Conditions,
+          HasBranchInfo, TrueSucc, FalseSucc);
+    }
+
+
+    void PatmosMachineExport::exportSubfunctions(MachineFunction &MF,
+                                                 yaml::MachineFunction *PMF)
+    {
+      // TODO use some PML mapping function to get the unique label for MBBs
+      yaml::Subfunction *S = new yaml::Subfunction(MF.begin()->getNumber());
+      const PatmosMachineFunctionInfo *PMFI =
+                                        MF.getInfo<PatmosMachineFunctionInfo>();
+
+      for (MachineFunction::iterator bb = MF.begin(), be = MF.end(); bb != be;
+           bb++)
+      {
+        if (bb != MF.begin() && PMFI->isMethodCacheRegionEntry(bb)) {
+          PMF->addSubfunction(S);
+          S = new yaml::Subfunction(bb->getNumber());
+        }
+        S->addBlock(bb->getNumber());
+      }
+      PMF->addSubfunction(S);
+    }
 
 } // end namespace llvm
 

@@ -14,11 +14,29 @@ module PML
   end
 
   class OptionParser < ::OptionParser
+
     attr_reader :options, :checks
+
     def initialize(options, &block)
-      @options, @checks = options, []
+      @options, @checks, @help_topics = options, [], {}
       super(&block)
     end
+
+    def register_help_topic(topic, &printer)
+      assert("OptionParser: duplicate help topic") { ! @help_topics[topic] }
+      @help_topics[topic] = printer
+    end
+    def help_topics
+      @help_topics.keys
+    end
+    def has_help_topic(topic)
+      ! @help_topics[topic].nil?
+    end
+    def show_help_topic(topic,io=$stderr)
+      assert("OptionParser: non-existant help topic #{topic}") { @help_topics[topic] }
+      @help_topics[topic].call(io)
+    end
+
     def add_check(&block)
       @checks.push(block)
     end
@@ -133,7 +151,16 @@ module PML
       opts.on("--stats", "print statistics") { options.stats = true }
       opts.on("--verbose", "verbose output") { options.verbose = true }
       opts.on("--debug [TYPE]", "debug output (trace,ilp,ipet,wca,ait,sweet,visualize,=all)") { |d| options.debug_type = d ? d.to_sym : :all }
-      opts.on_tail("-h", "--help", "Show this message") { $stderr.puts opts; exit 0 }
+      opts.on_tail("-h", "--help [TOPIC]", "Show help / help on topic (#{opts.help_topics.join(", ")})") { |topic|
+        if topic.nil?
+          $stderr.puts opts
+        elsif ! opts.has_help_topic(topic)
+          $stderr.puts("Unknown help topic '#{topic}' (available: #{opts.help_topics.inspect})\n\n#{opts}")
+        else
+          opts.show_help_topic(topic, $stderr)
+        end
+        exit 0
+      }
     end
     parser.parse!
     parser.check!(arg_range)

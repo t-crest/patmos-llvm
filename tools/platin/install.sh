@@ -3,10 +3,33 @@
 # platin installation script
 #
 
-SRC_DIR=$(dirname "${0}")
+function abspath() {
+    local path=$1
+    local pwd_restore="$(pwd)"
+
+    # readlink -f does not work on OSX, so we do this manually
+    cd $(dirname "$path")
+    path=$(basename "$path")
+    # follow chain of symlinks
+    while [ -L "$path" ]; do
+        path=$(readlink "$path")
+        cd $(dirname "$path")
+        path=$(basename "$path")
+    done
+    echo "$(pwd -P)/$path"
+    cd "$pwd_restore"
+}
+
+self=$(abspath "${0}")
+SRC_DIR=$(dirname "$self")
+
+# find ruby,gem,rdoc commands
+source "${SRC_DIR}/ext/detect_ruby_commands"
+detect_ruby
+detect_gem_command
 
 function usage() {
-    echo "usage: ${0} -i INSTALL_DIR [-d]" >&2
+    echo "usage: ${0} -i INSTALL_DIR [-b BUILD_DIR] [-d]" >&2
     echo >&2
     echo "Install the platin toolchain relative to the given prefix" >&2
     echo "Installed Files: " >&2
@@ -20,10 +43,13 @@ function usage() {
 
 }
 
-while getopts "hi:dvx" opt; do
+BUILD_DIR="$SRC_DIR/build"
+
+while getopts "hi:b:dvx" opt; do
   case $opt in
     h) usage; exit 0 ;;
     i) INSTALL_DIR="${OPTARG}" ;;
+    b) BUILD_DIR="${OPTARG}" ;;
     d) DRYRUN=true; VERBOSE=true ;;
     v) VERBOSE=true ;;
     x) set -x ;;
@@ -40,6 +66,7 @@ if [ -z "${INSTALL_DIR}" ] ; then
 fi
 
 BINARY="${INSTALL_DIR}/bin/platin"
+COMPILER="${INSTALL_DIR}/bin/patmos-clang-wcet"
 LIB_DIR="${INSTALL_DIR}/lib/platin"
 GEM_DIR="${LIB_DIR}/gems"
 
@@ -73,29 +100,75 @@ function run() {
     fi
 }
 
-function install_binary() {
-    install "${BINARY}" "${SRC_DIR}/platin"
-    if [ -z "${DRYRUN}" ] ; then
-	cat <<EOF >"${BINARY}"
-#!/bin/bash
+# A note on GEM_PATH (as of ruby 1.9.3 / gem 1.8.11):
+# * GEM_PATH should be a colon separated list of directories
+#   caveat: if there is a *trailing* colon, the GEM_PATH environment
+#   variable is *ignored*
+# * if GEM_PATH is set, the lookup path for gems is global repo and
+#   all directories listed in GEM_PATH
+# * if GEM_PATH is not set, the lookup path for gems is global repo
+#   *and* the user local repository
+#
+# Therefore, if we need gems from the user local repository and from
+# the platin-specific gem repository, we need to include the
+# user local repositories in GEM_PATH. As we do not know about them
+# we simply read 'gem env gempath' and add all directories to
+# GEM_PATH.
+function ruby_wrapper_header() {
+    echo '#!/bin/bash'
+    cat "${SRC_DIR}/ext/detect_ruby_commands"
+    cat <<EOF
+detect_ruby
+detect_gem_command
 
-# Installer
-RELATIVE_LIBDIR="../lib/platin"
-
-# Local Gems
-if [ -z "\${GEM_PATH}" ] ; then
+if [ -z "\${GEM}" ] ; then
   export GEM_PATH="${GEM_DIR}"
 else
-  export GEM_PATH="${GEM_DIR}:\${GEM_PATH}"
+  CURRENT_GEM_PATH=\$(\${GEM} env gempath)
+  export GEM_PATH="${GEM_DIR}:\${CURRENT_GEM_PATH}"
 fi
-# Executable
+
 EOF
-	cat "${SRC_DIR}/platin"  >> "${BINARY}"
-    fi
-    run chmod uga+x "${BINARY}"
 }
 
+function install_binary() {
+    install "${BINARY}" "${SRC_DIR}/platin"
+    run chmod uga+x "${BINARY}"
+    if [ -z "${DRYRUN}" ] ; then
+        ruby_wrapper_header                    >"${BINARY}"
+	echo 'RELATIVE_LIBDIR="../lib/platin"' >>"${BINARY}"
+	cat "${SRC_DIR}/platin"                >> "${BINARY}"
+    fi
+}
+function install_wcet_compiler() {
+    install "${COMPILER}" "${SRC_DIR}/platin"
+    run chmod uga+x "${BINARY}"
+    if [ -z "${DRYRUN}" ] ; then
+        ruby_wrapper_header  > "${COMPILER}"
+        cat <<EOF           >>"${COMPILER}"
+LIBDIR=\$(dirname \${0})/../lib/platin
+COMPILER_SCRIPT="\${LIBDIR}"/ext/patmos-clang-wcet.rb
+exec \${RUBY} -I "\${LIBDIR}" "\${COMPILER_SCRIPT}" "\${@}"
+EOF
+    fi
+}
+function install_late_bypass() {
+  local dir="${SRC_DIR}/ext/patch_loads"
+  local builddir="${BUILD_DIR}/ext/patch_loads"
+  mkdir -p $builddir
+  if (cd $builddir && cmake $dir && make ) 2>&1 > /dev/null ; then
+    DST="${INSTALL_DIR}/lib/platin/ext/patch_loads"
+    install "${DST}" "${builddir}/patch_loads"
+  else
+    info "Warning: could not build patch_loads tool." \
+         "platin late-bypass will not work."
+  fi
+}
+
+
 install_binary
+install_wcet_compiler
+install_late_bypass
 
 for libfile in $(cd "${SRC_DIR}/lib" ; find "." -name '*.rb' -o -name '*.yml') ; do
     SRC="${SRC_DIR}/lib/${libfile}"
@@ -103,17 +176,6 @@ for libfile in $(cd "${SRC_DIR}/lib" ; find "." -name '*.rb' -o -name '*.yml') ;
     install "${DST}" "${SRC}"
 done
 
-function detect_gem_command {
-    GEM19s="gem1.9.1 gem1.9 gem"
-    for g19 in ${GEM19s} ; do
-        if [ ! -z "`which ${g19}  2>/dev/null`" ] ; then
-            GEM="$g19"
-            return
-        fi
-    done
-}
-
-detect_gem_command
 if [ ! -z "${GEM}" ] ; then
     if [ -z "${GEM_PATH}" ] ; then
 	export GEM_PATH="${GEM_DIR}"
@@ -139,7 +201,7 @@ if [ ! -z "${GEM}" ] ; then
 		fi
 	    fi
 	fi
-    done	
+    done
 else
     echo "WARNING: did not find 'gem' command; skipping ruby library checks" >&2
 fi
