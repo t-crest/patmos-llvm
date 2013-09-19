@@ -471,19 +471,22 @@ mapping:
                 desc: size in bytes
               "transfer-size":
                 type: int
-                desc: number of bytes for a single access (block size)
+                desc: number of bytes for a single beat
+              "max-burst-size":
+                type: int
+                desc: "maximum number of beats (transfer-size each) per request"
               "read-latency":
                 type: int
                 desc: latency per read request
               "read-transfer-time":
                 type: int
-                desc: "cycles to the transfer one block from memory (excluding per-request latency)"
+                desc: "cycles to the transfer one beat from memory (excluding per-request latency)"
               "write-latency":
                 type: int
                 desc: latency per write request
               "write-transfer-time":
                 type: int
-                desc: "cycles to the transfer one block from memory (excluding per-request latency)"
+                desc: "cycles to the transfer one beat to memory (excluding per-request latency)"
       "memory-areas":
         type: seq
         desc: "list of memory area descriptions"
@@ -530,6 +533,19 @@ mapping:
               "associativity":
                 type: int
                 desc: "associativity of the cache (if applicable)"
+              "attributes":
+                type: seq
+                desc: >-
+                  Additional attributes of the cache
+                sequence: &attributes
+                  -
+                    type: map
+                    desc: "key-value pair"
+                    mapping:
+                      "key":
+                        type: str
+                      "value":
+                        type: scalar
               "block-size":
                 type: int
                 desc: size of a cache block/cache line (in bytes)
@@ -580,12 +596,4 @@ mapping:
                   "configuration": &configuration
                     type: seq
                     desc: "key-value pairs"
-                    sequence:
-                      -
-                        type: map
-                        desc: "key-value pair"
-                        mapping:
-                          "key":
-                            type: str
-                          "value":
-                            type: scalar
+                    sequence: *attributes
