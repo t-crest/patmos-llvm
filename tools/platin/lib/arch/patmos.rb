@@ -70,7 +70,7 @@ class SimulatorTrace
 end
 
 class Architecture < PML::Architecture
-  attr_reader :config
+  attr_reader :triple, :config
   def initialize(triple, config)
     @triple, @config = triple, config
     @config = self.class.default_config unless @config
@@ -115,6 +115,19 @@ class Architecture < PML::Architecture
   def path_wcet(ilist)
     # puts ilist.first.inspect unless ilist.empty?
     ilist.length
+  end
+
+  def config_for_apx(options)
+    if sc = stack_cache
+      sc_size = sprintf("0x%x", sc.size)
+      sc_option = REXML::Element.new("stack_cache_size")
+      sc_option << REXML::Text.new(sc_size)
+      patmos_options = REXML::Element.new("patmos_options")
+      patmos_options << sc_option
+      patmos_options
+    else
+      nil
+    end
   end
 
   def config_for_clang

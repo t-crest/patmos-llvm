@@ -10,9 +10,6 @@ require 'tools/extract-symbols'
 require 'ext/ait'
 include PML
 
-require 'rexml/document'
-include REXML
-
 class AitImportTool
   def AitImportTool.add_config_options(opts)
     opts.on("--[no-]import-addresses", "import memory address range identified during value analysis (=true)") { |b|
