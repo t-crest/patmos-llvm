@@ -31,6 +31,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
+#include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Program.h"
@@ -39,6 +40,16 @@
 #include <map>
 #include <set>
 #include <fstream>
+
+/// Utility for deleting owned members of an object
+#define DELETE_MEMBERS(vec) \
+    while(! vec.empty()) { \
+      delete vec.back(); \
+      vec.pop_back(); \
+    } \
+
+#define YAML_MEMBER(type, name) \
+  yaml::type y ## name
 
 using namespace llvm;
 
@@ -82,6 +93,10 @@ static cl::opt<bool> EnableEnsureOpt(
   cl::init(false),
   cl::desc("Remove unnecessary ensure instructions during Stack Cache Analysis."),
   cl::Hidden);
+
+static cl::opt<std::string> SCAPMLExport("mpatmos-sca-serialize",
+   cl::desc("Export PML specification of generated machine code to FILE"),
+   cl::init(""));
 
 namespace llvm {
   /// Count the number of SENS instructions removed.
@@ -134,6 +149,11 @@ namespace llvm {
   class SpillCostAnalysisGraph;
   bool operator <(const SCAEdge &a, const SCAEdge &b);
   llvm::raw_ostream &operator <<(llvm::raw_ostream &O, ilp_prefix Prefix);
+
+  namespace yaml {
+    template <>
+      struct MappingTraits< SCANode >;
+  }
 
   /// Set of SCANodes.
   typedef std::set<SCANode*> SCANodeSet;
@@ -228,6 +248,10 @@ namespace llvm {
         RemainingOccupancy(0), SpillCost(spillcost), 
         HasCallFreePath(hascallfreepath), IsVisible(false), IsValid(false)
     {
+      if (node->getMF())
+        yFunction = node->getMF()->getName();
+      else
+        yFunction = "none";
     }
 
     /// Returns the associated call graph node.
@@ -340,6 +364,10 @@ namespace llvm {
     {
       return Children;
     }
+
+    YAML_MEMBER(Name, Id);
+    YAML_MEMBER(Name, Function);
+    friend class yaml::MappingTraits<SCANode*>;
   };
 
   /// A graph representing context-sensitive information on the spill costs at
@@ -353,7 +381,11 @@ namespace llvm {
 
     /// The root node of the spill cost graph.
     SCANode *Root;
+
+    unsigned yamlId;
   public:
+    SpillCostAnalysisGraph() : yamlId(100) {}
+
     /// makeRoot - Construct the root node of the SCA graph.
     SCANode *makeRoot(MCGNode *node, unsigned int maxoccupancy,
                       bool hascallfreepath)
@@ -362,6 +394,8 @@ namespace llvm {
 
       // create the root node.
       Root = new SCANode(node, 0, maxoccupancy, 0, hascallfreepath);
+
+      Root->yId = yamlId++;
 
       // store the root node.
       Nodes[std::make_pair(node, 0)] = Root;
@@ -383,6 +417,7 @@ namespace llvm {
         // create a new node
         result = new SCANode(node, occupancy, maxoccupancy, spillcost,
                              hascallfreepath);
+        result->yId = yaml::Name(yamlId++);
 
         // store the newly created node
         Nodes[std::make_pair(node, occupancy)] = result;
@@ -598,6 +633,70 @@ namespace llvm {
     }
   };
 
+  namespace yaml {
+    template <>
+      struct MappingTraits<SCANode*> {
+        static void mapping(IO &io, SCANode *&n) {
+          assert(n);
+          io.mapRequired("id", n->yId);
+          io.mapRequired("function", n->yFunction);
+          io.mapRequired("spillsize", n->SpillCost);
+        }
+      };
+    YAML_IS_PTR_SEQUENCE_VECTOR(SCANode)
+
+    struct SCAEdge {
+      Name Src;
+      Name Dst;
+      Name CallBlock;
+      Name CallIndex;
+      SCAEdge(Name src, Name dst, Name bb, unsigned idx)
+        : Src(src), Dst(dst), CallBlock(bb), CallIndex(idx) {}
+    };
+    template <>
+      struct MappingTraits<SCAEdge*> {
+        static void mapping(IO &io, SCAEdge *&e) {
+          assert(e);
+          io.mapRequired("src", e->Src);
+          io.mapRequired("dst", e->Dst);
+          io.mapRequired("callblock", e->CallBlock);
+          io.mapRequired("callindex", e->CallIndex);
+        }
+      };
+    YAML_IS_PTR_SEQUENCE_VECTOR(SCAEdge)
+
+    struct SCAGraph {
+      std::vector<SCANode*> N;
+      std::vector<SCAEdge*> E;
+      SCAGraph() {}
+      ~SCAGraph() {
+        DELETE_MEMBERS(E);
+      }
+      void addEdge(SCANode *src, SCANode *dst,
+          const MachineBasicBlock *MBB, unsigned index) {
+        E.push_back(new SCAEdge(src->yId, dst->yId, MBB->getName(), index));
+      }
+    };
+
+    template <>
+      struct MappingTraits< SCAGraph > {
+        static void mapping(IO &io, SCAGraph& g) {
+          io.mapRequired("nodes",   g.N);
+          io.mapRequired("edges",   g.E);
+        }
+      };
+
+    struct SCADoc {
+      SCAGraph SCAG;
+    };
+    template <>
+    struct MappingTraits< SCADoc > {
+      static void mapping(IO &io, SCADoc& doc) {
+        io.mapRequired("sca-graph", doc.SCAG);
+      }
+    };
+  } // end namespace yaml
+
   /// Pass to analyze the occupancy and displacement of Patmos' stack cache.
   class PatmosStackCacheAnalysis : public MachineModulePass {
   private:
@@ -635,6 +734,9 @@ namespace llvm {
     /// List of ensures and their effective sizes.
     typedef std::map<MachineInstr*, unsigned int> SIZEs;
 
+    typedef std::map<const MachineInstr*, std::pair<MachineBasicBlock*,
+                                                    unsigned> > MInstrIndex;
+
     /// Track for each call graph node the maximum stack occupancy.
     MCGNodeUInt MaxOccupancy;
 
@@ -660,6 +762,8 @@ namespace llvm {
 
     /// Bounds to solve ILPs during stack cache analysis.
     const BoundsInformation BI;
+
+    MInstrIndex MiMap;
   public:
     /// Pass ID
     static char ID;
@@ -2003,12 +2107,75 @@ namespace llvm {
       // the worst-case spilling at reserves.
       propagateMaxOccupancy(G, main);
 
+      if (!SCAPMLExport.empty())
+        exportPML(G, SCAGraph);
+
       return false;
     }
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {
       return "Patmos Stack Cache Analysis";
+    }
+
+    void mapIndices(MachineFunction &MF) {
+      for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
+      {
+        unsigned Index = 0;
+        for (MachineBasicBlock::iterator Ins = BB->begin(), E = BB->end();
+            Ins != E; ++Ins)
+        {
+          MiMap[Ins] = std::make_pair(BB, Index++);
+        }
+      }
+    }
+
+    void exportPML(const MCallGraph &G, const SpillCostAnalysisGraph &scag) {
+      yaml::SCADoc YDoc;
+
+      std::set<MachineFunction*> Seen;
+      for (MCGSCANodeMap::const_iterator I = scag.getNodes().begin(),
+          E = scag.getNodes().end(); I != E; ++I) {
+        SCANode *n = I->second;
+        YDoc.SCAG.N.push_back(n);
+
+        MachineFunction *mf = n->getMCGNode()->getMF();
+        if (!Seen.count(mf)) {
+          mapIndices(*mf);
+          Seen.insert(mf);
+        }
+
+        SCAEdgeSet &e = n->getChildren();
+        for (SCAEdgeSet::iterator I = e.begin(), E = e.end(); I != E; ++I) {
+          MInstrIndex::iterator it = MiMap.find(I->getSite()->getMI());
+          assert(it != MiMap.end());
+          YDoc.SCAG.addEdge(I->getCaller(), I->getCallee(),
+              it->second.first, it->second.second);
+        }
+
+      }
+
+      yaml::Output *Output;
+      assert(!SCAPMLExport.empty());
+      StringRef OutFileName(SCAPMLExport);
+      tool_output_file *OutFile;
+      std::string ErrorInfo;
+      OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
+      if (!ErrorInfo.empty()) {
+        delete OutFile;
+        errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
+        errs() << "[mc2yml] Reason: " << ErrorInfo;
+        OutFile = 0;
+      }
+      else {
+        Output = new yaml::Output(OutFile->os());
+      }
+      *Output << YDoc;
+      if (OutFile) {
+        OutFile->keep();
+        delete Output;
+        delete OutFile;
+      }
     }
   };
 
