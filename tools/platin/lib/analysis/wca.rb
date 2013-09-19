@@ -84,7 +84,8 @@ class WCA
     end
 
     # run cache analyses
-    CacheAnalysis.new(builder.refinement['machinecode'], @pml, @options).analyze(entry['machinecode'], builder)
+    ca = CacheAnalysis.new(builder.refinement['machinecode'], @pml, @options)
+    ca.analyze(entry['machinecode'], builder)
 
     # END: remove me soon
 
@@ -114,6 +115,7 @@ class WCA
       if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
 
         next if v.kind_of?(Instruction)         # Stack-Cache Cost
+        next if v.kind_of?(IPETEdgeSCA)         # Stack-Cache Cost (graph-based)
         ref = nil
         if v.kind_of?(IPETEdge)
           die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
@@ -135,6 +137,7 @@ class WCA
       edgefreq = edgefreqs[ref]
       profile.add(ProfileEntry.new(ref, edgecost, edgefreqs[ref], totalcosts[ref]))
     }
+    ca.summarize(@options, freqs, Hash[freqs.map{ |v,freq| [v,freq * builder.ilp.get_cost(v)] }], report)
     if @options.verbose
       puts "Cycles: #{cycles}"
       puts "Edge Profile:"

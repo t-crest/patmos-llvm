@@ -329,7 +329,8 @@ class WcetTool
       trace_cycles = te.cycles if te.origin == "trace"
       dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
-        'cycles' => te.cycles }
+        'cycles' => te.cycles,
+        'cache-cycles' => te.attributes['cache-cycles'] || 0 }
       (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }

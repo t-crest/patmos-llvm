@@ -357,7 +357,7 @@ class IPETModel
 end # end of class IPETModel
 
 class IPETBuilder
-  attr_reader :ilp, :mc_model, :bc_model, :refinement
+  attr_reader :ilp, :mc_model, :bc_model, :refinement, :call_edges
 
   def initialize(pml, options, ilp = nil)
     @ilp = ilp
@@ -369,6 +369,7 @@ class IPETBuilder
     end
     @ffcount = 0
     @pml, @options = pml, options
+    @call_edges = []
   end
   def pml_level(rg_level)
     @pml_level[rg_level]
@@ -415,6 +416,7 @@ class IPETBuilder
           call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets(cs))
           call_edges.each do |ce|
             (mf_function_callers[ce.target] ||= []).push(ce)
+          @call_edges += call_edges
           end
         end
       end

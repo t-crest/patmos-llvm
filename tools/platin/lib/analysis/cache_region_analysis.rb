@@ -27,13 +27,23 @@ class CacheAnalysis
       ica.extend_ipet(scope_graph, ipet_builder)
     end
     if sc = @pml.arch.stack_cache
-      sca = StackCacheAnalysis.new(sc, @pml, @options)
-      sca.analyze(scope_graph)
-      sca.extend_ipet(ipet_builder)
+      if @options.use_sca_graph
+        @sca = StackCacheAnalysisGraphBased.new(sc, @pml, @options)
+      else
+        @sca = StackCacheAnalysis.new(sc, @pml, @options)
+      end
+      @sca.analyze_nonscope()
+      @sca.extend_ipet(ipet_builder)
     end
     if dc = @pml.arch.data_cache
       warn("Datacache at the moment not supported by platin")
     end
+  end
+
+  def summarize(options, freqs, cost, report)
+    puts "Cache contribution:" if @sca and options.verbose
+    cycles = @sca.summarize(options, freqs, cost) if @sca
+    report.attributes['cache-cycles'] = cycles
   end
 end
 
@@ -636,21 +646,141 @@ class StackCacheAnalysis
         if i.sc_fill.to_i > 0
           @fill_blocks[i] += i.sc_fill
         elsif i.sc_spill.to_i > 0
+          @spills[i] += i.sc_spill
+        end
+      }
+    }
+  end
+  def analyze_nonscope()
+    @fill_blocks, @spill_blocks = Hash.new(0), Hash.new(0)
+    @pml.machine_functions.each { |f|
+      f.instructions.each { |i|
+        if i.sc_fill.to_i > 0
+          @fill_blocks[i] += i.sc_fill
+        elsif i.sc_spill.to_i > 0
           @spill_blocks[i] += i.sc_spill
         end
       }
     }
   end
   def extend_ipet(ipet_builder)
-    ilp = ipet_builder.ilp
+    extend_ipet_fills(ipet_builder)
+    extend_ipet_spills(ipet_builder)
+  end
+  def extend_ipet_fills(ipet_builder)
     @fill_blocks.each { |instruction,fill_blocks|
-      ipet_builder.mc_model.add_block_cost(instruction.block, @pml.arch.config.main_memory.max_read_delay(fill_blocks*@cache.block_size))
+      begin
+        delay = @pml.arch.config.main_memory.read_delay(0, fill_blocks*@cache.block_size)
+        debug(@options, :cache) { "Cost for stack cache fill: #{fill_blocks}*#{@cache.block_size}=#{delay}" }
+        #ipet_builder.mc_model.add_block_cost(instruction.block, delay)
+        ipet_builder.mc_model.add_instruction(instruction)
+        ipet_builder.ilp.add_cost(instruction, delay)
+      rescue PML::UnknownVariableException
+        warn("cannot annotate inst #{instruction}: #{$!}")
+      end
     }
+  end
+  def extend_ipet_spills(ipet_builder)
     @spill_blocks.each { |instruction,spill_blocks|
-      ilp_builder.mc_model.add_block_cost(instruction.block, @pml.arch.config.main_memory.write_delay(spill_blocks*@cache.block_size))
+      begin
+        delay = @pml.arch.config.main_memory.write_delay(0, spill_blocks*@cache.block_size)
+        debug(@options, :cache) { "Cost for stack cache spill: #{spill_blocks}*#{@cache.block_size}=#{delay}" }
+        #ipet_builder.mc_model.add_block_cost(instruction.block, delay)
+        ipet_builder.mc_model.add_instruction(instruction)
+        ipet_builder.ilp.add_cost(instruction, delay)
+      rescue PML::UnknownVariableException
+        warn("cannot annotate inst #{instruction}: #{$!}")
+      end
     }
+  end
+  def summarize(options, freqs, cost)
+    cycles = summarize_fills(options, freqs, cost)
+    cycles += summarize_spills(options, freqs, cost)
+    cycles
+  end
+  def summarize_fills(options, freqs, cost)
+    cycles = 0
+    @fill_blocks.each { |v,_|
+      puts "  sc fill #{v}: #{freqs[v] || '??'} (#{cost[v]} cyc)" if options.verbose
+      cycles += cost[v] || 0
+    }
+    cycles
+  end
+  def summarize_spills(options, freqs, cost)
+    cycles = 0
+    @spill_blocks.each { |v,_|
+      puts "  sc spill #{v}: #{freqs[v] || '??'} (#{cost[v]} cyc)" if options.verbose
+      cycles += cost[v] || 0
+    }
+    cycles
   end
 end
 
+class IPETEdgeSCA < IPETEdge
+  attr_reader :source, :target
+  def initialize(edge_source, edge_target, cs)
+    @source,@target,@cs = edge_source, edge_target, cs
+    @level = "machinecode"
+    arrow  = "=>"
+    @qname = "#{@source.qname}#{arrow}#{@target.qname}::#{cs}"
+  end
+  def to_s
+    "#{@qname}->#{@target.function}"
+  end
+  def cfg_edge?
+    return false
+  end
+end
+
+class StackCacheAnalysisGraphBased < StackCacheAnalysis
+  def initialize(cache, pml, options)
+    @cache, @pml, @options = cache, pml, options
+  end
+  def extend_ipet_spills(ipet_builder)
+    ilp = ipet_builder.ilp
+    @nodes = {}
+    @spills = {}
+    preds, succs = {}, {}
+    assert("missing sca graph data") { @pml.sca_graph }
+    @pml.sca_graph.nodes.each { |node|
+      @nodes[node.id] = node
+      #@mc_model.ipet.add_variable(node.id, :sca)
+    }
+    @pml.sca_graph.edges.each { |edge|
+      srcn = @nodes[edge.src]
+      dstn = @nodes[edge.dst]
+      f = srcn.function
+      bb = f.blocks.find { |bb| bb.data['mapsto'] == edge.block }
+      cs = bb.instructions[edge.inst]
+      assert("not a call: #{cs}") { cs.calls? }
+      next unless ilp.has_variable?(IPETEdge.new(cs, dstn.function, :machinecode))
+      debug(@options, :cache) { "sca edge for cs #{cs} and callees #{cs.callees}" }
+      (succs[srcn] ||= []) << edge
+      (preds[dstn] ||= []) << edge
+      (@spills[[cs,dstn.function]] ||= []) << IPETEdgeSCA.new(srcn, dstn, cs)
+    }
+    @spills.values.flat_map { |i| i }.each { |e|
+      ilp.add_variable(e)
+      ilp.add_cost(e, @pml.arch.config.main_memory.write_delay(0, e.target.size*@cache.block_size)) if e.target.size > 0
+    }
+    #puts ipet_builder.ilp.variables.select{ |v| v.kind_of? IPETEdge and v.call_edge? }
+    ipet_builder.call_edges.each { |ce|
+      k = [ce.source,ce.target]
+      puts "k: #{k}"
+      puts "ce: #{ce}"
+      puts "sca: #{@spills[k]}"
+      lhs = [[ce,1]] + @spills[k].map { |e| [e,-1] }
+      ilp.add_constraint(lhs, "equal", 0, "sca_link", :sca)
+    }
+  end
+  def summarize_spills(options, freqs, cost)
+    cycles = 0
+    @spills.values.flat_map { |i| i }.each { |v|
+      puts "  sc spill #{v}: #{freqs[v]} (#{cost[v]} cyc)" if freqs[v] and freqs[v] > 0 if options.verbose
+      cycles += cost[v] || 0
+    }
+    cycles
+  end
+end
 
 end # module PML

@@ -532,6 +532,68 @@ module PML
     end
   end
 
+  # Graph structure representing stack cache analysis results
+  class SCAGraph < PMLObject
+    attr_reader :nodes,:edges,:pml
+    def initialize(pml, data)
+      set_yaml_repr(data)
+      @pml = pml
+      @nodes = SCANodeList.new(data['nodes'] || [], self)
+      @edges = SCAEdgeList.new(data['edges'] || [], self)
+    end
+  end
+
+  # List of stack cache graph nodes
+  class SCANodeList < PMLList
+    extend PMLListGen
+    pml_name_index_list(:SCAEdge)
+    def initialize(data, tree)
+      @list = data.map { |n| SCANode.new(n,tree.pml) }
+      set_yaml_repr(data)
+    end
+  end
+
+  # List of stack cache graph edges
+  class SCAEdgeList < PMLList
+    extend PMLListGen
+    pml_name_index_list(:SCANode)
+    def initialize(data, tree)
+      @list = data.map { |n| SCAEdge.new(n) }
+      set_yaml_repr(data)
+    end
+  end
+
+  # Stack cache graph node
+  class SCANode < PMLObject
+    attr_reader :id,:function,:size
+    def initialize(data, pml)
+      set_yaml_repr(data)
+      @id = data['id']
+      @function = pml.machine_functions.by_label(data['function'])
+      @size = data['spillsize']
+    end
+    def to_s
+      "#{id}:#{function.name}:#{size}"
+    end
+    def qname
+      return @id
+    end
+  end
+
+  # Stack cache graph edge
+  class SCAEdge < PMLObject
+    attr_reader :src,:dst,:block,:inst
+    def initialize(data)
+      set_yaml_repr(data)
+      @src = data['src']
+      @dst = data['dst']
+      @block = data['callblock']
+      @inst = data['callindex']
+    end
+    def to_s
+      "#{src}:#{block}:#{inst}->#{dst}"
+    end
+  end
 
 # end of module PML
 end
