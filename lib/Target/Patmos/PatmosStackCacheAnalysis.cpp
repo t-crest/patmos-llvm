@@ -94,6 +94,13 @@ static cl::opt<bool> EnableEnsureOpt(
   cl::desc("Remove unnecessary ensure instructions during Stack Cache Analysis."),
   cl::Hidden);
 
+/// RootOccupied - Debug option: start with fully occupied root node
+static cl::opt<bool> RootOccupied(
+  "mpatmos-sca-root-occupied",
+  cl::init(false),
+  cl::desc("Stack Cache Analysis assumes fully occupied root node."),
+  cl::ReallyHidden);
+
 static cl::opt<std::string> SCAPMLExport("mpatmos-sca-serialize",
    cl::desc("Export PML specification of generated machine code to FILE"),
    cl::init(""));
@@ -382,23 +389,27 @@ namespace llvm {
     /// The root node of the spill cost graph.
     SCANode *Root;
 
+    /// Subtarget information (stack cache sizes)
+    const PatmosSubtarget &STC;
+
     unsigned yamlId;
   public:
-    SpillCostAnalysisGraph() : yamlId(100) {}
+    SpillCostAnalysisGraph(const PatmosSubtarget &s) : STC(s), yamlId(100) {}
 
     /// makeRoot - Construct the root node of the SCA graph.
     SCANode *makeRoot(MCGNode *node, unsigned int maxoccupancy,
                       bool hascallfreepath)
     {
       assert(Nodes.empty());
+      unsigned rootoccupancy = RootOccupied ? STC.getStackCacheSize() : 0;
 
       // create the root node.
-      Root = new SCANode(node, 0, maxoccupancy, 0, hascallfreepath);
+      Root = new SCANode(node, rootoccupancy, maxoccupancy, 0, hascallfreepath);
 
       Root->yId = yamlId++;
 
       // store the root node.
-      Nodes[std::make_pair(node, 0)] = Root;
+      Nodes[std::make_pair(node, rootoccupancy)] = Root;
 
       return Root;
     }
@@ -750,15 +761,15 @@ namespace llvm {
     /// Track functions with call-free paths in them.
     MCGNodeBool IsCallFree;
 
-    /// Summarize the stack cache analysis results for reserve instructions as
-    /// a spill cost graph.
-    SpillCostAnalysisGraph SCAGraph;
-
     /// Subtarget information (stack cache block size)
     const PatmosSubtarget &STC;
 
     /// Instruction information
     const TargetInstrInfo &TII;
+
+    /// Summarize the stack cache analysis results for reserve instructions as
+    /// a spill cost graph.
+    SpillCostAnalysisGraph SCAGraph;
 
     /// Bounds to solve ILPs during stack cache analysis.
     const BoundsInformation BI;
@@ -770,7 +781,7 @@ namespace llvm {
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
         MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(*tm.getInstrInfo()), BI(BoundsFile)
+        TII(*tm.getInstrInfo()), SCAGraph(STC), BI(BoundsFile)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
