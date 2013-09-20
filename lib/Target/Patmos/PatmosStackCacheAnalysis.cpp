@@ -254,11 +254,15 @@ namespace llvm {
         Node(node), Occupancy(occupancy), MaxOccupancy(maxoccupancy), 
         RemainingOccupancy(0), SpillCost(spillcost), 
         HasCallFreePath(hascallfreepath), IsVisible(false), IsValid(false)
+    {}
+
+    void initYAML(const PatmosSubtarget &STC)
     {
-      if (node->getMF())
-        yFunction = node->getMF()->getName();
+      if (Node->getMF())
+        yFunction = Node->getMF()->getName();
       else
         yFunction = "none";
+      ySpillBlocks = SpillCost / STC.getStackCacheBlockSize();
     }
 
     /// Returns the associated call graph node.
@@ -374,6 +378,7 @@ namespace llvm {
 
     YAML_MEMBER(Name, Id);
     YAML_MEMBER(Name, Function);
+    YAML_MEMBER(Name, SpillBlocks);
     friend class yaml::MappingTraits<SCANode*>;
   };
 
@@ -651,7 +656,7 @@ namespace llvm {
           assert(n);
           io.mapRequired("id", n->yId);
           io.mapRequired("function", n->yFunction);
-          io.mapRequired("spillsize", n->SpillCost);
+          io.mapRequired("spillsize", n->ySpillBlocks);
         }
       };
     YAML_IS_PTR_SEQUENCE_VECTOR(SCANode)
@@ -2148,6 +2153,7 @@ namespace llvm {
       for (MCGSCANodeMap::const_iterator I = scag.getNodes().begin(),
           E = scag.getNodes().end(); I != E; ++I) {
         SCANode *n = I->second;
+        n->initYAML(STC);
         YDoc.SCAG.N.push_back(n);
 
         MachineFunction *mf = n->getMCGNode()->getMF();
