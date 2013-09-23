@@ -38,14 +38,13 @@
 using namespace llvm;
 
 
-/// SPFuncList - Option to enable single-path conversion.
-static cl::list<std::string> SPFuncList(
+/// SPRootList - Option to enable single-path conversion.
+static cl::list<std::string> SPRootList(
     "mpatmos-spconv",
     cl::value_desc("list"),
-    cl::desc("A list of functions to Single-Path convert (Patmos only)"),
+    cl::desc("Single-Path roots (Patmos only)"),
     cl::CommaSeparated,
     cl::Hidden);
-
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -63,18 +62,27 @@ llvm::createPatmosSinglePathInfoPass(const PatmosTargetMachine &tm) {
 
 
 bool PatmosSinglePathInfo::isEnabled() {
-  return !SPFuncList.empty();
+  return !SPRootList.empty();
 }
 
-bool PatmosSinglePathInfo::isEnabled(MachineFunction &MF) {
-  for(unsigned long i=0; i<SPFuncList.size(); i++) {
-    if ( SPFuncList[i] == MF.getFunction()->getName() ) {
-      return true;
-    }
-  }
-  return false;
+
+bool PatmosSinglePathInfo::isEnabled(const MachineFunction &MF) {
+  return isRoot(MF) || isReachable(MF);
 }
 
+bool PatmosSinglePathInfo::isRoot(const MachineFunction &MF) {
+  return MF.getFunction()->hasFnAttribute("sp-root");
+}
+
+bool PatmosSinglePathInfo::isReachable(const MachineFunction &MF) {
+  return MF.getFunction()->hasFnAttribute("sp-reachable");
+}
+
+void PatmosSinglePathInfo::getRootNames(std::set<std::string> &S) {
+  S.insert( SPRootList.begin(), SPRootList.end() );
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm)
   : MachineFunctionPass(ID), TM(tm),
@@ -83,23 +91,11 @@ PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm)
 
 
 bool PatmosSinglePathInfo::doInitialization(Module &M) {
-  // fill the set of functions to convert as specified on command line
-  FuncsRemain.insert( SPFuncList.begin(), SPFuncList.end() );
   return false;
 }
 
 
 bool PatmosSinglePathInfo::doFinalization(Module &M) {
-  if (!FuncsRemain.empty()) {
-    DEBUG( dbgs() << "Following functions not found to "
-                     "single-path convert:\n'" );
-    for (std::set<std::string>::iterator it=FuncsRemain.begin();
-            it!=FuncsRemain.end(); ++it) {
-      DEBUG( dbgs() << *it << "' ");
-    }
-    DEBUG( dbgs() << '\n');
-    FuncsRemain.clear();
-  }
   if (Root) {
     delete Root;
     Root = NULL;
@@ -124,7 +120,6 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
   if ( isEnabled(MF) ) {
     DEBUG( dbgs() << "[Single-Path] Analyze '" << curfunc << "'\n" );
     analyzeFunction(MF);
-    FuncsRemain.erase(curfunc);
   }
   // didn't modify anything
   return false;

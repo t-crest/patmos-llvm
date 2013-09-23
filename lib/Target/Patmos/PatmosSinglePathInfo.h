@@ -107,7 +107,15 @@ namespace llvm {
 
       /// isEnabled - Return true if a particular function is specified to
       /// to be converted to single-path code.
-      static bool isEnabled(MachineFunction &MF);
+      static bool isEnabled(const MachineFunction &MF);
+
+      static bool isRoot(const MachineFunction &MF);
+
+      static bool isReachable(const MachineFunction &MF);
+
+      /// getRootNames - Fill a set with the names of
+      /// single-path root functions
+      static void getRootNames(std::set<std::string> &S);
 
       /// PatmosSinglePathInfo - Constructor
       PatmosSinglePathInfo(const PatmosTargetMachine &tm);

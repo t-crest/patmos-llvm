@@ -103,6 +103,7 @@ namespace {
         // Single-path transformation currently cannot deal with
         // switch/jumptables -> lower them to ITEs
         addPass(createLowerSwitchPass());
+        addPass(createPatmosSPMarkPass());
         return true;
       }
       return false;
