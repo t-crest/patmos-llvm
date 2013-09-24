@@ -19,8 +19,52 @@
 
 #include <limits>
 #include <set>
+#include <map>
 
 namespace llvm {
+
+/// PatmosAnalysisInfo - Store information from different analyses and from
+/// (WCET) profiling.
+/// TODO There might be one instance per context, provide functions to manage
+///      context-sensitive results (merge, get-per-context,..).
+/// TODO Does it make sense to have all analyses share one class? Probably yes,
+///      to make the code simpler, but analyses might use different contexts.
+class PatmosAnalysisInfo {
+private:
+  typedef std::map<const MachineBasicBlock*, double> CritMap;
+  typedef std::map<const MachineBasicBlock*, uint64_t> FreqMap;
+
+  CritMap BlockCriticalitites;
+
+  FreqMap BlockFrequencies;
+
+public:
+
+  double getCriticality(const MachineBasicBlock *MBB, double Default = -1.0) {
+    CritMap::iterator it = BlockCriticalitites.find(MBB);
+    if (it != BlockCriticalitites.end()) {
+      return it->second;
+    }
+    return Default;
+  }
+
+  void setCriticality(const MachineBasicBlock *MBB, double Crit) {
+    BlockCriticalitites.insert(std::make_pair(MBB, Crit));
+  }
+
+  int64_t getFrequency(const MachineBasicBlock *MBB, int64_t Default = -1) {
+    FreqMap::iterator it = BlockFrequencies.find(MBB);
+    if (it != BlockFrequencies.end()) {
+      return it->second;
+    }
+    return Default;
+  }
+
+  void setFrequency(const MachineBasicBlock *MBB, uint64_t Freq) {
+    BlockFrequencies.insert(std::make_pair(MBB, Freq));
+  }
+
+};
 
 /// PatmosMachineFunctionInfo - This class is derived from MachineFunction and
 /// contains private Patmos target-specific information for each
@@ -50,12 +94,15 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// method cache.
   std::set<const MachineBasicBlock*> MethodCacheRegionEntries;
 
+  /// Store analysis results per function.
+  PatmosAnalysisInfo AnalysisInfo;
+
   // do not provide any default constructor.
-  PatmosMachineFunctionInfo() {}
+  PatmosMachineFunctionInfo();
 public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
     StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0),
-    S0SpillReg(0) {
+    RegScavengingFI(0), S0SpillReg(0) {
   }
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
@@ -133,6 +180,11 @@ public:
   bool isMethodCacheRegionEntry(const MachineBasicBlock *MBB) const {
     return MethodCacheRegionEntries.find(MBB) != MethodCacheRegionEntries.end();
   }
+
+  PatmosAnalysisInfo &getAnalysisInfo() { return AnalysisInfo; }
+
+  const PatmosAnalysisInfo &getAnalysisInfo() const { return AnalysisInfo; }
+
 };
 
 } // End llvm namespace

@@ -94,6 +94,9 @@ namespace {
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
     virtual bool addPreSched2() {
+
+      addPass(createPatmosPMLProfileImport(getPatmosTargetMachine()));
+
       if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
         addPass(&IfConverterID);
         // If-converter might create unreachable blocks (bug?), need to be
