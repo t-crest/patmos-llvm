@@ -25,10 +25,6 @@ static cl::opt<PrintBytesLevel> PrintBytes("fpatmos-print-bytes",
       clEnumValEnd
     ));
 
-static cl::opt<bool> PatmosDebugCompile("mpatmos-debug-compile",
-                                        cl::desc("Compile for debugging"),
-                                        cl::Hidden,
-                                        cl::init(false));
 
 PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
  : T(T)
@@ -46,7 +42,7 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
   EmitFunctionAlignment = false;
   EmitBasicBlockAlignment = false;
   MaxInstLength = 8; // for long immediates
-  SupportsDebugInformation = PatmosDebugCompile;
+  SupportsDebugInformation = true;
 
   Data16bitsDirective = "\t.half\t";
   Data32bitsDirective = "\t.word\t";
