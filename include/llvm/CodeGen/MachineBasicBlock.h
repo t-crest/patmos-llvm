@@ -628,6 +628,10 @@ private:
 
   friend class MachineBranchProbabilityInfo;
 
+  /// setSuccWeight - Set or update the weight of the edge to a successor of
+  /// this block.
+  void setSuccWeight(succ_iterator Succ, uint32_t weight);
+
   /// getSuccWeight - Return weight of the edge from this block to MBB. This
   /// method should NOT be called directly, but by using getEdgeWeight method
   /// from MachineBranchProbabilityInfo class.

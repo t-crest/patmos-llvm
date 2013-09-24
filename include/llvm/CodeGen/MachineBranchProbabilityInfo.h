@@ -49,6 +49,11 @@ public:
   uint32_t getEdgeWeight(const MachineBasicBlock *Src,
                          const MachineBasicBlock *Dst) const;
 
+  // Set the weight of an edge.
+  void setEdgeWeight(MachineBasicBlock *Src,
+                     MachineBasicBlock::succ_iterator Dst,
+                     uint32_t weight);
+
   // Same thing, but using a const_succ_iterator from Src. This is faster when
   // the iterator is already available.
   uint32_t getEdgeWeight(const MachineBasicBlock *Src,
