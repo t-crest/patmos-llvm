@@ -419,7 +419,7 @@ module PML
       Edge.new(self, nil)
     end
 
-    # yields outgoing edges (references)
+    # yields outgoing edges
     def outgoing_edges
       Enumerator.new do |ss|
         successors.each { |s|
@@ -559,6 +559,13 @@ module PML
     # whether this instruction includes a call
     def calls?
       ! callees.empty?
+    end
+
+    # the corresponding return instruction, if this is a call
+    def call_return_instruction
+      assert("call_return_instruction: not a call") { calls? }
+      r_pre_index = index + self.delay_slots
+      block.instructions[r_pre_index].next
     end
 
     # calless of this instruction (labels)

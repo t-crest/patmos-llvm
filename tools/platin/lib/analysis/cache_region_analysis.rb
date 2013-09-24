@@ -21,44 +21,126 @@ class CacheAnalysis
     if mc = @pml.arch.method_cache
       mca = MethodCacheAnalysis.new(mc, @pml, @options)
       mca.analyze(scope_graph)
-      mca.add_miss_cost(ipet_builder)
+      mca.extend_ipet(ipet_builder)
     elsif ic = @pml.arch.instruction_cache
       ica = InstructionCacheAnalysis.new(ic, @pml, @options)
       ica.analyze(scope_graph)
-      ica.add_miss_cost(ipet_builder)
+      ica.extend_ipet(ipet_builder)
     end
     if sc = @pml.arch.stack_cache
       sca = StackCacheAnalysis.new(sc, @pml, @options)
       sca.analyze(scope_graph)
-      sca.add_miss_cost(ipet_builder)
+      sca.extend_ipet(ipet_builder)
     end
     if dc = @pml.arch.data_cache
       dca = DataCacheAnalysis.new(dc, @pml, @options)
       dca.analyze(scope_graph)
-      dca.add_miss_cost(ipet_builder)
+      dca.extend_ipet(ipet_builder)
     end
   end
 end
 
+#
+# Cache Region Analyses proceed in two steps,
+# namely +analyze+ and +extend_ipet+.
+#
+# The purpose of +analyze+ is to analyze the cache
+# behavior of the the given scope graph.
+#
+# A subsequent call to +extend_ipet+ modifies a given
+# IPET problem such that it accounts for memory transfer
+# costs.
+#
 class CacheRegionAnalysis
   attr_reader :pml, :options
+
+  # access edges are IPET variables modelling memory accesses
+  attr_reader :access_edges, :access_edges_of_tag
 
   def initialize(pml, options)
     @pml, @options = pml, options
   end
 
-  # This function computes +@load_tag_constraints+, that assigns
-  # cache tags a linear expression over +ScopeGraph+ nodes.
+  # The purpose of +analyze+ is to analyze the cache
+  # behavior of the the given scope graph. It usually
+  # proceeds by (1) collecting all cache tags and accesses
+  # to cache tags (2) collecting constraints that restrict
+  # the frequency of cache misses.
+  #
+  # Constraint on the frequency of cache misses are represented
+  # by assigning every tag a linear expression over +ScopeGraph+
+  # nodes.
+  #
   # For example,
   #  <tt>load_tag_constraints[X] = { F:compute => 2, L:main/3 => 1 }</tt>
-  # means that the number of times X is loaded into the cache is
+  # means that the number of times +X+ is loaded into the cache is
   # bounded by the frequency of function +compute+ times 2 plus the
-  # frequency of the loop entry edges of the loop <tt>main/3+</tt>.
+  # frequency of the loop entry edges of the loop <tt>main/3</tt>.
+  #
   def analyze(scopegraph)
-    @load_tag_constraints = {}
+
+    # Unless overwritten, +analyze+ simply calls +record_tags+ and
+    # +collect_tag_constraints+
+    reset_analysis_results
+    record_tags(scopegraph)
     collect_tag_constraints(scopegraph)
   end
 
+  #
+  # +extend_ipet modifies the IPET problem to account for memory transfer
+  # costs (e.g., cache misses). It proceeds as follows:
+  #
+  #   (1) create variables that model the action of transferring a
+  #       certain cache block at a certain program point
+  #       (access variables)
+  #
+  #   (2) for every tag accessed in the scope graph
+  #       - create variable that represent a cache miss
+  #         when accessing the tag (tag variable)
+  #       - add constraints that relate the frequency
+  #         of the tag variable and the frequency of
+  #         access variables, and add cost to access
+  #         variables
+  #       - add constraints that limit the frequency
+  #         of tag variables according to the computed
+  #         persistence information
+  #
+  #   (3) add additional cost (e.g., constant cost for cache bypass)
+  #
+  def extend_ipet(ipet_builder)
+    add_access_variables(ipet_builder)
+    @load_tag_constraints.each { |tag, bound|
+      tag_var = add_variable_for_tag(tag, ipet_builder)
+      miss_cost = miss_cost_for_tag(tag)
+      debug(options, :cache) { "Cost for loading #{tag}: #{miss_cost}" }
+
+      add_access_constraint(tag_var,  miss_cost, ipet_builder)
+      add_region_constraint(tag_var, bound, ipet_builder)
+    }
+    add_additional_cost(ipet_builder)
+  end
+
+protected
+
+  # This functions reset all analysis result variables
+  def reset_analysis_results
+    @load_tag_constraints = {}
+    @access_edges, @access_edges_of_tag = Set.new, {}
+  end
+
+  # This function collects all tags and access variables, traversing
+  # the scopegraph bottom-up
+  def record_tags(scopegraph)
+    scopegraph.bottom_up.each { |n|
+      record_local_tags(n)
+    }
+  end
+
+  # This function collects all tag constraints (for one cache set).
+  # It traverse the scope graph bottom-up; conflict-free scopes are
+  # just marked (dynamic programming), conflicting scopes are analyzed
+  # using +analyze_conflic_scope+
+  #
   def collect_tag_constraints(scopegraph)
     @all_tags = {}
     @conflict_free = {}
@@ -72,62 +154,51 @@ class CacheRegionAnalysis
           }
         end
       else
-        debug(options, :cache) { "Conflicts in Scope: #{node} #{@set}" }
-
-        # and account for the miss cost of all
-        # conflict-free subscopes
+        # analyze conflict scope
         analyze_conflict_scope(node)
       end
     }
   end
 
-  # Modifies the IPET problem as follows:
-  #   (1) create a variable for the frequency of loads of a tag
-  #   (2) bound the loads by the execution frequency of the
-  #       program points (e.g., blocks,instructions or virtual instructions)
-  #        accessing the tag
-  #   (3) bound the execution frequency of the load using
-  #       the information on conflict-free regions
-  def add_miss_cost(ipet_builder)
-    add_additional_constraints(ipet_builder)
-    @load_tag_constraints.each { |tag, bound|
-      tag_var = add_variable_for_tag(tag, ipet_builder)
-      miss_cost = miss_cost_for_tag(tag)
-      debug(options, :cache) { "Cost for loading #{tag}: #{miss_cost} (#{size_of_tag(tag)})" }
-      ipet_builder.ilp.add_cost(tag_var, miss_cost)
-
-      add_access_constraint(tag_var, ipet_builder)
-
-      add_region_constraint(tag_var, bound, ipet_builder)
-    }
-  end
-
-  # add additional constraints or variables to the IPET,
-  # specific to the particular cache analysis
-  def add_additional_constraints(ipet_builder)
-  end
-
-protected
-
+  # This function analyzes a conflict scope, modifying +@load_tag_bounds+.
+  #
   def analyze_conflict_scope(node)
 
-    debug(options, :cache) { "Conflict in scope #{node}: #{get_all_tags(node).inspect}" }
+    debug(options, :cache) { "Conflicts in scope #{node}: #{get_all_tags(node).inspect}" }
 
-    # We might need to load each (only one for method cache) locally
-    # accessed tag once per execution of the node ...
+    # Currently, local tags in a conflict scope are assumed to be always miss.
+    # Furthermore, locally each tag must be accessed at most once per scope.
+    #
+    # Consequently, it is necessary to use fine-grained scopes for instruction caches
+    # (blocks and callsites) and data caches (memory access instructions).
     get_local_tags(node).each { |t|
+      debug(options, :cache) { "Increment load tag bound (local miss): #{t} by #{node}" }
       increment_load_tag_bound(t, node)
     }
 
-    # no subscopes
+    # If there are no subscopes, we are done
     return if node.successors.empty?
 
-    # We want to form large conflict-free subregions of region scopes and block scopes
-    # Here we use a simple greedy heuristic
+    # We want to form "large" conflict-free single-entry subregions within the analyzed
+    # scope. Here we use a simple greedy heuristic: traverse in topological order, and
+    # expand the region formed by all predecessors, iff the predecessors are assigned to
+    # the same region, and the expanded region is conflict free.
+    #
+    # For loops, note that the header is always the start of a region, and therefore
+    # it is ok to ignore back-edges during region formation. Nevertheless, it might
+    # be preferable to use regions for one loop iterations.
+    #
+    # For the region formation, we use the "count total distinct tags" heuristic to
+    # decide whether the region is conflict free (which is also valid for loop scopes);
+    # using a more precise decision procedure for acyclic regions
+    # (e.g., count tag abstract domain) might further improve results.
+    #
     if node.kind_of?(ScopeGraph::BlockNode) || node.kind_of?(ScopeGraph::FunctionNode) || node.kind_of?(ScopeGraph::LoopNode)
       subgraph = node.subgraph_adapter
       region, cf_regions = {}, {}
+
       topological_sort(subgraph.entry, subgraph).each { |subscope|
+
         # if the node is not conflict free, put it in a region by itself
         if ! conflict_free?(subscope)
           region[subscope] = subscope
@@ -155,6 +226,7 @@ protected
         end
       }
       cf_regions.each { |subscope, tags|
+        debug(options, :cache) { "Conflict free sub-region in #{subscope} accessing #{tags.to_a}" }
         tags.each { |t|
           increment_load_tag_bound(t, subscope)
         }
@@ -177,10 +249,9 @@ protected
            false
          else
            tags = get_all_tags(scope_node)
-           # debug(options, :cache) { |&iop| iop.call("TAGS for scope #{scope_node} (#{@set})");tags.each { |tag| iop.call("TAG: #{tag}") } }
            if tags_fit_in_cache?(tags)
              true
-           elsif tags_fit_in_cache_precise?(scope_node)
+           elsif conflict_free_scope?(scope_node)
              true
            else
              false
@@ -243,17 +314,57 @@ protected
     r
   end
 
-  # overwrite for data cache
-  def add_access_constraint(tag_var, ipet_builder)
-    terms = Hash.new(0)
-    terms[tag_var] += 1
-    access_blocks(tag_var).each { |b,f|
-      ipet_builder.mc_model.block_frequency(b, -1 * f).each { |k,v|
-        terms[k] += v
-      }
-    }
-    ipet_builder.ilp.add_constraint(terms.to_a,"less-equal",0,"cache_load",cache_symbol)
+  # add additional cost to the IPET, specific to
+  # a particular cache analysis
+  def add_additional_cost(ipet_builder)
   end
+
+  def add_access_edge(block, ctx, tag)
+    assert("CacheRegionAnalysis#add_access_edge: tag is nil") { ! tag.nil? }
+    block.outgoing_edges.each { |edge|
+      ref = ContextRef.new(edge, ctx)
+      access_edge = AccessEdge.new(ref, tag)
+      access_edges.add(access_edge)
+      access_edges_of_tag[tag] ||= Hash.new(0)
+      access_edges_of_tag[tag][access_edge] += 1
+    }
+  end
+
+  # add access variables to the IPET,
+  def add_access_variables(ipet_builder)
+    access_edges_of_edge = {}
+    access_edges.each { |aedge|
+      add_access_edge_variable(aedge, ipet_builder)
+    }
+  end
+
+  def add_access_edge_variable(aedge, ipet_builder)
+    debug(options, :cache) { "Adding access variable #{aedge}" }
+    ipet_builder.ilp.add_variable(aedge)
+    terms = Hash.new(0)
+    terms[aedge]+=1
+    ipet_builder.mc_model.edgeref_frequency(aedge.ppref.programpoint).each { |v,c|
+      terms[v] -= c
+    }
+    c = ipet_builder.ilp.add_constraint(terms.to_a,"less-equal",0,"access_edge",cache_symbol)
+    debug(options, :cache) { "Adding access edge constraint (relating to CFG) #{c}" }
+  end
+
+  # add constraints relating access variables
+  # and tags (equality), and add cost to access variables
+  def add_access_constraint(tag_var, tag_cost, ipet_builder)
+    accesses = access_edges_of_tag[tag_var]
+    debug(options, :cache) { "Accesses to tag #{tag_var}: #{accesses.inspect}" }
+    terms = Hash.new(0)
+    accesses.each { |access_variable, frequency|
+      ipet_builder.ilp.add_cost(access_variable, frequency*tag_cost)
+      terms[access_variable] += frequency
+    }
+    terms[tag_var] -= 1
+    c = ipet_builder.ilp.add_constraint(terms.to_a,"equal",0,"tag_access",cache_symbol)
+    debug(options, :cache) { "Adding access edge constraint (relating to memory) #{c}" }
+  end
+
 
   def add_region_constraint(tag_var, bound, ipet_builder)
       terms = [[tag_var,1]]
@@ -274,8 +385,60 @@ protected
       ipet_builder.ilp.add_constraint(terms,"less-equal",0,"cache_miss_bound",cache_symbol)
   end
 
+  # create an IPET variable representing a tag and return it
+  #
+  # NB: memory-transfer cost should only be associated with
+  # (access) edges, not tags. Otherwise, creating a meaningful WCET profile
+  # is difficult.
+  def add_variable_for_tag(cache_tag, ipet_builder)
+    ipet_builder.ilp.add_variable(cache_tag)
+    cache_tag
+  end
+
+  #
+  # methods to be implemented by subclasses
+  #
+
+  def miss_cost_for_tag(tag) ; raise Exception.new("#{self.class}: Not implemented: miss_cost_for_tag") ; end
+
+  def record_local_tags(node) ; raise Exception.new("#{self.class}: Not implemented: record_local_tags") ; end
+
+  def get_local_tags(node) ; raise Exception.new("#{self.class}: Not implemented: get_local_tags") ; end
+
+  def tags_fit_in_cache?(tags) ; raise Exception.new("#{self.class}: Not implemented: tags_fit_in_cache") ; end
+
+  def conflict_free_scope?(scope_node) ; raise Exception.new("#{self.class}: Not implemented: conflict_free_scope") ; end
+
+  def cache_symbol ; raise Exception.new("#{self.class}: Not implemented: cache_symbol") ; end
+
 end
 
+# IPET variable that representes a tag access triggered by
+# executing a certain CFG edge. Cache costs are always
+# attributed to +AccessEdge+s, in order to facilitate
+# the construction of WCET profiles.
+class AccessEdge
+  attr_reader :ppref, :tag
+  include QNameObject
+  def initialize(ppref, tag)
+    @ppref, @tag = ppref, tag
+    @qname = "#{ppref.qname}@#{tag.qname}"
+  end
+  def function
+    @ppref.programpoint.function
+  end
+  def to_s
+    "#{ppref}@#{tag}"
+  end
+end
+
+#
+# Method Cache Analysis. Tags are Subfunctions,
+# that are accessed at the header block of the
+# subfunction (cost mapped to its outgoing edges)
+# and when returning to a function (cost mapped to
+# the outgoing edges of the calling block).
+#
 class MethodCacheAnalysis < CacheRegionAnalysis
 
   def initialize(mc, pml, options)
@@ -285,7 +448,10 @@ class MethodCacheAnalysis < CacheRegionAnalysis
 
   def analyze(scopegraph)
     scopegraph.assert_complete
-    @load_tag_constraints = {}
+    reset_analysis_results
+    @block_subfunction_map = {}
+
+    record_tags(scopegraph)
     collect_tag_constraints(scopegraph)
   end
 
@@ -293,61 +459,43 @@ class MethodCacheAnalysis < CacheRegionAnalysis
     :method_cache
   end
 
-  def add_variable_for_tag(subfunction, ipet_builder)
-    ipet_builder.ilp.add_variable(subfunction)
-    subfunction
-  end
-
   def miss_cost_for_tag(subfunction)
     pml.arch.subfunction_miss_cost(subfunction)
   end
 
 
-  def access_blocks(subfunction)
-    accesses = Hash.new(0)
-    accesses[subfunction.entry] = 1
-    subfunction.blocks.each { |b|
-      b.callsites.each { |cs|
-        accesses[cs.block] += 1
-      }
-    }
-    accesses
-  end
-
-  def block_size
-    pml.arch.method_cache.block_size
-  end
-
-  def cache_size
-    pml.arch.method_cache.size
-  end
-
-  def associativity
-    assert("Bad method cache associativity") { pml.arch.method_cache.associativity == cache_size / block_size }
-    pml.arch.method_cache.associativity
-  end
-
-  def blocks_for_tag(subfunction)
-    pml.arch.method_cache.bytes_to_blocks(subfunction.size)
-  end
-
-  def bytes_for_tag(subfunction)
-     blocks_for_tag(subfunction) * block_size
-  end
-
-  # conceptually, the method cache is accessed at the subfunction
-  # entry block, and at callsites
-  # we assume there is a one-block region for every basic block
-  # in the scope graph
-  def get_local_tags(node)
+  # Coonceptually, method cache misses can be attributed to
+  # entries of subfunction and callsites (miss-on-return).
+  # We rely on the precondition that there is a one-block
+  # region for every basic block in the scope graph.
+  def record_local_tags(node)
     function = node.function
-    @block_subfunction_map ||= {}
     unless sf_of_block = @block_subfunction_map[function]
       sf_of_block = @block_subfunction_map[function] = {}
       function.subfunctions.each { |sf|
         sf.blocks.each { |b| sf_of_block[b] = sf }
       }
     end
+    case node
+    when ScopeGraph::FunctionNode
+    when ScopeGraph::LoopNode
+    when ScopeGraph::BlockNode
+      sf = sf_of_block[node.block]
+      if node.block == sf.entry
+        add_access_edge(node.block, node.context, sf)
+      end
+    when ScopeGraph::CallSiteNode
+      sf = sf_of_block[node.callsite.block]
+      add_access_edge(node.callsite.block, node.context, sf)
+    else
+      assert("Unknown scopegraph node type: #{node.class}") { false }
+    end
+  end
+
+  # basically the same as +record_local_tags+
+  def get_local_tags(node)
+    function = node.function
+    sf_of_block = @block_subfunction_map[function]
     case node
     when ScopeGraph::FunctionNode
       Set.new
@@ -368,41 +516,59 @@ class MethodCacheAnalysis < CacheRegionAnalysis
   end
 
   def tags_fit_in_cache?(tags)
-    tags.inject(0) { |sz, tag| sz + blocks_for_tag(tag) } <= associativity
+    tags.inject(0) { |sz, tag| sz + blocks_for_tag(tag) } <= @mc.associativity
   end
 
-  def tags_fit_in_cache_precise?(scope_node)
+  def conflict_free_scope?(scope_node)
     return false if scope_node.kind_of?(ScopeGraph::LoopNode)
     tags = get_all_tags(scope_node)
     maximum_accessed_blocks = count_tags_dfa(scope_node, TagCountDomain.empty).total { |t| blocks_for_tag(t) }
     debug(options, :cache) {
-      maximum_size = maximum_accessed_blocks * block_size
+      maximum_size = maximum_accessed_blocks * @mc.block_size
       total_size = tags.inject(0) { |sz, tag| sz + bytes_for_tag(tag) }
       "COMPARISON: total_size: #{total_size}, maximum_size: #{maximum_size}"
     }
-    maximum_accessed_blocks <= associativity
+    maximum_accessed_blocks <= @mc.associativity
   end
 
-  def size_of_tag(subfunction)
-    subfunction.size
+private
+  def blocks_for_tag(subfunction)
+    @mc.bytes_to_blocks(subfunction.size)
   end
-end
 
+  def bytes_for_tag(subfunction)
+     blocks_for_tag(subfunction) * @mc.block_size
+  end
+
+end # class MethodCacheAnalysis
+
+#
+# Cache Region Analysis of set associative caches.
+# The common property of these caches is tags are
+# associated with exactly one cache set, and that
+# there is no influence between cache sets (except
+# for global replacement policies like pseudo-RR,
+# which are not supported by us).
+#
 class SetAssociativeCacheAnalysis < CacheRegionAnalysis
+
   attr_reader :cache
+
   def initialize(cache, pml, options)
     super(pml, options)
     @cache = cache
     @offset_bits = Math.log2(cache.line_size).to_i
   end
 
+  # the analysis of set associative caches
+  # proceeds by analyzing conflicts for each set
+  # separately
   def analyze(scope_graph)
-    @load_tag_constraints = {}
-    @access_points = {}
+    reset_analysis_results
+
     @set = nil # all sets
-    scope_graph.bottom_up.each { |n|
-      record_local_tags(n)
-    }
+    record_tags(scope_graph)
+
     0.upto(num_sets - 1) { |set|
       @set = set
       collect_tag_constraints(scope_graph)
@@ -437,14 +603,6 @@ protected
     (addr >> @offset_bits) & (num_sets - 1)
   end
 
-  def add_variable_for_tag(cache_tag, ipet_builder)
-    ipet_builder.ilp.add_variable(cache_tag)
-    cache_tag
-  end
-
-  def size_of_tag(cache_tag)
-    cache.line_size
-  end
 end
 
 class InstructionCacheTag
@@ -461,6 +619,7 @@ class InstructionCacheTag
   end
 end
 
+
 class InstructionCacheAnalysis < SetAssociativeCacheAnalysis
 
   def initialize(ic, pml, options)
@@ -470,19 +629,13 @@ class InstructionCacheAnalysis < SetAssociativeCacheAnalysis
   def record_local_tags(node)
     get_local_tags(node).each { |tag|
       if ScopeGraph::BlockNode === node
-        @access_points[tag] ||= Hash.new(0)
-        @access_points[tag][node.block] += 1
+        add_access_edge(node.block, node.context, tag)
       elsif ScopeGraph::CallSiteNode === node
-        @access_points[tag] ||= Hash.new(0)
-        @access_points[tag][node.callsite.block] += 1
+        add_access_edge(node.callsite.block, node.context, tag)
       else
         assert("SetAssociativeCacheAnalysis#record_local_tags: Not excepting tags (#{tag}) for region nodes") { false }
       end
     }
-  end
-
-  def access_blocks(cache_tag)
-    @access_points[cache_tag]
   end
 
   def get_local_tags(node)
@@ -498,16 +651,16 @@ class InstructionCacheAnalysis < SetAssociativeCacheAnalysis
       tags = get_cache_lines(node.block.address, last_ins.address + last_ins.size - 1).select { |line|
         @set.nil? || get_cache_set(line) == @set
       }.map { |line|
-        InstructionCacheTag.new(node.block.function,cache_symbol,line)
+        InstructionCacheTag.new(node.block.function, cache_symbol, line)
       }
       Set[*tags]
     when ScopeGraph::CallSiteNode
       # might need to reload cache lines on return
-      ins = node.callsite
+      ins = node.callsite.call_return_instruction
       tags = get_cache_lines(ins.address, ins.address + ins.size - 1).select { |line|
         @set.nil? || get_cache_set(line) == @set
       }.map { |line|
-        InstructionCacheTag.new(ins.function,cache_symbol,line)
+        InstructionCacheTag.new(ins.function, cache_symbol, line)
       }
       Set[*tags]
     else
@@ -519,11 +672,14 @@ class InstructionCacheAnalysis < SetAssociativeCacheAnalysis
     pml.arch.config.main_memory.read_delay(cache.line_size)
   end
 
+  # XXX: remove me
   def tags_fit_in_cache?(tags)
-    tags.length <= associativity
+    return false
   end
 
-  def tags_fit_in_cache_precise?(scope_node)
+  def conflict_free_scope?(scope_node)
+    tags = get_all_tags(scope_node)
+    return true if tags.length <= associativity
     return false if scope_node.kind_of?(ScopeGraph::LoopNode)
     tags = get_all_tags(scope_node)
     maximum_accessed_lines = count_tags_dfa(scope_node, TagCountDomain.empty).total { |t| 1 }
@@ -568,6 +724,7 @@ class IntervalSet
   end
   def add!(range)
     @ranges += 1
+    raise Exception.new("Bad range: #{range}") unless range.max
     # find the first interval (a,b), s.t. (r.min) <= b
     current = @intervals.dup
     newlist = []
@@ -629,9 +786,10 @@ end
 
 class AccessInstruction
   include QNameObject
+  attr_reader :ins, :tag
   def initialize(ins, tag)
     @ins, @tag = ins, tag
-    @qname = "#{ins}->#{tag}"
+    @qname = "#{ins}@#{tag}"
   end
   def function
     @ins.function
@@ -645,38 +803,21 @@ class DataCacheAnalysis < SetAssociativeCacheAnalysis
 
   def initialize(dc, pml, options)
     super(dc, pml, options)
-    @access_instructions = []
-    @bypass_stores = Hash.new(0)
-    @bypass_loads = Hash.new(0)
-    @value_analysis = MemoryAccessAnalysisSummary.new(pml)
   end
 
-  # add miss cost for stores
-  def add_additional_constraints(ipet_builder)
-    @bypass_stores.each { |block,count|
-      ipet_builder.mc_model.add_block_cost(block, cost_for_line_store * count)
-    }
-    @bypass_loads.each { |block,count|
-      ipet_builder.mc_model.add_block_cost(block, cost_for_bypass_load * count)
-    }
-    # Access Instructions
-    debug(options, :cache) { "Adding access instruction constraints" }
-    @access_instructions.each { |ins|
-      ipet_builder.mc_model.add_instruction(ins)
-      vins = Set[*get_instruction_tags(ins)].map { |tag|
-        AccessInstruction.new(ins, tag)
-      }
-      vi_terms = Hash.new(0)
-      vi_terms[ins] = -1
-      vins.each { |vi|
-        debug(options, :cache) { "Adding access instruction #{vi.inspect}" }
-        ipet_builder.ilp.add_variable(vi)
-        vi_terms[vi] = 1
-      }
-      ipet_builder.ilp.add_constraint(vi_terms.to_a,"less-equal",0,"access_instruction",cache_symbol)
-    }
-    debug(options, :cache) { "Adding access instruction constraints (done)" }
+  def reset_analysis_results
+    super()
+    # summary of value analysis results
+    @value_analysis = MemoryAccessAnalysisSummary.new(pml)
+    # list of instruction that access the data cache
+    @access_instructions = []
+    # map from tag to instructions that might access it
+    @access_points = {}
+    # bypass stores and loads
+    @bypass_stores = Hash.new(0)
+    @bypass_loads = Hash.new(0)
   end
+
 
   def record_local_tags(node)
     if ScopeGraph::BlockNode === node
@@ -702,23 +843,6 @@ class DataCacheAnalysis < SetAssociativeCacheAnalysis
     end
   end
 
-  # To kind of constraints:
-  # +tag-access+:: A tag +t+ accesses access instructions <tt>{ i/t | i in accessors(t) }</tt>
-  # +access-ins+:: The frequency of a set of access instructions <tt> { i/t | t in tags(i) }</tt>
-  #                is equal to the frequency of i (see add_additional_constraints)
-  def add_access_constraint(tag_var, ipet_builder)
-    # Tag Access
-    terms = {}
-    terms[tag_var] = 1
-    @access_points[tag_var].each { |i|
-      # access instructions
-      ai = AccessInstruction.new(i, tag_var)
-      terms[ai] = -1
-    }
-    debug(options, :cache) { "Access points for #{tag_var}: #{@access_points[tag_var].inspect}" }
-    ipet_builder.ilp.add_constraint(terms.to_a,"less-equal",0,"known_tag_load",cache_symbol)
-  end
-
   def get_local_tags(node)
     case node
     when ScopeGraph::FunctionNode
@@ -739,25 +863,75 @@ class DataCacheAnalysis < SetAssociativeCacheAnalysis
     end
   end
 
-  def get_instruction_tags(ins, set = nil)
-    if ins.memtype == 'cache' && ins.load_mem?
-      isets = @value_analysis.get_interval_sets(ins)
-      if ! isets || isets.unknown?
-        [DataCacheTag.unknown(cache_symbol)]
-      elsif isets.size > 1024*1024 # cache.size
-        [DataCacheTag.unknown(cache_symbol)]
-      else
-        isets.intervals.map { |range|
-          tags = get_cache_lines(range.min, range.max).select { |line|
-            set.nil? || get_cache_set(line) == set
-          }.map { |line|
-            DataCacheTag.new(cache_symbol,line)
-          }
-        }.flatten
-      end
-    else
-      []
-    end
+  # add miss cost for stores
+  def add_additional_cost(ipet_builder)
+    @bypass_stores.each { |block,count|
+      ipet_builder.mc_model.add_block_cost(block, cost_for_line_store * count)
+    }
+    @bypass_loads.each { |block,count|
+      ipet_builder.mc_model.add_block_cost(block, cost_for_bypass_load * count)
+    }
+  end
+
+  # add constraints for access instructions
+  def add_access_variables(ipet_builder)
+    @access_instructions.each { |ins|
+      # An access instruction is an instruction that potentially accesses on
+      # out of N D$ tags. In order to map this to edges, we split each
+      # (ins,tag) pair into M (edge, ins, tag) triples, for every outgoing
+      # egde of the block the instruction is in.
+      #
+      # We thus combine
+      #  <tt>sum_{t in tags(in)} f(ins@tag) <= f(ins)</tt>
+      # and
+      #  <tt>f(ins@tag) = sum_{e in outgoing(ins.block)} f(e@ins@tag)</tt>
+      # where costs are associated with access edges (e@ins->tag)
+      #
+      ipet_builder.mc_model.add_instruction(ins)
+      vins = Set[*get_instruction_tags(ins)].map { |tag|
+        AccessInstruction.new(ins, tag)
+      }
+      vi_terms = Hash.new(0)
+      vi_terms[ins] = -1
+      vins.each { |vi|
+        debug(options, :cache) { "Adding access instruction #{vi.inspect}" }
+        ipet_builder.ilp.add_variable(vi)
+
+        # we need to attach cost to edges -> another level of indirection in the ILP
+        edge_terms = Hash.new(0)
+        edge_terms[vi] = -1
+        miss_cost = miss_cost_for_tag(vi.tag)
+
+        ins.block.outgoing_edges.each { |edge|
+          ref = ContextRef.new(edge, Context.empty)
+          access_edge = AccessEdge.new(ref, vi)
+          debug(options, :cache) { "Adding access edge #{access_edge} -> #{miss_cost}" }
+          add_access_edge_variable(access_edge, ipet_builder)
+          ipet_builder.ilp.add_cost(access_edge, miss_cost)
+          edge_terms[access_edge] += 1
+        }
+        ipet_builder.ilp.add_constraint(edge_terms.to_a,"equal",0,"access_instruction_edges",cache_symbol)
+        vi_terms[vi] = 1
+      }
+      ipet_builder.ilp.add_constraint(vi_terms.to_a,"less-equal",0,"access_instruction",cache_symbol)
+    }
+  end
+
+  # To kind of constraints:
+  # +tag-access+:: A tag +t+ accesses access instructions <tt>{ i/t | i in accessors(t) }</tt>
+  # +access-ins+:: The frequency of a set of access instructions <tt> { i/t | t in tags(i) }</tt>
+  #                is equal to the frequency of i (see add_additional_constraints)
+  def add_access_constraint(tag_var, _tag_cost, ipet_builder)
+    # Tag Access
+    terms = {}
+    terms[tag_var] = -1
+    @access_points[tag_var].each { |i|
+      # access instructions
+      ai = AccessInstruction.new(i, tag_var)
+      terms[ai] = 1
+    }
+    debug(options, :cache) { "Access points for #{tag_var}: #{@access_points[tag_var].inspect}" }
+    ipet_builder.ilp.add_constraint(terms.to_a,"less-equal",0,"known_tag_load",cache_symbol)
   end
 
   def miss_cost_for_tag(tag)
@@ -777,12 +951,34 @@ class DataCacheAnalysis < SetAssociativeCacheAnalysis
     tags.size <= associativity
   end
 
-  def tags_fit_in_cache_precise?(scope_node)
+  def conflict_free_scope?(scope_node)
     false # no precise implementation
   end
 
   def cache_symbol
     :data_cache
+  end
+
+private
+  def get_instruction_tags(ins, set = nil)
+    if ins.memtype == 'cache' && ins.load_mem?
+      isets = @value_analysis.get_interval_sets(ins)
+      if ! isets || isets.unknown?
+        [DataCacheTag.unknown(cache_symbol)]
+      elsif isets.size > 1024*1024 # cache.size
+        [DataCacheTag.unknown(cache_symbol)]
+      else
+        isets.intervals.map { |range|
+          tags = get_cache_lines(range.min, range.max).select { |line|
+            set.nil? || get_cache_set(line) == set
+          }.map { |line|
+            DataCacheTag.new(cache_symbol,line)
+          }
+        }.flatten
+      end
+    else
+      []
+    end
   end
 end
 
@@ -804,15 +1000,13 @@ class StackCacheAnalysis
       }
     }
   end
-  def add_miss_cost(ipet_builder)
+  def extend_ipet(ipet_builder)
     ilp = ipet_builder.ilp
     @fill_blocks.each { |instruction,fill_blocks|
-      ipet_builder.mc_model.add_instruction(instruction)
-      ilp.add_cost(instruction, @pml.arch.config.main_memory.read_delay(fill_blocks*@cache.block_size))
+      ipet_builder.mc_model.add_block_cost(instruction.block, @pml.arch.config.main_memory.read_delay(fill_blocks*@cache.block_size))
     }
     @spill_blocks.each { |instruction,spill_blocks|
-      ipet_builder.mc_model.add_instruction(instruction)
-      ilp.add_cost(instruction, @pml.arch.config.main_memory.write_delay(spill_blocks*@cache.block_size))
+      ilp_builder.mc_model.add_block_cost(instruction.block, @pml.arch.config.main_memory.write_delay(spill_blocks*@cache.block_size))
     }
   end
 end

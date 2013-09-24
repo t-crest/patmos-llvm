@@ -683,7 +683,7 @@ class AitImport
             fact_variable = "mem-address-write"
           end
           var_width = se.attributes['width'].to_i
-          var_bitwidth = var_width * 8
+          var_bitwidth = 32 # XXX: address width is always 32 for patmos
 
           unpredictable = false
           se.each_element("value_area") { |area|
@@ -698,6 +698,7 @@ class AitImport
             }
             # XXX: this is an aiT bug (probably because ranges are represented in a signed way)
             if min >= 0xffff_ffff_8000_000
+              warn("Bad value range element #{min} - this should be fixed in recent aiT versions")
               min,max = [min,max].map { |v| v - 0xffff_ffff_0000_0000 }
             end
             debug(options,:ait) {
@@ -726,7 +727,6 @@ class AitImport
               else
                 values.push(ValueRange.new(0,max,nil))
                 values.push(ValueRange.new(min,2**var_bitwidth-1,nil))
-                warn("AIT import: wraparound representation: #{se} -> #{values.inspect}")
               end
             else
               values.push(ValueRange.new(min,max,nil))

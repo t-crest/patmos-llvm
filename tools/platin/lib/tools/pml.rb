@@ -57,16 +57,24 @@ class PMLTool
     entries.each { |te|
       next unless te.profile
       next unless te.cycles >= 0
-      total_cycles, accum_cycles = te.cycles, 0
+      total_cycles, accum_cycles, simple_cycles = te.cycles, 0, 0
       te.profile.each { |pe|
         next unless pe.wcetfreq
-        accum_cycles += pe.cycles * pe.wcetfreq
+        accum_cycles        += pe.wcet_contribution
+        simple_cycles       += pe.cycles * pe.wcetfreq
       }
       if trace_timing && trace_timing.cycles > te.cycles
         warn("Timing entry #{te}: WCET cycles are less than cycles from origin <trace>")
       end
       if total_cycles != accum_cycles
         warn("Timing entry #{te}: cycles in profile sum up to #{accum_cycles}, which is different to WCET #{total_cycles}")
+      elsif total_cycles < simple_cycles
+        info("Timing entry #{te}: weighted sum of block WCETs is #{simple_cycles} "+
+             "(factor: #{simple_cycles.to_f / total_cycles})")
+      end
+      if simple_cycles < accum_cycles
+        warn("Timing entry #{te}: weighted sum of block WCETs #{simple_cycles} in profile is less than "+
+             "sum of cummulative WCETs #{accum_cycles}")
       end
     }
   end
@@ -90,9 +98,14 @@ class PMLTool
     }
   end
 
-  def print_timings(io = $stdout)
+  def print_timings(print_profiles, io = $stdout)
     print_by_origin(pml.timing.list, "timings", io) { |tes|
-      tes.each { |te| puts te }
+      tes.each { |te|
+        puts te
+        te.profile.each { |pe|
+          puts "  #{pe.to_s}"
+        } if print_profiles & te.profile
+      }
     }
   end
 
@@ -114,7 +127,7 @@ class PMLTool
 
     tool.print_flowfacts if options.print_flowfacts
     tool.print_valuefacts if options.print_valuefacts
-    tool.print_timings if options.print_timings
+    tool.print_timings(options.print_profiles) if options.print_timings || options.print_profiles
 
     if(options.stats)
       stats = {}
@@ -143,6 +156,7 @@ class PMLTool
     opts.on("--print-flowfacts", "print flowfacts in PML file") { opts.options.print_flowfacts = true }
     opts.on("--print-valuefacts", "print valuefacts in PML file") { opts.options.print_valuefacts = true }
     opts.on("--print-timings", "print timings in PML file") { opts.options.print_timings = true }
+    opts.on("--print-profiles", "print timing profiles in PML file") { opts.options.print_profiles = true }
     opts.on("--print-all", "print all analysis results stored in PML file") {
       opts.options.print_flowfacts = opts.options.print_valuefacts = opts.options.print_timing = true
     }

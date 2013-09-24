@@ -401,6 +401,7 @@ module PML
     def initialize(min, max, symbol, data =nil)
       @min, @max, @symbol = min, max, symbol
       set_yaml_repr(data)
+      raise Exception.new("Bad ValueRange: #{self}") unless @min <= @max if @min
     end
     def inspect
       "ValueRange<min=#{min.inspect},max=#{max.inspect},symbol=#{symbol}>"
@@ -472,8 +473,9 @@ module PML
   end
   class ProfileEntry < PMLObject
     attr_reader :reference, :cycles, :wcetfreq, :criticality, :wcet_contribution
-    def initialize(reference, cycles, wcetfreq, wcetcontrib, criticality=nil, data = nil)
-      @reference, @cycles, @wcetfreq, @criticality = reference, cycles, wcetfreq, criticality
+    def initialize(reference, cycles, wcetfreq, wcet_contribution, criticality = nil, data = nil)
+      @reference, @cycles, @wcetfreq, @wcet_contribution, @criticality =
+       reference,  cycles,  wcetfreq,  wcet_contribution,  criticality
       set_yaml_repr(data)
     end
     def ProfileEntry.from_pml(fs, data)

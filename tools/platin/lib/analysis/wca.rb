@@ -105,24 +105,39 @@ class WCA
     profile = Profile.new([])
     report = TimingEntry.new(machine_entry, cycles, profile,
                              'level' => 'machinecode', 'origin' => @options.timing_output || 'platin')
-    # collect edge timings (TODO: add cache timings)
-    edgefreq, edgecost = {}, Hash.new(0)
+
+    # collect edge timings
+    edgefreqs, edgecosts, totalcosts = {}, Hash.new(0), Hash.new(0)
     freqs.each { |v,freq|
       edgecost = builder.ilp.get_cost(v)
       freq = freq.to_i
       if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
 
-        next if v.kind_of?(SubFunction)         # MC cost
         next if v.kind_of?(Instruction)         # Stack-Cache Cost
         next if v.kind_of?(InstructionCacheTag) # IC Tag
         next if v.kind_of?(DataCacheTag)        # IC Tag
-
-        die("ILP cost: not an IPET edge") unless v.kind_of?(IPETEdge)
-        die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
-        die("ILP cost: target is not a block") unless v.target == :exit || v.target.kind_of?(Block)
-        ref = ContextRef.new(v.cfg_edge, Context.empty)
-        profile.add(ProfileEntry.new(ref, edgecost, freq, edgecost*freq))
+        ref = nil
+        if v.kind_of?(IPETEdge)
+          die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
+          die("ILP cost: target is not a block") unless v.target == :exit || v.target.kind_of?(Block)
+          ref = ContextRef.new(v.cfg_edge, Context.empty)
+          edgefreqs[ref] = freq
+        elsif v.kind_of?(AccessEdge)
+          ref = v.ppref
+        elsif v.kind_of?(AccessInstruction)
+          ref = v.ins
+        end
+        edgecosts[ref] += edgecost
+        totalcosts[ref] += edgecost*freq
       end
+    }
+    edgecosts.each { |ref, edgecost|
+      unless edgefreqs.include?(ref)
+        warn("edge cost (#{ref} -> #{edgecost}), but no corresponding IPETEdge variable")
+        next
+      end
+      edgefreq = edgefreqs[ref]
+      profile.add(ProfileEntry.new(ref, edgecost, edgefreqs[ref], totalcosts[ref]))
     }
     if @options.verbose
       puts "Cycles: #{cycles}"

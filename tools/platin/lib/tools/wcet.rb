@@ -160,6 +160,7 @@ class WcetTool
     begin
       wcet_analysis_ait(srcs) unless options.disable_ait
     rescue Exception => ex
+      $stderr.puts ex.backtrace
       warn("a3 WCET analysis failed: #{ex}. Trying platin WCET analysis.")
       run_wca = true
     end

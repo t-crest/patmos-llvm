@@ -277,6 +277,7 @@ class IPETModel
   def function_frequency(function, factor = 1)
     block_frequency(function.blocks.first, factor)
   end
+
   def block_frequency(block, factor=1)
     if block.successors.empty? # return exit edge
       [[IPETEdge.new(block,:exit,level),factor]]
@@ -284,19 +285,23 @@ class IPETModel
       sum_outgoing(block,factor)
     end
   end
+
   def edgeref_frequency(edgeref, factor = 1)
     [[IPETEdge.new(edgeref.source, edgeref.target ? edgeref.target : :exit, level), factor ]]
   end
+
   def sum_incoming(block, factor=1)
     block.predecessors.map { |pred|
       [IPETEdge.new(pred,block,level), factor]
     }
   end
+
   def sum_outgoing(block, factor=1)
     block.successors.map { |succ|
       [IPETEdge.new(block,succ,level), factor]
     }
   end
+
   def sum_loop_entry(loop, factor=1)
     sum_incoming(loop.loopheader,factor).reject { |edge,factor|
       edge.backedge?
