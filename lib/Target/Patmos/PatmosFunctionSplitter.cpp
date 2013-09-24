@@ -1736,7 +1736,6 @@ namespace llvm {
       MachineFunctionPass(ID), PTM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
-      initializePMLImportPass(*PassRegistry::getPassRegistry());
     }
 
     /// getPassName - Return the pass' name.
