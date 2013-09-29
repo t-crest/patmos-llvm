@@ -58,6 +58,10 @@ namespace llvm {
     {
     }
 
+    virtual const char *getPassName() const {
+      return "Patmos PML Profile Import Pass";
+    }
+
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
       AU.addRequired<PMLMachineFunctionImport>();
