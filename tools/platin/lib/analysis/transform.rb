@@ -415,7 +415,7 @@ class FlowFactTransformation
         new_constraints = ve.eliminate_set(elim_set)
 
         # Extract and add new flow facts
-        new_ffs += extract_flowfacts(new_constraints, entries, target_level, [:flowfact, :callsite]).select { |ff|
+        new_ffs += extract_flowfacts(new_constraints, entries, target_level).select { |ff|
           # FIXME: for now, we do not export interprocedural flow-facts relative to a function other than the entry,
           # because this is not supported by any of the WCET analyses
           r = ff.local? || ff.scope.function == target_analysis_entry
@@ -472,7 +472,7 @@ private
     ipet
   end
 
-  def extract_flowfacts(constraints, entry, target_level, tags = [:flowfact, :callsite])
+  def extract_flowfacts(constraints, entry, target_level, tags = [:flowfact, :callsite, :infeasible])
     new_flowfacts = []
     attrs = { 'origin' =>  options.flow_fact_output,
               'level'  =>  target_level }
@@ -481,11 +481,15 @@ private
       lhs = constr.named_lhs
       rhs = constr.rhs
 
+      # debug(options, :transform) { "Inspecting constraint for extraction: #{constr.tags.to_a} => #{constr}" }
+
       # Constraint is boring if it was derived from positivity and structural constraints only
       next unless constr.tags.any? { |tag| tags.include?(tag) }
 
       # Constraint is boring if it is a positivity constraint (a x <= 0, with a < 0)
-      next if constr.rhs == 0 && constr.lhs.all? { |_,coeff| coeff <= 0 }
+      if constr.lhs.all? { |_,coeff| coeff <= 0 }  && constr.op == "less-equal" && constr.rhs == 0
+        next
+      end
 
       # Simplify: edges->block if possible (lossless; see eliminate_edges for potentially lossy transformation)
       unless lhs.any? { |var,_| ! var.kind_of?(IPETEdge) }

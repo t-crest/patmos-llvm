@@ -58,7 +58,7 @@ class ControlFlowRefinement
   def infeasible_block?(block, context = Context.empty)
     dict = @infeasible[block]
     return false unless dict
-    dict[Context.empty] || (! context.empty? && dict[conctext])
+    dict[Context.empty] || (! context.empty? && dict[context])
   end
 
   # returns the set of possible calltargets for +callsite+ in +context+
