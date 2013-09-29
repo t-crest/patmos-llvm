@@ -75,8 +75,9 @@ class SEInt
   def to_ais ; self.to_s ; end
 end
 
+# Variables always reference arguments of functions
 class SEVar
-  def to_ais ; "reg #{self}" ; end
+  def to_ais ; "@arg_#{self}" ; end
 end
 
 class SEBinary
@@ -521,6 +522,7 @@ class APXExporter
         an_options << rexml_bool("xml_call_graph", true)
         an_options << rexml_bool("xml_show_per_context_info", true)
         an_options << rexml_bool("persistence_analysis", true)
+        an_options << rexml_bool("xml_wcet_path", true)
         an_options << rexml_bool("xml_non_wcet_cycles", true)
         an_options << rexml_str("path_analysis_variant", "Prediction file based (ILP))")
       }
@@ -749,14 +751,25 @@ class AitImport
     read_contexts(wcet_elem.get_elements("contexts").first)
 
     @function_count, @function_cost = {} , Hash.new(0)
-    edge_freq, edge_cycles, edge_contrib = {}, {}, {}
-    ait_ins_cost, ait_edge_cost = Hash.new(0), Hash.new(0)
+
+    # frequency of an edge on worst-case path
+    edge_freq = {}
+
+    # maximum number of cycles it takes to execute edge
+    edge_cycles = {}
+
+    # WCET contribution of an edge
+    edge_contrib = {}
+
+    ait_ins_cost, ait_ins_contrib = Hash.new(0), Hash.new(0)
 
     wcet_elem.each_element("wcet_path") { |e|
+      # only read results for analysis entry
       rentry = e.get_elements("wcet_entry").first.attributes["routine"]
       entry = @routines[rentry]
       next unless  entry.function == analysis_entry
 
+      # read results for each routine
       e.each_element("wcet_routine") { |re|
         # extract function cost
         routine = @routines[re.attributes['routine']]
@@ -769,6 +782,7 @@ class AitImport
 
         # extract edge cost (relative to LLVM terminology)
         re.each_element("wcet_context") { |ctx_elem|
+
           context = @contexts[ctx_elem.attributes['context']]
 
           # deal with aiT's special nodes
@@ -809,41 +823,54 @@ class AitImport
             return_nodes[return_edge.attributes['target_block']] = true
           }
 
+          # Now read in the cost for WCET edges
           ctx_elem.each_element("wcet_edge") { |edge|
+
+            # skip if no cost associated with edge
             next unless edge.attributes['cycles'] || edge.attributes['path_cycles'] || edge.attributes['count']
+
             source_block_id = edge.attributes['source_block']
+
+            # skip start nodes and return nodes
             next if start_nodes[source_block_id]
             next if return_nodes[source_block_id]
+
             source = @blocks[edge.attributes['source_block']]
             unless source
               warn("Could not find block corresponding to #{edge.attributes['source_block']}")
               next
             end
+
             target_block_id = edge.attributes['target_block']
             target = @blocks[edge.attributes['target_block']]
+
+            # check if the target of this edge is in the same block as the source of the edge
             is_intrablock_target = ! target.nil? && target.index > 0 && ! loop_nodes[target_block_id]
             is_intrablock_target = true if call_nodes[target_block_id]
+
+            # get the target block (if any), handling the case of a loop entry
             target_block = if loop_nodes[target_block_id]
                              loop_nodes[target_block_id]
                            else
                              b = @blocks[target_block_id]
                              b ? b.block : nil
                            end
-            count = edge.attributes['count'].to_i
-            cum_cycles = edge.attributes['cycles'].to_i
-            path_cycles = edge.attributes['path_cycles'].to_i
 
-            if count > 0
-              computed_path_cycles = (cum_cycles.to_f / count).to_i
-              if path_cycles.to_i > 0
-                unless path_cycles*count == cum_cycles
-                  die("Inconsistent cummulative cycle count for edge #{source}->#{target_block} in context #{context}")
-                end
-              else
-                path_cycles = computed_path_cycles
+            attr_count = edge.attributes['count'].to_i   # frequency on WCET path
+            attr_cycles = edge.attributes['cycles'].to_i # WCET contribution
+            attr_edge_cycles = edge.attributes['edge_cycles'].to_i # edge WCET
+
+            # if there is no WCET for the edge, estimate it (WCET_contribution/WCET_frequency)
+            if attr_count > 0
+              computed_edge_cycles = (attr_cycles.to_f / attr_count).to_i
+              if attr_edge_cycles.to_i == 0
+                warn("No edge_cycles attribute for edge on WCET path (#{edge})")
+                attr_edge_cycles = computed_edge_cycles
               end
+            elsif attr_cycles > 0
+              die("Bad aiT profile entry (contribution of edge not on WC path): #{edge}")
             end
-            next unless path_cycles
+            next unless attr_edge_cycles
 
             # We need to map the aiT edge to an LLVM edge
             #
@@ -865,12 +892,15 @@ class AitImport
 
             if source.block == target_block && is_intrablock_target
               ref = ContextRef.new(source, context)
-              ait_ins_cost[ref] = [ait_ins_cost[ref],path_cycles].max
+              ait_ins_cost[ref]     = [ait_ins_cost[ref], attr_edge_cycles].max
+              ait_ins_contrib[ref] += attr_cycles
+              debug(options, :ait) { "Adding #{attr_cycles} cummulative cycles to #{ref} (intrablock)" }
             else
               pml_edge = source.block.edge_to(target_block ? target_block : nil)
+
+              # handle the case where the target is an end-of-loop node, and we need to add the frequency
+              # to the unique out-of-loop successor of the source. If it does not exist, we give up
               if ! target_block && @is_loopblock[target_block_id]
-                # in this case, the target is an end-of-loop node, and we need to add the frequency
-                # to the unique out-of-loop successor of the source. If it does not exist, we give up
                 exit_successor = nil
                 source.block.successors.each { |s|
                   if source.block.exitedge_source?(s)
@@ -882,51 +912,67 @@ class AitImport
                 die("no loop exit successor for #{source}, although there is an edge to end-of-loop node") unless exit_successor
                 pml_edge = source.block.edge_to(exit_successor)
               end
+
+              # store maximum cost for edge in context, and add to cummulative cost
               ref = ContextRef.new(pml_edge, context)
-              ait_ins_cost[ref] = [ait_ins_cost[ref],path_cycles].max
-              if count > 0
-                # info "Adding frequency to intraprocedural edge #{pml_edge}: #{count} (#{edge})"
-                (edge_freq[pml_edge]||=Hash.new(0))[context] += count
-                (edge_contrib[pml_edge]||=Hash.new(0))[context] += count
+              ait_ins_cost[ref]     = [ait_ins_cost[ref], attr_edge_cycles].max
+              ait_ins_contrib[ref] += attr_cycles
+              debug(options, :ait) { "Adding #{attr_cycles} cummulative cycles to #{ref} (interblock)" }
+
+              # if the edge is on the worst-case path, increase WCET frequency
+              if attr_count > 0
+                debug(options, :ait) { "Adding frequency to intraprocedural edge #{pml_edge}: #{attr_count} (#{edge})" }
+                (edge_freq[pml_edge]||=Hash.new(0))[context] += attr_count
               end
             end
           }
         }
       }
     }
+
+    # Now extract profile entries from the cost read from the aiT profile
     ait_ins_cost.each { |cref, path_cycles|
+      contrib_cycles = ait_ins_contrib[cref]
       context = cref.context
+
+      # if the edge cost is attributed to an instruction (intrablock cost),
+      # add it to all edges that are live at this instruction
+      # FIXME: WCET contribution is more difficult - we have to split it amongst
+      # the outgoing edges..
       if cref.programpoint.kind_of?(Instruction)
         ins = cref.programpoint
         ins.block.outgoing_edges.each { |pml_edge|
           if ins.live_successor?(pml_edge.target)
-            # info "Adding cost to intrablock edge #{pml_edge}: #{path_cycles}"
             (edge_cycles[pml_edge]||=Hash.new(0))[context] += path_cycles
-          else
-            # info "#{pml_edge.target} is not a live successor at #{ins}"
+            (edge_contrib[pml_edge]||=Hash.new(0))[context] += contrib_cycles
           end
         }
       else
         pml_edge = cref.programpoint
         assert("read_wcet_analysis_result: expecting Edge type") { pml_edge.kind_of?(Edge) }
 
-        # info "Adding cost to intraprocedural edge #{pml_edge}: #{path_cycles}"
-        (edge_cycles[pml_edge]||=Hash.new(0))[context] += path_cycles
+        (edge_cycles[pml_edge]||=Hash.new(0))[context]  += path_cycles
+        (edge_contrib[pml_edge]||=Hash.new(0))[context] += contrib_cycles
       end
     }
+
     debug(options,:ait) { |&msgs|
       @function_count.each { |f,c|
         msgs.call "- function #{f}: #{@function_cost[f].to_f / c.to_f} * #{c}"
       }
     }
+
+    # create profile entries
     profile_list = []
     edge_cycles.each { |e,ctxs|
       debug(options,:ait) { "- edge #{e}" }
       ctxs.each { |ctx,cycles|
         ref = ContextRef.new(e, ctx)
         freq = edge_freq[e] ? edge_freq[e][ctx] : 0
-        contrib = edge_contrib[e] ? edge_contrib[e][ctx] : 0
-        debug(options,:ait) { sprintf(" -- %s: %d * %d\n",ctx.to_s, cycles, freq) }
+        contrib = freq * cycles # edge_contrib[e][ctx]
+        debug(options,:ait) {
+          sprintf(" -- %s: %d * %d (%d)\n",ctx.to_s, cycles, freq, contrib)
+        }
         profile_list.push(ProfileEntry.new(ref, cycles, freq, contrib))
       }
     }
