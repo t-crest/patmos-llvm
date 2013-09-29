@@ -156,6 +156,7 @@ protected
 
   attr_reader :nodes
   def initialize(entry_function, refinement, pml, options)
+    assert("ScopeGraph#initialize: first argument is not a Function") { entry_function.kind_of?(PML::Function) }
     @pml, @options = pml, options
     @entry_function = entry_function
     @refinement = refinement
@@ -181,6 +182,16 @@ protected
 
   def root
     @entry_node
+  end
+
+  def reachable_functions
+    functions = Set.new
+    bottom_up.each { |node|
+      if node.kind_of?(FunctionNode)
+        functions.add(node.function)
+      end
+    }
+    functions.to_a
   end
 
   # check that there is a BlockNode for every feasible basic block

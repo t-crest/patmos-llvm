@@ -745,11 +745,17 @@ private
       @dst = dst_funs.by_name(data['dst']['function'])
       @nodes = RelationNodeList.new(self, data['nodes'])
     end
+    def status
+      data['status']
+    end
     def get_function(level)
       level == :src ? @src : @dst
     end
     def qname
       "#{src.qname}<>#{dst.qname}"
+    end
+    def to_s
+      "#{src}<->#{dst}"
     end
   end
 

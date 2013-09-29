@@ -82,14 +82,15 @@ class Architecture < PML::Architecture
     end
   end
   def Architecture.default_config
-    memories = MemoryConfigList.new([MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
-    caches = CacheConfigList.new([CacheConfig.new('method-cache','method-cache','fifo',32,32,1024),
-                                  CacheConfig.new('stack-cache','stack-cache','stack',nil,4,1024),
-                                  CacheConfig.new('data-cache','set-associative','lru',4,32,1024) ])
-    full_range = ValueRange.new(0,0xFFFFFFFF,nil)
-    memory_areas = MemoryAreaList.new([MemoryArea.new('code','code',caches.list[0], memories.first, full_range),
-                                       MemoryArea.new('data','data',caches.list[2], memories.first, full_range) ])
-    MachineConfig.new(memories,caches,memory_areas)
+    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
+    caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',32,32,1024),
+                                  PML::CacheConfig.new('stack-cache','stack-cache','stack',nil,4,1024),
+                                  PML::CacheConfig.new('data-cache','set-associative','lru',4,32,1024) ])
+    full_range = PML::ValueRange.new(0,0xFFFFFFFF,nil)
+    memory_areas =
+      PML::MemoryAreaList.new([PML::MemoryArea.new('code','code',caches.list[0], memories.first, full_range),
+                               PML::MemoryArea.new('data','data',caches.list[2], memories.first, full_range) ])
+    PML::MachineConfig.new(memories,caches,memory_areas)
   end
   def simulator_trace(options)
     SimulatorTrace.new(options.binary_file, self, options)

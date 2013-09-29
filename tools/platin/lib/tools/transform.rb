@@ -128,34 +128,35 @@ class TransformTool
   def TransformTool.run(pml,options)
     needs_options(options,:flow_fact_selection,:flow_fact_srcs,:transform_action,:analysis_entry, :flow_fact_output)
 
-    #require 'perftools'
-    #PerfTools::CpuProfiler.start("/tmp/platin-transform")
-
     if(options.validate)
       RelationGraphValidationTool.run(pml,options)
     end
 
     # Analysis Entry
-    entry = pml.machine_functions.by_label(options.analysis_entry)
-    unless entry
+    machine_entry = pml.machine_functions.by_label(options.analysis_entry)
+    unless machine_entry
       raise Exception.new("Analysis Entry #{options.analysis_entry} not found")
     end
 
     # Select flow facts
     flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["bitcode","machinecode"])
-
     # Start transformation
     fft = FlowFactTransformation.new(pml,options)
     if options.transform_action == "copy"
       fft.copy(flowfacts)
     elsif options.transform_action == "up" || options.transform_action == "down"
-      target_level = options.transform_action == "up" ? "bitcode" : "machinecode"
-      if flowfacts.any? { |ff| ff.level == (target_level == "machinecode" ? "bitcode" : "machinecode") }
-        fft.transform(entry, flowfacts, target_level)
+      source_level, target_level, target_analysis_entry =
+        if options.transform_action == "up"
+          ["machinecode", "bitcode", pml.bitcode_functions.by_name(options.analysis_entry)]
+        else
+          ["bitcode", "machinecode", machine_entry]
+        end
+      if flowfacts.any? { |ff| ff.level == source_level }
+        fft.transform(target_analysis_entry, flowfacts, target_level)
       end
     elsif options.transform_action == "simplify"
       # Ignore symbolic loop bounds for now
-      fft.simplify(entry, flowfacts)
+      fft.simplify(machine_entry, flowfacts)
     else
       die("Bad transformation action --transform-action=#{options.transform_action}")
     end

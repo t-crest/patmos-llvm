@@ -347,13 +347,12 @@ class FlowFactTransformation
     elim_set = []
     ilp.variables.each do |var|
       if var.kind_of?(Instruction)
-        # debug(options,:ipet) { "Eliminating Instruction: #{var}" }
         elim_set.push(var)
       elsif options.transform_eliminate_edges && var.kind_of?(IPETEdge) # && var.cfg_edge?
         # FIXME: for now, we also eliminated call edges, because we cannot represent them in aiT
         elim_set.push(var)
       elsif options.transform_eliminate_edges && var.kind_of?(Block) && var.instructions.empty?
-        debug(options,:ipet) { "Eliminating empty block: #{var}" }
+        debug(options,:transform) { "Eliminating empty block: #{var}" }
         elim_set.push(var)
       end
     end
@@ -372,22 +371,24 @@ class FlowFactTransformation
                new_ffs.length) if options.stats
   end
 
-  def transform(machine_entry, flowfacts, target_level)
-    # collect local and global flowfacts
+  def transform(target_analysis_entry, flowfacts, target_level)
+    debug(options, :transform) { "Transforming #{flowfacts.length} flow facts to #{target_level}" }
+
+    # partition local flow-facts by entry (if possible), rest is transformed in global scope
     flowfacts_by_entry = { }
     flowfacts.each { |ff|
-      next if ff.symbolic_bound?
-      entry = machine_entry
+      next if ff.symbolic_bound? # skip symbolic flow facts
+      transform_entry = nil
       if ff.local?
-        local_entry = ff.scope.function
-        if ff.level == 'machinecode' && ! pml.bitcode_functions.by_name(local_entry.name).nil?
-          entry = local_entry
-        elsif ff.level == 'bitcode' &&  local_mc_entry = pml.machine_functions.by_label(local_entry.name)
-          entry = local_mc_entry
+        transform_entry = ff.scope.function
+        if ff.level == 'machinecode' && target_level == "bitcode"
+          transform_entry = pml.bitcode_functions.by_name(transform_entry.name)
+        elsif ff.level == 'bitcode' &&  target_level == "machinecode"
+          transform_entry = pml.machine_functions.by_label(transform_entry.name)
         end
       end
-      # entry = machine_entry
-      (flowfacts_by_entry[entry] ||= []).push(ff)
+      transform_entry = target_analysis_entry unless transform_entry
+      (flowfacts_by_entry[transform_entry] ||= []).push(ff)
     }
 
     info "Running transformer to level #{target_level}" if options.verbose
@@ -397,7 +398,13 @@ class FlowFactTransformation
     flowfacts_by_entry.each { |entry,ffs|
       begin
         # Build ILP for transformation
-        entries = { 'machinecode' => entry, 'bitcode' => pml.bitcode_functions.by_name(entry.label) }
+        debug(options, :transform) { "Transforming #{ffs.length} flowfacts in scope #{entry} to #{target_level}" }
+        entries =
+          if target_level == "machinecode"
+            { 'machinecode' => entry, 'bitcode' => pml.bitcode_functions.by_name(entry.label) }
+          else
+            { 'bitcode' => entry, 'machinecode' => pml.machine_functions.by_label(entry.name) }
+          end
         ilp = build_model(entries, ffs, :use_rg => true).ilp
 
         # If direction up/down, eliminate all vars but dst/src
@@ -408,10 +415,12 @@ class FlowFactTransformation
         new_constraints = ve.eliminate_set(elim_set)
 
         # Extract and add new flow facts
-        new_ffs += extract_flowfacts(new_constraints, entries, target_level, [:flowfact, :callsite]).select { |f|
+        new_ffs += extract_flowfacts(new_constraints, entries, target_level, [:flowfact, :callsite]).select { |ff|
           # FIXME: for now, we do not export interprocedural flow-facts relative to a function other than the entry,
           # because this is not supported by any of the WCET analyses
-          f.local? || f.scope.function == machine_entry
+          r = ff.local? || ff.scope.function == target_analysis_entry
+          warn("Skipping unsupported flow fact scope of transformed flow fact: #{ff.scope.function}") unless r
+          r
         }
 
         stats_num_constraints_before += ilp.constraints.length
@@ -520,7 +529,7 @@ private
         Term.new(pp, c)
       }
       termlist = TermList.new(terms)
-      debug(options,:ipet) {
+      debug(options, :transform) {
         "Adding transformed constraint #{name} #{constr.tags.to_a}: #{constr} -> in #{scope} :" +
         "#{termlist} #{constr.op} #{rhs}"
       }

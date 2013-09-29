@@ -245,7 +245,7 @@ mapping:
             desc: >-
               indicates whether the compiler detected errors during the construction
               of the control-flow relation graph
-            enum: [valid,corrected,invalid]
+            enum: [valid,corrected,invalid,incomplete]
   "valuefacts":
     type: seq
     desc: list of value facts, providing information on the value of variables

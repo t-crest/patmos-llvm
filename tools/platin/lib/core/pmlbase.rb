@@ -5,6 +5,8 @@
 #
 # Provide smart accessors, caching, etc.
 #
+require 'core/utils'
+
 module PML
 
   # FIXME: move the utility stuff to a file on its own
