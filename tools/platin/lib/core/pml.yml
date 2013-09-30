@@ -154,6 +154,9 @@ mapping:
                           "stack-cache-fill":
                              type: int
                              desc: "TODO"
+                          "stack-cache-spill":
+                             type: int
+                             desc: "TODO"
           "subfunctions":
             type: seq
             desc: "subfunctions of the function"
