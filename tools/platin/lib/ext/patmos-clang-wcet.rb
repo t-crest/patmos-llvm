@@ -32,13 +32,17 @@ usage("") if ARGV.include?('--help')
 
 options = OpenStruct.new
 options.override = {}
-args = []
+args, initial_args = [], []
 
 ARGV.each_with_index { |arg,ix|
   if arg =~ /^-mconfig=(.*)$/
     options.configfile = $1
   elsif arg =~ /--wcet-guided-optimization/
     options.guided_optimization = true
+  elsif arg =~ /^-mimport-pml=(.*)$/
+    initial_args.push(arg)
+  elsif arg =~ /^-mpatmos-enable-bypass-from-pml$/
+    initial_args.push(arg)
   elsif arg =~ /--platin-wcet-options=(.*)$/
     options.platin_wcet_options=$1
   elsif arg =~ /-mserialize=(.*)$/
@@ -77,6 +81,7 @@ platin_derived_options = ""
 platin_derived_options += " --outdir #{File.dirname(options.outfile).inspect}" if options.save_temps
 platin_derived_options += " --debug" if options.debug
 platin_derived_options += " #{options.platin_wcet_options}"
+
 outfile =
   if options.save_temps
     Proc.new { |fname,ext|
@@ -90,6 +95,7 @@ outfile =
 
 # clang arguments
 clang_argstr = args.map { |a| a.inspect }.join(" ")
+clang_argstr_initial = initial_args.map { |a| a.inspect }.join(" ")
 
 # intermediate files
 llvminput  = outfile.call(options.outfile,".llvm-input.pml")
@@ -101,7 +107,7 @@ config=`platin tool-config -t clang -i #{options.configfile} -o #{llvmoutput}`.c
 config.sub!(/-mpatmos-method-cache-size=\S+/,'') if options.override[:mc_cache_size]
 config.sub!(/-mpatmos-method-cache-block-size=\S+/,'') if options.override[:mc_block_size]
 
-run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr}")
+run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr} #{clang_argstr_initial}")
 #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -o #{options.outfile} #{linked_bitcode}")
 
 if options.guided_optimization
@@ -112,7 +118,7 @@ if options.guided_optimization
 
   # recompile, serialize pml, elf, bc
   #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
-  run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} -mimport-pml=#{llvminput} #{clang_argstr}")
+  run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} -mimport-pml=#{llvminput} #{clang_argstr} -mpatmos-enable-bypass-from-pml")
 end
 
 # compute WCETs and report
