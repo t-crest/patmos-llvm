@@ -102,6 +102,12 @@ static cl::opt<bool> DisableFunctionSplitterRewrite(
   cl::desc("Disable the rewriting of code in the Patmos function splitter."),
   cl::Hidden);
 
+static cl::opt<int> MaxSubfunctionSize(
+    "mpatmos-subfunction-size",
+    cl::init(0),
+    cl::desc("Maximum size of subfunctions, defaults to the method cache size"
+        " if set to 0."));
+
 /// EnableShowCFGs - Option to enable the rendering of annotated CFGs.
 static cl::opt<bool> EnableShowCFGs(
   "mpatmos-function-splitter-cfgs",
@@ -292,6 +298,8 @@ namespace llvm {
     PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
 
+    unsigned MaxRegionSize;
+
     PMLMCQuery *PML;
     PMLQuery::BlockDoubleMap Criticalities;
 
@@ -300,6 +308,9 @@ namespace llvm {
     : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()), PML(pml)
     {
       Blocks.reserve(mf->size());
+
+      MaxRegionSize = MaxSubfunctionSize ? MaxSubfunctionSize
+                                         : STC.getMethodCacheSize();
 
       // create blocks
       unsigned id = 0;
@@ -946,11 +957,6 @@ namespace llvm {
                         bool &has_call, unsigned &region_size,
                         ready_set &ready, ablock_set &regions)
     {
-      if (region_size + scc_size > STC.getMethodCacheSize()) {
-        // Early exit..
-        return false;
-      }
-
       // Special case: if we are already starting a new region (the header
       // is the current region entry), then emit it in any case, and do not
       // add anything to the SCC (all other jump table entries were already
@@ -961,6 +967,13 @@ namespace llvm {
         region_size += scc_size;
         region->HasCall |= has_call;
         return true;
+      }
+
+      // Check for size only after we checked for headers to allow large
+      // inline asm.
+      if (region_size + scc_size > MaxRegionSize) {
+        // Early exit..
+        return false;
       }
 
       // Check if any of the blocks in the SCC is already marked as region
@@ -1043,7 +1056,7 @@ namespace llvm {
       }
 
       // Now check again for size constraints, now including the full jump table
-      if (region_size + scc_size > STC.getMethodCacheSize()) {
+      if (region_size + scc_size > MaxRegionSize) {
         return false;
       }
 
@@ -1618,7 +1631,7 @@ namespace llvm {
 
     /// splitBlock - Split a basic block into smaller blocks that each fit into
     /// the method cache.
-    static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize,
+    static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MaxSize,
                                    PatmosTargetMachine &PTM)
     {
       unsigned int branchFixup = getMaxBlockMargin(PTM, false, true, false, 1);
@@ -1627,6 +1640,8 @@ namespace llvm {
       // TODO we could check if we actually have a call and only add the
       // call fixup costs in this case.
       unsigned int curr_size = getMaxBlockMargin(PTM);
+
+      unsigned int cache_size = PTM.getSubtargetImpl()->getMethodCacheSize();
 
       unsigned int total_size = 0;
       // Note: we need to use an instr_iterator here, otherwise splice fails
@@ -1645,10 +1660,14 @@ namespace llvm {
         // for branches, assume we need to add a NOP to make it BRCF.
         if (i->isBranch()) i_size += branchFixup;
 
-        if (i_size > MCSize) {
+        if (i_size > cache_size) {
           report_fatal_error("Inline assembly in function " +
                              MBB->getParent()->getFunction()->getName() +
                              " is larger than the method cache size!");
+        } else if (i_size > MaxSize) {
+          // TODO is there some sort of LLVM function for printing a warning?
+          errs() << "Warning: inline asm is larger than max subfunction size "
+                 << "in " << MBB->getFullName() << "\n";
         }
 
         // ensure that we do not split inside delay slots
@@ -1660,7 +1679,7 @@ namespace llvm {
                || (delay_slot_margin > 0));
 
         // check block + instruction size + max delay slot size of this instr.
-        if (curr_size + i_size + delay_slot_margin < MCSize)
+        if (curr_size + i_size + delay_slot_margin < MaxSize)
         {
           curr_size += i_size;
         }
@@ -1756,6 +1775,9 @@ namespace llvm {
       if (DisableFunctionSplitter)
         return false;
 
+      unsigned max_size = MaxSubfunctionSize ? MaxSubfunctionSize
+                                             : STC.getMethodCacheSize();
+
       unsigned total_size = 0;
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
         unsigned bb_size = agraph::getBBSize(i, PTM);
@@ -1763,10 +1785,9 @@ namespace llvm {
         // in case the block is larger than the method cache, split it and
         // update its
         //
-        if (bb_size + agraph::getMaxBlockMargin(PTM, i) >
-                                                       STC.getMethodCacheSize())
+        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_size)
         {
-          bb_size = agraph::splitBlock(i, STC.getMethodCacheSize(), PTM);
+          bb_size = agraph::splitBlock(i, max_size, PTM);
         }
 
         total_size += bb_size;
@@ -1776,7 +1797,7 @@ namespace llvm {
                    << MF.getFunction()->getName() << ": " << total_size << "\n");
 
       // splitting needed?
-      if (total_size > STC.getMethodCacheSize()) {
+      if (total_size > max_size) {
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
         agraph G(&MF, PTM, PI.createMCQuery(*this, MF));
