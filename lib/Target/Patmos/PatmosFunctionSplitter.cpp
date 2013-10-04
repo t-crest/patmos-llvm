@@ -108,6 +108,18 @@ static cl::opt<int> MaxSubfunctionSize(
     cl::desc("Maximum size of subfunctions, defaults to the method cache size"
         " if set to 0."));
 
+static cl::opt<int> MaxBasicBlockSize(
+    "mpatmos-max-basic-block-size",
+    cl::init(0),
+    cl::desc("Maximum size of basic blocks after function splitting, defaults "
+             "to the method cache size if set to 0. Can be larger than "
+             "subfunction-size."));
+
+static cl::opt<bool> SplitCallBlocks(
+    "mpatmos-split-call-blocks",
+    cl::init(true),
+    cl::desc("Split basic blocks containing calls into own subfunctions."));
+
 /// EnableShowCFGs - Option to enable the rendering of annotated CFGs.
 static cl::opt<bool> EnableShowCFGs(
   "mpatmos-function-splitter-cfgs",
@@ -976,6 +988,11 @@ namespace llvm {
         return false;
       }
 
+      // Split blocks with calls into their own region
+      if (SplitCallBlocks && (region->HasCall || has_call)) {
+        return false;
+      }
+
       // Check if any of the blocks in the SCC is already marked as region
       // header. In this case, we cannot emit the whole SCC into this region.
       for (ablocks::iterator it = scc.begin(), ie = scc.end(); it != ie; it++) {
@@ -1629,6 +1646,25 @@ namespace llvm {
       return branch_fixups + (needsCallFixup ? 8 : 0);
     }
 
+    static unsigned int getDelaySlotSize(MachineBasicBlock *MBB,
+                                         MachineInstr *MI,
+                                         PatmosTargetMachine &PTM)
+    {
+      int cycles = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(MI);
+
+      unsigned bytes = 0;
+
+      MachineBasicBlock::iterator it = MI;
+      for (; cycles > 0; cycles--) {
+        it++;
+        assert(it != MBB->end() && "Reached end of MBB before end of delay slot");
+
+        bytes += getInstrSize(it, PTM);
+      }
+
+      return bytes;
+    }
+
     /// splitBlock - Split a basic block into smaller blocks that each fit into
     /// the method cache.
     static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MaxSize,
@@ -1672,7 +1708,7 @@ namespace llvm {
 
         // ensure that we do not split inside delay slots
         unsigned int delay_slot_margin = i->hasDelaySlot()
-                      ? PTM.getSubtargetImpl()->getMaxDelaySlotCodeSize(i) : 0;
+                      ? getDelaySlotSize(MBB, i, PTM) : 0;
 
         const MachineInstr *FirstMI = PTM.getInstrInfo()->getFirstMI(i);
         assert(!isPatmosCFL(FirstMI->getOpcode(), FirstMI->getDesc().TSFlags)
@@ -1775,8 +1811,10 @@ namespace llvm {
       if (DisableFunctionSplitter)
         return false;
 
-      unsigned max_size = MaxSubfunctionSize ? MaxSubfunctionSize
-                                             : STC.getMethodCacheSize();
+      unsigned max_subfunc_size = MaxSubfunctionSize ? MaxSubfunctionSize
+                                                     : STC.getMethodCacheSize();
+      unsigned max_block_size   = MaxBasicBlockSize  ? MaxBasicBlockSize
+                                                     : STC.getMethodCacheSize();
 
       unsigned total_size = 0;
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
@@ -1785,9 +1823,9 @@ namespace llvm {
         // in case the block is larger than the method cache, split it and
         // update its
         //
-        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_size)
+        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_block_size)
         {
-          bb_size = agraph::splitBlock(i, max_size, PTM);
+          bb_size = agraph::splitBlock(i, max_block_size, PTM);
         }
 
         total_size += bb_size;
@@ -1797,7 +1835,7 @@ namespace llvm {
                    << MF.getFunction()->getName() << ": " << total_size << "\n");
 
       // splitting needed?
-      if (total_size > max_size) {
+      if (total_size > max_subfunc_size) {
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
         agraph G(&MF, PTM, PI.createMCQuery(*this, MF));
