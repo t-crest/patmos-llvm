@@ -1,26 +1,101 @@
 #
 # platin tool set
 #
-# == Scope graphs
-#
-# A scope graph is a DAG consisting of functions and single-entry regions, the
-# latter comprising loops and (future work) SESE regions.
-#
-# Scope graphs are useful for a variety of purposes, in particular for
-# "Cache Persistence Analysis via Conflict-Free Region Identification"
-#
-# Note: Subfunctions either complete contain a loop or not all. Otherwise,
-# they wouldn't be single entry.
+# Scopegraphs and Callgraphs
 
 require 'core/pml'
-
+require 'set'
 module PML
 
-class ScopeGraph
-
+#
+# Helper Graph for building acyclic graphs from strongly-connected components
+class SCCGraph
   class Node
     include QNameObject
-    attr_reader :context, :predecessors, :successors
+    attr_writer :has_backedge
+    attr_reader :first, :blocks, :successors, :node_of_block
+    def initialize(blocks)
+      @first = blocks.first
+      @blocks = blocks
+      @qname = "SCC: #{@first.qname}"
+      @successors = []
+      @has_backedge = false
+    end
+    def add_successor(n)
+      @successors.push(n)
+    end
+    def has_backedge?
+      @has_backedge
+    end
+    def may_return?
+      blocks.any? { |block| block.may_return? }
+    end
+    def to_s
+      "SCCGraph::Node: #{blocks.join(", ")}"
+    end
+  end
+
+  attr_reader :nodes, :recursive_edges
+  def initialize(blocks, recursive_edge_targets)
+    @blocks, @recursive_edge_targets = blocks, recursive_edge_targets
+    @blockset = Set[*@blocks]
+    @sccs = TSortAdapter.new(blocks, recursive_edge_targets).strongly_connected_components.reverse
+    @node_of_block = {}
+    @nodes = @sccs.map { |scc| Node.new(scc) }
+    nodes.each { |node|
+      node.blocks.each { |b|
+        @node_of_block[b] = node
+      }
+    }
+    nodes.each { |node|
+      node.blocks.each { |block|
+        block.successors.each { |succ|
+          next unless @blockset.include?(succ)
+          if @recursive_edge_targets.include?(succ)
+            node.has_backedge = true
+            next
+          end
+          assert("Unknown node in SCC: #{succ}") { @node_of_block[succ] }
+          if @node_of_block[succ] != node
+            node.add_successor(@node_of_block[succ])
+          end
+        }
+      }
+    }
+  end
+  def dump(io = $stdout)
+    puts("SCC Graph")
+    puts "SCCs: #{@sccs.inspect}"
+    nodes.each { |node|
+      puts "- #{node}"
+      node.successors.each { |succ|
+        puts "    => #{succ.first}"
+      }
+    }
+  end
+end
+
+#
+# A scope graph is a hierarchical control-flow representation, generalizing
+# the concept of a call graph. In contrast to a callgraph, it is acyclic.
+#
+# It consists of
+#  * Function Nodes (representing the execution of a function in a certain context)
+#    The only child of a function node is its body (a Control-Flow DAG)
+#  * SCC Nodes (representing the execution of a strongly-connected component)
+#    The children of a SCC node are functions (recursion) or a Control-Flow DAG (loops)
+#  * Region Nodes (representing the execution of regular set of finite basic block sequences)
+#  * Callsites (representing the call of a function)
+#  * (Recursive Callsites) not yet implemented
+#
+# Scope graphs are useful for a variety of purposes, in particular for cache persistence analysis
+#
+class ScopeGraph
+
+  # Scopegraph node (has a qualified name)
+  class Node
+    include QNameObject
+    attr_reader :context, :predecessors, :successors, :region
     def initialize(name, context)
       @qname, @context = "#{name}#{context.qname}", context
       @predecessors, @successors = [], []
@@ -31,85 +106,43 @@ class ScopeGraph
     end
   end
 
-  class CFAdapter
-    attr_reader :entry
-    def initialize(entry)
-      @entry = entry
-      @predecessors, @successors = {}, {}
+  class FunctionNode < Node
+    attr_reader :function
+    def initialize(function, context)
+      super("#F#{function.qname}", context)
+      @function = function
     end
-    def successors(node)
-      @successors[node] ||= []
+    def scope_entry
+      @function
     end
-    def predecessors(node)
-      @predecessors[node] ||= []
-    end
-    def add_edge(source,target)
-      predecessors(target).push(source)
-      successors(source).push(target)
-    end
-  end
-
-  class RegionNode < Node
-    attr_reader :function, :blocks, :entry_block
-
-    def size
-      @blocks.size
-    end
-
-    # adapter that provides control-flow successors and predecessors
-    # for all scopegraph successors of this node
-    def subgraph_adapter
-      # (1) compute mapping from blocks to subscope
-      block_container = {}
-      successors.each { |subscope|
-        subscope.blocks.each { |block|
-          block_container[block] = subscope
-        }
-      }
-      adapter = CFAdapter.new(block_container[entry_block])
-      # (2) add edges
-      successors.each { |subscope|
-        subscope.blocks.each { |block|
-          block.successors.each { |succblock|
-            succscope = block_container[succblock]
-            next unless succscope # infeasible block
-            if succscope != subscope
-              adapter.add_edge(subscope, succscope)
-            end
-          }
-        }
-      }
-      adapter
-    end
-protected
-    def initialize(name, context, function, entry_block, blocks)
-      super(name, context)
-      @function, @entry_block, @blocks = function, entry_block, blocks
-    end
-  end
-
-  class FunctionNode < RegionNode
-    attr_reader :function, :blocks
-    def initialize(function, context, blocks = nil)
-      super("#F#{function.qname}", context, function, function.entry_block, blocks || function.blocks)
-    end
-
-    def entry
-      @function.entry_block
+    def region=(region_node)
+      assert("FunctionNode: region already set") { @region.nil? }
+      @region = region_node
     end
     def to_s
       "F:#{function}#{context.qname}"
     end
   end
 
-  class LoopNode < RegionNode
+  # For SCCs in the callgraph (not yet implemented) and loop nodes
+  class SCCNode < Node
+    def initialize(name, context)
+      super(name, context)
+    end
+  end
+
+  class LoopNode < SCCNode
     attr_reader :loop
-    def initialize(loop, context, blocks = nil)
-      super("#L#{loop.qname}", context, loop.function, loop.loopheader, blocks || loop.blocks)
+    def initialize(loop, context)
+      super("#L#{loop.qname}", context)
       @loop = loop
     end
-    def entry
-      @loop.loopheader
+    def scope_entry
+      @loop
+    end
+    def region=(region_node)
+      assert("LoopNode: region already set") { @region.nil? }
+      @region = region_node
     end
     def to_s
       "L:#{loop}#{context.qname}"
@@ -117,37 +150,29 @@ protected
   end
 
   class BlockNode < Node
-    attr_reader :function, :block
+    attr_reader :block
     def initialize(block, context)
-      super("#B#{block}", context)
-      @function = block.function
+      super("#B#{block.qname}", context)
       @block = block
     end
-    def blocks
-      [block]
+    def scope_entry
+      @block
     end
     def to_s
-      "B:#{block}#{context.qname}"
-    end
-    def subgraph_adapter
-      adapter = CFAdapter.new(successors.first)
-      pred = nil
-      successors.each { |s|
-        if pred
-          adapter.add_edge(pred, s)
-        end
-        pred = s
-      }
-      adapter
+      "B:#{@block}#{context.qname}"
     end
   end
 
-  class CallSiteNode < Node
+  class CallNode < Node
     attr_reader :function, :callsite
+
     def initialize(callsite, context)
       super("#C#{callsite.qname}", context)
       @function = callsite.function
       @callsite = callsite
+    end
+    def scope_entry
+      @callsite
     end
     def to_s
       "C:#{callsite}#{context.qname}"
@@ -155,17 +180,38 @@ protected
   end
 
   attr_reader :nodes
+
+  #
+  # build scope graph rooted at the specified +entry_function+. the
+  # control-flow +refinement+ specifies infeasible blocks and calltargets
+  # (possibly context-sensitive).
+  #
   def initialize(entry_function, refinement, pml, options)
     assert("ScopeGraph#initialize: first argument is not a Function") { entry_function.kind_of?(PML::Function) }
     @pml, @options = pml, options
     @entry_function = entry_function
     @refinement = refinement
-    build(@entry_function, options.callstring_length)
+    @ctx_manager = ContextManager.create(options.callstring_length || 0)
+    build(@entry_function)
+  end
+
+  # get function node for the specified function
+  def get_function_node(function, context)
+    @nodeset[FunctionNode.new(function, context)]
   end
 
   # get node for the specified loop
   def get_loop_node(loop, context)
     @nodeset[LoopNode.new(loop, context)]
+  end
+
+  # get call node for the specified callsite
+  def get_call_node(callsite, context)
+    @nodeset[CallNode.new(callsite, context)]
+  end
+
+  def root
+    @entry_node
   end
 
   # bottom-up traversal (note that scope graphs are acyclic)
@@ -180,45 +226,14 @@ protected
     @topo = topological_sort(@entry_node)
   end
 
-  def root
-    @entry_node
-  end
-
-  def reachable_functions
-    functions = Set.new
-    bottom_up.each { |node|
-      if node.kind_of?(FunctionNode)
-        functions.add(node.function)
-      end
-    }
-    functions.to_a
-  end
-
-  # check that there is a BlockNode for every feasible basic block
-  def assert_complete
-    blocks = {}
-    self.bottom_up.each { |node|
-      if node.kind_of?(CallSiteNode)
-        blocks[node] = Set.new
-        next
-      end
-      blocks[node] = node.successors.map { |s| blocks[s] }.inject { |a,b| a+b }
-      if node.kind_of?(BlockNode)
-        blocks[node] = Set[node.block]
-      else
-        assert("scopegraph needs to have block node for every basic block") { blocks[node] == Set[*node.blocks] }
-      end
-    }
-  end
 
 private
 
-  def build(entry_function, calldepth)
+  def build(entry_function)
     @nodes = []
     @nodeset = {}
     @visited = {}
-    @calldepth = calldepth
-    @entry_node = add_function_node(entry_function, Context.empty)
+    @entry_node = add_node(FunctionNode.new(entry_function, Context.empty))
     @worklist = [@entry_node]
     while ! @worklist.empty?
       fn = @worklist.pop
@@ -227,56 +242,145 @@ private
     end
   end
 
+  #
+  # Build the scopegraph and the collapsed region DAGs.
+  #
   def build_function(node)
     @visited[node] = true
-    node.function.blocks.each { |b|
+
+    # feasible blocks in the function
+    function_blocks = node.function.blocks.select { |b|
       # if block is infeasible, ignore it
-      next if @refinement.infeasible_block?(b, node.context)
-      # if block is in a loop, create loop node if necessary
-      lnode = build_loop_node_for_block(node, b)
-      bnode = add_node(BlockNode.new(b,lnode.context))
-      lnode.add_successor(bnode)
-      b.callsites.each { |c|
-        raise Exception.new("unresolved call") if c.unresolved_call?
-        cnode = add_node(CallSiteNode.new(c,bnode.context))
-        bnode.add_successor(cnode)
-        @refinement.calltargets(c, node.context).each { |f|
-          new_context = Context.empty  # XXX: callstrings
-          callee_node = add_function_node(f, new_context)
-          cnode.add_successor(callee_node)
+      ! @refinement.infeasible_block?(b, node.context)
+    }
+    # build SCCs
+    build_regions(node, function_blocks)
+  end
+
+  #
+  # Build a region of SCCs
+  #
+  def build_regions(function_node, blocks)
+
+    @blockslices = []
+
+    # process all loops
+    blocks_of_node = { function_node => blocks }
+    loop_of_node   = { function_node => nil }
+    loopqueue = WorkList.new([function_node])
+
+    loopqueue.process { |scope_node|
+      blocks, loop = blocks_of_node[scope_node], loop_of_node[scope_node]
+      entry = loop ? loop.loopheader : function_node.function.entry_block
+
+      # created a collapsed graph, excluding backedges
+      scc_graph = SCCGraph.new(blocks, [entry])
+
+      # create a new region graph
+      scope_node.region = region_graph = RegionGraph.new(self, entry.qname)
+
+      # build region graph and add subscopes
+      build_region_graph(region_graph, scc_graph, entry, loop, scope_node.context, blocks_of_node, loop_of_node)
+
+      # expand scope graph
+      region_graph.loop_nodes.each { |loop_node|
+        add_node(loop_node)
+        scope_node.add_successor(loop_node)
+        loopqueue.enqueue(loop_node)
+      }
+      region_graph.call_nodes.each { |call_node|
+        add_node(call_node)
+        callsite = call_node.callsite
+        scope_node.add_successor(call_node)
+        # scope graph: process callsite target
+        @refinement.calltargets(callsite, scope_node.context).each { |f|
+          new_context = @ctx_manager.push_call(scope_node.context, callsite)
+          callee_node = add_node(FunctionNode.new(f, new_context))
+          call_node.add_successor(callee_node)
           @worklist.push(callee_node)
         }
       }
     }
-  end
-  def build_loop_node_for_block(function_node, b)
-    return function_node if b.loops.empty?
-    this_loop = b.loops.first
-    ctx = function_node.context
-    innermost_loop_node = get_loop_node(this_loop, ctx)
-    if innermost_loop_node.nil?
-      parent_node = function_node
-      b.loops.reverse.each { |loop|
-        current_node = get_loop_node(loop,ctx)
-        if current_node.nil?
-          current_node = add_loop_node(loop, ctx)
-          parent_node.add_successor(current_node)
-        end
-        parent_node = current_node
+
+    # correctness check
+    slice_groups = @blockslices.group_by { |bs| bs.first.block }
+    blocks.each { |b|
+      current=-1
+      slice_groups[b].each { |bs|
+        assert("Block slices not complete: #{b}") { bs.first.index == current+1 }
+        current = bs.last.index
       }
-      innermost_loop_node = parent_node
-    end
-    innermost_loop_node
+      assert("Block slices not complete: #{b}") { current+1 == b.instructions.length }
+    }
   end
 
-  def add_function_node(function, context)
-    blocks = function.blocks.select { |fb| ! @refinement.infeasible_block?(fb, context) }
-    add_node(FunctionNode.new(function, context, blocks))
-  end
+  def build_region_graph(region_graph, scc_graph, entry, scope_loop, context, blocks_of_node, loop_of_node)
+    entry_node, exit_node = {}, {}
+    scc_graph.nodes.each { |scc_node|
+      blocks = scc_node.blocks
+      # distinguish whether SCC is a block (inspect) or loop (subscope) or
+      if ! blocks.first.loopheader? || blocks.first.loop == scope_loop
 
-  def add_loop_node(loop, context)
-    blocks = loop.blocks.select { |fb| ! @refinement.infeasible_block?(fb, context) }
-    add_node(LoopNode.new(loop, context, blocks))
+        assert("SCC should either be loop or have size 1") { blocks.length == 1 }
+        block = blocks.first
+
+        # region graph: block entry node
+        region_node = region_graph.add_block_entry(block)
+        entry_node[scc_node] = region_node
+        next_index = 0
+
+        block.callsites.each { |c|
+          raise Exception.new("unresolved call") if c.unresolved_call?
+
+          # block slice node
+          first_ins, last_ins = [next_index, c.index + c.delay_slots].map { |ix| block.instructions[ix] }
+          region_node = region_graph.add_block_slice(region_node, first_ins, last_ins)
+
+          @blockslices.push(region_node)
+
+          next_index = c.index + c.delay_slots + 1
+
+          # subscope node for callsite
+          callsite_node = CallNode.new(c, context)
+          region_node = region_graph.add_callsite(region_node, callsite_node)
+        }
+        if next_index != block.instructions.length
+          first_ins, last_ins = [next_index, block.instructions.length - 1].map { |ix| block.instructions[ix] }
+          region_node = region_graph.add_block_slice(region_node, first_ins, last_ins)
+          @blockslices.push(region_node)
+        end
+        exit_node[scc_node] = region_node
+
+      else
+        inner_loop = scc_node.first.loop
+
+        # subscope node for loop
+        loop_node = LoopNode.new(inner_loop, context)
+        region_node = region_graph.add_subscope(loop_node)
+        entry_node[scc_node] = exit_node[scc_node] = region_node
+
+        # save mapping for later
+        blocks_of_node[loop_node] = scc_node.blocks
+        loop_of_node[loop_node]   = inner_loop
+      end
+      if blocks.include?(entry)
+        region_graph.entry_node.add_successor(entry_node[scc_node])
+      end
+    }
+
+    scc_graph.nodes.each { |scc_node|
+      scc_node.successors.each { |succ_scc_node|
+        source = exit_node[scc_node]
+        target = entry_node[succ_scc_node]
+        source.add_successor(target)
+      }
+      if scc_node.has_backedge?
+        exit_node[scc_node].add_successor(region_graph.backedge_node(entry))
+      end
+      if scc_node.may_return?
+        exit_node[scc_node].add_successor(region_graph.exit_node)
+      end
+    }
   end
 
   def add_node(n)
@@ -289,5 +393,326 @@ private
     end
   end
 end
+
+# DAG that represents control-flow in a single-entry region
+class RegionGraph
+
+  # RegionGraph node
+  class Node
+    include QNameObject
+    attr_reader :name, :predecessors, :successors
+    def initialize(name)
+      @qname = name
+      @predecessors, @successors = [], []
+    end
+    def add_successor(n)
+      @successors.push(n)
+      n.predecessors.push(self)
+    end
+    def dup_node
+      copy = self.dup
+      copy.reset_edges!
+      copy
+    end
+    def reset_edges!
+      @successors = []
+      @predecessors = []
+    end
+  end
+
+  class RecNode < Node
+    def initialize(target)
+      super("RecNode: #{target.qname}")
+      @target = target
+    end
+    def to_s
+      "RecNode: #{@target}"
+    end
+  end
+
+  class EntryNode < Node
+    def initialize
+      super("EntryNode")
+    end
+    def to_s
+      "EntryNode"
+    end
+  end
+
+  class ExitNode < Node
+    def initialize
+      super("ExitNode")
+    end
+    def to_s
+      "ExitNode"
+    end
+  end
+
+  class BlockEntryNode < Node
+    attr_reader :block
+    def initialize(block)
+      super(block.qname)
+      @block = block
+    end
+    def to_s
+      "BlockEntryNode: #{@block}"
+    end
+  end
+
+  class BlockSliceNode < Node
+    attr_reader :block, :first, :last
+    def initialize(block, first, last)
+      super(block.qname+"[#{first}..#{last}]")
+      @block = block
+      @first, @last = first, last
+    end
+    def to_s
+      "BlockSliceNode: #{@block}[#{first}..#{last}]"
+    end
+  end
+
+  class SubScopeNode < Node
+    attr_reader :scope_node
+    def initialize(scope_node)
+      super(scope_node.qname)
+      @scope_node = scope_node
+    end
+    def to_s
+      "SubScope: #{scope_node}"
+    end
+  end
+
+  class CallNode < Node
+    def initialize(callsite)
+      super(callsite.qname)
+      @callsite = callsite
+    end
+    def to_s
+      "CallNode: #{@callsite}"
+    end
+  end
+
+  class ActionNode < Node
+    attr_reader :action, :blockslice
+    def initialize(action, blockslice)
+      super(action.to_s)
+      @action, @blockslice = action, blockslice
+    end
+    def block
+      blockslice.block
+    end
+    def to_s
+      "ActionNode: #{action}"
+    end
+  end
+
+  attr_reader :region, :nodes, :name, :entry_node
+  def initialize(scopegraph, name)
+    @scopegraph = scopegraph
+    @name = name.to_s
+    @nodes = []
+    @nodeset = {}
+    @entry_node = add_node(EntryNode.new)
+  end
+
+  # build a new region graph, with additional block action nodes inserted after block slice nodes
+  def action_graph
+    arg = RegionGraph.new(@scopegraph, @name)
+    entry_node, exit_node = {}, {}
+    self.nodes.each { |n|
+      current_node = arg.add_node(n.dup_node)
+      entry_node[n] = current_node
+      if current_node.kind_of?(BlockSliceNode)
+        block_node = current_node
+        fst, lst = n.first.index, n.last.index
+        fst.upto(lst) { |ix|
+          actions = yield n.first.block.instructions[ix]
+          actions.each { |action|
+            current_node = add_action_node(current_node, action, block_node)
+          }
+        }
+      end
+      exit_node[n] = current_node
+    }
+    self.nodes.each { |n|
+      n.successors.each { |succ|
+        exit_node[n].add_successor(entry_node[succ])
+      }
+    }
+    arg
+  end
+
+  def entry_node=(entry_node)
+    @entry_node = entry_node
+  end
+
+  def action_nodes
+    nodes.select { |n | n.kind_of?(ActionNode) }
+  end
+
+  def subscopes
+    nodes.select { |n| n.kind_of?(SubScopeNode) }.map { |n| n.scope_node }
+  end
+
+  def loop_nodes
+    subscopes.select { |n| n.kind_of?(ScopeGraph::LoopNode) }
+  end
+
+  def call_nodes
+    subscopes.select { |n| n.kind_of?(ScopeGraph::CallNode) }
+  end
+
+  def to_s
+    "RegionGraph: #{@region_node}"
+  end
+
+  def add_block_entry(block)
+    add_node(BlockEntryNode.new(block))
+  end
+
+  def add_block_slice(predecessor_node, first_ins, last_ins)
+    block_slice_node = add_node(BlockSliceNode.new(first_ins.block, first_ins, last_ins))
+    predecessor_node.add_successor(block_slice_node)
+    block_slice_node
+  end
+
+  def add_action_node(predecessor_node, action, blockslice)
+    action_node = add_node(ActionNode.new(action, blockslice))
+    predecessor_node.add_successor(action_node)
+    action_node
+  end
+
+  def add_callsite(predecessor_node, callsite_node)
+    snode = add_subscope(callsite_node)
+    predecessor_node.add_successor(snode)
+    snode
+  end
+
+  def add_subscope(scope_node)
+    add_node(SubScopeNode.new(scope_node))
+  end
+
+  def backedge_node(target)
+    rec_node = add_node(RecNode.new(target))
+    rec_node.add_successor(exit_node)
+    rec_node
+  end
+
+  def exit_node
+    add_node(ExitNode.new)
+  end
+
+  def dump(io=$stdout)
+    puts "Dumping RegionGraph with #{@nodes.length} nodes"
+    @nodes.each { |n|
+      puts "- #{n}"
+      n.successors.each { |s| puts "  --> #{s}" }
+    }
+    require 'graphviz'
+    g = GraphViz.new(:G, :type => :digraph)
+    g.node[:shape] = "rectangle"
+    g[:label] = "Region Graoh #{name}"
+    node_dict, nids = {}, {}
+    nodes.each_with_index { |n,i| nids[n] = i }
+    nodes.each { |node|
+      nid = nids[node]
+      label = node.to_s
+      node_dict[node] = g.add_nodes(nid.to_s, :label => label)
+    }
+    nodes.each { |n|
+      n.successors.each { |s|
+        g.add_edges(node_dict[n],node_dict[s])
+      }
+    }
+    file = "tmp/region_#{name.gsub('/','_')}.png"
+    puts "DEBUG file: #{file}"
+    g.output( :png => file)
+  end
+
+  def add_node(n)
+    if existing = @nodeset[n]
+      existing
+    else
+      @nodes.push(n)
+      @nodeset[n] = n
+    end
+  end
+
+private
+
+end
+
+# Callgraph are a specialization of scope graphs; they only consist of function nodes, edges
+# are labelled with callsites
+class CallGraph < PMLObject
+  attr_reader :nodes
+  class FunctionNode < PMLObject
+    attr_reader :successors_with_callsite
+    def initialize(function, context)
+      @function, @context = function, context
+      @qname= "CGNode:#{function.qname}#{context.qname}"
+      @successors_with_callsite = []
+    end
+    def add_callsite(callsite, targets)
+      targets.each { |t|
+        @successors_with_callsite.push([t,callsite])
+      }
+    end
+    def successors
+      @successors_with_callsite.map { |t,cs| t }
+    end
+    def to_s
+      "CGNode:#{@function}#{@context.qname}"
+    end
+  end
+  def initialize
+    @nodes = []
+  end
+  def dump(io=$stdout)
+    io.puts "Callgraph"
+    @nodes.each { |n|
+      io.puts " Node #{n}"
+      n.successors_with_callsite.each { |t,cs|
+        io.puts "   #{cs}->#{t}"
+      }
+    }
+  end
+  def add_node(function, context)
+    n = FunctionNode.new(function, context)
+    @nodes.push(n)
+    n
+  end
+end
+
+
+class ScopeGraph
+  # get callgraph (scopegraph restricted to FunctionNodes) for scopegraph
+  def callgraph
+    nodes, edges = [], []
+    worklist = WorkList.new([ [self.root, self.root] ])
+    worklist.process { |node, function_node|
+      assert("ScopeGraph#callgraph: function_node of wrong type") { function_node.kind_of?(FunctionNode) }
+      nodes.push(node) if node.kind_of?(FunctionNode)
+      node.successors.each { |successor_node|
+        if(successor_node.kind_of?(FunctionNode))
+          edges.push([function_node,successor_node,node])
+          worklist.enqueue([successor_node, successor_node])
+        else
+          worklist.enqueue([successor_node, function_node])
+        end
+      }
+    }
+    cg = CallGraph.new
+    cg_nodes = {}
+    nodes.each { |n|
+      cg_nodes[n] = cg.add_node(n.function, n.context)
+    }
+    edges.each { |pre,succ,cs|
+      cg_nodes[pre].add_callsite(cs, [ cg_nodes[succ] ])
+    }
+    cg
+  end
+end
+
 
 end # module PML

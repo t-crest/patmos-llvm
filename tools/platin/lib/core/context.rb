@@ -360,7 +360,7 @@ class Context < PMLObject
   def empty?
     @callstring.empty?
   end
-  def push(e,bound)
+  def push(e, bound)
     Context.new(@callstring.push(e,bound))
   end
   def pop
@@ -477,12 +477,18 @@ class ContextRef < PMLObject
   end
 end
 
+
 #
 # fairly generic context manager
 # loop contexts are disabled if looppeel == 0 and loopunroll == 1
 class ContextManager
+
+  def ContextManager.create(history_length, looppeel = 0, loopunroll = 1)
+    return ContextManagerEmpty.new if history_length < 1
+    return ContextManager.new(history_length, looppeel, loopunroll)
+  end
+
   def initialize(history_length, looppeel = 0, loopunroll = 1)
-    raise Exception.new("ContextManager: history_length>=1 is required") unless history_length >= 1
     @history_length, @looppeel, @loopunroll = history_length, looppeel, loopunroll
   end
   def initial
@@ -530,6 +536,21 @@ class ContextManager
       LoopContextEntry.new(loop)
     }
   end
+end
+
+#
+# Trivial context manager (no history)
+#
+class ContextManagerEmpty
+  def initialize ; end
+  def initial ; Context.empty ; end
+  def blockslice(ctx, node) ; ctx ; end
+  def store_loopcontext? ; false ; end
+  def push_call(ctx,_); ctx ; end
+  def pop_call(ctx,_) ; ctx ; end
+  def exit_loop(ctx) ; ctx; end
+  def continue_loop(ctx); ctx; end
+  def reset_loop(ctx); ctx; end
 end
 
 end # module PML

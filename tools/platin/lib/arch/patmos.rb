@@ -113,6 +113,12 @@ class Architecture < PML::Architecture
   def instruction_cache
     @config.caches.by_name('instruction-cache')
   end
+  def instruction_fetch_bytes
+    num_slots * 4
+  end
+  def num_slots
+    2
+  end
   def path_wcet(ilist)
     # puts ilist.first.inspect unless ilist.empty?
     ilist.length
@@ -135,7 +141,11 @@ class Architecture < PML::Architecture
     opts = []
     if mc = method_cache
       opts.push("-mpatmos-method-cache-block-size=#{mc.block_size}")
-      opts.push("-mpatmos-method-cache-size=#{mc.size}")
+      if mfs = method_cache.get_attribute("max-subfunction-size")
+        opts.push("-mpatmos-method-cache-size=#{mfs}")
+      else
+        opts.push("-mpatmos-method-cache-size=#{mc.size}")
+      end
     else
       opts.push("-mpatmos-disable-function-splitter")
     end

@@ -114,18 +114,14 @@ class WCA
       if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
 
         next if v.kind_of?(Instruction)         # Stack-Cache Cost
-        next if v.kind_of?(InstructionCacheTag) # IC Tag
-        next if v.kind_of?(DataCacheTag)        # IC Tag
         ref = nil
         if v.kind_of?(IPETEdge)
           die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
           die("ILP cost: target is not a block") unless v.target == :exit || v.target.kind_of?(Block)
           ref = ContextRef.new(v.cfg_edge, Context.empty)
           edgefreqs[ref] = freq
-        elsif v.kind_of?(AccessEdge)
-          ref = v.ppref
-        elsif v.kind_of?(AccessInstruction)
-          ref = v.ins
+        elsif v.kind_of?(MemoryEdge)
+          ref = ContextRef.new(v.edgeref, Context.empty)
         end
         edgecosts[ref] += edgecost
         totalcosts[ref] += edgecost*freq

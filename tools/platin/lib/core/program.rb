@@ -117,10 +117,6 @@ module PML
     end
   end
 
-  # PML call graph
-  class Callgraph < PMLObject
-  end
-
   # Qualified name for loops
   class Loop < ProgramPoint
     attr_reader :function, :loopheader, :qname
@@ -244,7 +240,7 @@ module PML
       set_yaml_repr(data)
     end
     def to_s
-      "#{qname}->#{last.name}"
+      "#{qname}-#{last.name}"
     end
     def function
       entry.function
@@ -342,6 +338,28 @@ module PML
           }
         }
       end
+    end
+
+    # find all instructions that a callee may return to
+    def identify_return_sites
+      blocks.each { |b|
+        b.instructions.each { |i|
+          i.set_return_site(false)
+        }
+      }
+      blocks.each { |b|
+        b.instructions.each { |i|
+          if i.calls?
+            return_index = i.index + i.delay_slots + 1
+            overflow = return_index - b.instructions.length
+            if overflow < 0
+              b.instructions[return_index].set_return_site(true)
+            else
+              b.next.instructions[overflow].set_return_site(true)
+            end
+          end
+        }
+      }
     end
   end # of class Function
 
@@ -600,6 +618,17 @@ module PML
     # whether this instruction returns
     def returns?
       branch_type == 'return'
+    end
+
+    # whether control-flow may return to this instruction
+    def may_return_to?
+      function.identify_return_sites if @may_return_to.nil?
+      @may_return_to
+    end
+
+    # mark this is instruction as return point
+    def set_return_site(may_return_to=true)
+      @may_return_to = may_return_to
     end
 
     # number of delay slots, if this is a branch instruction

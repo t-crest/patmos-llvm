@@ -244,6 +244,16 @@ class CacheConfig < PMLObject
   # * Type: <tt>int</tt>
   attr_reader :block_size
 
+  ##
+  # :attr_reader: attributes
+  #
+  # additional attributes for the cache (key/value pairs)
+  attr_reader :attributes
+
+  def get_attribute(key)
+    attributes.find { |e| e['key'] == key }['value']
+  end
+
   # synonymous at the moment
   def line_size
     block_size
@@ -265,6 +275,7 @@ class CacheConfig < PMLObject
     @name, @type, @policy, @associativity, @block_size, @size =
       name, type, policy, associativity, block_size, size
     set_yaml_repr(data)
+    @attributes = data ? (data['attributes'] ||= []) : []
   end
 
   def CacheConfig.from_pml(ctx, data)
@@ -283,7 +294,8 @@ class CacheConfig < PMLObject
       "policy" => policy,
       "associativity" => associativity,
       "block-size" => block_size,
-      "size" => size
+      "size" => size,
+      "attributes" => attributes
     }.delete_if { |k,v| v.nil? }
   end
 end # class CacheConfig

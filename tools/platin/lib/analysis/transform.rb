@@ -419,7 +419,10 @@ class FlowFactTransformation
           # FIXME: for now, we do not export interprocedural flow-facts relative to a function other than the entry,
           # because this is not supported by any of the WCET analyses
           r = ff.local? || ff.scope.function == target_analysis_entry
-          warn("Skipping unsupported flow fact scope of transformed flow fact: #{ff.scope.function}") unless r
+          unless r
+            warn("Skipping unsupported flow fact scope of transformed flow fact #{ff}: "+
+                 "(function: #{ff.scope.function}, local: #{ff.local?})")
+          end
           r
         }
 

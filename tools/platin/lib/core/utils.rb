@@ -5,6 +5,7 @@
 #
 require 'yaml'
 require 'set'
+require 'tsort'
 require 'core/options'
 
 module PML
@@ -36,6 +37,29 @@ module PML
         yield item
       end
     end
+    def processed_items
+      @done.to_a
+    end
+  end
+
+  # adapter to perform topological sort and scc formation on graphs
+  class TSortAdapter
+    include TSort
+    def initialize(nodelist, excluded_edge_targets = [])
+      @nodelist = nodelist
+      @excluded_edge_targets = Set[*excluded_edge_targets]
+      @nodeset = Set[*nodelist]
+    end
+    def tsort_each_node
+      @nodelist.each { |node| yield node }
+    end
+    def tsort_each_child(node)
+      node.successors.each { |succnode|
+        if @nodeset.include?(succnode) && ! @excluded_edge_targets.include?(succnode)
+          yield succnode
+        end
+      }
+    end
   end
 
   # Topological sort for connected, acyclic graph
@@ -47,6 +71,7 @@ module PML
   # second parameter can be used to provide
   # an object that responds to +successors(node)+
   # and +predecessors(node)+.
+  #
   def topological_sort(entry, graph_trait = nil)
     topo = []
     worklist = WorkList.new([entry])
