@@ -291,6 +291,10 @@ class MethodCacheAnalysis
     @block_subfunction_map = {}
   end
 
+  def block_capacity
+    @cache.size / @cache.block_size
+  end
+
   def sets
     1
   end
@@ -321,9 +325,18 @@ class MethodCacheAnalysis
     end
   end
 
+  # decision is correct for all variant of the method cache (fixed and variable block)
   def conflict_free?(subfunctions)
-    # fixed block size
-    subfunctions.map { |sf| blocks_for_tag(sf) }.inject(0,:+) <= @cache.associativity
+
+    # the number of blocks occupied by all subfunctions may not exceed the
+    # number of blocks available in the cache
+    c1 = subfunctions.map { |sf| blocks_for_tag(sf) }.inject(0,:+) <= block_capacity
+
+    # the number of subfunctions in the cache may not exceed the
+    # associativity of the cache
+    c2 = subfunctions.length <= @cache.associativity
+
+    c1 && c2
   end
 
   def load_cost(subfunction)
@@ -331,7 +344,7 @@ class MethodCacheAnalysis
   end
 
   def blocks_for_tag(subfunction)
-    @cache.bytes_to_blocks(subfunction.size)
+    @cache.bytes_to_blocks(@pml.arch.subfunction_size(subfunction))
   end
 
 end

@@ -14,6 +14,11 @@ module PML
     '"' + str + '"'
   end
 
+  def div_ceil(num, denom)
+    raise Exception.new("div_ceil: negative numerator or denominator") unless num >= 0 && denom > 0
+    (num+denom-1) / denom
+  end
+
   def merge_ranges(r1,r2=nil)
     assert("first argument is nil") { r1 }
     r1=Range.new(r1,r1) unless r1.kind_of?(Range)

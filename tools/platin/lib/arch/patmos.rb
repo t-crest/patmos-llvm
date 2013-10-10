@@ -92,33 +92,48 @@ class Architecture < PML::Architecture
                                PML::MemoryArea.new('data','data',caches.list[2], memories.first, full_range) ])
     PML::MachineConfig.new(memories,caches,memory_areas)
   end
+
   def simulator_trace(options)
     SimulatorTrace.new(options.binary_file, self, options)
+  end
+
+  def num_slots
+    2
   end
 
   def method_cache
     @config.caches.by_name('method-cache')
   end
+
   def subfunction_miss_cost(sf)
     memory = @config.memory_areas.by_name('code').memory
+    sf_size = subfunction_size(sf)
+
     # this matches the simulator implementation (read 4 bytes size, then read method)
-    memory.read_delay(4) + memory.read_delay(sf.size)
+    memory.read_delay(4) + memory.read_delay(sf_size)
   end
+
+  def subfunction_size(sf)
+    memory = @config.memory_areas.by_name('code').memory
+    sf.size(memory.transfer_size, memory.transfer_size) * memory.transfer_size
+  end
+
   def stack_cache
     @config.caches.by_name('stack-cache')
   end
+
   def data_cache
     @config.caches.by_name('data-cache')
   end
+
   def instruction_cache
     @config.caches.by_name('instruction-cache')
   end
+
   def instruction_fetch_bytes
     num_slots * 4
   end
-  def num_slots
-    2
-  end
+
   def path_wcet(ilist)
     # puts ilist.first.inspect unless ilist.empty?
     ilist.length
