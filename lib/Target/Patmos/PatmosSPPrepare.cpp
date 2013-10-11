@@ -75,7 +75,9 @@ namespace {
     PatmosSPPrepare(const PatmosTargetMachine &tm) :
       MachineFunctionPass(ID), TM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())) {}
+        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())) {
+      (void) TM;
+    }
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {
@@ -93,8 +95,8 @@ namespace {
     virtual bool runOnMachineFunction(MachineFunction &MF) {
       PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
       bool changed = false;
-      // only convert function if specified on command line
-      if ( PSPI.isEnabled(MF) ) {
+      // only convert function if marked
+      if ( PSPI.isConverting(MF) ) {
         DEBUG( dbgs() << "[Single-Path] Preparing "
                       << MF.getFunction()->getName() << "\n" );
         doPrepareFunction(MF);

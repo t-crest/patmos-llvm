@@ -30,10 +30,10 @@ namespace llvm {
   void initializePatmosCallGraphBuilderPass(PassRegistry&);
   void initializePatmosStackCacheAnalysisInfoPass(PassRegistry&);
   void initializePatmosPostRASchedulerPass(PassRegistry&);
-  void initializePatmosSPMarkPass(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
-  ModulePass   *createPatmosSPMarkPass();
+  ModulePass   *createPatmosSPClonePass();
+  ModulePass   *createPatmosSPMarkPass(PatmosTargetMachine &tm);
   FunctionPass *createPatmosSinglePathInfoPass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosSPPreparePass(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosSPReducePass(const PatmosTargetMachine &tm);

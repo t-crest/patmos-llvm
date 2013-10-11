@@ -16,6 +16,7 @@
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
+#include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
 #include "llvm/ADT/BitVector.h"
@@ -33,7 +34,6 @@
 
 #include <map>
 #include <queue>
-
 
 using namespace llvm;
 
@@ -65,9 +65,14 @@ bool PatmosSinglePathInfo::isEnabled() {
   return !SPRootList.empty();
 }
 
+bool PatmosSinglePathInfo::isConverting(const MachineFunction &MF) {
+  const PatmosMachineFunctionInfo *PMFI =
+    MF.getInfo<PatmosMachineFunctionInfo>();
+  return PMFI->isSinglePath();
+}
 
 bool PatmosSinglePathInfo::isEnabled(const MachineFunction &MF) {
-  return isRoot(MF) || isReachable(MF);
+  return isRoot(MF) || isReachable(MF) || isMaybe(MF);
 }
 
 bool PatmosSinglePathInfo::isRoot(const MachineFunction &MF) {
@@ -76,6 +81,10 @@ bool PatmosSinglePathInfo::isRoot(const MachineFunction &MF) {
 
 bool PatmosSinglePathInfo::isReachable(const MachineFunction &MF) {
   return MF.getFunction()->hasFnAttribute("sp-reachable");
+}
+
+bool PatmosSinglePathInfo::isMaybe(const MachineFunction &MF) {
+  return MF.getFunction()->hasFnAttribute("sp-maybe");
 }
 
 void PatmosSinglePathInfo::getRootNames(std::set<std::string> &S) {
@@ -115,9 +124,9 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
     delete Root;
     Root = NULL;
   }
-  // only consider function if specified on command line
+  // only consider function actually marked for conversion
   std::string curfunc = MF.getFunction()->getName();
-  if ( isEnabled(MF) ) {
+  if ( isConverting(MF) ) {
     DEBUG( dbgs() << "[Single-Path] Analyze '" << curfunc << "'\n" );
     analyzeFunction(MF);
   }
@@ -354,9 +363,10 @@ PatmosSinglePathInfo::getOrCreateDefInfo(SPScope &S,
 
 
 SPScope::SPScope(SPScope *parent, MachineBasicBlock *header,
-               MachineBasicBlock *succ, unsigned int numbe)
+               MachineBasicBlock *succ, unsigned int numbe,
+               bool isRootTopLevel)
                : Parent(parent), SuccMBB(succ), NumBackedges(numbe),
-                 LoopBound(-1) {
+                 RootTopLevel(isRootTopLevel), LoopBound(-1) {
   Depth = 0;
   if (Parent) {
     // add to parent's child list
@@ -383,6 +393,10 @@ void SPScope::addMBB(MachineBasicBlock *MBB) {
   if (Blocks.front() != MBB) {
     Blocks.push_back(MBB);
   }
+}
+
+bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
+  return getHeader() == MBB;
 }
 
 bool SPScope::isMember(const MachineBasicBlock *MBB) const {
@@ -552,7 +566,8 @@ PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) const {
   // First, create a SPScope tree
   std::map<const MachineLoop *, SPScope *> M;
 
-  SPScope *Root = new SPScope(NULL, &MF.front(), NULL, 0);
+  SPScope *Root = new SPScope(NULL, &MF.front(), NULL, 0, isRoot(MF));
+
 
   M[NULL] = Root;
 

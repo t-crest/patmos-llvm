@@ -103,7 +103,7 @@ namespace {
         // Single-path transformation currently cannot deal with
         // switch/jumptables -> lower them to ITEs
         addPass(createLowerSwitchPass());
-        addPass(createPatmosSPMarkPass());
+        addPass(createPatmosSPClonePass());
         return true;
       }
       return false;
@@ -220,6 +220,7 @@ namespace {
     /// prolog-epilog insertion.  This should return true if -print-machineinstrs
     /// should print after these passes.
     virtual bool addPostRegAlloc() {
+      addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
       addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
       addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
       return false;

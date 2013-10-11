@@ -116,7 +116,7 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   if (TFI->hasFP(MF))
     Reserved.set(Patmos::RFP);
 
-  if (PatmosSinglePathInfo::isEnabled()) {
+  if (PatmosSinglePathInfo::isEnabled(MF)) {
     // Additionally reserved for single-path support
     Reserved.set(Patmos::R26);
     // guarantee two available predicate registers

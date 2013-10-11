@@ -194,8 +194,8 @@ namespace {
       PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
       PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
       bool changed = false;
-      // only convert function if specified on command line
-      if ( PSPI.isEnabled(MF) ) {
+      // only convert function if marked
+      if ( PSPI.isConverting(MF) ) {
         DEBUG( dbgs() << "[Single-Path] Reducing "
                       << MF.getFunction()->getName() << "\n" );
         doReduceFunction(MF);
@@ -811,15 +811,8 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
     if (S->isSubHeader(MBB))
       continue;
 
-    unsigned use_preg = getUsePReg(R, MBB);
-    assert(use_preg != Patmos::NoRegister || S->isTopLevel());
+    unsigned use_preg = getUsePReg(R, MBB, true);
 
-    // check for use predicate
-    if (use_preg==Patmos::NoRegister) {
-      DEBUG_TRACE( dbgs() << "  skip: no guard for MBB#" << MBB->getNumber()
-                    << "\n" );
-      continue;
-    }
 
     DEBUG_TRACE( dbgs() << "  applying "
                         << TRI->getName(use_preg)
@@ -837,10 +830,19 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
           DEBUG_TRACE( dbgs() << "    skip return: " << *MI );
           continue;
       }
-      // TODO properly handle calls
+
+      if (MI->isCall()) {
+          DEBUG_TRACE( dbgs() << "    call: " << *MI );
+          assert(!TII->isPredicated(MI) && "call predicated");
+          // copy actual preg to temporary preg
+          AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
+                TII->get(Patmos::PMOV), PRTmp))
+            .addReg(use_preg).addImm(0);
+          continue;
+      }
 
       if (MI->isPredicable()) {
-        if (!TII->isPredicated(MI)) {
+        if (!TII->isPredicated(MI) || use_preg == Patmos::P0) {
           // find first predicate operand
           int i = MI->findFirstPredOperandIdx();
           assert(i != -1);
@@ -871,10 +873,21 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
       }
     } // for each instruction in MBB
 
+
     // insert spill and load instructions for the guard register
     if (R.hasSpillLoad(MBB)) {
       insertUseSpillLoad(R, MBB);
     }
+
+    // if this is a reachable function, we nead to get the
+    // top-level predicate from the caller
+    if (S->isTopLevel() && !S->isRootTopLevel() && S->isHeader(MBB)) {
+      AddDefaultPred(BuildMI(*MBB, &MBB->front(),
+            MBB->front().getDebugLoc(),
+            TII->get(Patmos::PMOV), use_preg))
+        .addReg(PRTmp).addImm(0);
+    }
+
   } // end for each MBB
 }
 
@@ -1061,9 +1074,9 @@ void RAInfo::assignLocations(void) {
 
     // (1) handle use
     unsigned usePred = Scope->getPredUse(MBB);
-    // for the top-level entry, we don't need to assign a location,
-    // as we will use p0 - TODO: interprocedural handling
-    if (!(usePred==0 && Scope->isTopLevel())) {
+    // for the top-level entry of a single-path root,
+    // we don't need to assign a location, as we will use p0
+    if (!(usePred==0 && Scope->isRootTopLevel())) {
       UseLoc UL;
 
       int &curUseLoc = curLocs[usePred];

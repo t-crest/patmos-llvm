@@ -47,6 +47,9 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// Register used to spill s0 to instead of the stack cache.
   unsigned S0SpillReg;
 
+  /// True if this function is to be single-path converted
+  bool SinglePathConvert;
+
   /// FIs created for SinglePath conversion
   /// | LoopCnts | S0Spills | ExcessSpills |
   std::vector<int> SinglePathFIs;
@@ -67,7 +70,7 @@ public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
     StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0),
     S0SpillReg(0),
-    SPS0SpillOffset(0), SPExcessSpillOffset(0)
+    SinglePathConvert(false), SPS0SpillOffset(0), SPExcessSpillOffset(0)
     {}
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
@@ -144,6 +147,14 @@ public:
   /// \see MethodCacheRegionEntries
   bool isMethodCacheRegionEntry(const MachineBasicBlock *MBB) const {
     return MethodCacheRegionEntries.find(MBB) != MethodCacheRegionEntries.end();
+  }
+
+  void setSinglePath(bool convert=true) {
+    SinglePathConvert = convert;
+  }
+
+  bool isSinglePath(void) const {
+    return SinglePathConvert;
   }
 
   void addSinglePathFI(int fi) {

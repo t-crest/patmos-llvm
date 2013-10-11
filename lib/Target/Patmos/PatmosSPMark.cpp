@@ -17,15 +17,17 @@
 #define DEBUG_TYPE "patmos-singlepath"
 
 #include "Patmos.h"
+#include "PatmosMachineFunctionInfo.h"
 #include "PatmosSinglePathInfo.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/CodeGen/MachineModulePass.h"
 //#include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
-#include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/InstIterator.h"
@@ -36,185 +38,176 @@
 
 using namespace llvm;
 
-STATISTIC(NumSPRoots,     "Number of single-path roots");
-STATISTIC(NumSPReachable, "Number of functions marked as single-path "
-                          "reachable from roots");
-STATISTIC(NumSPUsed,      "Number of functions marked as single-path "
-                          "because used attribute");
+STATISTIC(NumSPTotal, "Total number of functions marked as single-path");
+STATISTIC(NumSPMaybe, "Number of 'used' functions marked as single-path");
 
 
 namespace {
 
 /// @brief Pass to remove unused function declarations.
-class PatmosSPMark : public ModulePass {
+class PatmosSPMark : public MachineModulePass {
 private:
+  typedef std::deque<MachineFunction*> Worklist;
 
-  typedef std::deque<Function*> Worklist;
-  typedef SmallPtrSet<Function*, 64> FunctionSet;
+  PatmosTargetMachine &TM;
 
-  /// Set of function names as roots
-  std::set<std::string> SPRoots;
-
-  FunctionSet FuncsRoots;
-  FunctionSet FuncsReachable;
+  MachineModuleInfo *MMI; // contains map Function -> MachineFunction
 
 
-  void loadFromGlobalVariable(SmallSet<std::string, 32> &Result,
-                              const GlobalVariable *GV) const;
+  void scanAndRewriteCalls(MachineFunction *MF, Worklist &W);
 
+  const Function *getCallTarget(const MachineInstr *MI) const;
 
-  void handleRoot(Function *F);
+  MachineFunction *getCallTargetMF(const MachineInstr *MI) const;
 
-  // clones function F to <funcname>_sp_ and adds the "sp-reachable" attribute
-  Function *cloneAndMark(Function *F);
-
-  // add callees of F to worklist W and rewrite the calls
-  void explore(Function *F, Worklist &W);
+  void rewriteCall(MachineInstr *MI);
 
 public:
   static char ID; // Pass identification, replacement for typeid
 
-  PatmosSPMark() : ModulePass(ID) {
-    initializePatmosSPMarkPass(*PassRegistry::getPassRegistry());
+  PatmosSPMark(PatmosTargetMachine &tm)
+    : MachineModulePass(ID), TM(tm)
+  {
+    (void) TM;
   }
 
-  virtual bool doInitialization(Module &M);
-  virtual bool doFinalization(Module &M);
-  virtual bool runOnModule(Module &M);
+  virtual void getAnalysisUsage(AnalysisUsage &AU) const
+  {
+    AU.addRequired<MachineModuleInfo>();
+    AU.setPreservesAll();
+    MachineModulePass::getAnalysisUsage(AU);
+  }
+
+  virtual bool doInitialization(Module &M) {
+    return false;
+  }
+
+  virtual bool doFinalization(Module &M) {
+    return false;
+  }
+
+  virtual bool runOnMachineModule(const Module &M);
 };
 
 } // end anonymous namespace
 
 char PatmosSPMark::ID = 0;
 
-INITIALIZE_PASS(PatmosSPMark, "patmos-spmark",
-                "Mark functions for single-path conversion", false, false)
-
-
-ModulePass *llvm::createPatmosSPMarkPass() {
-  return new PatmosSPMark();
+ModulePass *llvm::createPatmosSPMarkPass(PatmosTargetMachine &tm) {
+  return new PatmosSPMark(tm);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool PatmosSPMark::doInitialization(Module &M) {
-  PatmosSinglePathInfo::getRootNames(SPRoots);
-  return false;
-}
 
-bool PatmosSPMark::doFinalization(Module &M) {
-  if (!SPRoots.empty()) {
-    DEBUG( dbgs() << "Following single-path roots not found:\n'" );
-    for (std::set<std::string>::iterator it=SPRoots.begin();
-            it!=SPRoots.end(); ++it) {
-      DEBUG( dbgs() << *it << "' ");
-    }
-    DEBUG( dbgs() << '\n');
-    SPRoots.clear();
-  }
-  return false;
-}
-
-
-bool PatmosSPMark::runOnModule(Module &M) {
+bool PatmosSPMark::runOnMachineModule(const Module &M) {
 
   DEBUG( dbgs() <<
          "[Single-Path] Mark functions reachable from single-path roots\n");
 
+  MMI = &getAnalysis<MachineModuleInfo>();
+  assert(MMI);
 
-  SmallSet<std::string, 32> used;
-  loadFromGlobalVariable(used, M.getGlobalVariable("llvm.used"));
-
-  //TODO in a future version of LLVM the attribute handling
-  //     is likely to be different
-  //AttrBuilder AB;
-  //AB.addAttribute("singlepath", "root");
-
-  for (Module::iterator I = M.begin(), E = M.end(); I != E; ) {
-    Function *F = I++;
-
-    // check if used. if yes, duplicate and flag as reachable
-    if (used.count(F->getName())) {
-      (void) cloneAndMark(F);
-      NumSPUsed++; // bump STATISTIC
-      continue;
-    }
-
-    // handle single-path root
-    if (SPRoots.count(F->getName())) {
-      handleRoot(F);
-      SPRoots.erase(F->getName());
-    }
-  }
-
-  // Only assign statistics if there are functions contained,
-  // to adhere to the conventions.
-  if (!FuncsRoots.empty())     NumSPRoots     = FuncsRoots.size();
-  if (!FuncsReachable.empty()) NumSPReachable = FuncsReachable.size();
-
-  return (NumSPRoots + NumSPReachable + NumSPUsed) > 0;
-}
-
-
-void PatmosSPMark::loadFromGlobalVariable(SmallSet<std::string, 32> &Result,
-                                          const GlobalVariable *GV) const {
-  if (!GV || !GV->hasInitializer()) return;
-
-  // Should be an array of 'i8*'.
-  const ConstantArray *InitList = dyn_cast<ConstantArray>(GV->getInitializer());
-  if (InitList == 0) return;
-
-  for (unsigned i = 0, e = InitList->getNumOperands(); i != e; ++i)
-    if (const Function *F =
-          dyn_cast<Function>(InitList->getOperand(i)->stripPointerCasts()))
-      Result.insert(F->getName());
-}
-
-
-void PatmosSPMark::handleRoot(Function *F) {
-
-  DEBUG( dbgs() << "SPRoot " << F->getName() << "\n" );
-  F->addFnAttr("sp-root");
-  FuncsRoots.insert(F);
-
-  // explore from root
   Worklist W;
-  explore(F, W);
-  while (!W.empty()) {
-    Function *Child = W.front();
-    W.pop_front();
-    explore(Child, W);
+
+  // initialize the worklist with machine functions that have either
+  // sp-root or sp-reachable function attribute
+  for(Module::const_iterator F(M.begin()), FE(M.end()); F != FE; ++F) {
+    if (F->hasFnAttribute("sp-root") || F->hasFnAttribute("sp-reachable")) {
+      // get the machine-level function
+      MachineFunction *MF = MMI->getMachineFunction(F);
+      assert( MF );
+      PatmosMachineFunctionInfo *PMFI =
+        MF->getInfo<PatmosMachineFunctionInfo>();
+      PMFI->setSinglePath();
+      NumSPTotal++; // bump STATISTIC
+      W.push_back(MF);
+    }
   }
 
+  // process worklist
+  while (!W.empty()) {
+    MachineFunction *MF = W.front();
+    W.pop_front();
+    scanAndRewriteCalls(MF, W);
+  }
+  return true;
 }
 
-
-Function *PatmosSPMark::cloneAndMark(Function *F) {
-  ValueToValueMapTy VMap;
-  Function *SPF = CloneFunction(F, VMap, false, NULL);
-  SPF->setName(F->getName() + Twine("_sp_"));
-  SPF->addFnAttr("sp-reachable");
-  F->getParent()->getFunctionList().push_back(SPF);
-  return SPF;
+const Function *PatmosSPMark::getCallTarget(const MachineInstr *MI) const {
+  if (const Function *Target =
+      dyn_cast<Function>( MI->getOperand(2).getGlobal())) {
+    return Target;
+  }
+  return NULL;
 }
 
-void PatmosSPMark::explore(Function *F, Worklist &W) {
-  for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
-      if (CallInst *Call = dyn_cast<CallInst>(&*I)) {
-        Function *Callee = Call->getCalledFunction();
-        // if we aleady have treated the callee, skip
-        if (FuncsReachable.count(Callee)) continue;
+MachineFunction *PatmosSPMark::getCallTargetMF(const MachineInstr *MI) const {
+  const Function *F = getCallTarget(MI);
+  MachineFunction *MF;
+  if (F && (MF = MMI->getMachineFunction(F))) {
+    return MF;
+  }
+  return NULL;
+}
 
-        // clone function
-        Function *SPCallee = cloneAndMark(Callee);
-        // rewrite call
-        Call->setCalledFunction(SPCallee);
-        // add callee to worklist
-        W.push_back(SPCallee);
-        // remember that we processed Callee
-        FuncsReachable.insert(Callee);
+void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
+  for (MachineFunction::iterator MBB = MF->begin(), MBBE = MF->end();
+                                 MBB != MBBE; ++MBB) {
+    for( MachineBasicBlock::iterator MI = MBB->begin(),
+                                     ME = MBB->getFirstTerminator();
+                                     MI != ME; ++MI) {
+      if (MI->isCall()) {
+        MachineFunction *MF = getCallTargetMF(MI);
+        assert(MF);
+        PatmosMachineFunctionInfo *PMFI =
+          MF->getInfo<PatmosMachineFunctionInfo>();
+        if (!PMFI->isSinglePath()) {
+          // rewrite call to _sp variant
+          rewriteCall(MI);
+          // set _sp MF to single path in PMFI (MF has changed!)
+          MachineFunction *MF = getCallTargetMF(MI);
+          PatmosMachineFunctionInfo *PMFI =
+            MF->getInfo<PatmosMachineFunctionInfo>();
+          // we possibly have already marked the _sp variant as single-path
+          // in an earlier call
+          if (!PMFI->isSinglePath()) {
+            PMFI->setSinglePath();
+            // add the new single-path function to the worklist
+            W.push_back(MF);
 
-        DEBUG( dbgs() << "  "   << Callee->getName()
-                      << " -> " << SPCallee->getName() << "\n");
+            NumSPTotal++; // bump STATISTIC
+            NumSPMaybe++; // bump STATISTIC
+          }
+        }
       }
+    }
+  }
+}
+
+
+void PatmosSPMark::rewriteCall(MachineInstr *MI) {
+  // get current MBB and call target
+  MachineBasicBlock *MBB = MI->getParent();
+  const Function *Target = dyn_cast<Function>(
+      MI->getOperand(2).getGlobal()
+      );
+  assert(Target->hasFnAttribute("sp-maybe"));
+  // get the same function with _sp prefix
+  SmallVector<char, 64> buf;
+  const StringRef SPFuncName = Twine(
+      Twine(Target->getName()) + Twine("_sp_")
+      ).toStringRef(buf);
+
+  const Function *SPTarget = dyn_cast<Function>(
+      Target->getParent()->getNamedGlobal(SPFuncName)
+      );
+  assert(SPTarget && "SP-reachable function not found!");
+  // Remove the call target operand and add a new target operand
+  // with an MachineInstrBuilder. In this case, it is inserted at
+  // the right place, before the implicit defs of the call.
+  MI->RemoveOperand(2);
+  MachineInstrBuilder MIB(*MBB->getParent(), MI);
+  MIB.addGlobalAddress(SPTarget);
+  DEBUG_TRACE( dbgs() << "    call-sp: " << *MI );
 }

@@ -109,9 +109,13 @@ namespace llvm {
       /// to be converted to single-path code.
       static bool isEnabled(const MachineFunction &MF);
 
+      static bool isConverting(const MachineFunction &MF);
+
       static bool isRoot(const MachineFunction &MF);
 
       static bool isReachable(const MachineFunction &MF);
+
+      static bool isMaybe(const MachineFunction &MF);
 
       /// getRootNames - Fill a set with the names of
       /// single-path root functions
@@ -198,8 +202,11 @@ namespace llvm {
       /// constructor - Create an SPScope with specified parent SP scope or
       /// NULL if top level;
       /// the header/entry MBB; the succ MBB; number of backedges
+      /// isRootTopLevel is true when this scope is a top level scope of
+      /// a single-path root function.
       explicit SPScope(SPScope *parent, MachineBasicBlock *header,
-                      MachineBasicBlock *succ, unsigned numbe);
+                      MachineBasicBlock *succ, unsigned numbe,
+                      bool isRootTopLevel=false);
 
       /// destructor - free the child scopes first, cleanup
       ~SPScope();
@@ -219,6 +226,14 @@ namespace llvm {
       /// isTopLevel - Returs true if the SPScope is the top-level SPScope
       /// (not a loop)
       bool isTopLevel() const { return (NULL == Parent); }
+      //
+      /// isRootTopLevel - Returs true if the SPScope is the top-level SPScope
+      /// of a single-path root function
+      bool isRootTopLevel() const { return RootTopLevel; }
+
+      /// isHeader - Returns true if the specified MBB is a member of this
+      /// SPScope, (non-recursively)
+      bool isHeader(const MachineBasicBlock *MBB) const;
 
       /// isMember - Returns true if the specified MBB is a member of this
       /// SPScope, (non-recursively)
@@ -279,6 +294,10 @@ namespace llvm {
 
       // number of backedges
       const unsigned NumBackedges;
+
+      // flag that only is set to true if the scope is a top-level scope
+      // of a single-path root function
+      const bool RootTopLevel;
 
       // loop bound
       int LoopBound;
