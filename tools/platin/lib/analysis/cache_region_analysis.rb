@@ -78,7 +78,6 @@ end
 # transfer costs.
 #
 class CacheRegionAnalysis
-  attr_reader :pml, :options
 
   # cache tags
   class Tag
@@ -89,9 +88,7 @@ class CacheRegionAnalysis
     end
   end
 
-  def get_region_graph(node)
-    @region_graphs[node]
-  end
+  attr_reader :pml, :options, :cache
 
   def initialize(cache_properties, pml, options)
     @cache, @pml, @options = cache_properties, pml, options
@@ -161,7 +158,7 @@ class CacheRegionAnalysis
           }
         }
         @region_graphs[n] = arg
-        #arg.dump (nice for debugging)
+        #arg.dump #(nice for debugging)
       end
     }
 
@@ -170,6 +167,10 @@ class CacheRegionAnalysis
       debug(options, :cache) { "Starting cache region analysis for cache set #{set}" }
       compute_miss_constraints(scopegraph, set)
     end
+  end
+
+  def get_region_graph(node)
+    @region_graphs[node]
   end
 
   #
@@ -196,16 +197,101 @@ class CacheRegionAnalysis
     }
   end
 
+  class ConflictFreeRegionFormation
+
+    def initialize(region_graph, analysis)
+      @rg, @analysis = region_graph, analysis
+      @regions, @region_header, @region_nodes, @region_tags = [], {}, {}, {}, {}
+    end
+
+    def build_regions(set)
+
+      # NOTE: ruby tsort is recursive, and does not work for large graphs :(
+      # therefore, we use our own, efficient implementation
+
+      topological_sort(@rg.entry_node).each { |node|
+        node_tags = Set[*get_tags(node, set)]
+        if(pred_region = expandable?(node, node_tags, set))
+          @region_header[node] = pred_region
+          @region_tags[pred_region] += node_tags
+          @region_nodes[pred_region].push(node)
+        else
+          @region_header[node] = node
+          @region_tags[node] = node_tags
+          @region_nodes[node] = [node]
+          @regions.push(node)
+        end
+      }
+      self
+    end
+
+    # yield region pairs [header, tags]
+    def each
+      @regions.each { |region_header|
+        tags = @region_tags[region_header]
+        yield [region_header, tags]
+      }
+    end
+
+    private
+
+    def tags_of_region(region)
+      @region_tags[region]
+    end
+
+    def get_tags(node, set)
+      if node.kind_of?(RegionGraph::ActionNode)
+        tag = node.action.tag
+        return [] unless @analysis.cache.set_of(tag) == set
+        [tag]
+      elsif node.kind_of?(RegionGraph::SubScopeNode)
+        return [] unless @analysis.conflict_free?(node.scope_node, set)
+        @analysis.get_all_tags(node.scope_node, set).keys
+      else
+        []
+      end
+    end
+
+    def expandable?(node, node_tags, set)
+      return nil if node.kind_of?(RegionGraph::RecNode)
+      return nil if node.kind_of?(RegionGraph::ExitNode)
+      if node.kind_of?(RegionGraph::SubScopeNode)
+        return nil unless @analysis.conflict_free?(node.scope_node, set)
+      end
+      some_pred = node.predecessors.first
+      return nil if some_pred.nil?
+      pred_region = @region_header[some_pred]
+
+      return nil if node.predecessors.any? { |pred| pred.kind_of?(RegionGraph::EntryNode) }
+      return nil if node.predecessors.any? { |pred| @region_header[pred] != pred_region }
+
+      pred_tags = @region_tags[pred_region]
+      return nil unless @analysis.cache.conflict_free?(pred_tags + node_tags)
+
+      return pred_region
+    end
+  end
+
   #
   # Add miss constraints if there is a conflict
   #
   def compute_miss_constraints_in_conflict_scope(node, set)
 
     debug(options, :cache) { "Conflicts in scope #{node}: #{get_all_tags(node, set).keys.inspect}" }
+    options.conflict_regions = true
 
     if rg = get_region_graph(node)
-      if false && options.conflict_regions
-        # not yet ported
+      if options.conflict_regions
+        # process region graph in topological order
+        $stderr.puts "region formation"
+        ConflictFreeRegionFormation.new(rg, self).build_regions(set).each { |header, tags|
+          next if tags.empty?
+          scope_node = region_header_scope(node, header)
+          tags.each { |tag|
+            add_scope_for_tag(scope_node, tag)
+          }
+
+        }
       else
         # If this is a region node, add misses for all actions in the current set
         rg.action_nodes.each { |action_node|
@@ -221,6 +307,23 @@ class CacheRegionAnalysis
       add_conflict_free_subscope_constraints(node, set)
     end
   end
+
+  def region_header_scope(scope_node, region_node)
+    case region_node
+    when RegionGraph::BlockEntryNode
+      ScopeGraph::BlockNode.new(region_node.block, scope_node.context)
+    when RegionGraph::BlockSliceNode
+      ScopeGraph::BlockNode.new(region_node.block, scope_node.context)
+    when RegionGraph::ActionNode
+      ScopeGraph::BlockNode.new(region_node.block, scope_node.context)
+    when RegionGraph::SubScopeNode
+      region_node.scope_node
+    else
+      # should never be reached, as entry, exit and recursion nodes are isolated without accesses
+      raise Exception.new("#{region_node} of type #{region_node.class} does not correspond to a scope")
+    end
+  end
+
 
   def add_conflict_free_subscope_constraints(node, set)
     # add scope constraint for all conflict-free successors

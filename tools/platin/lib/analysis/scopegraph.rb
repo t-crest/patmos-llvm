@@ -420,16 +420,6 @@ class RegionGraph
     end
   end
 
-  class RecNode < Node
-    def initialize(target)
-      super("RecNode: #{target.qname}")
-      @target = target
-    end
-    def to_s
-      "RecNode: #{@target}"
-    end
-  end
-
   class EntryNode < Node
     def initialize
       super("EntryNode")
@@ -482,16 +472,6 @@ class RegionGraph
     end
   end
 
-  class CallNode < Node
-    def initialize(callsite)
-      super(callsite.qname)
-      @callsite = callsite
-    end
-    def to_s
-      "CallNode: #{@callsite}"
-    end
-  end
-
   class ActionNode < Node
     attr_reader :action, :blockslice
     def initialize(action, blockslice)
@@ -503,6 +483,16 @@ class RegionGraph
     end
     def to_s
       "ActionNode: #{action}"
+    end
+  end
+
+  class RecNode < Node
+    def initialize(target)
+      super("RecNode: #{target.qname}")
+      @target = target
+    end
+    def to_s
+      "RecNode: #{@target}"
     end
   end
 
@@ -528,7 +518,7 @@ class RegionGraph
         fst.upto(lst) { |ix|
           actions = yield n.first.block.instructions[ix]
           actions.each { |action|
-            current_node = add_action_node(current_node, action, block_node)
+            current_node = arg.add_action_node(current_node, action, block_node)
           }
         }
       end
@@ -624,9 +614,9 @@ class RegionGraph
         g.add_edges(node_dict[n],node_dict[s])
       }
     }
-    file = "tmp/region_#{name.gsub('/','_')}.png"
+    file = "tmp/region_#{name.gsub('/','_')}.eps"
     puts "DEBUG file: #{file}"
-    g.output( :png => file)
+    g.output( :eps => file)
   end
 
   def add_node(n)
