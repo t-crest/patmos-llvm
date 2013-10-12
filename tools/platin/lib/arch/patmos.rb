@@ -207,12 +207,15 @@ class Architecture < PML::Architecture
       opts.push("--dlsize")
       opts.push(dc.block_size)
       opts.push("--dckind")
-      if dc.associativity.to_i > 1
-        if dc.policy && dc.policy.downcase != 'lru'
+      if dc.associativity.to_i >= 1
+        if dc.policy && dc.policy.downcase == 'lru'
+          opts.push("lru#{dc.associativity}")
+        elsif dc.policy && dc.policy.downcase == 'fifo'
+          opts.push("fifo#{dc.associativity}")
+        else
           warn("Patmos simulator configuration: the only supported replacement "+
-               "policy for data cache simulation is LRU")
+               "policy for data cache simulation are LRU and FIFO")
         end
-        opts.push("lru#{dc.associativity}")
       else
         opts.push("no")
       end
@@ -250,12 +253,15 @@ class Architecture < PML::Architecture
       opts.push("--ilsize")
       opts.push(ic.block_size)
       opts.push("--ickind")
-      if ic.associativity.to_i > 1
-        if ic.policy && ic.policy.downcase != 'lru'
+      if ic.associativity.to_i >= 1
+        if ic.policy && ic.policy.downcase == 'lru'
+          opts.push("lru#{ic.associativity}")
+        elsif ic.policy && ic.policy.downcase == 'fifo'
+          opts.push("fifo#{ic.associativity}")
+        else
           warn("Patmos simulator configuration: the only supported replacement "+
-               "policy for data cache simulation is LRU")
+               "policy for set-associative I$ simulation are LRU and FIFO")
         end
-        opts.push("lru#{ic.associativity}")
       else
         opts.push("no")
       end
