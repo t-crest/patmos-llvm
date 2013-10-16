@@ -449,6 +449,9 @@ mapping:
                   "criticality":
                     type: float
                     desc: "characterization of the block's influence on the worst-case execution time"
+                  "crit-frequency":
+                    type: int
+                    desc: "frequency of the block on the critical path"
   "machine-configuration":
     type: map
     class: MachineConfig

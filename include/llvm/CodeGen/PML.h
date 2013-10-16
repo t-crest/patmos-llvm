@@ -866,12 +866,13 @@ struct ProfileEntry {
   uint64_t Cycles;
   uint64_t WCETContribution;
   uint64_t WCETFrequency;
-  double Criticality;
+  double   Criticality;
+  uint64_t CritFrequency;
 
   // only for yaml import.
   ProfileEntry()
   : Reference(0), Cycles(0), WCETContribution(0), WCETFrequency(0),
-    Criticality(-1.0)
+    Criticality(-1.0), CritFrequency(0)
   {
   }
   ~ProfileEntry() {
@@ -899,6 +900,7 @@ struct MappingTraits< ProfileEntry* > {
     io.mapOptional("wcet-contribution", P->WCETContribution);
     io.mapOptional("wcet-frequency",    P->WCETFrequency);
     io.mapOptional("criticality",       P->Criticality, -1.0);
+    io.mapOptional("crit-frequency",    P->CritFrequency);
   }
 };
 

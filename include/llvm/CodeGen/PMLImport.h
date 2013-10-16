@@ -439,6 +439,10 @@ namespace llvm {
                          MachineBasicBlock *ToBB = NULL,
                          double Default = -1.0);
 
+    std::pair<double, int64_t> getCriticalyFreqPair(MachineBasicBlock *FromBB,
+                         MachineBasicBlock *ToBB = NULL,
+                         double DefaultCrit = -1.0, int64_t DefaultFreq = -1);
+
     int64_t getWCETFrequency(MachineBasicBlock *FromBB,
                              MachineBasicBlock *ToBB = NULL,
                              int64_t Default = -1);

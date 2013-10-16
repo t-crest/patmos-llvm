@@ -641,7 +641,7 @@ double PMLMachineFunctionImport::getCriticalty(MachineBasicBlock *FromBB,
 {
   if (!PQ) return Default;
 
-  // TODO we ignore the To block for now, we should check edge criticalities.
+  // TODO we ignore ToBB at the moment.. we should check edge criticalities.
 
   return PQ->getCriticality(Criticalities, *FromBB, Default);
 }
@@ -654,3 +654,5 @@ int64_t PMLMachineFunctionImport::getWCETFrequency(MachineBasicBlock *FromBB,
 
   return Default;
 }
+
+
