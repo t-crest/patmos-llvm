@@ -71,6 +71,11 @@ public:
     (void) TM;
   }
 
+  /// getPassName - Return the pass' name.
+  virtual const char *getPassName() const {
+    return "Patmos Single-Path Mark (machine code)";
+  }
+
   virtual void getAnalysisUsage(AnalysisUsage &AU) const
   {
     AU.addRequired<MachineModuleInfo>();
@@ -135,11 +140,12 @@ bool PatmosSPMark::runOnMachineModule(const Module &M) {
 }
 
 const Function *PatmosSPMark::getCallTarget(const MachineInstr *MI) const {
-  if (const Function *Target =
-      dyn_cast<Function>( MI->getOperand(2).getGlobal())) {
-    return Target;
+  const MachineOperand &MO = MI->getOperand(2);
+  const Function *Target = NULL;
+  if (MO.isGlobal()) {
+    Target = dyn_cast<Function>(MO.getGlobal());
   }
-  return NULL;
+  return Target;
 }
 
 MachineFunction *PatmosSPMark::getCallTargetMF(const MachineInstr *MI) const {
@@ -159,7 +165,11 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
                                      MI != ME; ++MI) {
       if (MI->isCall()) {
         MachineFunction *MF = getCallTargetMF(MI);
-        assert(MF);
+        if (!MF) {
+          dbgs() << "[Single-Path] WARNING: Cannot rewrite indirect call in "
+                 << MBB->getParent()->getFunction()->getName() << "\n";
+          continue;
+        };
         PatmosMachineFunctionInfo *PMFI =
           MF->getInfo<PatmosMachineFunctionInfo>();
         if (!PMFI->isSinglePath()) {
@@ -209,5 +219,6 @@ void PatmosSPMark::rewriteCall(MachineInstr *MI) {
   MI->RemoveOperand(2);
   MachineInstrBuilder MIB(*MBB->getParent(), MI);
   MIB.addGlobalAddress(SPTarget);
-  DEBUG_TRACE( dbgs() << "    call-sp: " << *MI );
+  DEBUG( dbgs() << "Rewrite call: " << Target->getName()
+                << " -> " << SPFuncName << "\n" );
 }

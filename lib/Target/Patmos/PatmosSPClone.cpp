@@ -50,13 +50,12 @@ class PatmosSPClone : public ModulePass {
 private:
 
   typedef std::deque<Function*> Worklist;
-  typedef SmallPtrSet<Function*, 64> FunctionSet;
+  typedef std::map<Function*, Function*> FunctionSPMap;
 
   /// Set of function names as roots
   std::set<std::string> SPRoots;
 
-  FunctionSet FuncsRoots;
-  FunctionSet FuncsReachable;
+  FunctionSPMap FuncsReachable;
 
 
   void loadFromGlobalVariable(SmallSet<std::string, 32> &Result,
@@ -77,6 +76,11 @@ public:
   static char ID; // Pass identification, replacement for typeid
 
   PatmosSPClone() : ModulePass(ID) {}
+
+  /// getPassName - Return the pass' name.
+  virtual const char *getPassName() const {
+    return "Patmos Single-Path Clone (bitcode)";
+  }
 
   virtual bool doInitialization(Module &M);
   virtual bool doFinalization(Module &M);
@@ -130,6 +134,8 @@ bool PatmosSPClone::runOnModule(Module &M) {
   for (Module::iterator I = M.begin(), E = M.end(); I != E; ) {
     Function *F = I++;
 
+    if (F->isDeclaration()) continue;
+
     // handle single-path root
     if (SPRoots.count(F->getName())) {
       handleRoot(F);
@@ -149,7 +155,6 @@ bool PatmosSPClone::runOnModule(Module &M) {
 
   // Only assign statistics if there are functions contained,
   // to adhere to the conventions.
-  if (!FuncsRoots.empty())     NumSPRoots     = FuncsRoots.size();
   if (!FuncsReachable.empty()) NumSPReachable = FuncsReachable.size();
 
   return (NumSPRoots + NumSPReachable + NumSPUsed) > 0;
@@ -175,7 +180,7 @@ void PatmosSPClone::handleRoot(Function *F) {
 
   DEBUG( dbgs() << "SPRoot " << F->getName() << "\n" );
   F->addFnAttr("sp-root");
-  FuncsRoots.insert(F);
+  NumSPRoots++;
 
   // explore from root
   Worklist W;
@@ -202,19 +207,25 @@ void PatmosSPClone::explore(Function *F, Worklist &W) {
   for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
       if (CallInst *Call = dyn_cast<CallInst>(&*I)) {
         Function *Callee = Call->getCalledFunction();
-        // if we aleady have treated the callee, skip
-        if (FuncsReachable.count(Callee)) continue;
 
-        // clone function
-        Function *SPCallee = cloneAndMark(Callee);
+        Function *SPCallee;
+        if (!FuncsReachable.count(Callee)) {
+          // clone function
+          SPCallee = cloneAndMark(Callee);
+          DEBUG( dbgs() << "  Clone function: " << Callee->getName()
+                        << " -> " << SPCallee->getName() << "\n");
+          FuncsReachable.insert(std::make_pair(Callee, SPCallee));
+          // add callee to worklist
+          W.push_back(SPCallee);
+        } else {
+          // lookup
+          SPCallee = FuncsReachable.at(Callee);
+        }
+
         // rewrite call
         Call->setCalledFunction(SPCallee);
-        // add callee to worklist
-        W.push_back(SPCallee);
-        // remember that we processed Callee
-        FuncsReachable.insert(Callee);
 
-        DEBUG( dbgs() << "  "   << Callee->getName()
+        DEBUG( dbgs() << "  Rewrite call: " << Callee->getName()
                       << " -> " << SPCallee->getName() << "\n");
       }
 }
