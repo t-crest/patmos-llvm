@@ -103,17 +103,16 @@ static cl::opt<bool> DisableFunctionSplitterRewrite(
   cl::Hidden);
 
 static cl::opt<int> MaxSubfunctionSize(
-    "mpatmos-subfunction-size",
+    "mpatmos-preferred-subfunction-size",
     cl::init(0),
-    cl::desc("Maximum size of subfunctions, defaults to the method cache size"
-        " if set to 0."));
+    cl::desc("Preferred maximum size of subfunctions, defaults to the method "
+        "cache size if 0. Larger basic blocks and inline asm are not split."));
 
 static cl::opt<int> MaxBasicBlockSize(
-    "mpatmos-max-basic-block-size",
+    "mpatmos-max-subfunction-size",
     cl::init(0),
-    cl::desc("Maximum size of basic blocks after function splitting, defaults "
-             "to the method cache size if set to 0. Can be larger than "
-             "subfunction-size."));
+    cl::desc("Maximum size of subfunctions after function splitting, defaults "
+             "to the method cache size if set to 0."));
 
 static cl::opt<bool> SplitCallBlocks(
     "mpatmos-split-call-blocks",

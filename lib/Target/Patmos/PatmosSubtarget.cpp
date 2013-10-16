@@ -46,12 +46,12 @@ static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
 static cl::opt<unsigned> MinSubfunctionAlign("mpatmos-subfunction-align",
                    cl::init(64),
                    cl::desc("Alignment for functions and subfunctions in bytes "
-                           "(defaults to 16 word aligned)."));
+                           "(default: 16 word aligned)."));
 
-static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-block-align",
-                   cl::init(8),
+static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-basicblock-align",
+                   cl::init(0),
                    cl::desc("Alignment for basic blocks in bytes "
-                           "(defaults to 2 word aligned)."));
+                           "(default: no alignment)."));
 
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
