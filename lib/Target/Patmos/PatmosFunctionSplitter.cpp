@@ -102,13 +102,14 @@ static cl::opt<bool> DisableFunctionSplitterRewrite(
   cl::desc("Disable the rewriting of code in the Patmos function splitter."),
   cl::Hidden);
 
-static cl::opt<int> MaxSubfunctionSize(
+static cl::opt<int> PreferSubfunctionSize(
     "mpatmos-preferred-subfunction-size",
     cl::init(0),
-    cl::desc("Preferred maximum size of subfunctions, defaults to the method "
-        "cache size if 0. Larger basic blocks and inline asm are not split."));
+    cl::desc("Preferred maximum size of subfunctions, defaults to "
+        "mpatmos-max-subfunction-size if 0. Larger basic blocks and inline asm "
+        "are not split."));
 
-static cl::opt<int> MaxBasicBlockSize(
+static cl::opt<int> MaxSubfunctionSize(
     "mpatmos-max-subfunction-size",
     cl::init(0),
     cl::desc("Maximum size of subfunctions after function splitting, defaults "
@@ -315,13 +316,12 @@ namespace llvm {
     PMLQuery::BlockDoubleMap Criticalities;
 
     /// Construct a graph from a machine function.
-    agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml)
-    : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()), PML(pml)
+    agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml,
+           unsigned int preferredRegionSize)
+    : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()),
+      MaxRegionSize(preferredRegionSize), PML(pml)
     {
       Blocks.reserve(mf->size());
-
-      MaxRegionSize = MaxSubfunctionSize ? MaxSubfunctionSize
-                                         : STC.getMethodCacheSize();
 
       // create blocks
       unsigned id = 0;
@@ -1804,10 +1804,12 @@ namespace llvm {
       if (DisableFunctionSplitter)
         return false;
 
-      unsigned max_subfunc_size = MaxSubfunctionSize ? MaxSubfunctionSize
+      unsigned max_subfunc_size   = MaxSubfunctionSize  ? MaxSubfunctionSize
                                                      : STC.getMethodCacheSize();
-      unsigned max_block_size   = MaxBasicBlockSize  ? MaxBasicBlockSize
-                                                     : STC.getMethodCacheSize();
+      unsigned prefer_subfunc_size = PreferSubfunctionSize ?
+                                                       PreferSubfunctionSize
+                                                     : max_subfunc_size;
+      prefer_subfunc_size = std::min(max_subfunc_size, prefer_subfunc_size);
 
       unsigned total_size = 0;
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
@@ -1816,9 +1818,9 @@ namespace llvm {
         // in case the block is larger than the method cache, split it and
         // update its
         //
-        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_block_size)
+        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_subfunc_size)
         {
-          bb_size = agraph::splitBlock(i, max_block_size, PTM);
+          bb_size = agraph::splitBlock(i, max_subfunc_size, PTM);
         }
 
         total_size += bb_size;
@@ -1828,10 +1830,10 @@ namespace llvm {
                    << MF.getFunction()->getName() << ": " << total_size << "\n");
 
       // splitting needed?
-      if (total_size > max_subfunc_size) {
+      if (total_size > prefer_subfunc_size) {
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
-        agraph G(&MF, PTM, PI.createMCQuery(*this, MF));
+        agraph G(&MF, PTM, PI.createMCQuery(*this, MF), prefer_subfunc_size);
         G.transformSCCs();
 
         // compute regions -- i.e., split the function
