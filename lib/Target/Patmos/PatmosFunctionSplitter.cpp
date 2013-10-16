@@ -1696,14 +1696,13 @@ namespace llvm {
         // for branches, assume we need to add a NOP to make it BRCF.
         if (i->isBranch()) i_size += branchFixup;
 
+        // should we check for i_size > MaxSize as well and issue a warning?
+        // => No, user should not get warnings if he cannot do anything about it
+
         if (i_size > cache_size) {
           report_fatal_error("Inline assembly in function " +
                              MBB->getParent()->getFunction()->getName() +
                              " is larger than the method cache size!");
-        } else if (i_size > MaxSize) {
-          // TODO is there some sort of LLVM function for printing a warning?
-          errs() << "Warning: inline asm is larger than max subfunction size "
-                 << "in " << MBB->getFullName() << "\n";
         }
 
         // ensure that we do not split inside delay slots
