@@ -251,7 +251,9 @@ class CacheConfig < PMLObject
   attr_reader :attributes
 
   def get_attribute(key)
-    attributes.find { |e| e['key'] == key }['value']
+    attribute_pair = attributes.find { |e| e['key'] == key }
+    return nil unless attribute_pair
+    attribute_pair['value']
   end
 
   # synonymous at the moment

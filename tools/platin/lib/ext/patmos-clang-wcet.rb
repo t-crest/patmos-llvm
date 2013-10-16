@@ -56,8 +56,8 @@ ARGV.each_with_index { |arg,ix|
     options.save_temps = true
   elsif arg =~ /-mpatmos-method-cache-size=(.*)$/ # override method cache for compiler
     options.override[:mc_cache_size] = true
-  elsif arg =~ /-mpatmos-method-cache-block-size=(.*)/ # override
-    options.override[:mc_block_size] = true
+  elsif arg =~ /-mpatmos-max-subfunction-size=(.*)/ # override
+    options.override[:mc_max_sf_size] = true
   elsif arg == '-v'
     $verbose = true # hack, but this is really prototypical for now
     options.verbose = true
@@ -105,7 +105,7 @@ linked_bitcode = outfile.call(options.outfile,".elf.bc")
 # compile, serializing pml, elf, bc
 config=`platin tool-config -t clang -i #{options.configfile} -o #{llvmoutput}`.chomp
 config.sub!(/-mpatmos-method-cache-size=\S+/,'') if options.override[:mc_cache_size]
-config.sub!(/-mpatmos-method-cache-block-size=\S+/,'') if options.override[:mc_block_size]
+config.sub!(/-mpatmos-max-subfunction-size=\S+/,'') if options.override[:mc_max_sf_size]
 
 run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr} #{clang_argstr_initial}")
 #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -o #{options.outfile} #{linked_bitcode}")

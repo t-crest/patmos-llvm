@@ -152,17 +152,28 @@ class Architecture < PML::Architecture
     end
   end
 
+  # Options (as of 2013/10/16):
+  #
+  #  -mpatmos-disable-function-splitter
+  #    => should be disabled for instruction cache
+  #  -mpatmos-method-cache-size
+  #  -mpatmos-preferred-subfunction-size
+  #  -mpatmos-max-subfunction-size
+  #    => needs to be equal to block size for fixed-block method cache
+  #  -mpatmos-subfunction-align
+  #  -mpatmos-basicblock-align
+  #    => should be at least 8 bytes for set-associative caches
+
   def config_for_clang
     opts = []
     if mc = method_cache
-      opts.push("-mpatmos-method-cache-block-size=#{mc.block_size}")
+      opts.push("-mpatmos-method-cache-size=#{mc.size}")
       if mfs = method_cache.get_attribute("max-subfunction-size")
-        opts.push("-mpatmos-method-cache-size=#{mfs}")
-      else
-        opts.push("-mpatmos-method-cache-size=#{mc.size}")
+        opts.push("-mpatmos-max-subfunction-size=#{mfs}")
       end
     else
       opts.push("-mpatmos-disable-function-splitter")
+      opts.push("-mpatmos-basicblock-align=8")
     end
     if sc = stack_cache
       # does not work properly at the moment
