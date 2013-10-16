@@ -50,16 +50,8 @@ void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   // if the function has only one cache block)
   CurrCodeEnd = OutContext.CreateTempSymbol();
 
-  // TODO the alignment of the machinefunction and basic blocks is never set.
-  //      either use the TargetMachine I-cache alignment info as minimum value
-  //      or set alignments in some separate pass (must be after the function
-  //      splitter, or both in function splitter and a separate pass)!
-
-  // convert LLVM's log2 function alignment
-  unsigned alignment = std::max(4u, 1u << MF->getAlignment());
-
   // emit a function/subfunction start directive
-  EmitFStart(CurrentFnSymForSize, CurrCodeEnd, alignment);
+  EmitFStart(CurrentFnSymForSize, CurrCodeEnd, FStartAlignment);
 
   // Now emit the normal function label
   AsmPrinter::EmitFunctionEntryLabel();
@@ -94,6 +86,12 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   if (&MBB->getParent()->back() == MBB) return;
   const MachineBasicBlock *Next = MBB->getNextNode();
 
+  // Align the next basic block. Emitting the alignment in EmitBasicBlockStart
+  // would be too late as we emit .fstart here already.
+  if (Next->getAlignment()) {
+    EmitAlignment(Next->getAlignment());
+  }
+
   // skip blocks that are in the same cache block..
   if (!isFStart(Next)) return;
 
@@ -114,11 +112,8 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   // emit a .size directive
   EmitDotSize(SymStart, CurrCodeEnd);
 
-  // convert LLVM's log2-block alignment to bytes
-  unsigned alignment = std::max(4u, 1u << Next->getAlignment());
-
   // emit a function/subfunction start directive
-  EmitFStart(SymStart, CurrCodeEnd, alignment);
+  EmitFStart(SymStart, CurrCodeEnd, FStartAlignment);
 }
 
 void PatmosAsmPrinter::EmitFunctionBodyEnd() {
@@ -137,13 +132,16 @@ void PatmosAsmPrinter::EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd) {
 
 void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                                      unsigned Alignment) {
+  // convert LLVM's log2-block alignment to bytes
+  unsigned AlignBytes = std::max(4u, 1u << Alignment);
+
   // emit .fstart SymStart, SymEnd-SymStart
   const MCExpr *SizeExpr =
     MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
 
-  OutStreamer.EmitFStart(SymStart, SizeExpr, Alignment);
+  OutStreamer.EmitFStart(SymStart, SizeExpr, AlignBytes);
 }
 
 bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB) const {

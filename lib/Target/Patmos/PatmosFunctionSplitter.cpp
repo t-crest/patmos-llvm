@@ -1290,10 +1290,8 @@ namespace llvm {
         MachineBasicBlock *MBB = (*i)->MBB;
         bool is_region_entry = (*i)->Region == (*i);
 
-        // set alignment of region entries and store region entries with the 
-        // Patmos function info
+        // store region entries with the Patmos function info
         if (is_region_entry) {
-          MBB->setAlignment(log2(STC.getMethodCacheBlockSize()));
           PMFI->addMethodCacheRegionEntry(MBB);
         }
 
@@ -1472,9 +1470,6 @@ namespace llvm {
       // rewrite branches to use the non-cache variants
       if (!DisableFunctionSplitterRewrite)
         rewriteCode();
-
-      // ensure method alignment
-      MF->ensureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
     /// transferSuccessors - replace uses of OldSucc to uses of NewSucc.
@@ -1847,6 +1842,9 @@ namespace llvm {
 
         // update the basic block order and rewrite branches
         G.applyRegions(order);
+
+        // Note: We rely on the PatmosEnsureAlignment pass to set alignments,
+        // we do not do it in this pass.
       }
 
       return true;

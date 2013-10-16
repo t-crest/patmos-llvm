@@ -39,7 +39,10 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
   LabelSuffix = ":";
   PrivateGlobalPrefix = ".L";
   AlignmentIsInBytes = true;
-  EmitFunctionAlignment = false;
+  // We align functions using .align
+  EmitFunctionAlignment = true;
+  // We align basic blocks with .align, but we do this manually in
+  // PatmosAsmPrinter, as we need to handle .fstart properly there.
   EmitBasicBlockAlignment = false;
   MaxInstLength = 8; // for long immediates
   SupportsDebugInformation = true;

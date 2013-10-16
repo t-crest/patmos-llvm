@@ -147,6 +147,7 @@ namespace {
         addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
       }
 
+      addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
 
       // this is pseudo pass that may hold results from SC analysis
       // (currently for PML export)

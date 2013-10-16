@@ -37,17 +37,22 @@ static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
                            cl::init(4096),
                            cl::desc("Total size of the stack cache in bytes."));
 
-/// MethodCacheBlockSize - Block size of the method cache in bytes.
-static cl::opt<unsigned> MethodCacheBlockSize("mpatmos-method-cache-block-size",
-                   cl::init(32),
-                   cl::desc("Size of the instruction cache blocks in bytes "
-                           "(default 32)."));
-
 /// MethodCacheSize - Total size of the method cache in bytes.
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
                      cl::init(1024),
                      cl::desc("Total size of the instruction cache in bytes "
                               "(default 1024)"));
+
+static cl::opt<unsigned> MinSubfunctionAlign("mpatmos-subfunction-align",
+                   cl::init(64),
+                   cl::desc("Alignment for functions and subfunctions in bytes "
+                           "(defaults to 16 word aligned)."));
+
+static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-block-align",
+                   cl::init(8),
+                   cl::desc("Alignment for basic blocks in bytes "
+                           "(defaults to 2 word aligned)."));
+
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
 	             cl::init(true),
@@ -131,6 +136,13 @@ bool PatmosSubtarget::canIssueInSlot(unsigned SchedClass, unsigned Slot) const {
   }
 }
 
+unsigned PatmosSubtarget::getMinSubfunctionAlignment() const {
+  return ceil(log2(MinSubfunctionAlign));
+}
+
+unsigned PatmosSubtarget::getMinBasicBlockAlignment() const {
+  return ceil(log2(MinBasicBlockAlign));
+}
 
 unsigned PatmosSubtarget::getStackCacheSize() const {
   return StackCacheSize;
@@ -142,8 +154,4 @@ unsigned PatmosSubtarget::getStackCacheBlockSize() const {
 
 unsigned PatmosSubtarget::getMethodCacheSize() const {
   return MethodCacheSize;
-}
-
-unsigned PatmosSubtarget::getMethodCacheBlockSize() const {
-  return MethodCacheBlockSize;
 }

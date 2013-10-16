@@ -38,6 +38,7 @@ add_llvm_target(PatmosCodeGen
   PatmosPostRAScheduler.cpp
   PatmosSchedStrategy.cpp
   PatmosPMLProfileImport.cpp
+  PatmosEnsureAlignment.cpp
   )
 
 add_dependencies(LLVMPatmosCodeGen intrinsics_gen)
