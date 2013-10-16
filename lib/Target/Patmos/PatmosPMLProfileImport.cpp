@@ -35,7 +35,7 @@ using namespace llvm;
 /// Analysis graph.
 static cl::opt<bool> UseCritEdgeWeight(
   "mpatmos-use-crit-edge-weight",
-  cl::init(false),
+  cl::init(true),
   cl::desc("Use criticalities for edge weights instead of frequencies."),
   cl::Hidden);
 
