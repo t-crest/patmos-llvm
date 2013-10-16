@@ -655,9 +655,6 @@ namespace llvm {
     /// Subtarget information (stack cache block size)
     const PatmosSubtarget &STC;
 
-    /// Target machine info
-    const PatmosTargetMachine &TM;
-
     /// Instruction information
     const TargetInstrInfo &TII;
 
@@ -669,7 +666,7 @@ namespace llvm {
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
         MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
-        TM(tm), TII(*tm.getInstrInfo()), BI(BoundsFile)
+        TII(*tm.getInstrInfo()), BI(BoundsFile)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
