@@ -86,34 +86,39 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   if (&MBB->getParent()->back() == MBB) return;
   const MachineBasicBlock *Next = MBB->getNextNode();
 
+  bool followedByFStart = isFStart(Next);
+
+  if (followedByFStart) {
+    // Next is the start of a new cache block, close the old one before the
+    // alignment of the next block
+    OutStreamer.EmitLabel(CurrCodeEnd);
+  }
+
   // Align the next basic block. Emitting the alignment in EmitBasicBlockStart
   // would be too late as we emit .fstart here already.
   if (Next->getAlignment()) {
     EmitAlignment(Next->getAlignment());
   }
 
-  // skip blocks that are in the same cache block..
-  if (!isFStart(Next)) return;
+  // Emit the start code for the next subfunction
+  if (followedByFStart) {
+    // We need an address symbol from the next block
+    assert(!Next->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
 
-  // Next is the start of a new cache block, close the old one and start a new cache block
-  OutStreamer.EmitLabel(CurrCodeEnd);
+    MCSymbol *SymStart = Next->getSymbol();
 
-  // We need an address symbol from the next block
-  assert(!Next->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
+    // create new end symbol
+    CurrCodeEnd = OutContext.CreateTempSymbol();
 
-  MCSymbol *SymStart = Next->getSymbol();
+    // mark the symbol as method-cache-cacheable code
+    OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
 
-  // create new end symbol
-  CurrCodeEnd = OutContext.CreateTempSymbol();
+    // emit a .size directive
+    EmitDotSize(SymStart, CurrCodeEnd);
 
-  // mark the symbol as method-cache-cacheable code
-  OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
-
-  // emit a .size directive
-  EmitDotSize(SymStart, CurrCodeEnd);
-
-  // emit a function/subfunction start directive
-  EmitFStart(SymStart, CurrCodeEnd, FStartAlignment);
+    // emit a function/subfunction start directive
+    EmitFStart(SymStart, CurrCodeEnd, FStartAlignment);
+  }
 }
 
 void PatmosAsmPrinter::EmitFunctionBodyEnd() {
