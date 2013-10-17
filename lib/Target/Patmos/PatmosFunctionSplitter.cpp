@@ -1644,7 +1644,7 @@ namespace llvm {
       unsigned localDelay = PST->getCFLDelaySlotCycles(true);
       unsigned exitDelay = PST->getCFLDelaySlotCycles(false);
 
-      unsigned blockAlign = PST->getMinBasicBlockAlignment();
+      unsigned blockAlign = (1u << PST->getMinBasicBlockAlignment());
 
       // We must be conservative here, the address is not known (and may change)
       unsigned alignSize = (blockAlign < 4) ? 0 : blockAlign - 4;
