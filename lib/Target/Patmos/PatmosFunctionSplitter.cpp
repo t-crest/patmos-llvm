@@ -52,6 +52,12 @@
 #undef PATMOS_TRACE_EMIT
 #undef PATMOS_TRACE_FIXUP
 #undef PATMOS_DUMP_ALL_SCC_DOTS
+//#define PATMOS_TRACE_SCCS
+//#define PATMOS_TRACE_VISITS
+//#define PATMOS_TRACE_EMIT
+//#define PATMOS_TRACE_FIXUP
+//#define PATMOS_DUMP_ALL_SCC_DOTS
+
 
 #include "Patmos.h"
 #include "PatmosAsmPrinter.h"
@@ -1111,6 +1117,13 @@ namespace llvm {
                              getMaxBlockMargin(PTM, region, region_size, block);
         bool has_call = block->HasCall;
 
+#ifdef PATMOS_TRACE_VISITS
+        DEBUG(dbgs() << "  block size: " << block_size << " ("
+                     << block->Size << " + "
+                     << getMaxBlockMargin(PTM, region, region_size, block)
+                     << "), hasCall: " << has_call << "\n");
+#endif
+
         ablocks blocks;
         blocks.push_back(block);
 
@@ -1625,8 +1638,16 @@ namespace llvm {
                                         bool mightFallthrough = true,
                                         int numBranchesToFix = 0)
     {
-      unsigned localDelay = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
-      unsigned exitDelay = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
+      const PatmosSubtarget *PST = PTM.getSubtargetImpl();
+
+      // TODO those values are static, calc them only once
+      unsigned localDelay = PST->getCFLDelaySlotCycles(true);
+      unsigned exitDelay = PST->getCFLDelaySlotCycles(false);
+
+      unsigned blockAlign = PST->getMinBasicBlockAlignment();
+
+      // We must be conservative here, the address is not known (and may change)
+      unsigned alignSize = (blockAlign < 4) ? 0 : blockAlign - 4;
 
       // we already have a BR, we only need to add a NOP if we change to BRCF
       unsigned branch_fixups = numBranchesToFix * (exitDelay - localDelay);
@@ -1634,10 +1655,11 @@ namespace llvm {
       if (mightFallthrough) {
         // we might need to add a BR/BRCF to replace the fallthrough, and NOPs
         // to fill the delay slots
-        branch_fixups = 4 +
+        branch_fixups += 4 +
              (mightExitRegion ? exitDelay : localDelay) * 4;
       }
-      return branch_fixups + (needsCallFixup ? 8 : 0);
+
+      return alignSize + branch_fixups + (needsCallFixup ? 8 : 0);
     }
 
     static unsigned int getDelaySlotSize(MachineBasicBlock *MBB,
