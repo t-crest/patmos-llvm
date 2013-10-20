@@ -41,7 +41,8 @@ class SimulatorTrace
     else
       begin
         needs_options(@options, :pasim)
-        cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} -q --debug 0 --debug-fmt trace -b #{@elf} 2>&1 1>/dev/null"
+        pasim_options="-q --debug 0 --debug-fmt trace -b #{@elf}"
+        cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} #{pasim_options} 2>&1 1>/dev/null"
         debug(@options, :patmos) { "Running pasim: #{cmd}" }
         IO.popen("#{cmd}") do |io|
           while item=parse(io.gets)
@@ -105,17 +106,14 @@ class Architecture < PML::Architecture
     @config.caches.by_name('method-cache')
   end
 
+  #
+  # For a subfunction, we need to load the header (one word
+  # that contains the subfunction's size) plus the subfunction
+  # Additionally, we need to consider the alignment of memory
+  # transfers
   def subfunction_miss_cost(sf)
     memory = @config.memory_areas.by_name('code').memory
-    sf_size = subfunction_size(sf)
-
-    # this matches the simulator implementation (read 4 bytes size, then read method)
-    memory.read_delay(4) + memory.read_delay(sf_size)
-  end
-
-  def subfunction_size(sf)
-    memory = @config.memory_areas.by_name('code').memory
-    sf.size(memory.transfer_size, memory.transfer_size) * memory.transfer_size
+    memory.read_delay(sf.entry.address - 4, sf.size + 4)
   end
 
   def stack_cache
@@ -168,12 +166,15 @@ class Architecture < PML::Architecture
     opts = []
     if mc = method_cache
       opts.push("-mpatmos-method-cache-size=#{mc.size}")
-      if mfs = method_cache.get_attribute("max-subfunction-size")
-        opts.push("-mpatmos-max-subfunction-size=#{mfs}")
+      if pref_sf_size = method_cache.get_attribute("preferred-subfunction-size")
+        opts.push("-mpatmos-preferred-subfunction-size=#{pref_sf_size}")
+      end
+      if max_sf_size = method_cache.get_attribute("max-subfunction-size")
+        opts.push("-mpatmos-max-subfunction-size=#{max_sf_size}")
       end
     else
       opts.push("-mpatmos-disable-function-splitter")
-      opts.push("-mpatmos-basicblock-align=8")
+      # opts.push("-mpatmos-basicblock-align=8")
     end
     if sc = stack_cache
       # does not work properly at the moment

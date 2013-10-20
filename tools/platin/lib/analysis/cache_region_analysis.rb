@@ -7,6 +7,7 @@
 
 require 'core/pml'
 require 'analysis/scopegraph'
+require 'analysis/cache_persistence_analysis'
 
 module PML
 
@@ -88,21 +89,33 @@ class CacheRegionAnalysis
     end
   end
 
-  attr_reader :pml, :options, :cache
+  attr_reader :pml, :options, :cache_properties
 
   def initialize(cache_properties, pml, options)
-    @cache, @pml, @options = cache_properties, pml, options
+    @cache_properties, @pml, @options = cache_properties, pml, options
   end
 
+  # extend IPET, using conflict free scopes computed by +analyze+
   def extend_ipet(scopegraph, ipet_builder)
-    analyze(scopegraph)
-    0.upto(@cache.sets) do |set|
+
+    # cache tags per scope
+    @all_tags = {}
+
+    # run scope-based analysis
+    conflict_free_scopes = analyze(scopegraph)
+
+    # modify IPET
+    0.upto(@cache_properties.sets) do |set|
+
       get_all_tags(scopegraph.root, set).each { |tag,load_instructions|
+
         load_instructions = load_instructions.to_a
         debug(options,:cache) { "Load instructions for tag: #{tag}: #{load_instructions}" }
-        debug(options,:cache) { "Scopes for tag #{tag}: #{@conflict_free_scopes[tag].inspect}" }
+        debug(options,:cache) { "Scopes for tag #{tag}: #{conflict_free_scopes[tag].inspect}" }
+
         # add a variable for each load instruction
         load_instructions.each { |li|
+
           ipet_builder.ilp.add_variable(li)
           # load instruction is less equal to instruction frequency
           ipet_builder.mc_model.assert_less_equal({li=>1},{li.insref=>1},"load_ins_#{li}",:cache)
@@ -112,7 +125,7 @@ class CacheRegionAnalysis
           li.insref.block.outgoing_edges.each { |edge|
             me = MemoryEdge.new(edge, li)
             ipet_builder.ilp.add_variable(me)
-            ipet_builder.ilp.add_cost(me, @cache.load_cost(tag))
+            ipet_builder.ilp.add_cost(me, @cache_properties.load_cost(tag))
             # memory edge frequency is less equal to edge frequency
             ipet_builder.mc_model.assert_less_equal({me=>1},{me.edgeref=>1},"load_edge_#{me}",:cache)
             load_edges.push(me)
@@ -121,6 +134,7 @@ class CacheRegionAnalysis
           load_edge_sum = load_edges.map { |me| [me,1] }
           ipet_builder.mc_model.assert_equal(load_edge_sum, {li=>1}, "load_edges_#{li}",:cache)
         }
+
         # add variable for tag
         ipet_builder.ilp.add_variable(tag)
 
@@ -129,7 +143,7 @@ class CacheRegionAnalysis
         ipet_builder.mc_model.assert_equal(load_ins_sum, {tag=>1}, "tag_#{tag}", :cache)
 
         # tag is less equal sum of all scopes
-        scope_sum = @conflict_free_scopes[tag].map { |scope_node, f|
+        scope_sum = conflict_free_scopes[tag].map { |scope_node, f|
           [scope_node.scope_entry, f]
         }
         ipet_builder.mc_model.assert_less_equal({tag=>1}, scope_sum, "tagsum_#{tag}", :cache)
@@ -138,11 +152,50 @@ class CacheRegionAnalysis
   end
 
 
+  #
+  # get all tags accessed in one set
+  #
+  def get_all_tags(node, set)
+    all_tags = @all_tags[[node,set]]
+    return all_tags if all_tags
+    all_tags = get_local_tags(node,set)
+    node.successors.each { |succ|
+      get_all_tags(succ, set).each { |t,is|
+        all_tags[t] ||= Set.new
+        all_tags[t] += is
+      }
+    }
+    @all_tags[[node,set]] = all_tags
+  end
+
+  #
+  # get all tags accessed locally (in this scope excluding subscopes),
+  # restricted to the specified set
+  #
+  def get_local_tags(node,set)
+    local_tags = {}
+    region_graph = get_region_graph(node)
+    return local_tags unless region_graph
+    region_graph.action_nodes.each { |node|
+      load_instruction = node.action
+      tag = load_instruction.tag
+      if @cache_properties.set_of(tag) == set
+        (local_tags[tag]||=Set.new).add(load_instruction)
+      end
+    }
+    local_tags
+  end
+
+
+  #
+  # scope-based cache analysis
+  # first builds region graphs, then computes conflict-free scopes
+  # for each memory block (tag)
+  #
   def analyze(scopegraph)
-    @load_instructions = []
+
     @region_graphs = {}
     @conflict_free_scopes = {}
-    @all_tags = {}
 
     # for each region node, we compute the cache access graph
     scopegraph.bottom_up.each { |n|
@@ -152,55 +205,80 @@ class CacheRegionAnalysis
           Set[*sub_scope_nodes] == Set[*n.successors]
         }
         arg = rg.action_graph { |instruction|
-          @cache.load_instructions(instruction).map { |li|
-            @load_instructions.push(li)
-            li
-          }
+          @cache_properties.load_instructions(instruction)
         }
         @region_graphs[n] = arg
-        #arg.dump #(nice for debugging)
+        # arg.dump #(nice for debugging)
       end
     }
 
     # compute cache miss constraints
-    0.upto(@cache.sets-1) do |set|
+    all_tags = []
+    0.upto(@cache_properties.sets-1) do |set|
       debug(options, :cache) { "Starting cache region analysis for cache set #{set}" }
       compute_miss_constraints(scopegraph, set)
+      all_tags.concat(get_all_tags(scopegraph.root, set).keys)
     end
+
+    # hack for evaluation purposes only
+    $imem_bytes = @cache_properties.size_in_bytes(all_tags) if @cache_properties.name == "I$" || @cache_properties.name == "M$"
+    statistics("CACHE", "size of all reachable memory blocks for #{@cache_properties.name} (bytes)" =>
+               @cache_properties.size_in_bytes(all_tags)) if options.stats
+    # cache = @cache_properties.cache
+    # all_tags.each { |tag|
+    #   info "#{tag.inspect} -> #{tag.size} -> #{cache.bytes_to_blocks(tag.size) * cache.block_size}"
+    # }
+    # info $imem_bytes
+
+    @conflict_free_scopes
   end
 
+  #
+  # get region graph for scope graph node
+  #
   def get_region_graph(node)
     @region_graphs[node]
   end
 
   #
-  # This function collects all persistence scopes for one set,
+  # add conflict-free scope for tag
+  #
+  def add_scope_for_tag(node, tag)
+    debug(options, :cache) { "add scope #{node} for tag #{tag}" }
+    @conflict_free_scopes[tag] ||= Hash.new(0)
+    @conflict_free_scopes[tag][node] += 1
+  end
+
+  #
+  # This function collects all conflict-free scopes for one set,
   # or of the memory blocks of one set (LRU).
   # It traverse the scope graph bottom-up; conflict-free scopes are
   # just marked (dynamic programming), conflicting scopes are analyzed.
   #
   def compute_miss_constraints(scopegraph, set)
-    @conflict_free = {}
-    scopegraph.bottom_up.each { |node|
-      if conflict_free?(node, set)
-        # if the node is conflict free, just mark it (unless it is the entry)
-        debug(options, :cache) { "Conflict-free Scope: #{node} #{set}" }
-        if node == scopegraph.root
-          get_all_tags(node, set).each { |tag, load_instructions|
-            add_scope_for_tag(node, tag)
-          }
-        end
-      else
-        # analyze conflict scope
-        compute_miss_constraints_in_conflict_scope(node, set)
-      end
-    }
+    if persistence_analysis?
+      PersistenceAnalysis.new(self, options).compute_conflict_free_scopes(scopegraph, set)
+    else
+      ConflictAnalysis.new(self, options).compute_conflict_free_scopes(scopegraph, set)
+    end
   end
 
+  def persistence_analysis?
+    @cache_properties.cache.policy == "lru" && options.wca_persistence_analysis
+  end
+end
+
+
+class ConflictAnalysis
+
+  #
+  # class to compute conflict-free regions
+  #
   class ConflictFreeRegionFormation
 
     def initialize(region_graph, analysis)
       @rg, @analysis = region_graph, analysis
+      @only_simple_regions = false
       @regions, @region_header, @region_nodes, @region_tags = [], {}, {}, {}, {}
     end
 
@@ -242,7 +320,7 @@ class CacheRegionAnalysis
     def get_tags(node, set)
       if node.kind_of?(RegionGraph::ActionNode)
         tag = node.action.tag
-        return [] unless @analysis.cache.set_of(tag) == set
+        return [] unless @analysis.cache_properties.set_of(tag) == set
         [tag]
       elsif node.kind_of?(RegionGraph::SubScopeNode)
         return [] unless @analysis.conflict_free?(node.scope_node, set)
@@ -260,52 +338,105 @@ class CacheRegionAnalysis
       end
       some_pred = node.predecessors.first
       return nil if some_pred.nil?
+      return nil if node.predecessors.length > 1 && @only_simple_regions
       pred_region = @region_header[some_pred]
 
       return nil if node.predecessors.any? { |pred| pred.kind_of?(RegionGraph::EntryNode) }
       return nil if node.predecessors.any? { |pred| @region_header[pred] != pred_region }
 
       pred_tags = @region_tags[pred_region]
-      return nil unless @analysis.cache.conflict_free?(pred_tags + node_tags)
+      return nil unless @analysis.cache_properties.conflict_free?(pred_tags + node_tags)
 
       return pred_region
     end
   end
 
+  attr_reader :options
+
+  def initialize(cache_analysis, options)
+    @analysis, @options = cache_analysis, options
+  end
+
+  # delegator to CacheRegionAnalysis#get_all_tags
+  def get_all_tags(node, set)
+    @analysis.get_all_tags(node, set)
+  end
+
+  # delegator to CacheRegionAnalysis#cache_properties
+  def cache_properties
+    @analysis.cache_properties
+  end
+
+  def compute_conflict_free_scopes(scopegraph, set)
+    @conflict_free = {}
+    scopegraph.bottom_up.each { |node|
+      if conflict_free?(node, set)
+        # if the node is conflict free, just mark it (unless it is the entry)
+        debug(options, :cache) { "Conflict-free Scope: #{node} #{set}" }
+        if node == scopegraph.root
+          get_all_tags(node, set).each { |tag, load_instructions|
+            @analysis.add_scope_for_tag(node, tag)
+          }
+        end
+      else
+        # analyze conflict scope
+        self.analyze_conflict_scope(node, set)
+      end
+    }
+  end
+
   #
-  # Add miss constraints if there is a conflict
+  # decide whether a cache set is conflict free within one scope
   #
-  def compute_miss_constraints_in_conflict_scope(node, set)
+  def conflict_free?(node, set)
+    return @conflict_free[[node,set]] if @conflict_free[[node,set]]
+    @conflict_free[[node,set]] = cache_properties.conflict_free?(get_all_tags(node, set).keys)
+  end
+
+  #
+  # Find conflict-free sub scopes in a scope with conflicts
+  #
+  def analyze_conflict_scope(node, set)
 
     debug(options, :cache) { "Conflicts in scope #{node}: #{get_all_tags(node, set).keys.inspect}" }
-    options.conflict_regions = true
 
-    if rg = get_region_graph(node)
-      if options.conflict_regions
+    if rg = @analysis.get_region_graph(node)
+      if options.wca_cache_regions
         # process region graph in topological order
-        $stderr.puts "region formation"
         ConflictFreeRegionFormation.new(rg, self).build_regions(set).each { |header, tags|
           next if tags.empty?
           scope_node = region_header_scope(node, header)
           tags.each { |tag|
-            add_scope_for_tag(scope_node, tag)
+            @analysis.add_scope_for_tag(scope_node, tag)
           }
-
         }
       else
         # If this is a region node, add misses for all actions in the current set
         rg.action_nodes.each { |action_node|
           load_instruction = action_node.action
           tag = load_instruction.tag
-          if @cache.set_of(tag) == set
-            add_scope_for_tag(ScopeGraph::BlockNode.new(action_node.block, node.context), tag)
+          if cache_properties.set_of(tag) == set
+            @analysis.add_scope_for_tag(ScopeGraph::BlockNode.new(action_node.block, node.context), tag)
           end
         }
-        add_conflict_free_subscope_constraints(node, set)
+        add_conflict_free_subscopes(node, set)
       end
     else
-      add_conflict_free_subscope_constraints(node, set)
+      add_conflict_free_subscopes(node, set)
     end
+  end
+
+
+  def add_conflict_free_subscopes(node, set)
+    # add scope constraint for all conflict-free successors
+    node.successors.each { |snode|
+      debug(options, :cache) { "conflict_scope: subscope #{snode}, needs action: #{conflict_free?(snode,set)}" }
+      if conflict_free?(snode, set)
+        get_all_tags(snode,set).each { |tag, load_instructions|
+          @analysis.add_scope_for_tag(snode, tag)
+        }
+      end
+    }
   end
 
   def region_header_scope(scope_node, region_node)
@@ -324,71 +455,15 @@ class CacheRegionAnalysis
     end
   end
 
-
-  def add_conflict_free_subscope_constraints(node, set)
-    # add scope constraint for all conflict-free successors
-    node.successors.each { |snode|
-      debug(options, :cache) { "conflict_scope: subscope #{snode}, needs action: #{conflict_free?(snode,set)}" }
-      if conflict_free?(snode, set)
-        get_all_tags(snode,set).each { |tag, load_instructions|
-          add_scope_for_tag(snode, tag)
-        }
-      end
-    }
-  end
-
-  #
-  # add conflict-free scope for tag
-  #
-  def add_scope_for_tag(node, tag)
-    debug(options, :cache) { "add scope #{node} for tag #{tag}" }
-    @conflict_free_scopes[tag] ||= Hash.new(0)
-    @conflict_free_scopes[tag][node] += 1
-  end
-
-  #
-  # decide whether a cache set is conflict free within one scope
-  #
-  def conflict_free?(node, set)
-    return @conflict_free[[node,set]] if @conflict_free[[node,set]]
-    @conflict_free[[node,set]] = @cache.conflict_free?(get_all_tags(node, set).keys)
-  end
-
-  #
-  # get all tags accessed in one set
-  #
-  def get_all_tags(node, set)
-    all_tags = @all_tags[[node,set]]
-    return all_tags if all_tags
-    all_tags = get_local_tags(node,set)
-    node.successors.each { |succ|
-      get_all_tags(succ, set).each { |t,is|
-        all_tags[t] ||= Set.new
-        all_tags[t] += is
-      }
-    }
-    @all_tags[[node,set]] = all_tags
-  end
-
-  def get_local_tags(node,set)
-    local_tags = {}
-    region_graph = get_region_graph(node)
-    return local_tags unless region_graph
-    region_graph.action_nodes.each { |node|
-      load_instruction = node.action
-      tag = load_instruction.tag
-      if @cache.set_of(tag) == set
-        (local_tags[tag]||=Set.new).add(load_instruction)
-      end
-    }
-    local_tags
-  end
-
 end
-
 
 class MethodCacheAnalysis
 
+  def name
+    "M$"
+  end
+
+  attr_reader :cache
   def initialize(cache, pml, options)
     @cache, @pml, @options = cache, pml, options
     @block_subfunction_map = {}
@@ -430,6 +505,8 @@ class MethodCacheAnalysis
 
   # decision is correct for all variant of the method cache (fixed and variable block)
   def conflict_free?(subfunctions)
+    return false if @options.wca_minimal_cache
+    return true  if @options.wca_ideal_cache
 
     # the number of blocks occupied by all subfunctions may not exceed the
     # number of blocks available in the cache
@@ -442,12 +519,16 @@ class MethodCacheAnalysis
     c1 && c2
   end
 
+  def size_in_bytes(subfunctions)
+    subfunctions.map { |sf| @cache.bytes_to_blocks(sf.size) * @cache.block_size }.inject(0,:+)
+  end
+
   def load_cost(subfunction)
     @pml.arch.subfunction_miss_cost(subfunction)
   end
 
   def blocks_for_tag(subfunction)
-    @cache.bytes_to_blocks(@pml.arch.subfunction_size(subfunction))
+    @cache.bytes_to_blocks(subfunction.size)
   end
 
 end
@@ -467,6 +548,10 @@ end
 class InstructionCacheAnalysis
 
   attr_reader :cache
+
+  def name
+    "I$"
+  end
 
   def initialize(cache, pml, options)
     @cache, @pml, @options = cache, pml, options
@@ -519,12 +604,21 @@ class InstructionCacheAnalysis
     end
   end
 
+  def size_in_bytes(cache_lines)
+    @cache.line_size * cache_lines.length
+  end
+
   def conflict_free?(cache_lines)
+    return false if @options.wca_minimal_cache
+    return true  if @options.wca_ideal_cache
+
     cache_lines.length <= cache.associativity
   end
 
-  def load_cost(_cache_line)
-    @pml.arch.config.main_memory.read_delay(cache.line_size)
+  def load_cost(cache_line)
+    d = @pml.arch.config.main_memory.read_delay(cache_line.address, cache.line_size)
+    # info("read_delay for cache_line at #{cache_line.address} (#{cache_line.address & (@cache.line_size-1)}): #{d}")
+    d
   end
 
 end
@@ -550,7 +644,7 @@ class StackCacheAnalysis
   def extend_ipet(ipet_builder)
     ilp = ipet_builder.ilp
     @fill_blocks.each { |instruction,fill_blocks|
-      ipet_builder.mc_model.add_block_cost(instruction.block, @pml.arch.config.main_memory.read_delay(fill_blocks*@cache.block_size))
+      ipet_builder.mc_model.add_block_cost(instruction.block, @pml.arch.config.main_memory.max_read_delay(fill_blocks*@cache.block_size))
     }
     @spill_blocks.each { |instruction,spill_blocks|
       ilp_builder.mc_model.add_block_cost(instruction.block, @pml.arch.config.main_memory.write_delay(spill_blocks*@cache.block_size))

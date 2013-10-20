@@ -251,14 +251,10 @@ module PML
     def last
       @blocks.last
     end
-
-    # the caller may provide a block size to take alignment into account
-    # for example, if the function ranges from address 4 to 11, and the
-    # block size / alignment is 8, then the size of the subfunction is 2 blocks
-    # (0-8) (9-15)
-    def size(block_size = 1, alignment = 1)
+    def size
       assert("SubFunction#size: no addresses available") { entry.address }
-      start_address = entry.address & ~(alignment-1)
+
+      start_address = entry.address
       end_address =
         if last.instructions.empty?
           last.address
@@ -266,7 +262,7 @@ module PML
           last_instruction = last.instructions.list.last
           last_instruction.address + last_instruction.size
         end
-      div_ceil(end_address-start_address, block_size)
+      end_address - start_address
     end
   end
 
