@@ -423,6 +423,11 @@ EOF
     opts.needs_pml
     WcetTool.add_options(opts)
   end
+  unless which(options.a3)
+    warn("Commercial a3 tools is not available; use --disable-ait to hide this warning")
+    options.disable_ait = true
+    options.enable_wca = true
+  end
   updated_pml = WcetTool.run(PMLDoc.from_files(options.input), options)
   updated_pml.dump_to_file(options.output) if options.output
 end

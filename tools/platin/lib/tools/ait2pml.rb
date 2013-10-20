@@ -47,7 +47,13 @@ end
 class AitAnalyzeTool
   def AitAnalyzeTool.add_config_options(opts)
     opts.on("--a3-command COMMAND", "path to a3patmos executable (=a3patmos)") { |cmd| opts.options.a3 = cmd }
-    opts.add_check { |options| options.a3 = "a3patmos" unless options.a3 }
+    opts.on("--[no-]ait-persistence-analysis", "enable aiT cache persistence analysis (=true)") { |b|
+      opts.options.ait_persistence_analysis = b
+    }
+    opts.add_check { |options|
+      options.a3 = "a3patmos"                 if options.a3.nil?
+      options.ait_persistence_analysis = true if options.ait_persistence_analysis.nil?
+    }
   end
   def AitAnalyzeTool.add_options(opts, mandatory = true)
     AitAnalyzeTool.add_config_options(opts)
