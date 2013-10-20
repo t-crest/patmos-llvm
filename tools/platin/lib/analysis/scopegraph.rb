@@ -14,15 +14,21 @@ class SCCGraph
     include QNameObject
     attr_writer :has_backedge
     attr_reader :first, :blocks, :successors, :node_of_block
-    def initialize(blocks)
+    def initialize(blocks, graph_headers)
       @first = blocks.first
       @blocks = blocks
+      @graph_headers = graph_headers
       @qname = "SCC: #{@first.qname}"
       @successors = []
       @has_backedge = false
     end
     def add_successor(n)
       @successors.push(n)
+    end
+    def trivial?
+      return false if blocks.length > 1
+      singleton = blocks.first
+      singleton.successors.all? { |succ| succ != singleton || @graph_headers.include?(succ) }
     end
     def has_backedge?
       @has_backedge
@@ -36,12 +42,16 @@ class SCCGraph
   end
 
   attr_reader :nodes, :recursive_edges
-  def initialize(blocks, recursive_edge_targets)
-    @blocks, @recursive_edge_targets = blocks, recursive_edge_targets
+  def initialize(blocks, graph_headers)
+    @blocks, @graph_headers = blocks, graph_headers
     @blockset = Set[*@blocks]
-    @sccs = TSortAdapter.new(blocks, recursive_edge_targets).strongly_connected_components.reverse
+
+    # Attention: if flowfacts prune backedges, there might be LLVM loops which are not loops
+    # in the sense of the SCC graph
+    @sccs = TSortAdapter.new(blocks, graph_headers).strongly_connected_components.reverse
+
     @node_of_block = {}
-    @nodes = @sccs.map { |scc| Node.new(scc) }
+    @nodes = @sccs.map { |scc| Node.new(scc, graph_headers) }
     nodes.each { |node|
       node.blocks.each { |b|
         @node_of_block[b] = node
@@ -51,7 +61,7 @@ class SCCGraph
       node.blocks.each { |block|
         block.successors.each { |succ|
           next unless @blockset.include?(succ)
-          if @recursive_edge_targets.include?(succ)
+          if @graph_headers.include?(succ)
             node.has_backedge = true
             next
           end
@@ -318,8 +328,8 @@ private
     entry_node, exit_node = {}, {}
     scc_graph.nodes.each { |scc_node|
       blocks = scc_node.blocks
-      # distinguish whether SCC is a block (inspect) or loop (subscope) or
-      if ! blocks.first.loopheader? || blocks.first.loop == scope_loop
+      # distinguish whether SCC is trivial (block) or loop (subscope)
+      if scc_node.trivial?
 
         assert("SCC should either be loop or have size 1") { blocks.length == 1 }
         block = blocks.first
@@ -553,7 +563,7 @@ class RegionGraph
   end
 
   def to_s
-    "RegionGraph: #{@region_node}"
+    "RegionGraph: #{@name}"
   end
 
   def add_block_entry(block)

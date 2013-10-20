@@ -14,13 +14,12 @@ require 'set'
 class PersistenceDataFlowAnalysis
 
   # for each cache tag T possibly accessed in the scope, compute
-
+  #
   #  NO set:   other tags possibly accessed on paths where T is not accessed at all
   #  IN set:   other tags possibly accessed up to the first access of T
   #  OUT set:  other tags possibly accessed from the last acces to T on
-  
-  #  local persistence: whether the OUT set is conflict-free before each access to T
-  #  subscope persistence: whether (IN \/ NO + S.IN) is conflict-free
+  #
+  #
 
   # forward declaration
   class TagSet
@@ -32,7 +31,7 @@ class PersistenceDataFlowAnalysis
     def join(other); other ; end
     def to_s; "0"; end
     def dup ; self ; end
-  end 
+  end
 
   class TopTagSet < TagSet
     def access(t);   self ; end
@@ -105,7 +104,7 @@ class PersistenceDataFlowAnalysis
     def out(t) ; @out_map[t] || TagSet::ZERO; end
 
     def new_tag_set(t, initial_set = nil)
-      t_metric = Proc.new { |set| 
+      t_metric = Proc.new { |set|
         @check_conflict.call(set + Set[t])
         # info("Conflicting?(#{t} -> #{set.to_a})=#{r}")
       }
@@ -120,7 +119,7 @@ class PersistenceDataFlowAnalysis
                        @no_map[t].access(x)
                      end
         @in_map[t] = if t == x
-                       @in_map[t].join(old_no_map) 
+                       @in_map[t].join(old_no_map)
                      else
                        @in_map[t]
                      end
@@ -271,15 +270,14 @@ class PersistenceDataFlowAnalysis
   def conflicts?(tag_set)
     @check_conflict.call(tag_set)
   end
-  
+
   # run data flow analysis, and compute persistence
   def analyze(scope_node, set)
     return @results[[scope_node,set]] if @results[[scope_node,set]]
-    
     # HACK (indirect calls not yet supported)
     if(scope_node.kind_of?(ScopeGraph::CallNode))
       assert("persistence analysis does not support indirect calls yet") { scope_node.successors.length == 1 }
-      return @results[[scope_node,set]] = analyze(scope_node.successors.first, set)      
+      return @results[[scope_node,set]] = analyze(scope_node.successors.first, set)
     end
 
     active_tags = @persistence_analysis.get_all_tags(scope_node, set).keys
@@ -290,40 +288,49 @@ class PersistenceDataFlowAnalysis
 
     # goal: compute @inval of exit node
     active_tags = @persistence_analysis.get_all_tags(scope_node, set).keys
-    rg = @persistence_analysis.get_region_graph(scope_node)      
+    rg = @persistence_analysis.get_region_graph(scope_node)
     @inval = {}
     @inval[rg.entry_node] = initial_state
 
-    queue = WorkList.new([rg.entry_node])
-    queue.process do |node|
-      state = out_state = @inval[node]
-      case node
-      when RegionGraph::ActionNode
-        if @persistence_analysis.cache_properties.set_of(node.action.tag) == set
-          out_state = state.dup.access(node.action.tag)
+    ticks = 0
+    # we could simple enqueue nodes that changed, but this leads to an intolerable
+    # running time for some benchmarks (nsichneu); therefore, we iteratively process
+    # nodes in topological order (acyclic graphs ftw :))
+    begin
+      # info("Starting next iteration of persistence analysis for #{scope_node} (set #{set})")
+      restart = false
+      topological_sort(rg.entry_node).each { |node|
+        ticks += 1
+        state = out_state = @inval[node]
+        case node
+        when RegionGraph::ActionNode
+          if @persistence_analysis.cache_properties.set_of(node.action.tag) == set
+            out_state = state.dup.access(node.action.tag)
+          end
+        when RegionGraph::SubScopeNode
+          sub_final_state = analyze(node.scope_node, set).final_state
+          out_state = state.dup.call(sub_final_state)
+        when RegionGraph::RecNode
+          new_state, changed = @inval[rg.entry_node].join_with(out_state)
+          restart = true if changed
         end
-      when RegionGraph::SubScopeNode
-        sub_final_state = analyze(node.scope_node, set).final_state
-        out_state = state.dup.call(sub_final_state)
-      when RegionGraph::RecNode
-        new_state, changed = @inval[rg.entry_node].join_with(out_state)
-        queue.enqueue(rg.entry_node) if changed
-      end
-      node.successors.each { |succ|
-        changed = nil
-        if @inval[succ]
-          new_state, changed = @inval[succ].join_with(out_state)
-        else
-          @inval[succ] = out_state.dup
-          changed = true
-        end
-        queue.enqueue(succ) if changed
+        node.successors.each { |succ|
+          if @inval[succ]
+            new_state, changed = @inval[succ].join_with(out_state)
+            restart = true if changed
+          else
+            @inval[succ] = out_state.dup
+            restart = true
+          end
+        }
       }
-    end
+      # reiterate if something changed
+    end while restart
 
     persistence_info = PersistenceInfo.new(rg, @inval, scope_node, set, active_tags, self)
     # info("Results of presistence analysis of #{scope_node}")
     # persistence_info.dump($stderr)
+    info("Finished persistence analysis for #{scope_node} (set #{set}): ticks=#{ticks}")
 
     @results[[scope_node,set]] = persistence_info
   end
