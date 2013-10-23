@@ -21,7 +21,9 @@ end
 
 def run(cmd)
   $stderr.puts "[patmos-clang-wcet] #{cmd}"
-  system(cmd)
+  if ! system(cmd)
+    exit 1
+  end
 end
 
 usage("") unless ARGV.length > 0
@@ -96,6 +98,10 @@ outfile =
 # clang arguments
 clang_argstr = args.map { |a| a.inspect }.join(" ")
 clang_argstr_initial = initial_args.map { |a| a.inspect }.join(" ")
+
+if options.guided_optimization
+    clang_argstr_initial += " -mpatmos-disable-ifcvt"
+end
 
 # intermediate files
 llvminput  = outfile.call(options.outfile,".llvm-input.pml")
