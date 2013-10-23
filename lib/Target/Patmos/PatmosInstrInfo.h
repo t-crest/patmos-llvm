@@ -194,6 +194,14 @@ public:
   /// Correctly deals with inline assembler and bundles.
   bool hasCall(const MachineInstr *MI) const;
 
+  /// mayStall - return true if the MI might cause a memory access that might
+  /// miss and stall the CPU. Not checking for instruction fetch related stalls.
+  bool mayStall(const MachineInstr *MI) const;
+
+  /// mayStall - return true if the MBB might cause a memory access that might
+  /// miss and stall the CPU. Not checking for instruction fetch related stalls.
+  bool mayStall(const MachineBasicBlock &MBB) const;
+
   /// getCallee - try to get the called function, or null if this is not a
   /// call, if the call target is unknown or if there is more than one callee.
   const Function *getCallee(const MachineInstr *MI) const;
@@ -320,7 +328,12 @@ public:
     const MCInstrDesc &MCID = prior(MBB.end())->getDesc();
     if (MCID.isReturn() || MCID.isCall())
       return false;
-    return NumCycles <= 8;
+    if (NumCycles > 8)
+      return false;
+
+    // We do not handle predicated instructions that may stall the pipeline
+    // properly in the cache analyses, so we do not convert them for now.
+    return !mayStall(MBB);
   }
 
   /// isProfitableToIfCvt - Second variant of isProfitableToIfCvt, this one
@@ -341,7 +354,12 @@ public:
     const MCInstrDesc &FMCID = prior(FMBB.end())->getDesc();
     if (FMCID.isReturn() || FMCID.isCall())
       return false;
-    return (NumTCycles + NumFCycles) <= 16;
+    if ((NumTCycles + NumFCycles) > 16)
+      return false;
+
+    // We do not handle predicated instructions that may stall the pipeline
+    // properly in the cache analyses, so we do not convert them for now.
+    return !mayStall(TMBB) && !mayStall(FMBB);
   }
 
   /// isProfitableToDupForIfCvt - Return true if it's profitable for

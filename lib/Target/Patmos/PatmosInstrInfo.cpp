@@ -483,6 +483,34 @@ bool PatmosInstrInfo::hasCall(const MachineInstr *MI) const {
   }
 }
 
+bool PatmosInstrInfo::mayStall(const MachineInstr *MI) const {
+  if (MI->isInlineAsm()) {
+    // Being conservative here..
+    return MI->mayLoad() || MI->mayStore();
+  } else if (MI->isBundle()) {
+    const MachineBasicBlock *MBB = MI->getParent();
+    MachineBasicBlock::const_instr_iterator I = MI, E = MBB->instr_end();
+    while ((++I != E) && I->isInsideBundle()) {
+      if (mayStall(I)) return true;
+    }
+    return false;
+  } else if (MI->isPseudo()) {
+    return false;
+  }
+  // We could check for load instructions if they are always-hit.
+  return isPatmosMayStall(MI->getDesc().TSFlags);
+}
+
+bool PatmosInstrInfo::mayStall(const MachineBasicBlock &MBB) const {
+  for (MachineBasicBlock::const_iterator it = MBB.begin(), ie = MBB.end();
+       it != ie; it++)
+  {
+    if (mayStall(it))
+      return true;
+  }
+  return false;
+}
+
 const Function *PatmosInstrInfo::getCallee(const MachineInstr *MI) const
 {
   const Function *F = NULL;
