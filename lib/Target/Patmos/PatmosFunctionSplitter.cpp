@@ -92,6 +92,7 @@
 #include <map>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 
 using namespace llvm;
 
@@ -285,9 +286,9 @@ namespace llvm {
       if (lhs.criticality > rhs.criticality) return true;
       return lhs.block->ID < rhs.block->ID;
     }
-  };
+  } SortCritCmp;
 
-  typedef std::set<ready_block, SortCrit> ready_set;
+  typedef std::vector<ready_block> ready_set;
 
   /// agraph - a transformed copy of the CFG.
   class agraph
@@ -776,7 +777,8 @@ namespace llvm {
         rb.criticality = 1.0;
       }
 
-      ready.insert(rb);
+      ready.push_back(rb);
+      std::sort(ready.begin(), ready.end(), SortCritCmp);
     }
 
     bool isReady(ready_set &ready, ablock *block) {
@@ -805,30 +807,30 @@ namespace llvm {
     /// selectBlock - select the next block to be visited.
     /// if the current block is a fall-through, prefer that fall-through, 
     /// otherwise take the block with the smallest ID (deterministic).
-    const ready_block &selectBlock(ablock *region, ready_set &ready, ablock *last)
+    ready_set::iterator selectBlock(ablock *region, ready_set &ready, ablock *last)
     {
       // check if the fall-through is ready
       MachineBasicBlock *fallthrough = last ? last->FallthroughTarget : NULL;
 
       double maxCrit = ready.begin()->criticality;
 
-      const ready_block *fttarget = NULL;
+      ready_set::iterator fttarget = ready.end();
       for(ready_set::iterator i(ready.begin()), ie(ready.end()); i != ie; i++) {
 
         // check for fall-through
         if (i->block->MBB == fallthrough) {
-          fttarget = &*i;
+          fttarget = i;
           break;
         }
       }
 
       // Prefer the fallthrough block if it is sufficiently critical
-      if (fttarget && fttarget->criticality > maxCrit - 0.1) {
-        return *fttarget;
+      if (fttarget != ready.end() && fttarget->criticality > maxCrit - 0.1) {
+        return fttarget;
       }
 
       // Otherwise just use the (deterministic) ordering of the ready list
-      return *ready.begin();
+      return ready.begin();
     }
 
     /// emitRegion - mark a block as new region entry, and check jump tables
@@ -1202,6 +1204,8 @@ namespace llvm {
       while(!regions.empty()) {
         // pop first region and process it
         ablock *region = selectRegion(regions);
+
+        assert(regions.count(region) == 1 && "Region queue is broken.");
         regions.erase(region);
 
         // only real basic blocks can be region entries
@@ -1221,9 +1225,10 @@ namespace llvm {
 
         while(!ready.empty()) {
           // choose the next block to visit
-          const ready_block &next = selectBlock(region, ready,
+          ready_set::iterator it = selectBlock(region, ready,
                                            order.empty() ? NULL : order.back());
-          ready.erase(next);
+          const ready_block next = *it;
+          ready.erase(it);
 
           // visit the block
           visitBlock(region, region_size, next.block, ready, regions, order);
