@@ -178,7 +178,9 @@ class Architecture < PML::Architecture
     end
     if sc = stack_cache
       # does not work properly at the moment
-      opts.push("-mpatmos-enable-stack-cache-analysis")
+      # opts.push("-mpatmos-enable-stack-cache-analysis")
+      # we need to specify a solver
+      # opts.push("-mpatmos-ilp-solver=lpsolve")
       # we need to specify a recursion.lp file
       # opts.push("-mpatmos-stack-cache-analysis-bounds=recursion.lp")
       opts.push("-mpatmos-stack-cache-block-size=#{sc.block_size}")
