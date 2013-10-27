@@ -1689,7 +1689,9 @@ namespace llvm {
     /// splitBlock - Split a basic block into smaller blocks that each fit into
     /// the method cache.
     static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MaxSize,
-                                   PatmosTargetMachine &PTM)
+                                   PatmosTargetMachine &PTM,
+                                   MachineDominatorTree &MDT,
+                                   MachinePostDominatorTree &MPDT)
     {
       unsigned int branchFixup = getMaxBlockMargin(PTM, false, true, false, 1);
 
@@ -1748,6 +1750,26 @@ namespace llvm {
 
           // copy instructions over from the original block.
           newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
+
+          // update dominator and post-dominator trees for the new block
+          // - the new node is dominated by the dominator of the old node
+          MDT.addNewBlock(newBB, MDT.getNode(MBB)->getIDom()->getBlock());
+          // - the new node dominates by the old block
+          MDT.changeImmediateDominator(MBB, newBB);
+          // - the new node is post-dominated by the old block
+          MPDT.addNewBlock(newBB, MBB);
+          // - the new block post-dominates all nodes post-dominated by
+          //   the old block
+          for (MachineDomTreeNode::const_iterator
+               it = MPDT.getNode(MBB)->getChildren().begin(),
+               ie = MPDT.getNode(MBB)->getChildren().end(); it != ie; it++)
+          {
+            MachineBasicBlock *preBB = (*it)->getBlock();
+            if (preBB == newBB) continue;
+            MPDT.changeImmediateDominator(preBB, newBB);
+            // restart from beginning, with one post-dominated node less.
+            it = MPDT.getNode(MBB)->getChildren().begin();
+          }
 
           // start anew, may fall through!
           curr_size = getMaxBlockMargin(PTM) + i_size;
@@ -1822,6 +1844,8 @@ namespace llvm {
       AU.addRequired<PMLImport>();
       AU.addRequired<MachineDominatorTree>();
       AU.addRequired<MachinePostDominatorTree>();
+      AU.addPreserved<MachineDominatorTree>();
+      AU.addPreserved<MachinePostDominatorTree>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -1839,6 +1863,11 @@ namespace llvm {
       prefer_subfunc_size = std::min(max_subfunc_size, prefer_subfunc_size);
 
       unsigned total_size = 0;
+      bool blocks_splitted = false;
+
+      MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
+      MachinePostDominatorTree &MPDT = getAnalysis<MachinePostDominatorTree>();
+
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
         unsigned bb_size = agraph::getBBSize(i, PTM);
 
@@ -1847,7 +1876,8 @@ namespace llvm {
         //
         if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_subfunc_size)
         {
-          bb_size = agraph::splitBlock(i, max_subfunc_size, PTM);
+          bb_size = agraph::splitBlock(i, max_subfunc_size, PTM, MDT, MPDT);
+          blocks_splitted = true;
         }
 
         total_size += bb_size;
@@ -1858,6 +1888,7 @@ namespace llvm {
 
       // splitting needed?
       if (total_size > prefer_subfunc_size) {
+
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
         agraph G(&MF, PTM, PI.createMCQuery(*this, MF), prefer_subfunc_size);
@@ -1873,9 +1904,11 @@ namespace llvm {
 
         // Note: We rely on the PatmosEnsureAlignment pass to set alignments,
         // we do not do it in this pass.
+
+        return true;
       }
 
-      return true;
+      return blocks_splitted;
     }
   };
 
