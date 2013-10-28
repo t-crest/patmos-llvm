@@ -68,14 +68,11 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setStackPointerRegisterToSaveRestore(Patmos::RSP);
   setBooleanContents(ZeroOrOneBooleanContent);
 
-  // TODO Fix PatmosSchedule.td
-  setSchedulingPreference(Sched::VLIW);
-
   // We require word alignment at least (in log2 bytes here), if code requires 
   // an other alignment, e.g., due to the method-cache, it will be handled 
   // later.
   setMinFunctionAlignment(2);
-  setPrefFunctionAlignment(2);
+  setPrefFunctionAlignment(Subtarget.getMinSubfunctionAlignment());
 
   // Enable using divmod functions
   setLibcallName(RTLIB::SDIVREM_I32, "__divmodsi4");

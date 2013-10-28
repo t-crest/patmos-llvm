@@ -116,6 +116,8 @@ namespace {
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
     virtual bool addPreSched2() {
+      addPass(createPatmosPMLProfileImport(getPatmosTargetMachine()));
+
       if (PatmosSinglePathInfo::isEnabled()) {
         addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
         addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
@@ -174,6 +176,7 @@ namespace {
         addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
       }
 
+      addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
 
       // this is pseudo pass that may hold results from SC analysis
       // (currently for PML export)

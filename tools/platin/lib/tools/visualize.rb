@@ -33,6 +33,29 @@ protected
     g
   end
 end
+
+class CallGraphVisualizer < Visualizer
+  def initialize(pml, options) ; @pml, @options = pml, options ; end
+  def visualize_callgraph(function)
+    g  = digraph("Callgraph for #{function}")
+    refinement = ControlFlowRefinement.new(function, 'machinecode')
+    cg = ScopeGraph.new(function, refinement, @pml, @options).callgraph
+    nodes, nids = {}, {}
+    cg.nodes.each_with_index { |n,i| nids[n] = i }
+    cg.nodes.each { |node|
+      nid = nids[node]
+      label = node.to_s
+      nodes[node] = g.add_nodes(nid.to_s, :label => label)
+    }
+    cg.nodes.each { |n|
+      n.successors.each { |s|
+        g.add_edges(nodes[n],nodes[s])
+      }
+    }
+    g
+  end
+end
+
 class ScopeGraphVisualizer < Visualizer
   def initialize(pml, options) ; @pml, @options = pml, options ; end
   def visualize_scopegraph(function)
@@ -215,7 +238,18 @@ class VisualizeTool
     outdir = options.outdir || "."
     html = HtmlIndexPages.new if options.html
     targets.each do |target|
-      # Visualize the bitcode, machine code and relation graphs
+      # Visualize the callgraph, scopegraph, bitcode, machine code and relation graphs
+      cgv = CallGraphVisualizer.new(pml, options)
+      begin
+        mf = pml.machine_functions.by_label(target)
+        graph = cgv.visualize_callgraph(mf)
+        file = File.join(outdir, target + ".cg" + ".png")
+        cgv.generate(graph , file)
+        html.add(target,"cg",file) if options.html
+      rescue Exception => detail
+        puts "Failed to visualize callgraph for #{target}: #{detail}"
+        puts detail.backtrace
+      end
       sgv = ScopeGraphVisualizer.new(pml,options)
       begin
         mf = pml.machine_functions.by_label(target)
@@ -276,6 +310,7 @@ Visualize bitcode and machine code CFGS, and the control-flow relation
 graph of the specified set of functions
 EOF
   options, args = PML::optparse([:input],"FILE.pml", SYNOPSIS) do |opts|
+    opts.callstring_length
     VisualizeTool.add_options(opts)
   end
   VisualizeTool.run(PMLDoc.from_files([options.input]), options)

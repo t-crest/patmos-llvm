@@ -160,6 +160,7 @@ class WcetTool
     begin
       wcet_analysis_ait(srcs) unless options.disable_ait
     rescue Exception => ex
+      $stderr.puts ex.backtrace
       warn("a3 WCET analysis failed: #{ex}. Trying platin WCET analysis.")
       run_wca = true
     end
@@ -421,6 +422,11 @@ EOF
   options, args = PML::optparse([], "", synopsis) do |opts|
     opts.needs_pml
     WcetTool.add_options(opts)
+  end
+  unless which(options.a3)
+    warn("Commercial a3 tools is not available; use --disable-ait to hide this warning")
+    options.disable_ait = true
+    options.enable_wca = true
   end
   updated_pml = WcetTool.run(PMLDoc.from_files(options.input), options)
   updated_pml.dump_to_file(options.output) if options.output

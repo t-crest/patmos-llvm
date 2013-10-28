@@ -60,6 +60,13 @@ getSumForBlock(const MachineBasicBlock *MBB, uint32_t &Scale) const {
   return Sum;
 }
 
+void MachineBranchProbabilityInfo::
+setEdgeWeight(MachineBasicBlock *Src,
+              MachineBasicBlock::succ_iterator Dst,
+              uint32_t weight) {
+  Src->setSuccWeight(Dst, weight);
+}
+
 uint32_t MachineBranchProbabilityInfo::
 getEdgeWeight(const MachineBasicBlock *Src,
               MachineBasicBlock::const_succ_iterator Dst) const {

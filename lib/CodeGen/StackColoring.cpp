@@ -32,6 +32,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/CodeGen/LexicalScopes.h"
 #include "llvm/CodeGen/LiveInterval.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
@@ -484,12 +485,16 @@ void StackColoring::remapInstructions(DenseMap<int, int> &SlotRemap) {
   MachineModuleInfo *MMI = &MF->getMMI();
 
   // Remap debug information that refers to stack slots.
+  LexicalScopes LScopes;
+  LScopes.initialize(*MF);
+
   MachineModuleInfo::VariableDbgInfoMapTy &VMap = MMI->getVariableDbgInfo();
   for (MachineModuleInfo::VariableDbgInfoMapTy::iterator VI = VMap.begin(),
        VE = VMap.end(); VI != VE; ++VI) {
     const MDNode *Var = VI->first;
     if (!Var) continue;
     std::pair<unsigned, DebugLoc> &VP = VI->second;
+    if (!LScopes.findLexicalScope(VP.second)) continue;
     if (SlotRemap.count(VP.first)) {
       DEBUG(dbgs()<<"Remapping debug info for ["<<Var->getName()<<"].\n");
       VP.first = SlotRemap[VP.first];

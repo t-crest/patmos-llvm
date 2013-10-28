@@ -179,16 +179,40 @@ class MemoryConfig < PMLObject
     }.delete_if { |k,v| v.nil? }
   end
 
-  def read_delay(bytes)
-    read_latency + bytes_to_blocks(bytes) * read_transfer_time
+
+  # delay for an (not necessarily aligned) read request
+  def read_delay(start_address, size)
+    start_padding = start_address & (@transfer_size-1)
+    read_delay_aligned(start_padding + size)
   end
 
-  def write_delay(bytes)
-    write_latency + bytes_to_blocks(bytes) * write_transfer_time
+  # delay for an (not necessarily aligned) read request
+  def max_read_delay(size)
+    read_delay(size + transfer_size - 4)
   end
+
+  # delay for a read request aligned to the transfer (burst) size
+  def read_delay_aligned(size)
+    read_latency + bytes_to_blocks(size) * read_transfer_time
+  end
+
+  # delay for an (not necessarily aligned write_request)
+  def write_delay(start_address, size)
+    start_padding = start_address & (@transfer_size-1)
+    write_delay_aligned(start_padding + size)
+  end
+
+  def max_write_delay(size)
+    write_delay(size + transfer_size - 4)
+  end
+
+  def write_delay_aligned(size)
+    write_latency + bytes_to_blocks(size) * write_transfer_time
+  end
+
 
   def bytes_to_blocks(bytes)
-    (bytes+transfer_size-1)/transfer_size
+    div_ceil(bytes,transfer_size)
   end
 
   def ideal?
@@ -244,6 +268,18 @@ class CacheConfig < PMLObject
   # * Type: <tt>int</tt>
   attr_reader :block_size
 
+  ##
+  # :attr_reader: attributes
+  #
+  # additional attributes for the cache (key/value pairs)
+  attr_reader :attributes
+
+  def get_attribute(key)
+    attribute_pair = attributes.find { |e| e['key'] == key }
+    return nil unless attribute_pair
+    attribute_pair['value']
+  end
+
   # synonymous at the moment
   def line_size
     block_size
@@ -265,6 +301,7 @@ class CacheConfig < PMLObject
     @name, @type, @policy, @associativity, @block_size, @size =
       name, type, policy, associativity, block_size, size
     set_yaml_repr(data)
+    @attributes = data ? (data['attributes'] ||= []) : []
   end
 
   def CacheConfig.from_pml(ctx, data)
@@ -283,7 +320,8 @@ class CacheConfig < PMLObject
       "policy" => policy,
       "associativity" => associativity,
       "block-size" => block_size,
-      "size" => size
+      "size" => size,
+      "attributes" => attributes
     }.delete_if { |k,v| v.nil? }
   end
 end # class CacheConfig

@@ -72,8 +72,12 @@ class IndexedConstraint
       else
         @inconsistent = true
       end
+    elsif @lhs.length == 1 && @op == "equal" && @rhs == 0
+      # c != 0 -> c x = 0 <=> x = 0
+      v, c = @lhs.first
+      @lhs[v] = 1
     else
-      @gcd = @lhs.values.inject(0,:gcd)
+      @gcd = @lhs.values.inject(@rhs, :gcd)
       @lhs.merge!(@lhs) { |v,c| c / @gcd }
       @rhs /= @gcd
     end

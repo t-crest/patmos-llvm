@@ -113,7 +113,7 @@ PMLBitcodeQuery* PMLImport::createBitcodeQuery(Pass &AnalysisProvider,
   if (!Initialized) return 0;
   PMLLevelInfo *Lvl = (SrcLevel == yaml::level_bitcode) ? BitcodeLevel :
                                                           MachineLevel;
-  if (!Lvl) return 0;
+
   return new PMLBitcodeQuery(YDoc, F, *Lvl, AnalysisProvider);
 }
 
@@ -124,7 +124,7 @@ PMLMCQuery* PMLImport::createMCQuery(Pass &AnalysisProvider,
   if (!Initialized) return 0;
   PMLLevelInfo *Lvl = (SrcLevel == yaml::level_bitcode) ? BitcodeLevel :
                                                           MachineLevel;
-  if (!Lvl) return 0;
+
   return new PMLMCQuery(YDoc, MF, *Lvl, AnalysisProvider);
 }
 
@@ -584,3 +584,75 @@ double PMLMCQuery::getCriticality(BlockDoubleMap &Criticalities,
 {
   return getMaxDominatorValue(Criticalities, MBB, Default);
 }
+
+
+
+INITIALIZE_PASS_BEGIN(PMLMachineFunctionImport, "pml-mf-import",
+                                    "PML Machine Function Import", false, true)
+INITIALIZE_PASS_DEPENDENCY(PMLImport)
+INITIALIZE_PASS_END(PMLMachineFunctionImport, "pml-mf-import",
+                                    "PML Machine Function Import", false, true)
+
+char PMLMachineFunctionImport::ID = 0;
+
+void PMLMachineFunctionImport::reset() {
+  if (PQ) delete PQ;
+  PQ = 0;
+
+  Criticalities.clear();
+  Frequencies.clear();
+}
+
+void PMLMachineFunctionImport::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.setPreservesAll();
+  AU.addRequired<PMLImport>();
+  AU.addRequired<MachineDominatorTree>();
+  AU.addRequired<MachinePostDominatorTree>();
+  MachineFunctionPass::getAnalysisUsage(AU);
+}
+
+
+bool PMLMachineFunctionImport::runOnMachineFunction(MachineFunction &mf)
+{
+  reset();
+
+  MF = &mf;
+
+  // create a new query for this machine function.
+  PMLImport &PI = getAnalysis<PMLImport>();
+  PQ = PI.createMCQuery(*this, mf);
+
+  return false;
+}
+
+void PMLMachineFunctionImport::loadCriticalityMap()
+{
+
+}
+
+void PMLMachineFunctionImport::loadFrequencyMap()
+{
+
+}
+
+double PMLMachineFunctionImport::getCriticalty(MachineBasicBlock *FromBB,
+                     MachineBasicBlock *ToBB,
+                     double Default)
+{
+  if (!PQ) return Default;
+
+  // TODO we ignore ToBB at the moment.. we should check edge criticalities.
+
+  return PQ->getCriticality(Criticalities, *FromBB, Default);
+}
+
+int64_t PMLMachineFunctionImport::getWCETFrequency(MachineBasicBlock *FromBB,
+                          MachineBasicBlock *ToBB,
+                          int64_t Default)
+{
+  if (!PQ) return Default;
+
+  return Default;
+}
+
+

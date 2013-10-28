@@ -11,6 +11,21 @@ include PML
 class WcaTool
 
   def WcaTool.add_config_options(opts)
+    opts.on("--[no-]wca-cache-regions","use single-entry cache regions (=true)") { |b|
+      opts.options.wca_cache_regions = b
+    }
+    opts.on("--[no-]wca-persistence-analysis","use (more expensive) persistence DFA for LRU caches (=false)") { |b|
+      opts.options.wca_persistence_analysis = b
+    }
+    opts.on("--wca-ideal-cache","assume each cache block is loaded at most once (=false)") { |b|
+      opts.options.wca_ideal_cache = b
+    }
+    opts.on("--wca-minimal-cache","assume there is only one cache block (=false)") { |b|
+      opts.options.wca_minimal_cache = b
+    }
+    opts.add_check { |options|
+      options.wca_cache_regions = true if options.wca_cache_regions.nil?
+    }    
   end
 
   def WcaTool.add_options(opts)

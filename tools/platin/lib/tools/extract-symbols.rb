@@ -41,6 +41,7 @@ class ExtractSymbols
     die "The objdump command '#{@options.objdump}' exited with status #{$?.exitstatus}" unless $?.success?
 
     # Run platform-specific extractor, if available
+    # Computes instruction_addresses
     @pml.arch.extract_symbols(self, @pml, @options) if @pml.arch.respond_to?(:extract_symbols)
 
     statistics("EXTRACT","extracted addresses" => stats_address_count) if @options.stats
@@ -57,7 +58,11 @@ class ExtractSymbols
           # to insert additional text between blocks.
           addr = block_addr
         elsif ! @instruction_addresses[function.label]
-          die("No label #{function.label} for function #{function} found in binary")
+          if @instruction_addresses.empty?
+            die("There is no symbol for basic block #{block.label} in the binary")
+          else
+            die("There is no symbol for #{block.label}, and no instruction addresses for function #{function.label} are available")
+          end
         elsif ins_addr = @instruction_addresses[function.label][ins_index]
           warn("Heuristic found wrong address for #{block}: #{addr}, not #{ins_addr}") if addr != ins_addr
           addr = ins_addr

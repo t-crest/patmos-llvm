@@ -3,6 +3,7 @@
 #
 # PML data format classes
 #
+require 'core/utils'
 require 'core/pmlbase'
 require 'core/arch'
 require 'core/configuration'
@@ -10,6 +11,10 @@ require 'core/context'
 require 'core/program'
 require 'core/programinfo'
 
+# preferably, we would have something like:
+# include PML::Kernel
+# to have assert and friends in scope
+include PML
 
 module PML
 

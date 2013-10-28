@@ -15,6 +15,7 @@
 #define LLVM_CODEGEN_PMLIMPORT_H
 
 #include "llvm/Pass.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/PML.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/ValueMap.h"
@@ -392,6 +393,60 @@ namespace llvm {
                                  const MachineBasicBlock &MBB) const;
   };
 
+  /// This analysis pass provides a simple interface to PMLQuery and allows
+  /// reusing results for several passes.
+  class PMLMachineFunctionImport : public MachineFunctionPass {
+  private:
+
+    MachineFunction *MF;
+
+    PMLMCQuery *PQ;
+
+    PMLQuery::BlockDoubleMap Criticalities;
+    PMLQuery::BlockUIntMap Frequencies;
+
+  public:
+    static char ID;
+
+    PMLMachineFunctionImport()
+    : MachineFunctionPass(ID), MF(0), PQ(0)
+    {
+      initializePMLMachineFunctionImportPass(*PassRegistry::getPassRegistry());
+    }
+
+    virtual ~PMLMachineFunctionImport() {
+      if (PQ) delete PQ;
+    }
+
+
+
+    void getAnalysisUsage(AnalysisUsage &AU) const;
+
+    void reset();
+
+    virtual bool runOnMachineFunction(MachineFunction &MF);
+
+    /// check if any results are available.
+    bool isAvailable() { return PQ; }
+
+    PMLMCQuery *getQuery() { return PQ; }
+
+    void loadCriticalityMap();
+
+    void loadFrequencyMap();
+
+    double getCriticalty(MachineBasicBlock *FromBB,
+                         MachineBasicBlock *ToBB = NULL,
+                         double Default = -1.0);
+
+    std::pair<double, int64_t> getCriticalyFreqPair(MachineBasicBlock *FromBB,
+                         MachineBasicBlock *ToBB = NULL,
+                         double DefaultCrit = -1.0, int64_t DefaultFreq = -1);
+
+    int64_t getWCETFrequency(MachineBasicBlock *FromBB,
+                             MachineBasicBlock *ToBB = NULL,
+                             int64_t Default = -1);
+  };
 
 }
 

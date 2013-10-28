@@ -21,7 +21,9 @@ end
 
 def run(cmd)
   $stderr.puts "[patmos-clang-wcet] #{cmd}"
-  system(cmd)
+  if ! system(cmd)
+    exit 1
+  end
 end
 
 usage("") unless ARGV.length > 0
@@ -32,13 +34,17 @@ usage("") if ARGV.include?('--help')
 
 options = OpenStruct.new
 options.override = {}
-args = []
+args, initial_args = [], []
 
 ARGV.each_with_index { |arg,ix|
   if arg =~ /^-mconfig=(.*)$/
     options.configfile = $1
   elsif arg =~ /--wcet-guided-optimization/
     options.guided_optimization = true
+  elsif arg =~ /^-mimport-pml=(.*)$/
+    initial_args.push(arg)
+  elsif arg =~ /^-mpatmos-enable-bypass-from-pml$/
+    initial_args.push(arg)
   elsif arg =~ /--platin-wcet-options=(.*)$/
     options.platin_wcet_options=$1
   elsif arg =~ /-mserialize=(.*)$/
@@ -52,8 +58,8 @@ ARGV.each_with_index { |arg,ix|
     options.save_temps = true
   elsif arg =~ /-mpatmos-method-cache-size=(.*)$/ # override method cache for compiler
     options.override[:mc_cache_size] = true
-  elsif arg =~ /-mpatmos-method-cache-block-size=(.*)/ # override
-    options.override[:mc_block_size] = true
+  elsif arg =~ /-mpatmos-max-subfunction-size=(.*)/ # override
+    options.override[:mc_max_sf_size] = true
   elsif arg == '-v'
     $verbose = true # hack, but this is really prototypical for now
     options.verbose = true
@@ -77,6 +83,7 @@ platin_derived_options = ""
 platin_derived_options += " --outdir #{File.dirname(options.outfile).inspect}" if options.save_temps
 platin_derived_options += " --debug" if options.debug
 platin_derived_options += " #{options.platin_wcet_options}"
+
 outfile =
   if options.save_temps
     Proc.new { |fname,ext|
@@ -90,6 +97,11 @@ outfile =
 
 # clang arguments
 clang_argstr = args.map { |a| a.inspect }.join(" ")
+clang_argstr_initial = initial_args.map { |a| a.inspect }.join(" ")
+
+if options.guided_optimization
+    clang_argstr_initial += " -mpatmos-disable-ifcvt"
+end
 
 # intermediate files
 llvminput  = outfile.call(options.outfile,".llvm-input.pml")
@@ -99,9 +111,9 @@ linked_bitcode = outfile.call(options.outfile,".elf.bc")
 # compile, serializing pml, elf, bc
 config=`platin tool-config -t clang -i #{options.configfile} -o #{llvmoutput}`.chomp
 config.sub!(/-mpatmos-method-cache-size=\S+/,'') if options.override[:mc_cache_size]
-config.sub!(/-mpatmos-method-cache-block-size=\S+/,'') if options.override[:mc_block_size]
+config.sub!(/-mpatmos-max-subfunction-size=\S+/,'') if options.override[:mc_max_sf_size]
 
-run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr}")
+run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr} #{clang_argstr_initial}")
 #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -o #{options.outfile} #{linked_bitcode}")
 
 if options.guided_optimization
@@ -112,7 +124,7 @@ if options.guided_optimization
 
   # recompile, serialize pml, elf, bc
   #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
-  run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} -mimport-pml=#{llvminput} #{clang_argstr}")
+  run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} -mimport-pml=#{llvminput} #{clang_argstr} -mpatmos-enable-bypass-from-pml")
 end
 
 # compute WCETs and report

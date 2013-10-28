@@ -117,10 +117,6 @@ module PML
     end
   end
 
-  # PML call graph
-  class Callgraph < PMLObject
-  end
-
   # Qualified name for loops
   class Loop < ProgramPoint
     attr_reader :function, :loopheader, :qname
@@ -244,7 +240,7 @@ module PML
       set_yaml_repr(data)
     end
     def to_s
-      "#{qname}->#{last.name}"
+      "#{qname}-#{last.name}"
     end
     def function
       entry.function
@@ -257,12 +253,16 @@ module PML
     end
     def size
       assert("SubFunction#size: no addresses available") { entry.address }
-      if last.instructions.empty?
-        last.address - entry.address
-      else
-        linstr = last.instructions.list.last
-        linstr.address + linstr.size  - entry.address
-      end
+
+      start_address = entry.address
+      end_address =
+        if last.instructions.empty?
+          last.address
+        else
+          last_instruction = last.instructions.list.last
+          last_instruction.address + last_instruction.size
+        end
+      end_address - start_address
     end
   end
 
@@ -343,6 +343,28 @@ module PML
         }
       end
     end
+
+    # find all instructions that a callee may return to
+    def identify_return_sites
+      blocks.each { |b|
+        b.instructions.each { |i|
+          i.set_return_site(false)
+        }
+      }
+      blocks.each { |b|
+        b.instructions.each { |i|
+          if i.calls?
+            return_index = i.index + i.delay_slots + 1
+            overflow = return_index - b.instructions.length
+            if overflow < 0
+              b.instructions[return_index].set_return_site(true)
+            else
+              b.next.instructions[overflow].set_return_site(true)
+            end
+          end
+        }
+      }
+    end
   end # of class Function
 
   # Class representing PML Basic Blocks
@@ -419,7 +441,7 @@ module PML
       Edge.new(self, nil)
     end
 
-    # yields outgoing edges (references)
+    # yields outgoing edges
     def outgoing_edges
       Enumerator.new do |ss|
         successors.each { |s|
@@ -561,6 +583,13 @@ module PML
       ! callees.empty?
     end
 
+    # the corresponding return instruction, if this is a call
+    def call_return_instruction
+      assert("call_return_instruction: not a call") { calls? }
+      r_pre_index = index + self.delay_slots
+      block.instructions[r_pre_index].next
+    end
+
     # calless of this instruction (labels)
     def callees
       data['callees'] || []
@@ -593,6 +622,17 @@ module PML
     # whether this instruction returns
     def returns?
       branch_type == 'return'
+    end
+
+    # whether control-flow may return to this instruction
+    def may_return_to?
+      function.identify_return_sites if @may_return_to.nil?
+      @may_return_to
+    end
+
+    # mark this is instruction as return point
+    def set_return_site(may_return_to=true)
+      @may_return_to = may_return_to
     end
 
     # number of delay slots, if this is a branch instruction
@@ -738,11 +778,17 @@ private
       @dst = dst_funs.by_name(data['dst']['function'])
       @nodes = RelationNodeList.new(self, data['nodes'])
     end
+    def status
+      data['status']
+    end
     def get_function(level)
       level == :src ? @src : @dst
     end
     def qname
       "#{src.qname}<>#{dst.qname}"
+    end
+    def to_s
+      "#{src}<->#{dst}"
     end
   end
 

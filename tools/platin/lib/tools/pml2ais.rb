@@ -117,7 +117,7 @@ class ApxExportTool
     needs_options(options, :binary_file, :ais_file, :ait_report_prefix, :analysis_entry)
 
     File.open(options.apx_file, "w") do |fh|
-      apx_exporter = APXExporter.new(fh)
+      apx_exporter = APXExporter.new(fh, pml, options)
       apx_exporter.export_project(options.binary_file,
                                   options.ais_file,
                                   options.ait_report_prefix,

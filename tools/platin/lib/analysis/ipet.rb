@@ -58,7 +58,7 @@ class ControlFlowRefinement
   def infeasible_block?(block, context = Context.empty)
     dict = @infeasible[block]
     return false unless dict
-    dict[Context.empty] || (! context.empty? && dict[conctext])
+    dict[Context.empty] || (! context.empty? && dict[context])
   end
 
   # returns the set of possible calltargets for +callsite+ in +context+
@@ -196,6 +196,40 @@ class IPETModel
     builder.refinement[@level].calltargets(cs, context)
   end
 
+  # high-level helpers
+  def assert_less_equal(lhs, rhs, name, tag)
+    assert(lhs, "less-equal", rhs, name, tag)
+  end
+  def assert_equal(lhs, rhs, name, tag)
+    assert(lhs, "equal", rhs, name, tag)
+  end
+  def assert(lhs, op, rhs, name, tag)
+    terms = Hash.new(0)
+    rhs_const = 0
+    [[lhs,1],[rhs,-1]].each { |ts,sgn|
+      ts.to_a.each { |pp, c|
+        case pp
+        when Instruction
+          block_frequency(pp.block, c*sgn).each { |k,v| terms[k]+=v }
+        when Block
+          block_frequency(pp, c*sgn).each { |k,v| terms[k]+=v }
+        when Edge
+          edge_frequency(pp, c*sgn).each { |k,v| terms[k] += v }
+        when Function
+          function_frequency(pp, c*sgn).each { |k,v| terms[k] += v}
+        when Loop
+          sum_loop_entry(pp,c*sgn).each { |k,v| terms[k] += v }
+        when Integer
+          rhs_const += pp*(-sgn)
+        else
+          terms[pp] += c*sgn
+        end
+      }
+    }
+    c = ilp.add_constraint(terms, op, rhs_const, name, tag)
+    # info("Adding constraint: #{c}")
+  end
+
   # FIXME: we do not have information on predicated calls ATM.
   # Therefore, we use <= instead of = for call equations
   def add_callsite(callsite, fs)
@@ -277,6 +311,7 @@ class IPETModel
   def function_frequency(function, factor = 1)
     block_frequency(function.blocks.first, factor)
   end
+
   def block_frequency(block, factor=1)
     if block.successors.empty? # return exit edge
       [[IPETEdge.new(block,:exit,level),factor]]
@@ -284,19 +319,23 @@ class IPETModel
       sum_outgoing(block,factor)
     end
   end
-  def edgeref_frequency(edgeref, factor = 1)
-    [[IPETEdge.new(edgeref.source, edgeref.target ? edgeref.target : :exit, level), factor ]]
+
+  def edge_frequency(edge, factor = 1)
+    [[IPETEdge.new(edge.source, edge.target ? edge.target : :exit, level), factor ]]
   end
+
   def sum_incoming(block, factor=1)
     block.predecessors.map { |pred|
       [IPETEdge.new(pred,block,level), factor]
     }
   end
+
   def sum_outgoing(block, factor=1)
     block.successors.map { |succ|
       [IPETEdge.new(block,succ,level), factor]
     }
   end
+
   def sum_loop_entry(loop, factor=1)
     sum_incoming(loop.loopheader,factor).reject { |edge,factor|
       edge.backedge?
@@ -416,7 +455,7 @@ class IPETBuilder
       elsif term.programpoint.kind_of?(Block)
         lhs += model.block_frequency(term.programpoint, term.factor)
       elsif term.programpoint.kind_of?(Edge)
-        lhs += model.edgeref_frequency(term.programpoint, term.factor)
+        lhs += model.edge_frequency(term.programpoint, term.factor)
       elsif term.programpoint.kind_of?(Instruction)
         # XXX: exclusively used in refinement for now
         return false
