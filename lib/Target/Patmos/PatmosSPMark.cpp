@@ -144,6 +144,10 @@ const Function *PatmosSPMark::getCallTarget(const MachineInstr *MI) const {
   const Function *Target = NULL;
   if (MO.isGlobal()) {
     Target = dyn_cast<Function>(MO.getGlobal());
+  } else if (MO.isSymbol()) {
+    const char *TargetName = MO.getSymbolName();
+    const Module *M = MI->getParent()->getParent()->getFunction()->getParent();
+    Target = M->getFunction(TargetName);
   }
   return Target;
 }
@@ -166,8 +170,9 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
       if (MI->isCall()) {
         MachineFunction *MF = getCallTargetMF(MI);
         if (!MF) {
-          dbgs() << "[Single-Path] WARNING: Cannot rewrite indirect call in "
-                 << MBB->getParent()->getFunction()->getName() << "\n";
+          dbgs() << "[Single-Path] WARNING: Cannot rewrite call in "
+                 << MBB->getParent()->getFunction()->getName()
+                 << " (indirect call?)\n";
           continue;
         };
         PatmosMachineFunctionInfo *PMFI =
@@ -199,20 +204,18 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
 void PatmosSPMark::rewriteCall(MachineInstr *MI) {
   // get current MBB and call target
   MachineBasicBlock *MBB = MI->getParent();
-  const Function *Target = dyn_cast<Function>(
-      MI->getOperand(2).getGlobal()
-      );
-  assert(Target->hasFnAttribute("sp-maybe"));
-  // get the same function with _sp prefix
+  const Function *Target = getCallTarget(MI);
+  // get the same function with _sp_ suffix
   SmallVector<char, 64> buf;
   const StringRef SPFuncName = Twine(
       Twine(Target->getName()) + Twine("_sp_")
-      ).toStringRef(buf);
+      ).toNullTerminatedStringRef(buf);
 
   const Function *SPTarget = dyn_cast<Function>(
-      Target->getParent()->getNamedGlobal(SPFuncName)
+      Target->getParent()->getFunction(SPFuncName)
       );
   assert(SPTarget && "SP-reachable function not found!");
+  assert(SPTarget->hasFnAttribute("sp-maybe"));
   // Remove the call target operand and add a new target operand
   // with an MachineInstrBuilder. In this case, it is inserted at
   // the right place, before the implicit defs of the call.

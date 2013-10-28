@@ -147,6 +147,7 @@ bool PatmosSPClone::runOnModule(Module &M) {
     // The assumption is that functions called from "used" functions are
     // used themselves
     if (used.count(F->getName())) {
+      //DEBUG( dbgs() << "  used: " << F->getName() << "\n" );
       (void) cloneAndMark(F, false);
       NumSPUsed++; // bump STATISTIC
       continue;
@@ -207,6 +208,9 @@ void PatmosSPClone::explore(Function *F, Worklist &W) {
   for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
       if (CallInst *Call = dyn_cast<CallInst>(&*I)) {
         Function *Callee = Call->getCalledFunction();
+
+        // skip LLVM intrinsics
+        if (Callee->isIntrinsic()) continue;
 
         Function *SPCallee;
         if (!FuncsReachable.count(Callee)) {
