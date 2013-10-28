@@ -1753,7 +1753,15 @@ namespace llvm {
 
           // update dominator and post-dominator trees for the new block
           // - the new node is dominated by the dominator of the old node
-          MDT.addNewBlock(newBB, MDT.getNode(MBB)->getIDom()->getBlock());
+          MachineDomTreeNode *TN = MDT.getNode(MBB)->getIDom();
+          if (TN) {
+            MDT.addNewBlock(newBB, TN->getBlock());
+          } else {
+            // TODO Any other way to change the root node of the DomTree?
+            //      At least do this after all other blocks are split, and skip
+            //      updating the DomTree for individual blocks.
+            MDT.runOnMachineFunction(*MBB->getParent());
+          }
           // - the new node dominates by the old block
           MDT.changeImmediateDominator(MBB, newBB);
           // - the new node is post-dominated by the old block
