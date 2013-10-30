@@ -497,6 +497,12 @@ namespace llvm {
       PatmosStackCacheAnalysisInfo *SCA =
        &P.getAnalysis<PatmosStackCacheAnalysisInfo>();
 
+      // Export the argument of reserve and ensure instructions
+      if (Instr->getOpcode() == Patmos::SENSi ||
+          Instr->getOpcode() == Patmos::SRESi) {
+        I->StackCacheArg = Instr->getOperand(2).getImm();
+      }
+      // Export the worst-case spill and fill counts (if analysis available)
       if (SCA->isValid()) {
         if (Instr->getOpcode() == Patmos::SENSi) {
           PatmosStackCacheAnalysisInfo::FillSpillCounts::iterator it =
@@ -510,6 +516,7 @@ namespace llvm {
           I->StackCacheSpill = it->second;
         }
       }
+
       if (!Instr->isInlineAsm() && (Instr->mayLoad() || Instr->mayStore())) {
         const PatmosInstrInfo *PII =
           static_cast<const PatmosInstrInfo*>(TM.getInstrInfo());

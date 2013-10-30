@@ -263,6 +263,7 @@ struct MachineInstruction : Instruction {
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
   unsigned BranchDelaySlots;
+  unsigned StackCacheArg;
   unsigned StackCacheFill;
   unsigned StackCacheSpill;
   Name MemType;
@@ -271,7 +272,7 @@ struct MachineInstruction : Instruction {
 
   MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
-    BranchDelaySlots(0), StackCacheFill(0), StackCacheSpill(0),
+    BranchDelaySlots(0), StackCacheArg(0), StackCacheFill(0), StackCacheSpill(0),
     MemType(Name("")), Bundled(false) {}
 };
 template <>
@@ -286,6 +287,7 @@ struct MappingTraits<MachineInstruction*> {
     io.mapOptional("branch-type",   Ins->BranchType, branch_none);
     io.mapOptional("branch-delay-slots", Ins->BranchDelaySlots, 0U);
     io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
+    io.mapOptional("stack-cache-argument", Ins->StackCacheArg, 0U);
     io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
     io.mapOptional("stack-cache-spill", Ins->StackCacheSpill, 0U);
     io.mapOptional("memmode",   Ins->MemMode, memmode_none);
