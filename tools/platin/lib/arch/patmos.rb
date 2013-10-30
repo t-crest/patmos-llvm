@@ -60,12 +60,12 @@ class SimulatorTrace
   end
   private
   def parse(line)
-    return nil unless line
+    return nil unless line and not line.chomp.empty?
     pc, cyc = line.split(' ',2)
     begin
       [ Integer("0x#{pc}"), Integer(cyc) ]
     rescue Exception => e
-      raise Exception.new("Patmos::SimulatorTrace: bad line #{line}")
+      raise Exception.new("Patmos::SimulatorTrace: bad line (\"#{line.chomp}\")")
     end
   end
 end
