@@ -11,6 +11,10 @@ class ToolConfigTool
   def ToolConfigTool.add_options(opts)
     opts.on("-t","--tool TOOL", "tool to configure (=clang)") { |t| opts.options.tool = t }
     opts.on("-m","--mode MODE", "configuration mode (tool specific)") { |m| opts.options.mode = m }
+    opts.on("--sca BOUNDS:SOLVER", "stack cache analysis options (required to enable analysis in clang") { |s|
+      sopts = s.split(':')
+      opts.options.sca = { 'bounds' => sopts[0], 'solver' => sopts[1] }
+    }
     opts.add_check do |options|
       die("Option --tool is mandatory") unless options.tool
     end
@@ -19,7 +23,7 @@ class ToolConfigTool
     needs_options(options, :tool)
     case options.tool
     when 'clang'
-      opts = pml.arch.config_for_clang
+      opts = pml.arch.config_for_clang(options)
       roots = pml.analysis_configurations.map { |cs| cs.program_entry }.inject(Set.new) { |s,v| s.add(v) if v; s }.to_a
       opts.push("-mserialize=#{options.output.to_s}") if options.output
       opts.push("-mserialize-roots=#{roots.join(",")}") unless roots.empty?

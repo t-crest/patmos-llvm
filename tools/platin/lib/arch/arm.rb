@@ -100,7 +100,7 @@ class Architecture < PML::Architecture
   end
   def Architecture.simulator_options(opts)
   end
-  def config_for_clang
+  def config_for_clang(options)
   end
   def config_for_simulator
   end
