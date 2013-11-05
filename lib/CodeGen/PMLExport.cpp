@@ -301,10 +301,28 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
   YDoc.addFunction(F);
 }
 
+yaml::Name PMLBitcodeExport::getOpcode(const Instruction *Instr)
+{
+  return yaml::Name(Instr->getName());
+}
+
+void PMLBitcodeExport::printDesc(raw_ostream &os, const Instruction *Instr)
+{
+  // TODO Instr->print(os) does not work, % is not serialized properly by
+  // YAML export (?)
+}
+
+
 void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                                           const Instruction *II)
 {
-  I->Opcode = II->getOpcode();
+  std::string s;
+  raw_string_ostream ss(s);
+  printDesc(ss, II);
+  I->Desc = ss.str();
+
+  I->Opcode = getOpcode(II);
+
   if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
     if (const Function *F = CI->getCalledFunction()) {
       I->addCallee(F->getName());
@@ -373,10 +391,9 @@ void PMLMachineExport::serialize(MachineFunction &MF)
     for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
         E = BB->instr_end(); Ins != E; ++Ins)
     {
-      // We do not export the bundle pseudo instruction itself, skip them.
-      if (Ins->isBundle()) continue;
       // Do not export any Pseudo instructions with zero size
-      if (Ins->isPseudo() && !Ins->isInlineAsm()) continue;
+      if (Ins->isPseudo() && !Ins->isInlineAsm())
+        continue;
 
       if (!doExportInstruction(Ins)) { Index++; continue; }
 
@@ -394,6 +411,21 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   YDoc.addMachineFunction(PMF);
 }
 
+yaml::Name PMLMachineExport::getOpcode(const MachineInstr *Instr)
+{
+  if (!TII) {
+    return yaml::Name(Instr->getOpcode());
+  }
+
+  return yaml::Name(TII->getName(Instr->getOpcode()));
+}
+
+void PMLMachineExport::printDesc(raw_ostream &os, const MachineInstr *Instr)
+{
+  // TODO Instr->print(os) does not work, % is not serialized properly by
+  // YAML export (?)
+}
+
 void PMLMachineExport::
 exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                   const MachineInstr *Ins,
@@ -401,12 +433,17 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
                   bool HasBranchInfo, MachineBasicBlock *TrueSucc,
                   MachineBasicBlock *FalseSucc)
 {
-  I->Opcode = Ins->getOpcode();
+  std::string s;
+  raw_string_ostream ss(s);
+  printDesc(ss, Ins);
+  I->Desc = ss.str();
+
+  I->Opcode = getOpcode(Ins);
   I->Size = PII->getSize(Ins);
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
   I->BranchType = yaml::branch_none;
   I->MemMode = yaml::memmode_none;
-  I->Bundled = Ins->isBundledWithSucc();
+  I->Bundled = Ins->isBundledWithPred();
 
   if (Ins->getDesc().isCall()) {
     I->BranchType = yaml::branch_call;
@@ -425,11 +462,6 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
       exportMemInstruction(MF, I, Ins);
     }
   }
-
-  // XXX: maybe a good idea (descriptions)
-  // raw_string_ostream ss(I->Descr);
-  // Ins->print(ss);
-  // ss.flush();
 }
 
 void PMLMachineExport::

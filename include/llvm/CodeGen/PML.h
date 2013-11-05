@@ -213,12 +213,13 @@ struct ScalarEnumerationTraits<MemMode> {
 /// Instruction Specification (generic)
 struct Instruction {
   Name Index;
-  int Opcode;
+  Name Opcode;
+  Name Desc;
   std::vector<Name> Callees;
   enum MemMode MemMode;
 
   Instruction(uint64_t index)
-    : Index(index), Opcode(-1), MemMode(memmode_none) {}
+    : Index(index), MemMode(memmode_none) {}
 
   void addCallee(const StringRef function) {
     Callees.push_back(yaml::Name(function));
@@ -232,7 +233,8 @@ struct MappingTraits<Instruction*> {
   static void mapping(IO &io, Instruction *&Ins) {
     if (!Ins) Ins = new Instruction(0);
     io.mapRequired("index",   Ins->Index);
-    io.mapOptional("opcode",  Ins->Opcode, -1);
+    io.mapOptional("opcode",  Ins->Opcode, yaml::Name());
+    io.mapOptional("desc",    Ins->Desc, yaml::Name());
     io.mapOptional("callees", Ins->Callees);
     io.mapOptional("memmode",   Ins->MemMode, memmode_none);
   }
@@ -280,7 +282,8 @@ struct MappingTraits<MachineInstruction*> {
   static void mapping(IO &io, MachineInstruction *&Ins) {
     if (!Ins) Ins = new MachineInstruction(0);
     io.mapRequired("index",         Ins->Index);
-    io.mapOptional("opcode",        Ins->Opcode, -1);
+    io.mapOptional("opcode",        Ins->Opcode, yaml::Name());
+    io.mapOptional("desc",          Ins->Desc, yaml::Name());
     io.mapOptional("callees",       Ins->Callees);
     io.mapOptional("size",          Ins->Size);
     io.mapOptional("address",       Ins->Address, (int64_t) -1);

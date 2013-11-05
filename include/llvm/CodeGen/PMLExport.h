@@ -60,10 +60,7 @@ namespace llvm {
     virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) { return 0; }
 
     /// get number of bytes this instruction takes
-    /// FIXME: we should rely on getDescr()->getSize(), but this does not
-    /// work for inline assembler at the moment.
     virtual int getSize(const MachineInstr *Instr);
-
   };
 
   /// Base class for all exporters
@@ -111,6 +108,11 @@ namespace llvm {
 
     virtual bool doExportInstruction(const Instruction* Instr) { return true; }
 
+    virtual yaml::Name getOpcode(const Instruction *Instr);
+
+    /// get a description for this instruction
+    virtual void printDesc(raw_ostream &os, const Instruction *Instr);
+
     virtual void exportInstruction(yaml::Instruction* I, const Instruction* II);
   };
 
@@ -129,10 +131,12 @@ namespace llvm {
     Pass &P;
     TargetMachine &TM;
 
+    const TargetInstrInfo *TII;
+
   public:
     PMLMachineExport(TargetMachine &tm, ModulePass &mp,
                      PMLInstrInfo *pii = 0)
-      : YDoc(tm.getTargetTriple()), P(mp), TM(tm)
+      : YDoc(tm.getTargetTriple()), P(mp), TM(tm), TII(TM.getInstrInfo())
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
@@ -147,6 +151,11 @@ namespace llvm {
     yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
     virtual bool doExportInstruction(const MachineInstr *Instr) { return true; }
+
+    virtual yaml::Name getOpcode(const MachineInstr *Instr);
+
+    /// get a description for this instruction
+    virtual void printDesc(raw_ostream &os, const MachineInstr *Instr);
 
     virtual void exportInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,

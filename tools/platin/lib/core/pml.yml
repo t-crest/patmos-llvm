@@ -115,7 +115,10 @@ mapping:
                              desc: "index of the instruction in the block's instruction list"
                           "opcode":
                              type: scalar
-                             desc: "characterization of the instruction"
+                             desc: "mnemonic or opcode of the instruction"
+                          "desc":
+                             type: scalar
+                             desc: "description of the instruction and the operands"
                           "branch-type":
                              type: str
                              enum: [unconditional, conditional, call, return, indirect, any]
@@ -144,7 +147,7 @@ mapping:
                              desc: "the type of the memory access (if any) [type=MemType]"
                           "bundled":
                             type: bool
-                            desc: "If true, this instruction is bundled with the next instruction"
+                            desc: "If true, this instruction is bundled with the previous instruction"
                           "size":
                              type: int
                              desc: "size of the instruction in the binary"

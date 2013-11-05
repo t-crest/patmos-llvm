@@ -42,12 +42,11 @@
 
 using namespace llvm;
 
-static cl::opt<bool> SkipSerializeInstructions (
-  "mpatmos-serialize-skip-instructions",
+static cl::opt<bool> LongSerialize (
+  "mpatmos-long-serialize",
   cl::init(false),
-  cl::value_desc("names"),
-  cl::desc("Only export interesting instructions, such as branches."),
-  cl::Hidden, cl::CommaSeparated);
+  cl::desc("Export more detailed descriptions."),
+  cl::Hidden);
 
 
 namespace llvm {
@@ -205,7 +204,6 @@ namespace llvm {
     {
       return TM.getInstrInfo()->getInstrSize(Instr);
     }
-
   };
 
   class PatmosBitcodeExport : public PMLBitcodeExport {
@@ -214,12 +212,16 @@ namespace llvm {
       : PMLBitcodeExport(tm, mp) {}
 
     virtual bool doExportInstruction(const Instruction* Instr) {
-      if (SkipSerializeInstructions) {
-        if (!dyn_cast<const CallInst>(Instr)) return false;
-      }
       return true;
     }
 
+    virtual void printDesc(raw_ostream &os, const Instruction *Instr)
+    {
+      if (LongSerialize) {
+        // TODO is not serialized properly, escape correctly!
+        Instr->print(os);
+      }
+    }
   };
 
   // we need information about the calling conventions!
@@ -236,13 +238,15 @@ namespace llvm {
 
 
     virtual bool doExportInstruction(const MachineInstr *Ins) {
-      if (SkipSerializeInstructions) {
-        if (!Ins->getDesc().isCall() && !Ins->getDesc().isBranch() &&
-            !Ins->getDesc().isReturn() && !Ins->getDesc().mayLoad() &&
-            Ins->getOpcode() != Patmos::SENSi)
-          return false;
-      }
       return true;
+    }
+
+    virtual void printDesc(raw_ostream &os, const MachineInstr *Instr)
+    {
+      if (LongSerialize) {
+        // TODO is not serialized properly, escape correctly!
+        Instr->print(os);
+      }
     }
 
     virtual void exportInstruction(MachineFunction &MF,
