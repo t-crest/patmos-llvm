@@ -379,7 +379,7 @@ namespace llvm {
     YAML_MEMBER(Name, Id);
     YAML_MEMBER(Name, Function);
     YAML_MEMBER(Name, SpillBlocks);
-    friend class yaml::MappingTraits<SCANode*>;
+    friend struct yaml::MappingTraits<SCANode*>;
   };
 
   /// A graph representing context-sensitive information on the spill costs at
@@ -2182,7 +2182,7 @@ namespace llvm {
         delete OutFile;
         errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
         errs() << "[mc2yml] Reason: " << ErrorInfo;
-        OutFile = 0;
+        report_fatal_error("Exporting stack analysis results to PML failed!");
       }
       else {
         Output = new yaml::Output(OutFile->os());
