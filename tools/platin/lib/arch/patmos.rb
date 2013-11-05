@@ -134,7 +134,9 @@ class Architecture < PML::Architecture
 
   def path_wcet(ilist)
     # puts ilist.first.inspect unless ilist.empty?
-    ilist.length
+    ilist.reduce(0) do |cycles, instr|
+      cycles + (instr.bundled? ? 0 : 1) 
+    end
   end
 
   def config_for_apx(options)
