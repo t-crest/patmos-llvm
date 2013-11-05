@@ -238,7 +238,6 @@ struct MappingTraits<Instruction*> {
     io.mapOptional("callees", Ins->Callees);
     io.mapOptional("memmode",   Ins->MemMode, memmode_none);
   }
-  static const bool flow = true;
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
@@ -282,8 +281,8 @@ struct MappingTraits<MachineInstruction*> {
   static void mapping(IO &io, MachineInstruction *&Ins) {
     if (!Ins) Ins = new MachineInstruction(0);
     io.mapRequired("index",         Ins->Index);
-    io.mapOptional("opcode",        Ins->Opcode, yaml::Name());
-    io.mapOptional("desc",          Ins->Desc, yaml::Name());
+    io.mapOptional("opcode",        Ins->Opcode, Name(""));
+    io.mapOptional("desc",          Ins->Desc, Name(""));
     io.mapOptional("callees",       Ins->Callees);
     io.mapOptional("size",          Ins->Size);
     io.mapOptional("address",       Ins->Address, (int64_t) -1);
@@ -355,8 +354,6 @@ struct Argument {
   void addReg(const StringRef regname) {
     Registers.push_back(yaml::Name(regname));
   }
-
-  static const bool flow = true;
 };
 template <>
 struct MappingTraits<Argument*> {
