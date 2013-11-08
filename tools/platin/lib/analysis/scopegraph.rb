@@ -274,7 +274,7 @@ private
   # Build a region of SCCs
   #
   def build_regions(function_node, blocks)
-
+    assert("Function should have feasible blocks: #{function_node}") { ! blocks.empty? }
     @blockslices = []
 
     # process all loops
@@ -283,11 +283,11 @@ private
     loopqueue = WorkList.new([function_node])
 
     loopqueue.process { |scope_node|
-      blocks, loop = blocks_of_node[scope_node], loop_of_node[scope_node]
+      loop = loop_of_node[scope_node]
       entry = loop ? loop.loopheader : function_node.function.entry_block
 
       # created a collapsed graph, excluding backedges
-      scc_graph = SCCGraph.new(blocks, [entry])
+      scc_graph = SCCGraph.new(blocks_of_node[scope_node], [entry])
 
       # create a new region graph
       scope_node.region = region_graph = RegionGraph.new(self, entry.qname)
@@ -319,6 +319,7 @@ private
     slice_groups = @blockslices.group_by { |bs| bs.first.block }
     blocks.each { |b|
       current=-1
+      slice_groups[b] ||= [] # empty blocks
       slice_groups[b].each { |bs|
         assert("Block slices not complete: #{b}") { bs.first.index == current+1 }
         current = bs.last.index
