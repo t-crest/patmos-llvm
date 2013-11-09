@@ -54,7 +54,7 @@ namespace llvm {
 
   public:
     PatmosLatencyQueue(const PatmosTargetMachine &PTM)
-    : PII(*PTM.getInstrInfo()), Cmp(true)
+    : PII(*PTM.getInstrInfo()), Cmp(false)
     {
       const PatmosSubtarget &PST = *PTM.getSubtargetImpl();
 

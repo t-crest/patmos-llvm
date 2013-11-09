@@ -49,16 +49,17 @@ bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
   unsigned SchedTreeA = DFSResult->getSubtreeID(A);
   unsigned SchedTreeB = DFSResult->getSubtreeID(B);
   if (SchedTreeA != SchedTreeB) {
-    // Unscheduled trees have lower priority.
-    if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
-      return ScheduledTrees->test(SchedTreeA);
-
     // Trees with shallower connections have have lower priority.
     if (DFSResult->getSubtreeLevel(SchedTreeA)
         != DFSResult->getSubtreeLevel(SchedTreeB)) {
       return DFSResult->getSubtreeLevel(SchedTreeA)
              > DFSResult->getSubtreeLevel(SchedTreeB);
     }
+
+    // Unscheduled trees have lower priority.
+    if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
+      return ScheduledTrees->test(SchedTreeA);
+
   }
   if (MaximizeILP)
     return DFSResult->getILP(A) > DFSResult->getILP(B);
@@ -160,6 +161,8 @@ bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
       // remove the instruction from pending
       avail++;
       PendingQueue[i] = *(PendingQueue.end() - avail);
+      // revisit the moved instruction
+      i--;
 
       // Make the instruction available
       AvailableQueue.push_back(SU);
@@ -255,16 +258,19 @@ void PatmosLatencyQueue::dump()
   for (unsigned i = 0; i < PendingQueue.size(); i++) {
     SUnit *SU = PendingQueue[i];
     if (i > 0) dbgs() << ",";
-    dbgs() << " SU(" << SU->NodeNum << "): Height " << SU->getHeight() <<
-              " Depth " << SU->getDepth();
+    dbgs() << " SU(" << SU->NodeNum << "): Height " << SU->getHeight()
+           << " Depth " << SU->getDepth()
+           << " Tree: " << Cmp.DFSResult->getSubtreeID(SU) << " @"
+           << Cmp.DFSResult->getSubtreeLevel(Cmp.DFSResult->getSubtreeID(SU));
     if (SU->isScheduleLow) dbgs() << " low ";
   }
   dbgs() << "\nAvailableQueue:";
   for (unsigned i = 0; i < AvailableQueue.size(); i++) {
     SUnit *SU = AvailableQueue[i];
     if (i > 0) dbgs() << ",";
-    dbgs() << " SU(" << SU->NodeNum << ") Height " << SU->getHeight() <<
-              " Depth " << SU->getDepth();
+    dbgs() << " SU(" << SU->NodeNum << ") Height " << SU->getHeight()
+           << " Depth " << SU->getDepth()
+           << " ILP: " << Cmp.DFSResult->getILP(SU);
     if (SU->isScheduleLow) dbgs() << " low ";
   }
   dbgs() << "\n";
@@ -461,7 +467,8 @@ void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 
 /// Remove dependencies to a return or call due to implicit uses of the return
 /// value registers, arguments or callee saved regs. Does not remove
-// dependencies to return info registers.
+/// dependencies to return info registers.
+/// This can be done since call and return are scheduling boundaries.
 void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 {
   SmallVector<SDep*,2> RemoveDeps;

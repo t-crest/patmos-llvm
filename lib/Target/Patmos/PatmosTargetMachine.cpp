@@ -127,17 +127,8 @@ namespace {
       // Post-RA MI Scheduler does bundling and delay slots itself. Otherwise,
       // add passes to handle them.
       if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
-
-        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
-          addPass(createPatmosPacketizer(getPatmosTargetMachine()));
-        }
-
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
                                                 false));
-
-        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
-          addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
-        }
       }
 
       // All passes below this line must handle delay slots and bundles
