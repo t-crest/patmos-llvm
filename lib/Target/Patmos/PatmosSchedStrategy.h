@@ -9,6 +9,71 @@
 //
 // PatmosPostRASchedStrategy implements the Post-RA VLIW scheduler for Patmos.
 //
+// Here is an overview of the scheduling infrastructure
+//
+// - ScheduleDAGVLIW: Schedules SDNodes during lowering, enabled by setting
+//   SchedulePreference to VLIW in PatmosISelLowering. Uses the HazardRecognizer
+//   but not the DFAPacketizer to schedule for VLIW bundles. Deprecated and
+//   is disabled by default in favour of MachineScheduler/PostRAScheduler.
+//
+// - MachineScheduler: Scheduler framework pass that uses a ScheduleDAGInstr to
+//   schedule pre-RA, does not work post-RA (for now). This pass does not fill
+//   delay slots. It might only create temporary bundles for RA (?).
+//
+//   ScheduleDAGInstr Implementations
+//   - ScheduleDAGMI: Default generic scheduler implementing register tracking
+//     using LiveIntervals analysis, not scheduling for VLIW. Uses the hazard
+//     recognizer but not the DFAPacketizer.
+//     Uses a MaschineSchedStrategy to pick nodes and set scheduling direction.
+//
+//     - PatmosVLIWSchedStrategy: Implements the MachineSchedStrategy for the
+//       generic ScheduleDAGMI pre-RA scheduler. TBD. Should order code so that
+//       the RegAlloc does not introduce pseudo dependencies, i.e. be bundling
+//       aware. Do bottom-up scheduling
+//
+//     - ConvergingSchedStrategy, ..: generic LLVM scheduling strategies.
+//
+//   - PatmosVLIWScheduleDAGMI: Generic pre-RA VLIW scheduler implementing
+//     converging bottom up/top-down scheduling or similar. TBD.
+//     Scheduling strategy should either be the same interface as for the
+//     PostRA scheduler, the ScheduleDAGMI, or at least share a common base.
+//     TODO this should share code with the PostRAScheduler, interface for
+//     VLIW SchedStrategy remains to be defined.
+//
+// - [ Register Allocation, is bundle-aware? ]
+//
+// - PostRASchedulerList: Default scheduler, uses the Post-RA HazardRecognizer,
+//   but not the DFAPacketizer. Does not schedule for VLIW or delay slots, but
+//   emits NOOPs. Top Down scheduler similar to MachineScheduler, but not
+//   configurable. Disabled by default for Patmos, not used, might be removed
+//   in LLVM 3.4+ releases.
+//
+// - PatmosPostRAScheduler: Generic post-RA scheduler pass, replaces the
+//   PostRAScheduler, works post-RA. Uses ScheduleDAGPostRA and
+//   PatmosPostRASchedStrategy to schedule, create bundles and fill delay slots.
+//   Post-RA version of the MachineScheduler pass.
+//   TODO use a scheduler registry similar to MachineScheduler to select
+//   schedulers at runtime
+//   TODO PatmosPostRAScehduler and ScheduleDAGPostRA should be moved into the
+//   generic framework, maybe merged with MachineScheduler if dependency on
+//   pre-RA are removed (?)
+//
+//   - ScheduleDAGPostRA: Generic post-RA scheduler, supports VLIW and delay
+//     slots, uses AntiDepBreaking and uses a PostRASchedStrategy to pick nodes
+//     and select schedule direction.
+//     Different from ScheduleDAGMI as it creates final bundles and delay slots.
+//
+//     - PatmosPostRASchedStrategy: Post RA Scheduling strategy for Patmos.
+//       Fills delay slots, and creates bundles if bundling is enabled.
+//
+// - PatmosDelaySlotFiller: Fallback delay slot filler, only
+//   executed if PatmosPostRAScheduler is not used. Performs No bundling, should
+//   be kept simple.
+
+// - PatmosPacketizer, PatmosBundleSanitizer: Used the DFAPacketizer and
+//   HazardRecognizer to create bundles. BundleSanitizer to fix order of
+//   instructions in bundles. Removed in favour of new PostRAScheduler.
+//
 //===----------------------------------------------------------------------===//
 #ifndef PATMOSSCHEDSTRATEGY_H
 #define PATMOSSCHEDSTRATEGY_H
