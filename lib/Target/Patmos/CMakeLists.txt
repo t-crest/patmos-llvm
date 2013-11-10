@@ -30,7 +30,6 @@ add_llvm_target(PatmosCodeGen
   PatmosCallGraphBuilder.cpp
   PatmosStackCacheAnalysis.cpp
   PatmosExport.cpp
-  PatmosMachineScheduler.cpp
   PatmosBypassFromPML.cpp
   PatmosPostRAScheduler.cpp
   PatmosSchedStrategy.cpp

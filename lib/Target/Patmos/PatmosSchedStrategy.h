@@ -14,6 +14,7 @@
 #define PATMOSSCHEDSTRATEGY_H
 
 #include "PatmosPostRAScheduler.h"
+#include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/CodeGen/LatencyPriorityQueue.h"
 
 namespace llvm {
@@ -103,6 +104,30 @@ namespace llvm {
 
   class  PatmosTargetMachine;
   struct PatmosRegisterInfo;
+
+
+  // TODO implement, share code with PostRASchedStrategy if possible.
+  class PatmosVLIWSchedStrategy : public MachineSchedStrategy {
+
+    //const TargetSchedModel *SchedModel;
+    //const TargetRegisterInfo *TRI;
+
+  public:
+
+    PatmosVLIWSchedStrategy() {}
+
+    virtual void initialize(ScheduleDAGMI *dag) {}
+
+    virtual SUnit *pickNode(bool &IsTopNode) { return 0; }
+
+    virtual void schedNode(SUnit *SU, bool IsTopNode) {}
+
+    virtual void releaseTopNode(SUnit *SU) {}
+
+    virtual void releaseBottomNode(SUnit *SU) {}
+
+  };
+
 
   class PatmosPostRASchedStrategy : public PostRASchedStrategy  {
   private:
