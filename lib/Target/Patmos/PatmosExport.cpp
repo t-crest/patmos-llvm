@@ -61,10 +61,35 @@ namespace llvm {
 
     void setCallGraph(MCallGraph *mcg) { MCG = mcg; }
 
+    /// @return true if the list of callees is safe.
+    bool addCallees(MCGNode *Callee, MFList &Callees) {
+      if (Callee && Callee->getMF()) {
+        Callees.push_back(Callee->getMF());
+        return true;
+      }
+      else if (Callee && Callee->isUnknown()) {
+        // Get all functions that match this unknown call.
+        // TODO we might want to mark this flow fact somehow..
+        for (MCGSites::const_iterator ci = Callee->getSites().begin(),
+             ce = Callee->getSites().end(); ci != ce; ci++)
+        {
+          MCGNode *MatchedCallee = (*ci)->getCallee();
+          if (MatchedCallee && MatchedCallee->getMF()) {
+            Callees.push_back(MatchedCallee->getMF());
+          }
+          else if (MatchedCallee && MatchedCallee->isUnknown()) {
+            llvm_unreachable("Callgraph calls unknown functions from "
+                             "unknown call site");
+          }
+        }
+      }
+      return false;
+    }
+
     virtual std::vector<StringRef> getCalleeNames(MachineFunction &Caller,
                                              const MachineInstr *Instr)
     {
-      std::vector<StringRef> Callees;
+      std::vector<StringRef> CalleeNames;
 
       assert(Instr->isCall());
 
@@ -73,32 +98,31 @@ namespace llvm {
 
       if (MO.isGlobal()) {
         // is the global value a function?
-        Callees.push_back(MO.getGlobal()->getName());
+        CalleeNames.push_back(MO.getGlobal()->getName());
       }
       else if (MO.isSymbol()) {
         // find the function in the current module
-        Callees.push_back(MO.getSymbolName());
+        CalleeNames.push_back(MO.getSymbolName());
       }
       else if (MCG) {
-        // TODO should we use the callgraph in any case if we have one?
-        // (but for immediate calls, this is not much of an advantage..)
-
         MCGNode *node = MCG->makeMCGNode(&Caller);
         MCGSite *site = node->findSite(Instr);
 
         if (site && site->getCallee()) {
           MCGNode *Callee = site->getCallee();
-          // TODO for unknown nodes, try to resolve using type??
-          if (Callee->getMF()) {
-            MachineFunction *MF = Callee->getMF();
-            if (MF && MF->getFunction()) {
-              Callees.push_back(MF->getFunction()->getName());
-            }
+          MFList Callees;
+          addCallees(Callee, Callees);
+          for (MFList::iterator it = Callees.begin(), ie = Callees.end();
+               it != ie; it++)
+          {
+            const Function *F = (*it)->getFunction();
+            if (!F) continue;
+            CalleeNames.push_back(F->getName());
           }
         }
       }
 
-      return Callees;
+      return CalleeNames;
     }
 
     virtual MFList getCallees(const Module &M, MachineModuleInfo &MMI,
@@ -108,9 +132,7 @@ namespace llvm {
         MCGNode *node = MCG->makeMCGNode(&MF);
         MCGSite *site = node->findSite(Instr);
         MFList Callees;
-        if (site && site->getCallee() && site->getCallee()->getMF()) {
-          Callees.push_back( site->getCallee()->getMF() );
-        }
+        addCallees(site->getCallee(), Callees);
         return Callees;
       }
       return PMLInstrInfo::getCallees(M, MMI, MF, Instr);
@@ -174,9 +196,7 @@ namespace llvm {
                it != ie; ++it)
           {
             MCGNode *Callee = (*it)->getCallee();
-            if (Callee && Callee->getMF()) {
-              Callees.push_back(Callee->getMF());
-            }
+            addCallees(Callee, Callees);
           }
           return Callees;
         }
@@ -256,16 +276,19 @@ namespace llvm {
   class PatmosModuleExportPass : public PMLModuleExportPass {
     static char ID;
 
-    PatmosPMLInstrInfo PII;
   public:
     PatmosModuleExportPass(PatmosTargetMachine &tm, StringRef filename,
                            ArrayRef<std::string> roots)
-      : PMLModuleExportPass(ID, tm, filename, roots), PII(tm)
+      : PMLModuleExportPass(ID, tm, filename, roots)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
+
+      setPMLInstrInfo(new PatmosPMLInstrInfo(tm));
     }
 
-    PMLInstrInfo *getInstrInfo() { return &PII; }
+    PatmosPMLInstrInfo *getPatmosInstrInfo() {
+      return static_cast<PatmosPMLInstrInfo*>(getPMLInstrInfo());
+    }
 
     virtual const char *getPassName() const {
       return "Patmos YAML/PML Module Export";
@@ -280,7 +303,7 @@ namespace llvm {
 
     virtual bool runOnMachineModule(const Module &M) {
       PatmosCallGraphBuilder &PCGB( getAnalysis<PatmosCallGraphBuilder>() );
-      PII.setCallGraph( PCGB.getCallGraph() );
+      getPatmosInstrInfo()->setCallGraph( PCGB.getCallGraph() );
       return PMLModuleExportPass::runOnMachineModule(M);
     }
   };
@@ -299,7 +322,7 @@ namespace llvm {
                       new PatmosModuleExportPass(TM, Filename, Roots);
 
     // Add our own export passes
-    PEP->addExporter( new PatmosMachineExport(TM, *PEP, PEP->getInstrInfo()));
+    PEP->addExporter( new PatmosMachineExport(TM, *PEP, PEP->getPatmosInstrInfo()));
     PEP->addExporter( new PatmosBitcodeExport(TM, *PEP) );
     PEP->addExporter( new PMLRelationGraphExport(TM, *PEP) );
     if (! BitcodeFilename.empty())

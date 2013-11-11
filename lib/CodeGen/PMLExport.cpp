@@ -1105,17 +1105,15 @@ isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target)
 
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
                               StringRef filename,
-                              ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : MachineModulePass(id), OutFileName(filename), Roots(roots)
+                              ArrayRef<std::string> roots)
+  : MachineModulePass(id), PII(0), OutFileName(filename), Roots(roots)
 {
-  PII = pii ? pii : new PMLInstrInfo();
 }
 
 PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
                               ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : MachineModulePass(ID), OutFileName(filename), Roots(roots)
+  : MachineModulePass(ID), PII(pii), OutFileName(filename), Roots(roots)
 {
-  PII = pii ? pii : new PMLInstrInfo();
 }
 
 
@@ -1249,9 +1247,12 @@ char PMLModuleExportPass::ID = 0;
 
 /// Returns a newly-created PML export pass.
 MachineModulePass *
-createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFileName, ArrayRef<std::string> Roots)
+createPMLExportPass(TargetMachine &TM, std::string& FileName,
+                    std::string& BitcodeFileName, ArrayRef<std::string> Roots)
 {
-  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, 0);
+  PMLInstrInfo *pii = new PMLInstrInfo();
+
+  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, pii);
 
   PEP->addExporter( new PMLBitcodeExport(TM, *PEP) );
   PEP->addExporter( new PMLMachineExport(TM, *PEP) );
