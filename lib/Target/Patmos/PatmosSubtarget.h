@@ -78,7 +78,7 @@ public:
   }
 
   /// Return the number of delay slot cycles of control flow instructions
-  unsigned getCFLDelaySlotCycles(MachineInstr *MI) const {
+  unsigned getDelaySlotCycles(const MachineInstr *MI) const {
     if (MI->isCall() || MI->isReturn() ||
             MI->getOpcode() == Patmos::BRCFu ||
             MI->getOpcode() == Patmos::BRCF ||
@@ -99,7 +99,7 @@ public:
   /// Get the maximum number of bytes an instruction can have in the delay slots
   /// (excluding the second slot of this instruction)
   unsigned getMaxDelaySlotCodeSize(MachineInstr *MI) const {
-    return getCFLDelaySlotCycles(MI) * 8;
+    return getDelaySlotCycles(MI) * 8;
   }
 
   /// Return the latency of MUL instructions

@@ -160,6 +160,7 @@ namespace llvm {
     virtual void exportInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
+                                   bool BundledWithPred,
                                    SmallVector<MachineOperand, 4> &Conditions,
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,

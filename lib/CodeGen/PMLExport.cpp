@@ -145,8 +145,8 @@ PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(const Module &M,
   for (MachineFunction::iterator BB = MF.begin(), BE = MF.end(); BB != BE;
        ++BB)
   {
-    for (MachineBasicBlock::iterator II = BB->begin(), IE = BB->end();
-         II != IE; ++II)
+    for (MachineBasicBlock::instr_iterator II = BB->instr_begin(),
+        IE = BB->instr_end(); II != IE; ++II)
     {
       if (!II->getDesc().isCall()) continue;
 
@@ -388,9 +388,16 @@ void PMLMachineExport::serialize(MachineFunction &MF)
         Conditions, false);
 
     unsigned Index = 0;
+    bool IsBundled = false;
     for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
         E = BB->instr_end(); Ins != E; ++Ins)
     {
+      // check if this is the first instruction, only set to bundled once we
+      // exported at least one instruction from the bundle (skipping pseudos)
+      if (!Ins->isBundledWithPred()) {
+        IsBundled = false;
+      }
+
       // Do not export any Pseudo instructions with zero size
       if (Ins->isPseudo() && !Ins->isInlineAsm())
         continue;
@@ -399,8 +406,10 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 
       yaml::MachineInstruction *I = B->addInstruction(
           new yaml::MachineInstruction(Index++));
-      exportInstruction(MF, I, Ins, Conditions, HasBranchInfo,
+      exportInstruction(MF, I, Ins, IsBundled, Conditions, HasBranchInfo,
                         TrueSucc, FalseSucc);
+
+      IsBundled = true;
     }
   }
 
@@ -428,7 +437,7 @@ void PMLMachineExport::printDesc(raw_ostream &os, const MachineInstr *Instr)
 
 void PMLMachineExport::
 exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
-                  const MachineInstr *Ins,
+                  const MachineInstr *Ins, bool BundledWithPred,
                   SmallVector<MachineOperand, 4> &Conditions,
                   bool HasBranchInfo, MachineBasicBlock *TrueSucc,
                   MachineBasicBlock *FalseSucc)
@@ -443,7 +452,7 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
   I->BranchType = yaml::branch_none;
   I->MemMode = yaml::memmode_none;
-  I->Bundled = Ins->isBundledWithPred();
+  I->Bundled = BundledWithPred;
 
   if (Ins->getDesc().isCall()) {
     I->BranchType = yaml::branch_call;

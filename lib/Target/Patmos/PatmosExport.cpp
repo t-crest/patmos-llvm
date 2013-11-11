@@ -117,23 +117,7 @@ namespace llvm {
     }
 
     virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) {
-      switch (Instr->getOpcode()) {
-      case Patmos::BR:
-      case Patmos::BRu: 
-      case Patmos::BRT:
-      case Patmos::BRTu:
-	return 2;
-      case Patmos::BRCF:
-      case Patmos::BRCFu:
-      case Patmos::BRCFT:
-      case Patmos::BRCFTu:
-      case Patmos::CALL:
-      case Patmos::CALLR:
-      case Patmos::RET:
-	return 3;
-      default:
-	return 0;
-      }
+      return TM.getSubtargetImpl()->getDelaySlotCycles(Instr);
     }
 
     virtual const std::vector<MachineBasicBlock*> getBranchTargets(
@@ -252,6 +236,7 @@ namespace llvm {
     virtual void exportInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
+                                   bool BundledWithPred,
                                    SmallVector<MachineOperand, 4> &Conditions,
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
@@ -493,6 +478,7 @@ namespace llvm {
     exportInstruction(MachineFunction &MF,
                       yaml::MachineInstruction *I,
                       const MachineInstr *Instr,
+                      bool BundledWithPred,
                       SmallVector<MachineOperand, 4> &Conditions,
                       bool HasBranchInfo,
                       MachineBasicBlock *TrueSucc,
@@ -532,8 +518,8 @@ namespace llvm {
           default: /*NOP*/;
         }
       }
-      return PMLMachineExport::exportInstruction(MF, I, Instr, Conditions,
-          HasBranchInfo, TrueSucc, FalseSucc);
+      return PMLMachineExport::exportInstruction(MF, I, Instr, BundledWithPred,
+          Conditions, HasBranchInfo, TrueSucc, FalseSucc);
     }
 
 

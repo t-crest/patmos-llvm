@@ -329,7 +329,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
   const PatmosSubtarget *PST = PTM.getSubtargetImpl();
 
-  unsigned DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
+  unsigned DelaySlot = CFL ? PST->getDelaySlotCycles(CFL->getInstr()) : 0;
 
   if (CFL) {
     // RET and CALL have implicit deps on the return values and call
