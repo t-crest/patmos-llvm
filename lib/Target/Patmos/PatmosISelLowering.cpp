@@ -601,10 +601,12 @@ PatmosTargetLowering::LowerCCCCallTo(CallLoweringInfo &CLI,
 
 
   // attach machine-level aliasing information
+  // This should neither be a load or store operand, otherwise it is ignored
+  // for call instructions.
   MachineMemOperand *MMO = 
       DAG.getMachineFunction().getMachineMemOperand(CLI.MPI, 
-	                                            MachineMemOperand::MOLoad,
-					            4, 0);
+	                                            /*Flags=*/0,
+	                                            4, 0);
 
   Chain = DAG.getMemIntrinsicNode(PatmosISD::CALL, dl,
                                   NodeTys, &Ops[0], Ops.size(),
