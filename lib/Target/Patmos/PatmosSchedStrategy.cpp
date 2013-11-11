@@ -98,6 +98,9 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
   //   predicates and highest ILP/.., but only if at least one of those instr.
   //   has high priority.
   // - find best instructions that fit into the bundle with highest ILP/..
+  //
+  // Instructions are built up into a bundle in Bundle. Instructions are removed
+  // from AvailableQueue in scheduled() once the instruction is actually picked.
 
   unsigned CurrWidth = 0;
   // If the bundle is not empty, we should calculate the initial width
@@ -240,8 +243,8 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   assert(!Bundle.empty() &&
         "Not able to issue the instruction in an empty bundle?");
 
-  // we need to rearrange instructions.. this is a quick hack and might
-  // be improved.
+  // We might need to rearrange instructions.. this is a quick hack and might
+  // be improved for VLIW with >2 slots
   if (canIssueInSlot(SU, 0) && canIssueInSlot(Bundle[0], Bundle.size())) {
     Bundle.push_back(Bundle[0]);
     Bundle[0] = SU;
