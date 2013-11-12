@@ -548,6 +548,73 @@ module PML
         qname
       end
     end
+
+    def may_misspredict?(succ, type)
+      # Never predict indirect branches, unconditional branches are
+      # predicted perfectly, so there must be exactly two successors
+      if (successors.length != 2)
+        return false
+      end
+
+      # "optimal" is easy
+      if (type == "optimal")
+        return false
+      end
+
+      # Find relevant targets
+      cond_targets = []
+      uncond_targets = []
+      instructions.each { |i|
+        if i.branch_type == "conditional"
+          cond_targets += i.branch_targets
+        end
+        if i.branch_type == "unconditional"
+          uncond_targets += i.branch_targets
+        end
+      }
+      # Could not find conditional branch
+      if cond_targets.empty?
+        return false
+      end
+
+      # Add unconditional target that might be missing
+      if uncond_targets.empty?
+        uncond_targets.push(fallthrough_successor)
+      end
+
+      assert("Inconsistent branch targets") {
+        cond_targets.length == 1 && uncond_targets.length == 1
+      }
+      cond_target = cond_targets[0]
+      uncond_target = uncond_targets[0]
+
+      # "worst" always misspredicts
+      if (type == "worst")
+        return true
+      end
+      # "dynamic" might misspredict, subject to further constraints
+      if (type == "dynamic")
+        return true
+      end
+      # "taken" misspredicts the unconditional target
+      if (type == "taken")
+        return (succ == uncond_target)
+      end
+      # "not-taken" misspredicts the conditional target
+      if (type == "not-taken")
+        return (succ == cond_target)
+      end
+      # "bwd-taken" depends on the address of the conditional target
+      if (type == "bwd-taken")
+        if (cond_target.address <= address)
+          return (succ == uncond_target)
+        else
+          return (succ == cond_target)
+        end
+      end
+
+      return true
+    end
   end
 
   # Proxy for PML instructions

@@ -80,7 +80,8 @@ class WCA
             src.instructions[0..(branch_index+src.instructions[branch_index].delay_slots)]
           end
         end
-      @pml.arch.path_wcet(src.instructions)
+      misspredict_cost = edge.misspredict_edge? ? @pml.arch.num_slots : 0
+      @pml.arch.path_wcet(src.instructions) + misspredict_cost
     end
 
     # run cache analyses

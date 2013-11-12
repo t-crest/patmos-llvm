@@ -143,11 +143,12 @@ end
 # - call edges
 # - edges between relation graph nodes
 class IPETEdge
-  attr_reader :qname,:source,:target, :level
-  def initialize(edge_source, edge_target, level)
-    @source,@target,@level = edge_source, edge_target, level.to_sym
+  attr_reader :qname,:source,:target, :level, :kind
+  def initialize(edge_source, edge_target, level, kind = :plain)
+    @source,@target,@level,@kind = edge_source, edge_target, level.to_sym, kind
     arrow  = @level == :bitcode ? "~>" : "->"
-    @qname = "#{@source.qname}#{arrow}#{:exit == @target ? 'exit' : @target.qname}"
+    suffix = @kind == :misspredict ? "_mp" : ""
+    @qname = "#{@source.qname}#{arrow}#{:exit == @target ? 'exit' : @target.qname}#{suffix}"
   end
   def backedge?
     return false if target == :exit
@@ -172,9 +173,13 @@ class IPETEdge
   def relation_graph_edge?
     source.kind_of?(RelationNode) || target.kind_of?(RelationNode)
   end
+  def misspredict_edge?
+    kind == :misspredict
+  end
   def to_s
     arrow  = @level == 'bitcode' ? "~>" : "->"
-    "#{@source}#{arrow}#{:exit == @target ? 'exit' : @target}"
+    suffix = @kind == :misspredict ? "_mp" : ""
+    "#{@source}#{arrow}#{:exit == @target ? 'exit' : @target}#{suffix}"
   end
   def hash;  @qname.hash ; end
   def ==(other); qname == other.qname ; end
@@ -183,9 +188,10 @@ end
 
 
 class IPETModel
-  attr_reader :builder, :ilp, :level
-  def initialize(builder, ilp, level)
-    @builder, @ilp, @level = builder, ilp, level
+  attr_reader :builder, :ilp, :level, :options
+  def initialize(builder, ilp, level, options)
+    @builder, @ilp, @level, @options = builder, ilp, level, options
+    @leave_straight = {}
   end
 
   def infeasible?(block, context = Context.empty)
@@ -300,6 +306,84 @@ class IPETModel
     end
   end
 
+  # compute if a there is a acyclic path from the source via bb to the function exit
+  def can_leave_straight(source, bb, seen)
+    # already computed this
+    return @leave_straight[[source,bb]] if @leave_straight[[source,bb]] != nil
+    # found an exit
+    return true if bb.may_return?
+    # visited this block already
+    return false if seen.include?(bb)
+    # traverse successors
+    @leave_straight[[source,bb]] = bb.successors.reduce(false) { |r,succ|
+      r || can_leave_straight(source, succ, seen.add(bb))
+    }
+  end
+
+  # misprediction bounds for dynamic predictors
+  def add_missprediction_block_constraint(block, scopes)
+    # only insert constraints for dynamic prediction
+    if (options.branch_prediction != "dynamic")
+      return
+    end
+
+    # get execution frequencies of scope entries
+    entry_edges = []
+    scopes.each { |scope,f|
+      entry = scope.scope_entry
+      factor = 1
+      if (entry.is_a?(Function))
+        entry = entry.entry_block
+        edges = sum_outgoing(entry, -factor)
+        edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
+        debug(options, :cache) { "FUNCTIONSCOPE #{scope}" }
+      elsif (entry.is_a?(Loop))
+        edges = sum_loop_entry(entry, -factor)
+        debug(options, :cache) { "LOOPSCOPE #{scope}" }
+      elsif (entry.is_a?(Block))
+        edges = sum_outgoing(entry, -factor)
+        edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
+        debug(options, :cache) { "BLOCKSCOPE #{scope}" }
+      elsif (entry.is_a?(Instruction))
+        entry = entry.block
+        edges = sum_outgoing(entry, -factor)
+        edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
+        debug(options, :cache) { "INSTRSCOPE #{scope}" }
+      else
+        die("Unknown scope entry type: #{scope}")
+      end
+      entry_edges += edges
+    }
+    debug(options, :cache) { "ENTRIES #{entry_edges}" }
+
+    block.successors.each { |succ|
+      if (block.may_misspredict?(succ, options.branch_prediction))
+        block.successors.each { |other|
+          if (succ != other)
+            lhs = [[IPETEdge.new(block,succ,level,:misspredict), 1],
+                   [IPETEdge.new(block,other,level),-1],
+                   [IPETEdge.new(block,other,level,:misspredict),-1]]
+            lhs += entry_edges
+
+            if (can_leave_straight(block, other, Set.new([block])) &&
+                !can_leave_straight(block, succ, Set.new([block])))
+              debug(options, :cache) { "Block #{block} can leave only via #{other}, not #{succ}" }
+              leave_corr = -1
+            else
+              leave_corr = 0
+            end
+            ilp.add_constraint(lhs,"less-equal",leave_corr,"misspredict_#{block.qname}",:misspredict)
+          end
+        }
+        if (block.successors.length == 1)
+          lhs = [[IPETEdge.new(block,succ,level,:misspredict), 1]]
+          lhs += entry_edges
+          ilp.add_constraint(lhs,"less-equal",0,"misspredict_#{block.qname}",:misspredict)
+        end
+      end
+    }
+  end
+
   # frequency of incoming edges is frequency of block
   def add_block(block)
     return if ilp.has_variable?(block)
@@ -325,15 +409,27 @@ class IPETModel
   end
 
   def sum_incoming(block, factor=1)
-    block.predecessors.map { |pred|
+    sum = block.predecessors.map { |pred|
       [IPETEdge.new(pred,block,level), factor]
     }
+    block.predecessors.each { |pred|
+      if (pred.may_misspredict?(block, options.branch_prediction))
+        sum += [[IPETEdge.new(pred,block,level,:misspredict), factor]]
+      end
+    }
+    sum
   end
 
   def sum_outgoing(block, factor=1)
-    block.successors.map { |succ|
+    sum = block.successors.map { |succ|
       [IPETEdge.new(block,succ,level), factor]
     }
+    block.successors.map { |succ|
+      if (block.may_misspredict?(succ, options.branch_prediction))
+        sum += [[IPETEdge.new(block,succ,level,:misspredict), factor]]
+      end
+    }
+    sum
   end
 
   def sum_loop_entry(loop, factor=1)
@@ -348,6 +444,9 @@ class IPETModel
       next if ix != 0 && bb.predecessors.empty? # data block
       bb.successors.each do |bb2|
         yield IPETEdge.new(bb,bb2,level)
+        if (bb.may_misspredict?(bb2, options.branch_prediction))
+          yield IPETEdge.new(bb,bb2,level,:misspredict)
+        end
       end
       if bb.may_return?
         yield IPETEdge.new(bb,:exit,level)
@@ -361,9 +460,9 @@ class IPETBuilder
 
   def initialize(pml, options, ilp = nil)
     @ilp = ilp
-    @mc_model = IPETModel.new(self, @ilp, 'machinecode')
+    @mc_model = IPETModel.new(self, @ilp, 'machinecode', options)
     if options.use_relation_graph
-      @bc_model = IPETModel.new(self, @ilp, 'bitcode')
+      @bc_model = IPETModel.new(self, @ilp, 'bitcode', options)
       @pml_level = { :src => 'bitcode', :dst => 'machinecode' }
       @relation_graph_level = { 'bitcode' => :src, 'machinecode' => :dst }
     end

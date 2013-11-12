@@ -198,6 +198,11 @@ class VariableElimination
         }
       else # FM elimination
         raise Exception.new("Internal error: equations left") unless eq_constraints[elimvar].empty?
+
+        if (options.branch_prediction != "optimal")
+          break
+        end
+
         l, u = [], []
         bound_constraints[elimvar].each { |cref|
           coeff = cref.constraint.get_coeff(elimvar)
@@ -213,6 +218,7 @@ class VariableElimination
             raise Exception.new("Internal Error: inconstinstent bound_constraints dictionary") unless tmp
           }
         }
+        
         l.each do |l_constr|
           u.each do |u_constr|
             @elim_steps += 1

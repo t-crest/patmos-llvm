@@ -42,6 +42,24 @@ class CacheAnalysis
     if dc = @pml.arch.data_cache
       warn("Datacache at the moment not supported by platin")
     end
+    if bp = @pml.arch.branch_predictor
+      debug(@options,:cache) { "BRANCH PREDICTOR ANALYSIS" }
+      bpa = CacheRegionAnalysis.new(BranchPredictorAnalysis.new(bp, @pml, @options), @pml, @options)
+      if @options.branch_prediction == "dynamic"
+        conflict_free_scopes = bpa.analyze(scope_graph(entry_function))
+        0.upto(bpa.cache_properties.sets) do |set|
+          debug(@options,:cache) { "SET #{set}" }
+          bpa.get_all_tags(scope_graph(entry_function).root, set).each { |tag,load_instructions|
+            load_instructions = load_instructions.to_a
+            debug(@options,:cache) { "Branches for tag: #{tag}: #{load_instructions}" }
+            debug(@options,:cache) { "Scopes for tag #{tag}: #{conflict_free_scopes[tag].inspect}" }
+            load_instructions.each { |branch|
+              ipet_builder.mc_model.add_missprediction_block_constraint(branch.insref.block, conflict_free_scopes[tag])
+            }
+          }
+        end
+      end
+    end
   end
 
   def summarize(options, freqs, cost, report)
@@ -111,9 +129,6 @@ class CacheRegionAnalysis
 
   # extend IPET, using conflict free scopes computed by +analyze+
   def extend_ipet(scopegraph, ipet_builder)
-
-    # cache tags per scope
-    @all_tags = {}
 
     # run scope-based analysis
     conflict_free_scopes = analyze(scopegraph)
@@ -210,6 +225,9 @@ class CacheRegionAnalysis
 
     @region_graphs = {}
     @conflict_free_scopes = {}
+
+    # cache tags per scope
+    @all_tags = {}
 
     # for each region node, we compute the cache access graph
     scopegraph.bottom_up.each { |n|
@@ -784,6 +802,46 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
       cycles += cost[v] || 0
     }
     cycles
+  end
+end
+
+class BranchPredictorAnalysis
+
+  attr_reader :cache
+
+  def name
+    "BP"
+  end
+
+  def initialize(cache, pml, options)
+    @cache, @pml, @options = cache, pml, options
+  end
+
+  def sets
+    @cache.size / (@cache.associativity * @cache.line_size)
+  end
+
+  def set_of(cache_line)
+    (cache_line.address/4) & (sets - 1)
+  end
+
+  def load_instructions(i)
+    if (i.branch_type == "conditional" || i.branch_type == "unconditional")
+      [ LoadInstruction.new(i, CacheLine.new(i.address, i.function)) ]
+    else
+      []
+    end
+  end
+
+  def size_in_bytes(cache_lines)
+    @cache.line_size * cache_lines.length
+  end
+
+  def conflict_free?(cache_lines)
+    return false if @options.wca_minimal_cache
+    return true  if @options.wca_ideal_cache
+
+    cache_lines.length <= cache.associativity
   end
 end
 

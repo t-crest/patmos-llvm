@@ -84,9 +84,10 @@ class Architecture < PML::Architecture
   end
   def Architecture.default_config
     memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
-    caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',32,32,1024),
+    caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',32,32,2048),
                                   PML::CacheConfig.new('stack-cache','stack-cache','stack',nil,4,1024),
-                                  PML::CacheConfig.new('data-cache','set-associative','lru',4,32,1024) ])
+                                  PML::CacheConfig.new('data-cache','set-associative','lru',4,32,1024),
+                                  PML::CacheConfig.new('branch-predictor','set-associative','lru',1,1,16) ])
     full_range = PML::ValueRange.new(0,0xFFFFFFFF,nil)
     memory_areas =
       PML::MemoryAreaList.new([PML::MemoryArea.new('code','code',caches.list[0], memories.first, full_range),
@@ -126,6 +127,10 @@ class Architecture < PML::Architecture
 
   def instruction_cache
     @config.caches.by_name('instruction-cache')
+  end
+
+  def branch_predictor
+    @config.caches.by_name('branch-predictor')
   end
 
   def instruction_fetch_bytes
