@@ -80,7 +80,7 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     // Predicate register
     Opc = Patmos::PMOV;
     AddDefaultPred(BuildMI(MBB, I, DL, get(Opc), DestReg))
-      .addReg(SrcReg, getKillRegState(KillSrc));
+      .addReg(SrcReg, getKillRegState(KillSrc)).addImm(0);
 
   } else if (Patmos::SRegsRegClass.contains(DestReg)) {
     assert(Patmos::RRegsRegClass.contains(SrcReg));
