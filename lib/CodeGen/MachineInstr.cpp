@@ -427,8 +427,7 @@ MachineMemOperand::MachineMemOperand(MachinePointerInfo ptrinfo, unsigned f,
   assert((PtrInfo.V == 0 || isa<PointerType>(PtrInfo.V->getType())) &&
          "invalid pointer value");
   assert(getBaseAlignment() == a && "Alignment is not a power of 2!");
-  // Allow memory operands for non-load/store instructions.
-  //assert((isLoad() || isStore()) && "Not a load/store!");
+  assert((isLoad() || isStore()) && "Not a load/store!");
 }
 
 /// Profile - Gather unique data for the object.
