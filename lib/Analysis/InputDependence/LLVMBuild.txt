@@ -16,10 +16,10 @@
 ;===------------------------------------------------------------------------===;
 
 [common]
-subdirectories = IPA InputDependence
 
 [component_0]
 type = Library
-name = Analysis
-parent = Libraries
-required_libraries = Core Support Target
+name = PIDDA
+parent = Analysis
+library_name = pidda
+required_libraries = Analysis Core Support
