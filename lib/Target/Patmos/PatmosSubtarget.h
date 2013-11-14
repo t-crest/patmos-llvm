@@ -98,7 +98,7 @@ public:
 
   /// Get the maximum number of bytes an instruction can have in the delay slots
   /// (excluding the second slot of this instruction)
-  unsigned getMaxDelaySlotCodeSize(MachineInstr *MI) const {
+  unsigned getMaxDelaySlotCodeSize(const MachineInstr *MI) const {
     return getDelaySlotCycles(MI) * 8;
   }
 

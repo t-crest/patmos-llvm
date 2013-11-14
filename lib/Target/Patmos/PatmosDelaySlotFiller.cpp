@@ -251,7 +251,7 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
 
   DEBUG( dbgs() << "For: " << *I );
 
-  unsigned CFLDelaySlots = TM.getSubtargetImpl()->getCFLDelaySlotCycles(I);
+  unsigned CFLDelaySlots = TM.getSubtargetImpl()->getDelaySlotCycles(I);
 
   if (!DisableDelaySlotFiller && !ForceDisableFiller) {
 

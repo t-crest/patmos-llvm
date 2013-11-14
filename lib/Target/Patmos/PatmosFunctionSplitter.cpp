@@ -1671,7 +1671,7 @@ namespace llvm {
                                          MachineInstr *MI,
                                          PatmosTargetMachine &PTM)
     {
-      int cycles = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(MI);
+      int cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(MI);
 
       unsigned bytes = 0;
 
