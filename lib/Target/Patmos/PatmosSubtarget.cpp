@@ -55,7 +55,7 @@ static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-basicblock-align",
 
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
-	             cl::init(true),
+	             cl::init(false),
 		     cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
