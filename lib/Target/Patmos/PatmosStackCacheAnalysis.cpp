@@ -2076,8 +2076,8 @@ namespace llvm {
             // update the analysis info pseudo pass
             // (needs to find the SRES instruction first)
             MachineBasicBlock &MBB = (*i)->getMF()->front();
-            MachineBasicBlock::const_iterator I, E;
-            for (I = MBB.begin(), E = MBB.end(); I != E; ++I)
+            MachineBasicBlock::const_instr_iterator I, E;
+            for (I = MBB.instr_begin(), E = MBB.instr_end(); I != E; ++I)
               if (I->getOpcode() == Patmos::SRESi)
                 break;
             assert(I != MBB.end());
@@ -2138,7 +2138,7 @@ namespace llvm {
       for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
       {
         unsigned Index = 0;
-        for (MachineBasicBlock::iterator Ins = BB->begin(), E = BB->end();
+        for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(), E = BB->instr_end();
             Ins != E; ++Ins)
         {
           MiMap[Ins] = std::make_pair(BB, Index++);
