@@ -1745,6 +1745,9 @@ namespace llvm {
         {
           total_size += curr_size;
 
+          DEBUG(dbgs() << "Splitting basic block at " << total_size << ": "
+                << MBB->getFullName());
+
           // the current instruction does not fit -- split the block.
           MachineBasicBlock *newBB = splitBlockAtStart(MBB);
 
@@ -1752,31 +1755,35 @@ namespace llvm {
           newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
 
           // update dominator and post-dominator trees for the new block
-          // - the new node is dominated by the dominator of the old node
           MachineDomTreeNode *TN = MDT.getNode(MBB)->getIDom();
+          // Check if the block has a dominator
           if (TN) {
+            // - the new node is dominated by the dominator of the old node
             MDT.addNewBlock(newBB, TN->getBlock());
+            // - the new node dominates the old block
+            MDT.changeImmediateDominator(MBB, newBB);
           } else {
             // TODO Any other way to change the root node of the DomTree?
             //      At least do this after all other blocks are split, and skip
             //      updating the DomTree for individual blocks.
             MDT.runOnMachineFunction(*MBB->getParent());
           }
-          // - the new node dominates by the old block
-          MDT.changeImmediateDominator(MBB, newBB);
-          // - the new node is post-dominated by the old block
-          MPDT.addNewBlock(newBB, MBB);
-          // - the new block post-dominates all nodes post-dominated by
-          //   the old block
-          for (MachineDomTreeNode::const_iterator
-               it = MPDT.getNode(MBB)->getChildren().begin(),
-               ie = MPDT.getNode(MBB)->getChildren().end(); it != ie; it++)
-          {
-            MachineBasicBlock *preBB = (*it)->getBlock();
-            if (preBB == newBB) continue;
-            MPDT.changeImmediateDominator(preBB, newBB);
-            // restart from beginning, with one post-dominated node less.
-            it = MPDT.getNode(MBB)->getChildren().begin();
+          // Functions without a return do not have a valid post-dom tree
+          if (!MPDT.getRoots().empty()) {
+            // - the new node is post-dominated by the old block
+            MPDT.addNewBlock(newBB, MBB);
+            // - the new block post-dominates all nodes post-dominated by
+            //   the old block
+            for (MachineDomTreeNode::const_iterator
+                 it = MPDT.getNode(MBB)->getChildren().begin(),
+                 ie = MPDT.getNode(MBB)->getChildren().end(); it != ie; it++)
+            {
+              MachineBasicBlock *preBB = (*it)->getBlock();
+              if (preBB == newBB) continue;
+              MPDT.changeImmediateDominator(preBB, newBB);
+              // restart from beginning, with one post-dominated node less.
+              it = MPDT.getNode(MBB)->getChildren().begin();
+            }
           }
 
           // start anew, may fall through!
