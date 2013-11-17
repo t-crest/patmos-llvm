@@ -2080,7 +2080,7 @@ namespace llvm {
             for (I = MBB.instr_begin(), E = MBB.instr_end(); I != E; ++I)
               if (I->getOpcode() == Patmos::SRESi)
                 break;
-            assert(I != MBB.end());
+            assert(I != MBB.instr_end());
             assert(tmp % STC.getStackCacheBlockSize() == 0);
 
             // convert bytes back to blocks
@@ -2138,9 +2138,10 @@ namespace llvm {
       for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
       {
         unsigned Index = 0;
-        for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(), E = BB->instr_end();
-            Ins != E; ++Ins)
+        for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
+             E = BB->instr_end(); Ins != E; ++Ins)
         {
+          if (Ins->isPseudo()) continue;
           MiMap[Ins] = std::make_pair(BB, Index++);
         }
       }
