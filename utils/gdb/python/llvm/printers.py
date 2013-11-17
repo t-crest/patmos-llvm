@@ -81,7 +81,7 @@ class SmallVectorPrinter:
         def __iter__(self):
             return self
 
-        def next(self):
+        def __next__(self):
             global MAX_ARRAY_SIZE
 
             if self.p == self.end or self.count > MAX_ARRAY_SIZE:
@@ -93,6 +93,7 @@ class SmallVectorPrinter:
             self.p = self.p + 1
 
             return result
+        next = __next__
 
     def __init__(self, typename, val):
         self.typename = typename
@@ -113,7 +114,7 @@ class SmallVectorPrinter:
         size = (end - start) / self.eltsize
         capacity = (capptr - start) / self.eltsize
 
-        return '%s of length %d, capacity %d' % (self.typename, long (size), long (capacity))
+        return '%s of length %d, capacity %d' % (self.typename, int (size), int (capacity))
 
     def display_hint (self):
         return 'array'
@@ -138,7 +139,7 @@ class BucketIterator:
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         global MAX_ARRAY_SIZE
 
         if self.count >= self.size or self.count > MAX_ARRAY_SIZE:
@@ -152,6 +153,7 @@ class BucketIterator:
         self.advancePastEmpty()
 
         return result
+    next = __next__
 
     def advancePastEmpty(self):
         global MAX_ARRAY_SIZE
@@ -182,7 +184,7 @@ class IListNodeIterator:
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         global MAX_ARRAY_SIZE
 
         if self.p == 0 or self.p == self.end or self.count > MAX_ARRAY_SIZE:
@@ -194,6 +196,7 @@ class IListNodeIterator:
         self.p = self.p['Next']
 
         return result
+    next = __next__
 
 
 class SmallPtrSetPrinter:
@@ -223,7 +226,7 @@ class SmallPtrSetPrinter:
         array = self.val['SmallArray']
 
         small = "small" if start == array else "not small"
-        return '%s of length %d, buckets %d, %s' % (self.typename, long (size), long(buckets), small)
+        return '%s of length %d, buckets %d, %s' % (self.typename, int(size), int(buckets), small)
 
     def display_hint (self):
         return 'array'
@@ -255,7 +258,7 @@ class DenseMapPrinter:
         size = self.val['NumEntries']
         buckets = self.val['NumBuckets']
 
-        return '%s of length %d, buckets %d' % (self.typename, long (size), long(buckets))
+        return '%s of length %d, buckets %d' % (self.typename, int(size), int(buckets))
 
     def display_hint (self):
         return 'array'
