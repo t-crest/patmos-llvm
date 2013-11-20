@@ -27,7 +27,6 @@ Release=""
 Release_no_dot=""
 RC=""
 Triple=""
-use_gzip="no"
 do_checkout="yes"
 do_ada="no"
 do_clang="yes"
@@ -387,11 +386,7 @@ function package_release() {
     cwd=`pwd`
     cd $BuildDir/Phase3/Release
     mv llvmCore-$Release-$RC.install $Package
-    if [ "$use_gzip" = "yes" ]; then
-      tar cfz $BuildDir/$Package.tar.gz $Package
-    else
-      tar cfJ $BuildDir/$Package.tar.xz $Package
-    fi
+    tar cfz $BuildDir/$Package.tar.gz $Package
     mv $Package llvmCore-$Release-$RC.install
     cd $cwd
 }
@@ -597,10 +592,6 @@ set +e
 
 # Woo hoo!
 echo "### Testing Finished ###"
-if [ "$use_gzip" = "yes" ]; then
-  echo "### Package: $Package.tar.gz"
-else
-  echo "### Package: $Package.tar.xz"
-fi
+echo "### Package: $Package.tar.gz"
 echo "### Logs: $LogDir"
 exit 0
