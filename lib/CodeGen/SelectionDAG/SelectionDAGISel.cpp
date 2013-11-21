@@ -223,12 +223,11 @@ defaultListDAGScheduler("default", "Best scheduler for the target",
 
 namespace llvm {
   //===--------------------------------------------------------------------===//
-  /// \brief This class is used by SelectionDAGISel to temporarily override
+  /// \brief This struct is used by SelectionDAGISel to temporarily override
   /// the optimization level on a per-function basis.
   class OptLevelChanger {
     SelectionDAGISel &IS;
     CodeGenOpt::Level SavedOptLevel;
-    bool SavedFastISel;
 
   public:
     OptLevelChanger(SelectionDAGISel &ISel,
@@ -238,9 +237,6 @@ namespace llvm {
         return;
       IS.OptLevel = NewOptLevel;
       IS.TM.setOptLevel(NewOptLevel);
-      SavedFastISel = IS.TM.Options.EnableFastISel;
-      if (NewOptLevel == CodeGenOpt::None)
-        IS.TM.setFastISel(true);
       DEBUG(dbgs() << "\nChanging optimization level for Function "
             << IS.MF->getFunction()->getName() << "\n");
       DEBUG(dbgs() << "\tBefore: -O" << SavedOptLevel
@@ -256,7 +252,6 @@ namespace llvm {
             << " ; After: -O" << SavedOptLevel << "\n");
       IS.OptLevel = SavedOptLevel;
       IS.TM.setOptLevel(SavedOptLevel);
-      IS.TM.setFastISel(SavedFastISel);
     }
   };
 
@@ -992,7 +987,7 @@ static void collectFailStats(const Instruction *I) {
 void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
   // Initialize the Fast-ISel state, if needed.
   FastISel *FastIS = 0;
-  if (TM.Options.EnableFastISel)
+  if (TM.Options.EnableFastISel || Fn.hasFnAttribute(Attribute::OptimizeNone))
     FastIS = getTargetLowering()->createFastISel(*FuncInfo, LibInfo);
 
   // Iterate over all basic blocks in the function.
