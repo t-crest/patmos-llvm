@@ -111,7 +111,7 @@ static cl::opt<bool> DisableFunctionSplitterRewrite(
 
 static cl::opt<int> PreferSubfunctionSize(
     "mpatmos-preferred-subfunction-size",
-    cl::init(0),
+    cl::init(256),
     cl::desc("Preferred maximum size of subfunctions, defaults to "
         "mpatmos-max-subfunction-size if 0. Larger basic blocks and inline asm "
         "are not split."));
