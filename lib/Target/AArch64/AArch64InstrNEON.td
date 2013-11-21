@@ -5855,13 +5855,28 @@ multiclass NeonI_Scalar_DUP_Elt_pattern<Instruction DUPI, ValueType ResTy,
                 OpNImm:$Imm))>;
 }
 
+multiclass NeonI_SDUP<PatFrag GetLow, PatFrag GetHigh,
+                 ValueType ResTy, ValueType OpTy> {
+  def : Pat<(ResTy (GetLow VPR128:$Rn)),
+            (ResTy (DUPdv_D (OpTy VPR128:$Rn), 0))>;
+  def : Pat<(ResTy (GetHigh VPR128:$Rn)),
+            (ResTy (DUPdv_D (OpTy VPR128:$Rn), 1))>;
+}
+
+defm : NeonI_SDUP<Neon_low16B, Neon_High16B, v8i8, v16i8>;
+defm : NeonI_SDUP<Neon_low8H, Neon_High8H, v4i16, v8i16>;
+defm : NeonI_SDUP<Neon_low4S, Neon_High4S, v2i32, v4i32>;
+defm : NeonI_SDUP<Neon_low2D, Neon_High2D, v1i64, v2i64>;
+defm : NeonI_SDUP<Neon_low4f, Neon_High4f, v2f32, v4f32>;
+defm : NeonI_SDUP<Neon_low2d, Neon_High2d, v1f64, v2f64>;
+
 // Patterns for vector extract of FP data using scalar DUP instructions
 defm : NeonI_Scalar_DUP_Elt_pattern<DUPsv_S, f32,
   v4f32, neon_uimm2_bare, v2f32, v4f32, neon_uimm1_bare>;
 defm : NeonI_Scalar_DUP_Elt_pattern<DUPdv_D, f64,
   v2f64, neon_uimm1_bare, v1f64, v2f64, neon_uimm0_bare>;
 
-multiclass NeonI_Scalar_DUP_Ext_Vec_pattern<Instruction DUPI,
+multiclass NeonI_Scalar_DUP_Vec_pattern<Instruction DUPI,
   ValueType ResTy, ValueType OpTy,Operand OpLImm,
   ValueType NOpTy, ValueType ExTy, Operand OpNImm> {
 
@@ -5873,87 +5888,14 @@ multiclass NeonI_Scalar_DUP_Ext_Vec_pattern<Instruction DUPI,
               (ExTy (SUBREG_TO_REG (i64 0), VPR64:$Rn, sub_64)),
                 OpNImm:$Imm))>;
 }
+// Patterns for extract subvectors of v1ix data using scalar DUP instructions
+defm : NeonI_Scalar_DUP_Vec_pattern<DUPbv_B,
+  v1i8, v16i8, neon_uimm4_bare, v8i8, v16i8, neon_uimm3_bare>;
+defm : NeonI_Scalar_DUP_Vec_pattern<DUPhv_H,
+  v1i16, v8i16, neon_uimm3_bare, v4i16, v8i16, neon_uimm2_bare>;
+defm : NeonI_Scalar_DUP_Vec_pattern<DUPsv_S,
+  v1i32, v4i32, neon_uimm2_bare, v2i32, v4i32, neon_uimm1_bare>;
 
-// Patterns for extract subvectors of v1ix data using scalar DUP instructions.
-defm : NeonI_Scalar_DUP_Ext_Vec_pattern<DUPbv_B, v1i8, v16i8, neon_uimm4_bare,
-                                        v8i8, v16i8, neon_uimm3_bare>;
-defm : NeonI_Scalar_DUP_Ext_Vec_pattern<DUPhv_H, v1i16, v8i16, neon_uimm3_bare,
-                                        v4i16, v8i16, neon_uimm2_bare>;
-defm : NeonI_Scalar_DUP_Ext_Vec_pattern<DUPsv_S, v1i32, v4i32, neon_uimm2_bare,
-                                        v2i32, v4i32, neon_uimm1_bare>;
-
-multiclass NeonI_Scalar_DUP_Copy_pattern1<Instruction DUPI, ValueType ResTy,
-                                          ValueType OpTy, ValueType ElemTy,
-                                          Operand OpImm, ValueType OpNTy,
-                                          ValueType ExTy, Operand OpNImm> {
-
-  def : Pat<(ResTy (vector_insert (ResTy undef),
-              (ElemTy (vector_extract (OpTy VPR128:$Rn), OpImm:$Imm)),
-              (neon_uimm0_bare:$Imm))),
-            (ResTy (DUPI (OpTy VPR128:$Rn), OpImm:$Imm))>;
-
-  def : Pat<(ResTy (vector_insert (ResTy undef),
-              (ElemTy (vector_extract (OpNTy VPR64:$Rn), OpNImm:$Imm)),
-              (OpNImm:$Imm))),
-            (ResTy (DUPI
-              (ExTy (SUBREG_TO_REG (i64 0), VPR64:$Rn, sub_64)),
-              OpNImm:$Imm))>;
-}
-
-multiclass NeonI_Scalar_DUP_Copy_pattern2<Instruction DUPI, ValueType ResTy,
-                                          ValueType OpTy, ValueType ElemTy,
-                                          Operand OpImm, ValueType OpNTy,
-                                          ValueType ExTy, Operand OpNImm> {
-
-  def : Pat<(ResTy (scalar_to_vector
-              (ElemTy (vector_extract (OpTy VPR128:$Rn), OpImm:$Imm)))),
-            (ResTy (DUPI (OpTy VPR128:$Rn), OpImm:$Imm))>;
-
-  def : Pat<(ResTy (scalar_to_vector
-              (ElemTy (vector_extract (OpNTy VPR64:$Rn), OpNImm:$Imm)))),
-            (ResTy (DUPI
-              (ExTy (SUBREG_TO_REG (i64 0), VPR64:$Rn, sub_64)),
-              OpNImm:$Imm))>;
-}
-
-// Patterns for vector copy to v1ix and v1fx vectors using scalar DUP
-// instructions.
-defm : NeonI_Scalar_DUP_Copy_pattern1<DUPdv_D,
-  v1i64, v2i64, i64, neon_uimm1_bare,
-  v1i64, v2i64, neon_uimm0_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern1<DUPsv_S,
-  v1i32, v4i32, i32, neon_uimm2_bare,
-  v2i32, v4i32, neon_uimm1_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern1<DUPhv_H,
-  v1i16, v8i16, i32, neon_uimm3_bare,
-  v4i16, v8i16, neon_uimm2_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern1<DUPbv_B,
-  v1i8, v16i8, i32, neon_uimm4_bare,
-  v8i8, v16i8, neon_uimm3_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern1<DUPdv_D,
-  v1f64, v2f64, f64, neon_uimm1_bare,
-  v1f64, v2f64, neon_uimm0_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern1<DUPsv_S,
-  v1f32, v4f32, f32, neon_uimm2_bare,
-  v2f32, v4f32, neon_uimm1_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern2<DUPdv_D,
-  v1i64, v2i64, i64, neon_uimm1_bare,
-  v1i64, v2i64, neon_uimm0_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern2<DUPsv_S,
-  v1i32, v4i32, i32, neon_uimm2_bare,
-  v2i32, v4i32, neon_uimm1_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern2<DUPhv_H,
-  v1i16, v8i16, i32, neon_uimm3_bare,
-  v4i16, v8i16, neon_uimm2_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern2<DUPbv_B,
-  v1i8, v16i8, i32, neon_uimm4_bare,
-  v8i8, v16i8, neon_uimm3_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern2<DUPdv_D,
-  v1f64, v2f64, f64, neon_uimm1_bare,
-  v1f64, v2f64, neon_uimm0_bare>;
-defm : NeonI_Scalar_DUP_Copy_pattern2<DUPsv_S,
-  v1f32, v4f32, f32, neon_uimm2_bare,
-  v2f32, v4f32, neon_uimm1_bare>;
 
 multiclass NeonI_Scalar_DUP_alias<string asmop, string asmlane,
                                   Instruction DUPI, Operand OpImm,
