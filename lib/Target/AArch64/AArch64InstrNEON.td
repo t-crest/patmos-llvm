@@ -1632,6 +1632,21 @@ def Neon_Low2double : PatFrag<(ops node:$in),
                               (v1f64 (extract_subvector (v2f64 node:$in),
                                                         (iPTR 0)))>;
 
+def neon_uimm3_shift : Operand<i32>,
+                         ImmLeaf<i32, [{return Imm < 8;}]> {
+  let ParserMatchClass = uimm3_asmoperand;
+}
+
+def neon_uimm4_shift : Operand<i32>,
+                         ImmLeaf<i32, [{return Imm < 16;}]> {
+  let ParserMatchClass = uimm4_asmoperand;
+}
+
+def neon_uimm5_shift : Operand<i32>,
+                         ImmLeaf<i32, [{return Imm < 32;}]> {
+  let ParserMatchClass = uimm5_asmoperand;
+}
+
 class N2VShiftLong<bit q, bit u, bits<5> opcode, string asmop, string DestT,
                    string SrcT, ValueType DestTy, ValueType SrcTy,
                    Operand ImmTy, SDPatternOperator ExtOp>
@@ -5858,17 +5873,17 @@ multiclass NeonI_Scalar_DUP_Elt_pattern<Instruction DUPI, ValueType ResTy,
 multiclass NeonI_SDUP<PatFrag GetLow, PatFrag GetHigh,
                  ValueType ResTy, ValueType OpTy> {
   def : Pat<(ResTy (GetLow VPR128:$Rn)),
-            (ResTy (DUPdv_D (OpTy VPR128:$Rn), 0))>;
+            (ResTy (EXTRACT_SUBREG (OpTy VPR128:$Rn), sub_64))>;
   def : Pat<(ResTy (GetHigh VPR128:$Rn)),
             (ResTy (DUPdv_D (OpTy VPR128:$Rn), 1))>;
 }
 
-defm : NeonI_SDUP<Neon_low16B, Neon_High16B, v8i8, v16i8>;
-defm : NeonI_SDUP<Neon_low8H, Neon_High8H, v4i16, v8i16>;
-defm : NeonI_SDUP<Neon_low4S, Neon_High4S, v2i32, v4i32>;
-defm : NeonI_SDUP<Neon_low2D, Neon_High2D, v1i64, v2i64>;
-defm : NeonI_SDUP<Neon_low4f, Neon_High4f, v2f32, v4f32>;
-defm : NeonI_SDUP<Neon_low2d, Neon_High2d, v1f64, v2f64>;
+defm : NeonI_SDUP<Neon_Low16B, Neon_High16B, v8i8, v16i8>;
+defm : NeonI_SDUP<Neon_Low8H, Neon_High8H, v4i16, v8i16>;
+defm : NeonI_SDUP<Neon_Low4S, Neon_High4S, v2i32, v4i32>;
+defm : NeonI_SDUP<Neon_Low2D, Neon_High2D, v1i64, v2i64>;
+defm : NeonI_SDUP<Neon_Low4float, Neon_High4float, v2f32, v4f32>;
+defm : NeonI_SDUP<Neon_Low2double, Neon_High2double, v1f64, v2f64>;
 
 // Patterns for vector extract of FP data using scalar DUP instructions
 defm : NeonI_Scalar_DUP_Elt_pattern<DUPsv_S, f32,
@@ -6195,14 +6210,53 @@ def INSdx : NeonI_INS_main<"ins", "d", v2i64, GPR64, i64,
   let Inst{20-16} = {Imm, 0b1, 0b0, 0b0, 0b0};
 }
 
-def : NeonInstAlias<"mov $Rd.b[$Imm], $Rn",
-                    (INSbw VPR128:$Rd, GPR32:$Rn, neon_uimm4_bare:$Imm), 0>;
-def : NeonInstAlias<"mov $Rd.h[$Imm], $Rn",
-                    (INShw VPR128:$Rd, GPR32:$Rn, neon_uimm3_bare:$Imm), 0>;
-def : NeonInstAlias<"mov $Rd.s[$Imm], $Rn",
-                    (INSsw VPR128:$Rd, GPR32:$Rn, neon_uimm2_bare:$Imm), 0>;
-def : NeonInstAlias<"mov $Rd.d[$Imm], $Rn",
-                    (INSdx VPR128:$Rd, GPR64:$Rn, neon_uimm1_bare:$Imm), 0>;
+defm MLAvve : NI_2VE_v1<0b1, 0b0000, "mla">;
+defm MLSvve : NI_2VE_v1<0b1, 0b0100, "mls">;
+
+// Pattern for lane in 128-bit vector
+class NI_2VE_laneq<Instruction INST, Operand OpImm, SDPatternOperator op,
+                   RegisterOperand ResVPR, RegisterOperand OpVPR,
+                   RegisterOperand EleOpVPR, ValueType ResTy, ValueType OpTy,
+                   ValueType EleOpTy, SDPatternOperator coreop>
+  : Pat<(ResTy (op (ResTy ResVPR:$src), (OpTy OpVPR:$Rn),
+          (OpTy (coreop (EleOpTy EleOpVPR:$Re), (i64 OpImm:$Index))))),
+        (INST ResVPR:$src, OpVPR:$Rn, EleOpVPR:$Re, OpImm:$Index)>;
+
+// Pattern for lane in 64-bit vector
+class NI_2VE_lane<Instruction INST, Operand OpImm, SDPatternOperator op,
+                  RegisterOperand ResVPR, RegisterOperand OpVPR,
+                  RegisterOperand EleOpVPR, ValueType ResTy, ValueType OpTy,
+                  ValueType EleOpTy, SDPatternOperator coreop>
+  : Pat<(ResTy (op (ResTy ResVPR:$src), (OpTy OpVPR:$Rn),
+          (OpTy (coreop (EleOpTy EleOpVPR:$Re), (i64 OpImm:$Index))))),
+        (INST ResVPR:$src, OpVPR:$Rn, 
+          (SUBREG_TO_REG (i64 0), EleOpVPR:$Re, sub_64), OpImm:$Index)>;
+
+multiclass NI_2VE_v1_pat<string subop, SDPatternOperator op>
+{
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_2s4s"), neon_uimm2_bare,
+                     op, VPR64, VPR64, VPR128, v2i32, v2i32, v4i32,
+                     BinOpFrag<(Neon_vduplane
+                                 (Neon_Low4S node:$LHS), node:$RHS)>>;
+
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_4s4s"), neon_uimm2_bare,
+                     op, VPR128, VPR128, VPR128, v4i32, v4i32, v4i32,
+                     BinOpFrag<(Neon_vduplane node:$LHS, node:$RHS)>>;
+
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_4h8h"), neon_uimm3_bare,
+                     op, VPR64, VPR64, VPR128Lo, v4i16, v4i16, v8i16,
+                     BinOpFrag<(Neon_vduplane
+                                 (Neon_Low8H node:$LHS), node:$RHS)>>;
+
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_8h8h"), neon_uimm3_bare,
+                     op, VPR128, VPR128, VPR128Lo, v8i16, v8i16, v8i16,
+                     BinOpFrag<(Neon_vduplane node:$LHS, node:$RHS)>>;
+
+  // Index can only be half of the max value for lane in 64-bit vector
+
+  def : NI_2VE_lane<!cast<Instruction>(subop # "_2s4s"), neon_uimm1_bare,
+                    op, VPR64, VPR64, VPR64, v2i32, v2i32, v2i32,
+                    BinOpFrag<(Neon_vduplane node:$LHS, node:$RHS)>>;
 
 class Neon_INS_main_pattern <ValueType ResTy,ValueType ExtResTy,
                              RegisterClass OpGPR, ValueType OpTy,
@@ -6358,10 +6412,11 @@ def : Pat <(NaTy (vector_insert
              sub_64))>;
 }
 
-defm : Neon_INS_elt_float_pattern<v4f32, v2f32, f32, FPR32, neon_uimm2_bare,
-                                  sub_32, INSELs>;
-defm : Neon_INS_elt_float_pattern<v2f64, v1f64, f64, FPR64, neon_uimm1_bare,
-                                  sub_64, INSELd>;
+multiclass NI_2VE_mul_v1_pat<string subop, SDPatternOperator op> {
+  def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_2s4s"), neon_uimm2_bare,
+                         op, VPR64, VPR128, v2i32, v2i32, v4i32,
+                         BinOpFrag<(Neon_vduplane
+                                     (Neon_Low4S node:$LHS), node:$RHS)>>;
 
 class NeonI_SMOV<string asmop, string Res, bit Q,
                  ValueType OpTy, ValueType eleTy,
@@ -6378,27 +6433,10 @@ class NeonI_SMOV<string asmop, string Res, bit Q,
   bits<4> Imm;
 }
 
-//Signed integer move (main, from element)
-def SMOVwb : NeonI_SMOV<"smov", "b", 0b0, v16i8, i8, neon_uimm4_bare,
-                        GPR32, i32> {
-  let Inst{20-16} = {Imm{3}, Imm{2}, Imm{1}, Imm{0}, 0b1};
-}
-def SMOVwh : NeonI_SMOV<"smov", "h", 0b0, v8i16, i16, neon_uimm3_bare,
-                        GPR32, i32> {
-  let Inst{20-16} = {Imm{2}, Imm{1}, Imm{0}, 0b1, 0b0};
-}
-def SMOVxb : NeonI_SMOV<"smov", "b", 0b1, v16i8, i8, neon_uimm4_bare,
-                        GPR64, i64> {
-  let Inst{20-16} = {Imm{3}, Imm{2}, Imm{1}, Imm{0}, 0b1};
-}
-def SMOVxh : NeonI_SMOV<"smov", "h", 0b1, v8i16, i16, neon_uimm3_bare,
-                        GPR64, i64> {
-  let Inst{20-16} = {Imm{2}, Imm{1}, Imm{0}, 0b1, 0b0};
-}
-def SMOVxs : NeonI_SMOV<"smov", "s", 0b1, v4i32, i32, neon_uimm2_bare,
-                        GPR64, i64> {
-  let Inst{20-16} = {Imm{1}, Imm{0}, 0b1, 0b0, 0b0};
-}
+  def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_4h8h"), neon_uimm3_bare,
+                         op, VPR64, VPR128Lo, v4i16, v4i16, v8i16,
+                         BinOpFrag<(Neon_vduplane
+                                    (Neon_Low8H node:$LHS), node:$RHS)>>;
 
 multiclass Neon_SMOVx_pattern <ValueType StTy, ValueType NaTy,
                                ValueType eleTy, Operand StImm,  Operand NaImm,
@@ -6503,12 +6541,11 @@ class Neon_UMOV_pattern <ValueType StTy, ValueType NaTy, ValueType ResTy,
         (SMOVI (StTy (SUBREG_TO_REG (i64 0), VPR64:$Rn, sub_64)),
           NaImm:$Imm)>;
 
-def : Neon_UMOV_pattern<v16i8, v8i8, i32, neon_uimm4_bare,
-                        neon_uimm3_bare, UMOVwb>;
-def : Neon_UMOV_pattern<v8i16, v4i16, i32, neon_uimm3_bare,
-                        neon_uimm2_bare, UMOVwh>;
-def : Neon_UMOV_pattern<v4i32, v2i32, i32, neon_uimm2_bare,
-                        neon_uimm1_bare, UMOVws>;
+multiclass NI_2VE_mul_v2_pat<string subop, SDPatternOperator op> {
+  def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_2s4s"), neon_uimm2_bare,
+                         op, VPR64, VPR128, v2f32, v2f32, v4f32,
+                         BinOpFrag<(Neon_vduplane
+                                     (Neon_Low4float node:$LHS), node:$RHS)>>;
 
 def : Pat<(i32 (and
             (i32 (vector_extract
@@ -6584,10 +6621,11 @@ def : Pat<(v1i32 (scalar_to_vector GPR32:$src)),
 def : Pat<(v1i64 (scalar_to_vector GPR64:$src)),
           (FMOVdx $src)>;
 
-def : Pat<(v1f32 (scalar_to_vector (f32 FPR32:$Rn))),
-          (v1f32 FPR32:$Rn)>;
-def : Pat<(v1f64 (scalar_to_vector (f64 FPR64:$Rn))),
-          (v1f64 FPR64:$Rn)>;
+multiclass NI_2VE_fma_v2_pat<string subop, SDPatternOperator op> {
+  def : NI_2VEswap_laneq<!cast<Instruction>(subop # "_2s4s"),
+                         neon_uimm2_bare, op, VPR64, VPR128, v2f32, v4f32,
+                         BinOpFrag<(Neon_vduplane
+                                     (Neon_Low4float node:$LHS), node:$RHS)>>;
 
 def : Pat<(v1f64 (scalar_to_vector (f64 FPR64:$src))),
           (FMOVdd $src)>;
@@ -6626,15 +6664,18 @@ def DUPELT2d : NeonI_DUP_Elt<0b1, "dup", ".2d", ".d", VPR128,
   let Inst{20-16} = {Imm, 0b1, 0b0, 0b0, 0b0};
 }
 
-def DUPELT8b : NeonI_DUP_Elt<0b0, "dup", ".8b", ".b", VPR64,
-                              neon_uimm4_bare> {
-  let Inst{20-16} = {Imm{3}, Imm{2}, Imm{1}, Imm{0}, 0b1};
-}
+multiclass NI_2VE_fms_v2_pat<string subop, SDPatternOperator op>
+{
+  def : NI_2VEswap_laneq<!cast<Instruction>(subop # "_2s4s"),
+                         neon_uimm2_bare, op, VPR64, VPR128, v2f32, v4f32,
+                         BinOpFrag<(fneg (Neon_vduplane
+                                     (Neon_Low4float node:$LHS), node:$RHS))>>;
 
-def DUPELT4h : NeonI_DUP_Elt<0b0, "dup", ".4h", ".h", VPR64,
-                              neon_uimm3_bare> {
-  let Inst{20-16} = {Imm{2}, Imm{1}, Imm{0}, 0b1, 0b0};
-}
+  def : NI_2VEswap_laneq<!cast<Instruction>(subop # "_2s4s"),
+                         neon_uimm2_bare, op, VPR64, VPR128, v2f32, v4f32,
+                         BinOpFrag<(Neon_vduplane
+                                     (Neon_Low4float (fneg node:$LHS)),
+                                     node:$RHS)>>;
 
 def DUPELT2s : NeonI_DUP_Elt<0b0, "dup", ".2s", ".s", VPR64,
                               neon_uimm2_bare> {
@@ -6941,9 +6982,28 @@ class NI_2VE_mul_lane<Instruction INST, Operand OpImm, SDPatternOperator op,
         (INST OpVPR:$Rn,
           (SUBREG_TO_REG (i64 0), EleOpVPR:$Re, sub_64), OpImm:$Index)>;
 
-multiclass NI_2VE_mul_v1_pat<string subop, SDPatternOperator op> {
-  def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_2s4s"), neon_uimm2_bare,
-                         op, VPR64, VPR128, v2i32, v2i32, v4i32>;
+multiclass NI_2VEL_v3_pat<string subop, SDPatternOperator op> {
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_4s4h"), neon_uimm3_bare,
+                     op, VPR128, VPR64, VPR128Lo, v4i32, v4i16, v8i16,
+                     BinOpFrag<(Neon_vduplane
+                                 (Neon_Low8H node:$LHS), node:$RHS)>>;
+  
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_2d2s"), neon_uimm2_bare,
+                     op, VPR128, VPR64, VPR128, v2i64, v2i32, v4i32,
+                     BinOpFrag<(Neon_vduplane
+                                 (Neon_Low4S node:$LHS), node:$RHS)>>;
+  
+  def : NI_2VEL2_laneq<!cast<Instruction>(subop # "_4s8h"), neon_uimm3_bare,
+                       op, VPR128Lo, v4i32, v8i16, v8i16, v4i16, Neon_High8H,
+                       BinOpFrag<(Neon_vduplane
+                                   (Neon_Low8H node:$LHS), node:$RHS)>>;
+  
+  def : NI_2VEL2_laneq<!cast<Instruction>(subop # "_2d4s"), neon_uimm2_bare,
+                       op, VPR128, v2i64, v4i32, v4i32, v2i32, Neon_High4S,
+                       BinOpFrag<(Neon_vduplane
+                                   (Neon_Low4S node:$LHS), node:$RHS)>>;
+  
+  // Index can only be half of the max value for lane in 64-bit vector
 
   def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_4s4s"), neon_uimm2_bare,
                          op, VPR128, VPR128, v4i32, v4i32, v4i32>;
@@ -6959,15 +7019,29 @@ multiclass NI_2VE_mul_v1_pat<string subop, SDPatternOperator op> {
   def : NI_2VE_mul_lane<!cast<Instruction>(subop # "_2s4s"), neon_uimm1_bare,
                         op, VPR64, VPR64, v2i32, v2i32, v2i32>;
 
-  def : NI_2VE_mul_lane<!cast<Instruction>(subop # "_4h8h"), neon_uimm2_bare,
-                        op, VPR64, VPR64Lo, v4i16, v4i16, v4i16>;
-}
+multiclass NI_2VEL_mul_v3_pat<string subop, SDPatternOperator op> {
+  def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_4s4h"), neon_uimm3_bare,
+                         op, VPR64, VPR128Lo, v4i32, v4i16, v8i16,
+                         BinOpFrag<(Neon_vduplane
+                                     (Neon_Low8H node:$LHS), node:$RHS)>>;
 
-defm MUL_lane_v1 : NI_2VE_mul_v1_pat<"MULve", mul>;
-defm SQDMULH_lane_v1 : NI_2VE_mul_v1_pat<"SQDMULHve", int_arm_neon_vqdmulh>;
-defm SQRDMULH_lane_v1 : NI_2VE_mul_v1_pat<"SQRDMULHve", int_arm_neon_vqrdmulh>;
+  def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_2d2s"), neon_uimm2_bare,
+                         op, VPR64, VPR128, v2i64, v2i32, v4i32,
+                         BinOpFrag<(Neon_vduplane
+                                     (Neon_Low4S node:$LHS), node:$RHS)>>;
 
-// Variant 2
+  def : NI_2VEL2_mul_laneq<!cast<Instruction>(subop # "_4s8h"), neon_uimm3_bare,
+                           op, VPR128Lo, v4i32, v8i16, v8i16, v4i16,
+                           Neon_High8H,
+                           BinOpFrag<(Neon_vduplane
+                                       (Neon_Low8H node:$LHS), node:$RHS)>>;
+  
+  def : NI_2VEL2_mul_laneq<!cast<Instruction>(subop # "_2d4s"), neon_uimm2_bare,
+                           op, VPR128, v2i64, v4i32, v4i32, v2i32, Neon_High4S,
+                           BinOpFrag<(Neon_vduplane
+                                       (Neon_Low4S node:$LHS), node:$RHS)>>;
+  
+  // Index can only be half of the max value for lane in 64-bit vector
 
 multiclass NI_2VE_v2_2op<bit u, bits<4> opcode, string asmop> {
   // vector register class for element is always 128-bit to cover the max index
@@ -7017,6 +7091,31 @@ multiclass NI_2VE_mul_v2_pat<string subop, SDPatternOperator op> {
   def : NI_2VE_mul_laneq<!cast<Instruction>(subop # "_2d2d"), neon_uimm1_bare,
                          op, VPR128, VPR128, v2f64, v2f64, v2f64>;
 
+multiclass NI_2VEL_v3_qdma_pat<string subop, string op> {
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_4s4h"), neon_uimm3_bare,
+                     !cast<PatFrag>(op # "_4s"), VPR128, VPR64, VPR128Lo,
+                     v4i32, v4i16, v8i16,
+                     BinOpFrag<(Neon_vduplane
+                                 (Neon_Low8H node:$LHS), node:$RHS)>>;
+  
+  def : NI_2VE_laneq<!cast<Instruction>(subop # "_2d2s"), neon_uimm2_bare,
+                     !cast<PatFrag>(op # "_2d"), VPR128, VPR64, VPR128,
+                     v2i64, v2i32, v4i32,
+                     BinOpFrag<(Neon_vduplane
+                                 (Neon_Low4S node:$LHS), node:$RHS)>>;
+  
+  def : NI_2VEL2_laneq<!cast<Instruction>(subop # "_4s8h"), neon_uimm3_bare,
+                       !cast<PatFrag>(op # "_4s"), VPR128Lo,
+                       v4i32, v8i16, v8i16, v4i16, Neon_High8H,
+                       BinOpFrag<(Neon_vduplane
+                                   (Neon_Low8H node:$LHS), node:$RHS)>>;
+  
+  def : NI_2VEL2_laneq<!cast<Instruction>(subop # "_2d4s"), neon_uimm2_bare,
+                       !cast<PatFrag>(op # "_2d"), VPR128,
+                       v2i64, v4i32, v4i32, v2i32, Neon_High4S,
+                       BinOpFrag<(Neon_vduplane
+                                   (Neon_Low4S node:$LHS), node:$RHS)>>;
+  
   // Index can only be half of the max value for lane in 64-bit vector
 
   def : NI_2VE_mul_lane<!cast<Instruction>(subop # "_2s4s"), neon_uimm1_bare,
