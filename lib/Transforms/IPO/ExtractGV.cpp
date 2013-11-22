@@ -120,7 +120,7 @@ namespace {
         ++I;
 
 	bool Delete = deleteStuff == (bool)Named.count(CurI);
-	makeVisible(*CurI, Delete);
+	makeVisible(*I, Delete);
 
         if (Delete) {
           Type *Ty =  CurI->getType()->getElementType();
