@@ -1946,7 +1946,6 @@ bool llvm::tryFoldSPUpdateIntoPushPop(MachineFunction &MF,
     // Mark the unimportant registers as <def,dead> in the POP.
     RegList.push_back(MachineOperand::CreateReg(CurReg, true, false, false,
                                                 true));
-    --RegsNeeded;
   }
 
   if (RegsNeeded > 0)
