@@ -523,7 +523,7 @@ void DAGTypeLegalizer::SplitRes_SELECT(SDNode *N, SDValue &Lo,
     // use those instead of splitting the mask operand again.
     if (getTypeAction(Cond.getValueType()) == TargetLowering::TypeSplitVector)
       GetSplitVector(Cond, CL, CH);
-    } else
+    else
       llvm::tie(CL, CH) = DAG.SplitVector(Cond, dl);
   }
 
