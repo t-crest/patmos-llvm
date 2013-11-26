@@ -64,7 +64,7 @@ namespace {
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesCFG();
-      AU.addPreserved<CallGraph>();
+      AU.addPreserved<CallGraphWrapperPass>();
     }
   private:
     void LoadFromGlobalVariable(const GlobalVariable *GV);
@@ -157,7 +157,8 @@ static bool shouldInternalize(const GlobalValue &GV,
 }
 
 bool InternalizePass::runOnModule(Module &M) {
-  CallGraph *CG = getAnalysisIfAvailable<CallGraph>();
+  CallGraphWrapperPass *CGPass = getAnalysisIfAvailable<CallGraphWrapperPass>();
+  CallGraph *CG = CGPass ? &CGPass->getCallGraph() : 0;
   CallGraphNode *ExternalNode = CG ? CG->getExternalCallingNode() : 0;
   bool Changed = false;
 
