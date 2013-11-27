@@ -24,6 +24,7 @@ class PMLDoc
   attr_reader :data, :triple, :arch, :analysis_configurations
   attr_reader :bitcode_functions,:machine_functions,:relation_graphs
   attr_reader :flowfacts,:valuefacts,:timing
+  attr_reader :sca_graph
 
   # constructor expects a YAML document or a list of YAML documents
   def initialize(stream)
@@ -52,6 +53,8 @@ class PMLDoc
     @valuefacts = ValueFactList.from_pml(self, @data['valuefacts'])
     @data['timing'] ||= []
     @timing = TimingList.from_pml(self, @data['timing'])
+    @sca_graph = SCAGraph.new(self, @data['sca-graph']) if @data.include?('sca-graph')
+    @sca_graph ||= nil
   end
   def valuefacts
     @valuefacts

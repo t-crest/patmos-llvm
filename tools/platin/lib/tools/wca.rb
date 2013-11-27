@@ -25,7 +25,8 @@ class WcaTool
     }
     opts.add_check { |options|
       options.wca_cache_regions = true if options.wca_cache_regions.nil?
-    }    
+    }
+    opts.stack_cache_analysis
   end
 
   def WcaTool.add_options(opts)
@@ -34,6 +35,7 @@ class WcaTool
     opts.flow_fact_selection
     opts.callstring_length
     opts.calculates_wcet('wca-unknown')
+    opts.stack_cache_analysis
   end
 
   def WcaTool.run(pml,options)

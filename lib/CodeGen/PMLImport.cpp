@@ -33,9 +33,8 @@
 using namespace llvm;
 
 
-static cl::opt<std::string> ImportFile("mimport-pml",
-   cl::desc("Read external analysis results from PML file"),
-   cl::init(""));
+static cl::list<std::string> ImportFiles("mimport-pml",
+   cl::desc("Read external analysis results from PML file"));
 
 INITIALIZE_PASS(PMLImport, "pml-import", "PML Import", false, true)
 
@@ -45,6 +44,11 @@ void PMLImport::anchor() {}
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static void printErrorMessages(const llvm::SMDiagnostic &Diag, void *) {
+  Diag.print("PMLImport", errs(), true);
+}
+
+
 bool PMLImport::isInitialized() const {
   return Initialized;
 }
@@ -53,25 +57,35 @@ void PMLImport::initializePass()
 {
   Initialized = false;
 
-  if (ImportFile.empty()) {
+  if (ImportFiles.empty()) {
     return;
   }
 
-  OwningPtr<MemoryBuffer> Buf;
-  if (MemoryBuffer::getFileOrSTDIN(ImportFile, Buf))
-    return;
+  // At least one input, initialize..
 
-  yaml::Input Input(Buf->getBuffer());
+  for (cl::list<std::string>::iterator filename = ImportFiles.begin(),
+       ie = ImportFiles.end(); filename != ie; filename++)
+  {
+    OwningPtr<MemoryBuffer> Buf;
+    if (MemoryBuffer::getFileOrSTDIN(*filename, Buf)) {
+      // TODO print error code
+      report_fatal_error("PMLImport: error reading PML file.");
+    }
 
-  yaml::PMLDocList Docs;
+    yaml::Input Input(Buf->getBuffer());
 
-  Input >> Docs.YDocs;
+    Input.setDiagHandler(printErrorMessages);
 
-  if (Input.error()) {
-    report_fatal_error("PMLImport: error reading yaml");
+    yaml::PMLDocList Docs;
+
+    Input >> Docs.YDocs;
+
+    if (Input.error()) {
+      report_fatal_error("PMLImport: error parsing yaml.");
+    }
+
+    Docs.mergeInto(YDoc);
   }
-
-  Docs.mergeInto(YDoc);
 
   rebuildPMLIndex();
 

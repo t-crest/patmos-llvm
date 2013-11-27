@@ -213,12 +213,13 @@ struct ScalarEnumerationTraits<MemMode> {
 /// Instruction Specification (generic)
 struct Instruction {
   Name Index;
-  int Opcode;
+  Name Opcode;
+  Name Desc;
   std::vector<Name> Callees;
   enum MemMode MemMode;
 
   Instruction(uint64_t index)
-    : Index(index), Opcode(-1), MemMode(memmode_none) {}
+    : Index(index), MemMode(memmode_none) {}
 
   void addCallee(const StringRef function) {
     Callees.push_back(yaml::Name(function));
@@ -232,11 +233,11 @@ struct MappingTraits<Instruction*> {
   static void mapping(IO &io, Instruction *&Ins) {
     if (!Ins) Ins = new Instruction(0);
     io.mapRequired("index",   Ins->Index);
-    io.mapOptional("opcode",  Ins->Opcode, -1);
+    io.mapOptional("opcode",  Ins->Opcode, yaml::Name());
+    io.mapOptional("desc",    Ins->Desc, yaml::Name());
     io.mapOptional("callees", Ins->Callees);
     io.mapOptional("memmode",   Ins->MemMode, memmode_none);
   }
-  static const bool flow = true;
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
@@ -263,6 +264,7 @@ struct MachineInstruction : Instruction {
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
   unsigned BranchDelaySlots;
+  unsigned StackCacheArg;
   unsigned StackCacheFill;
   unsigned StackCacheSpill;
   Name MemType;
@@ -271,7 +273,7 @@ struct MachineInstruction : Instruction {
 
   MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
-    BranchDelaySlots(0), StackCacheFill(0), StackCacheSpill(0),
+    BranchDelaySlots(0), StackCacheArg(0), StackCacheFill(0), StackCacheSpill(0),
     MemType(Name("")), Bundled(false) {}
 };
 template <>
@@ -279,13 +281,15 @@ struct MappingTraits<MachineInstruction*> {
   static void mapping(IO &io, MachineInstruction *&Ins) {
     if (!Ins) Ins = new MachineInstruction(0);
     io.mapRequired("index",         Ins->Index);
-    io.mapOptional("opcode",        Ins->Opcode, -1);
+    io.mapOptional("opcode",        Ins->Opcode, Name(""));
+    io.mapOptional("desc",          Ins->Desc, Name(""));
     io.mapOptional("callees",       Ins->Callees);
     io.mapOptional("size",          Ins->Size);
     io.mapOptional("address",       Ins->Address, (int64_t) -1);
     io.mapOptional("branch-type",   Ins->BranchType, branch_none);
     io.mapOptional("branch-delay-slots", Ins->BranchDelaySlots, 0U);
     io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
+    io.mapOptional("stack-cache-argument", Ins->StackCacheArg, 0U);
     io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
     io.mapOptional("stack-cache-spill", Ins->StackCacheSpill, 0U);
     io.mapOptional("memmode",   Ins->MemMode, memmode_none);
@@ -350,8 +354,6 @@ struct Argument {
   void addReg(const StringRef regname) {
     Registers.push_back(yaml::Name(regname));
   }
-
-  static const bool flow = true;
 };
 template <>
 struct MappingTraits<Argument*> {

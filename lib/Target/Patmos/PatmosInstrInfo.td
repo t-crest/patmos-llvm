@@ -653,10 +653,10 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
 
   // conditional move, like mov with setable predicate
   // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
-  let Constraints = "$old = $pd", isCodeGenOnly = 1 in
-  def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, PRegs:$old, PRegs:$new),
+  let Constraints = "$old.preg = $pd", isCodeGenOnly = 1 in
+  def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, predset:$old, predset:$new),
                   "pmov", "$pd = $new",
-                  [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]>
+                  [(set PRegs:$pd, (select predsel:$p, predsel:$new, predsel:$old))]>
   {
     bits<4> new;
     let ps1 = new;

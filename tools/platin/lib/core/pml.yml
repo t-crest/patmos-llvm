@@ -115,7 +115,10 @@ mapping:
                              desc: "index of the instruction in the block's instruction list"
                           "opcode":
                              type: scalar
-                             desc: "characterization of the instruction"
+                             desc: "mnemonic or opcode of the instruction"
+                          "desc":
+                             type: scalar
+                             desc: "description of the instruction and the operands"
                           "branch-type":
                              type: str
                              enum: [unconditional, conditional, call, return, indirect, any]
@@ -144,7 +147,7 @@ mapping:
                              desc: "the type of the memory access (if any) [type=MemType]"
                           "bundled":
                             type: bool
-                            desc: "If true, this instruction is bundled with the next instruction"
+                            desc: "If true, this instruction is bundled with the previous instruction"
                           "size":
                              type: int
                              desc: "size of the instruction in the binary"
@@ -153,10 +156,13 @@ mapping:
                              desc: "address of the instruction in the linked binary [type=Address, indexed]"
                           "stack-cache-fill":
                              type: int
-                             desc: "TODO"
+                             desc: "worst-case number of stack cache fills caused by instruction"
                           "stack-cache-spill":
                              type: int
-                             desc: "TODO"
+                             desc: "worst-case number of stack cache spills caused by instruction"
+                          "stack-cache-argument":
+                             type: int
+                             desc: "static argument (blocks) of a stack cache reserve and ensure instruction"
           "subfunctions":
             type: seq
             desc: "subfunctions of the function"
@@ -603,3 +609,44 @@ mapping:
                     type: seq
                     desc: "key-value pairs"
                     sequence: *attributes
+  "sca-graph":
+    type: map
+    desc: >-
+      This structure is used to pass stack cache analysis information from LLVM
+      to Platin. It will remain in place only until all stack cache related
+      analysis tasks are absorbed by Platin.
+    mapping:
+      "nodes":
+        type: seq
+        sequence:
+          - &scanode
+            type: map
+            mapping:
+              "id":
+                type: int
+                required: yes
+                unique: yes
+              "function":
+                type: str
+                required: yes
+              "spillsize":
+                type: int
+                required: yes
+      "edges":
+        type: seq
+        sequence:
+          - &scaedge
+            type: map
+            mapping:
+              "src":
+                type: int
+                required: yes
+              "dst":
+                type: int
+                required: yes
+              "callblock":
+                type: str
+                required: yes
+              "callindex":
+                type: int
+                required: yes

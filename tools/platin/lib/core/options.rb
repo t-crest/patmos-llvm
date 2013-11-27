@@ -126,6 +126,11 @@ module PML
       }
       add_check { |options| options.analysis_entry = "main" unless options.analysis_entry }
     end
+    def stack_cache_analysis
+      self.on("--use-sca-graph", "use SCA graph for stack-cache analysis") {
+          options.use_sca_graph = true
+      }
+    end
     # Run argument checks
     def check!(arg_range = nil)
       if arg_range.kind_of?(Array)

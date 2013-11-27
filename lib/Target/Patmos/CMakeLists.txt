@@ -35,10 +35,6 @@ add_llvm_target(PatmosCodeGen
   PatmosSPMark.cpp
   PatmosSPPrepare.cpp
   PatmosSPReduce.cpp
-  PatmosHazardRecognizer.cpp
-  PatmosMachineScheduler.cpp
-  PatmosVLIWPacketizer.cpp
-  PatmosBundleSanitizer.cpp
   PatmosBypassFromPML.cpp
   PatmosPostRAScheduler.cpp
   PatmosSchedStrategy.cpp

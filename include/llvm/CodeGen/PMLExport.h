@@ -60,10 +60,7 @@ namespace llvm {
     virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) { return 0; }
 
     /// get number of bytes this instruction takes
-    /// FIXME: we should rely on getDescr()->getSize(), but this does not
-    /// work for inline assembler at the moment.
     virtual int getSize(const MachineInstr *Instr);
-
   };
 
   /// Base class for all exporters
@@ -111,6 +108,11 @@ namespace llvm {
 
     virtual bool doExportInstruction(const Instruction* Instr) { return true; }
 
+    virtual yaml::Name getOpcode(const Instruction *Instr);
+
+    /// get a description for this instruction
+    virtual void printDesc(raw_ostream &os, const Instruction *Instr);
+
     virtual void exportInstruction(yaml::Instruction* I, const Instruction* II);
   };
 
@@ -129,10 +131,12 @@ namespace llvm {
     Pass &P;
     TargetMachine &TM;
 
+    const TargetInstrInfo *TII;
+
   public:
     PMLMachineExport(TargetMachine &tm, ModulePass &mp,
                      PMLInstrInfo *pii = 0)
-      : YDoc(tm.getTargetTriple()), P(mp), TM(tm)
+      : YDoc(tm.getTargetTriple()), P(mp), TM(tm), TII(TM.getInstrInfo())
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
@@ -148,9 +152,15 @@ namespace llvm {
 
     virtual bool doExportInstruction(const MachineInstr *Instr) { return true; }
 
+    virtual yaml::Name getOpcode(const MachineInstr *Instr);
+
+    /// get a description for this instruction
+    virtual void printDesc(raw_ostream &os, const MachineInstr *Instr);
+
     virtual void exportInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
+                                   bool BundledWithPred,
                                    SmallVector<MachineOperand, 4> &Conditions,
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
@@ -246,19 +256,34 @@ namespace llvm {
     MFQueue Queue;
 
   protected:
+    /// Constructor to be used by sub-classes, passes the pass ID to the super
+    /// class. You need to setup a PMLInstrInfo using setPMLInstrInfo before
+    /// using the exporter.
     PMLModuleExportPass(char &ID, TargetMachine &TM, StringRef filename,
-                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
+                        ArrayRef<std::string> roots);
+
+    /// Set the PMLInstrInfo to be used. Takes ownership over the
+    /// InstrInfo object.
+    void setPMLInstrInfo(PMLInstrInfo *pii) { PII = pii; }
+
   public:
+    /// Construct a new PML export pass. The pass will take ownership of the
+    /// given PMLInstrInfo.
     PMLModuleExportPass(TargetMachine &TM, StringRef filename,
-                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
+                        ArrayRef<std::string> roots, PMLInstrInfo *pii);
 
     virtual~PMLModuleExportPass() {
       while(!Exporters.empty()) {
         delete Exporters.back();
         Exporters.pop_back();
       }
+      if (PII) delete PII;
     }
 
+    PMLInstrInfo *getPMLInstrInfo() { return PII; }
+
+    /// Add an exporter to the pass. Exporters will be deleted when this pass is
+    /// deleted.
     void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
 
     void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }

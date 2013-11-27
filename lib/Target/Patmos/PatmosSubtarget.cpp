@@ -55,19 +55,22 @@ static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-basicblock-align",
 
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
-	             cl::init(true),
+	             cl::init(false),
 		     cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
                      cl::init(true),
+                     cl::Hidden,
                      cl::desc("Disable any pre-RA MI scheduler."));
 
 static cl::opt<bool> DisablePostRA("mpatmos-disable-post-ra",
-                     cl::init(true),
+                     cl::init(false),
+                     cl::Hidden,
                      cl::desc("Disable any post-RA scheduling."));
 
 static cl::opt<bool> DisablePatmosPostRA("mpatmos-disable-post-ra-patmos",
                      cl::init(false),
+                     cl::Hidden,
                      cl::desc("Use the standard LLVM post-RA scheduler instead "
                               "of the Patmos post-RA scheduler."));
 

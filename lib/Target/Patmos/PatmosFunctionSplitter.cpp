@@ -111,7 +111,7 @@ static cl::opt<bool> DisableFunctionSplitterRewrite(
 
 static cl::opt<int> PreferSubfunctionSize(
     "mpatmos-preferred-subfunction-size",
-    cl::init(0),
+    cl::init(256),
     cl::desc("Preferred maximum size of subfunctions, defaults to "
         "mpatmos-max-subfunction-size if 0. Larger basic blocks and inline asm "
         "are not split."));
@@ -1470,10 +1470,62 @@ namespace llvm {
         if ((*i)->Region == (*i) && (*i)->HasCall) {
           MachineBasicBlock *MBB = (*i)->MBB;
 
+          bool needsLoad = true;
+          bool foundCall = false;
+
+          // Check if there is no load to RFB before the next call
+          // Update all loads to RFB
+          for (MachineBasicBlock::instr_iterator ii = MBB->instr_begin(),
+               iie = MBB->instr_end(); ii != iie; ii++)
+          {
+            MachineInstr *MI = ii;
+
+            if (MI->isPseudo()) continue;
+
+            if (MI->isCall()) {
+              foundCall = true;
+              continue;
+            }
+
+            if (MI->getNumOperands() == 0) continue;
+
+            // check if the first operand is a def of RFB
+            MachineOperand &MO = MI->getOperand(0);
+            if (!MO.isReg() || !MO.isDef() || MO.getReg() != Patmos::RFB)
+              continue;
+
+            if (MI->getOpcode() == Patmos::LIl) {
+              assert(MI->getNumOperands() == 4);
+
+              // update the reference to the base
+              MachineOperand &SymMO = MI->getOperand(3);
+
+              if (!SymMO.isMBB() && !SymMO.isGlobal()) {
+                report_fatal_error("Storing unknown value to r30, "
+                                   "cowardly failing.");
+              }
+
+              // found at least one load to r30 before the first call?
+              if (!foundCall) needsLoad = false;
+
+              MI->RemoveOperand(3);
+              MI->addOperand(*MBB->getParent(), MachineOperand::CreateMBB(MBB));
+
+            } else if (MI->getOpcode() != Patmos::LWS &&
+                       MI->getOpcode() != Patmos::LWC)
+            {
+              // Do a hard fail instead of ignoring any unsupported code to
+              // avoid hard-to-trace bugs
+              report_fatal_error("Found store to r30 that cannot be updated.");
+            }
+          }
+
           // load long immediate of the current basic block's address into RFB
-          AddDefaultPred(BuildMI(*MBB, MBB->instr_begin(), DebugLoc(),
-                                 TII.get(Patmos::LIl),
-                                 Patmos::RFB)).addMBB(MBB);
+          if (needsLoad) {
+            AddDefaultPred(BuildMI(*MBB, MBB->instr_begin(), DebugLoc(),
+                                   TII.get(Patmos::LIl),
+                                   Patmos::RFB)).addMBB(MBB);
+          }
         }
       }
     }
@@ -1671,7 +1723,7 @@ namespace llvm {
                                          MachineInstr *MI,
                                          PatmosTargetMachine &PTM)
     {
-      int cycles = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(MI);
+      int cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(MI);
 
       unsigned bytes = 0;
 
@@ -1689,7 +1741,9 @@ namespace llvm {
     /// splitBlock - Split a basic block into smaller blocks that each fit into
     /// the method cache.
     static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MaxSize,
-                                   PatmosTargetMachine &PTM)
+                                   PatmosTargetMachine &PTM,
+                                   MachineDominatorTree &MDT,
+                                   MachinePostDominatorTree &MPDT)
     {
       unsigned int branchFixup = getMaxBlockMargin(PTM, false, true, false, 1);
 
@@ -1743,11 +1797,46 @@ namespace llvm {
         {
           total_size += curr_size;
 
+          DEBUG(dbgs() << "Splitting basic block at " << total_size << ": "
+                << MBB->getFullName());
+
           // the current instruction does not fit -- split the block.
           MachineBasicBlock *newBB = splitBlockAtStart(MBB);
 
           // copy instructions over from the original block.
           newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
+
+          // update dominator and post-dominator trees for the new block
+          MachineDomTreeNode *TN = MDT.getNode(MBB)->getIDom();
+          // Check if the block has a dominator
+          if (TN) {
+            // - the new node is dominated by the dominator of the old node
+            MDT.addNewBlock(newBB, TN->getBlock());
+            // - the new node dominates the old block
+            MDT.changeImmediateDominator(MBB, newBB);
+          } else {
+            // TODO Any other way to change the root node of the DomTree?
+            //      At least do this after all other blocks are split, and skip
+            //      updating the DomTree for individual blocks.
+            MDT.runOnMachineFunction(*MBB->getParent());
+          }
+          // Functions without a return do not have a valid post-dom tree
+          if (!MPDT.getRoots().empty()) {
+            // - the new node is post-dominated by the old block
+            MPDT.addNewBlock(newBB, MBB);
+            // - the new block post-dominates all nodes post-dominated by
+            //   the old block
+            for (MachineDomTreeNode::const_iterator
+                 it = MPDT.getNode(MBB)->getChildren().begin(),
+                 ie = MPDT.getNode(MBB)->getChildren().end(); it != ie; it++)
+            {
+              MachineBasicBlock *preBB = (*it)->getBlock();
+              if (preBB == newBB) continue;
+              MPDT.changeImmediateDominator(preBB, newBB);
+              // restart from beginning, with one post-dominated node less.
+              it = MPDT.getNode(MBB)->getChildren().begin();
+            }
+          }
 
           // start anew, may fall through!
           curr_size = getMaxBlockMargin(PTM) + i_size;
@@ -1822,6 +1911,8 @@ namespace llvm {
       AU.addRequired<PMLImport>();
       AU.addRequired<MachineDominatorTree>();
       AU.addRequired<MachinePostDominatorTree>();
+      AU.addPreserved<MachineDominatorTree>();
+      AU.addPreserved<MachinePostDominatorTree>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -1839,6 +1930,11 @@ namespace llvm {
       prefer_subfunc_size = std::min(max_subfunc_size, prefer_subfunc_size);
 
       unsigned total_size = 0;
+      bool blocks_splitted = false;
+
+      MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
+      MachinePostDominatorTree &MPDT = getAnalysis<MachinePostDominatorTree>();
+
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
         unsigned bb_size = agraph::getBBSize(i, PTM);
 
@@ -1847,7 +1943,8 @@ namespace llvm {
         //
         if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_subfunc_size)
         {
-          bb_size = agraph::splitBlock(i, max_subfunc_size, PTM);
+          bb_size = agraph::splitBlock(i, max_subfunc_size, PTM, MDT, MPDT);
+          blocks_splitted = true;
         }
 
         total_size += bb_size;
@@ -1858,6 +1955,7 @@ namespace llvm {
 
       // splitting needed?
       if (total_size > prefer_subfunc_size) {
+
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
         agraph G(&MF, PTM, PI.createMCQuery(*this, MF), prefer_subfunc_size);
@@ -1873,9 +1971,11 @@ namespace llvm {
 
         // Note: We rely on the PatmosEnsureAlignment pass to set alignments,
         // we do not do it in this pass.
+
+        return true;
       }
 
-      return true;
+      return blocks_splitted;
     }
   };
 

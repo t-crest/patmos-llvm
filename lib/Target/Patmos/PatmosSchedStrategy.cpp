@@ -49,16 +49,17 @@ bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
   unsigned SchedTreeA = DFSResult->getSubtreeID(A);
   unsigned SchedTreeB = DFSResult->getSubtreeID(B);
   if (SchedTreeA != SchedTreeB) {
-    // Unscheduled trees have lower priority.
-    if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
-      return ScheduledTrees->test(SchedTreeA);
-
     // Trees with shallower connections have have lower priority.
     if (DFSResult->getSubtreeLevel(SchedTreeA)
         != DFSResult->getSubtreeLevel(SchedTreeB)) {
       return DFSResult->getSubtreeLevel(SchedTreeA)
              > DFSResult->getSubtreeLevel(SchedTreeB);
     }
+
+    // Unscheduled trees have lower priority.
+    if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
+      return ScheduledTrees->test(SchedTreeA);
+
   }
   if (MaximizeILP)
     return DFSResult->getILP(A) > DFSResult->getILP(B);
@@ -97,6 +98,9 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
   //   predicates and highest ILP/.., but only if at least one of those instr.
   //   has high priority.
   // - find best instructions that fit into the bundle with highest ILP/..
+  //
+  // Instructions are built up into a bundle in Bundle. Instructions are removed
+  // from AvailableQueue in scheduled() once the instruction is actually picked.
 
   unsigned CurrWidth = 0;
   // If the bundle is not empty, we should calculate the initial width
@@ -160,6 +164,8 @@ bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
       // remove the instruction from pending
       avail++;
       PendingQueue[i] = *(PendingQueue.end() - avail);
+      // revisit the moved instruction
+      i--;
 
       // Make the instruction available
       AvailableQueue.push_back(SU);
@@ -237,8 +243,8 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   assert(!Bundle.empty() &&
         "Not able to issue the instruction in an empty bundle?");
 
-  // we need to rearrange instructions.. this is a quick hack and might
-  // be improved.
+  // We might need to rearrange instructions.. this is a quick hack and might
+  // be improved for VLIW with >2 slots
   if (canIssueInSlot(SU, 0) && canIssueInSlot(Bundle[0], Bundle.size())) {
     Bundle.push_back(Bundle[0]);
     Bundle[0] = SU;
@@ -255,16 +261,19 @@ void PatmosLatencyQueue::dump()
   for (unsigned i = 0; i < PendingQueue.size(); i++) {
     SUnit *SU = PendingQueue[i];
     if (i > 0) dbgs() << ",";
-    dbgs() << " SU(" << SU->NodeNum << "): Height " << SU->getHeight() <<
-              " Depth " << SU->getDepth();
+    dbgs() << " SU(" << SU->NodeNum << "): Height " << SU->getHeight()
+           << " Depth " << SU->getDepth()
+           << " Tree: " << Cmp.DFSResult->getSubtreeID(SU) << " @"
+           << Cmp.DFSResult->getSubtreeLevel(Cmp.DFSResult->getSubtreeID(SU));
     if (SU->isScheduleLow) dbgs() << " low ";
   }
   dbgs() << "\nAvailableQueue:";
   for (unsigned i = 0; i < AvailableQueue.size(); i++) {
     SUnit *SU = AvailableQueue[i];
     if (i > 0) dbgs() << ",";
-    dbgs() << " SU(" << SU->NodeNum << ") Height " << SU->getHeight() <<
-              " Depth " << SU->getDepth();
+    dbgs() << " SU(" << SU->NodeNum << ") Height " << SU->getHeight()
+           << " Depth " << SU->getDepth()
+           << " ILP: " << Cmp.DFSResult->getILP(SU);
     if (SU->isScheduleLow) dbgs() << " low ";
   }
   dbgs() << "\n";
@@ -320,7 +329,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
   const PatmosSubtarget *PST = PTM.getSubtargetImpl();
 
-  unsigned DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
+  unsigned DelaySlot = CFL ? PST->getDelaySlotCycles(CFL->getInstr()) : 0;
 
   if (CFL) {
     // RET and CALL have implicit deps on the return values and call
@@ -461,7 +470,8 @@ void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 
 /// Remove dependencies to a return or call due to implicit uses of the return
 /// value registers, arguments or callee saved regs. Does not remove
-// dependencies to return info registers.
+/// dependencies to return info registers.
+/// This can be done since call and return are scheduling boundaries.
 void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 {
   SmallVector<SDep*,2> RemoveDeps;

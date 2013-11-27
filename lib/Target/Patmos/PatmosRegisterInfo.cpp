@@ -176,13 +176,18 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         //   we implement it as a predicated store of a non-zero value
         //   followed by a predicated (inverted) store of 0
         BuildMI(MBB, II, DL, TII.get(st_opc))
-          .addReg(SrcRegOpnd.getReg()).addImm(0) // predicate
+          .addOperand(SrcRegOpnd).addImm(0) // predicate
           .addReg(basePtr, false).addImm(offset) // adress
           .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
-        BuildMI(MBB, II, DL, TII.get(st_opc))
-          .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
-          .addReg(basePtr, false).addImm(offset) // address
-          .addReg(Patmos::R0); // zero
+
+        // if we are writing $p0 to a stack slot (e.g. to overwrite a prev.
+        // value), there is no need to emit (!p0) sws ..
+        if (SrcRegOpnd.getReg() != Patmos::P0) {
+          BuildMI(MBB, II, DL, TII.get(st_opc))
+            .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
+            .addReg(basePtr, false).addImm(offset) // address
+            .addReg(Patmos::R0); // zero
+        }
       }
       break;
 

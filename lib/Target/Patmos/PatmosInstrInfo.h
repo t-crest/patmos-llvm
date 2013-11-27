@@ -125,25 +125,6 @@ public:
                                               const MachineBasicBlock *MBB,
                                               const MachineFunction &MF) const;
 
-  /// CreateTargetHazardRecognizer - Return the hazard recognizer to use for
-  /// this target when scheduling the DAG.
-  virtual ScheduleHazardRecognizer *
-  CreateTargetHazardRecognizer(const TargetMachine *TM,
-                               const ScheduleDAG *DAG) const;
-
-  /// CreateTargetMIHazardRecognizer - Allocate and return a hazard recognizer
-  /// to use for this target when scheduling the machine instructions before
-  /// register allocation.
-  virtual ScheduleHazardRecognizer*
-  CreateTargetMIHazardRecognizer(const InstrItineraryData*,
-                                 const ScheduleDAG *DAG) const;
-
-  /// CreateTargetPostRAHazardRecognizer - Return the postRA hazard recognizer
-  /// to use for this target when scheduling the DAG.
-  virtual ScheduleHazardRecognizer *
-  CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
-                                     const ScheduleDAG *DAG) const;
-
   virtual DFAPacketizer*
   CreateTargetScheduleState(const TargetMachine *TM,
                             const ScheduleDAG *DAG) const;

@@ -60,12 +60,12 @@ class SimulatorTrace
   end
   private
   def parse(line)
-    return nil unless line
+    return nil unless line and not line.chomp.empty?
     pc, cyc = line.split(' ',2)
     begin
       [ Integer("0x#{pc}"), Integer(cyc) ]
     rescue Exception => e
-      raise Exception.new("Patmos::SimulatorTrace: bad line #{line}")
+      raise Exception.new("Patmos::SimulatorTrace: bad line (\"#{line.chomp}\")")
     end
   end
 end
@@ -134,7 +134,9 @@ class Architecture < PML::Architecture
 
   def path_wcet(ilist)
     # puts ilist.first.inspect unless ilist.empty?
-    ilist.length
+    ilist.reduce(0) do |cycles, instr|
+      cycles + (instr.bundled? ? 0 : 1) 
+    end
   end
 
   def config_for_apx(options)
@@ -162,7 +164,7 @@ class Architecture < PML::Architecture
   #  -mpatmos-basicblock-align
   #    => should be at least 8 bytes for set-associative caches
 
-  def config_for_clang
+  def config_for_clang(options)
     opts = []
     if mc = method_cache
       opts.push("-mpatmos-method-cache-size=#{mc.size}")
@@ -177,10 +179,13 @@ class Architecture < PML::Architecture
       # opts.push("-mpatmos-basicblock-align=8")
     end
     if sc = stack_cache
-      # does not work properly at the moment
-      opts.push("-mpatmos-enable-stack-cache-analysis")
-      # we need to specify a recursion.lp file
-      # opts.push("-mpatmos-stack-cache-analysis-bounds=recursion.lp")
+      if options.sca
+        opts.push("-mpatmos-enable-stack-cache-analysis")
+        # we need to specify a solver
+        opts.push("-mpatmos-ilp-solver=#{options.sca['solver']}")
+        # we need to specify a recursion.lp file
+        opts.push("-mpatmos-stack-cache-analysis-bounds=#{options.sca['bounds']}") unless options.sca['bounds'].empty?
+      end
       opts.push("-mpatmos-stack-cache-block-size=#{sc.block_size}")
       opts.push("-mpatmos-stack-cache-size=#{sc.size}")
     else

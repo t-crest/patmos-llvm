@@ -16,7 +16,6 @@
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
-#include "PatmosHazardRecognizer.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
@@ -81,7 +80,7 @@ void PatmosInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     // Predicate register
     Opc = Patmos::PMOV;
     AddDefaultPred(BuildMI(MBB, I, DL, get(Opc), DestReg))
-      .addReg(SrcReg, getKillRegState(KillSrc));
+      .addReg(SrcReg, getKillRegState(KillSrc)).addImm(0);
 
   } else if (Patmos::SRegsRegClass.contains(DestReg)) {
     assert(Patmos::RRegsRegClass.contains(SrcReg));
@@ -199,28 +198,6 @@ bool PatmosInstrInfo::isSchedulingBoundary(const MachineInstr *MI,
   //      and model everything else as hazards and dependencies.
 
   return false;
-}
-
-ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetHazardRecognizer(
-                              const TargetMachine *TM,
-                              const ScheduleDAG *DAG) const
-{
-  const InstrItineraryData *II = TM->getInstrItineraryData();
-  return new PatmosHazardRecognizer(PTM, II, DAG, false);
-}
-
-ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetMIHazardRecognizer(
-                                const InstrItineraryData *II,
-                                const ScheduleDAG *DAG) const
-{
-  return new PatmosHazardRecognizer(PTM, II, DAG, false);
-}
-
-ScheduleHazardRecognizer *PatmosInstrInfo::CreateTargetPostRAHazardRecognizer(
-                                const InstrItineraryData *II,
-                                const ScheduleDAG *DAG) const
-{
-  return new PatmosHazardRecognizer(PTM, II, DAG, true);
 }
 
 DFAPacketizer *PatmosInstrInfo::
