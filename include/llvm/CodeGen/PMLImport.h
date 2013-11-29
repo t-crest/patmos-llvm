@@ -15,6 +15,7 @@
 #define LLVM_CODEGEN_PMLIMPORT_H
 
 #include "llvm/Pass.h"
+#include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/PML.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/ValueMap.h"
@@ -24,6 +25,7 @@ namespace llvm {
   class  MachineDominatorTree;
   struct MachinePostDominatorTree;
 
+  class MachineInstr;
   class MachineBasicBlock;
   class MachineFunction;
   class Module;
@@ -80,6 +82,9 @@ namespace llvm {
 
     static StringRef getBlockLabel(const BasicBlock &BB);
     static StringRef getBlockLabel(const MachineBasicBlock &MBB);
+
+    /// Get a unique label of a memory instruction
+    virtual yaml::Name getMemInstrLabel(const yaml::ProgramPoint *PP) = 0;
   };
 
   //===--------------------------------------------------------------------===//
@@ -92,13 +97,17 @@ namespace llvm {
   class PMLFunctionInfoT : public PMLFunctionInfo {
   private:
     typedef StringMap<BlockT*> BlockMap;
+    typedef StringMap<StringMap<int> > MemInstrLabelMap;
 
     yaml::Function<BlockT> *Function;
 
     /// Map of block ID (name) -> Block
     BlockMap Blocks;
+    /// Map of block ID -> (instr ID -> MemInstrLabel)
+    MemInstrLabelMap MemInstrLabels;
 
     PMLFunctionInfoT() : PMLFunctionInfo(bitcode), Function(0) {}
+
   public:
     PMLFunctionInfoT(yaml::Function<BlockT> &F)
     : PMLFunctionInfo(bitcode), Function(&F)
@@ -123,7 +132,13 @@ namespace llvm {
 
     virtual StringRef getBlockLabel(const yaml::Name& Name) const;
 
+    virtual yaml::Name getMemInstrLabel(const yaml::ProgramPoint *PP);
+
     BlockT* getBlock(const yaml::Name &Name) const;
+
+    yaml::Function<BlockT> *getFunction() const {
+      return Function;
+    }
   };
 
   typedef PMLFunctionInfoT<yaml::BitcodeBlock,true>  PMLBitcodeFunctionInfo;
@@ -288,6 +303,8 @@ namespace llvm {
     virtual ~PMLQuery() {}
 
   public:
+    typedef std::vector<const yaml::ValueFact *> ValueFactList;
+    typedef StringMap<ValueFactList> ValueFactsMap;
 
     void setIgnoreTraces(bool ignore) { IgnoreTraces = ignore; }
     bool doIgnoreTraces() { return IgnoreTraces; }
@@ -308,6 +325,11 @@ namespace llvm {
     /// mapping exists.
     bool getBlockCriticalityMap(BlockDoubleMap &Criticalities);
 
+    // Get a memory instruction label for a given program point.
+    // Returns an empty label if the value fact is not a mem instruction.
+    yaml::Name getMemInstrLabel(const yaml::ProgramPoint *PP) const {
+      return FI.getMemInstrLabel(PP);
+    }
 
   protected:
     bool matches(const yaml::Name &Origin, yaml::ReprLevel Level) const;
@@ -362,8 +384,69 @@ namespace llvm {
     /// values in the map.
     double getCriticality(BlockDoubleMap &Criticalities,
                           MachineBasicBlock &MBB, double Default = 1.0);
+
+    /// return value facts referring to memory access information
+    /// in a map BBName -> ValueFact
+    bool getMemFacts(const MachineFunction &MF, ValueFactsMap &MemFacts) const;
+
+    ValueFactList& getBBMemFacts(ValueFactsMap &MemFacts,
+                                 const MachineBasicBlock &MBB) const;
   };
 
+  /// This analysis pass provides a simple interface to PMLQuery and allows
+  /// reusing results for several passes.
+  class PMLMachineFunctionImport : public MachineFunctionPass {
+  private:
+
+    MachineFunction *MF;
+
+    PMLMCQuery *PQ;
+
+    PMLQuery::BlockDoubleMap Criticalities;
+    PMLQuery::BlockUIntMap Frequencies;
+
+  public:
+    static char ID;
+
+    PMLMachineFunctionImport()
+    : MachineFunctionPass(ID), MF(0), PQ(0)
+    {
+      initializePMLMachineFunctionImportPass(*PassRegistry::getPassRegistry());
+    }
+
+    virtual ~PMLMachineFunctionImport() {
+      if (PQ) delete PQ;
+    }
+
+
+
+    void getAnalysisUsage(AnalysisUsage &AU) const;
+
+    void reset();
+
+    virtual bool runOnMachineFunction(MachineFunction &MF);
+
+    /// check if any results are available.
+    bool isAvailable() { return PQ; }
+
+    PMLMCQuery *getQuery() { return PQ; }
+
+    void loadCriticalityMap();
+
+    void loadFrequencyMap();
+
+    double getCriticalty(MachineBasicBlock *FromBB,
+                         MachineBasicBlock *ToBB = NULL,
+                         double Default = -1.0);
+
+    std::pair<double, int64_t> getCriticalyFreqPair(MachineBasicBlock *FromBB,
+                         MachineBasicBlock *ToBB = NULL,
+                         double DefaultCrit = -1.0, int64_t DefaultFreq = -1);
+
+    int64_t getWCETFrequency(MachineBasicBlock *FromBB,
+                             MachineBasicBlock *ToBB = NULL,
+                             int64_t Default = -1);
+  };
 
 }
 

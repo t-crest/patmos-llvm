@@ -145,8 +145,8 @@ PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(const Module &M,
   for (MachineFunction::iterator BB = MF.begin(), BE = MF.end(); BB != BE;
        ++BB)
   {
-    for (MachineBasicBlock::iterator II = BB->begin(), IE = BB->end();
-         II != IE; ++II)
+    for (MachineBasicBlock::instr_iterator II = BB->instr_begin(),
+        IE = BB->instr_end(); II != IE; ++II)
     {
       if (!II->getDesc().isCall()) continue;
 
@@ -301,10 +301,28 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
   YDoc.addFunction(F);
 }
 
+yaml::Name PMLBitcodeExport::getOpcode(const Instruction *Instr)
+{
+  return yaml::Name(Instr->getName());
+}
+
+void PMLBitcodeExport::printDesc(raw_ostream &os, const Instruction *Instr)
+{
+  // TODO Instr->print(os) does not work, % is not serialized properly by
+  // YAML export (?)
+}
+
+
 void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                                           const Instruction *II)
 {
-  I->Opcode = II->getOpcode();
+  std::string s;
+  raw_string_ostream ss(s);
+  printDesc(ss, II);
+  I->Desc = ss.str();
+
+  I->Opcode = getOpcode(II);
+
   if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
     if (const Function *F = CI->getCalledFunction()) {
       I->addCallee(F->getName());
@@ -314,6 +332,10 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
       // TODO: use PMLInstrInfo to try to get call info about bitcode calls
       I->addCallee(StringRef("__any__"));
     }
+  } else if (isa<LoadInst>(II)) {
+    I->MemMode = yaml::memmode_load;
+  } else if (isa<StoreInst>(II)) {
+    I->MemMode = yaml::memmode_store;
   }
 }
 
@@ -366,20 +388,28 @@ void PMLMachineExport::serialize(MachineFunction &MF)
         Conditions, false);
 
     unsigned Index = 0;
+    bool IsBundled = false;
     for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
         E = BB->instr_end(); Ins != E; ++Ins)
     {
-      // We do not export the bundle pseudo instruction itself, skip them.
-      if (Ins->isBundle()) continue;
+      // check if this is the first instruction, only set to bundled once we
+      // exported at least one instruction from the bundle (skipping pseudos)
+      if (!Ins->isBundledWithPred()) {
+        IsBundled = false;
+      }
+
       // Do not export any Pseudo instructions with zero size
-      if (Ins->isPseudo()) continue;
+      if (Ins->isPseudo() && !Ins->isInlineAsm())
+        continue;
 
       if (!doExportInstruction(Ins)) { Index++; continue; }
 
       yaml::MachineInstruction *I = B->addInstruction(
           new yaml::MachineInstruction(Index++));
-      exportInstruction(MF, I, Ins, Conditions, HasBranchInfo,
+      exportInstruction(MF, I, Ins, IsBundled, Conditions, HasBranchInfo,
                         TrueSucc, FalseSucc);
+
+      IsBundled = true;
     }
   }
 
@@ -390,18 +420,39 @@ void PMLMachineExport::serialize(MachineFunction &MF)
   YDoc.addMachineFunction(PMF);
 }
 
+yaml::Name PMLMachineExport::getOpcode(const MachineInstr *Instr)
+{
+  if (!TII) {
+    return yaml::Name(Instr->getOpcode());
+  }
+
+  return yaml::Name(TII->getName(Instr->getOpcode()));
+}
+
+void PMLMachineExport::printDesc(raw_ostream &os, const MachineInstr *Instr)
+{
+  // TODO Instr->print(os) does not work, % is not serialized properly by
+  // YAML export (?)
+}
+
 void PMLMachineExport::
 exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
-                  const MachineInstr *Ins,
+                  const MachineInstr *Ins, bool BundledWithPred,
                   SmallVector<MachineOperand, 4> &Conditions,
                   bool HasBranchInfo, MachineBasicBlock *TrueSucc,
                   MachineBasicBlock *FalseSucc)
 {
-  I->Opcode = Ins->getOpcode();
+  std::string s;
+  raw_string_ostream ss(s);
+  printDesc(ss, Ins);
+  I->Desc = ss.str();
+
+  I->Opcode = getOpcode(Ins);
   I->Size = PII->getSize(Ins);
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
   I->BranchType = yaml::branch_none;
-  I->Bundled = Ins->isBundledWithSucc();
+  I->MemMode = yaml::memmode_none;
+  I->Bundled = BundledWithPred;
 
   if (Ins->getDesc().isCall()) {
     I->BranchType = yaml::branch_call;
@@ -411,14 +462,15 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   } else if (Ins->getDesc().isBranch()) {
     exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
                             TrueSucc, FalseSucc);
-  } else if (Ins->getDesc().mayLoad() || Ins->getDesc().mayStore()) {
-    exportMemInstruction(MF, I, Ins);
+  } else if (!Ins->isInlineAsm()) {
+    if (Ins->getDesc().mayLoad()) {
+      I->MemMode = yaml::memmode_load;
+      exportMemInstruction(MF, I, Ins);
+    } else if (Ins->getDesc().mayStore()) {
+      I->MemMode = yaml::memmode_store;
+      exportMemInstruction(MF, I, Ins);
+    }
   }
-
-  // XXX: maybe a good idea (descriptions)
-  // raw_string_ostream ss(I->Descr);
-  // Ins->print(ss);
-  // ss.flush();
 }
 
 void PMLMachineExport::
@@ -497,7 +549,7 @@ yaml::ValueFact *PMLMachineExport:: createMemGVFact(const MachineInstr *MI,
 
   VF->PP = new yaml::ProgramPoint(MF->getFunctionNumber(),
                                   MBB->getNumber(),
-                                  I->Index
+                                  I->Index.getNameAsInteger()
                                   );
   for (std::set<const GlobalValue*>::iterator SI = GVs.begin(), SE = GVs.end();
       SI != SE; ++SI) {
@@ -1053,17 +1105,15 @@ isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target)
 
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
                               StringRef filename,
-                              ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : MachineModulePass(id), OutFileName(filename), Roots(roots)
+                              ArrayRef<std::string> roots)
+  : MachineModulePass(id), PII(0), OutFileName(filename), Roots(roots)
 {
-  PII = pii ? pii : new PMLInstrInfo();
 }
 
 PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
                               ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : MachineModulePass(ID), OutFileName(filename), Roots(roots)
+  : MachineModulePass(ID), PII(pii), OutFileName(filename), Roots(roots)
 {
-  PII = pii ? pii : new PMLInstrInfo();
 }
 
 
@@ -1197,9 +1247,12 @@ char PMLModuleExportPass::ID = 0;
 
 /// Returns a newly-created PML export pass.
 MachineModulePass *
-createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFileName, ArrayRef<std::string> Roots)
+createPMLExportPass(TargetMachine &TM, std::string& FileName,
+                    std::string& BitcodeFileName, ArrayRef<std::string> Roots)
 {
-  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, 0);
+  PMLInstrInfo *pii = new PMLInstrInfo();
+
+  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, pii);
 
   PEP->addExporter( new PMLBitcodeExport(TM, *PEP) );
   PEP->addExporter( new PMLMachineExport(TM, *PEP) );

@@ -14,51 +14,6 @@
 // This is also largely similar to MachineScheduler, does not use register
 // pressure tracking and works post-RA on non-SSA code.
 //
-// Here is an overview of the scheduling infrastructure
-//
-// - ScheduleDAGVLIW: Schedules SDNodes during lowering, enabled by setting
-//   SchedulePreference to VLIW in PatmosISelLowering. Uses the HazardRecognizer
-//   but not the DFAPacketizer to schedule for VLIW bundles. Deprecated and
-//   should be disabled in the future in favour of MachineScheduler.
-//
-// - MachineScheduler: Uses a ScheduleDAGInstr to schedule pre-RA, does not work
-//   post-RA. This pass does not fill delay slots. It might only create
-//   temporary bundles for RA.
-//
-//   ScheduleDAGInstr Implementations
-//   - ScheduleDAGMI: Default scheduler implementing register tracking using
-//     LiveIntervals analysis, not scheduling for VLIW. Uses the hazard
-//     recognizer but not the DFAPacketizer.
-//     Uses a MaschineSchedStrategy to pick nodes and set scheduling direction.
-//
-//   - PatmosVLIWScheduleDAGMI: Patmos Pre-RA VLIW scheduler implementing
-//     bottom up scheduling. TBD.
-//     TODO this should share code with the PostRAScheduler, interface for
-//     VLIW SchedStrategy remains to be defined.
-//
-// - [ Register Allocation, is bundle-aware? ]
-//
-// - PostRASchedulerList: Default scheduler, uses the Post-RA HazardRecognizer,
-//   but not the DFAPacketizer. Does not schedule for VLIW or delay slots, but
-//   emits NOOPs. Top Down scheduler similar to MachineScheduler, but not
-//   configurable.
-//
-// - PatmosPostRAScheduler: Replaces the PostRAScheduler, works post-RA.
-//   Uses ScheduleDAGPostRA and PatmosPostRASchedStrategy to schedule, create
-//   bundles and fill delay slots.
-//
-//   - ScheduleDAGPostRA: Generic scheduler for VLIW, works post-RA, uses
-//     AntiDepBreaking and uses a PostRASchedStrategy to pick nodes and select
-//     schedule direction.
-//
-//     - PatmosPostRASchedStrategy: Post RA Scheduling strategy for Patmos.
-//       Fills delay slots, and creates bundles if bundling is enabled.
-//
-// - PatmosPacketizer, PatmosDelaySlotFiller, PatmosBundleSanitizer: Only
-//   executed if PatmosPostRAScheduler is not used. Uses the DFAPacketizer and
-//   HazardRecognizer to create bundles. BundleSanitizer fixes order of
-//   instructions in bundles, does not work at the moment.
-//
 //===----------------------------------------------------------------------===//
 #ifndef PATMOSPOSTRASCHEDULER_H
 #define PATMOSPOSTRASCHEDULER_H

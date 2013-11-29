@@ -27,6 +27,9 @@ namespace llvm {
 
     PatmosMCInstLower MCInstLowering;
 
+    /// Alignment to use for FStart directives, in log2(bytes).
+    unsigned FStartAlignment;
+
     // symbol to use for the end of the currently emitted subfunction
     MCSymbol *CurrCodeEnd;
 
@@ -38,6 +41,8 @@ namespace llvm {
         llvm_unreachable("PatmosAsmPrinter must be initialized with a Patmos target configuration.");
       }
       PTM->setMCSaveTempLabels(true);
+
+      FStartAlignment = PTM->getSubtargetImpl()->getMinBasicBlockAlignment();
     }
 
     virtual const char *getPassName() const {
@@ -78,7 +83,7 @@ namespace llvm {
                                        raw_ostream &OS);
   private:
     /// mark the start of an subfunction relocation area.
-    /// Alignment is in bytes.
+    /// Alignment is in log2(bytes).
     void EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                        unsigned Alignment = 0);
 

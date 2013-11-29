@@ -5,12 +5,18 @@
 #
 require 'yaml'
 require 'set'
+require 'tsort'
 require 'core/options'
 
 module PML
 
   def dquote(str)
     '"' + str + '"'
+  end
+
+  def div_ceil(num, denom)
+    raise Exception.new("div_ceil: negative numerator or denominator") unless num >= 0 && denom > 0
+    (num+denom-1) / denom
   end
 
   def merge_ranges(r1,r2=nil)
@@ -20,22 +26,94 @@ module PML
     [r1.min,r2.min].min .. [r1.max,r2.max].max
   end
 
+  #
+  # Process items managed in queue
+  # Each item resides in the queue exactly once
+  #
   class WorkList
     def initialize(queue = nil)
       @todo = queue || Array.new
-      @done = Set.new
+      @enqueued  = Set.new
+      @processed = Set.new
     end
+
+    #
+    # add item to the queue, if not present already
+    # and mark item as queued
+    #
     def enqueue(item)
-      @todo.push(item) unless @done.include?(item)
+      @todo.push(item) unless @enqueued.include?(item)
+      @enqueued.add(item)
     end
+    
+    #
+    # process queue until empty
+    #
     def process
       while ! @todo.empty?
         item = @todo.pop
-        next if @done.include?(item)
-        @done.add(item)
+        @enqueued.delete(item)
         yield item
+        @processed.add(item)
       end
     end
+
+    #
+    # set of all items processed
+    #
+    def processed_items
+      @processed.to_a
+    end
+  end
+
+  # adapter to perform topological sort and scc formation on graphs
+  class TSortAdapter
+    include TSort
+    def initialize(nodelist, excluded_edge_targets = [])
+      @nodelist = nodelist
+      @excluded_edge_targets = Set[*excluded_edge_targets]
+      @nodeset = Set[*nodelist]
+    end
+    def tsort_each_node
+      @nodelist.each { |node| yield node }
+    end
+    def tsort_each_child(node)
+      node.successors.each { |succnode|
+        if @nodeset.include?(succnode) && ! @excluded_edge_targets.include?(succnode)
+          yield succnode
+        end
+      }
+    end
+  end
+
+  # Topological sort for connected, acyclic graph
+  # Concise implementation of a beautiful algorithm (Kahn '62)
+  #
+  # This implementation performs a yopological sort of nodes that
+  # respond to +successors+ and +predecessors+.
+  # If nodes have a different interface, the
+  # second parameter can be used to provide
+  # an object that responds to +successors(node)+
+  # and +predecessors(node)+.
+  #
+  def topological_sort(entry, graph_trait = nil)
+    topo = []
+    worklist = WorkList.new([entry])
+    vpcount = Hash.new(0)
+    worklist.process { |node|
+      topo.push(node)
+      succs = graph_trait ? graph_trait.successors(node) : node.successors
+      succs.each { |succ|
+        vc = (vpcount[succ] += 1)
+        preds = graph_trait ? graph_trait.predecessors(succ) : succ.predecessors
+        if vc == preds.length
+          vpcount.delete(succ)
+          worklist.enqueue(succ)
+        end
+      }
+    }
+    assert("topological_order: not all nodes marked") { vpcount.empty? }
+    topo
   end
 
   # calculate the reachable set from entry,
@@ -54,6 +132,19 @@ module PML
       end
     end
     reachable
+  end
+
+  #
+  # `which` replacement
+  # credits go to: http://stackoverflow.com/questions/2108727/which-in-ruby-checking-if-program-exists-in-path-from-ruby
+  #
+  def which(cmd)
+    return nil unless cmd && cmd.length > 0
+    ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
+      binary = File.join(path, "#{cmd}")
+      return binary if File.executable? binary
+    end
+    return nil
   end
 
   def file_open(path,mode="r")
@@ -112,7 +203,8 @@ module PML
 
   def die(msg)
     pos = Thread.current.backtrace[1]
-    $stderr.puts(format_msg("FATAL",pos+": "+msg))
+    $stderr.puts(format_msg("FATAL","At #{pos}"))
+    $stderr.puts(format_msg("FATAL",msg))
     # $stderr.puts Thread.current.backtrace
     exit 1
   end
@@ -210,7 +302,7 @@ end
 class Hash
   def dump(io=$>)
     self.each do |k,v|
-      puts "#{k.ljust(24)} #{v}"
+      puts "#{k.to_s.ljust(24)} #{v}"
     end
   end
 end

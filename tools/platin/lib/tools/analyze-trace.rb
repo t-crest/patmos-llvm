@@ -61,9 +61,9 @@ class AnalyzeTraceTool
       warn "Reachable function #{function} never executed by trace"
     end
     @executed_blocks.each do |function,bset|
-      function.loops.each do |block|
-        unless bset.include?(block)
-          warn "Loop #{block} not executed by trace"
+      function.loops.each do |loop|
+        unless bset.include?(loop.loopheader)
+          warn "Loop #{loop} not executed by trace"
         end
       end
     end
@@ -125,8 +125,8 @@ class AnalyzeTraceTool
       # Export loop header bounds (mandatory for WCET analysis) for global analyses
       if recorder.global?
         recorder.results.loopbounds.each do |pp,bound|
-          loopheader, call_context = pp
-          loop_ref = ContextRef.new(Loop.new(loopheader), call_context)
+          loop, call_context = pp
+          loop_ref = ContextRef.new(loop, call_context)
           outpml.flowfacts.add(FlowFact.loop_bound(loop_ref, bound.max, fact_context))
         end
       end

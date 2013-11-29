@@ -5,6 +5,8 @@
 #
 # Provide smart accessors, caching, etc.
 #
+require 'core/utils'
+
 module PML
 
   # FIXME: move the utility stuff to a file on its own
@@ -132,6 +134,8 @@ module PML
       @data = [] if @data
     end
     # basic list operations (delegators)
+    def first ; list.first ; end
+    def last ; list.last ; end
     def length ; list.length ; end
     def size ; length ; end
     def empty? ; list.empty? ; end

@@ -52,6 +52,12 @@
 #undef PATMOS_TRACE_EMIT
 #undef PATMOS_TRACE_FIXUP
 #undef PATMOS_DUMP_ALL_SCC_DOTS
+//#define PATMOS_TRACE_SCCS
+//#define PATMOS_TRACE_VISITS
+//#define PATMOS_TRACE_EMIT
+//#define PATMOS_TRACE_FIXUP
+//#define PATMOS_DUMP_ALL_SCC_DOTS
+
 
 #include "Patmos.h"
 #include "PatmosAsmPrinter.h"
@@ -86,6 +92,7 @@
 #include <map>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 
 using namespace llvm;
 
@@ -101,6 +108,24 @@ static cl::opt<bool> DisableFunctionSplitterRewrite(
   cl::init(false),
   cl::desc("Disable the rewriting of code in the Patmos function splitter."),
   cl::Hidden);
+
+static cl::opt<int> PreferSubfunctionSize(
+    "mpatmos-preferred-subfunction-size",
+    cl::init(256),
+    cl::desc("Preferred maximum size of subfunctions, defaults to "
+        "mpatmos-max-subfunction-size if 0. Larger basic blocks and inline asm "
+        "are not split."));
+
+static cl::opt<int> MaxSubfunctionSize(
+    "mpatmos-max-subfunction-size",
+    cl::init(0),
+    cl::desc("Maximum size of subfunctions after function splitting, defaults "
+             "to the method cache size if set to 0."));
+
+static cl::opt<bool> SplitCallBlocks(
+    "mpatmos-split-call-blocks",
+    cl::init(true),
+    cl::desc("Split basic blocks containing calls into own subfunctions."));
 
 /// EnableShowCFGs - Option to enable the rendering of annotated CFGs.
 static cl::opt<bool> EnableShowCFGs(
@@ -261,9 +286,9 @@ namespace llvm {
       if (lhs.criticality > rhs.criticality) return true;
       return lhs.block->ID < rhs.block->ID;
     }
-  };
+  } SortCritCmp;
 
-  typedef std::set<ready_block, SortCrit> ready_set;
+  typedef std::vector<ready_block> ready_set;
 
   /// agraph - a transformed copy of the CFG.
   class agraph
@@ -292,12 +317,16 @@ namespace llvm {
     PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
 
+    unsigned MaxRegionSize;
+
     PMLMCQuery *PML;
     PMLQuery::BlockDoubleMap Criticalities;
 
     /// Construct a graph from a machine function.
-    agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml)
-    : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()), PML(pml)
+    agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml,
+           unsigned int preferredRegionSize)
+    : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()),
+      MaxRegionSize(preferredRegionSize), PML(pml)
     {
       Blocks.reserve(mf->size());
 
@@ -397,37 +426,11 @@ namespace llvm {
     }
 
     /// mayFallThrough - Return true in case the block terminates with a 
-    /// non-barrier branche or without any branch at all, false in case the 
+    /// non-barrier branch or without any branch at all, false in case the
     /// block terminates with a barrier branch.
     static bool mayFallThrough(PatmosTargetMachine &PTM, MachineBasicBlock *MBB)
     {
-      if (MBB->succ_empty())
-        return false;
-
-      int maxLookback =
-                         PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
-
-      // TODO optimize: skip the min number of delay slot cycles, only look at
-      // exactly local and non-local positions.
-
-      // find last terminator
-      for(MachineBasicBlock::reverse_iterator t(MBB->rbegin()),
-          te(MBB->rend()); t != te; t++, maxLookback--)
-      {
-        MachineInstr *mi = &*t;
-
-        // skip non-terminator instructions
-        if (!mi->isTerminator()) {
-          // any branches further back will not be a barrier, assuming there is
-          // no dead code.
-          if (maxLookback == 0) break;
-          continue;
-        }
-
-        return !mi->isBarrier();
-      }
-
-      return true;
+      return PTM.getInstrInfo()->mayFallthrough(*MBB);
     }
 
     static unsigned int getInstrSize(MachineInstr *MI, PatmosTargetMachine &PTM)
@@ -774,7 +777,8 @@ namespace llvm {
         rb.criticality = 1.0;
       }
 
-      ready.insert(rb);
+      ready.push_back(rb);
+      std::sort(ready.begin(), ready.end(), SortCritCmp);
     }
 
     bool isReady(ready_set &ready, ablock *block) {
@@ -803,30 +807,30 @@ namespace llvm {
     /// selectBlock - select the next block to be visited.
     /// if the current block is a fall-through, prefer that fall-through, 
     /// otherwise take the block with the smallest ID (deterministic).
-    const ready_block &selectBlock(ablock *region, ready_set &ready, ablock *last)
+    ready_set::iterator selectBlock(ablock *region, ready_set &ready, ablock *last)
     {
       // check if the fall-through is ready
       MachineBasicBlock *fallthrough = last ? last->FallthroughTarget : NULL;
 
       double maxCrit = ready.begin()->criticality;
 
-      const ready_block *fttarget = NULL;
+      ready_set::iterator fttarget = ready.end();
       for(ready_set::iterator i(ready.begin()), ie(ready.end()); i != ie; i++) {
 
         // check for fall-through
         if (i->block->MBB == fallthrough) {
-          fttarget = &*i;
+          fttarget = i;
           break;
         }
       }
 
       // Prefer the fallthrough block if it is sufficiently critical
-      if (fttarget && fttarget->criticality > maxCrit - 0.1) {
-        return *fttarget;
+      if (fttarget != ready.end() && fttarget->criticality > maxCrit - 0.1) {
+        return fttarget;
       }
 
       // Otherwise just use the (deterministic) ordering of the ready list
-      return *ready.begin();
+      return ready.begin();
     }
 
     /// emitRegion - mark a block as new region entry, and check jump tables
@@ -972,11 +976,6 @@ namespace llvm {
                         bool &has_call, unsigned &region_size,
                         ready_set &ready, ablock_set &regions)
     {
-      if (region_size + scc_size > STC.getMethodCacheSize()) {
-        // Early exit..
-        return false;
-      }
-
       // Special case: if we are already starting a new region (the header
       // is the current region entry), then emit it in any case, and do not
       // add anything to the SCC (all other jump table entries were already
@@ -987,6 +986,18 @@ namespace llvm {
         region_size += scc_size;
         region->HasCall |= has_call;
         return true;
+      }
+
+      // Check for size only after we checked for headers to allow large
+      // inline asm.
+      if (region_size + scc_size > MaxRegionSize) {
+        // Early exit..
+        return false;
+      }
+
+      // Split blocks with calls into their own region
+      if (SplitCallBlocks && (region->HasCall || has_call)) {
+        return false;
       }
 
       // Check if any of the blocks in the SCC is already marked as region
@@ -1069,7 +1080,7 @@ namespace llvm {
       }
 
       // Now check again for size constraints, now including the full jump table
-      if (region_size + scc_size > STC.getMethodCacheSize()) {
+      if (region_size + scc_size > MaxRegionSize) {
         return false;
       }
 
@@ -1107,6 +1118,13 @@ namespace llvm {
         unsigned block_size = block->Size +
                              getMaxBlockMargin(PTM, region, region_size, block);
         bool has_call = block->HasCall;
+
+#ifdef PATMOS_TRACE_VISITS
+        DEBUG(dbgs() << "  block size: " << block_size << " ("
+                     << block->Size << " + "
+                     << getMaxBlockMargin(PTM, region, region_size, block)
+                     << "), hasCall: " << has_call << "\n");
+#endif
 
         ablocks blocks;
         blocks.push_back(block);
@@ -1186,6 +1204,8 @@ namespace llvm {
       while(!regions.empty()) {
         // pop first region and process it
         ablock *region = selectRegion(regions);
+
+        assert(regions.count(region) == 1 && "Region queue is broken.");
         regions.erase(region);
 
         // only real basic blocks can be region entries
@@ -1205,9 +1225,10 @@ namespace llvm {
 
         while(!ready.empty()) {
           // choose the next block to visit
-          const ready_block &next = selectBlock(region, ready,
+          ready_set::iterator it = selectBlock(region, ready,
                                            order.empty() ? NULL : order.back());
-          ready.erase(next);
+          const ready_block next = *it;
+          ready.erase(it);
 
           // visit the block
           visitBlock(region, region_size, next.block, ready, regions, order);
@@ -1242,6 +1263,11 @@ namespace llvm {
     void fixupFallThrough(ablock *block, MachineBasicBlock *layout_successor) {
       MachineBasicBlock *fallthrough = block->MBB;
       MachineBasicBlock *target = block->FallthroughTarget;
+
+      if (!target) {
+        // No target, the block might contain a call to a noreturn function.
+        return;
+      }
 
       // fix-up needed?
       if (target != layout_successor) {
@@ -1281,10 +1307,8 @@ namespace llvm {
         MachineBasicBlock *MBB = (*i)->MBB;
         bool is_region_entry = (*i)->Region == (*i);
 
-        // set alignment of region entries and store region entries with the 
-        // Patmos function info
+        // store region entries with the Patmos function info
         if (is_region_entry) {
-          MBB->setAlignment(log2(STC.getMethodCacheBlockSize()));
           PMFI->addMethodCacheRegionEntry(MBB);
         }
 
@@ -1434,6 +1458,75 @@ namespace llvm {
           i++) {
         rewriteEdge(i->second->Src, i->second->Dst);
       }
+
+      // insert fix-up code to handle calls within code regions -- skip the 
+      // function's first block though since this is handled in the function 
+      // epilog already.
+      const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
+      for(ablocks::iterator i(++Blocks.begin()), ie(Blocks.end()); i != ie;
+          i++) {
+        // Only consider region entries that contain a call
+        if ((*i)->Region == (*i) && (*i)->HasCall) {
+          MachineBasicBlock *MBB = (*i)->MBB;
+
+          bool needsLoad = true;
+          bool foundCall = false;
+
+          // Check if there is no load to RFB before the next call
+          // Update all loads to RFB
+          for (MachineBasicBlock::instr_iterator ii = MBB->instr_begin(),
+               iie = MBB->instr_end(); ii != iie; ii++)
+          {
+            MachineInstr *MI = ii;
+
+            if (MI->isPseudo()) continue;
+
+            if (MI->isCall()) {
+              foundCall = true;
+              continue;
+            }
+
+            if (MI->getNumOperands() == 0) continue;
+
+            // check if the first operand is a def of RFB
+            MachineOperand &MO = MI->getOperand(0);
+            if (!MO.isReg() || !MO.isDef() || MO.getReg() != Patmos::RFB)
+              continue;
+
+            if (MI->getOpcode() == Patmos::LIl) {
+              assert(MI->getNumOperands() == 4);
+
+              // update the reference to the base
+              MachineOperand &SymMO = MI->getOperand(3);
+
+              if (!SymMO.isMBB() && !SymMO.isGlobal()) {
+                report_fatal_error("Storing unknown value to r30, "
+                                   "cowardly failing.");
+              }
+
+              // found at least one load to r30 before the first call?
+              if (!foundCall) needsLoad = false;
+
+              MI->RemoveOperand(3);
+              MI->addOperand(*MBB->getParent(), MachineOperand::CreateMBB(MBB));
+
+            } else if (MI->getOpcode() != Patmos::LWS &&
+                       MI->getOpcode() != Patmos::LWC)
+            {
+              // Do a hard fail instead of ignoring any unsupported code to
+              // avoid hard-to-trace bugs
+              report_fatal_error("Found store to r30 that cannot be updated.");
+            }
+          }
+
+          // load long immediate of the current basic block's address into RFB
+          if (needsLoad) {
+            AddDefaultPred(BuildMI(*MBB, MBB->instr_begin(), DebugLoc(),
+                                   TII.get(Patmos::LIl),
+                                   Patmos::RFB)).addMBB(MBB);
+          }
+        }
+      }
     }
 
     /// applyRegions - reorder and align the basic blocks and fix-up branches.
@@ -1445,9 +1538,6 @@ namespace llvm {
       // rewrite branches to use the non-cache variants
       if (!DisableFunctionSplitterRewrite)
         rewriteCode();
-
-      // ensure method alignment
-      MF->ensureAlignment(log2(STC.getMethodCacheBlockSize()));
     }
 
     /// transferSuccessors - replace uses of OldSucc to uses of NewSucc.
@@ -1459,6 +1549,8 @@ namespace llvm {
                                   MachineBasicBlock *NewSucc)
     {
       MachineFunction *MF = Pred->getParent();
+
+      assert(NewSucc && "Trying to replace successor with a null pointer.");
 
       Pred->replaceSuccessor(OldSucc, NewSucc);
 
@@ -1569,6 +1661,10 @@ namespace llvm {
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
           ie(MBB->instr_end()); i != ie; i++)
       {
+        if (i->isBundle()) continue;
+
+        if (PTM.getInstrInfo()->hasCall(i)) hasCall = true;
+
         if (i->isBranch()) numBranches++;
       }
 
@@ -1588,8 +1684,16 @@ namespace llvm {
                                         bool mightFallthrough = true,
                                         int numBranchesToFix = 0)
     {
-      unsigned localDelay = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
-      unsigned exitDelay = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
+      const PatmosSubtarget *PST = PTM.getSubtargetImpl();
+
+      // TODO those values are static, calc them only once
+      unsigned localDelay = PST->getCFLDelaySlotCycles(true);
+      unsigned exitDelay = PST->getCFLDelaySlotCycles(false);
+
+      unsigned blockAlign = (1u << PST->getMinBasicBlockAlignment());
+
+      // We must be conservative here, the address is not known (and may change)
+      unsigned alignSize = (blockAlign < 4) ? 0 : blockAlign - 4;
 
       // we already have a BR, we only need to add a NOP if we change to BRCF
       unsigned branch_fixups = numBranchesToFix * (exitDelay - localDelay);
@@ -1597,21 +1701,45 @@ namespace llvm {
       if (mightFallthrough) {
         // we might need to add a BR/BRCF to replace the fallthrough, and NOPs
         // to fill the delay slots
-        branch_fixups = 4 +
+        branch_fixups += 4 +
              (mightExitRegion ? exitDelay : localDelay) * 4;
       }
-      return branch_fixups;
+
+      return alignSize + branch_fixups + (needsCallFixup ? 8 : 0);
+    }
+
+    static unsigned int getDelaySlotSize(MachineBasicBlock *MBB,
+                                         MachineInstr *MI,
+                                         PatmosTargetMachine &PTM)
+    {
+      int cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(MI);
+
+      unsigned bytes = 0;
+
+      MachineBasicBlock::iterator it = MI;
+      for (; cycles > 0; cycles--) {
+        it++;
+        assert(it != MBB->end() && "Reached end of MBB before end of delay slot");
+
+        bytes += getInstrSize(it, PTM);
+      }
+
+      return bytes;
     }
 
     /// splitBlock - Split a basic block into smaller blocks that each fit into
     /// the method cache.
-    static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MCSize,
-                                   PatmosTargetMachine &PTM)
+    static unsigned int splitBlock(MachineBasicBlock *MBB, unsigned int MaxSize,
+                                   PatmosTargetMachine &PTM,
+                                   MachineDominatorTree &MDT,
+                                   MachinePostDominatorTree &MPDT)
     {
       unsigned int branchFixup = getMaxBlockMargin(PTM, true, false, 1);
 
       // make a new block
       unsigned int curr_size = getMaxBlockMargin(PTM);
+
+      unsigned int cache_size = PTM.getSubtargetImpl()->getMethodCacheSize();
 
       unsigned int total_size = 0;
       // Note: we need to use an instr_iterator here, otherwise splice fails
@@ -1630,7 +1758,10 @@ namespace llvm {
         // for branches, assume we need to add a NOP to make it BRCF.
         if (i->isBranch()) i_size += branchFixup;
 
-        if (i_size > MCSize) {
+        // should we check for i_size > MaxSize as well and issue a warning?
+        // => No, user should not get warnings if he cannot do anything about it
+
+        if (i_size > cache_size) {
           report_fatal_error("Inline assembly in function " +
                              MBB->getParent()->getFunction()->getName() +
                              " is larger than the method cache size!");
@@ -1638,14 +1769,14 @@ namespace llvm {
 
         // ensure that we do not split inside delay slots
         unsigned int delay_slot_margin = i->hasDelaySlot()
-                      ? PTM.getSubtargetImpl()->getMaxDelaySlotCodeSize(i) : 0;
+                      ? getDelaySlotSize(MBB, i, PTM) : 0;
 
         const MachineInstr *FirstMI = PTM.getInstrInfo()->getFirstMI(i);
         assert(!isPatmosCFL(FirstMI->getOpcode(), FirstMI->getDesc().TSFlags)
                || (delay_slot_margin > 0));
 
         // check block + instruction size + max delay slot size of this instr.
-        if (curr_size + i_size + delay_slot_margin < MCSize)
+        if (curr_size + i_size + delay_slot_margin < MaxSize)
         {
           curr_size += i_size;
         }
@@ -1653,11 +1784,46 @@ namespace llvm {
         {
           total_size += curr_size;
 
+          DEBUG(dbgs() << "Splitting basic block at " << total_size << ": "
+                << MBB->getFullName());
+
           // the current instruction does not fit -- split the block.
           MachineBasicBlock *newBB = splitBlockAtStart(MBB);
 
           // copy instructions over from the original block.
           newBB->splice(newBB->instr_begin(), MBB, MBB->instr_begin(), i);
+
+          // update dominator and post-dominator trees for the new block
+          MachineDomTreeNode *TN = MDT.getNode(MBB)->getIDom();
+          // Check if the block has a dominator
+          if (TN) {
+            // - the new node is dominated by the dominator of the old node
+            MDT.addNewBlock(newBB, TN->getBlock());
+            // - the new node dominates the old block
+            MDT.changeImmediateDominator(MBB, newBB);
+          } else {
+            // TODO Any other way to change the root node of the DomTree?
+            //      At least do this after all other blocks are split, and skip
+            //      updating the DomTree for individual blocks.
+            MDT.runOnMachineFunction(*MBB->getParent());
+          }
+          // Functions without a return do not have a valid post-dom tree
+          if (!MPDT.getRoots().empty()) {
+            // - the new node is post-dominated by the old block
+            MPDT.addNewBlock(newBB, MBB);
+            // - the new block post-dominates all nodes post-dominated by
+            //   the old block
+            for (MachineDomTreeNode::const_iterator
+                 it = MPDT.getNode(MBB)->getChildren().begin(),
+                 ie = MPDT.getNode(MBB)->getChildren().end(); it != ie; it++)
+            {
+              MachineBasicBlock *preBB = (*it)->getBlock();
+              if (preBB == newBB) continue;
+              MPDT.changeImmediateDominator(preBB, newBB);
+              // restart from beginning, with one post-dominated node less.
+              it = MPDT.getNode(MBB)->getChildren().begin();
+            }
+          }
 
           // start anew, may fall through!
           curr_size = getMaxBlockMargin(PTM) + i_size;
@@ -1721,7 +1887,6 @@ namespace llvm {
       MachineFunctionPass(ID), PTM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
-      initializePMLImportPass(*PassRegistry::getPassRegistry());
     }
 
     /// getPassName - Return the pass' name.
@@ -1733,6 +1898,8 @@ namespace llvm {
       AU.addRequired<PMLImport>();
       AU.addRequired<MachineDominatorTree>();
       AU.addRequired<MachinePostDominatorTree>();
+      AU.addPreserved<MachineDominatorTree>();
+      AU.addPreserved<MachinePostDominatorTree>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -1742,17 +1909,29 @@ namespace llvm {
       if (DisableFunctionSplitter)
         return false;
 
+      unsigned max_subfunc_size   = MaxSubfunctionSize  ? MaxSubfunctionSize
+                                                     : STC.getMethodCacheSize();
+      unsigned prefer_subfunc_size = PreferSubfunctionSize ?
+                                                       PreferSubfunctionSize
+                                                     : max_subfunc_size;
+      prefer_subfunc_size = std::min(max_subfunc_size, prefer_subfunc_size);
+
       unsigned total_size = 0;
+      bool blocks_splitted = false;
+
+      MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
+      MachinePostDominatorTree &MPDT = getAnalysis<MachinePostDominatorTree>();
+
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
         unsigned bb_size = agraph::getBBSize(i, PTM);
 
         // in case the block is larger than the method cache, split it and
         // update its
         //
-        if (bb_size + agraph::getMaxBlockMargin(PTM, i) >
-                                                       STC.getMethodCacheSize())
+        if (bb_size + agraph::getMaxBlockMargin(PTM, i) > max_subfunc_size)
         {
-          bb_size = agraph::splitBlock(i, STC.getMethodCacheSize(), PTM);
+          bb_size = agraph::splitBlock(i, max_subfunc_size, PTM, MDT, MPDT);
+          blocks_splitted = true;
         }
 
         total_size += bb_size;
@@ -1762,10 +1941,11 @@ namespace llvm {
                    << MF.getFunction()->getName() << ": " << total_size << "\n");
 
       // splitting needed?
-      if (total_size > STC.getMethodCacheSize()) {
+      if (total_size > prefer_subfunc_size) {
+
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
-        agraph G(&MF, PTM, PI.createMCQuery(*this, MF));
+        agraph G(&MF, PTM, PI.createMCQuery(*this, MF), prefer_subfunc_size);
         G.transformSCCs();
 
         // compute regions -- i.e., split the function
@@ -1775,9 +1955,14 @@ namespace llvm {
 
         // update the basic block order and rewrite branches
         G.applyRegions(order);
+
+        // Note: We rely on the PatmosEnsureAlignment pass to set alignments,
+        // we do not do it in this pass.
+
+        return true;
       }
 
-      return true;
+      return blocks_splitted;
     }
   };
 

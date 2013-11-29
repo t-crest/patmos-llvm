@@ -2762,11 +2762,11 @@ SelectCodeCommon(SDNode *NodeToMatch, const unsigned char *MatcherTable,
         unsigned NumMemRefs = 0;
         for (SmallVector<MachineMemOperand*, 2>::const_iterator I =
              MatchedMemRefs.begin(), E = MatchedMemRefs.end(); I != E; ++I) {
-          if ((*I)->isLoad()) {
-            if (mayLoad)
+          if (mayLoad) {
+            if ((*I)->isLoad())
               ++NumMemRefs;
-          } else if ((*I)->isStore()) {
-            if (mayStore)
+          } else if (mayStore) {
+            if ((*I)->isStore())
               ++NumMemRefs;
           } else {
             ++NumMemRefs;
@@ -2779,11 +2779,11 @@ SelectCodeCommon(SDNode *NodeToMatch, const unsigned char *MatcherTable,
         MachineSDNode::mmo_iterator MemRefsPos = MemRefs;
         for (SmallVector<MachineMemOperand*, 2>::const_iterator I =
              MatchedMemRefs.begin(), E = MatchedMemRefs.end(); I != E; ++I) {
-          if ((*I)->isLoad()) {
-            if (mayLoad)
+          if (mayLoad) {
+            if ((*I)->isLoad())
               *MemRefsPos++ = *I;
-          } else if ((*I)->isStore()) {
-            if (mayStore)
+          } else if (mayStore) {
+            if ((*I)->isStore())
               *MemRefsPos++ = *I;
           } else {
             *MemRefsPos++ = *I;

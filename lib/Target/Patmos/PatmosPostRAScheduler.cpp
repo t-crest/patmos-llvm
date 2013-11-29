@@ -59,6 +59,9 @@ using namespace llvm;
 STATISTIC(NumNoops, "Number of noops inserted");
 STATISTIC(NumStalls, "Number of pipeline stalls");
 STATISTIC(NumFixedAnti, "Number of fixed anti-dependencies");
+STATISTIC(NumBundled, "Number of bundles with size > 1");
+STATISTIC(NumNotBundled, "Number of instructions not bundled");
+STATISTIC(NumRescheduled, "Number of rescheduled instructions");
 
 static cl::opt<bool> ViewPostRASchedDAGs("view-postra-sched-dags", cl::Hidden,
   cl::desc("Pop up a window to show PostRASched dags after they are processed"));
@@ -266,9 +269,9 @@ ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
     SchedImpl(S), DFSResult(0), Topo(SUnits, &ExitSU), AA(C->AA),
     LiveRegs(TRI->getNumRegs())
 {
-  assert((C->AntiDepMode == TargetSubtargetInfo::ANTIDEP_NONE ||
-          MRI.tracksLiveness()) &&
-         "Live-ins must be accurate for anti-dependency breaking");
+  // We need liveness infos for accurate latencies between schedule regions
+  assert(MRI.tracksLiveness() &&
+         "Live-ins must be accurate for post-RA scheduling");
 
   AntiDepBreak = NULL;
   if (C->AntiDepMode == TargetSubtargetInfo::ANTIDEP_ALL) {
@@ -347,11 +350,11 @@ void ScheduleDAGPostRA::enterRegion(MachineBasicBlock *bb,
                  MachineBasicBlock::iterator begin,
                  MachineBasicBlock::iterator end,
                  unsigned endcount) {
-  ScheduleDAGInstrs::enterRegion(bb, begin, end, endcount);
-
-  // TODO only if we did not just start the block?
-  if (AntiDepBreak != NULL)
+  // Call observe over the range of the previously scheduled region
+  if (AntiDepBreak != NULL && end != bb->end())
     AntiDepBreak->Observe(end, endcount, EndIndex);
+
+  ScheduleDAGInstrs::enterRegion(bb, begin, end, endcount);
 }
 
 /// Schedule - Schedule the instruction range using list scheduling.
@@ -456,6 +459,16 @@ void ScheduleDAGPostRA::moveInstruction(MachineInstr *MI,
 
   bool InsideBundle = MI->isBundledWithPred() && MI->isBundledWithSucc();
   MachineInstr *PrevMI = InsideBundle ? MI->getPrevNode() : NULL;
+
+  // update statistics when rescheduling nodes
+  if (!InsideBundle &&
+      ((MI->isBundledWithPred() && !MI->getPrevNode()->isBundledWithPred()) ||
+       (MI->isBundledWithSucc() && !MI->getNextNode()->isBundledWithSucc())))
+  {
+    // We remove the second-last instruction from a bundle, update stats
+    NumBundled--;
+    NumNotBundled++;
+  }
 
   // Remove the instruction from a bundle, if it is inside one
   if (MI->isBundledWithPred()) MI->unbundleFromPred();
@@ -610,6 +623,9 @@ void ScheduleDAGPostRA::finishTopBundle()
     for (;MI != CurrentTop; MI++) {
       MI->bundleWithPred();
     }
+    NumBundled++;
+  } else {
+    NumNotBundled++;
   }
 
   TopBundleMIs.clear();
@@ -644,6 +660,9 @@ void ScheduleDAGPostRA::finishBottomBundle()
     for (;MI != *BottomBundleMIs.back(); MI++) {
       MI->bundleWithSucc();
     }
+    NumBundled++;
+  } else {
+    NumNotBundled++;
   }
 
   BottomBundleMIs.clear();

@@ -116,25 +116,6 @@ public:
                                               const MachineBasicBlock *MBB,
                                               const MachineFunction &MF) const;
 
-  /// CreateTargetHazardRecognizer - Return the hazard recognizer to use for
-  /// this target when scheduling the DAG.
-  virtual ScheduleHazardRecognizer *
-  CreateTargetHazardRecognizer(const TargetMachine *TM,
-                               const ScheduleDAG *DAG) const;
-
-  /// CreateTargetMIHazardRecognizer - Allocate and return a hazard recognizer
-  /// to use for this target when scheduling the machine instructions before
-  /// register allocation.
-  virtual ScheduleHazardRecognizer*
-  CreateTargetMIHazardRecognizer(const InstrItineraryData*,
-                                 const ScheduleDAG *DAG) const;
-
-  /// CreateTargetPostRAHazardRecognizer - Return the postRA hazard recognizer
-  /// to use for this target when scheduling the DAG.
-  virtual ScheduleHazardRecognizer *
-  CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
-                                     const ScheduleDAG *DAG) const;
-
   virtual DFAPacketizer*
   CreateTargetScheduleState(const TargetMachine *TM,
                             const ScheduleDAG *DAG) const;
@@ -194,6 +175,18 @@ public:
   /// Correctly deals with inline assembler and bundles.
   bool hasCall(const MachineInstr *MI) const;
 
+  /// mayStall - return true if the MI might cause a memory access that might
+  /// miss and stall the CPU. Not checking for instruction fetch related stalls.
+  bool mayStall(const MachineInstr *MI) const;
+
+  /// mayStall - return true if the MBB might cause a memory access that might
+  /// miss and stall the CPU. Not checking for instruction fetch related stalls.
+  bool mayStall(const MachineBasicBlock &MBB) const;
+
+  /// getCallee - try to get the called function, or null if this is not a
+  /// call, if the call target is unknown or if there is more than one callee.
+  const Function *getCallee(const MachineInstr *MI) const;
+
   /// getIssueWidth - Get the number of slots required for this instruction.
   /// For instructions that must be scheduled on its own this returns the
   /// maximum issue width of the processor.
@@ -204,6 +197,15 @@ public:
 
   bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const;
 
+  virtual int getOperandLatency(const InstrItineraryData *ItinData,
+                                const MachineInstr *DefMI, unsigned DefIdx,
+                                const MachineInstr *UseMI,
+                                unsigned UseIdx) const;
+
+  virtual int getDefOperandLatency(const InstrItineraryData *ItinData,
+                                   const MachineInstr *DefMI,
+                                   unsigned DefIdx) const;
+
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling
   /////////////////////////////////////////////////////////////////////////////
@@ -211,6 +213,9 @@ public:
 
   /// getBranchTarget - Get the target machine basic block for direct branches
   MachineBasicBlock *getBranchTarget(const MachineInstr *MI) const;
+
+  /// mayFalltrough - Check if the block might fall through to the next block.
+  bool mayFallthrough(MachineBasicBlock &MBB) const;
 
   /// AnalyzeBranch - Analyze the branching code at the end of MBB, returning
   /// true if it cannot be understood (e.g. it's a switch dispatch or isn't
@@ -304,7 +309,12 @@ public:
     const MCInstrDesc &MCID = prior(MBB.end())->getDesc();
     if (MCID.isReturn() || MCID.isCall())
       return false;
-    return NumCycles <= 8;
+    if (NumCycles > 8)
+      return false;
+
+    // We do not handle predicated instructions that may stall the pipeline
+    // properly in the cache analyses, so we do not convert them for now.
+    return !mayStall(MBB);
   }
 
   /// isProfitableToIfCvt - Second variant of isProfitableToIfCvt, this one
@@ -325,7 +335,12 @@ public:
     const MCInstrDesc &FMCID = prior(FMBB.end())->getDesc();
     if (FMCID.isReturn() || FMCID.isCall())
       return false;
-    return (NumTCycles + NumFCycles) <= 16;
+    if ((NumTCycles + NumFCycles) > 16)
+      return false;
+
+    // We do not handle predicated instructions that may stall the pipeline
+    // properly in the cache analyses, so we do not convert them for now.
+    return !mayStall(TMBB) && !mayStall(FMBB);
   }
 
   /// isProfitableToDupForIfCvt - Return true if it's profitable for

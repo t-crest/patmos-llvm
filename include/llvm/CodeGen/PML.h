@@ -199,14 +199,27 @@ struct ScalarEnumerationTraits<ReprLevel> {
     io.enumCase(level, "machinecode", level_machinecode);
   }
 };
+/// Memory Access Mode (load, store)
+enum MemMode { memmode_none, memmode_load, memmode_store };
+template <>
+struct ScalarEnumerationTraits<MemMode> {
+  static void enumeration(IO &io, MemMode& memmodetype) {
+    io.enumCase(memmodetype, "", memmode_none);
+    io.enumCase(memmodetype, "load", memmode_load);
+    io.enumCase(memmodetype, "store", memmode_store);
+  }
+};
 
 /// Instruction Specification (generic)
 struct Instruction {
-  uint64_t Index;
-  int Opcode;
+  Name Index;
+  Name Opcode;
+  Name Desc;
   std::vector<Name> Callees;
+  enum MemMode MemMode;
 
-  Instruction(uint64_t index) : Index(index), Opcode(-1) {}
+  Instruction(uint64_t index)
+    : Index(index), MemMode(memmode_none) {}
 
   void addCallee(const StringRef function) {
     Callees.push_back(yaml::Name(function));
@@ -220,10 +233,11 @@ struct MappingTraits<Instruction*> {
   static void mapping(IO &io, Instruction *&Ins) {
     if (!Ins) Ins = new Instruction(0);
     io.mapRequired("index",   Ins->Index);
-    io.mapOptional("opcode",  Ins->Opcode, -1);
+    io.mapOptional("opcode",  Ins->Opcode, yaml::Name());
+    io.mapOptional("desc",    Ins->Desc, yaml::Name());
     io.mapOptional("callees", Ins->Callees);
+    io.mapOptional("memmode",   Ins->MemMode, memmode_none);
   }
-  static const bool flow = true;
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(Instruction)
 
@@ -250,30 +264,36 @@ struct MachineInstruction : Instruction {
   enum BranchType BranchType;
   std::vector<Name> BranchTargets;
   unsigned BranchDelaySlots;
+  unsigned StackCacheArg;
   unsigned StackCacheFill;
   unsigned StackCacheSpill;
+  Name MemType;
 
   bool Bundled;
 
   MachineInstruction(uint64_t Index)
   : Instruction(Index), Size(0), Address(-1), BranchType(branch_none),
-    BranchDelaySlots(0), StackCacheFill(0), StackCacheSpill(0),
-    Bundled(false) {}
+    BranchDelaySlots(0), StackCacheArg(0), StackCacheFill(0), StackCacheSpill(0),
+    MemType(Name("")), Bundled(false) {}
 };
 template <>
 struct MappingTraits<MachineInstruction*> {
   static void mapping(IO &io, MachineInstruction *&Ins) {
     if (!Ins) Ins = new MachineInstruction(0);
     io.mapRequired("index",         Ins->Index);
-    io.mapOptional("opcode",        Ins->Opcode, -1);
+    io.mapOptional("opcode",        Ins->Opcode, Name(""));
+    io.mapOptional("desc",          Ins->Desc, Name(""));
     io.mapOptional("callees",       Ins->Callees);
     io.mapOptional("size",          Ins->Size);
     io.mapOptional("address",       Ins->Address, (int64_t) -1);
     io.mapOptional("branch-type",   Ins->BranchType, branch_none);
     io.mapOptional("branch-delay-slots", Ins->BranchDelaySlots, 0U);
     io.mapOptional("branch-targets", Ins->BranchTargets, std::vector<Name>());
+    io.mapOptional("stack-cache-argument", Ins->StackCacheArg, 0U);
     io.mapOptional("stack-cache-fill", Ins->StackCacheFill, 0U);
     io.mapOptional("stack-cache-spill", Ins->StackCacheSpill, 0U);
+    io.mapOptional("memmode",   Ins->MemMode, memmode_none);
+    io.mapOptional("memtype",   Ins->MemType, Name(""));
     io.mapOptional("bundled",       Ins->Bundled, false);
   }
   static const bool flow = true;
@@ -290,6 +310,8 @@ struct Block {
   std::vector<Name> Predecessors;
   std::vector<Name> Loops;
   std::vector<InstructionT*> Instructions;
+
+  typedef std::vector<InstructionT*> InstrList;
 
   Block(StringRef name): BlockName(name), Address(-1) {}
   Block(uint64_t index) : BlockName(index), Address(-1) {}
@@ -332,8 +354,6 @@ struct Argument {
   void addReg(const StringRef regname) {
     Registers.push_back(yaml::Name(regname));
   }
-
-  static const bool flow = true;
 };
 template <>
 struct MappingTraits<Argument*> {
@@ -848,12 +868,13 @@ struct ProfileEntry {
   uint64_t Cycles;
   uint64_t WCETContribution;
   uint64_t WCETFrequency;
-  double Criticality;
+  double   Criticality;
+  uint64_t CritFrequency;
 
   // only for yaml import.
   ProfileEntry()
   : Reference(0), Cycles(0), WCETContribution(0), WCETFrequency(0),
-    Criticality(-1.0)
+    Criticality(-1.0), CritFrequency(0)
   {
   }
   ~ProfileEntry() {
@@ -881,6 +902,7 @@ struct MappingTraits< ProfileEntry* > {
     io.mapOptional("wcet-contribution", P->WCETContribution);
     io.mapOptional("wcet-frequency",    P->WCETFrequency);
     io.mapOptional("criticality",       P->Criticality, -1.0);
+    io.mapOptional("crit-frequency",    P->CritFrequency);
   }
 };
 

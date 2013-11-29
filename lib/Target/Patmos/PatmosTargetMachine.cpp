@@ -13,7 +13,7 @@
 
 #include "Patmos.h"
 #include "PatmosTargetMachine.h"
-#include "PatmosMachineScheduler.h"
+#include "PatmosSchedStrategy.h"
 #include "PatmosStackCacheAnalysis.h"
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
@@ -33,7 +33,11 @@ extern "C" void LLVMInitializePatmosTarget() {
 }
 
 static ScheduleDAGInstrs *createPatmosVLIWMachineSched(MachineSchedContext *C) {
-  ScheduleDAGMI *PS = new PatmosVLIWScheduler(C, new PatmosVLIWSchedStrategy());
+  // TODO instead of the generic ScheduleDAGMI, we might want to use a different
+  // scheduler that allows for VLIW bundling or something, similar to the
+  // PatmosPostRAScheduler. Should still be split into a generic ScheduleDAG
+  // scheduler and a specialised PatmosSchedStrategy.
+  ScheduleDAGMI *PS = new ScheduleDAGMI(C, new PatmosVLIWSchedStrategy());
   return PS;
 }
 
@@ -94,6 +98,9 @@ namespace {
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
     virtual bool addPreSched2() {
+
+      addPass(createPatmosPMLProfileImport(getPatmosTargetMachine()));
+
       if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
         addPass(&IfConverterID);
         // If-converter might create unreachable blocks (bug?), need to be
@@ -124,17 +131,8 @@ namespace {
       // Post-RA MI Scheduler does bundling and delay slots itself. Otherwise,
       // add passes to handle them.
       if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
-
-        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
-          addPass(createPatmosPacketizer(getPatmosTargetMachine()));
-        }
-
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
                                                 false));
-
-        if (getPatmosSubtarget().enableBundling(getOptLevel())) {
-          addPass(createPatmosBundleSanitizer(getPatmosTargetMachine()));
-        }
       }
 
       // All passes below this line must handle delay slots and bundles
@@ -144,6 +142,7 @@ namespace {
         addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
       }
 
+      addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
 
       // this is pseudo pass that may hold results from SC analysis
       // (currently for PML export)

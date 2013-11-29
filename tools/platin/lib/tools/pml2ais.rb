@@ -9,6 +9,8 @@ include PML
 
 class AisExportTool
 
+  AIS_EXPORT_TYPES = %w{header jumptables loop-bounds symbolic-loop-bounds flow-constraints infeasible-code call-targets mem-addresses stack-cache}
+
   def AisExportTool.add_config_options(opts)
     opts.on("--ais-header-file FILE", "the contents of this file is copied verbatim to the final AIS file") { |file|
       opts.option.ais_header_file = file
@@ -16,7 +18,16 @@ class AisExportTool
     opts.on("--ais-disable-exports LIST","AIS information that should not be exported (see --help=ais)") { |list|
       opts.options.ais_disable_export = Set.new(list.split(/\s*,\s*/))
     }
-    opts.add_check { |options| options.ais_disable_export = Set.new if options.ais_disable_export.nil? }
+    opts.add_check { |options|
+      if options.ais_disable_export.nil?
+        options.ais_disable_export = Set.new
+      else
+        unknown = (options.ais_disable_export - Set[*AIS_EXPORT_TYPES])
+        unless unknown.empty?
+          die("AIS export types #{unknown.to_a} not known. Try --help=ais.")
+        end
+      end
+    }
     opts.register_help_topic('ais') { |io|
       io.puts <<-EOF.strip_heredoc
         == AIS Exporter ==
@@ -50,7 +61,7 @@ class AisExportTool
 
     File.open(options.ais_file, "w") { |outfile|
       ais = AISExporter.new(pml, outfile, options)
-      ais.gen_header unless options.ais_disable_export.include?('header')
+      ais.export_header unless options.ais_disable_export.include?('header')
 
       pml.machine_functions.each { |func| ais.export_jumptables(func) }
       flowfacts = pml.flowfacts.filter(pml, options.flow_fact_selection, options.flow_fact_srcs, ["machinecode"])
@@ -106,7 +117,7 @@ class ApxExportTool
     needs_options(options, :binary_file, :ais_file, :ait_report_prefix, :analysis_entry)
 
     File.open(options.apx_file, "w") do |fh|
-      apx_exporter = APXExporter.new(fh)
+      apx_exporter = APXExporter.new(fh, pml, options)
       apx_exporter.export_project(options.binary_file,
                                   options.ais_file,
                                   options.ait_report_prefix,

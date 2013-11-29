@@ -68,14 +68,19 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setStackPointerRegisterToSaveRestore(Patmos::RSP);
   setBooleanContents(ZeroOrOneBooleanContent);
 
-  // TODO Fix PatmosSchedule.td
-  setSchedulingPreference(Sched::VLIW);
+  // Allow rather aggressive inlining of memcpy and friends
+  MaxStoresPerMemset = 32;
+  MaxStoresPerMemsetOptSize = 8;
+  MaxStoresPerMemcpy = 16;
+  MaxStoresPerMemcpyOptSize = 4;
+  MaxStoresPerMemmove = 16;
+  MaxStoresPerMemmoveOptSize = 4;
 
   // We require word alignment at least (in log2 bytes here), if code requires 
   // an other alignment, e.g., due to the method-cache, it will be handled 
   // later.
   setMinFunctionAlignment(2);
-  setPrefFunctionAlignment(2);
+  setPrefFunctionAlignment(Subtarget.getMinSubfunctionAlignment());
 
   // Enable using divmod functions
   setLibcallName(RTLIB::SDIVREM_I32, "__divmodsi4");

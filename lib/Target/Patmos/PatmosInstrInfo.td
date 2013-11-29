@@ -324,7 +324,7 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
 
   // branches with cache-fill
 
-  let neverHasSideEffects = 1 in { // due to lacking pattern
+  let neverHasSideEffects = 1, mayStall = 1 in { // due to lacking pattern
     // unconditional
     let isBarrier=1, isCodeGenOnly=1 in
     def BRCFu : CFLi<0b110, (outs), (ins pred:$p, uimm22s2:$target),
@@ -364,7 +364,7 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
 //  Call Instructions...
 //===----------------------------------------------------------------------===//
 
-let isCall=1, hasDelaySlot=1,
+let isCall=1, hasDelaySlot=1, mayStall=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
@@ -379,7 +379,7 @@ let isCall=1, hasDelaySlot=1,
                    "call", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
-let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1,
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1, mayStall=1,
     neverHasSideEffects = 1 in { // due to missing pattern
   let  Uses = [SRB, SRO] in
     def RET  : CFLri<0b00, (outs), (ins pred:$p),
@@ -652,10 +652,10 @@ let isAsCheapAsAMove=1, ps2 = 0b1000 in {
 
   // conditional move, like mov with setable predicate
   // $rs1 = $rd, only if the condition in $p is true, $r2 is written to $rd thus overwriting $rs1
-  let Constraints = "$old = $pd", isCodeGenOnly = 1 in
-  def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, PRegs:$old, PRegs:$new),
+  let Constraints = "$old.preg = $pd", isCodeGenOnly = 1 in
+  def PCMOV : ALUp<0b0110, (outs PRegs:$pd), (ins predset:$p, predset:$old, predset:$new),
                   "pmov", "$pd = $new",
-                  [(set PRegs:$pd, (select predsel:$p, PRegs:$new, PRegs:$old))]>
+                  [(set PRegs:$pd, (select predsel:$p, predsel:$new, predsel:$old))]>
   {
     bits<4> new;
     let ps1 = new;
@@ -686,6 +686,7 @@ let isAsCheapAsAMove = 1,
 }
 
 // Wait
+let mayStall = 1 in
 def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;
 
 // move to special
@@ -715,12 +716,14 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
                [], IIC_LD>;
 
   // load from data cache
+  let mayStall = 1 in
   def C  : LDT<ty, 0b1, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
                asmop # "c", "$rd = [${ra:addrmod}${imm:addrmod}]",
                [], IIC_LD>;
 
   // load from main memory
+  let mayStall = 1 in
   def M  : LDT<ty, 0b1, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
                asmop # "m", "$rd = [${ra:addrmod}${imm:addrmod}]",
@@ -779,12 +782,14 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
                [], IIC_ST>;
 
   // store to data cache (and to main memory; with data cache allocation?)
+  let mayStall = 1 in
   def C  : STT<ty, 0b10, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "c", "[${ra:addrmod}${imm:addrmod}] = $rs",
                [], IIC_ST>;
 
   // store to main memory (no data cache allocate)
+  let mayStall = 1 in
   def M  : STT<ty, 0b11, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
                asmop # "m", "[${ra:addrmod}${imm:addrmod}] = $rs",

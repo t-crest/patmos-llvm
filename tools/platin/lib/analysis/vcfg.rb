@@ -201,7 +201,7 @@ class VCFG
         end
         # if successor is a loop header, we insert loop enter/cont nodes
         if succblock.loopheader?
-          if predblock.loops.include?(succblock) # continue
+          if predblock.loops.include?(succblock.loop) # continue
             prednode = insert_loop_node(prednode, succblock, :cont)
           else
             prednode = insert_loop_node(prednode, succblock, :enter)
@@ -565,7 +565,7 @@ class Interpreter
       loc = @queue.pop
       inval = @in[loc]
       outval  = @semantics.transfer_value(loc.node, inval)
-      loc.successors.each { |loc| 
+      loc.successors.each { |loc|
         if change = @semantics.merge(@in[loc],outval)
           @in[loc] = change[1]
           @queue.unshift(loc)

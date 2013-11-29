@@ -78,7 +78,7 @@ public:
   }
 
   /// Return the number of delay slot cycles of control flow instructions
-  unsigned getCFLDelaySlotCycles(MachineInstr *MI) const {
+  unsigned getDelaySlotCycles(const MachineInstr *MI) const {
     if (MI->isCall() || MI->isReturn() ||
             MI->getOpcode() == Patmos::BRCFu ||
             MI->getOpcode() == Patmos::BRCF ||
@@ -98,12 +98,8 @@ public:
 
   /// Get the maximum number of bytes an instruction can have in the delay slots
   /// (excluding the second slot of this instruction)
-  unsigned getMaxDelaySlotCodeSize(MachineInstr *MI) const {
-    if (MI->isCall()) {
-      // No instructions issued in second slots
-      return 4 * getCFLDelaySlotCycles(false);
-    }
-    return getCFLDelaySlotCycles(MI) * 4;
+  unsigned getMaxDelaySlotCodeSize(const MachineInstr *MI) const {
+    return getDelaySlotCycles(MI) * 8;
   }
 
   /// Return the latency of MUL instructions
@@ -116,13 +112,17 @@ public:
   /// @see PatmosInstrInfo::canIssueInSlot
   bool canIssueInSlot(unsigned SchedClass, unsigned Slot) const;
 
+  /// Get the minimum (sub)function alignment in log2(bytes).
+  unsigned getMinSubfunctionAlignment() const;
+
+  /// Get the minimum basic block alignment in log2(bytes).
+  unsigned getMinBasicBlockAlignment() const;
+
   unsigned getStackCacheSize() const;
 
   unsigned getStackCacheBlockSize() const;
 
   unsigned getMethodCacheSize() const;
-
-  unsigned getMethodCacheBlockSize() const;
 
 };
 } // End llvm namespace

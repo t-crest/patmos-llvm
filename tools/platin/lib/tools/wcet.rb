@@ -40,6 +40,9 @@ class AitTool
   end
 end
 
+# number of overestimated cycles always tolerated
+CHECK_OVERESTIMATION_TOLERANCE=10
+
 #
 # WCET Analysis command line tool
 # Clients may subclass the WcetTool to implement benchmark drivers
@@ -153,8 +156,15 @@ class WcetTool
   end
 
   def wcet_analysis(srcs)
-    wcet_analysis_platin(srcs) if options.enable_wca
-    wcet_analysis_ait(srcs) unless options.disable_ait
+    run_wca = options.enable_wca
+    begin
+      wcet_analysis_ait(srcs) unless options.disable_ait
+    rescue Exception => ex
+      $stderr.puts ex.backtrace
+      warn("a3 WCET analysis failed: #{ex}. Trying platin WCET analysis.")
+      run_wca = true
+    end
+    wcet_analysis_platin(srcs) if run_wca
   end
 
   def wcet_analysis_platin(srcs)
@@ -319,7 +329,8 @@ class WcetTool
       trace_cycles = te.cycles if te.origin == "trace"
       dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
-        'cycles' => te.cycles }
+        'cycles' => te.cycles,
+        'cache-cycles' => te.attributes['cache-cycles'] || 0 }
       (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }
@@ -331,11 +342,14 @@ class WcetTool
         if te.cycles + 1 < trace_cycles
           die("wcet check: cycles for #{te.origin} (#{te.cycles}) less than measurement (#{trace_cycles})")
         end
-        if options.runcheck_factor && te.cycles > trace_cycles * options.runcheck_factor
-          die <<-EOF
-          WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) larger than
-          measurement (#{trace_cycles}) times #{options.runcheck_factor})
-          EOF
+        if options.runcheck_factor
+          tolerated_overestimation = (trace_cycles * options.runcheck_factor) + CHECK_OVERESTIMATION_TOLERANCE
+          if te.cycles > tolerated_overestimation
+            die <<-EOF.strip_heredoc
+              WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) larger than
+              measurement (#{trace_cycles}) times #{options.runcheck_factor})
+            EOF
+          end
         end
       }
     end
@@ -394,7 +408,6 @@ class WcetTool
     opts.alf_file(Proc.new { false })
     opts.sweet_options
     opts.sweet_flowfact_file(Proc.new { false })
-
     opts.on("--check [FACTOR]", "check that analyzed WCET is higher than MOET [and less than MOET * FACTOR]") { |factor|
       opts.options.runcheck = true
       opts.options.runcheck_factor = factor.to_f
@@ -410,6 +423,11 @@ EOF
   options, args = PML::optparse([], "", synopsis) do |opts|
     opts.needs_pml
     WcetTool.add_options(opts)
+  end
+  unless which(options.a3)
+    warn("Commercial a3 tools is not available; use --disable-ait to hide this warning")
+    options.disable_ait = true
+    options.enable_wca = true
   end
   updated_pml = WcetTool.run(PMLDoc.from_files(options.input), options)
   updated_pml.dump_to_file(options.output) if options.output

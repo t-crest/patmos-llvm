@@ -1072,6 +1072,19 @@ MachineBasicBlock::findDebugLoc(instr_iterator MBBI) {
   return DL;
 }
 
+/// setSuccWeight - Set or update the weight of the edge to a successor of
+/// this block.
+void MachineBasicBlock::setSuccWeight(succ_iterator Succ, uint32_t weight)
+{
+  // If we see non-zero value for the first time it means we actually use Weight
+  // list, so we fill all Weights with 0's.
+  if (weight != 0 && Weights.empty())
+    Weights.resize(Successors.size());
+
+  size_t index = std::distance(Successors.begin(), Succ);
+  Weights[index] = weight;
+}
+
 /// getSuccWeight - Return weight of the edge from this block to MBB.
 ///
 uint32_t MachineBasicBlock::getSuccWeight(const_succ_iterator Succ) const {

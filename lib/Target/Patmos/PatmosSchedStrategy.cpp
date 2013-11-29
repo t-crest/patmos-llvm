@@ -39,7 +39,9 @@ using namespace llvm;
 
 bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
   // Always prefer instructions with ScheduleLow flag.
-  if (A->isScheduleLow) return true;
+  if (A->isScheduleLow != B->isScheduleLow) {
+    return A->isScheduleLow;
+  }
 
   // TODO check this .. prefer instructions that make others available, have
   // highest depth, ..
@@ -47,16 +49,17 @@ bool ILPOrder::operator()(const SUnit *A, const SUnit *B) const {
   unsigned SchedTreeA = DFSResult->getSubtreeID(A);
   unsigned SchedTreeB = DFSResult->getSubtreeID(B);
   if (SchedTreeA != SchedTreeB) {
-    // Unscheduled trees have lower priority.
-    if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
-      return ScheduledTrees->test(SchedTreeA);
-
     // Trees with shallower connections have have lower priority.
     if (DFSResult->getSubtreeLevel(SchedTreeA)
         != DFSResult->getSubtreeLevel(SchedTreeB)) {
       return DFSResult->getSubtreeLevel(SchedTreeA)
              > DFSResult->getSubtreeLevel(SchedTreeB);
     }
+
+    // Unscheduled trees have lower priority.
+    if (ScheduledTrees->test(SchedTreeA) != ScheduledTrees->test(SchedTreeB))
+      return ScheduledTrees->test(SchedTreeA);
+
   }
   if (MaximizeILP)
     return DFSResult->getILP(A) > DFSResult->getILP(B);
@@ -95,6 +98,9 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
   //   predicates and highest ILP/.., but only if at least one of those instr.
   //   has high priority.
   // - find best instructions that fit into the bundle with highest ILP/..
+  //
+  // Instructions are built up into a bundle in Bundle. Instructions are removed
+  // from AvailableQueue in scheduled() once the instruction is actually picked.
 
   unsigned CurrWidth = 0;
   // If the bundle is not empty, we should calculate the initial width
@@ -158,6 +164,8 @@ bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
       // remove the instruction from pending
       avail++;
       PendingQueue[i] = *(PendingQueue.end() - avail);
+      // revisit the moved instruction
+      i--;
 
       // Make the instruction available
       AvailableQueue.push_back(SU);
@@ -235,8 +243,8 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   assert(!Bundle.empty() &&
         "Not able to issue the instruction in an empty bundle?");
 
-  // we need to rearrange instructions.. this is a quick hack and might
-  // be improved.
+  // We might need to rearrange instructions.. this is a quick hack and might
+  // be improved for VLIW with >2 slots
   if (canIssueInSlot(SU, 0) && canIssueInSlot(Bundle[0], Bundle.size())) {
     Bundle.push_back(Bundle[0]);
     Bundle[0] = SU;
@@ -245,6 +253,30 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   }
 
   return false;
+}
+
+void PatmosLatencyQueue::dump()
+{
+  dbgs() << "PendingQueue:";
+  for (unsigned i = 0; i < PendingQueue.size(); i++) {
+    SUnit *SU = PendingQueue[i];
+    if (i > 0) dbgs() << ",";
+    dbgs() << " SU(" << SU->NodeNum << "): Height " << SU->getHeight()
+           << " Depth " << SU->getDepth()
+           << " Tree: " << Cmp.DFSResult->getSubtreeID(SU) << " @"
+           << Cmp.DFSResult->getSubtreeLevel(Cmp.DFSResult->getSubtreeID(SU));
+    if (SU->isScheduleLow) dbgs() << " low ";
+  }
+  dbgs() << "\nAvailableQueue:";
+  for (unsigned i = 0; i < AvailableQueue.size(); i++) {
+    SUnit *SU = AvailableQueue[i];
+    if (i > 0) dbgs() << ",";
+    dbgs() << " SU(" << SU->NodeNum << ") Height " << SU->getHeight()
+           << " Depth " << SU->getDepth()
+           << " ILP: " << Cmp.DFSResult->getILP(SU);
+    if (SU->isScheduleLow) dbgs() << " low ";
+  }
+  dbgs() << "\n";
 }
 
 
@@ -297,10 +329,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
   const PatmosSubtarget *PST = PTM.getSubtargetImpl();
 
-  unsigned DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
-
-  // Reduce latencies to the exit node.
-  updateExitLatencies(dag->ExitSU);
+  unsigned DelaySlot = CFL ? PST->getDelaySlotCycles(CFL->getInstr()) : 0;
 
   if (CFL) {
     // RET and CALL have implicit deps on the return values and call
@@ -371,6 +400,9 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
     if (!ReadyQ.recedeCycle(++CurrCycle))
       return false;
 
+    DEBUG(dbgs() << "\nPicking node in cycle " << CurrCycle << "\n";
+          ReadyQ.dump());
+
     // .. and try to get a new bundle.
     if (!ReadyQ.selectBundle(CurrBundle)) {
       // emit a NOOP if nothing is available.
@@ -438,7 +470,8 @@ void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 
 /// Remove dependencies to a return or call due to implicit uses of the return
 /// value registers, arguments or callee saved regs. Does not remove
-// dependencies to return info registers.
+/// dependencies to return info registers.
+/// This can be done since call and return are scheduling boundaries.
 void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 {
   SmallVector<SDep*,2> RemoveDeps;
@@ -503,24 +536,6 @@ void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
   }
 }
 
-void PatmosPostRASchedStrategy::updateExitLatencies(SUnit &ExitSU)
-{
-  for (SUnit::pred_iterator it = ExitSU.Preds.begin(), ie = ExitSU.Preds.end();
-       it != ie; it++)
-  {
-    if (it->getLatency() < 1) continue;
-    if (!it->isArtificial()) continue;
-
-    SUnit *PredSU = it->getSUnit();
-    if (!PredSU || !PredSU->getInstr()) continue;
-
-    // NOTE: We could also implement Subtarget.adjustSchedDependency(), but this
-    // way this is more integrated with the scheduling algorithm.
-
-    it->setLatency( computeExitLatency(*PredSU) );
-  }
-}
-
 /// Remove barrier and memory deps between instructions that access
 /// different memory types and cannot alias.
 void PatmosPostRASchedStrategy::removeTypedMemBarriers()
@@ -565,12 +580,6 @@ unsigned PatmosPostRASchedStrategy::computeExitLatency(SUnit &SU) {
     // Get the default latency as the write cycle of the operand.
     unsigned OpLatency = DAG->getSchedModel()->computeOperandLatency(PredMI,
                                                       i, NULL, 0, false);
-
-    // Patmos specific: GPRs are always bypassed and read in cycle 1, so we can
-    // reduce the latency of edges to ExitSU by 1.
-    if (PRI.isRReg(MO.getReg()) && OpLatency > 0) {
-      OpLatency--;
-    }
 
     Latency = std::max(Latency, OpLatency);
   }

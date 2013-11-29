@@ -41,7 +41,8 @@ class SimulatorTrace
     else
       begin
         needs_options(@options, :pasim)
-        cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} -q --debug 0 --debug-fmt trace -b #{@elf} 2>&1 1>/dev/null"
+        pasim_options="-q --debug 0 --debug-fmt trace -b #{@elf}"
+        cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} #{pasim_options} 2>&1 1>/dev/null"
         debug(@options, :patmos) { "Running pasim: #{cmd}" }
         IO.popen("#{cmd}") do |io|
           while item=parse(io.gets)
@@ -59,18 +60,18 @@ class SimulatorTrace
   end
   private
   def parse(line)
-    return nil unless line
+    return nil unless line and not line.chomp.empty?
     pc, cyc = line.split(' ',2)
     begin
       [ Integer("0x#{pc}"), Integer(cyc) ]
     rescue Exception => e
-      raise Exception.new("Patmos::SimulatorTrace: bad line #{line}")
+      raise Exception.new("Patmos::SimulatorTrace: bad line (\"#{line.chomp}\")")
     end
   end
 end
 
 class Architecture < PML::Architecture
-  attr_reader :config
+  attr_reader :triple, :config
   def initialize(triple, config)
     @triple, @config = triple, config
     @config = self.class.default_config unless @config
@@ -82,45 +83,109 @@ class Architecture < PML::Architecture
     end
   end
   def Architecture.default_config
-    memories = MemoryConfigList.new([MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
-    caches = CacheConfigList.new([CacheConfig.new('method-cache','method-cache','fifo',32,32,1024),
-                                  CacheConfig.new('stack-cache','stack-cache','stack',nil,4,1024),
-                                  CacheConfig.new('data-cache','set-associative','lru',4,32,1024) ])
-    full_range = ValueRange.new(0,0xFFFFFFFF,nil)
-    memory_areas = MemoryAreaList.new([MemoryArea.new('code','code',caches.list[0], memories.first, full_range),
-                                       MemoryArea.new('data','data',caches.list[2], memories.first, full_range) ])
-    MachineConfig.new(memories,caches,memory_areas)
+    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
+    caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',32,32,1024),
+                                  PML::CacheConfig.new('stack-cache','stack-cache','stack',nil,4,1024),
+                                  PML::CacheConfig.new('data-cache','set-associative','lru',4,32,1024) ])
+    full_range = PML::ValueRange.new(0,0xFFFFFFFF,nil)
+    memory_areas =
+      PML::MemoryAreaList.new([PML::MemoryArea.new('code','code',caches.list[0], memories.first, full_range),
+                               PML::MemoryArea.new('data','data',caches.list[2], memories.first, full_range) ])
+    PML::MachineConfig.new(memories,caches,memory_areas)
   end
+
   def simulator_trace(options)
     SimulatorTrace.new(options.binary_file, self, options)
+  end
+
+  def num_slots
+    2
   end
 
   def method_cache
     @config.caches.by_name('method-cache')
   end
+
+  #
+  # For a subfunction, we need to load the header (one word
+  # that contains the subfunction's size) plus the subfunction
+  # Additionally, we need to consider the alignment of memory
+  # transfers
+  def subfunction_miss_cost(sf)
+    memory = @config.memory_areas.by_name('code').memory
+    memory.read_delay(sf.entry.address - 4, sf.size + 4)
+  end
+
   def stack_cache
     @config.caches.by_name('stack-cache')
   end
+
   def data_cache
     @config.caches.by_name('data-cache')
   end
+
   def instruction_cache
     @config.caches.by_name('instruction-cache')
   end
 
-  def config_for_clang
+  def instruction_fetch_bytes
+    num_slots * 4
+  end
+
+  def path_wcet(ilist)
+    # puts ilist.first.inspect unless ilist.empty?
+    ilist.reduce(0) do |cycles, instr|
+      cycles + (instr.bundled? ? 0 : 1) 
+    end
+  end
+
+  def config_for_apx(options)
+    if sc = stack_cache
+      sc_size = sprintf("0x%x", sc.size)
+      sc_option = REXML::Element.new("stack_cache_size")
+      sc_option << REXML::Text.new(sc_size)
+      patmos_options = REXML::Element.new("patmos_options")
+      patmos_options << sc_option
+      patmos_options
+    else
+      nil
+    end
+  end
+
+  # Options (as of 2013/10/16):
+  #
+  #  -mpatmos-disable-function-splitter
+  #    => should be disabled for instruction cache
+  #  -mpatmos-method-cache-size
+  #  -mpatmos-preferred-subfunction-size
+  #  -mpatmos-max-subfunction-size
+  #    => needs to be equal to block size for fixed-block method cache
+  #  -mpatmos-subfunction-align
+  #  -mpatmos-basicblock-align
+  #    => should be at least 8 bytes for set-associative caches
+
+  def config_for_clang(options)
     opts = []
     if mc = method_cache
-      opts.push("-mpatmos-method-cache-block-size=#{mc.block_size}")
       opts.push("-mpatmos-method-cache-size=#{mc.size}")
+      if pref_sf_size = method_cache.get_attribute("preferred-subfunction-size")
+        opts.push("-mpatmos-preferred-subfunction-size=#{pref_sf_size}")
+      end
+      if max_sf_size = method_cache.get_attribute("max-subfunction-size")
+        opts.push("-mpatmos-max-subfunction-size=#{max_sf_size}")
+      end
     else
       opts.push("-mpatmos-disable-function-splitter")
+      # opts.push("-mpatmos-basicblock-align=8")
     end
     if sc = stack_cache
-      # does not work properly at the moment
-      opts.push("-mpatmos-enable-stack-cache-analysis")
-      # we need to specify a recursion.lp file
-      # opts.push("-mpatmos-stack-cache-analysis-bounds=recursion.lp")
+      if options.sca
+        opts.push("-mpatmos-enable-stack-cache-analysis")
+        # we need to specify a solver
+        opts.push("-mpatmos-ilp-solver=#{options.sca['solver']}")
+        # we need to specify a recursion.lp file
+        opts.push("-mpatmos-stack-cache-analysis-bounds=#{options.sca['bounds']}") unless options.sca['bounds'].empty?
+      end
       opts.push("-mpatmos-stack-cache-block-size=#{sc.block_size}")
       opts.push("-mpatmos-stack-cache-size=#{sc.size}")
     else
@@ -159,14 +224,25 @@ class Architecture < PML::Architecture
       opts.push("--dlsize")
       opts.push(dc.block_size)
       opts.push("--dckind")
-      if dc.associativity.to_i > 1
-        if dc.policy && dc.policy.downcase != 'lru'
+      if dc.associativity.to_i >= 1
+        if dc.policy && dc.policy.downcase == 'lru'
+          opts.push("lru#{dc.associativity}")
+        elsif dc.policy && dc.policy.downcase == 'fifo'
+          opts.push("fifo#{dc.associativity}")
+        else
           warn("Patmos simulator configuration: the only supported replacement "+
-               "policy for data cache simulation is LRU")
+               "policy for data cache simulation are LRU and FIFO")
         end
-        opts.push("lru#{dc.associativity}")
       else
         opts.push("no")
+      end
+    else
+      # if data is mapped to single-cycle access memory,
+      # use an 'ideal' data cache
+      data_area = @config.memory_areas.by_name('data')
+      if data_area.memory.ideal?
+        opts.push("--dckind")
+        opts.push("ideal")
       end
     end
     if sc = stack_cache
@@ -194,12 +270,15 @@ class Architecture < PML::Architecture
       opts.push("--ilsize")
       opts.push(ic.block_size)
       opts.push("--ickind")
-      if ic.associativity.to_i > 1
-        if ic.policy && ic.policy.downcase != 'lru'
+      if ic.associativity.to_i >= 1
+        if ic.policy && ic.policy.downcase == 'lru'
+          opts.push("lru#{ic.associativity}")
+        elsif ic.policy && ic.policy.downcase == 'fifo'
+          opts.push("fifo#{ic.associativity}")
+        else
           warn("Patmos simulator configuration: the only supported replacement "+
-               "policy for data cache simulation is LRU")
+               "policy for set-associative I$ simulation are LRU and FIFO")
         end
-        opts.push("lru#{ic.associativity}")
       else
         opts.push("no")
       end

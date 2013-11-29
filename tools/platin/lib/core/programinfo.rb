@@ -401,6 +401,7 @@ module PML
     def initialize(min, max, symbol, data =nil)
       @min, @max, @symbol = min, max, symbol
       set_yaml_repr(data)
+      raise Exception.new("Bad ValueRange: #{self}") unless @min <= @max if @min
     end
     def inspect
       "ValueRange<min=#{min.inspect},max=#{max.inspect},symbol=#{symbol}>"
@@ -472,8 +473,9 @@ module PML
   end
   class ProfileEntry < PMLObject
     attr_reader :reference, :cycles, :wcetfreq, :criticality, :wcet_contribution
-    def initialize(reference, cycles, wcetfreq, wcetcontrib, criticality=nil, data = nil)
-      @reference, @cycles, @wcetfreq, @criticality = reference, cycles, wcetfreq, criticality
+    def initialize(reference, cycles, wcetfreq, wcet_contribution, criticality = nil, data = nil)
+      @reference, @cycles, @wcetfreq, @wcet_contribution, @criticality =
+       reference,  cycles,  wcetfreq,  wcet_contribution,  criticality
       set_yaml_repr(data)
     end
     def ProfileEntry.from_pml(fs, data)
@@ -530,6 +532,68 @@ module PML
     end
   end
 
+  # Graph structure representing stack cache analysis results
+  class SCAGraph < PMLObject
+    attr_reader :nodes,:edges,:pml
+    def initialize(pml, data)
+      set_yaml_repr(data)
+      @pml = pml
+      @nodes = SCANodeList.new(data['nodes'] || [], self)
+      @edges = SCAEdgeList.new(data['edges'] || [], self)
+    end
+  end
+
+  # List of stack cache graph nodes
+  class SCANodeList < PMLList
+    extend PMLListGen
+    pml_name_index_list(:SCAEdge)
+    def initialize(data, tree)
+      @list = data.map { |n| SCANode.new(n,tree.pml) }
+      set_yaml_repr(data)
+    end
+  end
+
+  # List of stack cache graph edges
+  class SCAEdgeList < PMLList
+    extend PMLListGen
+    pml_name_index_list(:SCANode)
+    def initialize(data, tree)
+      @list = data.map { |n| SCAEdge.new(n) }
+      set_yaml_repr(data)
+    end
+  end
+
+  # Stack cache graph node
+  class SCANode < PMLObject
+    attr_reader :id,:function,:size
+    def initialize(data, pml)
+      set_yaml_repr(data)
+      @id = data['id']
+      @function = pml.machine_functions.by_label(data['function'])
+      @size = data['spillsize']
+    end
+    def to_s
+      "#{id}:#{function.name}:#{size}"
+    end
+    def qname
+      return @id
+    end
+  end
+
+  # Stack cache graph edge
+  class SCAEdge < PMLObject
+    attr_reader :src,:dst,:block,:inst
+    def initialize(data)
+      set_yaml_repr(data)
+      @src = data['src']
+      @dst = data['dst']
+      @block = data['callblock']
+      @inst = data['callindex']
+    end
+    def to_s
+      "#{src}:#{block}:#{inst}->#{dst}"
+    end
+  end
 
 # end of module PML
 end

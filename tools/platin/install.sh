@@ -3,7 +3,25 @@
 # platin installation script
 #
 
-SRC_DIR=$(dirname "${0}")
+function abspath() {
+    local path=$1
+    local pwd_restore="$(pwd)"
+
+    # readlink -f does not work on OSX, so we do this manually
+    cd $(dirname "$path")
+    path=$(basename "$path")
+    # follow chain of symlinks
+    while [ -L "$path" ]; do
+        path=$(readlink "$path")
+        cd $(dirname "$path")
+        path=$(basename "$path")
+    done
+    echo "$(pwd -P)/$path"
+    cd "$pwd_restore"
+}
+
+self=$(abspath "${0}")
+SRC_DIR=$(dirname "$self")
 
 # find ruby,gem,rdoc commands
 source "${SRC_DIR}/ext/detect_ruby_commands"
@@ -11,7 +29,7 @@ detect_ruby
 detect_gem_command
 
 function usage() {
-    echo "usage: ${0} -i INSTALL_DIR [-d]" >&2
+    echo "usage: ${0} -i INSTALL_DIR [-b BUILD_DIR] [-d]" >&2
     echo >&2
     echo "Install the platin toolchain relative to the given prefix" >&2
     echo "Installed Files: " >&2
@@ -25,10 +43,13 @@ function usage() {
 
 }
 
-while getopts "hi:dvx" opt; do
+BUILD_DIR="$SRC_DIR/build"
+
+while getopts "hi:b:dvx" opt; do
   case $opt in
     h) usage; exit 0 ;;
     i) INSTALL_DIR="${OPTARG}" ;;
+    b) BUILD_DIR="${OPTARG}" ;;
     d) DRYRUN=true; VERBOSE=true ;;
     v) VERBOSE=true ;;
     x) set -x ;;
@@ -133,9 +154,11 @@ EOF
 }
 function install_late_bypass() {
   local dir="${SRC_DIR}/ext/patch_loads"
-  if make -C $dir 2>&1 > /dev/null ; then
+  local builddir="${BUILD_DIR}/ext/patch_loads"
+  mkdir -p $builddir
+  if (cd $builddir && cmake $dir && make ) 2>&1 > /dev/null ; then
     DST="${INSTALL_DIR}/lib/platin/ext/patch_loads"
-    install "${DST}" "${dir}/patch_loads"
+    install "${DST}" "${builddir}/patch_loads"
   else
     info "Warning: could not build patch_loads tool." \
          "platin late-bypass will not work."

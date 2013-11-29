@@ -61,8 +61,11 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
   field bits<3> ImmShift = 0;
   // True if immediate is interpreted as signed
   bit           ImmSigned = 0;
+  // True if this instruction may stall the CPU
+  bit           mayStall = 0;
 
   // The layout must match the definitions in PatmosBaseInfo.h
+  let TSFlags{12}   = mayStall;
   let TSFlags{11}   = ImmSigned;
   let TSFlags{10-8} = ImmShift;
   let TSFlags{7-4}  = ImmOpNo;

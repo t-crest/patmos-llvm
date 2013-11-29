@@ -115,6 +115,10 @@ inline static bool isPatmosImmediateSigned(uint64_t TSFlags) {
   return (TSFlags >> 11) & 0x01;
 }
 
+inline static bool isPatmosMayStall(uint64_t TSFlags) {
+  return (TSFlags >> 12) & 0x01;
+}
+
 inline static bool hasPatmosImmediate(uint64_t TSFlags) {
   // We assume that the first operand is always the predicate register
   return getPatmosImmediateOpNo(TSFlags) > 0;
@@ -142,7 +146,6 @@ inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
   }
   return 0;
 }
-
 
 /// getPatmosRegisterNumbering - Given the enum value for some register,
 /// return the number that it corresponds to (the binary representation).

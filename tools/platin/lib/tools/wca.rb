@@ -2,16 +2,31 @@
 #
 # platin tool set
 #
-# Simple Worst-Case Analysis using IPET
-# TODO: move logic from tools/ to analysis/
-#
+# "Inhouse" IPET-based WCET analysis
+
 require 'platin'
-require 'ext/lpsolve'
+require 'analysis/wca'
 include PML
 
 class WcaTool
 
   def WcaTool.add_config_options(opts)
+    opts.on("--[no-]wca-cache-regions","use single-entry cache regions (=true)") { |b|
+      opts.options.wca_cache_regions = b
+    }
+    opts.on("--[no-]wca-persistence-analysis","use (more expensive) persistence DFA for LRU caches (=false)") { |b|
+      opts.options.wca_persistence_analysis = b
+    }
+    opts.on("--wca-ideal-cache","assume each cache block is loaded at most once (=false)") { |b|
+      opts.options.wca_ideal_cache = b
+    }
+    opts.on("--wca-minimal-cache","assume there is only one cache block (=false)") { |b|
+      opts.options.wca_minimal_cache = b
+    }
+    opts.add_check { |options|
+      options.wca_cache_regions = true if options.wca_cache_regions.nil?
+    }
+    opts.stack_cache_analysis
   end
 
   def WcaTool.add_options(opts)
@@ -20,124 +35,13 @@ class WcaTool
     opts.flow_fact_selection
     opts.callstring_length
     opts.calculates_wcet('wca-unknown')
+    opts.stack_cache_analysis
   end
 
   def WcaTool.run(pml,options)
     needs_options(options, :analysis_entry, :flow_fact_selection, :flow_fact_srcs, :timing_output)
-
-    # Builder and Analysis Entry
-    ilp = LpSolveILP.new(options)
-
-    machine_entry = pml.machine_functions.by_label(options.analysis_entry)
-    bitcode_entry = pml.bitcode_functions.by_name(options.analysis_entry)
-    entry = { :dst => machine_entry, :src => bitcode_entry }
-
-
-    # PLAYING: VCFGs
-    #bcffs,mcffs = ['bitcode','machinecode'].map { |level|
-    #  pml.flowfacts.filter(pml,options.flow_fact_selection,options.flow_fact_srcs,level)
-    #}
-    #ctxm = ContextManager.new(options.callstring_length,1,1,2)
-    #mc_model = ControlFlowModel.new(pml.machine_functions, machine_entry, mcffs, ctxm, pml.arch)
-    #mc_model.build_ipet(ilp) do |edge|
-      # pseudo cost (1 cycle per instruction)
-    #  if (edge.kind_of?(Block))
-    #    edge.instructions.length
-    #  else
-    #    edge.source.instructions.length
-    #  end
-    #end
-
-    #cfbc = ControlFlowModel.new(pml.bitcode_functions, bitcode_entry, bcffs,
-    #                            ContextManager.new(options.callstring_length), GenericArchitecture.new)
-
-    # BEGIN: remove me soon
-    # builder
-    builder = IPETBuilder.new(pml, options, ilp)
-
-    # flow facts
-    flowfacts = pml.flowfacts.filter(pml,
-                                     options.flow_fact_selection,
-                                     options.flow_fact_srcs,
-                                     ["machinecode","bitcode"],
-                                     true)
-    ff_levels = if options.use_relation_graph then ["bitcode","machinecode"] else ["machinecode"] end
-
-    # Refine Control-Flow Model
-    builder.refine(entry, flowfacts)
-
-    # Build IPET using Pseudo-Costs
-    builder.build(entry) do |edge|
-      # pseudo cost (1 cycle per instruction)
-      if (edge.kind_of?(Block))
-        edge.instructions.length
-      else
-        src = edge.source
-        branch_index = nil
-        src.instructions.each_with_index { |ins,ix|
-          if ins.returns? && edge.target == :exit
-            branch_index = ix # last instruction that returns
-          elsif ! ins.branch_targets.empty? && ins.branch_targets.include?(edge.target)
-            branch_index = ix # last instruction that branches to the target
-          end
-        }
-        if ! branch_index || (src.fallthrough_successor == edge.target)
-          src.instructions.length
-        else
-          (branch_index + 1) + src.instructions[branch_index].delay_slots
-        end
-      end
-    end
-    # Add flow facts
-    flowfacts.each { |ff|
-      debug(options,:wca) { "adding flowfact #{ff}" }
-      builder.add_flowfact(ff)
-    }
-    # END: remove me soon
-
-    statistics("WCA",
-               "flowfacts" => flowfacts.length,
-               "ipet variables" => builder.ilp.num_variables,
-               "ipet constraints" => builder.ilp.constraints.length) if options.stats
-
-    # Solve ILP
-    begin
-      cycles,freqs = builder.ilp.solve_max
-    rescue Exception => ex
-      warn("WCA: ILP failed: #{ex}") unless options.disable_ipet_diagnosis
-      cycles,freqs = -1, {}
-    end
-
-    # report result
-    profile = Profile.new([])
-    report = TimingEntry.new(machine_entry, cycles, profile,
-                             'level' => 'machinecode', 'origin' => options.timing_output || 'platin')
-    # collect edge timings
-    edgefreq, edgecost = {}, Hash.new(0)
-    freqs.each { |v,freq|
-      freq = freqs[v]
-      edgecost = builder.ilp.get_cost(v)
-      freq = freq.to_i
-      if edgecost > 0 || (v.kind_of?(IPETEdge) && v.cfg_edge?)
-        die("ILP cost: not an IPET edge") unless v.kind_of?(IPETEdge)
-        die("ILP cost: source is not a block") unless v.source.kind_of?(Block)
-        die("ILP cost: target is not a block") unless v.target == :exit || v.target.kind_of?(Block)
-        ref = ContextRef.new(v.cfg_edge, Context.empty)
-        profile.add(ProfileEntry.new(ref, edgecost, freq, edgecost*freq))
-      end
-    }
-
-    if options.verbose
-      puts "Cycles: #{cycles}"
-      puts "Edge Profile:"
-      freqs.map { |v,freq|
-        [v,freq * builder.ilp.get_cost(v)]
-      }.sort_by { |v,freq|
-        [v.function, -freq]
-      }.each { |v,cost|
-        puts "  #{v}: #{freqs[v]} (#{cost} cyc)"
-      }
-    end
+    wca = WCA.new(pml, options)
+    report = wca.analyze(options.analysis_entry)
     pml.timing.add(report)
     pml
   end

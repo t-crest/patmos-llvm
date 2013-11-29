@@ -6,6 +6,7 @@
 #
 require 'set'
 require 'platin'
+require 'analysis/scopegraph'
 include PML
 
 begin
@@ -24,7 +25,59 @@ class Visualizer
     g.output( :png => "#{outfile}" )
     info("#{outfile} ok") if options.verbose
   end
+protected
+  def digraph(label)
+    g = GraphViz.new(:G, :type => :digraph)
+    g.node[:shape] = "rectangle"
+    g[:label] = label
+    g
+  end
 end
+
+class CallGraphVisualizer < Visualizer
+  def initialize(pml, options) ; @pml, @options = pml, options ; end
+  def visualize_callgraph(function)
+    g  = digraph("Callgraph for #{function}")
+    refinement = ControlFlowRefinement.new(function, 'machinecode')
+    cg = ScopeGraph.new(function, refinement, @pml, @options).callgraph
+    nodes, nids = {}, {}
+    cg.nodes.each_with_index { |n,i| nids[n] = i }
+    cg.nodes.each { |node|
+      nid = nids[node]
+      label = node.to_s
+      nodes[node] = g.add_nodes(nid.to_s, :label => label)
+    }
+    cg.nodes.each { |n|
+      n.successors.each { |s|
+        g.add_edges(nodes[n],nodes[s])
+      }
+    }
+    g
+  end
+end
+
+class ScopeGraphVisualizer < Visualizer
+  def initialize(pml, options) ; @pml, @options = pml, options ; end
+  def visualize_scopegraph(function)
+    g  = digraph("Scopegraph for #{function}")
+    refinement = ControlFlowRefinement.new(function, 'machinecode')
+    sg = ScopeGraph.new(function, refinement, @pml, @options)
+    nodes, nids = {}, {}
+    sg.nodes.each_with_index { |n,i| nids[n] = i }
+    sg.nodes.each { |node|
+      nid = nids[node]
+      label = node.to_s
+      nodes[node] = g.add_nodes(nid.to_s, :label => label)
+    }
+    sg.nodes.each { |n|
+      n.successors.each { |s|
+        g.add_edges(nodes[n],nodes[s])
+      }
+    }
+    g
+  end
+end
+
 class FlowGraphVisualizer < Visualizer
   def initialize(pml, options) ; @pml, @options = pml, options ; end
   def visualize_vcfg(function, arch)
@@ -74,7 +127,7 @@ class FlowGraphVisualizer < Visualizer
       bid = block.name
       label = "#{block.name}"
       label << " (#{block.mapsto})" if block.mapsto
-      label << " L#{block.loops.map {|b| b.name}.join(",")}" unless block.loops.empty?
+      label << " L#{block.loops.map {|b| b.loopheader.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
       if options.show_calls
         block.instructions.each do |ins|
@@ -122,6 +175,7 @@ class RelationGraphVisualizer < Visualizer
     g
   end
 end
+
 # HTML Index Pages for convenient debugging
 # XXX: quick hack
 class HtmlIndexPages
@@ -184,7 +238,29 @@ class VisualizeTool
     outdir = options.outdir || "."
     html = HtmlIndexPages.new if options.html
     targets.each do |target|
-      # Visualize the bitcode, machine code and relation graphs
+      # Visualize the callgraph, scopegraph, bitcode, machine code and relation graphs
+      cgv = CallGraphVisualizer.new(pml, options)
+      begin
+        mf = pml.machine_functions.by_label(target)
+        graph = cgv.visualize_callgraph(mf)
+        file = File.join(outdir, target + ".cg" + ".png")
+        cgv.generate(graph , file)
+        html.add(target,"cg",file) if options.html
+      rescue Exception => detail
+        puts "Failed to visualize callgraph for #{target}: #{detail}"
+        puts detail.backtrace
+      end
+      sgv = ScopeGraphVisualizer.new(pml,options)
+      begin
+        mf = pml.machine_functions.by_label(target)
+        graph = sgv.visualize_scopegraph(mf)
+        file = File.join(outdir, target + ".sg" + ".png")
+        sgv.generate(graph , file)
+        html.add(target,"sg",file) if options.html
+      rescue Exception => detail
+        puts "Failed to visualize scopegraph for #{target}: #{detail}"
+        puts detail.backtrace
+      end
       fgv = FlowGraphVisualizer.new(pml, options)
       begin
         bf = pml.bitcode_functions.by_name(target)
@@ -234,6 +310,7 @@ Visualize bitcode and machine code CFGS, and the control-flow relation
 graph of the specified set of functions
 EOF
   options, args = PML::optparse([:input],"FILE.pml", SYNOPSIS) do |opts|
+    opts.callstring_length
     VisualizeTool.add_options(opts)
   end
   VisualizeTool.run(PMLDoc.from_files([options.input]), options)
