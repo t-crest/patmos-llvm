@@ -1632,21 +1632,6 @@ def Neon_Low2double : PatFrag<(ops node:$in),
                               (v1f64 (extract_subvector (v2f64 node:$in),
                                                         (iPTR 0)))>;
 
-def neon_uimm3_shift : Operand<i32>,
-                         ImmLeaf<i32, [{return Imm < 8;}]> {
-  let ParserMatchClass = uimm3_asmoperand;
-}
-
-def neon_uimm4_shift : Operand<i32>,
-                         ImmLeaf<i32, [{return Imm < 16;}]> {
-  let ParserMatchClass = uimm4_asmoperand;
-}
-
-def neon_uimm5_shift : Operand<i32>,
-                         ImmLeaf<i32, [{return Imm < 32;}]> {
-  let ParserMatchClass = uimm5_asmoperand;
-}
-
 class N2VShiftLong<bit q, bit u, bits<5> opcode, string asmop, string DestT,
                    string SrcT, ValueType DestTy, ValueType SrcTy,
                    Operand ImmTy, SDPatternOperator ExtOp>
