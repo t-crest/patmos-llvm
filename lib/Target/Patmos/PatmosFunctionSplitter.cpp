@@ -1458,75 +1458,6 @@ namespace llvm {
           i++) {
         rewriteEdge(i->second->Src, i->second->Dst);
       }
-
-      // insert fix-up code to handle calls within code regions -- skip the 
-      // function's first block though since this is handled in the function 
-      // epilog already.
-      const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
-      for(ablocks::iterator i(++Blocks.begin()), ie(Blocks.end()); i != ie;
-          i++) {
-        // Only consider region entries that contain a call
-        if ((*i)->Region == (*i) && (*i)->HasCall) {
-          MachineBasicBlock *MBB = (*i)->MBB;
-
-          bool needsLoad = true;
-          bool foundCall = false;
-
-          // Check if there is no load to RFB before the next call
-          // Update all loads to RFB
-          for (MachineBasicBlock::instr_iterator ii = MBB->instr_begin(),
-               iie = MBB->instr_end(); ii != iie; ii++)
-          {
-            MachineInstr *MI = ii;
-
-            if (MI->isPseudo()) continue;
-
-            if (MI->isCall()) {
-              foundCall = true;
-              continue;
-            }
-
-            if (MI->getNumOperands() == 0) continue;
-
-            // check if the first operand is a def of RFB
-            MachineOperand &MO = MI->getOperand(0);
-            if (!MO.isReg() || !MO.isDef() || MO.getReg() != Patmos::RFB)
-              continue;
-
-            if (MI->getOpcode() == Patmos::LIl) {
-              assert(MI->getNumOperands() == 4);
-
-              // update the reference to the base
-              MachineOperand &SymMO = MI->getOperand(3);
-
-              if (!SymMO.isMBB() && !SymMO.isGlobal()) {
-                report_fatal_error("Storing unknown value to r30, "
-                                   "cowardly failing.");
-              }
-
-              // found at least one load to r30 before the first call?
-              if (!foundCall) needsLoad = false;
-
-              MI->RemoveOperand(3);
-              MI->addOperand(*MBB->getParent(), MachineOperand::CreateMBB(MBB));
-
-            } else if (MI->getOpcode() != Patmos::LWS &&
-                       MI->getOpcode() != Patmos::LWC)
-            {
-              // Do a hard fail instead of ignoring any unsupported code to
-              // avoid hard-to-trace bugs
-              report_fatal_error("Found store to r30 that cannot be updated.");
-            }
-          }
-
-          // load long immediate of the current basic block's address into RFB
-          if (needsLoad) {
-            AddDefaultPred(BuildMI(*MBB, MBB->instr_begin(), DebugLoc(),
-                                   TII.get(Patmos::LIl),
-                                   Patmos::RFB)).addMBB(MBB);
-          }
-        }
-      }
     }
 
     /// applyRegions - reorder and align the basic blocks and fix-up branches.
@@ -1663,8 +1594,6 @@ namespace llvm {
       {
         if (i->isBundle()) continue;
 
-        if (PTM.getInstrInfo()->hasCall(i)) hasCall = true;
-
         if (i->isBranch()) numBranches++;
       }
 
@@ -1705,7 +1634,7 @@ namespace llvm {
              (mightExitRegion ? exitDelay : localDelay) * 4;
       }
 
-      return alignSize + branch_fixups + (needsCallFixup ? 8 : 0);
+      return alignSize + branch_fixups;
     }
 
     static unsigned int getDelaySlotSize(MachineBasicBlock *MBB,
