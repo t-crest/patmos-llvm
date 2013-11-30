@@ -129,42 +129,18 @@ void MipsSERegisterInfo::eliminateFI(MachineBasicBlock::iterator II,
 
   DEBUG(errs() << "Offset     : " << Offset << "\n" << "<--------->\n");
 
+  // If MI is not a debug value, make sure Offset fits in the 16-bit immediate
+  // field.
   if (!MI.isDebugValue()) {
-    // Make sure Offset fits within the field available.
-    // For MSA instructions, this is a 10-bit signed immediate, otherwise it is
-    // a 16-bit signed immediate.
-    unsigned OffsetBitSize = isMSALoadOrStore(MI.getOpcode()) ? 10 : 16;
-
-    if (OffsetBitSize == 10 && !isInt<10>(Offset) && isInt<16>(Offset)) {
-      // If we have an offset that needs to fit into a signed 10-bit immediate
-      // and doesn't, but does fit into 16-bits then use an ADDiu
-      MachineBasicBlock &MBB = *MI.getParent();
-      DebugLoc DL = II->getDebugLoc();
-      unsigned ADDiu = Subtarget.isABI_N64() ? Mips::DADDiu : Mips::ADDiu;
-      const TargetRegisterClass *RC =
-          Subtarget.isABI_N64() ? &Mips::GPR64RegClass : &Mips::GPR32RegClass;
-      MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
-      unsigned Reg = RegInfo.createVirtualRegister(RC);
-      const MipsSEInstrInfo &TII =
-          *static_cast<const MipsSEInstrInfo *>(
-               MBB.getParent()->getTarget().getInstrInfo());
-      BuildMI(MBB, II, DL, TII.get(ADDiu), Reg).addReg(FrameReg).addImm(Offset);
-
-      FrameReg = Reg;
-      Offset = 0;
-      IsKill = true;
-    } else if (!isInt<16>(Offset)) {
-      // Otherwise split the offset into 16-bit pieces and add it in multiple
-      // instructions.
+    if (!isInt<16>(Offset)) {
       MachineBasicBlock &MBB = *MI.getParent();
       DebugLoc DL = II->getDebugLoc();
       unsigned ADDu = Subtarget.isABI_N64() ? Mips::DADDu : Mips::ADDu;
-      unsigned NewImm = 0;
+      unsigned NewImm;
       const MipsSEInstrInfo &TII =
           *static_cast<const MipsSEInstrInfo *>(
                MBB.getParent()->getTarget().getInstrInfo());
-      unsigned Reg = TII.loadImmediate(Offset, MBB, II, DL,
-                                       OffsetBitSize == 16 ? &NewImm : NULL);
+      unsigned Reg = TII.loadImmediate(Offset, MBB, II, DL, &NewImm);
       BuildMI(MBB, II, DL, TII.get(ADDu), Reg).addReg(FrameReg)
         .addReg(Reg, RegState::Kill);
 
