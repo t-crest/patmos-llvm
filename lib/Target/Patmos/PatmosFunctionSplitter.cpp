@@ -1344,14 +1344,16 @@ namespace llvm {
       bool rewrite = false;
 
       if (BR->isIndirectBranch()) {
-        assert(BR->getNumOperands() == 4);
-
-        unsigned index = BR->getOperand(3).getIndex();
-        MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
-        const std::vector<MachineBasicBlock*> &JTBBs(
-                                             MJTI->getJumpTables()[index].MBBs);
-
-        rewrite = std::find(JTBBs.begin(), JTBBs.end(), target) != JTBBs.end();
+        if (BR->getOpcode() == Patmos::BRT || BR->getOpcode() == Patmos::BRTu) {
+          unsigned index = BR->getOperand(3).getIndex();
+          MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
+          const std::vector<MachineBasicBlock*> &JTBBs(MJTI->getJumpTables()[index].MBBs);
+          rewrite = std::find(JTBBs.begin(), JTBBs.end(), target) != JTBBs.end();
+        } else {
+          assert(BR->getOpcode() == Patmos::BRR || BR->getOpcode() == Patmos::BRRu);
+          // always rewrite "true" indirect branches
+          rewrite = true;
+        }
       }
       else {
         rewrite = BR->getOperand(2).getMBB() == target;
