@@ -147,6 +147,8 @@ namespace llvm {
 		return 2;
       case Patmos::BRCF:
       case Patmos::BRCFu:
+      case Patmos::BRCFR:
+      case Patmos::BRCFRu:
       case Patmos::BRCFT:
       case Patmos::BRCFTu:
       case Patmos::CALL:

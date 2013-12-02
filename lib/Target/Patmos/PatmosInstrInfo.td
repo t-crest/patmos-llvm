@@ -337,23 +337,23 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
 
     // indirect-unconditional
     let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
-    def BRCFRu: CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs),
-                      "brcf", "$rs", []>;
+    def BRCFRu: CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1),
+                      "brcf", "$rs1", []>;
 
     // indirect-conditional
     let isIndirectBranch=1, isBarrier=0 in
-    def BRCFR : CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs),
-                      "brcf", "$rs", []>;
+    def BRCFR : CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1),
+                      "brcf", "$rs1", []>;
 
     // jumptable-unconditional
     let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
-    def BRCFTu: CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
-                      "brcf", "$rs", []>;
+    def BRCFTu: CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
+                      "brcf", "$rs1", []>;
 
     // jumptable-conditional
     let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1 in
-    def BRCFT : CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
-                      "brcf", "$rs", []>;
+    def BRCFT : CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
+                      "brcf", "$rs1", []>;
   }
 }
 
