@@ -28,18 +28,18 @@ using namespace llvm;
 /// StackCacheBlockSize - Block size of the stack cache in bytes (default: 4,
 /// i.e., word-sized).
 static cl::opt<unsigned> StackCacheBlockSize("mpatmos-stack-cache-block-size",
-                           cl::init(4),
+                           cl::init(32),
                            cl::desc("Block size of the stack cache in bytes."));
 
 /// StackCacheSize - Total size of the stack cache in bytes (default: 4096,
 /// i.e., 1K words).
 static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
-                           cl::init(4096),
+                           cl::init(2048),
                            cl::desc("Total size of the stack cache in bytes."));
 
 /// MethodCacheSize - Total size of the method cache in bytes.
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
-                     cl::init(1024),
+                     cl::init(4096),
                      cl::desc("Total size of the instruction cache in bytes "
                               "(default 1024)"));
 
@@ -157,4 +157,10 @@ unsigned PatmosSubtarget::getStackCacheBlockSize() const {
 
 unsigned PatmosSubtarget::getMethodCacheSize() const {
   return MethodCacheSize;
+}
+
+unsigned PatmosSubtarget::getAlignedStackFrameSize(unsigned frameSize) const {
+  if (frameSize == 0) return 0;
+  return ((frameSize - 1) / getStackCacheBlockSize() + 1) *
+         getStackCacheBlockSize();
 }

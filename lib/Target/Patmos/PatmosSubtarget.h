@@ -124,6 +124,10 @@ public:
 
   unsigned getMethodCacheSize() const;
 
+  /// Return the actual size of a stack cache frame in bytes.
+  /// @param frameSize the required frame size in bytes.
+  unsigned getAlignedStackFrameSize(unsigned frameSize) const;
+
 };
 } // End llvm namespace
 
