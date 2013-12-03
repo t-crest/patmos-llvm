@@ -158,8 +158,7 @@ MCSymbol *MCContext::CreateSymbol(StringRef Name) {
 
 MCSymbol *MCContext::GetOrCreateSymbol(const Twine &Name) {
   SmallString<128> NameSV;
-  Name.toVector(NameSV);
-  return GetOrCreateSymbol(NameSV.str());
+  return GetOrCreateSymbol(Name.toStringRef(NameSV));
 }
 
 MCSymbol *MCContext::CreateTempSymbol() {
