@@ -5000,6 +5000,21 @@ defm FCVTZU : NeonI_Scalar2SameMisc_SD_size<0b1, 0b1, 0b11011, "fcvtzu">;
 defm : Neon_Scalar2SameMisc_fcvt_SD_size_patterns<int_aarch64_neon_fcvtzu,
                                                   FCVTZUss, FCVTZUdd>;
 
+// Patterns For Convert Instructions Between v1f64 and v1i64
+class Neon_Scalar2SameMisc_cvtf_v1f64_pattern<SDPatternOperator opnode,
+                                              Instruction INST>
+    : Pat<(v1f64 (opnode (v1i64 FPR64:$Rn))), (INST FPR64:$Rn)>;
+
+class Neon_Scalar2SameMisc_fcvt_v1f64_pattern<SDPatternOperator opnode,
+                                              Instruction INST>
+    : Pat<(v1i64 (opnode (v1f64 FPR64:$Rn))), (INST FPR64:$Rn)>;
+
+def : Neon_Scalar2SameMisc_cvtf_v1f64_pattern<sint_to_fp, SCVTFdd>;
+def : Neon_Scalar2SameMisc_cvtf_v1f64_pattern<uint_to_fp, UCVTFdd>;
+
+def : Neon_Scalar2SameMisc_fcvt_v1f64_pattern<fp_to_sint, FCVTZSdd>;
+def : Neon_Scalar2SameMisc_fcvt_v1f64_pattern<fp_to_uint, FCVTZUdd>;
+
 // Scalar Floating-point Reciprocal Estimate
 defm FRECPE : NeonI_Scalar2SameMisc_SD_size<0b0, 0b1, 0b11101, "frecpe">;
 defm : Neon_Scalar2SameMisc_SD_size_patterns<int_arm_neon_vrecpe,
