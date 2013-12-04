@@ -235,22 +235,22 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                                   unsigned Opcode) const {
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
-  // align the stack cache size
-  unsigned alignedStackCacheSize =
-                             std::ceil((float)PMFI.getStackCacheReservedBytes()/
-                                       (float)STC.getStackCacheBlockSize());
+  // align the stack cache frame size
+  unsigned alignedStackSize = STC.getAlignedStackFrameSize(
+                                     PMFI.getStackCacheReservedBytes());
+  // STC instructions are specified in words
+  unsigned stackFrameSize = alignedStackSize / 4;
 
-  if (alignedStackCacheSize)
-  {
-    assert(isUInt<22>(alignedStackCacheSize) && "Stack cache size exceeded.");
+  if (stackFrameSize) {
+    assert(isUInt<22>(stackFrameSize) && "Stack cache size exceeded.");
 
-    DebugLoc DL                      = (MI != MBB.end()) ? MI->getDebugLoc()
-                                                                   : DebugLoc();
-    const TargetInstrInfo &TII       = *TM.getInstrInfo();
+    DebugLoc DL = (MI != MBB.end()) ? MI->getDebugLoc() : DebugLoc();
+
+    const TargetInstrInfo &TII = *TM.getInstrInfo();
 
     // emit reserve instruction
     AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Opcode)))
-      .addImm(alignedStackCacheSize);
+      .addImm(stackFrameSize);
   }
 }
 

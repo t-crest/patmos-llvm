@@ -288,13 +288,9 @@ yaml::Name PMLFunctionInfoT<BlockT,bitcode>::getMemInstrLabel(
 }
 
 
-
-/* Note: this code generates warnings about missing declarations with clang 3.3.
- * However, we do not actually need it anyway, because we instantiate all
- * possible template types in the header anyway.
-template PMLFunctionInfoT<yaml::BitcodeBlock,true>;
-template PMLFunctionInfoT<yaml::MachineBlock,false>;
-*/
+// Ensure all template classes are instantiated.
+template class PMLFunctionInfoT<yaml::BitcodeBlock,true>;
+template class PMLFunctionInfoT<yaml::MachineBlock,false>;
 
 
 void PMLLevelInfo::addFunctionInfo(yaml::BitcodeFunction &F)
