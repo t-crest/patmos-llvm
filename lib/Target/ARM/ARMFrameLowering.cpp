@@ -430,7 +430,7 @@ void ARMFrameLowering::emitEpilogue(MachineFunction &MF,
             .addReg(FramePtr));
       }
     } else if (NumBytes &&
-               !tryFoldSPUpdateIntoPushPop(STI, MF, FirstPop, NumBytes))
+               !tryFoldSPUpdateIntoPushPop(STI, MF, MBBI, NumBytes))
         emitSPUpdate(isARM, MBB, MBBI, dl, TII, NumBytes);
 
     // Increment past our save areas.
