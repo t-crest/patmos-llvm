@@ -135,7 +135,7 @@ public:
 
   /// getMemType - Return the type for Patmos' typed memory accesses.
   /// MI must be either a load or a store instruction.
-  virtual unsigned getMemType(const MachineInstr *MI) const;
+  virtual PatmosII::MemType getMemType(const MachineInstr *MI) const;
 
   /// isPseudo - check if the given machine instruction is emitted, i.e.,
   /// if the instruction is either inline asm or has some FU assigned to it.
