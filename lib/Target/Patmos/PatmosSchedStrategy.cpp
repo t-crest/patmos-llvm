@@ -360,7 +360,6 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
   // TODO SWS and LWS do not have ST as implicit def edges
   // TODO CALL has chain edges to all SWS/.. instructions, remove
-  // TODO MFS $r1 = $s0 has edges to all SWS/SENS/.. instructions, remove
 
   // TODO remove edges from MUL to other MULs to overlap MUL and MFS for
   //      pipelined muls.
@@ -474,52 +473,73 @@ void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 /// This can be done since call and return are scheduling boundaries.
 void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 {
+  assert(SU.getInstr()->isCall() || SU.getInstr()->isReturn());
+
   SmallVector<SDep*,2> RemoveDeps;
+
+  MachineInstr *MI = SU.getInstr();
 
   for (SUnit::pred_iterator it = SU.Preds.begin(), ie = SU.Preds.end();
        it != ie; it++)
   {
     if (!it->getSUnit()) continue;
-    // We only handle Data, Anti and Output deps here.
-    if (it->getKind() == SDep::Order) continue;
 
-    MachineInstr *MI = SU.getInstr();
+    if (it->getKind() == SDep::Order) {
 
-    // Check if it is actually only an implicit use, not a normal operand
-    bool IsImplicit = true;
-    for (unsigned i = 0; i < MI->getNumOperands(); i++) {
-      MachineOperand &MO = MI->getOperand(i);
-
-      if (!MO.isReg()) continue;
-
-      // Check if the register is actually used or defined by the instruction,
-      // either explicit or via a special register
-      if (!isExplicitCFLOperand(MI, MO)) continue;
-
-      // MO is an used/defined operand, check if it is defined or used by the
-      // predecessor
-      if (it->getKind() == SDep::Data) {
-        // .. easy for Deps, since we know the register.
-        if (MO.getReg() == it->getReg()) {
-          IsImplicit = false;
-          break;
-        }
-      } else if (MO.isDef() && (!MO.isImplicit())) {
-        // for Anti and Output dependency we need to check the registers of
-        // the predecessor.
+      if (!it->isMustAlias() && !it->isCluster() && !it->isArtificial()) {
         MachineInstr *PredMI = it->getSUnit()->getInstr();
-        for (unsigned j = 0; j < PredMI->getNumOperands(); j++) {
-          MachineOperand &PredMO = PredMI->getOperand(i);
-          if (PredMO.isReg() && PredMO.getReg() == MO.getReg()) {
-            IsImplicit = false;
-            break;
+
+        if (PredMI->mayStore() || PredMI->mayLoad()) {
+          PatmosII::MemType MT = PII.getMemType(PredMI);
+
+          // If we have a load or store from SPM or stack cache, it does not
+          // interfere with the call and we may move it into the delay slot
+          if (MT == PatmosII::MEM_S || MT == PatmosII::MEM_L) {
+            RemoveDeps.push_back(&*it);
           }
         }
       }
-    }
 
-    if (IsImplicit) {
-      RemoveDeps.push_back(&*it);
+    } else {
+      // We only handle Data, Anti and Output deps here.
+
+      // Check if it is actually only an implicit use, not a normal operand
+      bool IsImplicit = true;
+      for (unsigned i = 0; i < MI->getNumOperands(); i++) {
+        MachineOperand &MO = MI->getOperand(i);
+
+        if (!MO.isReg()) continue;
+
+        // Check if the register is actually used or defined by the instruction,
+        // either explicit or via a special register
+        if (!isExplicitCFLOperand(MI, MO)) continue;
+
+        // MO is an used/defined operand, check if it is defined or used by the
+        // predecessor
+        if (it->getKind() == SDep::Data) {
+          // .. easy for Deps, since we know the register.
+          if (MO.getReg() == it->getReg()) {
+            IsImplicit = false;
+            break;
+          }
+        } else if (MO.isDef()) {
+          // For Anti and Output dependency we need to check the registers of
+          // the predecessor.
+          MachineInstr *PredMI = it->getSUnit()->getInstr();
+          for (unsigned j = 0; j < PredMI->getNumOperands(); j++) {
+            MachineOperand &PredMO = PredMI->getOperand(j);
+            if (PredMO.isReg() && PredMO.getReg() == MO.getReg()) {
+              IsImplicit = false;
+              break;
+            }
+          }
+        }
+      }
+
+      if (IsImplicit) {
+        RemoveDeps.push_back(&*it);
+      }
+
     }
   }
 
@@ -540,6 +560,13 @@ void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 /// different memory types and cannot alias.
 void PatmosPostRASchedStrategy::removeTypedMemBarriers()
 {
+  // TODO remove dependencies between SPM, stack and global memory load/stores
+
+  // Note: Stack accesses usually do not alias with global/local memory since
+  // accesses to stack frame are accesses to known objects (but unknown stores
+  // might still alias with stack frame accesses!)
+
+  // Note: loads to global memory might in fact alias with STC instructions
 
 }
 
@@ -557,6 +584,12 @@ bool PatmosPostRASchedStrategy::isExplicitCFLOperand(MachineInstr *MI,
 
   if (MO.getReg() == Patmos::SRB || MO.getReg() == Patmos::SRO ||
       MO.getReg() == Patmos::SXB || MO.getReg() == Patmos::SXO)
+  {
+    return true;
+  }
+
+  // TODO remove once we change call to write to SRO instead of RFO
+  if (MO.getReg() == Patmos::RFO)
   {
     return true;
   }
