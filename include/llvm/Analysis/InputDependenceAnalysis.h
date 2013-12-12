@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file implements (and documents) the computation of the
-// thinned gated single assignment form, roughly following Havlac's paper and
+// thinned gated single assignment form, roughly following Havlak's paper and
 // described in detail in our technical report. Using the LLVM infrastructure,
 // the TGSA form requires relatively few analyses, relying on the LoopSimplify
 // and LCSSA pass.
@@ -160,8 +160,26 @@ class PHIDecisionNode : public RefCountedBase<PHIDecisionNode> {
 typedef SmallVector<BasicBlock*,16> BlockList;
 typedef SmallVector<PHINode*, 8> PHINodeList;
 
-raw_ostream& operator<<(raw_ostream &O, const BlockList &L);
-raw_ostream& operator<<(raw_ostream &O, const PHINodeList &L);
+template<typename List>
+raw_ostream& osAppendList(raw_ostream &O, const List &L) {
+  O << "[";
+
+  for (typename List::const_iterator B = L.begin(),
+         E = L.end(); B != E; ) {
+    O << "'" << (*B)->getName() << "'";
+    if (++B != E) O << ", ";
+  }
+
+  return O << "]";
+}
+
+inline raw_ostream& operator<<(raw_ostream &O, const BlockList &L) {
+    return osAppendList(O,L);
+}
+
+inline raw_ostream& operator<<(raw_ostream &O, const PHINodeList &L) {
+    return osAppendList(O,L);
+}
 
 // InputDependenceAnalysis
 // - Identifiy mu nodes and eta dependencies, and compute eta/gamma decision DAGs
@@ -209,6 +227,9 @@ private:
 
     // PHIDecisionGraphs for all phi nodes in the function
     DenseMap<const PHINode*, PHIDecisionNode::Ptr > Selectors;
+    
+    // DecisionGraphs for all loops in the function
+    DenseMap<const Loop*, PHIDecisionNode::Ptr > LoopSelectors;
 
 public:
 
@@ -268,7 +289,7 @@ public:
 	}
 
       }
-      DEBUG(dump(F));
+      DEBUG(dump(F,dbgs()));
       return false;
     }
 
@@ -305,19 +326,29 @@ public:
 
 
 private:
+    // Process Loops and mu nodes
+    // The Loop L has to be in canonical form (preheader, header, latch)
+    // Compute exit decision blocks, exit blocks and mu nodes
     bool processLoop(Loop *L);
 
+    // Process eta/gamma PHI nodes 
     bool processPHINode(PHINode* PN, BasicBlock* BB);
-
-    // Get decision blocks of a loop (at least successor outside the loop,
-    // but not all of them)
-    void computeDecisionBlocks(Loop *L, SmallVectorImpl<BasicBlock*>& DecisionBlocks);
 
     // Build list of all loops
     void buildLoopList(LoopInfo* LI, std::vector<Loop*> &loopList);
 
+    // Get exit decision blocks of a loop (at least successor outside the loop,
+    // but not all of them)
+    void getLoopDecisionBlocks(Loop *L, BlockList& DecisionBlocks);
+
+    // Compute loop decision DAG
+    void computeLoopDecision(Loop *L, PHIDecisionMap& SelectorMap);
+
     // Compute PHI Selector (Without mu/eta deps) for the given PHI node
     void computePHIDecision(PHINode *PN, BasicBlock *IDOM, PHIDecisionMap& SelectorMap);
+
+    // Build decision DAG for eta or gamma node
+    void buildDecisionDAG(BlockList& WorkList, BasicBlock *IDOM, PHIDecisionMap& SelectorMap);
 
     virtual void verifyAnalysis() const {
         // Check the special guarantees that TGSA makes
