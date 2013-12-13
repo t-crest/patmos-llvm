@@ -70,8 +70,7 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeVirtRegRewriterPass(Registry);
   initializeLowerIntrinsicsPass(Registry);
   initializeMachineFunctionPrinterPassPass(Registry);
-  initializePMLImportPass(Registry);
-  initializePMLMachineFunctionImportPass(Registry);
+  initializeStackMapLivenessPass(Registry);
 }
 
 void LLVMInitializeCodeGen(LLVMPassRegistryRef R) {

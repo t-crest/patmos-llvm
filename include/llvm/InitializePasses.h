@@ -270,8 +270,7 @@ void initializeLoopVectorizePass(PassRegistry&);
 void initializeSLPVectorizerPass(PassRegistry&);
 void initializeBBVectorizePass(PassRegistry&);
 void initializeMachineFunctionPrinterPassPass(PassRegistry&);
-void initializePMLImportPass(PassRegistry&);
-void initializePMLMachineFunctionImportPass(PassRegistry&);
+void initializeStackMapLivenessPass(PassRegistry&);
 }
 
 #endif
