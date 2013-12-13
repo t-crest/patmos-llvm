@@ -6895,9 +6895,6 @@ void SelectionDAGBuilder::visitStackmap(const CallInst &CI) {
   DAG.ReplaceAllUsesWith(Call, MN);
 
   DAG.DeleteNode(Call);
-
-  // Inform the Frame Information that we have a stackmap in this function.
-  FuncInfo.MF->getFrameInfo()->setHasStackMap();
 }
 
 /// \brief Lower llvm.experimental.patchpoint directly to its target opcode.
@@ -7037,9 +7034,6 @@ void SelectionDAGBuilder::visitPatchpoint(const CallInst &CI) {
   } else
     DAG.ReplaceAllUsesWith(Call, MN);
   DAG.DeleteNode(Call);
-
-  // Inform the Frame Information that we have a stackmap in this function.
-  FuncInfo.MF->getFrameInfo()->setHasStackMap();
 }
 
 /// TargetLowering::LowerCallTo - This is the default LowerCallTo
