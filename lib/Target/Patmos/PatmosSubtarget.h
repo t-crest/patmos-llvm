@@ -103,7 +103,7 @@ public:
   }
 
   /// Return the latency of MUL instructions
-  unsigned getMULLatency() const { return 3; }
+  unsigned getMULLatency() const { return 1; }
 
   /// Get the width of an instruction.
   unsigned getIssueWidth(unsigned SchedClass) const;
