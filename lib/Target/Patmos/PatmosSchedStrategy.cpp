@@ -574,7 +574,28 @@ void PatmosPostRASchedStrategy::removeTypedMemBarriers()
 /// predicates.
 void PatmosPostRASchedStrategy::removeExclusivePredDeps()
 {
+  for (std::vector<SUnit>::iterator it = DAG->SUnits.begin(),
+       ie = DAG->SUnits.end(); it != ie; it++)
+  {
+    MachineInstr *MI = it->getInstr();
 
+    for (SUnit::pred_iterator pit = it->Preds.begin(),
+           pie = it->Preds.end(); pit != pie; pit++)
+    {
+      if (!pit->getSUnit()) continue;
+
+      MachineInstr *PI = pit->getSUnit()->getInstr();
+
+      if (pit->getKind() != SDep::Order && PII.haveDisjointPredicates(MI, PI))
+      {
+        unsigned PredPos = MI->getDesc().getNumDefs();
+        if (pit->getReg() != MI->getOperand(PredPos).getReg())
+        {
+          it->removePred(*pit);
+        }
+      }
+    }
+  }
 }
 
 bool PatmosPostRASchedStrategy::isExplicitCFLOperand(MachineInstr *MI,
