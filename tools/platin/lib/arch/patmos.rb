@@ -248,8 +248,6 @@ class Architecture < PML::Architecture
     if sc = stack_cache
       opts.push("--scsize")
       opts.push(sc.size)
-      opts.push("--sbsize")
-      opts.push(sc.block_size)
       opts.push("--sckind")
       opts.push("block")
     end
