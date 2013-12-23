@@ -24,24 +24,18 @@
 
 namespace llvm {
 
-class PatmosStackCacheAnalysisInfo : public MachineModulePass {
+class PatmosStackCacheAnalysisInfo : public ImmutablePass {
   bool Valid;
 
 public:
-  PatmosStackCacheAnalysisInfo(const TargetMachine &TM) : MachineModulePass(ID),
+  PatmosStackCacheAnalysisInfo(const TargetMachine &TM) : ImmutablePass(ID),
     Valid(false) {
       initializePatmosStackCacheAnalysisInfoPass(*PassRegistry::getPassRegistry());
     }
 
   PatmosStackCacheAnalysisInfo()
-    : MachineModulePass(ID) {
+    : ImmutablePass(ID), Valid(false) {
     llvm_unreachable("should not be implicitly constructed");
-  }
-
-  virtual bool runOnMachineModule(const Module &M) { return false; }
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-    AU.setPreservesAll();
-    ModulePass::getAnalysisUsage(AU);
   }
 
   // the analysis info (pass) will always be available, with isValid() we can
@@ -50,6 +44,7 @@ public:
   bool isValid() const { return Valid; }
 
   typedef std::map<const MachineInstr*, unsigned int> FillSpillCounts;
+
   FillSpillCounts Reserves;
   FillSpillCounts Ensures;
 

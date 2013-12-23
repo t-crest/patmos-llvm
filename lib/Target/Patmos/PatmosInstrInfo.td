@@ -693,6 +693,7 @@ def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;
 def MTS  : SPCt <(outs SRegs:$sd), (ins pred:$p, RRegs:$rs), "mts", "$sd = $rs", [] >;
 
 // move from special
+let neverHasSideEffects = 1 in
 def MFS  : SPCf <(outs RRegs:$rd), (ins pred:$p, SRegs:$ss), "mfs", "$rd = $ss", [] >;
 
 

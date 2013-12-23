@@ -118,7 +118,7 @@ static cl::opt<int> PreferSubfunctionSize(
 
 static cl::opt<int> MaxSubfunctionSize(
     "mpatmos-max-subfunction-size",
-    cl::init(0),
+    cl::init(1024),
     cl::desc("Maximum size of subfunctions after function splitting, defaults "
              "to the method cache size if set to 0."));
 

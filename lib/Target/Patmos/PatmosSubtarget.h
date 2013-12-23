@@ -103,7 +103,7 @@ public:
   }
 
   /// Return the latency of MUL instructions
-  unsigned getMULLatency() const { return 3; }
+  unsigned getMULLatency() const { return 1; }
 
   /// Get the width of an instruction.
   unsigned getIssueWidth(unsigned SchedClass) const;
@@ -123,6 +123,10 @@ public:
   unsigned getStackCacheBlockSize() const;
 
   unsigned getMethodCacheSize() const;
+
+  /// Return the actual size of a stack cache frame in bytes.
+  /// @param frameSize the required frame size in bytes.
+  unsigned getAlignedStackFrameSize(unsigned frameSize) const;
 
 };
 } // End llvm namespace

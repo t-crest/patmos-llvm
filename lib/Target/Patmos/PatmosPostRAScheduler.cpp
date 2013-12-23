@@ -145,6 +145,8 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
 
   AntiDepMode = TargetSubtargetInfo::ANTIDEP_NONE;
   CriticalPathRCs.clear();
+  // CriticalPathRCs must not be empty
+  CriticalPathRCs.push_back(NULL);
 
   // Check that post-RA scheduling is enabled for this target.
   // This may upgrade the AntiDepMode.
@@ -366,7 +368,7 @@ void ScheduleDAGPostRA::schedule() {
   if (AntiDepBreak != NULL) {
     unsigned Broken =
       AntiDepBreak->BreakAntiDependencies(SUnits, RegionBegin, RegionEnd,
-                                          EndIndex, DbgValues);
+                                          SUnits.size(), DbgValues);
 
     if (Broken != 0) {
       // We made changes. Update the dependency graph.

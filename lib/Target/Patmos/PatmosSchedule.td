@@ -131,11 +131,11 @@ def PatmosGenericItineraries : ProcessorItineraries<
 			      [ PB_GPR, NoBypass, NoBypass, PB_GPR, PB_GPR ],
 			      2 >,
     InstrItinData<IIC_ALUm,   // Start FU_MUL in the same cycle as the ALU, 
-			      // reserve the MUL unit for 3 cycles (non-pipelined mul)
+			      // reserve the MUL unit for 1 cycles (non-pipelined mul)
                               [ InstrStage<1, [FU_ALU0], 0>, 
-                                InstrStage<3, [FU_MUL]>      ],
-			      // Write results 3 cycles after EX w/o bypass
-                              [ 2, 2, 1, 1, 5, 5 ],
+                                InstrStage<1, [FU_MUL]>      ],
+			      // Write results 1 cycle after EX w/o bypass
+                              [ 2, 2, 1, 1, 3, 3 ],
 			      [ NoBypass, NoBypass, PB_GPR, PB_GPR ] >,
     InstrItinData<IIC_LD,     [ InstrStage<1, [FU_ALU0]> ],
                               [ 3, 2, 2, 1 ], 

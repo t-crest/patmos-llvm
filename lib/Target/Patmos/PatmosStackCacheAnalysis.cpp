@@ -840,13 +840,10 @@ namespace llvm {
         PatmosMachineFunctionInfo *PMFI =
                                        MF->getInfo<PatmosMachineFunctionInfo>();
 
-        assert(PMFI->getStackCacheReservedBytes() %
-               STC.getStackCacheBlockSize() == 0);
-
         // TODO a function might contain inline asm code that might use 
         // SRES/SFREE, we should check for that.
 
-        return PMFI->getStackCacheReservedBytes();
+        return STC.getAlignedStackFrameSize(PMFI->getStackCacheReservedBytes());
       }
     }
 
@@ -1082,9 +1079,8 @@ namespace llvm {
         if (i->getOpcode() == Patmos::SENSi) {
           assert(i->getOperand(2).isImm());
 
-          // compute actual space to ensure here
-          unsigned int ensure = std::ceil((float)liveAreaSize /
-                                           (float)STC.getStackCacheBlockSize());
+          // compute actual space to ensure here (in words)
+          unsigned int ensure = STC.getAlignedStackFrameSize(liveAreaSize) / 4;
 
           // update the ensure to reserve only the space actually used.
           ENSs[&*i] = std::min(ensure, (unsigned int)i->getOperand(2).getImm());
@@ -1195,8 +1191,7 @@ namespace llvm {
                                     getMaxOccupancy(site->getCallee()));
         }
         else if (i->getOpcode() == Patmos::SENSi) {
-          unsigned int ensure = i->getOperand(2).getImm() *
-                                STC.getStackCacheBlockSize();
+          unsigned int ensure = i->getOperand(2).getImm() * 4;
 
           // does the content of the ensure and all the children in the call
           // graph fit into the stack cache?
@@ -1274,8 +1269,7 @@ namespace llvm {
           // actually remove ensure instructions (if requested)
           for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
               i++) {
-            unsigned int ensure = i->first->getOperand(2).getImm() *
-                                  STC.getStackCacheBlockSize();
+            unsigned int ensure = i->first->getOperand(2).getImm() * 4;
 #ifdef PATMOS_TRACE_DETAILED_RESULTS
             MachineBasicBlock *MBB = i->first->getParent();
             MachineBasicBlock::instr_iterator MI(i->first);
@@ -1764,8 +1758,7 @@ namespace llvm {
           }
         }
         else if (i->getOpcode() == Patmos::SENSi && !TII.isPredicated(i)) {
-          unsigned int ensure = i->getOperand(2).getImm() *
-                                STC.getStackCacheBlockSize();
+          unsigned int ensure = i->getOperand(2).getImm() * 4;
           worstOccupancy = std::max(ensure, worstOccupancy);
         }
       }

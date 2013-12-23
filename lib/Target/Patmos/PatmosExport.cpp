@@ -558,7 +558,6 @@ namespace llvm {
           case PatmosII::MEM_L: I->MemType = yaml::Name("local");  break;
           case PatmosII::MEM_M: I->MemType = yaml::Name("memory"); break;
           case PatmosII::MEM_C: I->MemType = yaml::Name("cache");  break;
-          default: /*NOP*/;
         }
       }
       return PMLMachineExport::exportInstruction(MF, I, Instr, BundledWithPred,

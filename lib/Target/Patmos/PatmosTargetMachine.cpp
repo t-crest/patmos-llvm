@@ -112,6 +112,15 @@ namespace {
         // as it creates and removes branches.
         TargetPassConfig::addBlockPlacement();
       }
+
+      // this is pseudo pass that may hold results from SC analysis
+      // (currently for PML export)
+      addPass(createPatmosStackCacheAnalysisInfo(getPatmosTargetMachine()));
+
+      if (EnableStackCacheAnalysis) {
+        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+      }
+
       return true;
     }
 
@@ -143,14 +152,6 @@ namespace {
       }
 
       addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
-
-      // this is pseudo pass that may hold results from SC analysis
-      // (currently for PML export)
-      addPass(createPatmosStackCacheAnalysisInfo(getPatmosTargetMachine()));
-
-      if (EnableStackCacheAnalysis) {
-        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
-      }
 
       // following pass is a peephole pass that does neither modify
       // the control structure nor the size of basic blocks.
