@@ -213,6 +213,7 @@ void initializePostDomPrinterPass(PassRegistry&);
 void initializePostDomViewerPass(PassRegistry&);
 void initializePostDominatorTreePass(PassRegistry&);
 void initializePostRASchedulerPass(PassRegistry&);
+void initializePostMachineSchedulerPass(PassRegistry&);
 void initializePreVerifierPass(PassRegistry&);
 void initializePrintFunctionPassPass(PassRegistry&);
 void initializePrintModulePassPass(PassRegistry&);
