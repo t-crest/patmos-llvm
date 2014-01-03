@@ -26,8 +26,8 @@ def FSTCi   : Format<8>;  // Stack control with 18bit immediate
 def FSTCr   : Format<9>;  // Stack control with register
 def FCFLi   : Format<10>; // Program flow control with 22bit immediate
 def FCFLri  : Format<11>; // Program flow control with registers
-def FCFLrs  : Format<11>; // Program flow control with registers
-def FCFLrt  : Format<11>; // Program flow control with registers
+def FCFLrs  : Format<12>; // Program flow control with registers
+def FCFLrt  : Format<13>; // Program flow control with registers
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -435,11 +435,13 @@ class STCr<bits<2> op,
 
 // CFLi - Program Flow with immediate
 //
-class CFLi<bits<3> op, dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+class CFLi<bits<2> op, bits<1> d,
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, asmop, asmstr, pattern, FCFLi, IIC_CFLi> {
 
   let Inst{26-25} = 0b10;
-  let Inst{24-22} = op;
+  let Inst{24-23} = op;
+  let Inst{22} = d;
 
   bits<22> target;
 
@@ -451,28 +453,29 @@ class CFLi<bits<3> op, dag outs, dag ins, string asmop, string asmstr, list<dag>
 
 // CFLr - Control Flow with registers
 //
-class CFLr<Format form, bits<2>regs,
+class CFLr<Format form, bits<2>regs, bits<1>d,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
   : PatmosInst<outs, ins, asmop, asmstr, pattern, form, IIC_CFLr> {
 
-  let Inst{26-22} = 0b11000;
+  let Inst{26-23} = 0b1100;
+  let Inst{22} = d;
   let Inst{3-2} = regs;
 }
 
 // CFLri - Control Flow with implicit registers
 //
-class CFLri<bits<2>op,
+class CFLri<bits<2>op, bits<1>d,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFLr<FCFLri, 0b00, outs, ins, asmop, asmstr, pattern> {
+  : CFLr<FCFLri, 0b00, d, outs, ins, asmop, asmstr, pattern> {
 
   let Inst{1-0}  = op;
 }
 
 // CFLrs - Control Flow with single register
 //
-class CFLrs<bits<2>op,
+class CFLrs<bits<2>op, bits<1>d,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFLr<FCFLrs, 0b01, outs, ins, asmop, asmstr, pattern> {
+  : CFLr<FCFLrs, 0b01, d, outs, ins, asmop, asmstr, pattern> {
 
   // unbound register fields
   bits<5> rs;
@@ -483,9 +486,9 @@ class CFLrs<bits<2>op,
 
 // CFLrt - Control Flow with two registers
 //
-class CFLrt<bits<2>op,
+class CFLrt<bits<2>op, bits<1>d,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFLr<FCFLrt, 0b10, outs, ins, asmop, asmstr, pattern> {
+  : CFLr<FCFLrt, 0b10, d, outs, ins, asmop, asmstr, pattern> {
 
   // unbound register fields
   bits<5> rs1;

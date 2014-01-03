@@ -391,7 +391,8 @@ bool HasPCRELImmediate(unsigned Opcode, const MCInstrDesc &MID) {
   uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
   // CFLi and Opcode == BR/BRu => immediate is PCrel
   if (Format != PatmosII::FrmCFLi) return false;
-  return Opcode == Patmos::BR || Opcode == Patmos::BRu;
+  return (Opcode == Patmos::BR || Opcode == Patmos::BRu 
+          || Opcode == Patmos::BRND || Opcode == Patmos::BRNDu);
 }
 
 

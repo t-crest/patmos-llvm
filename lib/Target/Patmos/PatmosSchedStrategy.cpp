@@ -609,12 +609,6 @@ bool PatmosPostRASchedStrategy::isExplicitCFLOperand(MachineInstr *MI,
     return true;
   }
 
-  // TODO remove once we change call to write to SRO instead of RFO
-  if (MO.getReg() == Patmos::RFO)
-  {
-    return true;
-  }
-
   return false;
 }
 

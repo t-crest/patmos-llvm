@@ -79,21 +79,21 @@ public:
 
   /// Return the number of delay slot cycles of control flow instructions
   unsigned getDelaySlotCycles(const MachineInstr *MI) const {
-    if (MI->isCall() || MI->isReturn() ||
-            MI->getOpcode() == Patmos::BRCFu ||
-            MI->getOpcode() == Patmos::BRCF ||
-            MI->getOpcode() == Patmos::BRCFRu ||
-            MI->getOpcode() == Patmos::BRCFR ||
-            MI->getOpcode() == Patmos::BRCFTu ||
-            MI->getOpcode() == Patmos::BRCFT)
-    {
-      return getCFLDelaySlotCycles(false);
+    if (MI->hasDelaySlot()) {
+      if (MI->isCall() || MI->isReturn() ||
+          MI->getOpcode() == Patmos::BRCFu ||
+          MI->getOpcode() == Patmos::BRCF ||
+          MI->getOpcode() == Patmos::BRCFRu ||
+          MI->getOpcode() == Patmos::BRCFR ||
+          MI->getOpcode() == Patmos::BRCFTu ||
+          MI->getOpcode() == Patmos::BRCFT) {
+        return getCFLDelaySlotCycles(false);
+      }
+      else if (MI->isBranch()) {
+        return getCFLDelaySlotCycles(true);
+      }
     }
-    else if (MI->isBranch()) {
-      return getCFLDelaySlotCycles(true);
-    } else {
-      return 0;
-    }
+    return 0;
   }
 
   /// Get the maximum number of bytes an instruction can have in the delay slots

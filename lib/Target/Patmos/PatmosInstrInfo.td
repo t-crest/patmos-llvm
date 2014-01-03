@@ -291,34 +291,34 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
 
   // unconditional
   let isBarrier=1, isCodeGenOnly=1 in
-  def BRu : CFLi<0b101, (outs), (ins pred:$p, pcreltarget:$target),
+  def BRu : CFLi<0b01, 0b1, (outs), (ins pred:$p, pcreltarget:$target),
                  "br", "$target", [(br bb:$target)]>;
 
   // conditional
   let isBarrier=0 in
-  def BR  : CFLi<0b101, (outs), (ins predset:$p, pcreltarget:$target),
+  def BR  : CFLi<0b01, 0b1, (outs), (ins predset:$p, pcreltarget:$target),
                  "br", "$target", [(brcond predsel:$p, bb:$target)]>;
 
   // indirect-unconditional
   let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
-  def BRRu: CFLrs<0b01, (outs), (ins pred:$p, RRegs:$rs),
+  def BRRu: CFLrs<0b01, 0b1, (outs), (ins pred:$p, RRegs:$rs),
                   "br", "$rs", [(brind RRegs:$rs)]>;
 
   // indirect-conditional
   let isIndirectBranch=1, isBarrier=0, neverHasSideEffects = 1 in
-  def BRR : CFLrs<0b01, (outs), (ins pred:$p, RRegs:$rs),
+  def BRR : CFLrs<0b01, 0b1, (outs), (ins pred:$p, RRegs:$rs),
                   "br", "$rs", []>;
 
   // jumptable-unconditional
   let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1,
       neverHasSideEffects = 1 in
-  def BRTu: CFLrs<0b01, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
+  def BRTu: CFLrs<0b01, 0b1, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
                   "br", "$rs", []>;
 
   // jumptable-conditional
   let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1,
       neverHasSideEffects = 1 in
-  def BRT : CFLrs<0b01, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
+  def BRT : CFLrs<0b01, 0b1, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
                   "br", "$rs", []>;
 
 
@@ -327,38 +327,107 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
   let neverHasSideEffects = 1, mayStall = 1 in { // due to lacking pattern
     // unconditional
     let isBarrier=1, isCodeGenOnly=1 in
-    def BRCFu : CFLi<0b110, (outs), (ins pred:$p, uimm22s2:$target),
+    def BRCFu : CFLi<0b10, 0b1, (outs), (ins pred:$p, uimm22s2:$target),
                      "brcf", "$target", []>;
 
     // conditional
     let isBarrier=0 in
-    def BRCF  : CFLi<0b110, (outs), (ins predset:$p, uimm22s2:$target),
+    def BRCF  : CFLi<0b10, 0b1, (outs), (ins predset:$p, uimm22s2:$target),
                      "brcf", "$target", []>;
 
     // indirect-unconditional
     let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
-    def BRCFRu: CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1),
+    def BRCFRu: CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1),
                       "brcf", "$rs1", []>;
 
     // indirect-conditional
     let isIndirectBranch=1, isBarrier=0 in
-    def BRCFR : CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1),
+    def BRCFR : CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1),
                       "brcf", "$rs1", []>;
 
     // jumptable-unconditional
     let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
-    def BRCFTu: CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
+    def BRCFTu: CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
                       "brcf", "$rs1", []>;
 
     // jumptable-conditional
     let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1 in
-    def BRCFT : CFLrt<0b10, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
+    def BRCFT : CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
                       "brcf", "$rs1", []>;
   }
 }
 
+// non-delayed branches
+let isTerminator=1, isBranch=1, hasDelaySlot=0, ImmSigned=1 in {
 
+  // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
+  // local branches
+
+  // unconditional
+  let isBarrier=1, isCodeGenOnly=1 in
+  def BRNDu : CFLi<0b01, 0b0, (outs), (ins pred:$p, pcreltarget:$target),
+                 "brnd", "$target", [(br bb:$target)]>;
+
+  // conditional
+  let isBarrier=0 in
+  def BRND  : CFLi<0b01, 0b0, (outs), (ins predset:$p, pcreltarget:$target),
+                 "brnd", "$target", [(brcond predsel:$p, bb:$target)]>;
+
+  // indirect-unconditional
+  let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+  def BRRNDu: CFLrs<0b01, 0b0, (outs), (ins pred:$p, RRegs:$rs),
+                     "brnd", "$rs", [(brind RRegs:$rs)]>;
+
+  // indirect-conditional
+  let isIndirectBranch=1, isBarrier=0, neverHasSideEffects = 1 in
+  def BRRND : CFLrs<0b01, 0b0, (outs), (ins pred:$p, RRegs:$rs),
+                   "brnd", "$rs", []>;
+
+  // jumptable-unconditional
+  let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1,
+      neverHasSideEffects = 1 in
+  def BRTNDu: CFLrs<0b01, 0b0, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
+                     "brnd", "$rs", []>;
+
+  // jumptable-conditional
+  let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1,
+      neverHasSideEffects = 1 in
+  def BRTND : CFLrs<0b01, 0b0, (outs), (ins pred:$p, RRegs:$rs, jtpat:$jtidx),
+                   "brnd", "$rs", []>;
+
+  let neverHasSideEffects = 1, mayStall = 1 in { // due to lacking pattern
+    // unconditional
+    let isBarrier=1, isCodeGenOnly=1 in
+    def BRCFNDu : CFLi<0b10, 0b0, (outs), (ins pred:$p, uimm22s2:$target),
+                       "brcfnd", "$target", []>;
+
+    // conditional
+    let isBarrier=0 in
+    def BRCFND  : CFLi<0b10, 0b0, (outs), (ins predset:$p, uimm22s2:$target),
+                       "brcfnd", "$target", []>;
+
+    // indirect-unconditional
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    def BRCFRNDu: CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1),
+                         "brcfnd", "$rs1", []>;
+
+    // indirect-conditional
+    let isIndirectBranch=1, isBarrier=0 in
+    def BRCFRND : CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1),
+                       "brcfnd", "$rs1", []>;
+
+    // jumptable-unconditional
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    def BRCFTNDu: CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
+                         "brcfnd", "$rs1", []>;
+
+    // jumptable-conditional
+    let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1 in
+    def BRCFTND : CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
+                       "brcfnd", "$rs1", []>;
+  }
+}
 
 //===----------------------------------------------------------------------===//
 //  Call Instructions...
@@ -372,21 +441,46 @@ let isCall=1, hasDelaySlot=1, mayStall=1,
 
   // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
-  def CALL : CFLi<0b100, (outs), (ins pred:$p, uimm22s2:$target),
+  def CALL : CFLi<0b00, 0b1, (outs), (ins pred:$p, uimm22s2:$target),
                   "call", "$target", [(PatmosCall uimm22s2:$target)]>;
 
-  def CALLR: CFLrs<0b00, (outs), (ins pred:$p, RRegs:$rs),
+  def CALLR: CFLrs<0b00, 0b1, (outs), (ins pred:$p, RRegs:$rs),
                    "call", "$rs", [(PatmosCall RRegs:$rs)]>;
+}
+
+let isCall=1, hasDelaySlot=0, mayStall=1,
+  // Calls may overwrite caller saved registers
+  Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
+          R17, R18, R19, R20,
+          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
+
+  // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
+
+  def CALLND : CFLi<0b00, 0b0, (outs), (ins pred:$p, uimm22s2:$target),
+                  "callnd", "$target", [(PatmosCall uimm22s2:$target)]>;
+
+  def CALLRND : CFLrs<0b00, 0b0, (outs), (ins pred:$p, RRegs:$rs),
+                     "callnd", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1, mayStall=1,
     neverHasSideEffects = 1 in { // due to missing pattern
   let  Uses = [SRB, SRO] in
-    def RET  : CFLri<0b00, (outs), (ins pred:$p),
+    def RET  : CFLri<0b00, 0b1, (outs), (ins pred:$p),
                      "ret", "", []>;
   let  Uses = [SXB, SXO] in
-    def XRET : CFLri<0b01, (outs), (ins pred:$p),
+    def XRET : CFLri<0b01, 0b1, (outs), (ins pred:$p),
                      "xret", "", []>;
+}
+
+let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=0, mayStall=1,
+    neverHasSideEffects = 1 in { // due to missing pattern
+  let  Uses = [SRB, SRO] in
+    def RETND  : CFLri<0b00, 0b0, (outs), (ins pred:$p),
+                      "retnd", "", []>;
+  let  Uses = [SXB, SXO] in
+    def XRETND : CFLri<0b01, 0b0, (outs), (ins pred:$p),
+                       "xretnd", "", []>;
 }
 
 let isCall=1, hasDelaySlot=0,
@@ -394,7 +488,7 @@ let isCall=1, hasDelaySlot=0,
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
           SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
-  def TRAP : CFLi<0b011, (outs), (ins pred:$p, uimm5:$target),
+  def TRAP : CFLi<0b11, 0b0, (outs), (ins pred:$p, uimm5:$target),
   	  	   	 	  "trap", "$target", []>;
 }	
 

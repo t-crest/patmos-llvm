@@ -151,6 +151,8 @@ namespace {
         addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
       }
 
+      addPass(createPatmosDelaySlotKillerPass(getPatmosTargetMachine()));
+
       addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
 
       // following pass is a peephole pass that does neither modify

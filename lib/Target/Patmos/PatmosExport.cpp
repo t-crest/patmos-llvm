@@ -142,6 +142,8 @@ namespace llvm {
       switch (Instr->getOpcode()) {
       case Patmos::BR:
       case Patmos::BRu: 
+      case Patmos::BRR:
+      case Patmos::BRRu: 
       case Patmos::BRT:
       case Patmos::BRTu:
 		return 2;
@@ -172,7 +174,11 @@ namespace llvm {
       case Patmos::BR:
       case Patmos::BRu:
       case Patmos::BRCF:
-      case Patmos::BRCFu: {
+      case Patmos::BRCFu:
+      case Patmos::BRND:
+      case Patmos::BRNDu:
+      case Patmos::BRCFND:
+      case Patmos::BRCFNDu: {
         // handle normal branches, return single branch target
         const MachineOperand &MO(Instr->getOperand(2));
 
@@ -185,7 +191,11 @@ namespace llvm {
       case Patmos::BRT:
       case Patmos::BRTu:
       case Patmos::BRCFT:
-      case Patmos::BRCFTu: {
+      case Patmos::BRCFTu:
+      case Patmos::BRTND:
+      case Patmos::BRTNDu:
+      case Patmos::BRCFTND:
+      case Patmos::BRCFTNDu: {
         // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
         assert(Instr->getNumOperands() == 4);
 
