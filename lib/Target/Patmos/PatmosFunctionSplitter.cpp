@@ -67,6 +67,7 @@
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
 #include "llvm/ADT/GraphTraits.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachinePostDominators.h"
@@ -135,6 +136,11 @@ static cl::opt<bool> EnableShowCFGs(
   cl::Hidden);
 
 namespace llvm {
+
+  STATISTIC(FallthroughFixups, "Branches added for fall-throughs after function splitting");
+  STATISTIC(BranchRewrites, "Branches rewritten to BRCFs");
+  STATISTIC(NOPsInserted, "NOPs inserted by function splitter");
+
   class ablock;
   class agraph;
 
@@ -157,7 +163,7 @@ namespace llvm {
 
     /// The block's fallthrough target -- NULL if the MBB does not fall
     /// through or if the block does not have an MBB associated with it.
-    MachineBasicBlock * FallthroughTarget;
+    ablock * FallthroughTarget;
 
     /// Flag indicating whether the block or the code region it represents
     /// contains a call instruction.
@@ -316,6 +322,7 @@ namespace llvm {
     /// Target machine information
     PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
+    const PatmosInstrInfo &PII;
 
     unsigned MaxRegionSize;
 
@@ -326,6 +333,7 @@ namespace llvm {
     agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml,
            unsigned int preferredRegionSize)
     : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()),
+      PII(*tm.getInstrInfo()),
       MaxRegionSize(preferredRegionSize), PML(pml)
     {
       Blocks.reserve(mf->size());
@@ -341,7 +349,7 @@ namespace llvm {
 
         // Keep track of fallthough edges
         if (pred && mayFallThrough(PTM, pred->MBB)) {
-          pred->FallthroughTarget = ab->MBB;
+          pred->FallthroughTarget = ab;
         }
         pred = ab;
 
@@ -810,7 +818,8 @@ namespace llvm {
     ready_set::iterator selectBlock(ablock *region, ready_set &ready, ablock *last)
     {
       // check if the fall-through is ready
-      MachineBasicBlock *fallthrough = last ? last->FallthroughTarget : NULL;
+      MachineBasicBlock *fallthrough = last && last->FallthroughTarget ?
+                                       last->FallthroughTarget->MBB : NULL;
 
       double maxCrit = ready.begin()->criticality;
 
@@ -1262,23 +1271,37 @@ namespace llvm {
     /// the actual fall-through target.
     void fixupFallThrough(ablock *block, MachineBasicBlock *layout_successor) {
       MachineBasicBlock *fallthrough = block->MBB;
-      MachineBasicBlock *target = block->FallthroughTarget;
+      ablock *target = block->FallthroughTarget;
 
       if (!target) {
         // No target, the block might contain a call to a noreturn function.
         return;
       }
 
+      assert(target->MBB && "Fallthrough target is set but has no MBB.");
+
       // fix-up needed?
-      if (target != layout_successor) {
+      if (target->MBB != layout_successor) {
+
+        // Check if we jump to a different region
+        unsigned Opc = block->Region == target->Region ? Patmos::BRu
+                                                       : Patmos::BRCFu;
+
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
         AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Patmos::BRu))).addMBB(target);
-        for (unsigned i = 0;
-             i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true); i++) {
+                               DebugLoc(), TII.get(Opc))).addMBB(target->MBB);
+
+        MachineBasicBlock::iterator II = fallthrough->end();
+        unsigned cycles = PII.moveUp(*fallthrough, --II);
+
+        // Pad the *end* of the delay slot with NOPs if needed.
+        for (unsigned i = 0; i < cycles; i++) {
           AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
                                  DebugLoc(), TII.get(Patmos::NOP)));
+          NOPsInserted++;
         }
+
+        FallthroughFixups++;
 
         block->FallthroughTarget = NULL;
 
@@ -1358,24 +1381,44 @@ namespace llvm {
       }
 
       if (rewrite) {
-        DEBUG(dbgs() << "Rewrite: branch in " << BR->getParent()->getName()
-                     << "[" << BR->getParent()->getNumber() << "]"
+        MachineBasicBlock &MBB = *BR->getParent();
+
+        DEBUG(dbgs() << "Rewrite: branch in " << MBB.getName()
+                     << "[" << MBB.getNumber() << "]"
                      << " branching to " << target->getName()
                      << "[" << target->getNumber() << "]\n");
 
         // Replace br with brcf, fix delay slot size
-        const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
-        BR->setDesc(TII.get(opcode));
+        BR->setDesc(PII.get(opcode));
 
         MachineBasicBlock::instr_iterator II = BR;
-        // move past the end of the BR bundle
-        while (II->isBundledWithSucc()) II++;
-        II++;
-        for (unsigned i = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
-             i < PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false); i++) {
-          AddDefaultPred(BuildMI(*BR->getParent(), II,
-                                 DebugLoc(), TII.get(Patmos::NOP)));
+        // move to the beginning of the BR bundle
+        while (II->isBundledWithPred()) II--;
+
+        int delaySlots = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
+        int cycles =     delaySlots -
+                         PTM.getSubtargetImpl()->getCFLDelaySlotCycles(true);
+
+        MachineBasicBlock::iterator I = II;
+
+        // Only move the instruction up if it has no dependencies on other
+        // instructions.
+        // TODO We could check for latencies of operands here, but defs will
+        // probably always be scheduled in the previous cycle anyway.
+        if (!PII.hasRegUse(&*I) && PII.canRemoveFromSchedule(MBB, I)) {
+          cycles = PII.moveUp(MBB, I, cycles);
         }
+
+        // Add NOPs at the *end* of the branch delay slot, if needed (to avoid
+        // adding NOPs into an overlapping delay slot of another branch)
+        PII.advanceCycles(MBB, I, delaySlots - cycles + 1);
+
+        for (int i = 0; i < cycles; i++) {
+          AddDefaultPred(BuildMI(MBB, I, DebugLoc(), PII.get(Patmos::NOP)));
+          NOPsInserted++;
+        }
+
+        BranchRewrites++;
       }
     }
 
@@ -1533,12 +1576,14 @@ namespace llvm {
     /// applyRegions - reorder and align the basic blocks and fix-up branches.
     void applyRegions(ablocks &order) 
     {
-      // reorder the basic blocks -- while fixing up fall-through branches
-      reorderBlocks(order);
-
       // rewrite branches to use the non-cache variants
       if (!DisableFunctionSplitterRewrite)
         rewriteCode();
+
+      // reorder the basic blocks, while fixing up fall-through branches.
+      // This is done after the branch rewrite, inserting the correct version of
+      // branches here, so they can be properly scheduled.
+      reorderBlocks(order);
     }
 
     /// transferSuccessors - replace uses of OldSucc to uses of NewSucc.
@@ -1712,6 +1757,9 @@ namespace llvm {
       if (mightFallthrough) {
         // we might need to add a BR/BRCF to replace the fallthrough, and NOPs
         // to fill the delay slots
+
+        // TODO this might be too conservative, as we might be able to move
+        // branches up and do not need that many NOPs
         branch_fixups += 4 +
              (mightExitRegion ? exitDelay : localDelay) * 4;
       }
