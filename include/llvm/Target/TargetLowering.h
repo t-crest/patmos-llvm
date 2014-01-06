@@ -2179,6 +2179,10 @@ public:
     return 0;
   }
 
+
+  bool verifyReturnAddressArgumentIsConstant(SDValue Op,
+                                             SelectionDAG &DAG) const;
+
   //===--------------------------------------------------------------------===//
   // Inline Asm Support hooks
   //
