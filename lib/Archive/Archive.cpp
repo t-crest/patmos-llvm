@@ -33,7 +33,7 @@ ArchiveMember::getMemberSize() const {
 
   // If it has a long filename, include the name length
   if (hasLongFilename())
-    result += path.str().length() + 1;
+    result += path.length() + 1;
 
   // If its now odd lengthed, include the padding byte
   if (result % 2 != 0 )
@@ -47,8 +47,8 @@ ArchiveMember::getMemberSize() const {
 ArchiveMember::ArchiveMember()
   : parent(0), path("--invalid--"), flags(0), data(0)
 {
-  info.user = sys::Process::GetCurrentUserId();
-  info.group = sys::Process::GetCurrentGroupId();
+  info.user = sys::process::get_self()->get_id();
+  info.group = 0; // sys::Process::GetCurrentGroupId();
   info.mode = 0777;
   info.fileSize = 0;
   info.modTime = sys::TimeValue::now();
@@ -67,9 +67,9 @@ ArchiveMember::ArchiveMember(Archive* PAR)
 // This method allows an ArchiveMember to be replaced with the data for a
 // different file, presumably as an update to the member. It also makes sure
 // the flags are reset correctly.
-bool ArchiveMember::replaceWith(const sys::Path& newFile, std::string* ErrMsg) {
+bool ArchiveMember::replaceWith(const std::string& newFile, std::string* ErrMsg) {
   bool Exists;
-  if (sys::fs::exists(newFile.str(), Exists) || !Exists) {
+  if (sys::fs::exists(newFile, Exists) || !Exists) {
     if (ErrMsg)
       *ErrMsg = "Can not replace an archive member with a non-existent file";
     return true;
@@ -79,47 +79,51 @@ bool ArchiveMember::replaceWith(const sys::Path& newFile, std::string* ErrMsg) {
   path = newFile;
 
   // SVR4 symbol tables have an empty name
-  if (path.str() == ARFILE_SVR4_SYMTAB_NAME)
+  if (path == ARFILE_SVR4_SYMTAB_NAME)
     flags |= SVR4SymbolTableFlag;
   else
     flags &= ~SVR4SymbolTableFlag;
 
   // BSD4.4 symbol tables have a special name
-  if (path.str() == ARFILE_BSD4_SYMTAB_NAME)
+  if (path == ARFILE_BSD4_SYMTAB_NAME)
     flags |= BSD4SymbolTableFlag;
   else
     flags &= ~BSD4SymbolTableFlag;
 
   // LLVM symbol tables have a very specific name
-  if (path.str() == ARFILE_LLVM_SYMTAB_NAME)
+  if (path == ARFILE_LLVM_SYMTAB_NAME)
     flags |= LLVMSymbolTableFlag;
   else
     flags &= ~LLVMSymbolTableFlag;
 
   // String table name
-  if (path.str() == ARFILE_STRTAB_NAME)
+  if (path == ARFILE_STRTAB_NAME)
     flags |= StringTableFlag;
   else
     flags &= ~StringTableFlag;
 
   // If it has a slash then it has a path
-  bool hasSlash = path.str().find('/') != std::string::npos;
+  bool hasSlash = path.find('/') != std::string::npos;
   if (hasSlash)
     flags |= HasPathFlag;
   else
     flags &= ~HasPathFlag;
 
   // If it has a slash or its over 15 chars then its a long filename format
-  if (hasSlash || path.str().length() > 15)
+  if (hasSlash || path.length() > 15)
     flags |= HasLongFilenameFlag;
   else
     flags &= ~HasLongFilenameFlag;
 
+  llvm_unreachable("ArchiveMember::replaceWith not supported.");
+
+  // TODO port the following code to the new file stuff to make this work.
+  /*
   // Get the signature and status info
   const char* signature = (const char*) data;
   SmallString<4> magic;
   if (!signature) {
-    sys::fs::get_magic(path.str(), magic.capacity(), magic);
+    sys::fs::get_magic(path, magic.capacity(), magic);
     signature = magic.c_str();
     const sys::FileStatus *FSinfo = path.getFileStatus(false, ErrMsg);
     if (FSinfo)
@@ -137,13 +141,14 @@ bool ArchiveMember::replaceWith(const sys::Path& newFile, std::string* ErrMsg) {
       flags &= ~BitcodeFlag;
       break;
   }
+  */
   return false;
 }
 
 // Archive constructor - this is the only constructor that gets used for the
 // Archive class. Everything else (default,copy) is deprecated. This just
 // initializes and maps the file into memory, if requested.
-Archive::Archive(const sys::Path& filename, LLVMContext& C)
+Archive::Archive(const std::string& filename, LLVMContext& C)
   : archPath(filename), members(), mapfile(0), base(0), symTab(), strtab(),
     symTabSize(0), firstFileOffset(0), modules(), foreignST(0), Context(C) {
 }
@@ -216,13 +221,13 @@ static void getSymbols(Module*M, std::vector<std::string>& symbols) {
 }
 
 // Get just the externally visible defined symbols from the bitcode
-bool llvm::GetBitcodeSymbols(const sys::Path& fName,
+bool llvm::GetBitcodeSymbols(const std::string& fName,
                              LLVMContext& Context,
                              std::vector<std::string>& symbols,
                              std::string* ErrMsg) {
   OwningPtr<MemoryBuffer> Buffer;
   if (error_code ec = MemoryBuffer::getFileOrSTDIN(fName.c_str(), Buffer)) {
-    if (ErrMsg) *ErrMsg = "Could not open file '" + fName.str() + "'" + ": "
+    if (ErrMsg) *ErrMsg = "Could not open file '" + fName + "'" + ": "
                         + ec.message();
     return true;
   }

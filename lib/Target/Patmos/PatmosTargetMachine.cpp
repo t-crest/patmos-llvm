@@ -72,7 +72,6 @@ namespace {
       // Enable preRA MI scheduler.
       if (TM->getSubtargetImpl()->usePreRAMIScheduler(getOptLevel())) {
         enablePass(&MachineSchedulerID);
-        MachineSchedRegistry::setDefault(createPatmosVLIWMachineSched);
       }
       if (TM->getSubtargetImpl()->usePatmosPostRAScheduler(getOptLevel())) {
         initializePatmosPostRASchedulerPass(*PassRegistry::getPassRegistry());
@@ -86,6 +85,11 @@ namespace {
 
     const PatmosSubtarget &getPatmosSubtarget() const {
       return *getPatmosTargetMachine().getSubtargetImpl();
+    }
+
+    virtual ScheduleDAGInstrs *
+    createMachineScheduler(MachineSchedContext *C) const {
+      return createPatmosVLIWMachineSched(C);
     }
 
     virtual bool addInstSelector() {

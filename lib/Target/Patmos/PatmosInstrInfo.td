@@ -214,7 +214,7 @@ def fipat : PatLeaf<(i32 frameindex), [{}], FI_XForm>;
 def JT_XForm : SDNodeXForm<jumptable, [{ return CurDAG->getTargetJumpTable(N->getIndex(), N->getValueType(0), N->getTargetFlags()); }]>;
 def jtpat : Operand<i32>, PatLeaf<(i32 jumptable), [{}], JT_XForm>;
 
-def GS_XForm : SDNodeXForm<globaladdr, [{ return CurDAG->getTargetGlobalAddress(N->getGlobal(), N->getDebugLoc(), N->getValueType(0), N->getOffset(), N->getTargetFlags()); }]>;
+def GS_XForm : SDNodeXForm<globaladdr, [{ return CurDAG->getTargetGlobalAddress(N->getGlobal(), N, N->getValueType(0), N->getOffset(), N->getTargetFlags()); }]>;
 def gspat : PatLeaf<(i32 globaladdr), [{}], GS_XForm>;
 
 def ES_XForm : SDNodeXForm<externalsym, [{ return CurDAG->getTargetExternalSymbol(N->getSymbol(), N->getValueType(0), N->getTargetFlags()); }]>;

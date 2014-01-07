@@ -33,6 +33,7 @@
 #include "llvm/Support/PluginLoader.h"
 
 #include <fstream>
+
 using namespace llvm;
 
 namespace llvm {
@@ -43,25 +44,67 @@ namespace {
   // ChildOutput - This option captures the name of the child output file that
   // is set up by the parent bugpoint process
   cl::opt<std::string> ChildOutput("child-output", cl::ReallyHidden);
+  cl::opt<std::string> OptCmd("opt-command", cl::init(""),
+                              cl::desc("Path to opt. (default: search path "
+                                       "for 'opt'.)"));
 }
 
 /// writeProgramToFile - This writes the current "Program" to the named bitcode
 /// file.  If an error occurs, true is returned.
 ///
+static bool writeProgramToFileAux(tool_output_file &Out, const Module *M) {
+  WriteBitcodeToFile(M, Out.os());
+  Out.os().close();
+  if (!Out.os().has_error()) {
+    Out.keep();
+    return false;
+  }
+  return true;
+}
+
+#if defined(LLVM_ON_UNIX)
+const char EXESuffix[] = "";
+#elif defined (LLVM_ON_WIN32)
+const char EXESuffix[] = "exe";
+#endif
+
+/// Prepend the path to the program being executed
+/// to \p ExeName, given the value of argv[0] and the address of main()
+/// itself. This allows us to find another LLVM tool if it is built in the same
+/// directory. An empty string is returned on error; note that this function
+/// just mainpulates the path and doesn't check for executability.
+/// @brief Find a named executable.
+static std::string PrependMainExecutablePath(const std::string &ExeName,
+                                             const char *Argv0,
+                                             void *MainAddr) {
+  // Check the directory that the calling program is in.  We can do
+  // this if ProgramPath contains at least one / character, indicating that it
+  // is a relative path to the executable itself.
+  std::string Main = sys::fs::getMainExecutable(Argv0, MainAddr);
+  StringRef Result = sys::path::parent_path(Main);
+
+  if (!Result.empty()) {
+    SmallString<128> Storage = Result;
+    sys::path::append(Storage, ExeName);
+    sys::path::replace_extension(Storage, EXESuffix);
+    return Storage.str();
+  }
+
+  return Result.str();
+}
+
+bool BugDriver::writeProgramToFile(const std::string &Filename, int FD,
+                                   const Module *M) const {
+  tool_output_file Out(Filename.c_str(), FD);
+  return writeProgramToFileAux(Out, M);
+}
+
 bool BugDriver::writeProgramToFile(const std::string &Filename,
                                    const Module *M) const {
   std::string ErrInfo;
-  tool_output_file Out(Filename.c_str(), ErrInfo,
-                       raw_fd_ostream::F_Binary);
-  if (ErrInfo.empty()) {
-    WriteBitcodeToFile(M, Out.os());
-    Out.os().close();
-    if (!Out.os().has_error()) {
-      Out.keep();
-      return false;
-    }
-  }
-  Out.os().clear_error();
+  tool_output_file Out(Filename.c_str(), ErrInfo, sys::fs::F_Binary);
+  if (ErrInfo.empty())
+    return writeProgramToFileAux(Out, M);
   return true;
 }
 
@@ -114,47 +157,47 @@ bool BugDriver::runPasses(Module *Program,
                           const char * const *ExtraArgs) const {
   // setup the output file name
   outs().flush();
-  sys::Path uniqueFilename(OutputPrefix + "-output.bc");
-  std::string ErrMsg;
-  if (uniqueFilename.makeUnique(true, &ErrMsg)) {
+  SmallString<128> UniqueFilename;
+  error_code EC = sys::fs::createUniqueFile(
+      OutputPrefix + "-output-%%%%%%%.bc", UniqueFilename);
+  if (EC) {
     errs() << getToolName() << ": Error making unique filename: "
-           << ErrMsg << "\n";
-    return(1);
-  }
-  OutputFilename = uniqueFilename.str();
-
-  // set up the input file name
-  sys::Path inputFilename(OutputPrefix + "-input.bc");
-  if (inputFilename.makeUnique(true, &ErrMsg)) {
-    errs() << getToolName() << ": Error making unique filename: "
-           << ErrMsg << "\n";
-    return(1);
-  }
-
-  std::string ErrInfo;
-  tool_output_file InFile(inputFilename.c_str(), ErrInfo,
-                          raw_fd_ostream::F_Binary);
-
-
-  if (!ErrInfo.empty()) {
-    errs() << "Error opening bitcode file: " << inputFilename.str() << "\n";
+           << EC.message() << "\n";
     return 1;
   }
+  OutputFilename = UniqueFilename.str();
+
+  // set up the input file name
+  SmallString<128> InputFilename;
+  int InputFD;
+  EC = sys::fs::createUniqueFile(OutputPrefix + "-input-%%%%%%%.bc", InputFD,
+                                 InputFilename);
+  if (EC) {
+    errs() << getToolName() << ": Error making unique filename: "
+           << EC.message() << "\n";
+    return 1;
+  }
+
+  tool_output_file InFile(InputFilename.c_str(), InputFD);
+
   WriteBitcodeToFile(Program, InFile.os());
   InFile.os().close();
   if (InFile.os().has_error()) {
-    errs() << "Error writing bitcode file: " << inputFilename.str() << "\n";
+    errs() << "Error writing bitcode file: " << InputFilename << "\n";
     InFile.os().clear_error();
     return 1;
   }
 
-  // Try searching for a matching version of opt first.
-  sys::Path tool = PrependMainExecutablePath("opt", getToolName(),
-                                             (void*)"opt");
-  if (tool.empty() || !llvm::sys::fs::exists(tool.str())) {
-    // Search in PATH only if we cannot find opt in the same dir as bugpoint.
-    tool = sys::Program::FindProgramByName("opt");
+  std::string tool = OptCmd;
+
+  if (tool.empty()) {
+    // Try searching for a matching version of opt first.
+    tool = PrependMainExecutablePath("opt", getToolName(), (void*)"opt");
+    if (tool.empty() || !llvm::sys::fs::exists(tool)) {
+      tool = sys::FindProgramByName("opt");
+    }
   }
+
   if (tool.empty()) {
     errs() << "Cannot find `opt' in PATH!\n";
     return 1;
@@ -165,14 +208,13 @@ bool BugDriver::runPasses(Module *Program,
 
   // setup the child process' arguments
   SmallVector<const char*, 8> Args;
-  std::string Opt = tool.str();
   if (UseValgrind) {
     Args.push_back("valgrind");
     Args.push_back("--error-exitcode=1");
     Args.push_back("-q");
     Args.push_back(tool.c_str());
   } else
-    Args.push_back(Opt.c_str());
+    Args.push_back(tool.c_str());
 
   Args.push_back("-o");
   Args.push_back(OutputFilename.c_str());
@@ -189,7 +231,7 @@ bool BugDriver::runPasses(Module *Program,
   for (std::vector<std::string>::const_iterator I = pass_args.begin(),
        E = pass_args.end(); I != E; ++I )
     Args.push_back(I->c_str());
-  Args.push_back(inputFilename.c_str());
+  Args.push_back(InputFilename.c_str());
   for (unsigned i = 0; i < NumExtraArgs; ++i)
     Args.push_back(*ExtraArgs);
   Args.push_back(0);
@@ -200,27 +242,28 @@ bool BugDriver::runPasses(Module *Program,
         errs() << "\n";
         );
 
-  sys::Path prog;
+  std::string Prog;
   if (UseValgrind)
-    prog = sys::Program::FindProgramByName("valgrind");
+    Prog = sys::FindProgramByName("valgrind");
   else
-    prog = tool;
+    Prog = tool;
 
   // Redirect stdout and stderr to nowhere if SilencePasses is given
-  sys::Path Nowhere;
-  const sys::Path *Redirects[3] = {0, &Nowhere, &Nowhere};
+  StringRef Nowhere;
+  const StringRef *Redirects[3] = {0, &Nowhere, &Nowhere};
 
-  int result = sys::Program::ExecuteAndWait(prog, Args.data(), 0,
-                                            (SilencePasses ? Redirects : 0),
-                                            Timeout, MemoryLimit, &ErrMsg);
+  std::string ErrMsg;
+  int result = sys::ExecuteAndWait(Prog, Args.data(), 0,
+                                   (SilencePasses ? Redirects : 0), Timeout,
+                                   MemoryLimit, &ErrMsg);
 
   // If we are supposed to delete the bitcode file or if the passes crashed,
   // remove it now.  This may fail if the file was never created, but that's ok.
   if (DeleteOutput || result != 0)
-    sys::Path(OutputFilename).eraseFromDisk();
+    sys::fs::remove(OutputFilename);
 
   // Remove the temporary input file as well
-  inputFilename.eraseFromDisk();
+  sys::fs::remove(InputFilename.c_str());
 
   if (!Quiet) {
     if (result == 0)
@@ -268,6 +311,6 @@ Module *BugDriver::runPassesOn(Module *M,
            << BitcodeResult << "'!\n";
     exit(1);
   }
-  sys::Path(BitcodeResult).eraseFromDisk();  // No longer need the file on disk
+  sys::fs::remove(BitcodeResult);
   return Ret;
 }

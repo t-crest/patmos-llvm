@@ -44,21 +44,23 @@ MCOperand PatmosMCInstLower::LowerSymbolOperand(const MachineOperand &MO, unsign
     Symbol = MO.getMBB()->getSymbol();
     break;
   case MachineOperand::MO_GlobalAddress:
-    Symbol = Printer.Mang->getSymbol(MO.getGlobal());
+    Symbol = Printer.getSymbol(MO.getGlobal());
+    Offset += MO.getOffset();
     break;
   case MachineOperand::MO_BlockAddress:
     Symbol = Printer.GetBlockAddressSymbol(MO.getBlockAddress());
+    Offset += MO.getOffset();
     break;
   case MachineOperand::MO_ExternalSymbol:
     Symbol = Printer.GetExternalSymbolSymbol(MO.getSymbolName());
+    Offset += MO.getOffset();
     break;
   case MachineOperand::MO_JumpTableIndex:
     Symbol = Printer.GetJTISymbol(MO.getIndex());
     break;
   case MachineOperand::MO_ConstantPoolIndex:
     Symbol = Printer.GetCPISymbol(MO.getIndex());
-    if (MO.getOffset())
-      Offset += MO.getOffset();
+    Offset += MO.getOffset();
     break;
 
   default: llvm_unreachable("unknown symbol operand type");

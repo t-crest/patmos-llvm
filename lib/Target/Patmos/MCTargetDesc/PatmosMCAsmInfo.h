@@ -18,23 +18,15 @@
 #include "llvm/MC/MCAsmInfo.h"
 
 namespace llvm {
-  class Target;
-
   enum PrintBytesLevel {
     PrintAsEncoded = 0, PrintCallAsBytes, PrintAllAsBytes
   };
 
   class PatmosMCAsmInfo : public MCAsmInfo {
-    private:
-      const Target &T;
-
     public:
-      explicit PatmosMCAsmInfo(const Target &T, StringRef TT);
+      explicit PatmosMCAsmInfo(StringRef TT);
 
       virtual ~PatmosMCAsmInfo() {}
-
-      // This is a nasty workaround to get Target info where we otherwise not have it
-      const Target &getTarget() const { return T; }
   };
 
 } // namespace llvm

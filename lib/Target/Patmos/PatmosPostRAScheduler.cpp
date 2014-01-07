@@ -267,7 +267,7 @@ PostRASchedContext::~PostRASchedContext() {
 ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
                                      PostRASchedStrategy *S)
   : ScheduleDAGInstrs(*C->MF, *C->MLI, *C->MDT, /*IsPostRA=*/true),
-    SchedImpl(S), DFSResult(0), Topo(SUnits, &ExitSU), AA(C->AA),
+    SchedImpl(S), DFSResult(0), Topo(SUnits, &ExitSU), EndIndex(0), AA(C->AA),
     LiveRegs(TRI->getNumRegs())
 {
   // We need liveness infos for accurate latencies between schedule regions
@@ -351,6 +351,8 @@ void ScheduleDAGPostRA::enterRegion(MachineBasicBlock *bb,
                  MachineBasicBlock::iterator begin,
                  MachineBasicBlock::iterator end,
                  unsigned endcount) {
+  EndIndex = endcount;
+
   // Call observe over the range of the previously scheduled region
   if (AntiDepBreak != NULL && end != bb->end())
     AntiDepBreak->Observe(end, endcount, EndIndex);

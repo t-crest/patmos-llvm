@@ -40,7 +40,7 @@ class PatmosInstrAnalyzer : public MCNullStreamer {
   bool call;
 public:
   PatmosInstrAnalyzer(MCContext &ctx)
-    : MCNullStreamer(ctx), MII(ctx.getInstrInfo()), count(0), size(0),
+    : MCNullStreamer(ctx), MII(*ctx.getInstrInfo()), count(0), size(0),
       call(false)
     {
     }
