@@ -53,6 +53,11 @@ namespace llvm {
 
     virtual EVT getSetCCResultType(EVT VT) const;
 
+    virtual unsigned getByValTypeAlignment(Type *Ty) const LLVM_OVERRIDE {
+      // Align any type passed by value on the stack to words
+      return 4;
+    }
+
     /******************************************************************
      * Jump Tables
      ******************************************************************/
