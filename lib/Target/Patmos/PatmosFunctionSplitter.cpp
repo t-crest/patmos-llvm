@@ -23,6 +23,10 @@
 // forest construction). For non-natural loops a new header block is inserted.
 // For each header of an SCC the total size of the SCC is computed.
 //
+// Artificial non-natural loop headers never become region headers, instead
+// all their successors become new region headers (which are NOT loop headers of
+// that non-natural loop).
+//
 // Once the CFG is acyclic, the blocks are processed in a topological order (the
 // order itself is not relevant). We then grow regions by adding new blocks when
 // they are visited as follows:
@@ -40,9 +44,7 @@
 //
 // Jump tables require some special handling, since either all targets of the
 // table either have to be region entries or have to be in the same region as 
-// all indirect branches using that table. This is handled by turning the 
-// successors or an indirect branch into an SCC, which is handled by case c) 
-// from above.
+// all indirect branches using that table.
 // 
 //===----------------------------------------------------------------------===//
 
@@ -117,6 +119,12 @@ static cl::opt<int> PreferSubfunctionSize(
         "mpatmos-max-subfunction-size if 0. Larger basic blocks and inline asm "
         "are not split."));
 
+static cl::opt<int> PreferSCCSize(
+    "mpatmos-preferred-scc-size",
+    cl::init(0),
+    cl::desc("Preferred maximum size for SCC subfunctions, defaults to "
+             "mpatmos-preferred-subfunction-size if 0."));
+
 static cl::opt<int> MaxSubfunctionSize(
     "mpatmos-max-subfunction-size",
     cl::init(1024),
@@ -140,6 +148,8 @@ namespace llvm {
   STATISTIC(FallthroughFixups, "Branches added for fall-throughs after function splitting");
   STATISTIC(BranchRewrites, "Branches rewritten to BRCFs");
   STATISTIC(NOPsInserted, "NOPs inserted by function splitter");
+  STATISTIC(PostDomsFound, "Post dominators checked");
+  STATISTIC(PostDomsAdded, "Post dominators added by increasing region size");
 
   class ablock;
   class agraph;
@@ -324,17 +334,24 @@ namespace llvm {
     const PatmosSubtarget &STC;
     const PatmosInstrInfo &PII;
 
+    unsigned PreferredRegionSize;
+    unsigned PreferredSCCSize;
     unsigned MaxRegionSize;
 
     PMLMCQuery *PML;
     PMLQuery::BlockDoubleMap Criticalities;
 
+    MachinePostDominatorTree &MPDT;
+
     /// Construct a graph from a machine function.
     agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml,
-           unsigned int preferredRegionSize)
+           MachinePostDominatorTree &mpdt, unsigned int preferredRegionSize,
+           unsigned int preferredSCCSize, unsigned int maxRegionSize)
     : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()),
       PII(*tm.getInstrInfo()),
-      MaxRegionSize(preferredRegionSize), PML(pml)
+      PreferredRegionSize(preferredRegionSize),
+      PreferredSCCSize(preferredSCCSize), MaxRegionSize(maxRegionSize),
+      PML(pml), MPDT(mpdt)
     {
       Blocks.reserve(mf->size());
 
@@ -976,6 +993,17 @@ namespace llvm {
       }
     }
 
+    /// hasRegionHeaders - check if a SCC contains blocks that have been
+    /// marked as region headers other than the current region.
+    bool hasRegionHeaders(ablock *region, ablocks &scc) {
+      for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++) {
+        if ((*i)->Region != region && (*i)->Region != NULL) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     /// increaseRegion - check if we can add all blocks in the SCC to the region,
     /// handling any jump tables. If so, update the region info and update the
     /// scc with additional blocks to emit to the region. If it is not
@@ -983,7 +1011,8 @@ namespace llvm {
     bool increaseRegion(ablock *region, ablock *header, ablocks &scc,
                         unsigned &scc_size,
                         bool &has_call, unsigned &region_size,
-                        ready_set &ready, ablock_set &regions)
+                        ready_set &ready, ablock_set &regions,
+                        unsigned preferred_size)
     {
       // Special case: if we are already starting a new region (the header
       // is the current region entry), then emit it in any case, and do not
@@ -997,9 +1026,22 @@ namespace llvm {
         return true;
       }
 
+      unsigned int maxSize = preferred_size;
+      bool isPostDom = false;
+
+      // If the block post-dominates the header, add it in any case as long
+      // as it fits into the cache
+      if (region->MBB && header->MBB &&
+          MPDT.properlyDominates(header->MBB, region->MBB))
+      {
+        maxSize = MaxRegionSize;
+        isPostDom = true;
+        PostDomsFound++;
+      }
+
       // Check for size only after we checked for headers to allow large
-      // inline asm.
-      if (region_size + scc_size > MaxRegionSize) {
+      // basic blocks.
+      if (region_size + scc_size > maxSize) {
         // Early exit..
         return false;
       }
@@ -1089,7 +1131,7 @@ namespace llvm {
       }
 
       // Now check again for size constraints, now including the full jump table
-      if (region_size + scc_size > MaxRegionSize) {
+      if (region_size + scc_size > maxSize) {
         return false;
       }
 
@@ -1097,6 +1139,9 @@ namespace llvm {
       // should we do this in the caller? Nah, would just duplicate the code..
       region_size += scc_size;
       region->HasCall |= has_call;
+
+      // update statistics
+      if (isPostDom && region_size > PreferredRegionSize) PostDomsAdded++;
 
       return true;
     }
@@ -1118,58 +1163,31 @@ namespace llvm {
       }
       else if (block->SCCSize == 0 || region == block) {
 
-        // This block is either not in an SCC or starts a new region
+        // This block is not a SCC and/or starts a new region
         assert((region != block || region_size == 0) &&
                "Block starts a region but region size is not null");
         assert((region != block || block->MBB) &&
                "Artificial SCC header is not supposed to start a new region");
 
-        unsigned block_size = block->Size +
-                             getMaxBlockMargin(PTM, region, region_size, block);
-        bool has_call = block->HasCall;
+        // Special case: if we start a new region with a header of a natural
+        // loop that does not contain calls, we try to add the whole SCC using
+        // a different size limit first.
+        // TODO maybe move the code to decide whether to emit a block or its
+        // whole SCC into increaseRegion, merge the if's here.
 
-#ifdef PATMOS_TRACE_VISITS
-        DEBUG(dbgs() << "  block size: " << block_size << " ("
-                     << block->Size << " + "
-                     << getMaxBlockMargin(PTM, region, region_size, block)
-                     << "), hasCall: " << has_call << "\n");
-#endif
-
-        ablocks blocks;
-        blocks.push_back(block);
-
-        // regular block that is not a loop header or a loop header in its own
-        // region
-        if (increaseRegion(region, block, blocks, block_size, has_call,
-                           region_size, ready, regions))
-        {
-          // emit the blocks of the SCC and update the ready list
-          emitSCC(region, blocks, ready, regions, order);
-
-#ifdef PATMOS_TRACE_VISITS
-          DEBUG(dbgs() << "... emitted " << region_size << "\n");
-#endif
-        }
-        else {
-          // This should not be an artificial header here (?)
-          assert(block->MBB);
-
-          // some block in the region, make it a new region header
-          emitRegion(region, block, ready, regions);
-
-#ifdef PATMOS_TRACE_VISITS
-          DEBUG(dbgs() << "... new region\n");
-#endif
-        }
-      }
-      else {
-        // loop header of some loop, not region entry
-
-        // Note: this might add blocks to SCC and SCCSize, but we are done
-        // with this loop header after this anyway, no need to make temp copies.
-        if (increaseRegion(region, block, block->SCC, block->SCCSize,
+        // Note: This might change block->SCC, but we are done with the SCC
+        // after this call in any case (as this is a region header and will not
+        // be visited again).
+        // Note: Order of checks is important here. We need to check if any of
+        // the blocks in the SCC has been marked as a region header via a
+        // jump table, as we might emit an SCC that covers multiple jump table
+        // entries of a jump table that does not fit into a single region.
+        if (region == block &&
+            block->MBB && block->SCCSize > 0 && !block->HasCallinSCC &&
+            increaseRegion(region, block, block->SCC, block->SCCSize,
                            block->HasCallinSCC,
-                           region_size, ready, regions))
+                           region_size, ready, regions, PreferredSCCSize) &&
+            !hasRegionHeaders(region, block->SCC))
         {
           // emit all blocks of the SCC and update the ready list
           emitSCC(region, block->SCC, ready, regions, order);
@@ -1179,7 +1197,74 @@ namespace llvm {
 #endif
         }
         else {
-          // mark the header of a natural/non-natural loop as a new region,
+
+          // Either an SCC region header that does not fit or a regular block or
+          // region header
+
+          unsigned block_size = block->Size +
+                               getMaxBlockMargin(PTM, region, region_size, block);
+          bool has_call = block->HasCall;
+
+  #ifdef PATMOS_TRACE_VISITS
+          DEBUG(dbgs() << "  block size: " << block_size << " ("
+                       << block->Size << " + "
+                       << getMaxBlockMargin(PTM, region, region_size, block)
+                       << "), hasCall: " << has_call << "\n");
+  #endif
+
+          ablocks blocks;
+          blocks.push_back(block);
+
+          if (increaseRegion(region, block, blocks, block_size, has_call,
+                             region_size, ready, regions, PreferredRegionSize))
+          {
+            // emit the blocks of the SCC and update the ready list
+            emitSCC(region, blocks, ready, regions, order);
+
+  #ifdef PATMOS_TRACE_VISITS
+            DEBUG(dbgs() << "... emitted " << region_size << "\n");
+  #endif
+          }
+          else {
+            // This should not be an artificial header here
+            assert(block->MBB);
+            // This should not be a region entry here
+            assert(region != block && "increaseRegion failed on region header");
+
+            // some block in the region, make it a new region header
+            emitRegion(region, block, ready, regions);
+
+  #ifdef PATMOS_TRACE_VISITS
+            DEBUG(dbgs() << "... new region\n");
+  #endif
+          }
+        }
+      }
+      else {
+        // loop header of some natural/non-natural loop, not a region entry
+
+        // TODO If the region is quite small and the SCC has no calls, maybe
+        // use SCCSize instead of RegionSize as threshold. Note that
+        // increaseRegion might already increase the size limit on its own if
+        // this loop header post-dominates the region.
+
+        // Note: This might add blocks to SCC and SCCSize, but we are done
+        // with this loop header after this anyway, no need to make temp copies.
+        // Note: At this point we can be sure that the SCC does not contain
+        // region entries, otherwise the header would be a region entry itself.
+        if (increaseRegion(region, block, block->SCC, block->SCCSize,
+                           block->HasCallinSCC,
+                           region_size, ready, regions, PreferredRegionSize))
+        {
+          // emit all blocks of the SCC and update the ready list
+          emitSCC(region, block->SCC, ready, regions, order);
+
+#ifdef PATMOS_TRACE_VISITS
+          DEBUG(dbgs() << "... emitted (SCC) " << region_size << "\n");
+#endif
+        }
+        else {
+          // mark the header(s) of a natural/non-natural loop as a new region,
           // taking care of jump tables
           emitRegion(region, block, ready, regions);
 
@@ -1975,7 +2060,10 @@ namespace llvm {
       unsigned prefer_subfunc_size = PreferSubfunctionSize ?
                                                        PreferSubfunctionSize
                                                      : max_subfunc_size;
+      unsigned prefer_scc_size = PreferSCCSize ? PreferSCCSize
+                                               : prefer_subfunc_size;
       prefer_subfunc_size = std::min(max_subfunc_size, prefer_subfunc_size);
+      prefer_scc_size = std::min(max_subfunc_size, prefer_scc_size);
 
       unsigned total_size = 0;
       bool blocks_splitted = false;
@@ -2006,7 +2094,8 @@ namespace llvm {
 
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
-        agraph G(&MF, PTM, PI.createMCQuery(*this, MF), prefer_subfunc_size);
+        agraph G(&MF, PTM, PI.createMCQuery(*this, MF), MPDT,
+                 prefer_subfunc_size, prefer_scc_size, max_subfunc_size);
         G.transformSCCs();
 
         // compute regions -- i.e., split the function
