@@ -20,14 +20,15 @@ def FALUi   : Format<2>;  // ALU with 12bit immediate
 def FALUl   : Format<3>;  // 64bit long immediate instructions
 def FALUc   : Format<4>;  // Compare of registers
 def FALUp   : Format<5>;  // Combine predicates
-def FLDT    : Format<6>;  // Memory ops with 7bit offset
-def FSTT    : Format<7>;  // Memory ops with 7bit offset
-def FSTCi   : Format<8>;  // Stack control with 18bit immediate
-def FSTCr   : Format<9>;  // Stack control with register
-def FCFLi   : Format<10>; // Program flow control with 22bit immediate
-def FCFLri  : Format<11>; // Program flow control with registers
-def FCFLrs  : Format<12>; // Program flow control with registers
-def FCFLrt  : Format<13>; // Program flow control with registers
+def FALUci  : Format<6>;  // Compare of register and immediate
+def FLDT    : Format<7>;  // Memory ops with 7bit offset
+def FSTT    : Format<8>;  // Memory ops with 7bit offset
+def FSTCi   : Format<9>;  // Stack control with 18bit immediate
+def FSTCr   : Format<10>;  // Stack control with register
+def FCFLi   : Format<11>; // Program flow control with 22bit immediate
+def FCFLri  : Format<12>; // Program flow control with registers
+def FCFLrs  : Format<13>; // Program flow control with registers
+def FCFLrt  : Format<14>; // Program flow control with registers
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -244,6 +245,24 @@ class ALUc<bits<4> func,
   let Inst{19-17} = pd;
   let Inst{16-12} = rs1;
   let Inst{11-7}  = rs2;
+}
+
+// ALUci - Compare Immediate
+//
+class ALUci<bits<4> func,
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<func, outs, ins, op, asmstr, pattern, FALUci, IIC_ALUci> {
+
+  let Opc = 0b110;
+
+  // unbound fields
+  bits<3> pd;
+  bits<5> rs1;
+  bits<5> imm;
+
+  let Inst{19-17} = pd;
+  let Inst{16-12} = rs1;
+  let Inst{11-7}  = imm;
 }
 
 // ALUp - Predicate Combine

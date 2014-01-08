@@ -27,6 +27,7 @@ def PB_SPR     : Bypass;   // Bypass SPR registers (?)
 def IIC_ALUr   : InstrItinClass;
 def IIC_ALUi   : InstrItinClass;
 def IIC_ALUc   : InstrItinClass;
+def IIC_ALUci  : InstrItinClass;
 def IIC_ALUp   : InstrItinClass;
 def IIC_ALUic  : InstrItinClass; // variant of ALUi for CMOV
 // long immediate op
@@ -124,6 +125,9 @@ def PatmosGenericItineraries : ProcessorItineraries<
     InstrItinData<IIC_ALUc,   [ InstrStage<1, [FU_ALU0, FU_ALU1]> ],
                               [ 2, 2, 2, 1, 1 ], 
 			      [ PB_GPR, NoBypass, NoBypass, PB_GPR, PB_GPR ] >,
+    InstrItinData<IIC_ALUci,  [ InstrStage<1, [FU_ALU0, FU_ALU1]> ],
+                              [ 2, 2, 2, 1 ], 
+			      [ PB_GPR, NoBypass, NoBypass, PB_GPR ] >,
     InstrItinData<IIC_ALUp,   [ InstrStage<1, [FU_ALU0, FU_ALU1]> ],
                               [ 2, 2, 2, 2, 2, 2, 2 ] >, 
     InstrItinData<IIC_ALUl,   [ InstrStage<1, [FU_ALU0]> ],

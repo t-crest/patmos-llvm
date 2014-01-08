@@ -243,23 +243,28 @@ def : Pat<(setlt  RRegs:$a, RRegs:$b), (CMPLT  RRegs:$a, RRegs:$b)>;
 def : Pat<(setle  RRegs:$a, RRegs:$b), (CMPLE  RRegs:$a, RRegs:$b)>;
 def : Pat<(setult RRegs:$a, RRegs:$b), (CMPULT RRegs:$a, RRegs:$b)>;
 def : Pat<(setule RRegs:$a, RRegs:$b), (CMPULE RRegs:$a, RRegs:$b)>;
-// we find paterns for inverted conditions (instead of Patmos pseudo instructions)
+// we find patterns for inverted conditions (instead of Patmos pseudo instructions)
 def : Pat<(setgt  RRegs:$b, RRegs:$a), (CMPLT  RRegs:$a, RRegs:$b)>;
 def : Pat<(setge  RRegs:$b, RRegs:$a), (CMPLE  RRegs:$a, RRegs:$b)>;
 def : Pat<(setugt RRegs:$b, RRegs:$a), (CMPULT RRegs:$a, RRegs:$b)>;
 def : Pat<(setuge RRegs:$b, RRegs:$a), (CMPULE RRegs:$a, RRegs:$b)>;
+
+def : Pat<(seteq  RRegs:$a, uimm5:$b), (CMPIEQ  RRegs:$a, uimm5:$b)>;
+def : Pat<(setne  RRegs:$a, uimm5:$b), (CMPINEQ RRegs:$a, uimm5:$b)>;
+def : Pat<(setlt  RRegs:$a, uimm5:$b), (CMPILT  RRegs:$a, uimm5:$b)>;
+def : Pat<(setle  RRegs:$a, uimm5:$b), (CMPILE  RRegs:$a, uimm5:$b)>;
+def : Pat<(setult RRegs:$a, uimm5:$b), (CMPIULT RRegs:$a, uimm5:$b)>;
+def : Pat<(setule RRegs:$a, uimm5:$b), (CMPIULE RRegs:$a, uimm5:$b)>;
 
 // FIXME DP:
 // we would also need a pattern for == 0, and invert the use of the result
 // but I have no clue how to achieve that in an elegant way.
 def : Pat<(setne (and RRegs:$a, (shl (i32 1), RRegs:$b)), (i32 0)),
           (BTEST RRegs:$a, RRegs:$b)>;
-/* following saves only for a btest imm variant
 def : Pat<(setne (and RRegs:$a, uimm5mask:$b), (i32 0)),
-          (BTEST RRegs:$a, uimm5mask:$b)>;
-def : Pat<(seteq (and RRegs:$a, uimm5mask:$b), uimm5mask:$b),
-          (BTEST RRegs:$a, uimm5mask:$b)>;
-*/
+          (BTESTI RRegs:$a, uimm5mask:$b)>;
+def : Pat<(seteq (and RRegs:$a, uimm5imask:$b), uimm5imask:$b),
+          (BTESTI RRegs:$a, uimm5imask:$b)>;
 
 // Predicate Combine patterns
 

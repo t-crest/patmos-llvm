@@ -154,7 +154,7 @@ def addr : ComplexPattern<iPTR, 2, "SelectAddr", [], []>;
 
 // offset of indexed load/store
 def uimm7    : Operand<i32>, PatLeaf<(imm), [{return isUInt<7>(N->getZExtValue());}]>;
-def imm7     : Operand<i32>, PatLeaf<(imm), [{return isInt <7>(N->getSExtValue());}]>;
+def imm7     : Operand<i32>, PatLeaf<(imm), [{return isInt <7>(N->getZExtValue());}]>;
 
 // ALUi
 def uimm12   : Operand<i32>, PatLeaf<(imm), [{return isUInt<12>(N->getZExtValue());}]>;
@@ -165,7 +165,7 @@ def uimm18   : Operand<i32>, PatLeaf<(imm), [{return isUInt<18>(N->getZExtValue(
 // Call/Branch
 def uimm22   : Operand<i32>, PatLeaf<(imm), [{return isUInt<22>(N->getZExtValue());}]>;
 def imm22    : Operand<i32>, PatLeaf<(imm), [{return isInt <22>(N->getSExtValue());}]>;
-// Trap
+// Compare immediate, Trap
 def uimm5    : Operand<i32>, PatLeaf<(imm), [{return isUInt<5>(N->getZExtValue());}]>;
 
 // 32-bit bitmask transformed to a bit number
@@ -710,6 +710,20 @@ def CMPLE  : Compare <"cmple" , 0b0011>;
 def CMPULT : Compare <"cmpult", 0b0100>;
 def CMPULE : Compare <"cmpule", 0b0101>;
 def BTEST  : Compare <"btest" , 0b0110>;
+
+let neverHasSideEffects = 1 in
+class CompareImm<string asmop, bits<4> opcode>
+      : ALUci <opcode,
+              (outs PRegs:$pd), (ins pred:$p, RRegs:$rs1, uimm5:$imm),
+              asmop, "$pd = $rs1, $imm", []>;
+
+def CMPIEQ  : CompareImm <"cmpeq" , 0b0000>;
+def CMPINEQ : CompareImm <"cmpneq", 0b0001>;
+def CMPILT  : CompareImm <"cmplt" , 0b0010>;
+def CMPILE  : CompareImm <"cmple" , 0b0011>;
+def CMPIULT : CompareImm <"cmpult", 0b0100>;
+def CMPIULE : CompareImm <"cmpule", 0b0101>;
+def BTESTI  : CompareImm <"btest" , 0b0110>;
 
 // Pseudo instr ISODD uses btest opcode
 let rs2 = 0 in

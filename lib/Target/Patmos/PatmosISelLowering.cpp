@@ -168,6 +168,11 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::BR_CC,     MVT::i32,   Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
 
+  setOperationAction(ISD::SETGT,  MVT::i32, Expand);
+  setOperationAction(ISD::SETGE,  MVT::i32, Expand);
+  setOperationAction(ISD::SETUGT, MVT::i32, Expand);
+  setOperationAction(ISD::SETUGE, MVT::i32, Expand);
+
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
 
   // handling of variadic parameters
