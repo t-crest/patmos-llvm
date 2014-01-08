@@ -4401,6 +4401,13 @@ SDValue DAGCombiner::visitVSELECT(SDNode *N) {
     return DAG.getNode(ISD::CONCAT_VECTORS, DL, VT, Lo, Hi);
   }
 
+  // Fold (vselect (build_vector all_ones), N1, N2) -> N1
+  if (ISD::isBuildVectorAllOnes(N0.getNode()))
+    return N1;
+  // Fold (vselect (build_vector all_zeros), N1, N2) -> N2
+  if (ISD::isBuildVectorAllZeros(N0.getNode()))
+    return N2;
+
   return SDValue();
 }
 
