@@ -30,7 +30,6 @@
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/IR/Writer.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
@@ -302,7 +301,7 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
       return;
 
     if (isVerbose()) {
-      WriteAsOperand(OutStreamer.GetCommentOS(), GV,
+      GV->printAsOperand(OutStreamer.GetCommentOS(),
                      /*PrintType=*/false, GV->getParent());
       OutStreamer.GetCommentOS() << '\n';
     }
@@ -481,7 +480,7 @@ void AsmPrinter::EmitFunctionHeader() {
     OutStreamer.EmitSymbolAttribute(CurrentFnSym, MCSA_ELF_TypeFunction);
 
   if (isVerbose()) {
-    WriteAsOperand(OutStreamer.GetCommentOS(), F,
+    F->printAsOperand(OutStreamer.GetCommentOS(),
                    /*PrintType=*/false, F->getParent());
     OutStreamer.GetCommentOS() << '\n';
   }
@@ -1546,7 +1545,7 @@ static const MCExpr *lowerConstant(const Constant *CV, AsmPrinter &AP) {
       std::string S;
       raw_string_ostream OS(S);
       OS << "Unsupported expression in static initializer: ";
-      WriteAsOperand(OS, CE, /*PrintType=*/false,
+      CE->printAsOperand(OS, /*PrintType=*/false,
                      !AP.MF ? 0 : AP.MF->getFunction()->getParent());
       report_fatal_error(OS.str());
     }
