@@ -993,6 +993,26 @@ namespace llvm {
       }
     }
 
+    /// hasJumptableTargets - check if the block or any of its blocks in the
+    /// SCC are jumptable entries.
+    bool hasJumptableTargets(ablock *block) {
+      if (block->JTIDs.size() > 0) {
+        return true;
+      }
+
+      if (block->SCCSize > 0) {
+        for(ablocks::iterator i(block->SCC.begin()), ie(block->SCC.end());
+            i != ie; i++)
+        {
+          if ((*i)->JTIDs.size() > 0) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
     /// hasRegionHeaders - check if a SCC contains blocks that have been
     /// marked as region headers other than the current region.
     bool hasRegionHeaders(ablock *region, ablocks &scc) {
@@ -1015,11 +1035,11 @@ namespace llvm {
                         unsigned preferred_size)
     {
       // Special case: if we are already starting a new region (the header
-      // is the current region entry), then emit it in any case, and do not
-      // add anything to the SCC (all other jump table entries were already
-      // marked as region headers by the previous emitRegion that made this
-      // header a region).
-      if (header == region) {
+      // is the current region entry) with a single block, then emit it in any
+      // case, and do not add anything to the SCC (all other jump table entries
+      // were already marked as region headers by the previous emitRegion that
+      // made this header a region).
+      if (header == region && scc.size() == 1) {
         // Don't forget to update the region info..
         region_size += scc_size;
         region->HasCall |= has_call;
@@ -1178,19 +1198,28 @@ namespace llvm {
         // Note: This might change block->SCC, but we are done with the SCC
         // after this call in any case (as this is a region header and will not
         // be visited again).
-        // Note: Order of checks is important here. We need to check if any of
-        // the blocks in the SCC has been marked as a region header via a
-        // jump table, as we might emit an SCC that covers multiple jump table
-        // entries of a jump table that does not fit into a single region.
+        // Note: We do not allow SCCs that have jump table entries here,
+        // otherwise we would run in all sorts of problems: we could emit
+        // all jump table entries in one region, but the jump is in another
+        // region (we do not emit code for this case (yet)).
         if (region == block &&
             block->MBB && block->SCCSize > 0 && !block->HasCallinSCC &&
+            !hasJumptableTargets(block) &&
             increaseRegion(region, block, block->SCC, block->SCCSize,
                            block->HasCallinSCC,
                            region_size, ready, regions, PreferredSCCSize) &&
             !hasRegionHeaders(region, block->SCC))
         {
+          // ensure that the SCC header is the region header
+          ablocks blocks;
+          blocks.reserve(block->SCC.size());
+          ablocks::iterator it = std::find(block->SCC.begin(), block->SCC.end(),
+                                           block);
+          blocks.insert(blocks.end(), it, block->SCC.end());
+          blocks.insert(blocks.end(), block->SCC.begin(), it);
+
           // emit all blocks of the SCC and update the ready list
-          emitSCC(region, block->SCC, ready, regions, order);
+          emitSCC(region, blocks, ready, regions, order);
 
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << "... emitted (SCC) " << region_size << "\n");
