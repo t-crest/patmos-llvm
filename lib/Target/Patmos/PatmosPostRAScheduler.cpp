@@ -57,7 +57,6 @@
 using namespace llvm;
 
 STATISTIC(NumNoops, "Number of noops inserted");
-STATISTIC(NumStalls, "Number of pipeline stalls");
 STATISTIC(NumFixedAnti, "Number of fixed anti-dependencies");
 STATISTIC(NumBundled, "Number of bundles with size > 1");
 STATISTIC(NumNotBundled, "Number of instructions not bundled");
@@ -68,9 +67,10 @@ static cl::opt<bool> ViewPostRASchedDAGs("view-postra-sched-dags", cl::Hidden,
 
 static cl::opt<std::string>
 EnableAntiDepBreaking("mpatmos-break-anti-dependencies",
-                      cl::desc("Break post-RA scheduling anti-dependencies: "
+                      cl::desc("Override default post-RA scheduling "
+                               "anti-dependencies breaking mode: "
                                "\"critical\", \"all\", or \"none\""),
-                      cl::init("none"), cl::Hidden);
+                      cl::Hidden);
 
 
 // DAG subtrees must have at least this many nodes.
@@ -145,8 +145,6 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
 
   AntiDepMode = TargetSubtargetInfo::ANTIDEP_NONE;
   CriticalPathRCs.clear();
-  // CriticalPathRCs must not be empty
-  CriticalPathRCs.push_back(NULL);
 
   // Check that post-RA scheduling is enabled for this target.
   // This may upgrade the AntiDepMode.
@@ -188,7 +186,7 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
     // The Scheduler may insert instructions during either schedule() or
     // exitRegion(), even for empty regions. So the local iterators 'I' and
     // 'RegionEnd' are invalid across these calls.
-    unsigned RemainingInstrs = MBB->size();
+    unsigned EndIndex = MBB->size();
     for(MachineBasicBlock::iterator RegionEnd = MBB->end();
         RegionEnd != MBB->begin(); RegionEnd = Scheduler->begin()) {
 
@@ -199,15 +197,15 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
             Scheduler->isSchedulingBoundary(RegionEnd, MBB, *MF))
         {
           RegionEnd = llvm::prior(RegionEnd);
-          --RemainingInstrs;
+          --EndIndex;
         }
       }
 
       // The next region starts above the previous region. Look backward in the
       // instruction stream until we find the nearest boundary.
       MachineBasicBlock::iterator I = llvm::prior(RegionEnd);
-      --RemainingInstrs;
-      for(;I != MBB->begin(); --I, --RemainingInstrs) {
+      unsigned StartIndex = EndIndex - 1;
+      for(;I != MBB->begin(); --I, --StartIndex) {
         if (Scheduler->isSchedulingBoundary(llvm::prior(I), MBB, *MF))
           break;
         assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
@@ -216,7 +214,7 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
 
       // Notify the scheduler of the region, even if we may skip scheduling
       // it. Perhaps it still needs to be bundled.
-      Scheduler->enterRegion(MBB, I, RegionEnd, RemainingInstrs);
+      Scheduler->enterRegion(MBB, I, RegionEnd, EndIndex);
 
       // Skip empty scheduling regions.
       if (I == RegionEnd) {
@@ -232,7 +230,7 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
             << "\n  From: " << *I << "    To: ";
             if (RegionEnd != MBB->end()) dbgs() << *RegionEnd;
             else dbgs() << "End";
-            dbgs() << " Remaining: " << RemainingInstrs << "\n");
+            dbgs() << " [" << StartIndex << ", " << EndIndex << ")\n");
 
       // Schedule a region: possibly reorder instructions.
       // This invalidates 'RegionEnd' and 'I'.
@@ -244,8 +242,9 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
       // Scheduling has invalidated the current iterator 'I'. Ask the
       // scheduler for the top of it's scheduled region.
       RegionEnd = Scheduler->begin();
+      EndIndex = StartIndex;
     }
-    assert(RemainingInstrs == 0 && "Instruction count mismatch!");
+    assert(EndIndex == 0 && "Instruction count mismatch!");
     Scheduler->finishBlock();
   }
   Scheduler->finalizeSchedule();
@@ -368,7 +367,7 @@ void ScheduleDAGPostRA::schedule() {
   if (AntiDepBreak != NULL) {
     unsigned Broken =
       AntiDepBreak->BreakAntiDependencies(SUnits, RegionBegin, RegionEnd,
-                                          SUnits.size(), DbgValues);
+                                          EndIndex, DbgValues);
 
     if (Broken != 0) {
       // We made changes. Update the dependency graph.
@@ -414,6 +413,8 @@ void ScheduleDAGPostRA::schedule() {
 
     if (SU && SU->isScheduled) {
       SchedImpl->reschedNode(SU, IsTopNode, IsBundled);
+
+      NumRescheduled++;
     }
     else if (SU) {
       updateQueues(SU, IsTopNode, IsBundled);
@@ -422,6 +423,8 @@ void ScheduleDAGPostRA::schedule() {
     }
     else {
       SchedImpl->schedNoop(IsTopNode);
+
+      NumNoops++;
     }
   }
 

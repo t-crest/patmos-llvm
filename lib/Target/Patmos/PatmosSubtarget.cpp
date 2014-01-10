@@ -96,6 +96,13 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
 bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                    TargetSubtargetInfo::AntiDepBreakMode& Mode,
                                    RegClassVector& CriticalPathRCs) const {
+  Mode = ANTIDEP_NONE;
+  // TODO enable this once anti-dep breaker is fixed
+  //Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
+
+  CriticalPathRCs.push_back(&Patmos::RRegsRegClass);
+  CriticalPathRCs.push_back(&Patmos::PRegsRegClass);
+
   return hasPostRAScheduler(OptLevel);
 }
 
