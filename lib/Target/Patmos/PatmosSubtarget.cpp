@@ -41,7 +41,7 @@ static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
                      cl::init(4096),
                      cl::desc("Total size of the instruction cache in bytes "
-                              "(default 1024)"));
+                              "(default 4096)"));
 
 static cl::opt<unsigned> MinSubfunctionAlign("mpatmos-subfunction-align",
                    cl::init(64),
