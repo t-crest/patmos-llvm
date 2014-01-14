@@ -170,7 +170,7 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
 
   TargetMachine *target = march->createTargetMachine(TripleStr, CPU, FeatureStr,
                                                      options);
-  m->MaterializeAllPermanently();
+  m->materializeAllPermanently();
 
   LTOModule *Ret = new LTOModule(m.take(), target);
   if (Ret->parseSymbols(errMsg)) {
