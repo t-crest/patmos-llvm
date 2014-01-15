@@ -18,6 +18,7 @@
 #include "Patmos.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/Target/TargetLowering.h"
 
 namespace llvm {
@@ -39,6 +40,14 @@ namespace llvm {
 
   class PatmosSubtarget;
   class PatmosTargetMachine;
+
+  class PatmosTargetObjectFile : public TargetLoweringObjectFileELF {
+  public:
+    void Initialize(MCContext &Ctx, const TargetMachine &TM) {
+      TargetLoweringObjectFileELF::Initialize(Ctx, TM);
+      InitializeELF(true); // set UseInitArray to true
+    }
+  };
 
   class PatmosTargetLowering : public TargetLowering {
   public:
