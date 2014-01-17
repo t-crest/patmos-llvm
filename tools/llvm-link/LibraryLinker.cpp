@@ -82,7 +82,13 @@ LibraryLinker::addPaths(const std::vector<std::string>& paths) {
 
 void
 LibraryLinker::addSystemPaths() {
-  sys::Path::GetBitcodeLibraryPaths(LibPaths);
+  // This must match PatmosBaseTool::FindBitcodeLibPaths in Tools.cpp.
+  //
+  // Should we check for any system paths like /usr/bin or for 
+  // LD_LIBRARY_PATH? Most likely people will not install bitcode
+  // libraries to those locations, and we could still handle this
+  // via the gold/lld linker.. in theory. A LIBRARY_PATH envvar
+  // is passed via -L options by clang.
   LibPaths.insert(LibPaths.begin(),sys::Path("./"));
 }
 
