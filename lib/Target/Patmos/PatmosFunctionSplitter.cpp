@@ -259,6 +259,27 @@ namespace llvm {
 
       return s.str();
     }
+
+    /// canExtendRegion - check if the block can be added to the given region.
+    bool canExtendRegion(ablock *region) const {
+      return Region == NULL || Region == region;
+    }
+
+    bool isRegionHeader() const {
+      return Region == this;
+    }
+
+    bool isArtificialHeader() const {
+      return !MBB;
+    }
+
+    bool isArtificialJumptableHeader() const {
+      return !MBB && JTIDs.size() > 0;
+    }
+
+    bool isSCCHeader() const {
+      return SCCSize > 0;
+    }
   };
 
   /// aedge - an edge in a transformed copy of the CFG.
@@ -477,7 +498,7 @@ namespace llvm {
             }
           }
 
-          // Redirect all edges to the jumptable entries to a new header
+          // Redirect all edges to the jump-table entries to a new header
           aedge_vector ingoing;
           findIngoingEdges(entries, ingoing);
 
@@ -486,6 +507,7 @@ namespace llvm {
           // Connect entries to a loop
           makeSCC(header, entries);
 
+          // Remember the jump-table IDs to mark it as a jump-table header
           header->JTIDs.insert(jtids.begin(), jtids.end());
         }
       }
@@ -800,7 +822,9 @@ namespace llvm {
             }
           }
 
-          // remove all back-edges
+          // remove all back-edges to any header.
+          // the headers are thus no longer part of any SCC, since they only
+          // have incoming edges from blocks not in SCCs.
           for(aedges::iterator j(Edges.begin()), je(Edges.end()); j != je;) {
             ablock *src = j->second->Src;
             ablock *dst = j->second->Dst;
@@ -823,9 +847,10 @@ namespace llvm {
             unsigned int scc_size = 0;
             bool has_call_in_scc = false;
             for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++) {
-              assert((*i)->MBB || (*i)->JTIDs.size());
+              assert(!(*i)->isArtificialHeader() ||
+                     (*i)->isArtificialJumptableHeader());
               // could be an artificial jumptable header
-              if ((*i)->MBB) {
+              if (!(*i)->isArtificialHeader()) {
                 scc_size += (*i)->Size + getMaxBlockMargin(PTM, (*i)->MBB);
                 has_call_in_scc |= (*i)->HasCall;
               }
@@ -857,6 +882,7 @@ namespace llvm {
             );
 #endif
 
+            // make the header an SCC header and update the infos.
             assert(header && header->SCCSize == 0 && scc_size != 0);
             header->HasCallinSCC = has_call_in_scc;
             header->SCCSize = scc_size;
@@ -896,6 +922,7 @@ namespace llvm {
         rb.criticality = 1.0;
       }
 
+      // add the block to the sorted ready list
       ready.push_back(rb);
       std::sort(ready.begin(), ready.end(), SortCritCmp);
     }
@@ -953,27 +980,33 @@ namespace llvm {
       return ready.begin();
     }
 
-    /// emitRegion - mark a block as new region entry, and check jump tables
-    /// to ensure all jump table targets become region entries as well.
+    /// emitRegion - mark a block as new region entry, taking care of artificial
+    /// loop or jump-table headers.
     void emitRegion(ablock *region, ablock *block,
                     ready_set &ready, ablock_set &regions)
     {
       // Note: We only mark a block as header by this function. Whenever we
       // mark a block as header, we immediately add it to the regions list.
 
-      if (block->Region == block) {
-        // already marked and emitted as region before, e.g. by an
-        // artificial loop/jumptable header.
-        return;
-      }
+      // We should never emit a block twice as region header. Once it has been
+      // emitted, NumPreds is set to 0, so emitSCC will skip any edges to this
+      // block. If a block as incoming edges from an artificial header, then
+      // it only has a single incoming edge from a single header by construction
+      // as back-edges to loop-headers are removed and edges to jump-table
+      // entries point to the header, so it will only be marked as region
+      // header once the artificial header is marked as region header.
+      assert(block->Region != block && "Block has already been marked as "
+                                       "region header");
+
+      // mark as processed so this block will not become ready.
+      block->NumPreds = 0;
 
       if (block->MBB) {
         // Insert the block directly into the regions list, it has already
         // been ready.
         regions.insert(block);
         block->Region = block;
-        // mark as processed so this block will not become ready.
-        block->NumPreds = 0;
+
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << " creating region " << block->getName() << "\n");
 #endif
@@ -1010,6 +1043,7 @@ namespace llvm {
         assert(std::find(order.begin(), order.end(), *i) == order.end());
         order.push_back(*i);
 
+        // make successors of this SCC ready
         for(aedges::iterator j(Edges.lower_bound(*i)),
             je(Edges.upper_bound(*i)); j != je; j++) {
           ablock *dst = j->second->Dst;
@@ -1023,7 +1057,7 @@ namespace llvm {
             continue;
           }
 
-          // check the successor
+          // check for predecessors from other regions
           if (dst->Region == NULL || dst->Region == region) {
             // first time the successor is seen or all its predecessors are
             // in the current region: remember the region of its predecessor,
@@ -1035,6 +1069,7 @@ namespace llvm {
             // decrement the predecessor counter and add to ready list
             if(--dst->NumPreds == 0) {
               makeReady(ready, dst);
+
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << "      making successor " << dst->getName()
                        << " ready\n");
@@ -1045,6 +1080,7 @@ namespace llvm {
             // a region mismatch -> the successor or the loop header of its
             // SCC have to be region entries
             emitRegion(region, dst, ready, regions);
+
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << "      making successor " << dst->getName()
                        << " a new region\n");
@@ -1065,10 +1101,10 @@ namespace llvm {
       return false;
     }
 
-    /// increaseRegion - check if we can add all blocks in the SCC to the region,
-    /// handling any jump tables. If so, update the region info and update the
-    /// scc with additional blocks to emit to the region. If it is not
-    /// possible to increase the region, return false.
+    /// increaseRegion - check if we can add all blocks in the SCC to the
+    /// region. If it is not possible to increase the region, return false.
+    /// This assumes that the region is structurally allowed to be extended
+    /// with the SCC.
     bool increaseRegion(ablock *region, ablock *header, ablocks &scc,
                         unsigned &scc_size,
                         bool &has_call, unsigned &region_size,
@@ -1077,9 +1113,7 @@ namespace llvm {
     {
       // Special case: if we are already starting a new region (the header
       // is the current region entry) with a single block, then emit it in any
-      // case, and do not add anything to the SCC (all other jump table entries
-      // were already marked as region headers by the previous emitRegion that
-      // made this header a region).
+      // case, and do not add anything to the SCC.
       if (header == region && scc.size() == 1) {
         // Don't forget to update the region info..
         region_size += scc_size;
@@ -1106,13 +1140,17 @@ namespace llvm {
         return false;
       }
 
-      // Split blocks with calls into their own region
+      // Split blocks with calls into their own region.
+      // If the block has a call, make it a region header. If the current
+      // region contains a call, start a new region with this block.
       if (SplitCallBlocks && (region->HasCall || has_call)) {
         return false;
       }
 
-      assert(header->Region == NULL || header->Region == header ||
-             header->Region == region);
+      // we should not have a region mismatch when calling this function,
+      // otherwise this SCC should not have become ready in emitSCC in the
+      // first place.
+      assert(header->canExtendRegion(region) || header->isRegionHeader());
 
       // update the region's total size
       // should we do this in the caller? Nah, would just duplicate the code..
@@ -1133,97 +1171,89 @@ namespace llvm {
 #ifdef PATMOS_TRACE_VISITS
       DEBUG(dbgs() << "  visit: " << block->getName() << " (ready: " << ready.size() << ")");
 #endif
-      if (block->Region == block && region != block) {
-        // This block has been marked as region entry before while it was ready.
-        emitRegion(region, block, ready, regions);
+
+      // Check for special case first: a natural loop header starting a new
+      // region, try to emit the whole SCC with a different size limit.
+      //
+      // Note: Since the SCC header is a region header, other blocks in the
+      // SCC might have been marked as region headers, so check for this.
+      //
+      // TODO maybe move the code to decide whether to emit a block or its
+      // whole SCC into increaseRegion?
+      if (region == block &&
+          block->MBB && block->SCCSize > 0 && !block->HasCallinSCC &&
+          increaseRegion(region, block, block->SCC, block->SCCSize,
+                         block->HasCallinSCC,
+                         region_size, ready, regions, PreferredSCCSize) &&
+         !hasRegionHeaders(region, block->SCC))
+      {
+        // A region header of a natural SCC without calls, already size-checked
+
+        // ensure that the SCC header is the region header
+        ablocks blocks;
+        blocks.reserve(block->SCC.size());
+        ablocks::iterator it = std::find(block->SCC.begin(), block->SCC.end(),
+                                         block);
+        blocks.insert(blocks.end(), it, block->SCC.end());
+        blocks.insert(blocks.end(), block->SCC.begin(), it);
+
+        // emit all blocks of the SCC and update the ready list
+        emitSCC(region, blocks, ready, regions, order);
+
 #ifdef PATMOS_TRACE_VISITS
-          DEBUG(dbgs() << "... marked as new region\n");
+          DEBUG(dbgs() << "... emitted (SCC) " << region_size << "\n");
 #endif
       }
       else if (block->SCCSize == 0 || region == block) {
+        // regular block or a region header (without SCC, or a SCC not handled
+        // above).
 
-        // This block is not a SCC and/or starts a new region
         assert((region != block || region_size == 0) &&
                "Block starts a region but region size is not null");
         assert((region != block || block->MBB) &&
                "Artificial SCC header is not supposed to start a new region");
 
-        // Special case: if we start a new region with a header of a natural (!)
-        // loop that does not contain calls, we try to add the whole SCC using
-        // a different size limit first.
-        // TODO maybe move the code to decide whether to emit a block or its
-        // whole SCC into increaseRegion, merge the if's here.
+        unsigned block_size = block->Size +
+                             getMaxBlockMargin(PTM, region, region_size, block);
+        bool has_call = block->HasCall;
 
-        // Note: Since the SCC header is a region header, other blocks in the
-        // SCC might have been marked as region headers.
-        if (region == block &&
-            block->MBB && block->SCCSize > 0 && !block->HasCallinSCC &&
-            increaseRegion(region, block, block->SCC, block->SCCSize,
-                           block->HasCallinSCC,
-                           region_size, ready, regions, PreferredSCCSize) &&
-            !hasRegionHeaders(region, block->SCC))
+#ifdef PATMOS_TRACE_VISITS
+        DEBUG(dbgs() << "  block size: " << block_size << " ("
+                     << block->Size << " + "
+                     << getMaxBlockMargin(PTM, region, region_size, block)
+                     << "), hasCall: " << has_call << "\n");
+#endif
+
+        // emit just a single block
+        ablocks blocks;
+        blocks.push_back(block);
+
+        // Note that a non-region-header block cannot have incoming edges from
+        // another region, all ready blocks are visited first before a new
+        // region is started, and marked as new region header if increasing
+        // the old region fails.
+        if (increaseRegion(region, block, blocks, block_size, has_call,
+                           region_size, ready, regions, PreferredRegionSize))
         {
-          // ensure that the SCC header is the region header
-          ablocks blocks;
-          blocks.reserve(block->SCC.size());
-          ablocks::iterator it = std::find(block->SCC.begin(), block->SCC.end(),
-                                           block);
-          blocks.insert(blocks.end(), it, block->SCC.end());
-          blocks.insert(blocks.end(), block->SCC.begin(), it);
-
-          // emit all blocks of the SCC and update the ready list
+          // emit the blocks of the SCC and update the ready list
           emitSCC(region, blocks, ready, regions, order);
 
 #ifdef PATMOS_TRACE_VISITS
-          DEBUG(dbgs() << "... emitted (SCC) " << region_size << "\n");
+          DEBUG(dbgs() << "... emitted " << region_size << "\n");
 #endif
         }
         else {
+          // This should not be an artificial header here
+          assert(block->MBB);
+          // This should not be a region entry here
+          assert(region != block && "increaseRegion failed on region header");
 
-          // Either an SCC region header that does not fit or a regular block or
-          // region header
+          // some block in the region, make it a new region header
+          emitRegion(region, block, ready, regions);
 
-          unsigned block_size = block->Size +
-                               getMaxBlockMargin(PTM, region, region_size, block);
-          bool has_call = block->HasCall;
-
-  #ifdef PATMOS_TRACE_VISITS
-          DEBUG(dbgs() << "  block size: " << block_size << " ("
-                       << block->Size << " + "
-                       << getMaxBlockMargin(PTM, region, region_size, block)
-                       << "), hasCall: " << has_call << "\n");
-  #endif
-
-          ablocks blocks;
-          blocks.push_back(block);
-
-          // Note that a non-region-header block cannot have incoming edges from
-          // another region, all ready blocks are visited first before a new
-          // region is started and marked as new region header if increasing
-          // the old region fails.
-          if (increaseRegion(region, block, blocks, block_size, has_call,
-                             region_size, ready, regions, PreferredRegionSize))
-          {
-            // emit the blocks of the SCC and update the ready list
-            emitSCC(region, blocks, ready, regions, order);
-
-  #ifdef PATMOS_TRACE_VISITS
-            DEBUG(dbgs() << "... emitted " << region_size << "\n");
-  #endif
-          }
-          else {
-            // This should not be an artificial header here
-            assert(block->MBB);
-            // This should not be a region entry here
-            assert(region != block && "increaseRegion failed on region header");
-
-            // some block in the region, make it a new region header
-            emitRegion(region, block, ready, regions);
-
-  #ifdef PATMOS_TRACE_VISITS
-            DEBUG(dbgs() << "... new region\n");
-  #endif
-          }
+#ifdef PATMOS_TRACE_VISITS
+          DEBUG(dbgs() << "... new region\n");
+#endif
         }
       }
       else {
@@ -1824,7 +1854,7 @@ namespace llvm {
       unsigned alignSize = (blockAlign < 4) ? 0 : blockAlign - 4;
 
       // we already have a BR, we only need to add a NOP if we change to BRCF
-      unsigned branch_fixups = numBranchesToFix * (exitDelay - localDelay);
+      unsigned branch_fixups = numBranchesToFix * (exitDelay - localDelay) * 4;
 
       if (mightFallthrough) {
         // we might need to add a BR/BRCF to replace the fallthrough, and NOPs
