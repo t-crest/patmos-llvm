@@ -25,7 +25,8 @@
 //
 // Artificial non-natural loop headers never become region headers, instead
 // all their successors become new region headers (which are NOT loop headers of
-// that non-natural loop).
+// that non-natural loop), or their whole SCC is merged into an (non-empty)
+// region.
 //
 // Once the CFG is acyclic, the blocks are processed in a topological order (the
 // order itself is not relevant). We then grow regions by adding new blocks when
@@ -155,6 +156,8 @@ namespace llvm {
   class agraph;
 
   typedef std::vector<ablock*> ablocks;
+  /// must be a list, not a vector, to keep iterator valid
+  typedef std::list<unsigned> idlist;
   typedef std::set<unsigned> idset;
 
   /// ablock - a node in a transformed copy of the CFG.
@@ -322,10 +325,6 @@ namespace llvm {
     /// List of jump tables of this function.
     std::vector<ablocks> Jumptables;
 
-    /// A flag per jump table if all entries in the JT are already (in the
-    /// process of being) marked as region headers.
-    std::vector<bool> JTIsRegion;
-
     /// The original machine function of the graph.
     MachineFunction *MF;
 
@@ -400,10 +399,12 @@ namespace llvm {
         const std::vector<MachineJumpTableEntry> &JTs = JTI->getJumpTables();
 
         Jumptables.resize(JTs.size());
-        JTIsRegion.resize(JTs.size());
 
+        std::vector<bool> visited;
+        visited.resize(JTs.size());
+
+        // Build up jumptable infos
         for (size_t idx = 0; idx < JTs.size(); idx++) {
-          ablock *last = NULL;
 
           // get a set of all distinct targets in the jump table
           ablock_set entries;
@@ -412,36 +413,80 @@ namespace llvm {
                it != ie; it++)
           {
             ablock *d = MBBtoA[*it];
+            d->JTIDs.insert(idx);
+
             entries.insert(d);
           }
 
           DEBUG(dbgs() << "Found jumptable (size " << JTs[idx].MBBs.size()
                        << ", targets: " << entries.size() << "):");
 
-          // connect all entries to an SCC.
+          // collect all jump-table entries.
           for (ablock_set::iterator it = entries.begin(), ie = entries.end();
                it != ie; it++)
           {
             ablock *d = *it;
             DEBUG(dbgs() << " " << d->getName());
 
-            d->JTIDs.insert(idx);
             Jumptables[idx].push_back(d);
-            JTIsRegion[idx] = false;
-
-            if (last) {
-              aedge *e = new aedge(last, d);
-              Edges.insert(std::make_pair(last, e));
-            }
-
-            last = d;
           }
-          DEBUG(dbgs() << "\n");
 
-          // close loop on blocks in jump table
-          ablock *d = MBBtoA[*JTs[idx].MBBs.begin()];
-          aedge *e = new aedge(last, d);
-          Edges.insert(std::make_pair(last, e));
+          visited[idx] = false;
+
+          DEBUG(dbgs() << "\n");
+        }
+
+        // Find overlapping jump-tables, create artificial headers
+        for (size_t idx = 0; idx < JTs.size(); idx++) {
+          // skip overlapping jump-tables
+          if (visited[idx]) continue;
+
+          ablock_set entries;
+
+          // transitively find all entries of the jump-tables
+          idlist jtids;
+          jtids.push_back(idx);
+
+          visited[idx] = true;
+
+          // note that jtids.end() changes during iterations
+          for (idlist::iterator jit = jtids.begin(); jit != jtids.end(); jit++)
+          {
+            ablocks &jt = Jumptables[*jit];
+
+            // check all jump-table entries
+            for (ablocks::iterator it = jt.begin(), ie = jt.end();
+                 it != ie; it++)
+            {
+              ablock *entry = *it;
+
+              // skip already found entries
+              if (!entries.insert(entry).second) {
+                continue;
+              }
+
+              // find overlapping jump tables
+              for (idset::iterator k = entry->JTIDs.begin(),
+                   ke = entry->JTIDs.end(); k != ke; k++)
+              {
+                if (!visited[*k]) {
+                  jtids.push_back(*k);
+                  visited[*k] = true;
+                }
+              }
+            }
+          }
+
+          // Redirect all edges to the jumptable entries to a new header
+          aedge_vector ingoing;
+          findIngoingEdges(entries, ingoing);
+
+          ablock *header = createHeader(entries, ingoing);
+
+          // Connect entries to a loop
+          makeSCC(header, entries);
+
+          header->JTIDs.insert(jtids.begin(), jtids.end());
         }
       }
 
@@ -490,6 +535,67 @@ namespace llvm {
 
       return false;
     }
+
+    /// findIngoingEdges - Add all ingoing edges of blocks to entering.
+    void findIngoingEdges(const ablock_set &blocks, aedge_vector &entering)
+    {
+      for(aedges::iterator j(Edges.begin()), je(Edges.end()); j != je;
+          j++) {
+        ablock *dst = j->second->Dst;
+        if (blocks.count(dst)) {
+          entering.push_back(j->second);
+        }
+      }
+    }
+
+    /// createHeader - Create a new artificial header, and redirect edges
+    /// to the new header.
+    ablock *createHeader(ablock_set &headers, aedge_vector &entering)
+    {
+      // create header
+      ablock *header = new ablock(PTM, Blocks.size(), this);
+      Blocks.push_back(header);
+
+      // redirect edges leading to the headers
+      for(aedge_vector::iterator j(entering.begin()), je(entering.end());
+          j != je; j++) {
+        (*j)->Dst = header;
+      }
+
+      // make edges from the new header to the old ones
+      for(ablock_set::iterator j(headers.begin()), je(headers.end());
+          j != je; j++) {
+        aedge *e = new aedge(header, *j);
+        Edges.insert(std::make_pair(header, e));
+      }
+
+      return header;
+    }
+
+    /// makeSCC - make a SCC by chaining all blocks to the header (we assume
+    /// all blocks are reachable from the header).
+    void makeSCC(ablock *header, ablock_set &blocks)
+    {
+      ablock *last = NULL;
+
+      // chain up all blocks
+      for(ablock_set::iterator j(blocks.begin()), je(blocks.end());
+          j != je; j++)
+      {
+        if (last) {
+          aedge *e = new aedge(last, *j);
+          Edges.insert(std::make_pair(last, e));
+        }
+        last = *j;
+      }
+
+      // connect the last block to the header
+      if (last) {
+        aedge *e = new aedge(last, header);
+        Edges.insert(std::make_pair(last, e));
+      }
+    }
+
 
     /// Hold information on a graph node during Tarjan's SCC algorithm.
     struct tarjan_node_info
@@ -677,23 +783,7 @@ namespace llvm {
             // create a new header, redirect all edges from outside of the SCC 
             // to the previous headers to that new header, and append edges from
             // the new header to each previous header.
-
-            // create header
-            header = new ablock(PTM, Blocks.size(), this);
-            Blocks.push_back(header);
-
-            // redirect edges leading into the SCC
-            for(aedge_vector::iterator j(entering.begin()), je(entering.end());
-                j != je; j++) {
-              (*j)->Dst = header;
-            }
-
-            // make edges from the new header to the old ones
-            for(ablock_set::iterator j(headers.begin()), je(headers.end());
-                j != je; j++) {
-              aedge *e = new aedge(header, *j);
-              Edges.insert(std::make_pair(header, e));
-            }
+            header = createHeader(headers, entering);
 
             // fix-up surrounding SCCs -- the header has to be part of these.
             ablock *scc_node = *scc.begin();
@@ -716,7 +806,8 @@ namespace llvm {
             ablock *dst = j->second->Dst;
             if (std::find(scc.begin(), scc.end(), src) != scc.end() &&
                 std::find(headers.begin(), headers.end(),
-                          dst) != headers.end()) {
+                          dst) != headers.end())
+            {
               BackEdges.insert(std::make_pair(j->first, j->second));
               Edges.erase(j);
               j = Edges.begin();
@@ -732,9 +823,12 @@ namespace llvm {
             unsigned int scc_size = 0;
             bool has_call_in_scc = false;
             for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++) {
-              assert((*i)->MBB);
-              scc_size += (*i)->Size + getMaxBlockMargin(PTM, (*i)->MBB);
-              has_call_in_scc |= (*i)->HasCall;
+              assert((*i)->MBB || (*i)->JTIDs.size());
+              // could be an artificial jumptable header
+              if ((*i)->MBB) {
+                scc_size += (*i)->Size + getMaxBlockMargin(PTM, (*i)->MBB);
+                has_call_in_scc |= (*i)->HasCall;
+              }
             }
 
 #ifdef PATMOS_TRACE_SCCS
@@ -866,12 +960,10 @@ namespace llvm {
     {
       // Note: We only mark a block as header by this function. Whenever we
       // mark a block as header, we immediately add it to the regions list.
-      // Whenever we mark a block that is part of a jump table as header, all
-      // other jump table entries are also marked as region entries.
 
       if (block->Region == block) {
         // already marked and emitted as region before, e.g. by an
-        // artificial loop header.
+        // artificial loop/jumptable header.
         return;
       }
 
@@ -886,39 +978,8 @@ namespace llvm {
           DEBUG(dbgs() << " creating region " << block->getName() << "\n");
 #endif
 
-        // Check if this block is part of a jump table, then we need to ensure
-        // that all other blocks of the jump table become new regions as well.
-        for (idset::iterator jid = block->JTIDs.begin(),je = block->JTIDs.end();
-             jid != je; jid++)
-        {
-          if (JTIsRegion[*jid]) {
-            continue;
-          }
-
-          const ablocks &jt = block->G->Jumptables[*jid];
-          JTIsRegion[*jid] = true;
-
-          for (ablocks::const_iterator it = jt.begin(), ie = jt.end();
-               it != ie; it++)
-          {
-            ablock *d = *it;
-            // only handle all other jump table entries here
-            if (d == block) {
-              continue;
-            }
-
-            // If d has been already visited, ignore it. Note that other
-            // jump table entries might still not be marked, as d might be
-            // part of multiple jump tables.
-            // If d has not been visited yet: If d is in the ready list, we
-            // skip it in visitBlock below. If d is not yet ready, it
-            // will be skipped in emitSCC.
-            emitRegion(region, d, ready, regions);
-          }
-        }
-
       } else {
-        // mark all headers of a non-natural loop as new regions
+        // mark all headers of a non-natural loop or a jump-table as new regions
         for(aedges::const_iterator i(Edges.lower_bound(block)),
             ie(Edges.upper_bound(block)); i != ie; i++)
         {
@@ -993,26 +1054,6 @@ namespace llvm {
       }
     }
 
-    /// hasJumptableTargets - check if the block or any of its blocks in the
-    /// SCC are jumptable entries.
-    bool hasJumptableTargets(ablock *block) {
-      if (block->JTIDs.size() > 0) {
-        return true;
-      }
-
-      if (block->SCCSize > 0) {
-        for(ablocks::iterator i(block->SCC.begin()), ie(block->SCC.end());
-            i != ie; i++)
-        {
-          if ((*i)->JTIDs.size() > 0) {
-            return true;
-          }
-        }
-      }
-
-      return false;
-    }
-
     /// hasRegionHeaders - check if a SCC contains blocks that have been
     /// marked as region headers other than the current region.
     bool hasRegionHeaders(ablock *region, ablocks &scc) {
@@ -1062,7 +1103,6 @@ namespace llvm {
       // Check for size only after we checked for headers to allow large
       // basic blocks.
       if (region_size + scc_size > maxSize) {
-        // Early exit..
         return false;
       }
 
@@ -1071,89 +1111,8 @@ namespace llvm {
         return false;
       }
 
-      // Check if any of the blocks in the SCC is already marked as region
-      // header. In this case, we cannot emit the whole SCC into this region.
-      for (ablocks::iterator it = scc.begin(), ie = scc.end(); it != ie; it++) {
-        ablock *a = *it;
-        if (a->Region == a && a != region) {
-          return false;
-        }
-      }
-
-      // Check if any of the blocks are part of a jump table. If so, check if all
-      // other entries in the jump table are ready, part of the SCC, or will be
-      // ready when we emit this SCC, and if so, emit all of them.
-      // Otherwise, we need to make this a region entry.
-      // Note: selectBlock and the artificial loop headers should ensure that
-      // in most cases all blocks are ready.
-
-      // Note: we do not need to check if any of the entries is already region
-      // header, as in this case we would already have marked this header a
-      // region entry as well and never get here.
-
       assert(header->Region == NULL || header->Region == header ||
              header->Region == region);
-
-      // initialize a list of all found jump table IDs in the SCC
-      std::list<unsigned> jtids;
-      for (ablocks::iterator it = scc.begin(), ie = scc.end(); it != ie; it++) {
-        ablock *a = *it;
-        for (idset::iterator k = a->JTIDs.begin(),ke = a->JTIDs.end();
-             k != ke; k++)
-        {
-          if (std::find(jtids.begin(), jtids.end(), *k) == jtids.end()) {
-            jtids.push_back(*k);
-          }
-        }
-      }
-
-      // try to add all JT entries to the SCC transitively.
-      std::list<unsigned>::iterator jit = jtids.begin();
-      while (jit != jtids.end()) {
-        ablocks &jt = header->G->Jumptables[*jit++];
-
-        // check all jump-table entries
-        for (ablocks::iterator it = jt.begin(), ie = jt.end(); it != ie; it++) {
-          ablock *entry = *it;
-
-          // transitively find overlapping jump tables
-          for (idset::iterator k = entry->JTIDs.begin(),ke = entry->JTIDs.end();
-               k != ke; k++)
-          {
-            if (std::find(jtids.begin(), jtids.end(), *k) == jtids.end()) {
-              jtids.push_back(*k);
-            }
-          }
-
-          if (std::find(scc.begin(), scc.end(), entry) != scc.end()) {
-            // entry is part of the SCC, nothing to do
-            continue;
-          }
-
-          // .. entry is not part of the SCC
-          if (!isReady(ready, entry)) {
-            // block is not in the SCC and not ready.
-            // TODO check if all predecessors are in the SCC, else return false.
-
-            // TODO some entries might be added later from other jump tables,
-            // we should allow those as well as predecessors..
-
-
-            return false;
-          }
-
-          // JT entry is ready but not part of the SCC and needs to be emitted.
-          scc.push_back(entry);
-          scc_size += entry->Size +
-                             getMaxBlockMargin(PTM, region, region_size, entry);
-
-        }
-      }
-
-      // Now check again for size constraints, now including the full jump table
-      if (region_size + scc_size > maxSize) {
-        return false;
-      }
 
       // update the region's total size
       // should we do this in the caller? Nah, would just duplicate the code..
@@ -1189,22 +1148,16 @@ namespace llvm {
         assert((region != block || block->MBB) &&
                "Artificial SCC header is not supposed to start a new region");
 
-        // Special case: if we start a new region with a header of a natural
+        // Special case: if we start a new region with a header of a natural (!)
         // loop that does not contain calls, we try to add the whole SCC using
         // a different size limit first.
         // TODO maybe move the code to decide whether to emit a block or its
         // whole SCC into increaseRegion, merge the if's here.
 
-        // Note: This might change block->SCC, but we are done with the SCC
-        // after this call in any case (as this is a region header and will not
-        // be visited again).
-        // Note: We do not allow SCCs that have jump table entries here,
-        // otherwise we would run in all sorts of problems: we could emit
-        // all jump table entries in one region, but the jump is in another
-        // region (we do not emit code for this case (yet)).
+        // Note: Since the SCC header is a region header, other blocks in the
+        // SCC might have been marked as region headers.
         if (region == block &&
             block->MBB && block->SCCSize > 0 && !block->HasCallinSCC &&
-            !hasJumptableTargets(block) &&
             increaseRegion(region, block, block->SCC, block->SCCSize,
                            block->HasCallinSCC,
                            region_size, ready, regions, PreferredSCCSize) &&
@@ -1244,6 +1197,10 @@ namespace llvm {
           ablocks blocks;
           blocks.push_back(block);
 
+          // Note that a non-region-header block cannot have incoming edges from
+          // another region, all ready blocks are visited first before a new
+          // region is started and marked as new region header if increasing
+          // the old region fails.
           if (increaseRegion(region, block, blocks, block_size, has_call,
                              region_size, ready, regions, PreferredRegionSize))
           {
@@ -1270,17 +1227,16 @@ namespace llvm {
         }
       }
       else {
-        // loop header of some natural/non-natural loop, not a region entry
+        // loop header of some natural/non-natural loop or of a jump-table,
+        // not a region entry
 
         // TODO If the region is quite small and the SCC has no calls, maybe
         // use SCCSize instead of RegionSize as threshold. Note that
         // increaseRegion might already increase the size limit on its own if
         // this loop header post-dominates the region.
 
-        // Note: This might add blocks to SCC and SCCSize, but we are done
-        // with this loop header after this anyway, no need to make temp copies.
         // Note: At this point we can be sure that the SCC does not contain
-        // region entries, otherwise the header would be a region entry itself.
+        // region headers, otherwise the header would be a region entry itself.
         if (increaseRegion(region, block, block->SCC, block->SCCSize,
                            block->HasCallinSCC,
                            region_size, ready, regions, PreferredRegionSize))
@@ -1293,13 +1249,15 @@ namespace llvm {
 #endif
         }
         else {
-          // mark the header(s) of a natural/non-natural loop as a new region,
-          // taking care of jump tables
+          // mark the header(s) of a natural/non-natural loop or all jump table
+          // entries as region headers
           emitRegion(region, block, ready, regions);
 
 #ifdef PATMOS_TRACE_VISITS
           DEBUG(dbgs() << "... new region ("
-                       << (block->MBB ? "loop" : "non-natural loop") << ")\n");
+                       << (block->MBB ? "loop" :
+                          (block->JTIDs.size() ? "jump-table"
+                                               : "non-natural loop")) << ")\n");
 #endif
         }
       }
