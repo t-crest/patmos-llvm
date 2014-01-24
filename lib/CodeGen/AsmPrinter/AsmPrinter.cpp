@@ -171,10 +171,7 @@ bool AsmPrinter::doInitialization(Module &M) {
   const_cast<TargetLoweringObjectFile&>(getObjFileLowering())
     .Initialize(OutContext, TM);
 
-  // If we want to generate labels for all basic blocks, we must
-  // turn temporary labels off.
-  if (ForceBlockLabels)
-    OutContext.setAllowTemporaryLabels(false);
+  OutStreamer.InitSections(false);
 
   Mang = new Mangler(TM.getDataLayout());
 
