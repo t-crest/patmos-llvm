@@ -84,7 +84,7 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
   // system assembler does.
   if (OutStreamer.hasRawTextSupport()) {
     OutStreamer.EmitRawText(Str);
-    OutStreamer.EmitInlineAsmEnd(TM.getSubtarget<MCSubtargetInfo>(), 0);
+    emitInlineAsmEnd(TM.getSubtarget<MCSubtargetInfo>(), 0);
     return;
   }
 
@@ -126,7 +126,7 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
     const_cast<MCSubtargetInfo*>(&TM.getSubtarget<MCSubtargetInfo>());
 
   // Preserve a copy of the original STI because the parser may modify it.
-  // The target can restore the original state in EmitInlineAsmEnd().
+  // The target can restore the original state in emitInlineAsmEnd().
   MCSubtargetInfo STIOrig = *STI;
 
   OwningPtr<MCTargetAsmParser>
@@ -140,7 +140,7 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
   // Don't implicitly switch to the text section before the asm.
   int Res = Parser->Run(/*NoInitialTextSection*/ true,
                         /*NoFinalize*/ true);
-  OutStreamer.EmitInlineAsmEnd(STIOrig, STI);
+  emitInlineAsmEnd(STIOrig, STI);
   if (Res && !HasDiagHandler)
     report_fatal_error("Error parsing inline asm\n");
 }
@@ -551,3 +551,5 @@ bool AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
   return true;
 }
 
+void AsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
+                                  MCSubtargetInfo *EndInfo) const {}
