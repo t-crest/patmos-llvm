@@ -930,6 +930,8 @@ void MCAsmStreamer::EmitCFIStartProcImpl(MCDwarfFrameInfo &Frame) {
   }
 
   OS << "\t.cfi_startproc";
+  if (Frame.IsSimple)
+    OS << " simple";
   EmitEOL();
 }
 
