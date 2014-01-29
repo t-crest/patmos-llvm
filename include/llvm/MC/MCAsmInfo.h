@@ -374,7 +374,7 @@ namespace llvm {
                                 unsigned Encoding,
                                 MCStreamer &Streamer) const;
 
-    const MCExpr *
+    virtual const MCExpr *
     getExprForFDESymbol(const MCSymbol *Sym,
                         unsigned Encoding,
                         MCStreamer &Streamer) const;
