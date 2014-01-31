@@ -576,7 +576,7 @@ MachineBasicBlock::iterator PatmosInstrInfo::nextNonPseudo(
                                   MachineBasicBlock &MBB,
                                   const MachineBasicBlock::iterator &II) const
 {
-  MachineBasicBlock::iterator J = next(II);
+  MachineBasicBlock::iterator J = llvm::next(II);
   skipPseudos(MBB, J);
   return J;
 }
@@ -646,7 +646,7 @@ bool PatmosInstrInfo::hasRegUse(const MachineInstr *MI) const
 const MachineInstr *PatmosInstrInfo::getFirstMI(const MachineInstr *MI) const {
   if (MI->isBundle()) {
     MachineBasicBlock::const_instr_iterator I = MI;
-    return next(I);
+    return llvm::next(I);
   }
   return MI;
 }

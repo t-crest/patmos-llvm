@@ -289,11 +289,11 @@ fillSlotForCtrlFlow(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I,
   }
 
   // move instructions / insert NOPs
-  MachineBasicBlock::iterator NI = next(I);
+  MachineBasicBlock::iterator NI = llvm::next(I);
   for (unsigned i=0; i<CFLDelaySlots; i++) {
     if (i < DI.getNumCandidates()) {
       MachineInstr *FillMI = DI.getCandidate(i);
-      MBB.splice(next(I), &MBB, FillMI);
+      MBB.splice(llvm::next(I), &MBB, FillMI);
       FillerInstrs.insert(FillMI);
       ++FilledSlots;  // update statistics
       DEBUG( dbgs() << " -- filler: " << *FillMI );
@@ -313,7 +313,7 @@ void PatmosDelaySlotFiller::insertNOPAfter(MachineBasicBlock &MBB,
 {
   // We just insert a NOP. We let the PatmosBundleCleanup pass split bundles
   // to remove the NOPs where required.
-  MachineBasicBlock::iterator NI = next(I);
+  MachineBasicBlock::iterator NI = llvm::next(I);
   TII->insertNoop(MBB, NI);
 }
 
@@ -351,7 +351,7 @@ insertAfterLoad(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
   // "usual" case, the load is in the middle of an MBB
   if (J!=MBB.end() && hasDefUseDep(I,J)) {
     // insert after I
-    TII->insertNoop(MBB, next(I));
+    TII->insertNoop(MBB, llvm::next(I));
     // stats and debug output
     ++InsertedLoadNOPs;
     DEBUG( dbgs() << "NOP inserted after load: " << *I );
