@@ -777,9 +777,6 @@ void AsmPrinter::EmitFunctionBody() {
         if (isVerbose()) emitKill(II, *this);
         break;
       default:
-        if (!TM.hasMCUseLoc())
-          MCLineEntry::Make(&OutStreamer, getCurrentSection());
-
         EmitInstruction(II);
         break;
       }
