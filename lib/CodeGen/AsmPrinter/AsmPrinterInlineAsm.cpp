@@ -119,14 +119,17 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
                                                   OutContext, OutStreamer,
                                                   *MAI));
 
-  // Reuse the existing Subtarget, because the AsmParser may need to
-  // modify it.  For example, when switching between ARM and
-  // Thumb mode.
-  MCSubtargetInfo* STI =
-    const_cast<MCSubtargetInfo*>(&TM.getSubtarget<MCSubtargetInfo>());
+  // Initialize the parser with a fresh subtarget info. It is better to use a
+  // new STI here because the parser may modify it and we do not want those
+  // modifications to persist after parsing the inlineasm. The modifications
+  // made by the parser will be seen by the code emitters because it passes
+  // the current STI down to the EncodeInstruction() method.
+  OwningPtr<MCSubtargetInfo> STI(TM.getTarget().createMCSubtargetInfo(
+      TM.getTargetTriple(), TM.getTargetCPU(), TM.getTargetFeatureString()));
 
-  // Preserve a copy of the original STI because the parser may modify it.
-  // The target can restore the original state in emitInlineAsmEnd().
+  // Preserve a copy of the original STI because the parser may modify it.  For
+  // example, when switching between arm and thumb mode. If the target needs to
+  // emit code to return to the original state it can do so in emitInlineAsmEnd().
   MCSubtargetInfo STIOrig = *STI;
 
   OwningPtr<MCTargetAsmParser>
@@ -140,7 +143,7 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MDNode *LocMDNode,
   // Don't implicitly switch to the text section before the asm.
   int Res = Parser->Run(/*NoInitialTextSection*/ true,
                         /*NoFinalize*/ true);
-  emitInlineAsmEnd(STIOrig, STI);
+  emitInlineAsmEnd(STIOrig, STI.get());
   if (Res && !HasDiagHandler)
     report_fatal_error("Error parsing inline asm\n");
 }
@@ -552,4 +555,4 @@ bool AsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
 }
 
 void AsmPrinter::emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
-                                  MCSubtargetInfo *EndInfo) const {}
+                                  const MCSubtargetInfo *EndInfo) const {}
