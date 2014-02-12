@@ -309,6 +309,14 @@ namespace llvm {
 
     std::vector<MCCFIInstruction> InitialFrameState;
 
+    //===--- Integrated Assembler State ----------------------------------===//
+    /// Should we use the integrated assembler?
+    /// The integrated assembler should be enabled by default (by the
+    /// constructors) when failing to parse a valid piece of assembly (inline
+    /// or otherwise) is considered a bug. It may then be overridden after
+    /// construction (see LLVMTargetMachine::initAsmInfo()).
+    bool UseIntegratedAssembler;
+
   public:
     explicit MCAsmInfo();
     virtual ~MCAsmInfo();
@@ -541,6 +549,14 @@ namespace llvm {
 
     const std::vector<MCCFIInstruction> &getInitialFrameState() const {
       return InitialFrameState;
+    }
+
+    /// Return true if assembly (inline or otherwise) should be parsed.
+    bool useIntegratedAssembler() const { return UseIntegratedAssembler; }
+
+    /// Set whether assembly (inline or otherwise) should be parsed.
+    void setUseIntegratedAssembler(bool Value) {
+      UseIntegratedAssembler = Value;
     }
   };
 }
