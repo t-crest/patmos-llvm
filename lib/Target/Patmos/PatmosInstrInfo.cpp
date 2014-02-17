@@ -102,7 +102,13 @@ void PatmosInstrInfo::
 storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                     unsigned SrcReg, bool isKill, int FrameIdx,
                     const TargetRegisterClass *RC,
-                    const TargetRegisterInfo *TRI) const {
+                    const TargetRegisterInfo *TRI) const
+{
+  // Do not emit anything for naked functions
+  if (MBB.getParent()->getFunction()->hasFnAttribute(Attribute::Naked)) {
+    return;
+  }
+
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
@@ -140,7 +146,13 @@ void PatmosInstrInfo::
 loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                      unsigned DestReg, int FrameIdx,
                      const TargetRegisterClass *RC,
-                     const TargetRegisterInfo *TRI) const {
+                     const TargetRegisterInfo *TRI) const
+{
+  // Do not emit anything for naked functions
+  if (MBB.getParent()->getFunction()->hasFnAttribute(Attribute::Naked)) {
+    return;
+  }
+
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
