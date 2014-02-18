@@ -180,6 +180,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::VACOPY , MVT::Other, Expand);
   setOperationAction(ISD::VAEND  , MVT::Other, Expand);
 
+  setOperationAction(ISD::PCMARKER, MVT::Other, Expand);
   // TODO expand floating point stuff?
 }
 
