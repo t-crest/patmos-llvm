@@ -141,7 +141,7 @@ namespace {
       // add passes to handle them.
       if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
-                                                false));
+                                            getOptLevel() == CodeGenOpt::None));
       }
 
       // All passes below this line must handle delay slots and bundles
