@@ -106,7 +106,8 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
 {
   // Do not emit anything for naked functions
   if (MBB.getParent()->getFunction()->hasFnAttribute(Attribute::Naked)) {
-    return;
+    report_fatal_error("Trying to spill a register in naked function " +
+                       MBB.getParent()->getName() + ": not supported!", false);
   }
 
   DebugLoc DL;
@@ -150,7 +151,8 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
 {
   // Do not emit anything for naked functions
   if (MBB.getParent()->getFunction()->hasFnAttribute(Attribute::Naked)) {
-    return;
+    report_fatal_error("Trying to fill a register in naked function " +
+                       MBB.getParent()->getName() + ": not supported!", false);
   }
 
   DebugLoc DL;
