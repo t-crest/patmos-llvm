@@ -40,7 +40,7 @@ class ControlFlowRefinement
 
   def add_flowfact(flowfact)
     return unless flowfact.level == @level
-    return unless globally_valid?(@entry, flowfact)
+    return unless flowfact.globally_valid?(@entry)
     # add calltargets
     scope,cs,targets = flowfact.get_calltargets
     if scope
@@ -130,11 +130,6 @@ private
     pp_dict[ctx] = newval
   end
 
-  def globally_valid?(entry_function, ff)
-    return false unless ff.scope.programpoint.kind_of?(Function)
-    return true if ff.local?
-    return ff.scope.function == entry_function && ff.scope.context.empty?
-  end
 end
 
 #
@@ -230,7 +225,6 @@ class IPETModel
       }
     }
     c = ilp.add_constraint(terms, op, rhs_const, name, tag)
-    # info("Adding constraint: #{c}")
   end
 
   # FIXME: we do not have information on predicated calls ATM.
@@ -372,20 +366,32 @@ class IPETBuilder
     end
     @ffcount = 0
     @pml, @options = pml, options
-    @call_edges = []
   end
+
   def pml_level(rg_level)
     @pml_level[rg_level]
   end
+
   def relation_graph_level(pml_level)
     @relation_graph_level[pml_level]
   end
 
   # Build basic IPET structure.
-  # Yields blocks, so the caller can compute their cost
+  # yields basic blocks, so the caller can compute their cost
   def build(entry, flowfacts, opts = { :mbb_variables =>  false })
-    refinement = build_refinement(entry, flowfacts)
-    mf_functions = reachable_set(entry['machinecode']) do |mf_function|
+    assert("IPETBuilder#build called twice") { ! @entry }
+    @entry = entry
+    @markers = {}
+    @call_edges = []
+
+    # build refinement to prune infeasible blocks and calls
+    build_refinement(@entry, flowfacts)
+
+    # compute set of reachable machine functions
+    # during traversal, add ILP variables for both machine code and bitcode
+    mf_functions = reachable_set(@entry['machinecode']) do |mf_function|
+
+      # inspect callsites in the current function
       succs = Set.new
       mf_function.callsites.each { |cs|
         next if @mc_model.infeasible?(cs.block)
@@ -394,11 +400,17 @@ class IPETBuilder
           succs.add(f)
         }
       }
-      add_bitcode_variables(mf_function) if @bc_model
+
+      # machinecode variables + cost
       @mc_model.each_edge(mf_function) do |edge|
         @ilp.add_variable(edge, :machinecode)
         cost = yield edge
         @ilp.add_cost(edge, cost)
+      end
+
+      # bitcode variables and markers
+      if @bc_model
+        add_bitcode_variables(mf_function)
       end
       succs # return successors to reachable_set
     end
@@ -416,20 +428,20 @@ class IPETBuilder
           @mc_model.add_block(block)
         end
         block.callsites.each do |cs|
-          call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets(cs))
-          call_edges.each do |ce|
+          current_call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets(cs))
+          current_call_edges.each do |ce|
             (mf_function_callers[ce.target] ||= []).push(ce)
           end
-          @call_edges += call_edges
+          @call_edges += current_call_edges
         end
       end
     end
-    @mc_model.add_entry_constraint(entry['machinecode'])
+    @mc_model.add_entry_constraint(@entry['machinecode'])
     mf_function_callers.each do |f,ces|
       @mc_model.add_function_constraint(f, ces)
     end
     flowfacts.each { |ff|
-      debug(@options,:wca) { "adding flowfact #{ff}" }
+      debug(@options,:ipet) { "adding flowfact #{ff}" }
       add_flowfact(ff)
     }
   end
@@ -438,16 +450,20 @@ class IPETBuilder
   #
   # Add flowfacts
   #
-  # Supported flowfacts:
-  #
-  # (1) Linear Combinations of Block or Edge Frequencies relative to Function or Loop Scope
-  #
   def add_flowfact(ff, tag = :flowfact)
     model = ff.level == "machinecode" ? @mc_model : @bc_model
     raise Exception.new("IPETBuilder#add_flowfact: cannot add bitcode flowfact without using relation graph") unless model
     unless ff.rhs.constant?
       warn("IPETBuilder#add_flowfact: cannot add flowfact with symbolic RHS to IPET: #{ff}")
       return false
+    end
+    if ff.level == "bitcode"
+      begin
+        ff = replace_markers(ff)
+      rescue Exception => ex
+        warn("IPETBuilder#add_flowact: failed to replace markers: #{ex}")
+        return false
+      end
     end
     lhs, rhs = [], ff.rhs.to_i
     ff.lhs.each { |term|
@@ -463,6 +479,7 @@ class IPETBuilder
         lhs += model.edge_frequency(term.programpoint, term.factor)
       elsif term.programpoint.kind_of?(Instruction)
         # XXX: exclusively used in refinement for now
+        warn("IPETBuilder#add_flowfact: references instruction, not block or edge: #{ff}")
         return false
       else
         raise Exception.new("IPETBuilder#add_flowfact: Unknown programpoint type: #{term.programpoint.class}")
@@ -485,6 +502,7 @@ class IPETBuilder
       ilp.add_constraint(lhs, ff.op, 0, name, tag)
       name
     rescue UnknownVariableException => detail
+      debug(@options,:transform) { "Skipping constraint: #{detail}" }
       debug(@options,:ipet) { "Skipping constraint: #{detail}" }
     end
   end
@@ -517,6 +535,33 @@ private
     each_relation_edge(rg) do |edge|
       @ilp.add_variable(edge, :relationgraph)
     end
+    # record markers
+    bitcode_function.blocks.each { |bb|
+        bb.instructions.each { |i|
+            if i.marker
+              (@markers[i.marker]||=[]).push(i)
+            end
+        }
+    }
+  end
+
+  # replace markers by instructions
+  def replace_markers(ff)
+    new_lhs = TermList.new([])
+    ff.lhs.each { |term|
+        if term.programpoint.kind_of?(Marker)
+          factor = term.factor
+          if ! @markers[term.programpoint.name]
+            raise Exception.new("No instructions corresponding to marker #{term.programpoint.name.inspect}")
+          end
+          @markers[term.programpoint.name].each { |instruction|
+              new_lhs.push(Term.new(instruction.block, factor))
+            }
+        else
+          new_lhs.push(term)
+        end
+      }
+    FlowFact.new(ff.scope, new_lhs, ff.op, ff.rhs, ff.attributes)
   end
 
   # add constraints for bitcode basic blocks and relation graph

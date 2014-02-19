@@ -95,16 +95,26 @@ module PML
     def address=(addr); data['address'] = addr; end
 
     def ProgramPoint.from_pml(mod, data)
+      # markers are special global program points
+      if data['marker']
+        return Marker.new(data['marker'])
+      end
+
+      # otherwise, it is a function or part of a function
       fname = data['function']
+      assert("ProgramPoint.from_pml: no function attribute: #{data}") { fname }
+      function = mod.by_name(fname)
+      raise UnknownFunctionException.new(fname) unless function
+
       bname = data['block']
       lname = data['loop']
       iname = data['instruction']
       is_edge = ! data['edgesource'].nil?
-      assert("ProgramPoint.from_pml: no function attribute: #{data}") { fname }
-      function = mod.by_name(fname)
-      raise UnknownFunctionException.new(fname) unless function
       if (lname || bname)
         block = function.blocks.by_name(lname || bname)
+        assert("ProgramPoint.from_pml: no such block: #{lname||bname}") {
+          block
+        }
         if iname
           instruction = block.instructions[iname]
           return instruction
@@ -161,10 +171,10 @@ module PML
   class Edge < ProgramPoint
     attr_reader :source, :target
     def initialize(source, target, data = nil)
-      assert("PML Edge: source and target need to be blocks, not #{source.class}/#{target.class}") {
+      assert("PML::Edge: source and target need to be blocks, not #{source.class}/#{target.class}") {
         source.kind_of?(Block) && (target.nil? || target.kind_of?(Block))
       }
-      assert("PML Edge: source and target function need to match") { target.nil? || source.function == target.function }
+      assert("PML::Edge: source and target function need to match") { target.nil? || source.function == target.function }
 
       @source, @target = source, target
       @name = "#{source.name}->#{target ? target.name : '' }"
@@ -188,6 +198,27 @@ module PML
         'edgesource' => source.name }
       pml['edgetarget'] = target.name if target
       pml
+    end
+  end
+
+  # Markers; we use @ as marker prefix
+  class Marker < ProgramPoint
+    attr_reader :name
+    def initialize(name, data = nil)
+      assert("Marker#new: name must not be nil") { ! name.nil? }
+      @name = name
+      @qname = "@#{@name}"
+      set_yaml_repr(data)
+    end
+    def function
+      # no function associated with marker
+      nil
+    end
+    def to_s
+      @qname
+    end
+    def to_pml_ref
+      { 'marker' => @name }
     end
   end
 
@@ -583,6 +614,10 @@ module PML
     def Instruction.from_qname(functions,qn)
       fn,bn,iname = qn.split('/',3).map { |n| YAML::load(n) }
       functions.by_name(fn).blocks.by_name(bn).instructions[iname]
+    end
+
+    def marker
+      data['marker']
     end
 
     # type of branch this instruction realizes (if any)

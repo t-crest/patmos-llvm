@@ -210,6 +210,9 @@ class ILP
   # op        .. "equal" or "less-equal"
   # const_rhs .. integer
   def add_constraint(terms_lhs,op,const_rhs,name,tag)
+    assert("Markers should not appear in ILP") {
+      ! terms_lhs.any? { |v,c| v.kind_of?(Marker) }
+    }
     terms_indexed = Hash.new(0)
     terms_lhs.each { |v,c|
       terms_indexed[index(v)] += c

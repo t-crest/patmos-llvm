@@ -9,13 +9,14 @@ def usage(err)
   $stderr.puts(err) unless err.to_s.empty?
   $stderr.puts
   $stderr.puts("Usage: patmos-clang-wcet [-c|-S|-E] <clang-option>..")
-  $stderr.puts("Usage: patmos-clang-wcet -mconfig=<config.pml> [--wcet-guided-optimization] [--platin-wcet-options=<optstr>]  <clang-option>..")
+  $stderr.puts("Usage: patmos-clang-wcet [--target-config=patmos.pml] [--flow-facts=analysis.pml]")
+  $stderr.puts("                         [--wcet-guided-optimization] [--platin-wcet-options=<optstr>]  <clang-option>..")
   $stderr.puts("")
   $stderr.puts("This is a wrapper for patmos-clang (when producing binaries)")
-  $stderr.puts("patmos-cc will configure the hardware settings for you")
+  $stderr.puts("patmos-clang-wcet will configure all tools to match the hardware settings")
   $stderr.puts("and invoke clang, platin and aiT (in a loop for optimization)")
   $stderr.puts("")
-  $stderr.puts("See: patmos-clang --help")
+  $stderr.puts("See: patmos-clang-wcet --help")
   exit 1
 end
 
@@ -38,7 +39,12 @@ args, initial_args = [], []
 
 ARGV.each_with_index { |arg,ix|
   if arg =~ /^-mconfig=(.*)$/
-    options.configfile = $1
+    $stderr.puts("The option -mconfig is deprecated; use --target-config and/or --flow-facts instead")
+    options.target_config = $1
+  elsif arg =~ /^--target-config=(.*)$/
+    options.target_config = $1
+  elsif arg =~ /^--flow-facts=(.*)$/
+    options.flow_facts = $1
   elsif arg =~ /--wcet-guided-optimization/
     options.guided_optimization = true
   elsif arg =~ /^-mimport-pml=(.*)$/
@@ -67,10 +73,15 @@ ARGV.each_with_index { |arg,ix|
     options.debug = true
   end
 }
-if ! options.configfile
-  usage("Option --config=<config.pml> missing.")
-elsif ! File.exist?(options.configfile)
-  usage("Configuration file #{options.configfile} does not exist.")
+if ! options.target_config
+  $stderr.puts("Warning: using default target configuration")
+elsif ! File.exist?(options.target_config)
+  usage("Configuration file #{options.target_config} does not exist.")
+end
+if ! options.flow_facts
+  $stderr.puts("Warning: using default analysis target / no external flow facts")
+elsif ! File.exist?(options.flow_facts)
+  usage("Configuration file #{options.flow_facts} does not exist.")
 end
 if ! options.outfile
   usage("Option -o <binary> missing.")
@@ -108,27 +119,35 @@ llvminput  = outfile.call(options.outfile,".llvm-input.pml")
 llvmoutput = outfile.call(options.outfile,".llvm-output.pml")
 linked_bitcode = outfile.call(options.outfile,".elf.bc")
 
-# compile, serializing pml, elf, bc
-config=`platin tool-config -t clang -i #{options.configfile} -o #{llvmoutput}`.chomp
-config.sub!(/-mpatmos-method-cache-size=\S+/,'') if options.override[:mc_cache_size]
-config.sub!(/-mpatmos-max-subfunction-size=\S+/,'') if options.override[:mc_max_sf_size]
+platin_inputs = ""
+platin_inputs += "-i #{options.target_config}" if options.target_config
+platin_inputs += "-i #{options.flow_facts}" if options.flow_facts
 
-run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr} #{clang_argstr_initial}")
-#run("patmos-clang #{config} -nodefaultlibs -nostartfiles -o #{options.outfile} #{linked_bitcode}")
+# compile, serializing pml, elf, bc
+clang_config = if options.target_config
+                 `platin tool-config -t clang -o #{options.target_config} -o #{llvmoutput}`.chomp
+               else
+                 "-mserialize=#{llvmoutput}"
+               end
+clang_config.sub!(/-mpatmos-method-cache-size=\S+/,'') if options.override[:mc_cache_size]
+clang_config.sub!(/-mpatmos-max-subfunction-size=\S+/,'') if options.override[:mc_max_sf_size]
+
+run("patmos-clang #{clang_config} -mpreemit-bitcode=#{linked_bitcode} #{clang_argstr} #{clang_argstr_initial}")
+#run("patmos-clang #{clang_config} -nodefaultlibs -nostartfiles -o #{options.outfile} #{linked_bitcode}")
 
 if options.guided_optimization
   FileUtils.cp(options.outfile, options.outfile + ".preopt")
 
   # compute WCETs
-  run("platin wcet --batch  -i #{options.configfile} -i #{llvmoutput} -b #{options.outfile} -o #{llvminput} #{platin_derived_options} --report")
+  run("platin wcet #{platin_inputs} -i #{llvmoutput} -b #{options.outfile} -o #{llvminput} #{platin_derived_options} --report")
 
   # recompile, serialize pml, elf, bc
-  #run("patmos-clang #{config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
-  run("patmos-clang #{config} -mpreemit-bitcode=#{linked_bitcode} -mimport-pml=#{llvminput} #{clang_argstr} -mpatmos-enable-bypass-from-pml")
+  #run("patmos-clang #{clang_config} -nodefaultlibs -nostartfiles -mimport-pml=#{llvminput} -o #{options.outfile} #{linked_bitcode}")
+  run("patmos-clang #{clang_config} -mpreemit-bitcode=#{linked_bitcode} -mimport-pml=#{llvminput} #{clang_argstr} -mpatmos-enable-bypass-from-pml")
 end
 
 # compute WCETs and report
-run("platin wcet --batch -i #{options.configfile} --bitcode #{linked_bitcode} -i #{llvmoutput} -b #{options.outfile} -o #{options.pmloutput} #{platin_derived_options} --report")
+run("platin wcet #{platin_inputs} --bitcode #{linked_bitcode} -i #{llvmoutput} -b #{options.outfile} -o #{options.pmloutput} #{platin_derived_options} --report")
 
 unless options.save_temps
   File.unlink(llvminput)

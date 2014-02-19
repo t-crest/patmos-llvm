@@ -122,6 +122,9 @@ mapping:
                           "desc":
                              type: scalar
                              desc: "description of the instruction and the operands"
+                          "marker":
+                             type: scalar
+                             desc: "if this is a marker instruction, the name of the marker"
                           "branch-type":
                              type: str
                              enum: [unconditional, conditional, call, return, indirect, any]
@@ -314,7 +317,6 @@ mapping:
             mapping:
               "function":
                 type: scalar
-                required: true
                 desc: function the referenced program point is defined in
               "block":
                 type: scalar
@@ -326,11 +328,17 @@ mapping:
                  desc: >-
                    name of the instruction, if the object references an instruction
               "edgesource":
-                  type: any
-                  desc: TODO
+                  type: scalar
+                  desc: if the object is a CFG edge, the basic block that is the edge's source
               "edgetarget":
                   type: scalar
-                  desc: "TODO"
+                  desc: if the object a CFG edge, and the target is not the function exit, the edge's target
+              "marker":
+                  type: any
+                  desc: >-
+                    a marker is a global name used for source-level flow facts
+                    if this field is set, no other field should be
+                    markers are not associated with a function at the bitcode or machine-code level
               "context": &context
                 type: seq
                 sequence:
@@ -381,8 +389,8 @@ mapping:
             mapping:
               "function":
                 type: scalar
-                required: true
-                desc: the function this scopes begins and ends in
+                desc: >-
+                 If specified, the scope begins and ends in this function
               "loop":
                 type: scalar
                 desc: >-
