@@ -96,7 +96,12 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
 bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                    TargetSubtargetInfo::AntiDepBreakMode& Mode,
                                    RegClassVector& CriticalPathRCs) const {
-  Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
+  // TODO disabled until call delay slots are properly handled by anti-dep
+  // breaker. Moving a use of a caller-defined register (r1,..) into the delay
+  // slot of a call causes the anti-dep breaker not to detect the use if the def
+  // is in a preceding scheduling region.
+  // Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
+  Mode = ANTIDEP_NONE;
 
   return hasPostRAScheduler(OptLevel);
 }
