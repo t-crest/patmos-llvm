@@ -17,6 +17,7 @@ add_llvm_library(LLVMAnalysis
   DomPrinter.cpp
   DominanceFrontier.cpp
   IVUsers.cpp
+  InputDependenceAnalysis.cpp
   InstCount.cpp
   InstructionSimplify.cpp
   Interval.cpp
@@ -63,4 +64,3 @@ add_llvm_library(LLVMAnalysis
 add_dependencies(LLVMAnalysis intrinsics_gen)
 
 add_subdirectory(IPA)
-add_subdirectory(InputDependence)

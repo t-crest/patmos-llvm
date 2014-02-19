@@ -44,6 +44,7 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializePostDomOnlyViewerPass(Registry);
   initializePostDomOnlyPrinterPass(Registry);
   initializeIVUsersPass(Registry);
+  initializeInputDependenceAnalysisPass(Registry);
   initializeInstCountPass(Registry);
   initializeIntervalPartitionPass(Registry);
   initializeLazyValueInfoPass(Registry);

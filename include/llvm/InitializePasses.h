@@ -103,6 +103,7 @@ void initializeDSEPass(PassRegistry&);
 void initializeDeadInstEliminationPass(PassRegistry&);
 void initializeDeadMachineInstructionElimPass(PassRegistry&);
 void initializeDependenceAnalysisPass(PassRegistry&);
+void initializeInputDependenceAnalysisPass(PassRegistry&);
 void initializeDomOnlyPrinterPass(PassRegistry&);
 void initializeDomOnlyViewerPass(PassRegistry&);
 void initializeDomPrinterPass(PassRegistry&);

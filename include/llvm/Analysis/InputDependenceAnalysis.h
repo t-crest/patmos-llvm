@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file implements (and documents) the computation of the
-// thinned gated single assignment form, roughly following Havlac's paper and
+// thinned gated single assignment form, roughly following Havlak's paper and
 // described in detail in our technical report. Using the LLVM infrastructure,
 // the TGSA form requires relatively few analyses, relying on the LoopSimplify
 // and LCSSA pass.
@@ -49,8 +49,6 @@
 
 #include <vector>
 
-#include "PHIDecisionNode.h"
-
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Value.h"
@@ -63,6 +61,7 @@
 
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/LoopPass.h"
+#include "llvm/Analysis/LoopInfo.h"
 
 #include "llvm/Transforms/Scalar.h"
 
@@ -70,30 +69,120 @@
 
 namespace llvm {
 
+// PHI Decision Nodes : nodes in a decision DAG
+// The DAGs are pruned at construction time,
+// thus reference counting is a perfect match
+class PHIDecisionNode : public RefCountedBase<PHIDecisionNode> {
+ public:
+  typedef IntrusiveRefCntPtr<PHIDecisionNode> Ptr;
+  typedef SmallVector<Ptr, 2> PHIDecisionList;
+  typedef PHIDecisionList::iterator iterator;
+ private:
+  // Leaf: reaching definition / boolean (latch/exit)
+  Value *ReachingDefinition;
+  // Inner: branch node
+  BasicBlock* BranchNode;
+  // Inner: selectors for children
+  PHIDecisionList ChildSelectors;
+
+ public:
+  // Inner node: branch at basic block BB
+  PHIDecisionNode(BasicBlock* BB)
+   :  ChildSelectors(BB->getTerminator()->getNumSuccessors()) {
+    ReachingDefinition = 0;
+    BranchNode = BB;
+  }
+  // Leaf node (second argument to disambiguate overloading)
+  PHIDecisionNode(Value* RD, bool isLeafNode) : ChildSelectors(0) {
+    BranchNode = 0;
+    ReachingDefinition = RD;
+  }
+
+  
+  bool isLeafNode() const {
+    return ReachingDefinition != 0;
+  }
+  // iterator for child selectors
+  iterator begin() { return ChildSelectors.begin(); }
+  iterator end()   { return ChildSelectors.end();   }
+
+  void setChildSelector(unsigned ChildIndex, Ptr ChildSelector) {
+    assert(! isLeafNode() && "setChildSelector(...) called for leaf node");
+    assert(ChildIndex < ChildSelectors.size() && "Invalid index for child phi selector");
+    assert(! ChildSelectors[ChildIndex] && "Attempt to overwrite child!");
+    ChildSelectors[ChildIndex] = ChildSelector;
+  }
+  // build list of control dependencies (traverse over DAG)
+  // TODO: visit every node only once
+  void getControlDependencies(SmallVector<BasicBlock*,16>& DepList) {
+    if(isLeafNode()) return;
+    DepList.push_back(BranchNode);
+    for(PHIDecisionList::iterator PSNI = ChildSelectors.begin(),
+	  PSNE = ChildSelectors.end(); PSNI != PSNE; ++PSNI) {
+      if(*PSNI != 0) {
+	(*PSNI)->getControlDependencies(DepList);
+      }
+    }
+  }
+
+  bool operator==(const PHIDecisionNode& Other) const {
+    if(isLeafNode() != Other.isLeafNode()) return false;
+    if(isLeafNode()) {
+      return (ReachingDefinition == Other.ReachingDefinition);
+    } else {
+      return (BranchNode == Other.BranchNode);
+    }
+  }
+
+  bool operator!=(const PHIDecisionNode& Other) const {
+    return ! operator==(Other);
+  }
+
+  void print(raw_ostream &ROS, unsigned indent = 0) {
+    for(unsigned i = 0; i < indent; i++) ROS << ' ';
+    if(this == 0) {
+      ROS << "(bot)\n";
+    } else if(isLeafNode()) {
+      ROS << "(leaf) "; ReachingDefinition->print(ROS,0); ROS << '\n';
+    } else {
+      ROS << "(node) " << BranchNode->getName() << '\n';
+      for(iterator PSNI = begin(), PSNE = end(); PSNI != PSNE; ++PSNI) {
+	(*PSNI)->print(ROS,indent+2);
+      }
+    }
+  }
+
+  void dump() {
+    print(dbgs(),0); dbgs() << '\n';
+  }
+};
+
 typedef SmallVector<BasicBlock*,16> BlockList;
 typedef SmallVector<PHINode*, 8> PHINodeList;
 
-raw_ostream& operator<<(raw_ostream &O, const BlockList &L);
-raw_ostream& operator<<(raw_ostream &O, const PHINodeList &L);
+template<typename List>
+raw_ostream& osAppendList(raw_ostream &O, const List &L) {
+  O << "[";
 
-// FIXME: Relies on the knowledge that the po_end() ctor does not touch its argument
-inline po_iterator< Loop* > loop_po_begin(LoopInfo* LI) {
-    if(LI->begin() == LI->end()) {
-        return po_end((Loop*)0);
-    } else {
-        return po_begin(*(LI->begin()));
-    }
+  for (typename List::const_iterator B = L.begin(),
+         E = L.end(); B != E; ) {
+    O << "'" << (*B)->getName() << "'";
+    if (++B != E) O << ", ";
+  }
+
+  return O << "]";
 }
-inline po_iterator< Loop* > loop_po_end(LoopInfo* LI) {
-    if(LI->begin() == LI->end()) {
-        return po_end((Loop*)0);
-    } else {
-        return po_end(*(LI->begin()));
-    }
+
+inline raw_ostream& operator<<(raw_ostream &O, const BlockList &L) {
+    return osAppendList(O,L);
+}
+
+inline raw_ostream& operator<<(raw_ostream &O, const PHINodeList &L) {
+    return osAppendList(O,L);
 }
 
 // InputDependenceAnalysis
-// - Identifiy mu nodes and eta dependencies, and compute gamma decision DAGs
+// - Identifiy mu nodes and eta dependencies, and compute eta/gamma decision DAGs
 class InputDependenceAnalysis : public FunctionPass {
 
 public:
@@ -103,15 +192,25 @@ public:
     typedef DenseMap<const BasicBlock*, PHIDecisionNode::Ptr > PHIDecisionMap;
 
 private:
+    // FIXME: Relies on the knowledge that the po_end() ctor does not touch its argument
+    inline po_iterator< Loop* > loop_po_begin(LoopInfo* LI) {
+      if(LI->begin() == LI->end()) {
+        return po_end((Loop*)0);
+      } else {
+        return po_begin(*(LI->begin()));
+      }
+    }
+    inline po_iterator< Loop* > loop_po_end(LoopInfo* LI) {
+      if(LI->begin() == LI->end()) {
+        return po_end((Loop*)0);
+      } else {
+        return po_end(*(LI->begin()));
+      }
+    }
+
     // Cached analysis information for the current function.
     LoopInfo      *LI;
     DominatorTree *DT;
-
-    // List of all loops, innermost to outermost, top to bottom
-    // [Removed]
-    //   We now use the po_iterator, loop_po* is provided for convenience
-    //   > for(loop_iterator SubLoopI = loop_po_begin(LI),SubLoopE = loop_po_end(LI);
-    //   >                   SubLoopI != SubLoopE; ++SubLoopI);
 
     // Exit Blocks for all loops (sorted value set)
     LoopBlocksMap ExitBlocks;
@@ -128,19 +227,14 @@ private:
 
     // PHIDecisionGraphs for all phi nodes in the function
     DenseMap<const PHINode*, PHIDecisionNode::Ptr > Selectors;
+    
+    // DecisionGraphs for all loops in the function
+    DenseMap<const Loop*, PHIDecisionNode::Ptr > LoopSelectors;
 
 public:
 
     static char ID; // Pass identification, replacement for typeid
     InputDependenceAnalysis() : FunctionPass(ID) {}
-
-    raw_ostream &dbgs() {
-#ifdef DEBUG_CONTROL_DEPS
-        return llvm::dbgs()();
-#else
-        return llvm::nulls();
-#endif
-    }
 
     /// This transformation requires natural loop information & requires that
     /// loop preheaders be inserted into the CFG.  It maintains both of these,
@@ -160,44 +254,43 @@ public:
     // Then add the corresponding dependency edges (eta/mu edge from decision branch,
     // or gamma edge from control flow decisions which control the selection)
     virtual bool runOnFunction(Function &F) {
-        InputDependenceAnalysis::dbgs() << "InputDependenceAnalysis for " << F.getName() << '\n';
-        // Clear
-        ExitBlocks.clear();
-        LoopDecisionBlocks.clear();
-        EtaDeps.clear();
-        Selectors.clear();
-        // Get analysis data
-        LI = &getAnalysis<LoopInfo>();
-        DT = &getAnalysis<DominatorTree>();
+      DEBUG(dbgs() <<"InputDependenceAnalysis for " << F.getName() << '\n');
+      // Clear
+      ExitBlocks.clear();
+      LoopDecisionBlocks.clear();
+      EtaDeps.clear();
+      Selectors.clear();
+      
+      // Get analysis data
+      LI = &getAnalysis<LoopInfo>();
+      DT = &getAnalysis<DominatorTree>();
 
-        bool WellFormed = true;
+      bool WellFormed = true;
 
-        // For all loops, process loop headers (MU deps) and compute decision blocks
-        for(po_iterator< Loop* > SubLoopI = loop_po_begin(LI), SubLoopE = loop_po_end(LI);
-                SubLoopI != SubLoopE; ++SubLoopI) {
-            WellFormed &= processLoop(*SubLoopI);
-        }
-        assert(WellFormed && "Not all loops are in canonical form. Aborting");
+      // For all loops, process loop headers (MU deps) and compute decision blocks
+      for(po_iterator< Loop* > SubLoopI = loop_po_begin(LI), SubLoopE = loop_po_end(LI);
+	  SubLoopI != SubLoopE; ++SubLoopI) {
+	WellFormed &= processLoop(*SubLoopI);
+      }
+      assert(WellFormed && "Not all loops are in canonical form. Aborting");
 
-        for(Function::iterator BBI = F.begin(), BBE = F.end(); BBI != BBE; ++BBI) {
-            BasicBlock* BB = BBI;
-            // We already processed loop headers
-            if(LI->isLoopHeader(BB)) continue;
+      for(Function::iterator BBI = F.begin(), BBE = F.end(); BBI != BBE; ++BBI) {
+	BasicBlock* BB = BBI;
+	// We already processed loop headers
+	if(LI->isLoopHeader(BB)) continue;
 
-            // Process each phi node
-            for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
-                if (PHINode *PN = dyn_cast<PHINode>(I)) {
-                    processPHINode(PN,BB);
-                } else {
-                    break; // no more phi nodes
-                }
-            }
+	// Process each phi node
+	for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
+	  if (PHINode *PN = dyn_cast<PHINode>(I)) {
+	    processPHINode(PN,BB);
+	  } else {
+	    break; // no more phi nodes
+	  }
+	}
 
-        }
-#ifdef DEBUG_CONTROL_DEPS
-        dump(F);
-#endif
-        return false;
+      }
+      DEBUG(dump(F,dbgs()));
+      return false;
     }
 
     virtual void dump(const Function& F, raw_ostream& O);
@@ -210,7 +303,9 @@ public:
             List.push_back(dyn_cast<PHINode>(InsI));
         }
     }
+
     // get loop control conditions (terminators of loop control blocks)
+    // FIXME: build loop decision dag
     BlockList& getLoopControlBlocks(Loop* Loop) {
         return LoopDecisionBlocks[Loop];
     }
@@ -231,19 +326,29 @@ public:
 
 
 private:
+    // Process Loops and mu nodes
+    // The Loop L has to be in canonical form (preheader, header, latch)
+    // Compute exit decision blocks, exit blocks and mu nodes
     bool processLoop(Loop *L);
 
+    // Process eta/gamma PHI nodes 
     bool processPHINode(PHINode* PN, BasicBlock* BB);
-
-    // Get decision blocks of a loop (at least successor outside the loop,
-    // but not all of them)
-    void computeDecisionBlocks(Loop *L, SmallVectorImpl<BasicBlock*>& DecisionBlocks);
 
     // Build list of all loops
     void buildLoopList(LoopInfo* LI, std::vector<Loop*> &loopList);
 
+    // Get exit decision blocks of a loop (at least successor outside the loop,
+    // but not all of them)
+    void getLoopDecisionBlocks(Loop *L, BlockList& DecisionBlocks);
+
+    // Compute loop decision DAG
+    void computeLoopDecision(Loop *L, PHIDecisionMap& SelectorMap);
+
     // Compute PHI Selector (Without mu/eta deps) for the given PHI node
     void computePHIDecision(PHINode *PN, BasicBlock *IDOM, PHIDecisionMap& SelectorMap);
+
+    // Build decision DAG for eta or gamma node
+    void buildDecisionDAG(BlockList& WorkList, BasicBlock *IDOM, PHIDecisionMap& SelectorMap);
 
     virtual void verifyAnalysis() const {
         // Check the special guarantees that TGSA makes
@@ -251,9 +356,9 @@ private:
     }
 
     bool loopError(BasicBlock* Header, const char Msg[]) {
-        errs() << "Error analyzing loop '" << Header->getName() << "' for InputDependenceAnalysis: ";
-        errs() << Msg << " (did you run -loop-simplify and -lcssa ?)\n";
-        return false;
+      errs() << "InputDependenceAnalysis: Error analyzing loop '" << Header->getName();
+      errs() << ": " << Msg << " (did you run -loop-simplify and -lcssa ?)\n";
+      return false;
     }
 
 };

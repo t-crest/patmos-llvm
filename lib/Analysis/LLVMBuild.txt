@@ -16,7 +16,7 @@
 ;===------------------------------------------------------------------------===;
 
 [common]
-subdirectories = IPA InputDependence
+subdirectories = IPA
 
 [component_0]
 type = Library
