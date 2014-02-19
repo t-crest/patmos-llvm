@@ -12,6 +12,10 @@ detect_ruby() {
     elif [[ "${RUBY_VERSION}" =~ ^1.9 ]] ; then
 	RUBY=ruby
 	RUBY19=ruby
+    elif [[ "${RUBY_VERSION}" =~ ^2.0 ]] ; then
+	RUBY=ruby
+	RUBY19=ruby
+	RUBY20=ruby
     elif [ ! -z "${RUBY_VERSION}" ] ; then
 	RUBY=ruby
     fi

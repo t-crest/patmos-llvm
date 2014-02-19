@@ -78,23 +78,7 @@ public:
   }
 
   /// Return the number of delay slot cycles of control flow instructions
-  unsigned getDelaySlotCycles(const MachineInstr *MI) const {
-    if (MI->isCall() || MI->isReturn() ||
-            MI->getOpcode() == Patmos::BRCFu ||
-            MI->getOpcode() == Patmos::BRCF ||
-            MI->getOpcode() == Patmos::BRCFRu ||
-            MI->getOpcode() == Patmos::BRCFR ||
-            MI->getOpcode() == Patmos::BRCFTu ||
-            MI->getOpcode() == Patmos::BRCFT)
-    {
-      return getCFLDelaySlotCycles(false);
-    }
-    else if (MI->isBranch()) {
-      return getCFLDelaySlotCycles(true);
-    } else {
-      return 0;
-    }
-  }
+  unsigned getDelaySlotCycles(const MachineInstr *MI) const;
 
   /// Get the maximum number of bytes an instruction can have in the delay slots
   /// (excluding the second slot of this instruction)
@@ -102,8 +86,12 @@ public:
     return getDelaySlotCycles(MI) * 8;
   }
 
+  /// Return true if branches might be scheduled inside delay slots of CFL
+  /// instructions.
+  bool allowBranchInsideCFLDelaySots() const;
+
   /// Return the latency of MUL instructions
-  unsigned getMULLatency() const { return 3; }
+  unsigned getMULLatency() const { return 1; }
 
   /// Get the width of an instruction.
   unsigned getIssueWidth(unsigned SchedClass) const;

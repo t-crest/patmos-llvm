@@ -133,18 +133,63 @@ public:
   /// instruction (e.g. by the isBarrier flag), but the predicate says
   /// otherwise (and vice versa), rewrite the instruction accordingly.
   /// Returns true iff the instruction was rewritten.
-  virtual bool fixOpcodeForGuard(MachineInstr *MI) const;
+  bool fixOpcodeForGuard(MachineInstr *MI) const;
+
+  /// findPrevDelaySlotEnd - Find the end of the previous delay slot, if any.
+  /// \param II - The instruction from where to start, will be set to the last
+  ///             checked instruction, i.e. the branch if a delay slot is found.
+  /// \param Cycles - Maximum number of cycles to search for an end of a delay
+  ///                 slot, or -1 to search to start of BB.
+  /// \return 0 or positive indicates the number of instructions between II and
+  ///         the last instruction of the previous delay slot end, i.e., the
+  ///         number of instructions II can be moved up before entering a delay
+  ///         slot. A negative value indicates how many instructions after II
+  ///         are in the same delay slot as II, including II.
+  int findPrevDelaySlotEnd(MachineBasicBlock &MBB,
+                           MachineBasicBlock::iterator &II,
+                           int Cycles = -1) const;
+
+  /// moveTo - Move an instruction to a given target instruction, either
+  /// replacing a NOP at the target or bundling it with the instruction at the
+  /// target, if possible.
+  /// \param Target The pointer to the instruction to replace or bundle with the
+  ///               the source. Will be set to the new instruction or the bundle.
+  /// \param Source The instruction to move.
+  /// \param Pred If set, set the guard of the Source instruction to the
+  ///             predicate defined by Pred on a successful move.
+  /// \param Negate If true, negate the predicate when setting a new predicate.
+  /// \return True on a successful move, false if the instruction has not been
+  ///         moved.
+  bool moveTo(MachineBasicBlock &MBB,
+              MachineBasicBlock::iterator &Target,
+              MachineBasicBlock::iterator &Source,
+              SmallVectorImpl<MachineOperand> *Pred = NULL,
+              bool Negate = false) const;
+
+  /// moveUp - Move an instruction up by its delay slot cycles.
+  /// Assumes the instruction does not have any dependency to previous
+  /// instructions.
+  /// Returns the number of cycles not rescheduled after the instruction.
+  unsigned moveUp(MachineBasicBlock &MBB,
+                  MachineBasicBlock::iterator &II) const;
+
+  /// moveUp - Move an instruction up by a given number of cycles if possible.
+  /// Assumes the instruction does not have any dependency to previous
+  /// instructions.
+  /// Returns the number of cycles not rescheduled after the instruction.
+  unsigned moveUp(MachineBasicBlock &MBB,
+                  MachineBasicBlock::iterator &II, unsigned Cycles) const;
 
   /// isStackControl - Return true if the instruction controls the stack cache.
-  virtual bool isStackControl(const MachineInstr *MI) const;
+  bool isStackControl(const MachineInstr *MI) const;
 
   /// isSideEffectFreeSRegAccess- return true if the instruction is a MTS/MFS
   /// to/from a special register without side-effects
-  virtual bool isSideEffectFreeSRegAccess(const MachineInstr *MI) const;
+  bool isSideEffectFreeSRegAccess(const MachineInstr *MI) const;
 
   /// getMemType - Return the type for Patmos' typed memory accesses.
   /// MI must be either a load or a store instruction.
-  virtual unsigned getMemType(const MachineInstr *MI) const;
+  PatmosII::MemType getMemType(const MachineInstr *MI) const;
 
   /// isPseudo - check if the given machine instruction is emitted, i.e.,
   /// if the instruction is either inline asm or has some FU assigned to it.
@@ -161,15 +206,36 @@ public:
   void skipPseudos(MachineBasicBlock &MBB,
                    MachineBasicBlock::iterator &II) const;
 
+  /// nextNonPseudo - Get the previous non-pseudo instruction or bundle.
+  MachineBasicBlock::iterator prevNonPseudo(MachineBasicBlock &MBB,
+                   const MachineBasicBlock::iterator &II) const;
+
   /// nextNonPseudo - Get the next non-pseudo instruction or bundle.
   MachineBasicBlock::iterator nextNonPseudo(MachineBasicBlock &MBB,
                    const MachineBasicBlock::iterator &II) const;
+
+  /// recedeCycles - Move the iterator back by a given number of cycles, skipping
+  /// pseudo instructions.
+  /// \return false when receding the iterator stopped due to inline asm.
+  bool recedeCycles(MachineBasicBlock &MBB,
+                    MachineBasicBlock::iterator &II, unsigned Cycles,
+                    bool StopOnInlineAsm = true) const;
+
+  /// advanceCycles - Move the iterator down by a given number of cycles,
+  /// skipping pseudo instructions.
+  /// \return false when advancing the iterator stopped due to inline asm.
+  bool advanceCycles(MachineBasicBlock &MBB,
+                     MachineBasicBlock::iterator &II, unsigned Cycles,
+                     bool StopOnInlineAsm = true) const;
 
   /// hasOpcode - check if the given instruction has the given opcode, or if
   /// the bundle contains an instruction with the opcode if this is a bundle.
   /// Returns either the first instruction in the bundle matching the opcode,
   /// the instruction itself, or 0 if no instruction matches the opcode.
   const MachineInstr *hasOpcode(const MachineInstr *MI, int Opcode) const;
+
+  /// hasRegUse - Check if the given instruction uses any register.
+  bool hasRegUse(const MachineInstr *MI) const;
 
   // getFirstMI - Return MI or the first 'real' instruction if MI is a bundle.
   const MachineInstr* getFirstMI(const MachineInstr *MI) const;
@@ -191,6 +257,11 @@ public:
   /// mayStall - return true if the MBB might cause a memory access that might
   /// miss and stall the CPU. Not checking for instruction fetch related stalls.
   bool mayStall(const MachineBasicBlock &MBB) const;
+
+  /// canRemoveFromSchedule - check if the given instruction can be removed
+  /// without creating any hazards to surrounding instructions.
+  bool canRemoveFromSchedule(MachineBasicBlock &MBB,
+                             const MachineBasicBlock::iterator &II) const;
 
   /// getCallee - try to get the called function, or null if this is not a
   /// call, if the call target is unknown or if there is more than one callee.
@@ -282,6 +353,16 @@ public:
                               const MachineInstr* MI2) const;
 
 
+  /// getPrediate - load the guards of an instruction into Pred. If the
+  /// instruction is a bundle, get all predicates of the bundle.
+  /// Return true if any predicate is found.
+  bool getPredicateOperands(const MachineInstr* MI,
+                            SmallVectorImpl<MachineOperand> &Pred) const;
+
+  /// negatePredicate - invert the flag of the guard of the instruction.
+  /// Return true on success.
+  bool NegatePredicate(MachineInstr *MI) const;
+
   /// PredicateInstruction - Convert the instruction into a predicated
   /// instruction. It returns true if the operation was successful.
   virtual
@@ -302,8 +383,6 @@ public:
   ///       into the Pred vector.
   virtual bool DefinesPredicate(MachineInstr *MI,
                                 std::vector<MachineOperand> &Pred) const;
-
-
 
   /// isProfitableToIfCvt - Return true if it's profitable to predicate
   /// instructions with accumulated instruction latency of "NumCycles"

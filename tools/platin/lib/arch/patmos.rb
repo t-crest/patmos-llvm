@@ -41,7 +41,7 @@ class SimulatorTrace
     else
       begin
         needs_options(@options, :pasim)
-        pasim_options="-q --debug 0 --debug-fmt trace -b #{@elf}"
+        pasim_options="--debug 0 --debug-fmt trace -b #{@elf}"
         cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} #{pasim_options} 2>&1 1>/dev/null"
         debug(@options, :patmos) { "Running pasim: #{cmd}" }
         IO.popen("#{cmd}") do |io|
@@ -248,8 +248,6 @@ class Architecture < PML::Architecture
     if sc = stack_cache
       opts.push("--scsize")
       opts.push(sc.size)
-      opts.push("--sbsize")
-      opts.push(sc.block_size)
       opts.push("--sckind")
       opts.push("block")
     end

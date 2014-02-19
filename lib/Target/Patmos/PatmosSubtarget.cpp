@@ -41,7 +41,7 @@ static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
                      cl::init(4096),
                      cl::desc("Total size of the instruction cache in bytes "
-                              "(default 1024)"));
+                              "(default 4096)"));
 
 static cl::opt<unsigned> MinSubfunctionAlign("mpatmos-subfunction-align",
                    cl::init(64),
@@ -53,6 +53,10 @@ static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-basicblock-align",
                    cl::desc("Alignment for basic blocks in bytes "
                            "(default: no alignment)."));
 
+static cl::opt<bool> BranchInsideCFLDelaySlots("mpatmos-nested-branches",
+                     cl::init(false),
+                     cl::desc("Enable scheduling of branch instructions "
+                              "inside CFL delay slots."));
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
 	             cl::init(false),
@@ -92,6 +96,8 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
 bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                    TargetSubtargetInfo::AntiDepBreakMode& Mode,
                                    RegClassVector& CriticalPathRCs) const {
+  Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
+
   return hasPostRAScheduler(OptLevel);
 }
 
@@ -119,6 +125,39 @@ bool PatmosSubtarget::usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
 
 bool PatmosSubtarget::usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const {
   return hasPostRAScheduler(OptLevel) && !DisablePatmosPostRA;
+}
+
+unsigned PatmosSubtarget::getDelaySlotCycles(const MachineInstr *MI) const {
+  if (MI->isBundle()) {
+    const MachineBasicBlock *MBB = MI->getParent();
+    MachineBasicBlock::const_instr_iterator I = MI, E = MBB->instr_end();
+    unsigned delay = 0;
+    while ((++I != E) && I->isInsideBundle()) {
+      delay = std::max(delay, getDelaySlotCycles(I));
+    }
+    return delay;
+  }
+  else if (MI->isCall() || MI->isReturn() ||
+           MI->getOpcode() == Patmos::BRCFu ||
+           MI->getOpcode() == Patmos::BRCF ||
+           MI->getOpcode() == Patmos::BRCFRu ||
+           MI->getOpcode() == Patmos::BRCFR ||
+           MI->getOpcode() == Patmos::BRCFTu ||
+           MI->getOpcode() == Patmos::BRCFT)
+  {
+    return getCFLDelaySlotCycles(false);
+  }
+  else if (MI->isBranch()) {
+    return getCFLDelaySlotCycles(true);
+  } else {
+    return 0;
+  }
+}
+
+
+bool PatmosSubtarget::allowBranchInsideCFLDelaySots() const
+{
+  return BranchInsideCFLDelaySlots;
 }
 
 unsigned PatmosSubtarget::getIssueWidth(unsigned SchedClass) const {

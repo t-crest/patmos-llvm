@@ -122,6 +122,8 @@ AggressiveAntiDepBreaker(MachineFunction& MFi,
   TRI(MF.getTarget().getRegisterInfo()),
   RegClassInfo(RCI),
   State(NULL) {
+  CriticalPathSet.resize(TRI->getNumRegs(), false);
+
   /* Collect a bitset of all registers that are only broken if they
      are on the critical path. */
   for (unsigned i = 0, e = CriticalPathRCs.size(); i < e; ++i) {

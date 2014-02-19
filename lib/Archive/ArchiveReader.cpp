@@ -547,7 +547,8 @@ Archive::findModulesDefiningSymbols(std::set<std::string>& symbols,
           }
           // Insert the Module and the ArchiveMember into the table of
           // modules.
-          modules.insert(std::make_pair(offset, std::make_pair(M, mbr)));
+	  unsigned fileOffset = offset + firstFileOffset;
+          modules.insert(std::make_pair(fileOffset, std::make_pair(M, mbr)));
         } else {
           if (error)
             *error = "Can't parse bitcode member: " + 

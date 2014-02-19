@@ -31,7 +31,6 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
-#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -42,7 +41,7 @@ using namespace llvm;
 
 
 PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
-  TargetLowering(tm, new TargetLoweringObjectFileELF()),
+  TargetLowering(tm, new PatmosTargetObjectFile()),
   Subtarget(*tm.getSubtargetImpl()) {
 
   TD = getDataLayout();

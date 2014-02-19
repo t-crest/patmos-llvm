@@ -392,7 +392,7 @@ let isCall=1, hasDelaySlot=1, mayStall=1,
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1, mayStall=1,
-    neverHasSideEffects = 1 in { // due to missing pattern
+    hasExtraSrcRegAllocReq = 1, neverHasSideEffects = 1 in { // due to missing pattern
   def RET  : CFLr<0b0000, (outs), (ins pred:$p, RRegs:$rb, RRegs:$ro),
                   "ret", "$rb, $ro", []>;
 }
@@ -697,9 +697,11 @@ let mayStall = 1 in
 def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;
 
 // move to special
+let hasExtraDefRegAllocReq = 1 in
 def MTS  : SPCt <(outs SRegs:$sd), (ins pred:$p, RRegs:$rs), "mts", "$sd = $rs", [] >;
 
 // move from special
+let hasExtraSrcRegAllocReq = 1, neverHasSideEffects = 1 in
 def MFS  : SPCf <(outs RRegs:$rd), (ins pred:$p, SRegs:$ss), "mfs", "$rd = $ss", [] >;
 
 

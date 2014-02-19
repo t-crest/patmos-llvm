@@ -32,13 +32,13 @@ static struct {
 
 
 inline
-static extract(uint32_t word, unsigned offset, unsigned width)
+static uint32_t extract(uint32_t word, unsigned offset, unsigned width)
 {
   return (word >> offset) & ((1 << width) - 1);
 }
 
 inline
-static deposit(uint32_t word, unsigned offset, unsigned width, uint32_t value)
+static uint32_t deposit(uint32_t word, unsigned offset, unsigned width, uint32_t value)
 {
   return word | ((value & ((1 << width) - 1)) << offset);
 }
@@ -178,7 +178,7 @@ static int check_address(long addr)
     return -1;
   }
 
-  if (addr & 0x3 != 0) {
+  if ((addr & 0x3) != 0) {
     report(fail, "Error: address %#lx unaligned (required: 4)\n", addr);
     return -1;
   }

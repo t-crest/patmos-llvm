@@ -102,7 +102,14 @@ void PatmosInstrInfo::
 storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                     unsigned SrcReg, bool isKill, int FrameIdx,
                     const TargetRegisterClass *RC,
-                    const TargetRegisterInfo *TRI) const {
+                    const TargetRegisterInfo *TRI) const
+{
+  // Do not emit anything for naked functions
+  if (MBB.getParent()->getFunction()->hasFnAttribute(Attribute::Naked)) {
+    report_fatal_error("Trying to spill a register in naked function " +
+                       MBB.getParent()->getName() + ": not supported!", false);
+  }
+
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
@@ -140,7 +147,14 @@ void PatmosInstrInfo::
 loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                      unsigned DestReg, int FrameIdx,
                      const TargetRegisterClass *RC,
-                     const TargetRegisterInfo *TRI) const {
+                     const TargetRegisterInfo *TRI) const
+{
+  // Do not emit anything for naked functions
+  if (MBB.getParent()->getFunction()->hasFnAttribute(Attribute::Naked)) {
+    report_fatal_error("Trying to fill a register in naked function " +
+                       MBB.getParent()->getName() + ": not supported!", false);
+  }
+
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
@@ -266,6 +280,194 @@ bool PatmosInstrInfo::fixOpcodeForGuard(MachineInstr *MI) const {
   return false;
 }
 
+int PatmosInstrInfo::findPrevDelaySlotEnd(MachineBasicBlock &MBB,
+                                          MachineBasicBlock::iterator &II,
+                                          int Cycles) const
+{
+  int cnt = 0;
+
+  int maxDelaySlotSize = PST.getCFLDelaySlotCycles(false);
+
+  while (II != MBB.begin()) {
+    --II;
+    if (isPseudo(&*II))
+      continue;
+
+    // This code assumes that delay slots can not be completely inside other
+    // delay slots, i.e., we only need to scan up to the first CFL instruction.
+
+    if (II->isInlineAsm()) {
+      break;
+    }
+    if (II->isBranch() || II->isCall() || II->isReturn()) {
+      cnt -= PST.getDelaySlotCycles(&*II);
+      break;
+    }
+    if (Cycles >= 0 && cnt >= Cycles + maxDelaySlotSize)
+      break;
+
+    cnt++;
+  }
+
+  return Cycles >= 0 && cnt > Cycles ? Cycles : cnt;
+}
+
+bool PatmosInstrInfo::moveTo(MachineBasicBlock &MBB,
+                             MachineBasicBlock::iterator &Target,
+                             MachineBasicBlock::iterator &Source,
+                             SmallVectorImpl<MachineOperand> *Pred,
+                             bool Negate) const
+{
+  if (Target->isBundle()) return false;
+
+  if (Target->getOpcode() == Patmos::NOP) {
+    // replace the NOP with the source instruction
+    Source = MBB.insert(Target, MBB.remove(Source));
+    MBB.erase(Target);
+
+    if (Pred) {
+      PredicateInstruction(&*Source, *Pred);
+    }
+    if (Negate) {
+      NegatePredicate(&*Source);
+    }
+
+    return true;
+  }
+
+  // TODO check if we can bundle the target and the source instruction, do so
+
+
+
+  return false;
+}
+
+
+
+unsigned PatmosInstrInfo::moveUp(MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator &II) const
+{
+  return moveUp(MBB, II, PTM.getSubtargetImpl()->getDelaySlotCycles(&*II));
+}
+
+unsigned PatmosInstrInfo::moveUp(MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator &II,
+                                 unsigned Cycles) const
+{
+  // TODO We assume here that we do not have instructions which must be scheduled
+  // *within* a certain amount of cycles, except for branches (i.e., we
+  // do not emit overlapping pipelined MULs). Otherwise we would need to
+  // check if we violate any latency constraints when inserting an instruction
+
+  // Note: We assume that the instruction has no dependencies on previous
+  // instructions within the given number of cycles. If we would check for this,
+  // this would become a complete scheduler.
+
+  // We might move an instruction
+  // 1) outside of delay slots -> always possible
+  // 2) into a delay slot -> optional, must add predicate and replace NOP or
+  //    be bundled; we do not move other instructions around
+  // 3) over a branch -> always possible if not predicated, but only until next
+  //    delay slot and if not moved into a delay slot
+
+  if (II->isBundled()) {
+    // TODO moving bundled instructions is not yet supported.
+    return Cycles;
+  }
+
+  MachineBasicBlock::iterator J = II;
+
+  // determine start of first delay slot above the instruction
+  int nonDelayed = findPrevDelaySlotEnd(MBB, J, Cycles);
+
+  // Check if the instruction is inside a delay slot
+  if (nonDelayed < 0) {
+    // do not move it out of the delay slot
+    // TODO we could move it, and insert a NOP instead..
+    return Cycles;
+  }
+
+  bool isBranch = II->isBranch();
+  bool isCFLInstr = isBranch || II->isCall() || II->isReturn();
+
+  if (nonDelayed < (int)Cycles && J->isBranch() &&
+      !isPredicated(&*II) && isPredicated(&*J) &&
+      (!isCFLInstr || (isBranch && PST.allowBranchInsideCFLDelaySots()) ))
+  {
+    // J points to the branch instruction
+    unsigned delayed = nonDelayed + PST.getDelaySlotCycles(&*J) + 1;
+
+    // Load the predicate of the branch
+    // We assume here that a bundle only contains at most one branch,
+    // that this instruction is the first instruction in the bundle, and
+    // that the branch is actually predicated.
+    // TODO add a check for this!
+    SmallVector<MachineOperand,4> Pred;
+
+    const MachineInstr *BR = getFirstMI(&*J);
+    assert(BR->isBranch() && "Branch is not in the first slot");
+
+    getPredicateOperands(BR, Pred);
+    assert(Pred.size() >= 2 && "Branch instruction not predicated");
+
+    // determine if instruction might be moved over the delay slot
+    if (delayed <= Cycles) {
+
+      // TODO We only move the instruction at most one cycle above the branch.
+      //      We could move it further up, but then we need to check where the
+      //      predicate is defined.
+      MachineBasicBlock::iterator JJ = J;
+      if (findPrevDelaySlotEnd(MBB, JJ, 0) >= 0) {
+
+        // Move the instruction up and predicate it
+        II = MBB.insert(J, MBB.remove(II));
+
+        PredicateInstruction(&*II, Pred);
+        NegatePredicate(&*II);
+
+        return Cycles - delayed;
+      }
+    }
+
+    // if not, check if we can move it into the delay slot
+    MachineBasicBlock::iterator dst = J;
+
+    // Going down from the branch until the first possible slot, checking
+    // that the predicate is not redefined.
+    // Note that we are not inserting the instruction, but replacing an
+    // instruction, i.e., we move one instruction less over II than in the
+    // other cases.
+    while ((int)delayed > nonDelayed) {
+      delayed--;
+
+      if (delayed <= Cycles && moveTo(MBB, dst, II, &Pred, true)) {
+        return Cycles - delayed;
+      }
+
+      // TODO check if this also finds a MTS $S0 !!
+      if (dst->definesRegister(Pred[0].getReg(), &getRegisterInfo())) {
+        break;
+      }
+
+      dst = nextNonPseudo(MBB, dst);
+    }
+  }
+
+  if (nonDelayed > 0) {
+    // we are staying below a delay slot, just move the instruction up
+    J = II;
+    recedeCycles(MBB, J, nonDelayed);
+
+    II = MBB.insert(J, MBB.remove(II));
+
+    return Cycles - nonDelayed;
+  }
+
+  return Cycles;
+}
+
+
+
 bool PatmosInstrInfo::isStackControl(const MachineInstr *MI) const {
   switch (getPatmosFormat(MI->getDesc().TSFlags)) {
     case PatmosII::FrmSTCi:
@@ -295,7 +497,7 @@ bool PatmosInstrInfo::isSideEffectFreeSRegAccess(const MachineInstr *MI)
   return false;
 }
 
-unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
+PatmosII::MemType PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
   assert(MI->mayLoad() || MI->mayStore());
 
   if (MI->isBundle()) {
@@ -333,6 +535,18 @@ unsigned PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
 }
 
 bool PatmosInstrInfo::isPseudo(const MachineInstr *MI) const {
+
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator II = MI; ++II;
+    const MachineBasicBlock *MBB = MI->getParent();
+
+    while (II != MBB->instr_end() && II->isBundledWithPred()) {
+      if (!isPseudo(II)) return false;
+      II++;
+    }
+    return true;
+  }
+
   if (MI->isDebugValue())
     return true;
 
@@ -360,20 +574,64 @@ void PatmosInstrInfo::skipPseudos(MachineBasicBlock &MBB,
 void PatmosInstrInfo::skipPseudos(MachineBasicBlock &MBB,
     MachineBasicBlock::iterator &II) const
 {
-  // TODO we should check if a bundle contains only pseudos (optionally).
-  while (II != MBB.instr_end() && !II->isBundle() && isPseudo(II)) {
+  while (II != MBB.end() && isPseudo(II)) {
     II++;
   }
 }
 
-/// nextNonPseudo - Get the next non-pseudo instruction or bundle.
+MachineBasicBlock::iterator PatmosInstrInfo::prevNonPseudo(
+                                  MachineBasicBlock &MBB,
+                                  const MachineBasicBlock::iterator &II) const
+{
+  MachineBasicBlock::iterator J = II; --J;
+
+  while (J != MBB.begin() && isPseudo(J)) {
+    --J;
+  }
+  return J;
+}
+
 MachineBasicBlock::iterator PatmosInstrInfo::nextNonPseudo(
                                   MachineBasicBlock &MBB,
                                   const MachineBasicBlock::iterator &II) const
 {
-  MachineBasicBlock::iterator J = next(II);
+  MachineBasicBlock::iterator J = llvm::next(II);
   skipPseudos(MBB, J);
   return J;
+}
+
+bool PatmosInstrInfo::recedeCycles(MachineBasicBlock &MBB,
+                                   MachineBasicBlock::iterator &II,
+                                   unsigned Cycles, bool StopOnInlineAsm) const
+{
+  for (unsigned i = 0; i < Cycles && II != MBB.begin(); i++) {
+
+    II = prevNonPseudo(MBB, II);
+
+    if (StopOnInlineAsm && II->isInlineAsm()) {
+      // Should we stop on the last non-pseudo instruction instead?
+      II++;
+      return false;
+    }
+  }
+  return true;
+}
+
+bool PatmosInstrInfo::advanceCycles(MachineBasicBlock &MBB,
+                                    MachineBasicBlock::iterator &II,
+                                    unsigned Cycles, bool StopOnInlineAsm) const
+{
+  for (unsigned i = 0; i < Cycles && II != MBB.end(); i++) {
+
+    II = nextNonPseudo(MBB, II);
+
+    if (StopOnInlineAsm && II->isInlineAsm()) {
+      // Should we stop on the last non-pseudo instruction instead?
+      II++;
+      return false;
+    }
+  }
+  return true;
 }
 
 
@@ -393,10 +651,21 @@ const MachineInstr *PatmosInstrInfo::hasOpcode(const MachineInstr *MI,
   }
 }
 
+bool PatmosInstrInfo::hasRegUse(const MachineInstr *MI) const
+{
+  for (unsigned i = 0; i < MI->getNumOperands(); i++) {
+    const MachineOperand &MO = MI->getOperand(i);
+    if (MO.isReg() && MO.isUse() &&
+        MO.getReg() != Patmos::NoRegister && MO.getReg() != Patmos::P0)
+      return true;
+  }
+  return false;
+}
+
 const MachineInstr *PatmosInstrInfo::getFirstMI(const MachineInstr *MI) const {
   if (MI->isBundle()) {
     MachineBasicBlock::const_instr_iterator I = MI;
-    return next(I);
+    return llvm::next(I);
   }
   return MI;
 }
@@ -492,6 +761,31 @@ bool PatmosInstrInfo::mayStall(const MachineBasicBlock &MBB) const {
   }
   return false;
 }
+
+bool PatmosInstrInfo::canRemoveFromSchedule(MachineBasicBlock &MBB,
+                                    const MachineBasicBlock::iterator &II) const
+{
+  if (II == MBB.begin())
+    return true;
+
+  // Check if we are inside a CFL delay slot
+  MachineBasicBlock::iterator I = II;
+  if (findPrevDelaySlotEnd(MBB, I, 0) < 0)
+    return false;
+
+  // Check if we are inside a load delay slot
+  I = prevNonPseudo(MBB, II);
+  if (I->mayLoad())
+    return false;
+
+  // Check for MULs
+  // TODO how far do we have to look back for MULs, i.e., what is the delay?
+  if (I->getOpcode() == Patmos::MUL || I->getOpcode() == Patmos::MULU)
+    return false;
+
+  return true;
+}
+
 
 const Function *PatmosInstrInfo::getCallee(const MachineInstr *MI) const
 {
@@ -764,6 +1058,15 @@ ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const {
 //
 
 bool PatmosInstrInfo::isPredicated(const MachineInstr *MI) const {
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator II = MI;
+    while (II->isBundledWithSucc()) {
+      ++II;
+      if (isPredicated(&*II)) return true;
+    }
+    return false;
+  }
+
   int i = MI->findFirstPredOperandIdx();
   if (i != -1) {
     unsigned preg = MI->getOperand(i).getReg();
@@ -798,6 +1101,53 @@ bool PatmosInstrInfo::haveDisjointPredicates(const MachineInstr* MI1,
          MI1->getOperand(Pos1+1).getImm() != MI2->getOperand(Pos2+1).getImm();
 }
 
+bool PatmosInstrInfo::getPredicateOperands(const MachineInstr* MI,
+                                   SmallVectorImpl<MachineOperand> &Pred) const
+{
+  if (!isPredicated(MI)) return false;
+
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator II = MI;
+    while (II->isBundledWithSucc()) {
+      ++II;
+      getPredicateOperands(&*II, Pred);
+    }
+    return true;
+  }
+
+  if (!MI->getDesc().isPredicable()) return false;
+
+  unsigned Pos = MI->getDesc().getNumDefs();
+  Pred.push_back(MI->getOperand(Pos));
+  Pred.push_back(MI->getOperand(Pos+1));
+
+  return true;
+}
+
+bool PatmosInstrInfo::NegatePredicate(MachineInstr *MI) const
+{
+  if (!MI->isPredicable(MachineInstr::AnyInBundle)) return false;
+
+  if (MI->isBundle()) {
+    MachineBasicBlock::instr_iterator II = MI;
+    while (II->isBundledWithSucc()) {
+      ++II;
+      NegatePredicate(&*II);
+    }
+    return true;
+  }
+
+  int i = MI->findFirstPredOperandIdx();
+  assert(i != -1);
+  MachineOperand &PO2 = MI->getOperand(i+1);
+  assert(PO2.isImm() && "Unexpected Patmos predicate operand");
+
+  bool flag = (PO2.getImm() != 0) ^ 1;
+  PO2.setImm(flag);
+
+  return true;
+}
+
 
 bool PatmosInstrInfo::
 PredicateInstruction(MachineInstr *MI,
@@ -824,7 +1174,6 @@ PredicateInstruction(MachineInstr *MI,
   }
   return false;
 }
-
 
 bool PatmosInstrInfo::
 SubsumesPredicate(const SmallVectorImpl<MachineOperand> &Pred1,

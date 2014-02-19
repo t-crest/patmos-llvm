@@ -85,7 +85,7 @@ namespace PatmosII {
     FormMask    = 0x0F
   };
 
-  enum  {
+  enum MemType {
     //===------------------------------------------------------------------===//
     // Patmos Memory Types.
     MEM_S = 0, // stack cache

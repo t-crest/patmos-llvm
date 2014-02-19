@@ -139,7 +139,16 @@ namespace {
           TargetPassConfig::addBlockPlacement();
         }
       }
-      return false;
+
+      // this is pseudo pass that may hold results from SC analysis
+      // (currently for PML export)
+      addPass(createPatmosStackCacheAnalysisInfo(getPatmosTargetMachine()));
+
+      if (EnableStackCacheAnalysis) {
+        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+      }
+
+      return true;
     }
 
 
@@ -161,7 +170,7 @@ namespace {
       // add passes to handle them.
       if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
-                                                false));
+                                            getOptLevel() == CodeGenOpt::None));
       }
 
       // All passes below this line must handle delay slots and bundles
@@ -172,14 +181,6 @@ namespace {
       }
 
       addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
-
-      // this is pseudo pass that may hold results from SC analysis
-      // (currently for PML export)
-      addPass(createPatmosStackCacheAnalysisInfo(getPatmosTargetMachine()));
-
-      if (EnableStackCacheAnalysis) {
-        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
-      }
 
       // following pass is a peephole pass that does neither modify
       // the control structure nor the size of basic blocks.

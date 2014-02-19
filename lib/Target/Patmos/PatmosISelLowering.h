@@ -18,6 +18,7 @@
 #include "Patmos.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/Target/TargetLowering.h"
 
 namespace llvm {
@@ -40,6 +41,14 @@ namespace llvm {
   class PatmosSubtarget;
   class PatmosTargetMachine;
 
+  class PatmosTargetObjectFile : public TargetLoweringObjectFileELF {
+  public:
+    void Initialize(MCContext &Ctx, const TargetMachine &TM) {
+      TargetLoweringObjectFileELF::Initialize(Ctx, TM);
+      InitializeELF(true); // set UseInitArray to true
+    }
+  };
+
   class PatmosTargetLowering : public TargetLowering {
   public:
     explicit PatmosTargetLowering(PatmosTargetMachine &TM);
@@ -52,6 +61,11 @@ namespace llvm {
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
     virtual EVT getSetCCResultType(EVT VT) const;
+
+    virtual unsigned getByValTypeAlignment(Type *Ty) const LLVM_OVERRIDE {
+      // Align any type passed by value on the stack to words
+      return 4;
+    }
 
     /******************************************************************
      * Jump Tables
