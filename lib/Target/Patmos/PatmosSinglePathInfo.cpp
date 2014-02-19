@@ -21,6 +21,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -210,6 +211,7 @@ void PatmosSinglePathInfo::computeControlDependence(SPScope &S,
       // only consider members
       if (!S.isMember(SMBB))
         continue;
+
       // exclude edges to post-dominating (single) successors;
       // the second case catches the single-node loop case
       // (i==0 -> MBB is header, control dependent on itself)
@@ -363,9 +365,9 @@ PatmosSinglePathInfo::getOrCreateDefInfo(SPScope &S,
 
 
 SPScope::SPScope(SPScope *parent, MachineBasicBlock *header,
-               MachineBasicBlock *succ, unsigned int numbe,
+               std::vector<MachineBasicBlock *> &succs, unsigned int numbe,
                bool isRootTopLevel)
-               : Parent(parent), SuccMBB(succ), NumBackedges(numbe),
+               : Parent(parent), SuccMBBs(succs), NumBackedges(numbe),
                  RootTopLevel(isRootTopLevel), LoopBound(-1) {
   Depth = 0;
   if (Parent) {
@@ -435,7 +437,10 @@ void SPScope::topoSort(void) {
     S.pop_back();
     // n is either a subloop header or a simple block of this SPScope
     if (HeaderMap.count(n)) {
-      succs.push_back(HeaderMap[n]->getSuccMBB());
+      const std::vector<MachineBasicBlock *>
+        &loop_succs = HeaderMap[n]->getSuccMBBs();
+      // successors of the loop
+      succs.insert( succs.end(), loop_succs.begin(), loop_succs.end() );
     } else {
       // simple block
       succs.insert( succs.end(), n->succ_begin(), n->succ_end() );
@@ -490,8 +495,12 @@ void SPScope::dump() const {
   if (Parent) {
     dbgs() << " u=" << Parent->getPredUse(Blocks.front());
   }
-  if (SuccMBB) {
-    dbgs() << " -> BB#" << SuccMBB->getNumber();
+  if (!SuccMBBs.empty()) {
+    dbgs() << " -> { ";
+    for (unsigned i=0; i<SuccMBBs.size(); i++) {
+      dbgs() << "BB#" << SuccMBBs[i]->getNumber() << " ";
+    }
+    dbgs() << "}";
   }
   dbgs() << " |P|=" <<  PredCount;
   printUDInfo(*this, Blocks.front());
@@ -533,17 +542,26 @@ void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
                          std::map<const MachineLoop *, SPScope *> &M) {
   // We need to make some assumptions about the loops we can handle for now...
   // allow only one successor for SPScope
+  if (loop->getExitBlock() == NULL || loop->getExitingBlock() == NULL) {
+    //loop->getHeader()->getParent()->viewCFGOnly();
+    DEBUG(dbgs() << "more than 1 exit(-ing) block: "
+                 << loop->getHeader()->getName() << "\n");
+  }
   assert( loop->getExitBlock() != NULL &&
-          "Allow only one successor for loops!" );
+            "Allow only one successor for loops!" );
   assert( loop->getExitingBlock() != NULL &&
-          "Allow only exactly one exiting edge for loops!" );
-  // for now, also:
-  //assert( loop->getHeader() == loop->getExitingBlock() &&
-  //        "Allow only loops with Header == Exiting Block!" );
+            "Allow only exactly one exiting edge for loops!" );
+
+  // FIXME ugly code
+  SmallVector<MachineBasicBlock *, 4> succ_smvec;
+  loop->getExitBlocks(succ_smvec);
+
+  std::vector<MachineBasicBlock *> succ_vec;
+  succ_vec.insert(succ_vec.begin(), succ_smvec.begin(), succ_smvec.end());
 
   SPScope *S = new SPScope(parent,
                           loop->getHeader(),
-                          loop->getExitBlock(),
+                          succ_vec,
                           loop->getNumBackEdges()
                           );
 
@@ -566,7 +584,9 @@ PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) const {
   // First, create a SPScope tree
   std::map<const MachineLoop *, SPScope *> M;
 
-  SPScope *Root = new SPScope(NULL, &MF.front(), NULL, 0, isRoot(MF));
+  std::vector<MachineBasicBlock *> empty;
+  SPScope *Root = new SPScope(NULL, &MF.front(),
+      empty, 0, isRoot(MF));
 
 
   M[NULL] = Root;

@@ -201,11 +201,11 @@ namespace llvm {
     public:
       /// constructor - Create an SPScope with specified parent SP scope or
       /// NULL if top level;
-      /// the header/entry MBB; the succ MBB; number of backedges
+      /// the header/entry MBB; the succ MBBs; number of backedges
       /// isRootTopLevel is true when this scope is a top level scope of
       /// a single-path root function.
       explicit SPScope(SPScope *parent, MachineBasicBlock *header,
-                      MachineBasicBlock *succ, unsigned numbe,
+                      std::vector<MachineBasicBlock *> &succs, unsigned numbe,
                       bool isRootTopLevel=false);
 
       /// destructor - free the child scopes first, cleanup
@@ -218,7 +218,9 @@ namespace llvm {
       MachineBasicBlock *getHeader() const { return Blocks.front(); }
 
       /// getSuccMBB - Get the single successor MBB
-      MachineBasicBlock *getSuccMBB() const { return SuccMBB; }
+      const std::vector<MachineBasicBlock *> &getSuccMBBs() const {
+        return SuccMBBs;
+      }
 
       /// getDepth - Get the nesting depth of the SPScope
       unsigned int getDepth() const { return Depth; }
@@ -289,8 +291,8 @@ namespace llvm {
       // parent SPScope
       SPScope *Parent;
 
-      // successor MBB
-      MachineBasicBlock *SuccMBB;
+      // successor MBBs
+      std::vector<MachineBasicBlock *> SuccMBBs;
 
       // number of backedges
       const unsigned NumBackedges;

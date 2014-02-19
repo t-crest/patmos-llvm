@@ -27,7 +27,6 @@
 // TODO: No actual loop bounds are loaded, as this information is not
 //       available yet
 //
-// TODO: Single-Path conversion is not interprocedural yet!
 //
 //===----------------------------------------------------------------------===//
 
@@ -1026,10 +1025,12 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
 
 
 bool PatmosSPReduce::hasLiveOutPReg(const SPScope *S) const {
-  MachineBasicBlock *SuccMBB = S->getSuccMBB();
-  for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
-    if (SuccMBB->isLiveIn(UnavailPredRegs[i])) {
-      return true;
+  const std::vector<MachineBasicBlock *> SuccMBBs = S->getSuccMBBs();
+  for (unsigned j=0; j<SuccMBBs.size(); j++) {
+    for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
+      if (SuccMBBs[j]->isLiveIn(UnavailPredRegs[i])) {
+        return true;
+      }
     }
   }
   return false;
@@ -1085,6 +1086,12 @@ void RAInfo::assignLocations(void) {
 
       if ( MBB != Scope->getHeader() ) {
         // each use must be preceded by a location assignment
+        if ( curUseLoc < 0 ) {
+          DEBUG( dbgs() << "RegAlloc: Current MBB#" << MBB->getNumber()
+                    << " with pred " << usePred
+                    << " is used but not located!\n" );
+          DEBUG( MBB->getParent()->viewCFGOnly() );
+        }
         assert( curUseLoc >= 0 );
         // if previous location was not a register, we have to allocate
         // a register and/or possibly spill
@@ -1099,8 +1106,8 @@ void RAInfo::assignLocations(void) {
             // order predicates wrt furthest next use
             std::vector<unsigned> order;
             for(unsigned j=0; j<LRs.size(); j++) {
-              if (curLocs[j] < (int)NumColors) {
-                assert(curLocs[j] > -1);
+              // consider all physical registers (< NumColors) in use (!= -1)
+              if (curLocs[j] != -1 && curLocs[j] < (int)NumColors) {
                 order.push_back(j);
               }
             }
@@ -1143,8 +1150,11 @@ void RAInfo::assignLocations(void) {
     // (3) handle definitions in this basic block.
     //     if we need to get new locations for predicates (loc==-1),
     //     assign new ones in nearest-next-use order
+    //     FIXME handle live-out predicates from loops
     const PredDefInfo *DI = Scope->getDefInfo(MBB);
     if (DI) {
+      assert( !Scope->isSubHeader(MBB) &&
+          "cannot handle live-out predicates yet");
       std::vector<unsigned> order;
       for (int r = DI->getBoth().find_first(); r != -1;
           r = DI->getBoth().find_next(r)) {
