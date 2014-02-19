@@ -125,7 +125,6 @@ namespace {
       if (PatmosSinglePathInfo::isEnabled()) {
         addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
         addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
-        return true;
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
           addPass(&IfConverterID);
