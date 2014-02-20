@@ -80,16 +80,23 @@ static cl::opt<bool>
 DumpAsm("d", cl::desc("Print assembly as linked"), cl::Hidden);
 
 static cl::opt<bool>
-NoStdLib("nostdlib",
-         cl::desc("Only search directories specified on the command line."));
+SuppressWarnings("suppress-warnings", cl::desc("Suppress all linking warnings"),
+                 cl::init(false));
 
-static bool isFileType(const std::string &FileName, sys::fs::file_magic type)
-{
-  sys::fs::file_magic result;
-  if (sys::fs::identify_magic(FileName, result) != error_code::success()) {
-    return false;
-  }
-  return result == type;
+// LoadFile - Read the specified bitcode file in and return it.  This routine
+// searches the link path for the specified file to try to find it...
+//
+static inline Module *LoadFile(const char *argv0, const std::string &FN,
+                               LLVMContext& Context) {
+  SMDiagnostic Err;
+  if (Verbose) errs() << "Loading '" << FN << "'\n";
+  Module* Result = 0;
+
+  Result = ParseIRFile(FN, Err, Context);
+  if (Result) return Result;   // Load successful!
+
+  Err.print(argv0, errs());
+  return NULL;
 }
 
 int main(int argc, char **argv) {
@@ -120,27 +127,12 @@ int main(int argc, char **argv) {
     L.setFlags(LibraryLinker::Verbose);
   }
 
-  // Link in modules, archives, and libraries
-  std::vector<std::string>::const_iterator FileIt = InputFilenames.begin();
-  std::vector<std::string>::const_iterator LibIt = Libraries.begin();
-  std::vector<LibraryLinkage>::const_iterator LDLIt = LinkDynamicLibraries.begin();
-  bool OnlyStatic = false;
-
-  while (true) {
-    unsigned int LibPos = -1, FilePos = -1, LDLPos = -1;
-    if (LibIt != Libraries.end())
-      LibPos = Libraries.getPosition(LibIt - Libraries.begin());
-    if (FileIt != InputFilenames.end())
-      FilePos = InputFilenames.getPosition(FileIt - InputFilenames.begin());
-    if (LDLIt != LinkDynamicLibraries.end())
-      LDLPos = LinkDynamicLibraries.getPosition(LDLIt - LinkDynamicLibraries.begin());
-    
-    // If LDLPos is less than both FilePos and LibPos, update
-    // OnlyStatic.
-    if (LDLPos < FilePos && LDLPos < LibPos)
-    {
-      OnlyStatic = *LDLIt++ == Static;
-      continue;
+  Linker L(Composite.get(), SuppressWarnings);
+  for (unsigned i = BaseArg+1; i < InputFilenames.size(); ++i) {
+    OwningPtr<Module> M(LoadFile(argv[0], InputFilenames[i], Context));
+    if (M.get() == 0) {
+      errs() << argv[0] << ": error loading file '" <<InputFilenames[i]<< "'\n";
+      return 1;
     }
 
     // Otherwise, FilePos or LibPos is smaller (or all are -1).
