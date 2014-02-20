@@ -591,7 +591,10 @@ void PatmosPostRASchedStrategy::removeExclusivePredDeps()
         unsigned PredPos = MI->getDesc().getNumDefs();
         if (pit->getReg() != MI->getOperand(PredPos).getReg())
         {
-          it->removePred(*pit);
+          // TODO we must add new edges to the non-mutual-exclusive uses/defs
+          // Otherwise the scheduler might swap instructions around that have
+          // deps
+          //it->removePred(*pit);
         }
       }
     }
