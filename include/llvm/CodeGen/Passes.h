@@ -380,10 +380,9 @@ namespace llvm {
   createMachineFunctionPrinterPass(raw_ostream &OS,
                                    const std::string &Banner ="");
 
-  /// PMLExport pass - this pass exports the internal LLVM information (machinecode)
-  /// to the given stream in PML format
-  MachineModulePass *
-  createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFile, ArrayRef<std::string> Roots);
+  /// createCodeGenPreparePass - Transform the code to expose more pattern
+  /// matching during instruction selection.
+  FunctionPass *createCodeGenPreparePass(const TargetMachine *TM = 0);
 
   /// MachineLoopInfo - This pass is a loop analysis pass.
   extern char &MachineLoopInfoID;
