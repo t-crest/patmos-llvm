@@ -3837,6 +3837,7 @@ bool AsmParser::parseDirectiveIfb(SMLoc DirectiveLoc, bool ExpectBlank) {
 
 /// parseDirectiveIfc
 /// ::= .ifc string1, string2
+/// ::= .ifnc string1, string2
 bool AsmParser::parseDirectiveIfc(SMLoc DirectiveLoc, bool ExpectEqual) {
   TheCondStack.push_back(TheCondState);
   TheCondState.TheCond = AsmCond::IfCond;
@@ -3858,7 +3859,7 @@ bool AsmParser::parseDirectiveIfc(SMLoc DirectiveLoc, bool ExpectEqual) {
 
     Lex();
 
-    TheCondState.CondMet = ExpectEqual == (Str1 == Str2);
+    TheCondState.CondMet = ExpectEqual == (Str1.trim() == Str2.trim());
     TheCondState.Ignore = !TheCondState.CondMet;
   }
 
