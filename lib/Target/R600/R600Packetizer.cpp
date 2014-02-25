@@ -356,6 +356,15 @@ bool R600Packetizer::runOnMachineFunction(MachineFunction &Fn) {
         End = MBB->end();
         continue;
       }
+      for (size_t idx = MI->getNumExplicitOperands();
+           idx < MI->getNumOperands(); idx++)
+      {
+        MachineOperand &MO = MI->getOperand(idx);
+        if (MO.isImplicit()) {
+          MI->RemoveOperand(idx);
+          idx--;
+        }
+      }
       ++MI;
     }
   }
