@@ -203,7 +203,9 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
 
     InstrInfo(*this), TLInfo(*this), TSInfo(*this),
     FrameLowering(*this),
-    InstrItins(Subtarget.getInstrItineraryData()) {
+    InstrItins(Subtarget.getInstrItineraryData())
+{
+  initAsmInfo();
 }
 
 TargetPassConfig *PatmosTargetMachine::createPassConfig(PassManagerBase &PM) {
