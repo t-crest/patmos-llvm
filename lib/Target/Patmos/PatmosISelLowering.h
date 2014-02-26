@@ -108,6 +108,12 @@ namespace llvm {
                                             SelectionDAG &DAG) const;
     */
 
+    /// Returns true if a cast between SrcAS and DestAS is a noop.
+    virtual bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const {
+      // Addrspacecasts are always noops.
+      return true;
+    }
+
     /******************************************************************
      * Inline asm support
      ******************************************************************/
