@@ -234,6 +234,8 @@ void PatmosSinglePathInfo::computeControlDependence(SPScope &S,
     }
   }
 
+  // FIXME
+  S.computeCD();
 
   DEBUG_TRACE({
     // dump CD
@@ -364,23 +366,39 @@ PatmosSinglePathInfo::getOrCreateDefInfo(SPScope &S,
 ///////////////////////////////////////////////////////////////////////////////
 
 
-SPScope::SPScope(SPScope *parent, MachineBasicBlock *header,
-               std::vector<MachineBasicBlock *> &succs, unsigned int numbe,
-               bool isRootTopLevel)
-               : Parent(parent), SuccMBBs(succs), NumBackedges(numbe),
-                 RootTopLevel(isRootTopLevel), LoopBound(-1) {
+SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
+                    : Parent(NULL), RootTopLevel(isRootTopLevel),
+                      LoopBound(-1) {
   Depth = 0;
-  if (Parent) {
+  // add header also to this SPScope's block list
+  Blocks.push_back(header);
+}
+
+
+SPScope::SPScope(SPScope *parent, MachineLoop &loop)
+  : Parent(parent), RootTopLevel(false), LoopBound(-1) {
+
+    assert(parent);
+    MachineBasicBlock *header = loop.getHeader();
+
     // add to parent's child list
     Parent->HeaderMap[header] = this;
     Parent->Children.push_back(this);
     // add to parent's block list as well
     Parent->addMBB(header);
     Depth = Parent->Depth + 1;
-  }
-  // add header also to this SPScope's block list
-  Blocks.push_back(header);
+
+    // add header also to this SPScope's block list
+    Blocks.push_back(header);
+
+    // info about loop latches and exit edges
+    loop.getLoopLatches(Latches);
+    loop.getExitEdges(ExitEdges);
+
 }
+
+
+
 
 /// destructor - free the child scopes first, cleanup
 SPScope::~SPScope() {
@@ -414,10 +432,127 @@ bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
 }
 
 
+const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
+  std::vector<const MachineBasicBlock *> SuccMBBs;
+  for (unsigned i=0; i<ExitEdges.size(); i++) {
+    SuccMBBs.push_back(ExitEdges[i].second);
+  }
+  return SuccMBBs;
+}
+
+
+void SPScope::computeCD(void) {
+
+  // build fcfg
+  FCFG fcfg(getHeader());
+
+  std::set<const MachineBasicBlock *> body(++Blocks.begin(), Blocks.end());
+  std::vector<const MachineBasicBlock *> succs;
+
+  for (unsigned i=0; i<Blocks.size(); i++) {
+    MachineBasicBlock *MBB = Blocks[i];
+    Node &n = fcfg.getNodeFor(MBB);
+
+    if (HeaderMap.count(MBB)) {
+      const std::vector<const MachineBasicBlock *> loop_succs
+                                              = HeaderMap[MBB]->getSuccMBBs();
+      // successors of the loop
+      succs.insert( succs.end(), loop_succs.begin(), loop_succs.end() );
+    } else {
+      // simple block
+      succs.insert( succs.end(), MBB->succ_begin(), MBB->succ_end() );
+    }
+
+    for (unsigned i=0; i<succs.size(); i++) {
+      const MachineBasicBlock *succ = succs[i];
+      // successors for which all preds were visited become available
+      if (body.count(succ)) {
+        Node &ns = fcfg.getNodeFor(succ);
+        n.connect(ns);
+      } else {
+        fcfg.toexit(n);
+      }
+    }
+
+    // special case: top-level loop has no exit/backedge
+    if (succs.empty()) {
+      assert(isTopLevel());
+      fcfg.toexit(n);
+    }
+
+    succs.clear();
+
+  }
+
+  fcfg.dump();
+}
+
+void SPScope::FCFG::_dfs(Node *n, std::set<Node*> &V) {
+
+  V.insert(n);
+  n->num = -1;
+  for (Node::child_iterator I = n->succs_begin(), E = n->succs_end();
+      I!=E; ++I ) {
+    if (!V.count(*I)) {
+      _dfs(*I, V);
+    }
+  }
+  n->num = counter++;
+  po.push_back(n);
+}
+
+
+void SPScope::FCFG::postorder(void) {
+  counter = 0;
+  po.clear();
+  std::set<Node*> visited;
+  _dfs(&nentry, visited);
+}
+
+
+void SPScope::FCFG::print(Node &n) {
+  if (&n == &nentry) {
+    dbgs() << "_S(" << n.num << ")";
+  } else if (&n == &nexit) {
+    dbgs() << "_T(" << n.num << ")";
+  } else {
+    dbgs() << "BB#" << n.MBB->getNumber() << "(" << n.num << ")";
+  }
+}
+
+
+
+void SPScope::FCFG::dump() {
+  dbgs() << "====== FCFG\n";
+
+  postorder();
+
+  std::vector<Node *> W;
+  std::set<Node *> visited;
+
+  W.push_back(&nentry);
+  while (!W.empty()) {
+    Node *n = W.back();
+    W.pop_back();
+    visited.insert(n);
+    // print edges
+    for (Node::child_iterator I = n->succs_begin(), E = n->succs_end();
+          I!=E; ++I ) {
+      print(*n); dbgs() << " -> "; print(**I); dbgs() << "\n";
+      if (!visited.count(*I)) {
+        W.push_back(*I);
+      }
+
+    }
+
+  }
+}
+
+
 void SPScope::topoSort(void) {
-  std::deque<MachineBasicBlock *> S;
-  std::vector<MachineBasicBlock *> succs;
-  std::map<MachineBasicBlock *, int> deps;
+  std::deque<const MachineBasicBlock *> S;
+  std::vector<const MachineBasicBlock *> succs;
+  std::map<const MachineBasicBlock *, int> deps;
   // for each block in SPScope excluding header,
   // store the number of predecessors
   for (unsigned i=1; i<Blocks.size(); i++) {
@@ -425,20 +560,20 @@ void SPScope::topoSort(void) {
     deps[MBB] = MBB->pred_size();
     if (HeaderMap.count(MBB)) {
       SPScope *subloop = HeaderMap[MBB];
-      deps[MBB] -= subloop->NumBackedges;
+      deps[MBB] -= subloop->Latches.size();
     }
   }
 
   S.push_back(Blocks.front());
   Blocks.clear();
   while (!S.empty()) {
-    MachineBasicBlock *n = S.back();
+    MachineBasicBlock *n = const_cast<MachineBasicBlock*>(S.back());
     Blocks.push_back(n); // re-append
     S.pop_back();
     // n is either a subloop header or a simple block of this SPScope
     if (HeaderMap.count(n)) {
-      const std::vector<MachineBasicBlock *>
-        &loop_succs = HeaderMap[n]->getSuccMBBs();
+      const std::vector<const MachineBasicBlock *> loop_succs
+                                              = HeaderMap[n]->getSuccMBBs();
       // successors of the loop
       succs.insert( succs.end(), loop_succs.begin(), loop_succs.end() );
     } else {
@@ -447,7 +582,7 @@ void SPScope::topoSort(void) {
     }
 
     for (unsigned i=0; i<succs.size(); i++) {
-      MachineBasicBlock *succ = succs[i];
+      const MachineBasicBlock *succ = succs[i];
       // successors for which all preds were visited become available
       if (succ != getHeader()) {
         if (--deps[succ] == 0)
@@ -495,10 +630,17 @@ void SPScope::dump() const {
   if (Parent) {
     dbgs() << " u=" << Parent->getPredUse(Blocks.front());
   }
-  if (!SuccMBBs.empty()) {
+  if (!ExitEdges.empty()) {
     dbgs() << " -> { ";
-    for (unsigned i=0; i<SuccMBBs.size(); i++) {
-      dbgs() << "BB#" << SuccMBBs[i]->getNumber() << " ";
+    for (unsigned i=0; i<ExitEdges.size(); i++) {
+      dbgs() << "BB#" << ExitEdges[i].second->getNumber() << " ";
+    }
+    dbgs() << "}";
+  }
+  if (!Latches.empty()) {
+    dbgs() << " L { ";
+    for (unsigned i=0; i<Latches.size(); i++) {
+      dbgs() << "BB#" << Latches[i]->getNumber() << " ";
     }
     dbgs() << "}";
   }
@@ -540,34 +682,12 @@ const PredDefInfo *SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
 static
 void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
                          std::map<const MachineLoop *, SPScope *> &M) {
-  // We need to make some assumptions about the loops we can handle for now...
-  // allow only one successor for SPScope
-  if (loop->getExitBlock() == NULL || loop->getExitingBlock() == NULL) {
-    //loop->getHeader()->getParent()->viewCFGOnly();
-    DEBUG(dbgs() << "more than 1 exit(-ing) block: "
-                 << loop->getHeader()->getName() << "\n");
-  }
-  assert( loop->getExitBlock() != NULL &&
-            "Allow only one successor for loops!" );
-  assert( loop->getExitingBlock() != NULL &&
-            "Allow only exactly one exiting edge for loops!" );
 
-  // FIXME ugly code
-  SmallVector<MachineBasicBlock *, 4> succ_smvec;
-  loop->getExitBlocks(succ_smvec);
-
-  std::vector<MachineBasicBlock *> succ_vec;
-  succ_vec.insert(succ_vec.begin(), succ_smvec.begin(), succ_smvec.end());
-
-  SPScope *S = new SPScope(parent,
-                          loop->getHeader(),
-                          succ_vec,
-                          loop->getNumBackEdges()
-                          );
+  SPScope *S = new SPScope(parent, *loop);
 
   // update map: Loop -> SPScope
   M[loop] = S;
-
+  // visit subloops
   for (MachineLoop::iterator I = loop->begin(), E = loop->end();
           I != E; ++I) {
     createSPScopeSubtree(*I, S, M);
@@ -584,9 +704,7 @@ PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) const {
   // First, create a SPScope tree
   std::map<const MachineLoop *, SPScope *> M;
 
-  std::vector<MachineBasicBlock *> empty;
-  SPScope *Root = new SPScope(NULL, &MF.front(),
-      empty, 0, isRoot(MF));
+  SPScope *Root = new SPScope(&MF.front(), isRoot(MF));
 
 
   M[NULL] = Root;

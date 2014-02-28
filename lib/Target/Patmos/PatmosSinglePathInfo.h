@@ -40,6 +40,10 @@
 
 namespace llvm {
 
+  class MachineLoop;
+
+
+
 ///////////////////////////////////////////////////////////////////////////////
 
   // forward decl
@@ -199,14 +203,15 @@ namespace llvm {
   class SPScope {
     friend class PatmosSinglePathInfo;
     public:
-      /// constructor - Create an SPScope with specified parent SP scope or
-      /// NULL if top level;
-      /// the header/entry MBB; the succ MBBs; number of backedges
-      /// isRootTopLevel is true when this scope is a top level scope of
-      /// a single-path root function.
-      explicit SPScope(SPScope *parent, MachineBasicBlock *header,
-                      std::vector<MachineBasicBlock *> &succs, unsigned numbe,
-                      bool isRootTopLevel=false);
+      /// constructor - Create a top-level SPScope
+      /// @param entry            The entry MBB;
+      /// @param isRootTopLevel   True when this scope is a top level scope of
+      ///                         a single-path root function.
+      explicit SPScope(MachineBasicBlock *entry, bool isRootTopLevel);
+
+
+      /// constructor - Create a loop SPScope
+      explicit SPScope(SPScope *parent, MachineLoop &loop);
 
       /// destructor - free the child scopes first, cleanup
       ~SPScope();
@@ -217,10 +222,8 @@ namespace llvm {
       /// getHeader
       MachineBasicBlock *getHeader() const { return Blocks.front(); }
 
-      /// getSuccMBB - Get the single successor MBB
-      const std::vector<MachineBasicBlock *> &getSuccMBBs() const {
-        return SuccMBBs;
-      }
+      /// getSuccMBB - Get the successors
+      const std::vector<const MachineBasicBlock *> getSuccMBBs() const;
 
       /// getDepth - Get the nesting depth of the SPScope
       unsigned int getDepth() const { return Depth; }
@@ -233,8 +236,8 @@ namespace llvm {
       /// of a single-path root function
       bool isRootTopLevel() const { return RootTopLevel; }
 
-      /// isHeader - Returns true if the specified MBB is a member of this
-      /// SPScope, (non-recursively)
+      /// isHeader - Returns true if the specified MBB is the header of this
+      /// SPScope
       bool isHeader(const MachineBasicBlock *MBB) const;
 
       /// isMember - Returns true if the specified MBB is a member of this
@@ -278,6 +281,54 @@ namespace llvm {
         return Blocks;
       }
 
+
+      //FIXME
+      class Node {
+        public:
+          typedef std::vector<Node*>::iterator child_iterator;
+          Node(const MachineBasicBlock *mbb=NULL) : MBB(mbb), num(-1) {}
+          const MachineBasicBlock *MBB;
+          int num;
+          void connect(Node &n) {
+            succs.push_back(&n);
+            n.preds.push_back(this);
+          }
+          child_iterator succs_begin() { return succs.begin(); }
+          child_iterator succs_end()   { return succs.end(); }
+          child_iterator preds_begin() { return preds.begin(); }
+          child_iterator preds_end()   { return preds.end(); }
+        private:
+          std::vector<Node *> succs;
+          std::vector<Node *> preds;
+      };
+
+      class FCFG {
+        public:
+          FCFG(const MachineBasicBlock *header) {
+            nentry.connect(nexit);
+            nentry.connect(getNodeFor(header));
+          }
+          Node &getNodeFor(const MachineBasicBlock *MBB) {
+            if (!nodes.count(MBB)) {
+              nodes.insert(std::make_pair(MBB, Node(MBB)));
+            }
+            return nodes.at(MBB);
+          }
+          Node &getEntry() { return nentry; }
+          void toexit(Node &n) { n.connect(nexit); }
+          void print(Node &n);
+          void dump();
+        private:
+          Node nentry, nexit;
+          std::map<const MachineBasicBlock*, Node> nodes;
+          void _dfs(Node *, std::set<Node*>&);
+          void postorder(void);
+          int counter;
+          std::vector<Node *> po;
+      };
+
+      void computeCD(void);
+
       // dump() - Dump state of this SP scope and the subtree
       void dump() const;
 
@@ -287,15 +338,19 @@ namespace llvm {
       /// child_iterator - Type for child iterator
       typedef std::vector<SPScope*>::iterator child_iterator;
 
+      // Edge type
+      typedef std::pair<const MachineBasicBlock *,
+                        const MachineBasicBlock *> Edge;
+
     private:
       // parent SPScope
       SPScope *Parent;
 
-      // successor MBBs
-      std::vector<MachineBasicBlock *> SuccMBBs;
+      // loop latches
+      SmallVector<MachineBasicBlock *, 4> Latches;
 
-      // number of backedges
-      const unsigned NumBackedges;
+      // exit edges
+      SmallVector<Edge, 4> ExitEdges;
 
       // flag that only is set to true if the scope is a top-level scope
       // of a single-path root function

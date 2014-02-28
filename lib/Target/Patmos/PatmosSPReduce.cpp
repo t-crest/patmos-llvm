@@ -1025,7 +1025,7 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
 
 
 bool PatmosSPReduce::hasLiveOutPReg(const SPScope *S) const {
-  const std::vector<MachineBasicBlock *> SuccMBBs = S->getSuccMBBs();
+  const std::vector<const MachineBasicBlock *> SuccMBBs = S->getSuccMBBs();
   for (unsigned j=0; j<SuccMBBs.size(); j++) {
     for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
       if (SuccMBBs[j]->isLiveIn(UnavailPredRegs[i])) {
