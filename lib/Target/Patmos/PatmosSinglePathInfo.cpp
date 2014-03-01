@@ -487,40 +487,30 @@ void SPScope::computeCD(void) {
   fcfg.dump();
 }
 
-void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V, int &cnt) {
 
+void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V,
+                          std::vector<Node*> &po) {
   V.insert(n);
-  n->num = -1;
   for (Node::child_iterator I = n->preds_begin(), E = n->preds_end();
       I != E; ++I) {
     if (!V.count(*I)) {
-      _rdfs(*I, V, cnt);
+      _rdfs(*I, V, po);
     }
   }
-  n->num = cnt++;
   po.push_back(n);
 }
 
 
-void SPScope::FCFG::postorder(void) {
-  std::set<Node*> visited;
-  int counter = 0;
-  po.clear();
-  // as we construct the postdominators, we dfs the reverse graph
-  _rdfs(&nexit, visited, counter);
-  assert(counter == size());
-
-}
-
-int SPScope::FCFG::_intersect(int b1, int b2, int pdoms[]) {
-  if (pdoms[b2] == -1) {
+SPScope::Node *SPScope::FCFG::_intersect(Node *b1, Node *b2) {
+  assert(b2 != NULL);
+  if (b2->ipdom == NULL) {
     return b1;
   }
-  int finger1 = (b1 != -1) ? b1 : b2;
-  int finger2 = b2;
-  while (finger1 != finger2) {
-    while (finger1 < finger2) finger1 = pdoms[finger1];
-    while (finger2 < finger1) finger2 = pdoms[finger2];
+  Node *finger1 = (b1 != NULL) ? b1 : b2;
+  Node *finger2 = b2;
+  while (finger1->num != finger2->num) {
+    while (finger1->num < finger2->num) finger1 = finger1->ipdom;
+    while (finger2->num < finger1->num) finger2 = finger2->ipdom;
   }
   return finger1;
 }
@@ -531,29 +521,33 @@ void SPScope::FCFG::postdominators(void) {
   //   A simple, fast dominance algorithm
   // As we compute postdominators, we generated a PO numbering of the reversed
   // graph and consider the successors instead of the predecessors.
-  int *pdoms = new int [size()];
-  for (int i = 0; i < size(); i++) {
-    pdoms[i] = -1;
-  }
-  pdoms[nexit.num] = nexit.num;
+
+  // first, we generate a postorder numbering
+  std::set<Node*> visited;
+  std::vector<Node*> po;
+  // as we construct the postdominators, we dfs the reverse graph
+  _rdfs(&nexit, visited, po);
+
+  // now compute immediate postdominators
+  // initialize "start" (= exit) node
+  nexit.ipdom = &nexit;
+  nexit.num = po.size() - 1;
+
   // for all nodes except start node in reverse postorder
-  for (std::vector<Node*>::reverse_iterator it = ++po.rbegin(), et = po.rend();
-      it != et; ++it) {
-    Node *n = *it;
-    // one pass is enough for acyclic graph
-    int new_ipdom = -1;
+  for (int i = po.size() - 2; i >= 0; i--) {
+    Node *n = po[i];
+    n->num = i; // assign po number on the fly
+    // one pass is enough for acyclic graph, no loop required
+    Node *new_ipdom = NULL;
     for (Node::child_iterator si = n->succs_begin(), se = n->succs_end();
         si != se; ++si) {
-      new_ipdom = _intersect(new_ipdom, (*si)->num, pdoms);
+      new_ipdom = _intersect(new_ipdom, *si);
     }
-    if (pdoms[n->num] != new_ipdom) {
-      pdoms[n->num] = new_ipdom;
-      n->ipdom = po[new_ipdom];
-    }
+    // assign the intersection
+    n->ipdom = new_ipdom;
+    // debug output:
     print(*n); print(*n->ipdom); dbgs() << "\n";
   }
-
-  delete[] pdoms;
 }
 
 
@@ -572,7 +566,6 @@ void SPScope::FCFG::print(Node &n) {
 void SPScope::FCFG::dump() {
   dbgs() << "====== FCFG\n";
 
-  postorder();
   postdominators();
 
   std::vector<Node *> W;

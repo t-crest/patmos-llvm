@@ -318,17 +318,15 @@ namespace llvm {
           }
           Node &getEntry() { return nentry; }
           void toexit(Node &n) { n.connect(nexit); }
-          int size() { return nodes.size() + 2; }
           void print(Node &n);
           void dump();
         private:
           Node nentry, nexit;
           std::map<const MachineBasicBlock*, Node> nodes;
-          void _rdfs(Node *, std::set<Node*>&, int&);
-          int _intersect(int, int, int[]);
-          void postorder(void);
+          // algorithms
+          void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
+          Node *_intersect(Node *, Node *);
           void postdominators(void);
-          std::vector<Node *> po;
       };
 
       void computeCD(void);
