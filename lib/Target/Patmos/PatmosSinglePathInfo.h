@@ -286,9 +286,11 @@ namespace llvm {
       class Node {
         public:
           typedef std::vector<Node*>::iterator child_iterator;
-          Node(const MachineBasicBlock *mbb=NULL) : MBB(mbb), num(-1) {}
+          Node(const MachineBasicBlock *mbb=NULL)
+            : MBB(mbb), num(-1), ipdom(NULL) {}
           const MachineBasicBlock *MBB;
           int num;
+          Node *ipdom;
           void connect(Node &n) {
             succs.push_back(&n);
             n.preds.push_back(this);
@@ -316,14 +318,16 @@ namespace llvm {
           }
           Node &getEntry() { return nentry; }
           void toexit(Node &n) { n.connect(nexit); }
+          int size() { return nodes.size() + 2; }
           void print(Node &n);
           void dump();
         private:
           Node nentry, nexit;
           std::map<const MachineBasicBlock*, Node> nodes;
-          void _dfs(Node *, std::set<Node*>&);
+          void _rdfs(Node *, std::set<Node*>&, int&);
+          int _intersect(int, int, int[]);
           void postorder(void);
-          int counter;
+          void postdominators(void);
           std::vector<Node *> po;
       };
 

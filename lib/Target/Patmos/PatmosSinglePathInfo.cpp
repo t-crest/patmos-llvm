@@ -487,26 +487,73 @@ void SPScope::computeCD(void) {
   fcfg.dump();
 }
 
-void SPScope::FCFG::_dfs(Node *n, std::set<Node*> &V) {
+void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V, int &cnt) {
 
   V.insert(n);
   n->num = -1;
-  for (Node::child_iterator I = n->succs_begin(), E = n->succs_end();
-      I!=E; ++I ) {
+  for (Node::child_iterator I = n->preds_begin(), E = n->preds_end();
+      I != E; ++I) {
     if (!V.count(*I)) {
-      _dfs(*I, V);
+      _rdfs(*I, V, cnt);
     }
   }
-  n->num = counter++;
+  n->num = cnt++;
   po.push_back(n);
 }
 
 
 void SPScope::FCFG::postorder(void) {
-  counter = 0;
-  po.clear();
   std::set<Node*> visited;
-  _dfs(&nentry, visited);
+  int counter = 0;
+  po.clear();
+  // as we construct the postdominators, we dfs the reverse graph
+  _rdfs(&nexit, visited, counter);
+  assert(counter == size());
+
+}
+
+int SPScope::FCFG::_intersect(int b1, int b2, int pdoms[]) {
+  if (pdoms[b2] == -1) {
+    return b1;
+  }
+  int finger1 = (b1 != -1) ? b1 : b2;
+  int finger2 = b2;
+  while (finger1 != finger2) {
+    while (finger1 < finger2) finger1 = pdoms[finger1];
+    while (finger2 < finger1) finger2 = pdoms[finger2];
+  }
+  return finger1;
+}
+
+void SPScope::FCFG::postdominators(void) {
+  // adopted from:
+  //   Cooper K.D., Harvey T.J. & Kennedy K. (2001).
+  //   A simple, fast dominance algorithm
+  // As we compute postdominators, we generated a PO numbering of the reversed
+  // graph and consider the successors instead of the predecessors.
+  int *pdoms = new int [size()];
+  for (int i = 0; i < size(); i++) {
+    pdoms[i] = -1;
+  }
+  pdoms[nexit.num] = nexit.num;
+  // for all nodes except start node in reverse postorder
+  for (std::vector<Node*>::reverse_iterator it = ++po.rbegin(), et = po.rend();
+      it != et; ++it) {
+    Node *n = *it;
+    // one pass is enough for acyclic graph
+    int new_ipdom = -1;
+    for (Node::child_iterator si = n->succs_begin(), se = n->succs_end();
+        si != se; ++si) {
+      new_ipdom = _intersect(new_ipdom, (*si)->num, pdoms);
+    }
+    if (pdoms[n->num] != new_ipdom) {
+      pdoms[n->num] = new_ipdom;
+      n->ipdom = po[new_ipdom];
+    }
+    print(*n); print(*n->ipdom); dbgs() << "\n";
+  }
+
+  delete[] pdoms;
 }
 
 
@@ -526,6 +573,7 @@ void SPScope::FCFG::dump() {
   dbgs() << "====== FCFG\n";
 
   postorder();
+  postdominators();
 
   std::vector<Node *> W;
   std::set<Node *> visited;
