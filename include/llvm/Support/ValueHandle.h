@@ -105,10 +105,6 @@ protected:
   void setValPtrInt(unsigned K) { VP.setInt(K); }
   unsigned getValPtrInt() const { return VP.getInt(); }
 
-  // Hack for bug
-  // http://code.google.com/p/nativeclient/issues/detail?id=2786
-  void setKind(HandleBaseKind K) { PrevPair.setInt(K); }
-
   static bool isValid(Value *V) {
     return V &&
            V != DenseMapInfo<Value *>::getEmptyKey() &&
@@ -233,12 +229,6 @@ public:
   ValueTy *operator=(const AssertingVH<ValueTy> &RHS) {
     setValPtr(RHS.getValPtr());
     return getValPtr();
-  }
-
-  // Hack for bug
-  // http://code.google.com/p/nativeclient/issues/detail?id=2786
-  void make_weak() {
-    setKind(Weak);
   }
 
   ValueTy *operator->() const { return getValPtr(); }
