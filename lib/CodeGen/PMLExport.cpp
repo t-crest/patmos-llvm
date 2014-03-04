@@ -257,7 +257,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             // than a dump
             std::string s;
             raw_string_ostream os(s);
-            os << "\"" << *SymbolicHeaderBound << "\"";
+            os << *SymbolicHeaderBound;
 
             YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
             // bump statistic counter
