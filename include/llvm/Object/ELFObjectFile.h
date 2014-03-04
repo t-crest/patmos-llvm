@@ -261,6 +261,7 @@ error_code ELFObjectFile<ELFT>::getSymbolFileOffset(DataRefImpl Symb,
     Result = ESec ? ESec->sh_offset : UnknownAddressOrSize;
     return object_error::success;
   case ELF::STT_FUNC:
+  case ELF::STT_CODE:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
     Result = ESym->st_value + (ESec ? ESec->sh_offset : 0);
@@ -293,6 +294,7 @@ error_code ELFObjectFile<ELFT>::getSymbolAddress(DataRefImpl Symb,
     Result = ESec ? ESec->sh_addr : UnknownAddressOrSize;
     return object_error::success;
   case ELF::STT_FUNC:
+  case ELF::STT_CODE:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
     bool IsRelocatable;
@@ -384,7 +386,7 @@ error_code ELFObjectFile<ELFT>::getSymbolFlags(DataRefImpl Symb,
     Result |= SymbolRef::SF_Absolute;
 
   if (ESym->getType() == ELF::STT_FILE || ESym->getType() == ELF::STT_SECTION ||
-      ESym == &*EF.begin_symbols())
+      ESym->getType() == ELF::STT_CODE || ESym == &*EF.begin_symbols())
     Result |= SymbolRef::SF_FormatSpecific;
 
   if (EF.getSymbolTableIndex(ESym) == ELF::SHN_UNDEF)
@@ -922,6 +924,8 @@ StringRef ELFObjectFile<ELFT>::getFileFormatName() const {
       return "ELF32-mips";
     case ELF::EM_PPC:
       return "ELF32-ppc";
+    case ELF::EM_PATMOS:
+      return "ELF32-patmos";
     default:
       return "ELF32-unknown";
     }
@@ -935,6 +939,8 @@ StringRef ELFObjectFile<ELFT>::getFileFormatName() const {
       return "ELF64-aarch64";
     case ELF::EM_PPC64:
       return "ELF64-ppc64";
+    case ELF::EM_PATMOS:
+      return "ELF64-patmos";
     case ELF::EM_S390:
       return "ELF64-s390";
     default:
@@ -967,6 +973,8 @@ unsigned ELFObjectFile<ELFT>::getArch() const {
                                                        : Triple::ppc64;
   case ELF::EM_S390:
     return Triple::systemz;
+  case ELF::EM_PATMOS:
+    return Triple::patmos;
   default:
     return Triple::UnknownArch;
   }
