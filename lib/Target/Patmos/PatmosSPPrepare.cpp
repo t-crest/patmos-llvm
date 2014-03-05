@@ -123,19 +123,18 @@ FunctionPass *llvm::createPatmosSPPreparePass(const PatmosTargetMachine &tm) {
 
 void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
 
-  PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
+  PatmosSinglePathInfo *PSPI = &getAnalysis<PatmosSinglePathInfo>();
 
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   const TargetRegisterClass *RC = &Patmos::RRegsRegClass;
 
-  SPScope *root = PSPI.getRootScope();
-
   std::vector<unsigned> requiredPreds;
 
   // for all (sub-)SPScopes
-  for (df_iterator<SPScope*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
+      I!=E; ++I) {
     SPScope *S = *I;
     MachineBasicBlock *Header = S->getHeader();
     unsigned preds = S->getNumPredicates();

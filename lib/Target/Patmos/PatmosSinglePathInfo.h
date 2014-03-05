@@ -21,7 +21,6 @@
 #include <llvm/IR/Module.h>
 #include <llvm/ADT/BitVector.h>
 #include <llvm/CodeGen/MachineFunctionPass.h>
-#include "llvm/CodeGen/MachinePostDominators.h"
 
 #include <vector>
 #include <set>
@@ -50,21 +49,11 @@ namespace llvm {
   class SPScope;
   class SPScopeWalker;
   class PredDefInfo;
+  template <> struct GraphTraits<SPScope*>;
 
   /// PatmosSinglePathInfo - Single-Path analysis pass
   class PatmosSinglePathInfo : public MachineFunctionPass {
     private:
-      /// Typedefs for control dependence:
-      /// CD: MBB -> set of edges
-      /// CD describes, which edges an MBB is control-dependent on.
-      typedef std::set<std::pair<const MachineBasicBlock*,
-              const MachineBasicBlock*> > CD_map_entry_t;
-      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
-
-      /// Typedefs for R and K (decomposed CD)
-      typedef std::vector<CD_map_entry_t>                  K_t;
-      typedef std::map<const MachineBasicBlock*, unsigned> R_t;
-
       const PatmosTargetMachine &TM;
       const PatmosSubtarget &STC;
       const PatmosInstrInfo *TII;
@@ -84,22 +73,6 @@ namespace llvm {
       /// by deleting the root scope.
       SPScope *createSPScopeTree(MachineFunction &MF) const;
 
-      /// computeControlDependence - Compute CD for a given SPScope
-      void computeControlDependence(SPScope &S,
-                                    MachinePostDominatorTree &PDT,
-                                    CD_map_t &CD) const;
-
-      /// decomposeControlDependence - Decompose CD into K and R.
-      void decomposeControlDependence(SPScope &S, const CD_map_t &CD,
-                                      K_t &K, R_t &R) const;
-
-      /// assignPredInfo - Set the predicate information of an SPScope
-      void assignPredInfo(SPScope &S, const K_t &K, const R_t &R) const;
-
-      /// getOrCreateDefInfo - Returns a predicate definition info
-      /// for a given MBB.
-      PredDefInfo &getOrCreateDefInfo(SPScope &, const MachineBasicBlock *)
-                                      const;
 
     public:
       /// Pass ID
@@ -203,11 +176,30 @@ namespace llvm {
   class SPScope {
     friend class PatmosSinglePathInfo;
     public:
+      /// iterator - Type for iterator through MBBs
+      typedef std::vector<MachineBasicBlock*>::iterator iterator;
+
+      /// child_iterator - Type for child iterator
+      typedef std::vector<SPScope*>::iterator child_iterator;
+
+      // Edge type
+      typedef std::pair<const MachineBasicBlock *,
+                        const MachineBasicBlock *> Edge;
+
+
+      /// Typedefs for CD, R and K
+      typedef std::set<Edge> CD_map_entry_t;
+      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
+      typedef std::vector<CD_map_entry_t>                  K_t;
+      typedef std::map<const MachineBasicBlock*, unsigned> R_t;
+
+
       /// constructor - Create a top-level SPScope
       /// @param entry            The entry MBB;
       /// @param isRootTopLevel   True when this scope is a top level scope of
       ///                         a single-path root function.
-      explicit SPScope(MachineBasicBlock *entry, bool isRootTopLevel);
+      explicit SPScope(MachineBasicBlock *entry, bool isRootTopLevel,
+                       const TargetInstrInfo &tii);
 
 
       /// constructor - Create a loop SPScope
@@ -269,6 +261,10 @@ namespace llvm {
       /// a given MBB, or NULL if no pred info exists for the MBB.
       const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
 
+      /// getOrCreateDefInfo - Returns a predicate definition info
+      /// for a given MBB.
+      PredDefInfo &getOrCreateDefInfo(const MachineBasicBlock *);
+
       /// getNumDefEdges - Returns the number of definition edges for a given
       /// predicate.
       unsigned getNumDefEdges(unsigned pred) const {
@@ -282,18 +278,36 @@ namespace llvm {
       }
 
 
+      // dump() - Dump state of this SP scope and the subtree
+      void dump(raw_ostream&) const;
+
+
+      void computePredInfos(void);
+
       //FIXME
       class Node {
         public:
           typedef std::vector<Node*>::iterator child_iterator;
           Node(const MachineBasicBlock *mbb=NULL)
-            : MBB(mbb), num(-1), ipdom(NULL) {}
+            : MBB(mbb), num(-1), ipdom(NULL), issubloop(false) {}
           const MachineBasicBlock *MBB;
           int num;
           Node *ipdom;
+          bool issubloop;
           void connect(Node &n) {
             succs.push_back(&n);
             n.preds.push_back(this);
+          }
+          void connect(Node &n, Edge e) {
+            outedges[&n] = e;
+            connect(n);
+          }
+          unsigned long dout() { return succs.size(); }
+          Edge *edgeto(Node *n) {
+            if (outedges.count(n)) {
+              return &outedges.at(n);
+            }
+            return (Edge *) NULL;
           }
           child_iterator succs_begin() { return succs.begin(); }
           child_iterator succs_end()   { return succs.end(); }
@@ -302,51 +316,43 @@ namespace llvm {
         private:
           std::vector<Node *> succs;
           std::vector<Node *> preds;
+          std::map<Node *, Edge> outedges;
       };
 
-      class FCFG {
-        public:
-          FCFG(const MachineBasicBlock *header) {
-            nentry.connect(nexit);
-            nentry.connect(getNodeFor(header));
-          }
-          Node &getNodeFor(const MachineBasicBlock *MBB) {
-            if (!nodes.count(MBB)) {
-              nodes.insert(std::make_pair(MBB, Node(MBB)));
-            }
-            return nodes.at(MBB);
-          }
-          Node &getEntry() { return nentry; }
-          void toexit(Node &n) { n.connect(nexit); }
-          void print(Node &n);
-          void dump();
-        private:
-          Node nentry, nexit;
-          std::map<const MachineBasicBlock*, Node> nodes;
-          // algorithms
-          void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
-          Node *_intersect(Node *, Node *);
-          void postdominators(void);
-      };
-
-      void computeCD(void);
-
-      // dump() - Dump state of this SP scope and the subtree
-      void dump() const;
-
-      /// iterator - Type for iterator through MBBs
-      typedef std::vector<MachineBasicBlock*>::iterator iterator;
-
-      /// child_iterator - Type for child iterator
-      typedef std::vector<SPScope*>::iterator child_iterator;
-
-      // Edge type
-      typedef std::pair<const MachineBasicBlock *,
-                        const MachineBasicBlock *> Edge;
+      Node &getEntry() { return nentry; }
 
     private:
+      // new fcfg stuff
+      Node nentry, nexit;
+      std::map<const MachineBasicBlock*, Node> nodes;
+      Node &getNodeFor(const MachineBasicBlock *MBB) {
+        if (!nodes.count(MBB)) {
+          nodes.insert(std::make_pair(MBB, Node(MBB)));
+        }
+        return nodes.at(MBB);
+      }
+      void buildfcfg(void);
+      /// toposort - sort blocks of this SPScope topologically
+      void toposort(void);
+      void postdominators(void);
+      void ctrldep(void);
+      void decompose(void);
+      void dumpfcfg(void);
+      void toexit(Node &n) { n.connect(nexit); }
+      raw_ostream& printNode(Node &n); 
+      CD_map_t CD;
+      // algorithms
+      void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
+      Node *_intersect(Node *, Node *);
+      void _walkpdt(Node *a, Node *b, Edge e);
+      ////// SNIP /////////
+
+
       // parent SPScope
       SPScope *Parent;
+
+      // TII for AnalyzeBranch (to get True/False edge, Condition)
+      const TargetInstrInfo &TII;
 
       // loop latches
       SmallVector<MachineBasicBlock *, 4> Latches;
@@ -368,7 +374,7 @@ namespace llvm {
       std::vector<MachineBasicBlock*> Blocks;
 
       // sub-scopes
-      std::vector<SPScope*> Children;
+      std::vector<SPScope*> Subscopes;
 
       // nesting depth
       unsigned int Depth;
@@ -388,8 +394,8 @@ namespace llvm {
       /// addMBB - Add an MBB to the SP scope
       void addMBB(MachineBasicBlock *MBB);
 
-      /// topoSort - sort blocks of this SPScope topologically
-      void topoSort(void);
+      // get the dual edge of an edge
+      Edge getDual(Edge &e) const;
 
     public:
       /// begin - Iterator begin for MBBs
@@ -399,10 +405,10 @@ namespace llvm {
       iterator end() { return Blocks.end(); }
 
       /// child_begin - Iterator begin for subloops
-      child_iterator child_begin() { return Children.begin(); }
+      child_iterator child_begin() { return Subscopes.begin(); }
 
       /// child_end - Iterator end for subloops
-      child_iterator child_end() { return Children.end(); }
+      child_iterator child_end() { return Subscopes.end(); }
   };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -418,16 +424,33 @@ namespace llvm {
 ///////////////////////////////////////////////////////////////////////////////
 
   // Allow clients to walk the list of nested SPScopes
-  template <> struct GraphTraits<SPScope*> {
+  template <> struct GraphTraits<PatmosSinglePathInfo*> {
     typedef SPScope NodeType;
     typedef SPScope::child_iterator ChildIteratorType;
 
-    static NodeType *getEntryNode(SPScope *S) { return S; }
+    static NodeType *getEntryNode(const PatmosSinglePathInfo *PSPI) {
+      return PSPI->getRootScope();
+    }
     static inline ChildIteratorType child_begin(NodeType *N) {
       return N->child_begin();
     }
     static inline ChildIteratorType child_end(NodeType *N) {
       return N->child_end();
+    }
+  };
+
+
+  // Allow clients to iterate over the Scope FCFG nodes
+  template <> struct GraphTraits<SPScope*> {
+    typedef SPScope::Node NodeType;
+    typedef SPScope::Node::child_iterator ChildIteratorType;
+
+    static NodeType *getEntryNode(SPScope *S) { return &S->getEntry(); }
+    static inline ChildIteratorType child_begin(NodeType *N) {
+      return N->succs_begin();
+    }
+    static inline ChildIteratorType child_end(NodeType *N) {
+      return N->succs_end();
     }
   };
 

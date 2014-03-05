@@ -103,6 +103,8 @@ namespace {
     // predicate spilling and loop bounds.
     const PatmosMachineFunctionInfo *PMFI;
 
+    PatmosSinglePathInfo *PSPI;
+
     /// doReduceFunction - Reduce a given MachineFunction
     void doReduceFunction(MachineFunction &MF);
 
@@ -190,11 +192,11 @@ namespace {
 
     /// runOnMachineFunction - Run the SP converter on the given function.
     virtual bool runOnMachineFunction(MachineFunction &MF) {
-      PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
+      PSPI = &getAnalysis<PatmosSinglePathInfo>();
       PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
       bool changed = false;
       // only convert function if marked
-      if ( PSPI.isConverting(MF) ) {
+      if ( PSPI->isConverting(MF) ) {
         DEBUG( dbgs() << "[Single-Path] Reducing "
                       << MF.getFunction()->getName() << "\n" );
         doReduceFunction(MF);
@@ -277,7 +279,7 @@ namespace {
       const unsigned NumColors;
       // the sequence of MBBs in topological order (ref to Scope->Blocks)
       const std::vector<MachineBasicBlock*> &MBBs;
-      // the live ranges of predcicates (index = predicate number)
+      // the live ranges of predicates (index = predicate number)
       std::vector<LiveRange> LRs;
       // each predicate has one definition location (index = predicate number)
       std::vector<int> DefLocs; // Pred -> loc
@@ -515,7 +517,6 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
 
 void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
-  PatmosSinglePathInfo &PSPI = getAnalysis<PatmosSinglePathInfo>();
 
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
@@ -539,13 +540,11 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   PRTmp     = AvailPredRegs.back();
   AvailPredRegs.pop_back();
 
-
-  SPScope *root = PSPI.getRootScope();
-
-  computeRegAlloc(root);
+  computeRegAlloc(PSPI->getRootScope());
 
   // Okay, now actually insert code, handling scopes in no particular order
-  for (df_iterator<SPScope*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
+        I!=E; ++I) {
     SPScope *S = *I;
 
     DEBUG( dbgs() << "Insert code in [MBB#" << S->getHeader()->getNumber()
@@ -563,7 +562,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
   DEBUG( dbgs() << "Linearize MBBs\n" );
   LinearizeWalker LW(*this, MF);
-  PSPI.walkRoot(LW);
+  PSPI->walkRoot(LW);
 
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
@@ -577,9 +576,11 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   DEBUG( dbgs() << "RegAlloc\n" );
 
+
   // perform reg-allocation in post-order to compute cumulative location
   // numbers in one go
-  for (po_iterator<SPScope*> I = po_begin(root), E = po_end(root); I!=E; ++I) {
+  for (po_iterator<PatmosSinglePathInfo*> I = po_begin(PSPI), E = po_end(PSPI);
+      I!=E; ++I) {
     SPScope *S = *I;
     // create RAInfo for SPScope
     RAInfo &RI = createRAInfo(S);
@@ -603,7 +604,8 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   // - LoopCntOffset as well
   unsigned spillLocCnt   = 0,
            loopCntOffset = 0;
-  for (df_iterator<SPScope*> I = df_begin(root), E = df_end(root); I!=E; ++I) {
+  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
+        I!=E; ++I) {
     SPScope *S = *I;
 
     RAInfo &RI = RAInfos.at(S);
