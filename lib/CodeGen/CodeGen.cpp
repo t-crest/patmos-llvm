@@ -22,7 +22,6 @@ using namespace llvm;
 void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeBasicTTIPass(Registry);
   initializeBranchFolderPassPass(Registry);
-  initializeCalculateSpillWeightsPass(Registry);
   initializeDeadMachineInstructionElimPass(Registry);
   initializeEarlyIfConverterPass(Registry);
   initializeExpandPostRAPass(Registry);
@@ -61,7 +60,6 @@ void llvm::initializeCodeGen(PassRegistry &Registry) {
   initializeStackProtectorPass(Registry);
   initializeStackColoringPass(Registry);
   initializeStackSlotColoringPass(Registry);
-  initializeStrongPHIEliminationPass(Registry);
   initializeTailDuplicatePassPass(Registry);
   initializeTargetPassConfigPass(Registry);
   initializeTwoAddressInstructionPassPass(Registry);

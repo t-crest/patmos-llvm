@@ -257,7 +257,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             // than a dump
             std::string s;
             raw_string_ostream os(s);
-            os << "\"" << *SymbolicHeaderBound << "\"";
+            os << *SymbolicHeaderBound;
 
             YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
             // bump statistic counter
@@ -1179,7 +1179,7 @@ bool PMLModuleExportPass::doFinalization(Module &M) {
   yaml::Output *Output;
   std::string ErrorInfo;
 
-  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
+  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo);
   if (!ErrorInfo.empty()) {
     delete OutFile;
     errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
@@ -1205,7 +1205,7 @@ bool PMLModuleExportPass::doFinalization(Module &M) {
 
   if (!BitcodeFile.empty()) {
     std::string ErrorInfo;
-    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo, 0);
+    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo);
     WriteBitcodeToFile(&M, BitcodeStream.os());
     if(! ErrorInfo.empty()) {
       errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";

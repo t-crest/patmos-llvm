@@ -30,7 +30,7 @@
 //#include "llvm/Support/Debug.h"
 //#include "llvm/Support/raw_ostream.h"
 
-#define GET_INSTRINFO_CTOR
+#define GET_INSTRINFO_CTOR_DTOR
 #include "PatmosGenInstrInfo.inc"
 #include "PatmosGenDFAPacketizer.inc"
 
@@ -688,8 +688,8 @@ PatmosInstrAnalyzer *PatmosInstrInfo::createPatmosInstrAnalyzer(
 unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
   if (MI->isInlineAsm()) {
     // TODO is there a way to get the current context?
-    MCContext Ctx(*PTM.getMCAsmInfo(),
-                  *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);
+    MCContext Ctx(PTM.getMCAsmInfo(),
+                  PTM.getRegisterInfo(), PTM.getInstrInfo(), 0);
 
     // PIA is deleted by AsmPrinter
     PatmosInstrAnalyzer *PIA = createPatmosInstrAnalyzer(Ctx);
@@ -717,8 +717,8 @@ unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
 bool PatmosInstrInfo::hasCall(const MachineInstr *MI) const {
   if (MI->isInlineAsm()) {
     // TODO is there a way to get the current context?
-    MCContext Ctx(*PTM.getMCAsmInfo(),
-                  *PTM.getRegisterInfo(), *PTM.getInstrInfo(), 0);
+    MCContext Ctx(PTM.getMCAsmInfo(),
+                  PTM.getRegisterInfo(), PTM.getInstrInfo(), 0);
 
     // PIA is deleted by AsmPrinter
     PatmosInstrAnalyzer *PIA = createPatmosInstrAnalyzer(Ctx);

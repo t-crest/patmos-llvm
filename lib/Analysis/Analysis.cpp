@@ -34,6 +34,7 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeCFGOnlyViewerPass(Registry);
   initializeCFGOnlyPrinterPass(Registry);
   initializeDependenceAnalysisPass(Registry);
+  initializeDelinearizationPass(Registry);
   initializeDominanceFrontierPass(Registry);
   initializeDomViewerPass(Registry);
   initializeDomPrinterPass(Registry);
@@ -55,16 +56,6 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeMemoryDependenceAnalysisPass(Registry);
   initializeModuleDebugInfoPrinterPass(Registry);
   initializePostDominatorTreePass(Registry);
-  initializeProfileEstimatorPassPass(Registry);
-  initializeNoProfileInfoPass(Registry);
-  initializeNoPathProfileInfoPass(Registry);
-  initializeProfileInfoAnalysisGroup(Registry);
-  initializePathProfileInfoAnalysisGroup(Registry);
-  initializeLoaderPassPass(Registry);
-  initializePathProfileLoaderPassPass(Registry);
-  initializeProfileVerifierPassPass(Registry);
-  initializePathProfileVerifierPass(Registry);
-  initializeProfileMetadataLoaderPassPass(Registry);
   initializeRegionInfoPass(Registry);
   initializeRegionViewerPass(Registry);
   initializeRegionPrinterPass(Registry);

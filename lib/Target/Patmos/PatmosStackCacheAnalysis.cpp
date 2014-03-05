@@ -1349,17 +1349,20 @@ namespace llvm {
       args.push_back(0);
 
       std::string ErrMsg;
-      if (sys::Program::ExecuteAndWait(sys::Program::FindProgramByName(Solve_ilp),
+      if (sys::ExecuteAndWait(sys::FindProgramByName(Solve_ilp),
                                        &args[0],0,0,0,0,&ErrMsg)) {
         report_fatal_error("calling ILP solver (" + Solve_ilp + "): " + ErrMsg);
       }
       else {
         // read solution
         // construct name of solution
-        sys::Path SOLname(LPname);
-        SOLname.appendSuffix("sol");
+        std::string SOLname(LPname);
+        SOLname += ".sol";
 
-        if (!SOLname.canRead())
+        //SmallString<1024> SOLname(LPname);
+        //sys::path::replace_extension(SOLname, ".sol");
+
+        if (!sys::fs::exists(SOLname))
           report_fatal_error("Failed to read ILP solution");
 
         std::ifstream IS(SOLname.c_str());
@@ -1374,8 +1377,7 @@ namespace llvm {
         if (tmp == -1.)
           assert(0 && "unbounded/infeasible ILP");
 
-
-        SOLname.eraseFromDisk();
+        sys::fs::remove(SOLname);
       }
 
       ILPs++;
@@ -1395,14 +1397,16 @@ namespace llvm {
       const SCCInfo &BInfo(BI.getInfo(SCC));
 
       // open LP file.
-      std::string ErrMsg;
-      sys::Path LPname(sys::Path::GetTemporaryDirectory(&ErrMsg));
-      if (LPname.isEmpty()) {
-        errs() << "Error creating temp .lp file: " << ErrMsg << "\n";
+      SmallString<1024> LPname;
+      error_code err = sys::fs::createUniqueDirectory("stack", LPname);
+      if (err) {
+        errs() << "Error creating temp .lp file: " << err.message() << "\n";
         return std::numeric_limits<unsigned int>::max();
       }
 
-      LPname.appendComponent("scc.lp");
+      sys::path::append(LPname, "scc.lp");
+
+      std::string ErrMsg;
       raw_fd_ostream OS(LPname.c_str(), ErrMsg);
       if (!ErrMsg.empty()) {
         errs() << "Error: Failed to open file '" << LPname.str()
@@ -1638,7 +1642,8 @@ namespace llvm {
 #endif // PATMOS_TRACE_CG_OCCUPANCY_ILP
 
       // remove LP file
-      LPname.eraseFromDisk();
+      // TODO do we need to remove the temp dir??
+      sys::fs::remove(LPname.str());
 
       return result;
     }
@@ -2171,7 +2176,7 @@ namespace llvm {
       StringRef OutFileName(SCAPMLExport);
       tool_output_file *OutFile;
       std::string ErrorInfo;
-      OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
+      OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo);
       if (!ErrorInfo.empty()) {
         delete OutFile;
         errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";

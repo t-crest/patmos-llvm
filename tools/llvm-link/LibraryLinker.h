@@ -81,7 +81,7 @@ class LibraryLinker : public Linker {
     /// This method gets the list of libraries that form the path that the
     /// Linker will search when it is presented with a library name.
     /// @brief Get the Linkers library path
-    const std::vector<sys::Path>& getLibPaths() const { return LibPaths; }
+    const std::vector<std::string>& getLibPaths() const { return LibPaths; }
 
     /// This method returns an error string suitable for printing to the user.
     /// The return value will be empty unless an error occurred in one of the
@@ -103,7 +103,7 @@ class LibraryLinker : public Linker {
     /// always be searched last. The added libraries will be searched in the
     /// order added.
     /// @brief Add a path.
-    void addPath(const sys::Path& path);
+    void addPath(const std::string& path);
 
     /// Add a set of paths to the list of paths that the linker will search. The
     /// Linker accumulates the set of libraries added. The \p paths will be
@@ -130,7 +130,7 @@ class LibraryLinker : public Linker {
     /// @see getLastError
     /// @brief Link in a single file.
     bool linkInFile(
-      const sys::Path& File, ///< File to link in.
+      const std::string& File, ///< File to link in.
       bool &is_native        ///< Indicates if the file is native object file
     );
 
@@ -163,16 +163,16 @@ class LibraryLinker : public Linker {
     /// @returns true if an error occurs, otherwise false.
     /// @brief Link in one archive.
     bool linkInArchive(
-      const sys::Path& Filename, ///< Filename of the archive to link
+      const std::string& Filename, ///< Filename of the archive to link
       bool& is_native            ///<  Indicates if archive is a native archive
     );
 
     /// This function looks through the Linker's LibPaths to find a library with
     /// the name \p Filename. If the library cannot be found, the returned path
-    /// will be empty (i.e. sys::Path::isEmpty() will return true).
-    /// @returns A sys::Path to the found library
+    /// will be empty.
+    /// @returns A path to the found library
     /// @brief Find a library from its short name.
-    sys::Path FindLibrary(StringRef Filename, bool OnlyStatic = false);
+    std::string FindLibrary(StringRef Filename, bool OnlyStatic = false);
 
   /// @}
   /// @name Implementation
@@ -180,7 +180,7 @@ class LibraryLinker : public Linker {
   private:
     /// Read in and parse the bitcode file named by FN and return the
     /// Module it contains (wrapped in an auto_ptr), or 0 if an error occurs.
-    std::auto_ptr<Module> LoadObject(const sys::Path& FN);
+    std::auto_ptr<Module> LoadObject(const std::string& FN);
 
     bool warning(StringRef message);
     bool error(StringRef message);
@@ -191,7 +191,7 @@ class LibraryLinker : public Linker {
   /// @{
   private:
     LLVMContext& Context; ///< The context for global information
-    std::vector<sys::Path> LibPaths; ///< The library search paths
+    std::vector<std::string> LibPaths; ///< The library search paths
     unsigned Flags;    ///< Flags to control optional behavior.
     std::string Error; ///< Text of error that occurred.
     std::string ProgramName; ///< Name of the program being linked

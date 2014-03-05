@@ -20,6 +20,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/PrettyStackTrace.h"
@@ -82,12 +83,20 @@ static cl::opt<bool>
 NoStdLib("nostdlib",
          cl::desc("Only search directories specified on the command line."));
 
+static bool isFileType(const std::string &FileName, sys::fs::file_magic type)
+{
+  sys::fs::file_magic result;
+  if (sys::fs::identify_magic(FileName, result) != error_code::success()) {
+    return false;
+  }
+  return result == type;
+}
 
 int main(int argc, char **argv) {
   // Print a stack trace if we signal out.
   sys::PrintStackTraceOnErrorSignal();
   PrettyStackTraceProgram X(argc, argv);
-  
+
   LLVMContext &Context = getGlobalContext();
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
   cl::ParseCommandLineOptions(argc, argv, "llvm linker\n");
@@ -96,9 +105,7 @@ int main(int argc, char **argv) {
   if (OutputFilename == "-")
     Modname = "<stdout>";
   else {
-    sys::Path P(OutputFilename);
-    P.eraseSuffix();
-    Modname = P.str();
+    Modname = llvm::sys::path::stem(OutputFilename);
   }
 
 
@@ -140,24 +147,23 @@ int main(int argc, char **argv) {
     if (FilePos < LibPos) {
       // Link in a module or archive
       const std::string &FileName = *FileIt++;
-      sys::Path P;
-      if (!P.set(FileName)) {
+      if (!sys::fs::exists(FileName)) {
         errs() << argv[0] << ": invalid file name: '" << FileName << "'\n";
         return 1;
       }
 
       bool IsNative;
-      if (P.isArchive()) {
+      if (isFileType(FileName, sys::fs::file_magic::archive)) {
         // Link the archive in if it will resolve symbols
-        if (L.linkInArchive(P, IsNative))
+        if (L.linkInArchive(FileName, IsNative))
         {
           errs() << argv[0] << ": error linking archive: '" << FileName << "'\n";
           return 1;
         }
       }
-      else if (P.isBitcodeFile()) {
+      else if (isFileType(FileName, sys::fs::file_magic::bitcode)) {
         // Link the bitcode file in
-        if (L.linkInFile(P, IsNative)) {
+        if (L.linkInFile(FileName, IsNative)) {
           errs() << argv[0] << ": error linking bitcode file: '" << FileName << "'\n";
           return 1;
         }
@@ -166,7 +172,7 @@ int main(int argc, char **argv) {
         // Not an archive nor bitcode so attempt to parse it as LLVM
         // assembly.
         SMDiagnostic Err;
-        std::auto_ptr<Module> M(ParseIRFile(P.str(), Err, Context));
+        std::auto_ptr<Module> M(ParseIRFile(FileName, Err, Context));
         if (M.get() == 0) {
           errs() << argv[0] << ": error parsing LLVM assembly file: '" << FileName << "'\n";
           return 1;
@@ -184,26 +190,25 @@ int main(int argc, char **argv) {
     if (LibPos < FilePos) {
       // Link in library or archive
       const std::string &LibName = *LibIt++;
-      sys::Path P = L.FindLibrary(LibName, OnlyStatic);
-      if (P.isEmpty()) {
+      std::string FileName = L.FindLibrary(LibName, OnlyStatic);
+      if (FileName.empty()) {
         errs() << argv[0] << ": library not found for: '-l" << LibName << "'\n";
         return 1;
       }
 
       bool IsNative;
-      if (P.isArchive()) {
-        if (L.linkInArchive(P, IsNative))
+      if (isFileType(FileName, sys::fs::file_magic::archive)) {
+        if (L.linkInArchive(FileName, IsNative))
         {
-          errs() << argv[0] << ": error linking archive: '" << P.str() << "'\n";
+          errs() << argv[0] << ": error linking archive: '" << FileName << "'\n";
           return 1;
         }
       }
       else {
         // If this is not an archive, then it is a dynamic library and
         // the linker is responsible for linking it in. Ignore it.
-        assert(P.isDynamicLibrary() || P.isBitcodeFile());
         if (Verbose)
-          errs() << "Not linking in dynamic library '" << P.str() << "'\n";
+          errs() << "Not linking in dynamic library '" << FileName << "'\n";
       }
       continue;
     }
@@ -216,8 +221,7 @@ int main(int argc, char **argv) {
   if (DumpAsm) errs() << "Here's the assembly:\n" << Composite;
 
   std::string ErrorInfo;
-  tool_output_file Out(OutputFilename.c_str(), ErrorInfo,
-                       raw_fd_ostream::F_Binary);
+  tool_output_file Out(OutputFilename.c_str(), ErrorInfo, sys::fs::F_Binary);
   if (!ErrorInfo.empty()) {
     errs() << ErrorInfo << '\n';
     return 1;

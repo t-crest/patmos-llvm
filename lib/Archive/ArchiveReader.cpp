@@ -18,6 +18,7 @@
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/FileUtilities.h"
 #include <cstdio>
 #include <cstdlib>
 using namespace llvm;
@@ -205,8 +206,9 @@ Archive::parseMemberHeader(const char*& At, const char* End, std::string* error)
   }
 
   // Determine if this is a bitcode file
-  switch (sys::IdentifyFileType(At, 4)) {
-    case sys::Bitcode_FileType:
+  std::string magic(At, 4);
+  switch (sys::fs::identify_magic(magic)) {
+    case sys::fs::file_magic::bitcode:
       flags |= ArchiveMember::BitcodeFlag;
       break;
     default:
@@ -219,7 +221,7 @@ Archive::parseMemberHeader(const char*& At, const char* End, std::string* error)
 
   // Fill in fields of the ArchiveMember
   member->parent = this;
-  member->path.set(pathname);
+  member->path = pathname;
   member->info.fileSize = MemberSize;
   member->info.modTime.fromEpochTime(atoi(Hdr->date));
   unsigned int mode;
@@ -326,7 +328,7 @@ Archive::loadArchive(std::string* error) {
 
 // Open and completely load the archive file.
 Archive*
-Archive::OpenAndLoad(const sys::Path& File, LLVMContext& C,
+Archive::OpenAndLoad(const std::string& File, LLVMContext& C,
                      std::string* ErrorMessage) {
   OwningPtr<Archive> result ( new Archive(File, C));
   if (result->mapToMemory(ErrorMessage))
@@ -343,8 +345,8 @@ Archive::getAllModules(std::vector<Module*>& Modules,
 
   for (iterator I=begin(), E=end(); I != E; ++I) {
     if (I->isBitcode()) {
-      std::string FullMemberName = archPath.str() +
-        "(" + I->getPath().str() + ")";
+      std::string FullMemberName = archPath +
+        "(" + I->getPath() + ")";
       MemoryBuffer *Buffer =
         MemoryBuffer::getMemBufferCopy(StringRef(I->getData(), I->getSize()),
                                        FullMemberName.c_str());
@@ -440,7 +442,7 @@ Archive::loadSymbolTable(std::string* ErrorMsg) {
 }
 
 // Open the archive and load just the symbol tables
-Archive* Archive::OpenAndLoadSymbols(const sys::Path& File,
+Archive* Archive::OpenAndLoadSymbols(const std::string& File,
                                      LLVMContext& C,
                                      std::string* ErrorMessage) {
   OwningPtr<Archive> result ( new Archive(File, C) );
@@ -483,8 +485,8 @@ Archive::findModuleDefiningSymbol(const std::string& symbol,
     return 0;
 
   // Now, load the bitcode module to get the Module.
-  std::string FullMemberName = archPath.str() + "(" +
-    mbr->getPath().str() + ")";
+  std::string FullMemberName = archPath + "(" +
+    mbr->getPath() + ")";
   MemoryBuffer *Buffer =
     MemoryBuffer::getMemBufferCopy(StringRef(mbr->getData(), mbr->getSize()),
                                    FullMemberName.c_str());
@@ -533,8 +535,8 @@ Archive::findModulesDefiningSymbols(std::set<std::string>& symbols,
       if (mbr->isBitcode()) {
         // Get the symbols
         std::vector<std::string> symbols;
-        std::string FullMemberName = archPath.str() + "(" +
-          mbr->getPath().str() + ")";
+        std::string FullMemberName = archPath + "(" +
+          mbr->getPath() + ")";
         Module* M = 
           GetBitcodeSymbols(At, mbr->getSize(), FullMemberName, Context,
                             symbols, error);
@@ -547,12 +549,11 @@ Archive::findModulesDefiningSymbols(std::set<std::string>& symbols,
           }
           // Insert the Module and the ArchiveMember into the table of
           // modules.
-	  unsigned fileOffset = offset + firstFileOffset;
-          modules.insert(std::make_pair(fileOffset, std::make_pair(M, mbr)));
+          modules.insert(std::make_pair(offset, std::make_pair(M, mbr)));
         } else {
           if (error)
             *error = "Can't parse bitcode member: " + 
-              mbr->getPath().str() + ": " + *error;
+              mbr->getPath() + ": " + *error;
           delete mbr;
           return false;
         }
@@ -617,7 +618,7 @@ bool Archive::isBitcodeArchive() {
       continue;
     
     std::string FullMemberName = 
-      archPath.str() + "(" + I->getPath().str() + ")";
+      archPath + "(" + I->getPath() + ")";
 
     MemoryBuffer *Buffer =
       MemoryBuffer::getMemBufferCopy(StringRef(I->getData(), I->getSize()),

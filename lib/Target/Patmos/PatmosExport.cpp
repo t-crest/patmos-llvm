@@ -34,7 +34,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/PassManagers.h"
 
 #include <map>
 #include <sstream>
@@ -413,7 +412,8 @@ namespace llvm {
           EVT RegisterVT = TLI->getRegisterType(Ctx, VT);
           unsigned NumRegs = TLI->getNumRegisters(Ctx, VT);
           for (unsigned i = 0; i != NumRegs; ++i) {
-            ISD::InputArg MyFlags(Flags, RegisterVT, isArgValueUsed,
+            // TODO check if the VT arguments are correct.. no docs around.
+            ISD::InputArg MyFlags(Flags, RegisterVT, VT, isArgValueUsed,
                 Idx-1, i*RegisterVT.getStoreSize());
             if (NumRegs > 1 && i == 0)
               MyFlags.Flags.setSplit();
@@ -465,7 +465,7 @@ namespace llvm {
           // FIXME
           // we don't add it immediately to PMF, as we only support
           // arguments in registers at this point
-          std::string ArgName = ("\"%" + I->getName() + "\"").str();
+          std::string ArgName = ("%" + I->getName()).str();
           yaml::Argument *Arg = new yaml::Argument(ArgName, FAIdx);
           bool allInRegs = true;
 

@@ -15,6 +15,7 @@
 #include "llvm/Linker.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Config/config.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -25,6 +26,41 @@
 #include <memory>
 #include <set>
 using namespace llvm;
+
+// The new path "interface" is truly ugly crap.. so just going with it and
+// making this code ugly as well with lots of copy-pasting and local functions..
+static sys::fs::file_magic getFileType(const std::string &FileName)
+{
+  sys::fs::file_magic result;
+  if (sys::fs::identify_magic(FileName, result) != error_code::success()) {
+    return sys::fs::file_magic::unknown;
+  }
+  return result;
+}
+
+static bool isFileType(const std::string &FileName, sys::fs::file_magic type)
+{
+  sys::fs::file_magic result;
+  if (sys::fs::identify_magic(FileName, result) != error_code::success()) {
+    return false;
+  }
+  return result == type;
+}
+
+static bool isArchive(const std::string &FileName) {
+  return isFileType(FileName, sys::fs::file_magic::archive);
+}
+
+static bool isBitcodeFile(const std::string &FileName) {
+  return isFileType(FileName, sys::fs::file_magic::bitcode);
+}
+
+static bool isDynamicLibrary(const std::string &FileName) {
+  return isFileType(FileName, sys::fs::file_magic::elf_shared_object) ||
+         isFileType(FileName, sys::fs::file_magic::macho_dynamic_linker) ||
+         isFileType(FileName, sys::fs::file_magic::macho_dynamically_linked_shared_lib) ||
+         isFileType(FileName, sys::fs::file_magic::macho_dynamically_linked_shared_lib_stub);
+}
 
 LibraryLinker::LibraryLinker(StringRef progname, StringRef modname,
                LLVMContext& C, unsigned flags):
@@ -70,46 +106,39 @@ LibraryLinker::verbose(StringRef message) {
 }
 
 void
-LibraryLinker::addPath(const sys::Path& path) {
+LibraryLinker::addPath(const std::string& path) {
   LibPaths.push_back(path);
 }
 
 void
 LibraryLinker::addPaths(const std::vector<std::string>& paths) {
   for (unsigned i = 0, e = paths.size(); i != e; ++i)
-    LibPaths.push_back(sys::Path(paths[i]));
+    LibPaths.push_back(paths[i]);
 }
 
 void
 LibraryLinker::addSystemPaths() {
-  // This must match PatmosBaseTool::FindBitcodeLibPaths in Tools.cpp.
-  //
-  // Should we check for any system paths like /usr/bin or for 
-  // LD_LIBRARY_PATH? Most likely people will not install bitcode
-  // libraries to those locations, and we could still handle this
-  // via the gold/lld linker.. in theory. A LIBRARY_PATH envvar
-  // is passed via -L options by clang.
-  LibPaths.insert(LibPaths.begin(),sys::Path("./"));
+  LibPaths.insert(LibPaths.begin(),std::string("./"));
 }
 
 // LoadObject - Read in and parse the bitcode file named by FN and return the
 // module it contains (wrapped in an auto_ptr), or auto_ptr<Module>() and set
 // Error if an error occurs.
 std::auto_ptr<Module>
-LibraryLinker::LoadObject(const sys::Path &FN) {
+LibraryLinker::LoadObject(const std::string &FN) {
   std::string ParseErrorMessage;
   Module *Result = 0;
 
   OwningPtr<MemoryBuffer> Buffer;
   if (error_code ec = MemoryBuffer::getFileOrSTDIN(FN.c_str(), Buffer))
-    ParseErrorMessage = "Error reading file '" + FN.str() + "'" + ": "
+    ParseErrorMessage = "Error reading file '" + FN + "'" + ": "
                       + ec.message();
   else
     Result = ParseBitcodeFile(Buffer.get(), Context, &ParseErrorMessage);
 
   if (Result)
     return std::auto_ptr<Module>(Result);
-  Error = "Bitcode file '" + FN.str() + "' could not be loaded";
+  Error = "Bitcode file '" + FN + "' could not be loaded";
   if (ParseErrorMessage.size())
     Error += ": " + ParseErrorMessage;
   return std::auto_ptr<Module>();
@@ -118,47 +147,44 @@ LibraryLinker::LoadObject(const sys::Path &FN) {
 // IsLibrary - Determine if "Name" is a library in "Directory". Return
 // a non-empty sys::Path if its found, an empty one otherwise.
 // If OnlyStatic is true, do not check for dynamic library extensions.
-static inline sys::Path IsLibrary(StringRef Name,
-                                  const sys::Path &Directory,
+static inline std::string IsLibrary(StringRef Name,
+                                  const std::string &Directory,
                                   bool OnlyStatic) {
 
-  sys::Path FullPath(Directory);
+  // Just why???
+  SmallString<1024> FullPath(Directory);
 
   // Try the libX.a form
-  FullPath.appendComponent(("lib" + Name).str());
-  FullPath.appendSuffix("a");
-  if (FullPath.isArchive())
-    return FullPath;
+  sys::path::append(FullPath, "lib" + Name + ".a");
+  if (isArchive(FullPath.str()))
+    return FullPath.str();
 
   // Try the libX.bca form
-  FullPath.eraseSuffix();
-  FullPath.appendSuffix("bca");
-  if (FullPath.isArchive())
-    return FullPath;
+  sys::path::replace_extension(FullPath, ".bca");
+  if (isArchive(FullPath.str()))
+    return FullPath.str();
 
   if (!OnlyStatic) {
     // Try the libX.so (or .dylib) form
-    FullPath.eraseSuffix();
-    FullPath.appendSuffix(sys::Path::GetDLLSuffix());
-    if (FullPath.isDynamicLibrary())  // Native shared library?
-      return FullPath;
-    if (FullPath.isBitcodeFile())    // .so file containing bitcode?
-      return FullPath;
+    sys::path::replace_extension(FullPath, LTDL_SHLIB_EXT);
+    if (isDynamicLibrary(FullPath.str()))  // Native shared library?
+      return FullPath.str();
+    if (isBitcodeFile(FullPath.str()))    // .so file containing bitcode?
+      return FullPath.str();
 
     // Try libX form, to make it possible to add dependency on the
     // specific version of .so, like liblzma.so.1.0.0
-    FullPath.eraseSuffix();
-    if (FullPath.isDynamicLibrary())  // Native shared library?
-      return FullPath;
-    if (FullPath.isBitcodeFile())    // .so file containing bitcode?
-      return FullPath;
+    sys::path::replace_extension(FullPath, "");
+    if (isDynamicLibrary(FullPath.str()))  // Native shared library?
+      return FullPath.str();
+    if (isBitcodeFile(FullPath.str()))    // .so file containing bitcode?
+      return FullPath.str();
   }
 
   // Not found .. fall through
 
   // Indicate that the library was not found in the directory.
-  FullPath.clear();
-  return FullPath;
+  return "";
 }
 
 /// FindLib - Try to convert Filename into the name of a file that we can open,
@@ -167,23 +193,23 @@ static inline sys::Path IsLibrary(StringRef Name,
 /// library suffixes, in each of the directories in LibPaths. Returns an empty
 /// Path if no matching file can be found.
 ///
-sys::Path
+std::string
 LibraryLinker::FindLibrary(StringRef Filename, bool OnlyStatic) {
   // Determine if the pathname can be found as it stands.
-  sys::Path FilePath(Filename);
-  if (FilePath.canRead() &&
-      (FilePath.isArchive() || FilePath.isDynamicLibrary()))
+  std::string FilePath(Filename);
+  if (sys::fs::exists(FilePath) &&
+      (isArchive(FilePath) || isDynamicLibrary(FilePath)))
     return FilePath;
 
   // Iterate over the directories in Paths to see if we can find the library
   // there.
   for (unsigned Index = 0; Index != LibPaths.size(); ++Index) {
-    sys::Path Directory(LibPaths[Index]);
-    sys::Path FullPath = IsLibrary(Filename, Directory, OnlyStatic);
-    if (!FullPath.isEmpty())
+    std::string Directory(LibPaths[Index]);
+    std::string FullPath = IsLibrary(Filename, Directory, OnlyStatic);
+    if (!FullPath.empty())
       return FullPath;
   }
-  return sys::Path();
+  return "";
 }
 
 /// GetAllUndefinedSymbols - calculates the set of undefined symbols that still
@@ -257,13 +283,13 @@ GetAllUndefinedSymbols(Module *M, std::set<std::string> &UndefinedSymbols) {
 ///  TRUE  - An error occurred.
 ///  FALSE - No errors.
 bool
-LibraryLinker::linkInArchive(const sys::Path &Filename, bool &is_native) {
+LibraryLinker::linkInArchive(const std::string &Filename, bool &is_native) {
   // Make sure this is an archive file we're dealing with
-  if (!Filename.isArchive())
-    return error("File '" + Filename.str() + "' is not an archive.");
+  if (!isArchive(Filename))
+    return error("File '" + Filename + "' is not an archive.");
 
   // Open the archive file
-  verbose("Linking archive file '" + Filename.str() + "'");
+  verbose("Linking archive file '" + Filename + "'");
 
   // Find all of the symbols currently undefined in the bitcode program.
   // If all the symbols are defined, the program is complete, and there is
@@ -272,7 +298,7 @@ LibraryLinker::linkInArchive(const sys::Path &Filename, bool &is_native) {
   GetAllUndefinedSymbols(getModule(), UndefinedSymbols);
 
   if (UndefinedSymbols.empty()) {
-    verbose("No symbols undefined, skipping library '" + Filename.str() + "'");
+    verbose("No symbols undefined, skipping library '" + Filename + "'");
     return false;  // No need to link anything in!
   }
 
@@ -283,7 +309,7 @@ LibraryLinker::linkInArchive(const sys::Path &Filename, bool &is_native) {
   Archive* arch = AutoArch.get();
 
   if (!arch)
-    return error("Cannot read archive '" + Filename.str() +
+    return error("Cannot read archive '" + Filename +
                  "': " + ErrMsg);
   if (!arch->isBitcodeArchive()) {
     is_native = true;
@@ -308,7 +334,7 @@ LibraryLinker::linkInArchive(const sys::Path &Filename, bool &is_native) {
     // subsequent call.
     SmallVector<Module*, 16> Modules;
     if (!arch->findModulesDefiningSymbols(UndefinedSymbols, Modules, &ErrMsg))
-      return error("Cannot find symbols in '" + Filename.str() + 
+      return error("Cannot find symbols in '" + Filename +
                    "': " + ErrMsg);
 
     // If we didn't find any more modules to link this time, we are done
@@ -367,36 +393,35 @@ LibraryLinker::linkInArchive(const sys::Path &Filename, bool &is_native) {
 bool LibraryLinker::linkInLibrary(StringRef Lib, bool& is_native) {
   is_native = false;
   // Determine where this library lives.
-  sys::Path Pathname = FindLibrary(Lib);
-  if (Pathname.isEmpty())
+  std::string Pathname = FindLibrary(Lib);
+  if (Pathname.empty())
     return error("Cannot find library '" + Lib.str() + "'");
 
   // If its an archive, try to link it in
-  std::string Magic;
-  Pathname.getMagicNumber(Magic, 64);
-  switch (sys::IdentifyFileType(Magic.c_str(), 64)) {
+  switch (getFileType(Pathname)) {
     default: llvm_unreachable("Bad file type identification");
-    case sys::Unknown_FileType:
+    case sys::fs::file_magic::unknown:
       return warning("Supposed library '" + Lib.str() + "' isn't a library.");
 
-    case sys::Bitcode_FileType:
+    case sys::fs::file_magic::bitcode:
       // LLVM ".so" file.
       if (linkInFile(Pathname, is_native))
         return true;
       break;
 
-    case sys::Archive_FileType:
+    case sys::fs::file_magic::archive:
       if (linkInArchive(Pathname, is_native))
-        return error("Cannot link archive '" + Pathname.str() + "'");
+        return error("Cannot link archive '" + Pathname + "'");
       break;
 
-    case sys::ELF_Relocatable_FileType:
-    case sys::ELF_SharedObject_FileType:
-    case sys::Mach_O_Object_FileType:
-    case sys::Mach_O_FixedVirtualMemorySharedLib_FileType:
-    case sys::Mach_O_DynamicallyLinkedSharedLib_FileType:
-    case sys::Mach_O_DynamicallyLinkedSharedLibStub_FileType:
-    case sys::COFF_FileType:
+    case sys::fs::file_magic::elf_relocatable:
+    case sys::fs::file_magic::elf_shared_object:
+    case sys::fs::file_magic::macho_object:
+    case sys::fs::file_magic::macho_fixed_virtual_memory_shared_lib:
+    case sys::fs::file_magic::macho_dynamically_linked_shared_lib:
+    case sys::fs::file_magic::macho_dynamically_linked_shared_lib_stub:
+    case sys::fs::file_magic::coff_object:
+    case sys::fs::file_magic::coff_import_library:
       is_native = true;
       break;
   }
@@ -416,11 +441,11 @@ bool LibraryLinker::linkInLibrary(StringRef Lib, bool& is_native) {
 ///  TRUE  - An error occurred.
 ///  FALSE - No errors.
 ///
-bool LibraryLinker::linkInFile(const sys::Path &File, bool &is_native) {
+bool LibraryLinker::linkInFile(const std::string &File, bool &is_native) {
   is_native = false;
   
   // Check for a file of name "-", which means "read standard input"
-  if (File.str() == "-") {
+  if (File == "-") {
     std::auto_ptr<Module> M;
     OwningPtr<MemoryBuffer> Buffer;
     error_code ec;
@@ -438,42 +463,42 @@ bool LibraryLinker::linkInFile(const sys::Path &File, bool &is_native) {
   }
 
   // Determine what variety of file it is.
-  std::string Magic;
-  if (!File.getMagicNumber(Magic, 64))
-    return error("Cannot find linker input '" + File.str() + "'");
+  if (!sys::fs::exists(File))
+    return error("Cannot find linker input '" + File + "'");
 
-  switch (sys::IdentifyFileType(Magic.c_str(), 64)) {
+  switch (getFileType(File)) {
     default: llvm_unreachable("Bad file type identification");
-    case sys::Unknown_FileType:
-      return warning("Ignoring file '" + File.str() + 
+    case sys::fs::file_magic::unknown:
+      return warning("Ignoring file '" + File +
                    "' because does not contain bitcode.");
 
-    case sys::Archive_FileType:
+    case sys::fs::file_magic::archive:
       // A user may specify an ar archive without -l, perhaps because it
       // is not installed as a library. Detect that and link the archive.
       if (linkInArchive(File, is_native))
         return true;
       break;
 
-    case sys::Bitcode_FileType: {
-      verbose("Linking bitcode file '" + File.str() + "'");
+    case sys::fs::file_magic::bitcode: {
+      verbose("Linking bitcode file '" + File + "'");
       std::auto_ptr<Module> M(LoadObject(File));
       if (M.get() == 0)
-        return error("Cannot load file '" + File.str() + "': " + Error);
+        return error("Cannot load file '" + File + "': " + Error);
       if (linkInModule(M.get(), &Error))
-        return error("Cannot link file '" + File.str() + "': " + Error);
+        return error("Cannot link file '" + File + "': " + Error);
 
-      verbose("Linked in file '" + File.str() + "'");
+      verbose("Linked in file '" + File + "'");
       break;
     }
 
-    case sys::ELF_Relocatable_FileType:
-    case sys::ELF_SharedObject_FileType:
-    case sys::Mach_O_Object_FileType:
-    case sys::Mach_O_FixedVirtualMemorySharedLib_FileType:
-    case sys::Mach_O_DynamicallyLinkedSharedLib_FileType:
-    case sys::Mach_O_DynamicallyLinkedSharedLibStub_FileType:
-    case sys::COFF_FileType:
+    case sys::fs::file_magic::elf_relocatable:
+    case sys::fs::file_magic::elf_shared_object:
+    case sys::fs::file_magic::macho_object:
+    case sys::fs::file_magic::macho_fixed_virtual_memory_shared_lib:
+    case sys::fs::file_magic::macho_dynamically_linked_shared_lib:
+    case sys::fs::file_magic::macho_dynamically_linked_shared_lib_stub:
+    case sys::fs::file_magic::coff_object:
+    case sys::fs::file_magic::coff_import_library:
       is_native = true;
       break;
   }

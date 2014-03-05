@@ -435,7 +435,7 @@ private
     }
     flags = paren(flag,'<','>')
     loop = paren(loopname,'<','>')
-    seq(spec,flags.maybe,loop).map { |s,f,l|
+    seq(spec,flags *(0..5),loop).map { |s,f,l|
       a,b = s
       SEAffineRec.new(a,b,l,f)
     }
@@ -464,7 +464,7 @@ private
     left.r >> p << right.r
   end
   def flag
-    /nw/.r
+    /n[us]?w/.r
   end
   def sym(c)
     symbol(c.r)

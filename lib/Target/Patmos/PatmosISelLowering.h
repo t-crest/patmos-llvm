@@ -60,7 +60,7 @@ namespace llvm {
     /// DAG node.
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
-    virtual EVT getSetCCResultType(EVT VT) const;
+    virtual EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
 
     virtual unsigned getByValTypeAlignment(Type *Ty) const LLVM_OVERRIDE {
       // Align any type passed by value on the stack to words
@@ -108,6 +108,12 @@ namespace llvm {
                                             SelectionDAG &DAG) const;
     */
 
+    /// Returns true if a cast between SrcAS and DestAS is a noop.
+    virtual bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const {
+      // Addrspacecasts are always noops.
+      return true;
+    }
+
     /******************************************************************
      * Inline asm support
      ******************************************************************/
@@ -116,7 +122,7 @@ namespace llvm {
 
     virtual std::pair<unsigned, const TargetRegisterClass*>
       getRegForInlineAsmConstraint(const std::string &Constraint,
-                                   EVT VT) const;
+                                   MVT VT) const;
 
   private:
     const PatmosSubtarget &Subtarget;
@@ -129,14 +135,14 @@ namespace llvm {
                               CallingConv::ID CallConv,
                               bool isVarArg,
                               const SmallVectorImpl<ISD::InputArg> &Ins,
-                              DebugLoc dl,
+                              SDLoc dl,
                               SelectionDAG &DAG,
                               SmallVectorImpl<SDValue> &InVals) const;
 
     SDValue LowerCallResult(SDValue Chain, SDValue InFlag,
                             CallingConv::ID CallConv, bool isVarArg,
                             const SmallVectorImpl<ISD::InputArg> &Ins,
-                            DebugLoc dl, SelectionDAG &DAG,
+                            SDLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
   public:
     virtual SDValue LowerCall(CallLoweringInfo &CLI,
@@ -145,14 +151,14 @@ namespace llvm {
     virtual SDValue LowerFormalArguments(SDValue Chain,
                                  CallingConv::ID CallConv, bool isVarArg,
                                  const SmallVectorImpl<ISD::InputArg> &Ins,
-                                 DebugLoc dl, SelectionDAG &DAG,
+                                 SDLoc dl, SelectionDAG &DAG,
                                  SmallVectorImpl<SDValue> &InVals) const;
 
     virtual SDValue LowerReturn(SDValue Chain,
                         CallingConv::ID CallConv, bool isVarArg,
                         const SmallVectorImpl<ISD::OutputArg> &Outs,
                         const SmallVectorImpl<SDValue> &OutVals,
-                        DebugLoc dl, SelectionDAG &DAG) const;
+                        SDLoc dl, SelectionDAG &DAG) const;
 
     /// LowerVASTART - Lower the va_start intrinsic to access parameters of
     /// variadic functions.

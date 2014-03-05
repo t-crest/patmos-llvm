@@ -13,6 +13,7 @@
 
 #include "PatmosMCTargetDesc.h"
 #include "PatmosMCAsmInfo.h"
+#include "PatmosTargetStreamer.h"
 #include "InstPrinter/PatmosInstPrinter.h"
 #include "llvm/MC/MCCodeGenInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
@@ -32,8 +33,9 @@
 
 using namespace llvm;
 
-static MCAsmInfo *createPatmosMCAsmInfo(const Target &T, StringRef TT) {
-	return new PatmosMCAsmInfo(T, TT);
+static MCAsmInfo *createPatmosMCAsmInfo(const MCRegisterInfo &MRI, StringRef TT)
+{
+  return new PatmosMCAsmInfo(TT);
 }
 
 static MCInstrInfo *createPatmosMCInstrInfo() {
@@ -71,10 +73,9 @@ static MCCodeGenInfo *createPatmosMCCodeGenInfo(StringRef TT, Reloc::Model RM,
 
 static MCStreamer *createPatmosMCStreamer(const Target &T, StringRef TT,
                                     MCContext &Ctx, MCAsmBackend &MAB,
-                                    raw_ostream &_OS,
-                                    MCCodeEmitter *_Emitter,
-                                    bool RelaxAll,
-                                    bool NoExecStack) {
+                                    raw_ostream &_OS, MCCodeEmitter *_Emitter,
+                                    bool RelaxAll, bool NoExecStack)
+{
   Triple TheTriple(TT);
 
   if (TheTriple.isOSDarwin()) {
@@ -85,8 +86,23 @@ static MCStreamer *createPatmosMCStreamer(const Target &T, StringRef TT,
     llvm_unreachable("Patmos does not support Windows COFF format");
   }
 
-  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
+  PatmosTargetELFStreamer *S = new PatmosTargetELFStreamer();
+  return createELFStreamer(Ctx, S, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
 }
+
+static MCStreamer * createPatmosMCAsmStreamer(MCContext &Ctx,
+                            formatted_raw_ostream &OS,
+                            bool isVerboseAsm, bool useLoc, bool useCFI,
+                            bool useDwarfDirectory, MCInstPrinter *InstPrint,
+                            MCCodeEmitter *CE, MCAsmBackend *TAB, bool ShowInst)
+{
+  PatmosTargetStreamer *S = new PatmosTargetAsmStreamer(OS);
+
+  return llvm::createAsmStreamer(Ctx, S, OS, isVerboseAsm, useLoc, useCFI,
+                                 useDwarfDirectory, InstPrint, CE, TAB,
+                                 ShowInst);
+}
+
 
 static MCInstPrinter *createPatmosMCInstPrinter(const Target &T,
                                                 unsigned SyntaxVariant,
@@ -127,6 +143,10 @@ extern "C" void LLVMInitializePatmosTargetMC() {
   // Register the asm backend
   TargetRegistry::RegisterMCAsmBackend(ThePatmosTarget,
                                        createPatmosAsmBackend);
+
+  // Register the asm streamer
+  TargetRegistry::RegisterAsmStreamer(ThePatmosTarget,
+                                      createPatmosMCAsmStreamer);
 
   // Register the object streamer
   TargetRegistry::RegisterMCObjectStreamer(ThePatmosTarget,

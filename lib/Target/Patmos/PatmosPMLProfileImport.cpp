@@ -40,9 +40,6 @@ static cl::opt<bool> UseCritEdgeWeight(
   cl::Hidden);
 
 namespace llvm {
-  /// Count the number of SENS instructions removed.
-  STATISTIC(RemovedSENS, "SENS instructions removed (zero fills).");
-
 
   class PatmosPMLProfileImport : public MachineFunctionPass {
   private:

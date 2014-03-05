@@ -1,0 +1,40 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/stefan/Uni/tcrest/ssd/patmos-llvm/tools/platin/ext/patch_loads/patch_loads.c
+assert.h
+-
+errno.h
+-
+fcntl.h
+-
+limits.h
+-
+stdarg.h
+-
+stddef.h
+-
+stdio.h
+-
+stdlib.h
+-
+string.h
+-
+unistd.h
+-
+sys/types.h
+-
+sys/stat.h
+-
+arpa/inet.h
+-
+gelf.h
+-
+libelf.h
+-
+

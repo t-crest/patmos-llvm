@@ -71,7 +71,7 @@ namespace llvm {
   };
   
   // Get just the externally visible defined symbols from the bitcode
-  bool GetBitcodeSymbols(const sys::Path& fName,
+  bool GetBitcodeSymbols(const std::string& fName,
                           LLVMContext& Context,
                           std::vector<std::string>& symbols,
                           std::string* ErrMsg);
