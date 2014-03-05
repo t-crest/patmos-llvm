@@ -215,7 +215,7 @@ def fipat : PatLeaf<(i32 frameindex), [{}], FI_XForm>;
 def JT_XForm : SDNodeXForm<jumptable, [{ return CurDAG->getTargetJumpTable(N->getIndex(), N->getValueType(0), N->getTargetFlags()); }]>;
 def jtpat : Operand<i32>, PatLeaf<(i32 jumptable), [{}], JT_XForm>;
 
-def GS_XForm : SDNodeXForm<globaladdr, [{ return CurDAG->getTargetGlobalAddress(N->getGlobal(), N->getDebugLoc(), N->getValueType(0), N->getOffset(), N->getTargetFlags()); }]>;
+def GS_XForm : SDNodeXForm<globaladdr, [{ return CurDAG->getTargetGlobalAddress(N->getGlobal(), N, N->getValueType(0), N->getOffset(), N->getTargetFlags()); }]>;
 def gspat : PatLeaf<(i32 globaladdr), [{}], GS_XForm>;
 
 def ES_XForm : SDNodeXForm<externalsym, [{ return CurDAG->getTargetExternalSymbol(N->getSymbol(), N->getValueType(0), N->getTargetFlags()); }]>;
@@ -464,7 +464,7 @@ let isCall=1, hasDelaySlot=0, mayStall=1,
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1, mayStall=1,
-    neverHasSideEffects = 1 in { // due to missing pattern
+    hasExtraSrcRegAllocReq = 1, neverHasSideEffects = 1 in { // due to missing pattern
   let  Uses = [SRB, SRO] in
     def RET  : CFLri<0b00, 0b1, (outs), (ins pred:$p),
                      "ret", "", []>;
@@ -798,10 +798,11 @@ let mayStall = 1 in
 def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;
 
 // move to special
+let hasExtraDefRegAllocReq = 1 in
 def MTS  : SPCt <(outs SRegs:$sd), (ins pred:$p, RRegs:$rs), "mts", "$sd = $rs", [] >;
 
 // move from special
-let neverHasSideEffects = 1 in
+let hasExtraSrcRegAllocReq = 1, neverHasSideEffects = 1 in
 def MFS  : SPCf <(outs RRegs:$rd), (ins pred:$p, SRegs:$ss), "mfs", "$rd = $ss", [] >;
 
 

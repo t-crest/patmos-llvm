@@ -7,11 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "PatmosInstrInfo.h"
+#include "InstPrinter/PatmosInstPrinter.h"
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
 #include "MCTargetDesc/PatmosMCAsmInfo.h"
-#include "InstPrinter/PatmosInstPrinter.h"
-#include "PatmosInstrInfo.h"
+#include "MCTargetDesc/PatmosMCAsmInfo.h"
+#include "MCTargetDesc/PatmosTargetStreamer.h"
 #include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
@@ -24,7 +26,6 @@
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "MCTargetDesc/PatmosMCAsmInfo.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
@@ -40,7 +41,7 @@ struct PatmosOperand;
 
 class PatmosAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
-  OwningPtr<MCInstrInfo> MII;
+  const MCInstrInfo &MII;
 
   // Remember if we are inside of a bundle marker
   bool InBundle;
@@ -62,15 +63,11 @@ class PatmosAsmParser : public MCTargetAsmParser {
   #include "PatmosGenAsmMatcher.inc"
 
 public:
-  PatmosAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser)
-    : MCTargetAsmParser(), Parser(parser), MII(),
+  PatmosAsmParser(MCSubtargetInfo &sti, MCAsmParser &parser,
+                  const MCInstrInfo &mii)
+    : MCTargetAsmParser(), Parser(parser), MII(mii),
       InBundle(false), BundleCounter(0)
   {
-    // This is a nasty workaround for LLVM interface limitations
-    const Target &T = static_cast<const PatmosMCAsmInfo*>(
-                                &parser.getContext().getAsmInfo())->getTarget();
-    MII.reset(T.createMCInstrInfo());
-
     IssueWidth = sti.getSchedModel()->IssueWidth;
 
     switch (parser.getAssemblerDialect()) {
@@ -353,7 +350,7 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 
     // If we have an ALUi immediate instruction and the immediate does not fit
     // 12bit, use ALUl version of instruction
-    const MCInstrDesc &MID = MII->get(Inst.getOpcode());
+    const MCInstrDesc &MID = MII.get(Inst.getOpcode());
     uint64_t Format = MID.TSFlags & PatmosII::FormMask;
     unsigned ImmOpNo = getPatmosImmediateOpNo( MID.TSFlags );
     bool ImmSigned = isPatmosImmediateSigned( MID.TSFlags );
@@ -864,7 +861,7 @@ bool PatmosAsmParser::ParseDirectiveWord(unsigned Size, SMLoc L) {
       if (getParser().parseExpression(Value, E))
         return true;
 
-      getParser().getStreamer().EmitValue(Value, Size, 0 /*addrspace*/);
+      getParser().getStreamer().EmitValue(Value, Size);
 
       if (getLexer().is(AsmToken::EndOfStatement))
         break;
@@ -926,7 +923,10 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
   }
   Parser.Lex();
 
-  getParser().getStreamer().EmitFStart(Start, Length, (unsigned)Align);
+  PatmosTargetStreamer &PTS = static_cast<PatmosTargetStreamer&>(
+                                 getParser().getStreamer().getTargetStreamer());
+
+  PTS.EmitFStart(Start, Length, (unsigned)Align);
 
   return false;
 }

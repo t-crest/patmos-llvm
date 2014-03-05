@@ -254,7 +254,7 @@ void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
          j++) {
       // a call site?
       if (j->isCall()) {
-        MachineBasicBlock::iterator p(next(j));
+        MachineBasicBlock::iterator p(llvm::next(j));
         emitSTC(MF, *i, p, Patmos::SENSi);
       }
     }

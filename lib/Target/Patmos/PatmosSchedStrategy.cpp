@@ -345,7 +345,6 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     // Add an artificial dep from CFL to exit for the delay slot
     SDep DelayDep(CFL, SDep::Artificial);
     DelayDep.setLatency(DelaySlot + 1);
-    DelayDep.setMinLatency(DelaySlot + 1);
     DAG->ExitSU.addPred(DelayDep);
 
     CFL->isScheduleLow = true;
@@ -591,7 +590,10 @@ void PatmosPostRASchedStrategy::removeExclusivePredDeps()
         unsigned PredPos = MI->getDesc().getNumDefs();
         if (pit->getReg() != MI->getOperand(PredPos).getReg())
         {
-          it->removePred(*pit);
+          // TODO we must add new edges to the non-mutual-exclusive uses/defs
+          // Otherwise the scheduler might swap instructions around that have
+          // deps
+          //it->removePred(*pit);
         }
       }
     }
@@ -626,8 +628,8 @@ unsigned PatmosPostRASchedStrategy::computeExitLatency(SUnit &SU) {
     if (!MO.isReg() || !MO.isDef()) continue;
 
     // Get the default latency as the write cycle of the operand.
-    unsigned OpLatency = DAG->getSchedModel()->computeOperandLatency(PredMI,
-                                                      i, NULL, 0, false);
+    unsigned OpLatency = DAG->getSchedModel()->computeOperandLatency(PredMI, i,
+                                                                     NULL, 0);
 
     Latency = std::max(Latency, OpLatency);
   }

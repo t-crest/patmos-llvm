@@ -72,9 +72,7 @@ void PMLImport::initializePass()
       report_fatal_error("PMLImport: error reading PML file.");
     }
 
-    yaml::Input Input(Buf->getBuffer());
-
-    Input.setDiagHandler(printErrorMessages);
+    yaml::Input Input(Buf->getBuffer(), NULL, printErrorMessages);
 
     yaml::PMLDocList Docs;
 

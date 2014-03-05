@@ -15,10 +15,11 @@
 #define DEBUG_TYPE "asm-printer"
 #include "PatmosAsmPrinter.h"
 #include "PatmosMCInstLower.h"
-#include "PatmosTargetMachine.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosTargetMachine.h"
 #include "PatmosUtil.h"
 #include "InstPrinter/PatmosInstPrinter.h"
+#include "MCTargetDesc/PatmosTargetStreamer.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
@@ -146,7 +147,10 @@ void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
                             MCSymbolRefExpr::Create(SymStart, OutContext),
                             OutContext);
 
-  OutStreamer.EmitFStart(SymStart, SizeExpr, AlignBytes);
+  PatmosTargetStreamer &PTS =
+            static_cast<PatmosTargetStreamer&>(OutStreamer.getTargetStreamer());
+
+  PTS.EmitFStart(SymStart, SizeExpr, AlignBytes);
 }
 
 bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB) const {
@@ -261,7 +265,7 @@ bool PatmosAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
   MCInst MCI;
   MCInstLowering.Lower(MI, MCI);
 
-  PatmosInstPrinter PIP(OutContext.getAsmInfo(), *TM.getInstrInfo(),
+  PatmosInstPrinter PIP(*OutContext.getAsmInfo(), *TM.getInstrInfo(),
                         *TM.getRegisterInfo());
 
   PIP.printOperand(&MCI, OpNo, O, ExtraCode);

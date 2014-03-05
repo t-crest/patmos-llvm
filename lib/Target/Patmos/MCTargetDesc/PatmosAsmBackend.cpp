@@ -225,7 +225,9 @@ public:
 } // namespace
 
 // MCAsmBackend
-MCAsmBackend *llvm::createPatmosAsmBackend(const Target &T, StringRef TT, StringRef CPU) {
+MCAsmBackend *llvm::createPatmosAsmBackend(const Target &T,
+                         const MCRegisterInfo &MRI, StringRef TT, StringRef CPU)
+{
   return new PatmosAsmBackend(T, Triple(TT).getOS());
 }
 

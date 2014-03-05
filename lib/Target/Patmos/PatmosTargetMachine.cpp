@@ -72,7 +72,6 @@ namespace {
       // Enable preRA MI scheduler.
       if (TM->getSubtargetImpl()->usePreRAMIScheduler(getOptLevel())) {
         enablePass(&MachineSchedulerID);
-        MachineSchedRegistry::setDefault(createPatmosVLIWMachineSched);
       }
       if (TM->getSubtargetImpl()->usePatmosPostRAScheduler(getOptLevel())) {
         initializePatmosPostRASchedulerPass(*PassRegistry::getPassRegistry());
@@ -86,6 +85,11 @@ namespace {
 
     const PatmosSubtarget &getPatmosSubtarget() const {
       return *getPatmosTargetMachine().getSubtargetImpl();
+    }
+
+    virtual ScheduleDAGInstrs *
+    createMachineScheduler(MachineSchedContext *C) const {
+      return createPatmosVLIWMachineSched(C);
     }
 
     virtual bool addInstSelector() {
@@ -141,7 +145,7 @@ namespace {
       // add passes to handle them.
       if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
         addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
-                                                false));
+                                            getOptLevel() == CodeGenOpt::None));
       }
 
       // All passes below this line must handle delay slots and bundles
@@ -201,7 +205,9 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
 
     InstrInfo(*this), TLInfo(*this), TSInfo(*this),
     FrameLowering(*this),
-    InstrItins(Subtarget.getInstrItineraryData()) {
+    InstrItins(Subtarget.getInstrItineraryData())
+{
+  initAsmInfo();
 }
 
 TargetPassConfig *PatmosTargetMachine::createPassConfig(PassManagerBase &PM) {
