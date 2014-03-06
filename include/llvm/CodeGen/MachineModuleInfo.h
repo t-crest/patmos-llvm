@@ -433,8 +433,7 @@ public:
     assert(F && "Creating a MachineFunction without Function not supported!");
 
     // check for collisions
-    MachineFunction *tmpMF = getMachineFunction(F);
-    assert(tmpMF == MF || tmpMF == NULL);
+    assert(getMachineFunction(F) == MF || getMachineFunction(F) == NULL);
 
     // store the MachineFunction
     MachineFunctions[F] = MF;

@@ -141,7 +141,6 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
 
     unsigned FIalignment = MFI.getObjectAlignment(FI);
     int64_t FIsize = MFI.getObjectSize(FI);
-    int FIoffset = MFI.getObjectOffset(FI);
 
     if (FIsize > INT_MAX) {
       report_fatal_error("Frame objects with size > INT_MAX not supported.");
@@ -159,7 +158,7 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       if (align(next_SCOffset + FIsize, STC.getStackCacheBlockSize()) <=
           STC.getStackCacheSize()) {
         DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << next_SCOffset
-                    << "(" << FIoffset << ")\n");
+                    << "(" << MFI.getObjectOffset(FI) << ")\n");
 
         // reassign stack offset
         MFI.setObjectOffset(FI, next_SCOffset);
@@ -185,7 +184,7 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       SSOffset = align(SSOffset, FIalignment);
 
       DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SS: " << SSOffset
-                   << "(" << FIoffset << ")\n");
+                   << "(" << MFI.getObjectOffset(FI) << ")\n");
 
       // reassign stack offset
       MFI.setObjectOffset(FI, SSOffset);

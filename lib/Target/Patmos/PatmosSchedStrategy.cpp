@@ -255,6 +255,7 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   return false;
 }
 
+#ifndef NDEBUG
 void PatmosLatencyQueue::dump()
 {
   dbgs() << "PendingQueue:";
@@ -278,7 +279,7 @@ void PatmosLatencyQueue::dump()
   }
   dbgs() << "\n";
 }
-
+#endif
 
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(

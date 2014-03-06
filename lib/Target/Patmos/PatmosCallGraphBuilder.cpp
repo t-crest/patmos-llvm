@@ -76,7 +76,9 @@ namespace llvm {
 
     if (!short_format && MI) {
       dbgs() << "\t";
+#ifndef NDEBUG
       MI->dump();
+#endif
     }
   }
 
