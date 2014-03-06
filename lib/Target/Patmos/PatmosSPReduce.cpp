@@ -251,8 +251,8 @@ namespace {
       return (uses & ((1 << (pos+1))-1)) != 0;
     }
     bool hasNextUseBefore(int pos, const LiveRange &other) const {
-      return llvm::CountTrailingZeros_64(uses >> pos)
-                < llvm::CountTrailingZeros_64(other.uses >> pos);
+      return llvm::countTrailingZeros<uint64_t>(uses >> pos)
+                < llvm::countTrailingZeros<uint64_t>(other.uses >> pos);
     }
     std::string str(void) const {
       std::stringbuf buf;
