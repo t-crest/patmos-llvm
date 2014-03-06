@@ -175,6 +175,8 @@ namespace llvm {
 
   class SPScope {
     friend class PatmosSinglePathInfo;
+    friend struct GraphTraits<SPScope*>;
+
     public:
       /// iterator - Type for iterator through MBBs
       typedef std::vector<MachineBasicBlock*>::iterator iterator;
@@ -186,12 +188,40 @@ namespace llvm {
       typedef std::pair<const MachineBasicBlock *,
                         const MachineBasicBlock *> Edge;
 
-
-      /// Typedefs for CD, R and K
-      typedef std::set<Edge> CD_map_entry_t;
-      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
-      typedef std::vector<CD_map_entry_t>                  K_t;
-      typedef std::map<const MachineBasicBlock*, unsigned> R_t;
+      /// Node - a node used internally in the scope to construct a forward CFG
+      //  of the scope MBBs
+      class Node {
+        public:
+          typedef std::vector<Node*>::iterator child_iterator;
+          Node(const MachineBasicBlock *mbb=NULL)
+            : MBB(mbb), num(-1), ipdom(NULL) {}
+          const MachineBasicBlock *MBB;
+          int num;
+          Node *ipdom;
+          void connect(Node &n) {
+            succs.push_back(&n);
+            n.preds.push_back(this);
+          }
+          void connect(Node &n, Edge e) {
+            outedges[&n] = e;
+            connect(n);
+          }
+          unsigned long dout() { return succs.size(); }
+          Edge *edgeto(Node *n) {
+            if (outedges.count(n)) {
+              return &outedges.at(n);
+            }
+            return (Edge *) NULL;
+          }
+          child_iterator succs_begin() { return succs.begin(); }
+          child_iterator succs_end()   { return succs.end(); }
+          child_iterator preds_begin() { return preds.begin(); }
+          child_iterator preds_end()   { return preds.end(); }
+        private:
+          std::vector<Node *> succs;
+          std::vector<Node *> preds;
+          std::map<Node *, Edge> outedges;
+      };
 
 
       /// constructor - Create a top-level SPScope
@@ -284,67 +314,49 @@ namespace llvm {
 
       void computePredInfos(void);
 
-      //FIXME
-      class Node {
-        public:
-          typedef std::vector<Node*>::iterator child_iterator;
-          Node(const MachineBasicBlock *mbb=NULL)
-            : MBB(mbb), num(-1), ipdom(NULL), issubloop(false) {}
-          const MachineBasicBlock *MBB;
-          int num;
-          Node *ipdom;
-          bool issubloop;
-          void connect(Node &n) {
-            succs.push_back(&n);
-            n.preds.push_back(this);
-          }
-          void connect(Node &n, Edge e) {
-            outedges[&n] = e;
-            connect(n);
-          }
-          unsigned long dout() { return succs.size(); }
-          Edge *edgeto(Node *n) {
-            if (outedges.count(n)) {
-              return &outedges.at(n);
-            }
-            return (Edge *) NULL;
-          }
-          child_iterator succs_begin() { return succs.begin(); }
-          child_iterator succs_end()   { return succs.end(); }
-          child_iterator preds_begin() { return preds.begin(); }
-          child_iterator preds_end()   { return preds.end(); }
-        private:
-          std::vector<Node *> succs;
-          std::vector<Node *> preds;
-          std::map<Node *, Edge> outedges;
-      };
-
-      Node &getEntry() { return nentry; }
 
     private:
-      // new fcfg stuff
-      Node nentry, nexit;
-      std::map<const MachineBasicBlock*, Node> nodes;
-      Node &getNodeFor(const MachineBasicBlock *MBB) {
-        if (!nodes.count(MBB)) {
-          nodes.insert(std::make_pair(MBB, Node(MBB)));
-        }
-        return nodes.at(MBB);
-      }
+
+      /// Typedefs for CD, R and K
+      typedef std::set<std::pair<Node*, Edge> > CD_map_entry_t;
+      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
+      typedef std::vector<CD_map_entry_t>                  K_t;
+      typedef std::map<const MachineBasicBlock*, unsigned> R_t;
+
+      class FCFG {
+        public:
+          explicit FCFG(const MachineBasicBlock *header) {
+            toexit(nentry);
+            nentry.connect(getNodeFor(header),
+                std::make_pair((const MachineBasicBlock *)NULL, header));
+          }
+          Node nentry, nexit;
+          Node &getNodeFor(const MachineBasicBlock *MBB) {
+            if (!nodes.count(MBB)) {
+              nodes.insert(std::make_pair(MBB, Node(MBB)));
+            }
+            return nodes.at(MBB);
+          }
+          void toexit(Node &n) { n.connect(nexit); }
+          void toexit(Node &n, Edge &e) { n.connect(nexit, e); }
+          void postdominators(void);
+          raw_ostream& printNode(Node &n);
+        private:
+          std::map<const MachineBasicBlock*, Node> nodes;
+          void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
+          Node *_intersect(Node *, Node *);
+      };
+
       void buildfcfg(void);
       /// toposort - sort blocks of this SPScope topologically
       void toposort(void);
-      void postdominators(void);
       void ctrldep(void);
       void decompose(void);
       void dumpfcfg(void);
-      void toexit(Node &n) { n.connect(nexit); }
-      raw_ostream& printNode(Node &n); 
       CD_map_t CD;
       // algorithms
-      void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
-      Node *_intersect(Node *, Node *);
-      void _walkpdt(Node *a, Node *b, Edge e);
+      void _walkpdt(Node *a, Node *b, Edge &e);
+      void _walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc);
       ////// SNIP /////////
 
 
@@ -353,6 +365,8 @@ namespace llvm {
 
       // TII for AnalyzeBranch (to get True/False edge, Condition)
       const TargetInstrInfo &TII;
+
+      FCFG FCFG;
 
       // loop latches
       SmallVector<MachineBasicBlock *, 4> Latches;
@@ -445,7 +459,7 @@ namespace llvm {
     typedef SPScope::Node NodeType;
     typedef SPScope::Node::child_iterator ChildIteratorType;
 
-    static NodeType *getEntryNode(SPScope *S) { return &S->getEntry(); }
+    static NodeType *getEntryNode(SPScope *S) { return &S->FCFG.nentry; }
     static inline ChildIteratorType child_begin(NodeType *N) {
       return N->succs_begin();
     }
