@@ -114,21 +114,17 @@ int main(int argc, char **argv) {
     Modname = llvm::sys::path::stem(OutputFilename);
   }
 
-
-  // Craft a new linker and add in search paths
-  LibraryLinker L(argv[0], Modname, Context);
-  L.addPaths(LibrarySearchPaths);
-  if (!NoStdLib) {
-    L.addSystemPaths();
-  }
-
-  if (Verbose) {
-    L.setFlags(LibraryLinker::Verbose);
+  std::unique_ptr<Module> Composite(
+      LoadFile(argv[0], InputFilenames[BaseArg], Context));
+  if (Composite.get() == 0) {
+    errs() << argv[0] << ": error loading file '"
+           << InputFilenames[BaseArg] << "'\n";
+    return 1;
   }
 
   Linker L(Composite.get(), SuppressWarnings);
   for (unsigned i = BaseArg+1; i < InputFilenames.size(); ++i) {
-    OwningPtr<Module> M(LoadFile(argv[0], InputFilenames[i], Context));
+    std::unique_ptr<Module> M(LoadFile(argv[0], InputFilenames[i], Context));
     if (M.get() == 0) {
       errs() << argv[0] << ": error loading file '" <<InputFilenames[i]<< "'\n";
       return 1;

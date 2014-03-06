@@ -97,7 +97,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "CodeGenTarget.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -1358,7 +1357,7 @@ void AsmMatcherInfo::buildInfo() {
       if (CGI.TheDef->getValueAsBit("isCodeGenOnly"))
         continue;
 
-      OwningPtr<MatchableInfo> II(new MatchableInfo(CGI));
+      std::unique_ptr<MatchableInfo> II(new MatchableInfo(CGI));
 
       II->initialize(*this, SingletonRegisters, AsmVariantNo, RegisterPrefix);
 
@@ -1391,7 +1390,7 @@ void AsmMatcherInfo::buildInfo() {
             .startswith( MatchPrefix))
         continue;
 
-      OwningPtr<MatchableInfo> II(new MatchableInfo(Alias));
+      std::unique_ptr<MatchableInfo> II(new MatchableInfo(Alias));
 
       II->initialize(*this, SingletonRegisters, AsmVariantNo, RegisterPrefix);
 
@@ -1468,7 +1467,7 @@ void AsmMatcherInfo::buildInfo() {
         II->TheDef->getValueAsString("TwoOperandAliasConstraint");
       if (Constraint != "") {
         // Start by making a copy of the original matchable.
-        OwningPtr<MatchableInfo> AliasII(new MatchableInfo(*II));
+        std::unique_ptr<MatchableInfo> AliasII(new MatchableInfo(*II));
 
         // Adjust it to be a two-operand alias.
         AliasII->formTwoOperandAlias(Constraint);
