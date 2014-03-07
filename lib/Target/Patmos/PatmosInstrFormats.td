@@ -20,15 +20,16 @@ def FALUi   : Format<2>;  // ALU with 12bit immediate
 def FALUl   : Format<3>;  // 64bit long immediate instructions
 def FALUc   : Format<4>;  // Compare of registers
 def FALUp   : Format<5>;  // Combine predicates
-def FALUci  : Format<6>;  // Compare of register and immediate
-def FLDT    : Format<7>;  // Memory ops with 7bit offset
-def FSTT    : Format<8>;  // Memory ops with 7bit offset
-def FSTCi   : Format<9>;  // Stack control with 18bit immediate
-def FSTCr   : Format<10>;  // Stack control with register
-def FCFLi   : Format<11>; // Program flow control with 22bit immediate
-def FCFLri  : Format<12>; // Program flow control with registers
-def FCFLrs  : Format<13>; // Program flow control with registers
-def FCFLrt  : Format<14>; // Program flow control with registers
+def FALUb   : Format<6>;  // Bitcopy
+def FALUci  : Format<7>;  // Compare of register and immediate
+def FLDT    : Format<8>;  // Memory ops with 7bit offset
+def FSTT    : Format<9>;  // Memory ops with 7bit offset
+def FSTCi   : Format<10>;  // Stack control with 18bit immediate
+def FSTCr   : Format<11>;  // Stack control with register
+def FCFLi   : Format<12>; // Program flow control with 22bit immediate
+def FCFLri  : Format<13>; // Program flow control with registers
+def FCFLrs  : Format<14>; // Program flow control with registers
+def FCFLrt  : Format<15>; // Program flow control with registers
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -283,6 +284,24 @@ class ALUp<bits<4> func,
   let Inst{10-7}  = ps2;
 }
 
+// ALUb - Bitcopy
+//
+class ALUb<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<0, outs, ins, op, asmstr, pattern, FALUb, IIC_ALUb> {
+
+  let Opc = 0b101;
+
+  // unbound fields
+  bits<5> rd;
+  bits<5> rs1;
+  bits<5> imm;
+  bits<4> ps;
+
+  let Inst{21-17} = rd;
+  let Inst{16-12} = rs1;
+  let Inst{11-7}  = imm;
+  let Inst{3-0}   = ps;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 

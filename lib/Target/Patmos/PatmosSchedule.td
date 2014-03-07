@@ -29,6 +29,7 @@ def IIC_ALUi   : InstrItinClass;
 def IIC_ALUc   : InstrItinClass;
 def IIC_ALUci  : InstrItinClass;
 def IIC_ALUp   : InstrItinClass;
+def IIC_ALUb   : InstrItinClass;
 def IIC_ALUic  : InstrItinClass; // variant of ALUi for CMOV
 // long immediate op
 def IIC_ALUl   : InstrItinClass;
@@ -134,6 +135,9 @@ def PatmosGenericItineraries : ProcessorItineraries<
                               [ 2, 2, 2, 1, 1 ], 
 			      [ PB_GPR, NoBypass, NoBypass, PB_GPR, PB_GPR ],
 			      2 >,
+    InstrItinData<IIC_ALUb,   [ InstrStage<1, [FU_ALU0, FU_ALU1]> ],
+                              [ 2, 2, 2, 1, 2 ], 
+			      [ PB_GPR, NoBypass, NoBypass, PB_GPR, NoBypass ] >,
     InstrItinData<IIC_ALUm,   // Start FU_MUL in the same cycle as the ALU, 
 			      // reserve the MUL unit for 1 cycles (non-pipelined mul)
                               [ InstrStage<1, [FU_ALU0], 0>, 

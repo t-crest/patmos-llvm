@@ -61,33 +61,36 @@ namespace PatmosII {
     /// FrmALUc - This format is for instructions of the ALUc format (Pd = Rs1 op Rs2).
     FrmALUc     = 4,
 
+    /// FrmALUb - This format is for instructions of the ALUb format (bitcopy).
+    FrmALUb     = 5,
+
     /// FrmALUci - This format is for instructions of the ALUci format (Pd = Rs1 op imm).
-    FrmALUci    = 5,
+    FrmALUci    = 6,
 
     /// FrmALUp - This format is for instructions of the ALUp format (Pd = Ps1 op Ps2).
-    FrmALUp     = 6,
+    FrmALUp     = 7,
 
     /// FrmLDT - This format is for memory load instructions with 7bit offset.
-    FrmLDT      = 7,
+    FrmLDT      = 8,
 
     /// FrmSTT - This format is for memory store instructions with 7bit offset.
-    FrmSTT      = 8,
+    FrmSTT      = 9,
 
     /// FrmSTCi - This form is for instructions of the STC format (stack control, 22bit immediate).
-    FrmSTCi     = 9,
+    FrmSTCi     = 10,
 
     /// FrmSTCr - This form is for instructions of the STC format (stack control, register).
-    FrmSTCr     = 10,
+    FrmSTCr     = 11,
 
     /// FrmCFLi - This form is for instructions of the CFLi format (flow control, 22bit immediate).
-    FrmCFLi     = 11,
+    FrmCFLi     = 12,
 
     /// FrmCFLri - This form is for instructions of the CFLri format (flow control, implicit registers).
-    FrmCFLri    = 12,
+    FrmCFLri    = 13,
     /// FrmCFLrs - This form is for instructions of the CFLrs format (flow control, single register).
-    FrmCFLrs    = 13,
+    FrmCFLrs    = 14,
     /// FrmCFLrt - This form is for instructions of the CFLrt format (flow control, two registers).
-    FrmCFLrt    = 14,
+    FrmCFLrt    = 15,
 
     FormMask    = 0x0F
   };
@@ -140,6 +143,7 @@ inline static bool isPatmosCFL(unsigned opcode, uint64_t TSFlags) {
 
 inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
   switch (TSFlags & PatmosII::FormMask) {
+  case PatmosII::FrmALUb:  return 5;
   case PatmosII::FrmALUci: return 5;
   case PatmosII::FrmLDT:   return 7;
   case PatmosII::FrmSTT:   return 7;

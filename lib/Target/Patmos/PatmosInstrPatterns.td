@@ -24,11 +24,8 @@ def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 
 
 
-// for zext-ing an i1 to i32: conditionally load 1 into an RReg
-def : Pat<(zext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
-def : Pat<(sext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
-def : Pat<(anyext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
-
+// sign extensions of single bit
+def : Pat<(sext (i1 predsel:$p)), (CSUBi predsel:$p, (CLR), (i32 1))>;
 def : Pat<(sext_inreg RRegs:$r, i1), (SRAi (SLi RRegs:$r, (i32 31)), (i32 31))>;
 
 
