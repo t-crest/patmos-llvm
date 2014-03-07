@@ -77,43 +77,9 @@ public:
     return DT->findNearestCommonDominator(A, B);
   }
 
-  /// addNewBlock - Add a new node to the dominator tree information.  This
-  /// creates a new node as a child of DomBB dominator node,linking it into
-  /// the children list of the immediate dominator.
-  inline MachineDomTreeNode *addNewBlock(MachineBasicBlock *BB,
-                                         MachineBasicBlock *DomBB) {
-    return DT->addNewBlock(BB, DomBB);
-  }
-
-  /// changeImmediateDominator - This method is used to update the dominator
-  /// tree information when a node's immediate dominator changes.
-  ///
-  inline void changeImmediateDominator(MachineBasicBlock *N,
-                                       MachineBasicBlock* NewIDom) {
-    DT->changeImmediateDominator(N, NewIDom);
-  }
-
-  inline void changeImmediateDominator(MachineDomTreeNode *N,
-                                       MachineDomTreeNode* NewIDom) {
-    DT->changeImmediateDominator(N, NewIDom);
-  }
-
-  /// eraseNode - Removes a node from  the dominator tree. Block must not
-  /// dominate any other blocks. Removes node from its immediate dominator's
-  /// children list. Deletes dominator node associated with basic block BB.
-  inline void eraseNode(MachineBasicBlock *BB) {
-    DT->eraseNode(BB);
-  }
-
-  /// splitBlock - BB is split and now it has one successor. Update dominator
-  /// tree to reflect this change.
-  inline void splitBlock(MachineBasicBlock* NewBB) {
-    DT->splitBlock(NewBB);
-  }
-
-  virtual bool runOnMachineFunction(MachineFunction &MF);
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-  virtual void print(llvm::raw_ostream &OS, const Module *M = 0) const;
+  bool runOnMachineFunction(MachineFunction &MF) override;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+  void print(llvm::raw_ostream &OS, const Module *M = 0) const override;
 };
 } //end of namespace llvm
 

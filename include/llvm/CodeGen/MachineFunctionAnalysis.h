@@ -50,16 +50,16 @@ public:
   void preserveMF() { PreserveMF = true; }
 
   MachineFunction &getMF() const { return *MF; }
-  
-  virtual const char* getPassName() const {
+
+  const char* getPassName() const override {
     return "Machine Function Analysis";
   }
 
 private:
-  virtual bool doInitialization(Module &M);
-  virtual bool runOnFunction(Function &F);
-  virtual void releaseMemory();
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+  bool doInitialization(Module &M) override;
+  bool runOnFunction(Function &F) override;
+  void releaseMemory() override;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
 
 } // End llvm namespace
