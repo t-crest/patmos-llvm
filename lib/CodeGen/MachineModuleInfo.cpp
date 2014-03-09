@@ -344,7 +344,7 @@ void MachineModuleInfo::EndFunction() {
   CallsEHReturn = 0;
   CallsUnwindInit = 0;
   CompactUnwindEncoding = 0;
-  VariableDbgInfo.clear();
+  VariableDbgInfos.clear();
 }
 
 /// AnalyzeModule - Scan the module for global debug information.
