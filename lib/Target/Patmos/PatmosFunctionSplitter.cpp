@@ -1852,9 +1852,11 @@ namespace llvm {
         unsigned int delay_slot_margin = i->hasDelaySlot()
                       ? getDelaySlotSize(MBB, i, PTM) : 0;
 
+#ifndef NDEBUG
         const MachineInstr *FirstMI = PTM.getInstrInfo()->getFirstMI(i);
         assert(!isPatmosCFL(FirstMI->getOpcode(), FirstMI->getDesc().TSFlags)
                || (delay_slot_margin > 0));
+#endif
 
         // check block + instruction size + max delay slot size of this instr.
         if (curr_size + i_size + delay_slot_margin < MaxSize)

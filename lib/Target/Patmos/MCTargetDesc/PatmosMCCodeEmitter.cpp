@@ -110,7 +110,9 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
 
   // Check for unimplemented opcodes.
   if (!Binary) {
+#ifndef NDEBUG
     MI.dump();
+#endif
     llvm_unreachable("Unimplemented opcode in EncodeInstruction(). Maybe you tried to emit '(p0) add r0=r0,0' ?");
   }
 

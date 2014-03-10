@@ -370,7 +370,6 @@ namespace llvm {
   {
       const PatmosTargetLowering *TLI =
         static_cast<const PatmosTargetLowering *>(TM.getTargetLowering());
-      const TargetRegisterInfo *TRI = TM.getRegisterInfo();
       const Function *F = MF.getFunction();
       LLVMContext &Ctx = F->getParent()->getContext();
 
@@ -481,14 +480,13 @@ namespace llvm {
         // corresponding formal argument start
         while(Ins[LAIdx].OrigArgIndex < FAIdx) LAIdx++;
 
-        if (IntegerType *ITy = dyn_cast<IntegerType>(I->getType())) {
+        if (isa<IntegerType>(I->getType())) {
           // being an integer, this might be an interesting parameter
 
           // TODO Do we need to test special flags (zero-/sign-extend)
           //      and output more information?
           // Note that we start with the low-part registers first
-          EVT VT = TLI->getValueType(ITy);
-          assert(VT.isSimple());
+          assert(TLI->getValueType(I->getType()).isSimple());
 
           DEBUG( dbgs() << FAIdx << " " << *I << ": [" );
 
@@ -513,7 +511,8 @@ namespace llvm {
             // we prefer the name of the register as is printed in assembly
             Arg->addReg(PatmosInstPrinter::getRegisterName(VA.getLocReg()));
 
-            DEBUG( dbgs() <<  TRI->getName(VA.getLocReg()) << " " );
+            DEBUG( dbgs() <<  TM.getRegisterInfo()->getName(VA.getLocReg()) 
+		          << " " );
           }
 
           DEBUG( dbgs() <<  "]\n" );
