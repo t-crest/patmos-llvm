@@ -225,6 +225,9 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
   yaml::BitcodeBlock *B;
   for (Function::const_iterator BI = Fn->begin(), BE = Fn->end(); BI != BE;
       ++BI) {
+    if (BI->getName().empty()) {
+      llvm::errs() << "warning: unnamed bit-code BB in PML export\n";
+    }
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
     // export loop information
