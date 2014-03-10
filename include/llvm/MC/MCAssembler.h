@@ -222,7 +222,7 @@ public:
   }
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
-  virtual const SmallVectorImpl<char> &getContents() const override {
+  const SmallVectorImpl<char> &getContents() const override {
     return Contents;
   }
 
