@@ -22,4 +22,8 @@ add_custom_command(TARGET llvm-ar POST_BUILD
 set_property(DIRECTORY APPEND
   PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${llvm_ranlib})
 
+# FIXME: likewise, this is duplicated from the clang/tools/driver/CMakeLists.txt
+# Create the llvm-ranlib symlink at installation time.
+install(SCRIPT llvm_ranlib_symlink.cmake -DCMAKE_INSTALL_PREFIX=\"${CMAKE_INSTALL_PREFIX}\")
+
 # TODO: Support check-local.
