@@ -67,8 +67,7 @@ private:
   MCSectionData *Parent;
 
   /// Atom - The atom this fragment is in, as represented by it's defining
-  /// symbol. Atom's are only used by backends which set
-  /// \see MCAsmBackend::hasReliableSymbolDifference().
+  /// symbol.
   MCSymbolData *Atom;
 
   /// @name Assembler Backend Data
