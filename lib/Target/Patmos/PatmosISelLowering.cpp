@@ -297,7 +297,7 @@ SDValue PatmosTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) con
 
   // TODO we only return the offset here .. how can we make this both a base and offset??
   SDValue RetAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl,
-                                         Patmos::RFO, VT);
+                                         Patmos::SRO, VT);
   return RetAddr;
 }
 
