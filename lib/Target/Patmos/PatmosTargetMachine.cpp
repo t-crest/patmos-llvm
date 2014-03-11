@@ -97,6 +97,16 @@ namespace {
       return false;
     }
 
+    virtual bool addPreRegAlloc() {
+      // For -O0, add a pass that removes dead instructions to avoid issues
+      // with spill code in naked functions containing function calls with
+      // unused return values.
+      if (getOptLevel() == CodeGenOpt::None) {
+        addPass(&DeadMachineInstructionElimID);
+      }
+      return true;
+    }
+
     /// addPreSched2 - This method may be implemented by targets that want to
     /// run passes after prolog-epilog insertion and before the second instruction
     /// scheduling pass.  This should return true if -print-machineinstrs should
