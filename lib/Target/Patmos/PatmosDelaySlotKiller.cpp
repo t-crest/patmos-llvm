@@ -125,7 +125,7 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
         bool onlyNops = true;
         unsigned maxCount = TM.getSubtargetImpl()->getDelaySlotCycles(&*I);
         unsigned count = 0;
-        for (MachineBasicBlock::iterator K = next(I), E = MBB.end();
+        for (MachineBasicBlock::iterator K = llvm::next(I), E = MBB.end();
              K != E && count < maxCount; ++K, ++count) {
           if (K->getOpcode() != Patmos::NOP) {
             onlyNops = false;
@@ -155,12 +155,12 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
           I->setDesc(nonDelayed);
 
           unsigned killCount = 0;
-          MachineBasicBlock::iterator K = next(I);
+          MachineBasicBlock::iterator K = llvm::next(I);
           for (MachineBasicBlock::iterator E = MBB.end();
                K != E && killCount < count; ++K, ++killCount) {
             KilledSlots++;
           }
-          MBB.erase(next(I), K);
+          MBB.erase(llvm::next(I), K);
         }
       }
       Changed = true; // pass result
