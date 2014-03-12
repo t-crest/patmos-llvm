@@ -930,7 +930,7 @@ void addProgressNodes(yaml::RelationGraph *RG,
 void PMLRelationGraphExport::serialize(MachineFunction &MF)
 {
   Function *BF = const_cast<Function*>(MF.getFunction());
-  if (!BF)
+  if (!BF || MF.empty())
     return;
 
   // unmatched events, used as tabu list, and for error reporting
