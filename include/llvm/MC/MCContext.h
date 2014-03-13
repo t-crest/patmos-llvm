@@ -329,7 +329,7 @@ namespace llvm {
       return I->second;
     }
 
-    const SmallVectorImpl<MCDwarfFile *> &getMCDwarfFiles(unsigned CUID = 0) {
+    const SmallVectorImpl<MCDwarfFile> &getMCDwarfFiles(unsigned CUID = 0) {
       return getMCDwarfFileTable(CUID).getMCDwarfFiles();
     }
     const SmallVectorImpl<StringRef> &getMCDwarfDirs(unsigned CUID = 0) {
