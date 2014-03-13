@@ -29,7 +29,7 @@ namespace llvm {
   class MCSection;
   class MCSymbol;
   class MCLabel;
-  class MCDwarfFile;
+  struct MCDwarfFile;
   class MCDwarfLoc;
   class MCObjectFileInfo;
   class MCRegisterInfo;
