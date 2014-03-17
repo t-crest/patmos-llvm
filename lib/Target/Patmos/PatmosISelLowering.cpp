@@ -292,7 +292,8 @@ SDValue PatmosTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) con
   SDLoc dl(Op);
   unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
   if (Depth) {
-    report_fatal_error("Return address can only be determined for the current frame.");
+    report_fatal_error("Return address can only be determined for the current frame in " +
+                       DAG.getMachineFunction().getName());
   }
 
   // TODO we only return the offset here .. how can we make this both a base and offset??
@@ -309,7 +310,8 @@ SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) cons
   SDLoc DL(Op);
   unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0;
   if (Depth) {
-    report_fatal_error("Frame address can only be determined for current frame.");
+    report_fatal_error("Frame address can only be determined for current frame in " +
+                       DAG.getMachineFunction().getName());
   }
 
   SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), DL,
