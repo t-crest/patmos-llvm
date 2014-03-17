@@ -290,7 +290,7 @@ SDValue PatmosTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) con
 
   EVT VT = Op.getValueType();
   SDLoc dl(Op);
-  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
+  unsigned Depth = Op.getConstantOperandVal(0);
   if (Depth) {
     report_fatal_error("Return address can only be determined for the current frame in " +
                        DAG.getMachineFunction().getName());
@@ -308,7 +308,7 @@ SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) cons
 
   EVT VT = Op.getValueType();
   SDLoc DL(Op);
-  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0;
+  unsigned Depth = Op.getConstantOperandVal(0);
   if (Depth) {
     report_fatal_error("Frame address can only be determined for current frame in " +
                        DAG.getMachineFunction().getName());
