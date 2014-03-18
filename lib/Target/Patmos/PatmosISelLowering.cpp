@@ -167,6 +167,11 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::BR_CC,     MVT::i32,   Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
 
+  setOperationAction(ISD::SETGT,  MVT::i32, Expand);
+  setOperationAction(ISD::SETGE,  MVT::i32, Expand);
+  setOperationAction(ISD::SETUGT, MVT::i32, Expand);
+  setOperationAction(ISD::SETUGE, MVT::i32, Expand);
+
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
 
   // handling of variadic parameters
@@ -189,6 +194,7 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
     case ISD::UMUL_LOHI:          return LowerMUL_LOHI(Op, DAG);
     case ISD::VASTART:            return LowerVASTART(Op, DAG);
     case ISD::FRAMEADDR:          return LowerFRAMEADDR(Op, DAG);
+    case ISD::RETURNADDR:         return LowerRETURNADDR(Op, DAG);
     default:
       llvm_unreachable("unimplemented operation");
   }
@@ -277,15 +283,37 @@ SDValue PatmosTargetLowering::LowerMUL_LOHI(SDValue Op,
 }
 
 
-SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
-  // check the depth
-  assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
-         "Frame address can only be determined for current frame.");
+SDValue PatmosTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MFI->setReturnAddressIsTaken(true);
 
+  EVT VT = Op.getValueType();
+  SDLoc dl(Op);
+  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue();
+  if (Depth) {
+    report_fatal_error("Return address can only be determined for the current frame in " +
+                       DAG.getMachineFunction().getName());
+  }
+
+  // TODO we only return the offset here .. how can we make this both a base and offset??
+  SDValue RetAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl,
+                                         Patmos::SRO, VT);
+  return RetAddr;
+}
+
+SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
   MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
   MFI->setFrameAddressIsTaken(true);
+
   EVT VT = Op.getValueType();
   SDLoc DL(Op);
+  unsigned Depth = cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0;
+  if (Depth) {
+    report_fatal_error("Frame address can only be determined for current frame in " +
+                       DAG.getMachineFunction().getName());
+  }
+
   SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), DL,
                                          Patmos::RFP, VT);
   return FrameAddr;

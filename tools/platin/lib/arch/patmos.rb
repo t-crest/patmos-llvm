@@ -135,7 +135,16 @@ class Architecture < PML::Architecture
   def path_wcet(ilist)
     # puts ilist.first.inspect unless ilist.empty?
     ilist.reduce(0) do |cycles, instr|
-      cycles + (instr.bundled? ? 0 : 1) 
+      flushes = 0
+      brtype = instr.branch_type
+      if brtype && instr.delay_slots == 0
+        if brtype == 'call' || brtype == 'return' || instr.opcode.start_with?('BRCF')
+          flushes = 3
+        else          
+          flushes = 2
+        end
+      end
+      cycles + (instr.bundled? ? 0 : 1) + flushes
     end
   end
 

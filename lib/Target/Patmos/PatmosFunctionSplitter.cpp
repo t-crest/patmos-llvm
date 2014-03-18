@@ -1469,14 +1469,16 @@ namespace llvm {
       bool rewrite = false;
 
       if (BR->isIndirectBranch()) {
-        assert(BR->getNumOperands() == 4);
-
-        unsigned index = BR->getOperand(3).getIndex();
-        MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
-        const std::vector<MachineBasicBlock*> &JTBBs(
-                                             MJTI->getJumpTables()[index].MBBs);
-
-        rewrite = std::find(JTBBs.begin(), JTBBs.end(), target) != JTBBs.end();
+        if (BR->getOpcode() == Patmos::BRT || BR->getOpcode() == Patmos::BRTu) {
+          unsigned index = BR->getOperand(3).getIndex();
+          MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
+          const std::vector<MachineBasicBlock*> &JTBBs(MJTI->getJumpTables()[index].MBBs);
+          rewrite = std::find(JTBBs.begin(), JTBBs.end(), target) != JTBBs.end();
+        } else {
+          assert(BR->getOpcode() == Patmos::BRR || BR->getOpcode() == Patmos::BRRu);
+          // always rewrite "true" indirect branches
+          rewrite = true;
+        }
       }
       else {
         rewrite = BR->getOperand(2).getMBB() == target;
@@ -1589,8 +1591,7 @@ namespace llvm {
     }
 
     /// rewriteCode - Rewrite branches crossing from one region to another
-    /// to non-cache variants, also insert fix-ups on code regions containing
-    /// calls.
+    /// to non-cache variants.
     void rewriteCode()
     {
       // check regular control-flow edges
@@ -1603,75 +1604,6 @@ namespace llvm {
       for(aedges::iterator i(BackEdges.begin()), ie(BackEdges.end()); i != ie;
           i++) {
         rewriteEdge(i->second->Src, i->second->Dst);
-      }
-
-      // insert fix-up code to handle calls within code regions -- skip the 
-      // function's first block though since this is handled in the function 
-      // epilog already.
-      const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
-      for(ablocks::iterator i(++Blocks.begin()), ie(Blocks.end()); i != ie;
-          i++) {
-        // Only consider region entries that contain a call
-        if ((*i)->Region == (*i) && (*i)->HasCall) {
-          MachineBasicBlock *MBB = (*i)->MBB;
-
-          bool needsLoad = true;
-          bool foundCall = false;
-
-          // Check if there is no load to RFB before the next call
-          // Update all loads to RFB
-          for (MachineBasicBlock::instr_iterator ii = MBB->instr_begin(),
-               iie = MBB->instr_end(); ii != iie; ii++)
-          {
-            MachineInstr *MI = ii;
-
-            if (MI->isPseudo()) continue;
-
-            if (MI->isCall()) {
-              foundCall = true;
-              continue;
-            }
-
-            if (MI->getNumOperands() == 0) continue;
-
-            // check if the first operand is a def of RFB
-            MachineOperand &MO = MI->getOperand(0);
-            if (!MO.isReg() || !MO.isDef() || MO.getReg() != Patmos::RFB)
-              continue;
-
-            if (MI->getOpcode() == Patmos::LIl) {
-              assert(MI->getNumOperands() == 4);
-
-              // update the reference to the base
-              MachineOperand &SymMO = MI->getOperand(3);
-
-              if (!SymMO.isMBB() && !SymMO.isGlobal()) {
-                report_fatal_error("Storing unknown value to r30, "
-                                   "cowardly failing.");
-              }
-
-              // found at least one load to r30 before the first call?
-              if (!foundCall) needsLoad = false;
-
-              MI->RemoveOperand(3);
-              MI->addOperand(*MBB->getParent(), MachineOperand::CreateMBB(MBB));
-
-            } else if (MI->getOpcode() != Patmos::LWS &&
-                       MI->getOpcode() != Patmos::LWC)
-            {
-              // Do a hard fail instead of ignoring any unsupported code to
-              // avoid hard-to-trace bugs
-              report_fatal_error("Found store to r30 that cannot be updated.");
-            }
-          }
-
-          // load long immediate of the current basic block's address into RFB
-          if (needsLoad) {
-            AddDefaultPred(BuildMI(*MBB, MBB->instr_begin(), DebugLoc(),
-                                   TII.get(Patmos::LIl),
-                                   Patmos::RFB)).addMBB(MBB);
-          }
-        }
       }
     }
 
@@ -1788,12 +1720,6 @@ namespace llvm {
                                           ablock *region, unsigned &region_size,
                                           ablock *block)
     {
-      bool hasCall = block->SCCSize == 0 || region == block ? block->HasCall
-                                                          : block->HasCallinSCC;
-      // If we have a call here but the region is not yet marked as having
-      // calls, we need a fixup for the first time in this region.
-      bool needsCallFixup = (hasCall && !region->HasCall);
-
       bool mayFallthrough = block->FallthroughTarget != 0;
 
       // TODO analyze successors, check if all of them fit with max margins
@@ -1803,15 +1729,13 @@ namespace llvm {
       // check how many branches we actually have in this block!
       int numBranches = block->NumBranches;
 
-      return getMaxBlockMargin(PTM, needsCallFixup, mightExit,
-                               mayFallthrough, numBranches);
+      return getMaxBlockMargin(PTM, mightExit, mayFallthrough, numBranches);
     }
 
     static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
                                           MachineBasicBlock *MBB)
     {
-      // TODO analyze MBB, check if we have a call, count number of branches
-      int hasCall = true;
+      // TODO analyze MBB, count number of branches
       int numBranches = 0;
 
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
@@ -1819,25 +1743,21 @@ namespace llvm {
       {
         if (i->isBundle()) continue;
 
-        if (PTM.getInstrInfo()->hasCall(i)) hasCall = true;
-
         if (i->isBranch()) numBranches++;
       }
 
       bool mayFallthrough = mayFallThrough(PTM, MBB);
 
-      return getMaxBlockMargin(PTM, hasCall, true, mayFallthrough, numBranches);
+      return getMaxBlockMargin(PTM, true, mayFallthrough, numBranches);
     }
 
     /// getMaxRegionMargin - Get the maximum number of bytes needed to be
     /// added to a basic block.
-    /// needsCallFixup - does this block contain the first call in this region
     /// mightExitRegion - we might exit the region after this block
     /// mightFallthrough - Does this block end with an unconditional branch?
     /// numBranchesToFix - Number of branches in the block that might exit the
     ///                    region.
     static unsigned int getMaxBlockMargin(PatmosTargetMachine &PTM,
-                                        bool needsCallFixup = true,
                                         bool mightExitRegion = true,
                                         bool mightFallthrough = true,
                                         int numBranchesToFix = 0)
@@ -1866,7 +1786,7 @@ namespace llvm {
              (mightExitRegion ? exitDelay : localDelay) * 4;
       }
 
-      return alignSize + branch_fixups + (needsCallFixup ? 8 : 0);
+      return alignSize + branch_fixups;
     }
 
     static unsigned int getDelaySlotSize(MachineBasicBlock *MBB,
@@ -1895,11 +1815,9 @@ namespace llvm {
                                    MachineDominatorTree &MDT,
                                    MachinePostDominatorTree &MPDT)
     {
-      unsigned int branchFixup = getMaxBlockMargin(PTM, false, true, false, 1);
+      unsigned int branchFixup = getMaxBlockMargin(PTM, true, false, 1);
 
       // make a new block
-      // TODO we could check if we actually have a call and only add the
-      // call fixup costs in this case.
       unsigned int curr_size = getMaxBlockMargin(PTM);
 
       unsigned int cache_size = PTM.getSubtargetImpl()->getMethodCacheSize();
@@ -1934,9 +1852,11 @@ namespace llvm {
         unsigned int delay_slot_margin = i->hasDelaySlot()
                       ? getDelaySlotSize(MBB, i, PTM) : 0;
 
+#ifndef NDEBUG
         const MachineInstr *FirstMI = PTM.getInstrInfo()->getFirstMI(i);
         assert(!isPatmosCFL(FirstMI->getOpcode(), FirstMI->getDesc().TSFlags)
                || (delay_slot_margin > 0));
+#endif
 
         // check block + instruction size + max delay slot size of this instr.
         if (curr_size + i_size + delay_slot_margin < MaxSize)

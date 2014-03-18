@@ -138,7 +138,29 @@ namespace llvm {
     }
 
     virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) {
-      return TM.getSubtargetImpl()->getDelaySlotCycles(Instr);
+      switch (Instr->getOpcode()) {
+      case Patmos::BR:
+      case Patmos::BRu: 
+      case Patmos::BRR:
+      case Patmos::BRRu: 
+      case Patmos::BRT:
+      case Patmos::BRTu:
+		return 2;
+      case Patmos::BRCF:
+      case Patmos::BRCFu:
+      case Patmos::BRCFR:
+      case Patmos::BRCFRu:
+      case Patmos::BRCFT:
+      case Patmos::BRCFTu:
+      case Patmos::CALL:
+      case Patmos::CALLR:
+      case Patmos::RET:
+      case Patmos::XRET:
+		return 3;
+      default:
+		return 0;
+      }
+      // return TM.getSubtargetImpl()->getDelaySlotCycles(Instr);
     }
 
     virtual const std::vector<MachineBasicBlock*> getBranchTargets(
@@ -151,7 +173,11 @@ namespace llvm {
       case Patmos::BR:
       case Patmos::BRu:
       case Patmos::BRCF:
-      case Patmos::BRCFu: {
+      case Patmos::BRCFu:
+      case Patmos::BRND:
+      case Patmos::BRNDu:
+      case Patmos::BRCFND:
+      case Patmos::BRCFNDu: {
         // handle normal branches, return single branch target
         const MachineOperand &MO(Instr->getOperand(2));
 
@@ -164,7 +190,11 @@ namespace llvm {
       case Patmos::BRT:
       case Patmos::BRTu:
       case Patmos::BRCFT:
-      case Patmos::BRCFTu: {
+      case Patmos::BRCFTu:
+      case Patmos::BRTND:
+      case Patmos::BRTNDu:
+      case Patmos::BRCFTND:
+      case Patmos::BRCFTNDu: {
         // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
         assert(Instr->getNumOperands() == 4);
 
@@ -340,7 +370,6 @@ namespace llvm {
   {
       const PatmosTargetLowering *TLI =
         static_cast<const PatmosTargetLowering *>(TM.getTargetLowering());
-      const TargetRegisterInfo *TRI = TM.getRegisterInfo();
       const Function *F = MF.getFunction();
       LLVMContext &Ctx = F->getParent()->getContext();
 
@@ -451,14 +480,13 @@ namespace llvm {
         // corresponding formal argument start
         while(Ins[LAIdx].OrigArgIndex < FAIdx) LAIdx++;
 
-        if (IntegerType *ITy = dyn_cast<IntegerType>(I->getType())) {
+        if (isa<IntegerType>(I->getType())) {
           // being an integer, this might be an interesting parameter
 
           // TODO Do we need to test special flags (zero-/sign-extend)
           //      and output more information?
           // Note that we start with the low-part registers first
-          EVT VT = TLI->getValueType(ITy);
-          assert(VT.isSimple());
+          assert(TLI->getValueType(I->getType()).isSimple());
 
           DEBUG( dbgs() << FAIdx << " " << *I << ": [" );
 
@@ -483,7 +511,8 @@ namespace llvm {
             // we prefer the name of the register as is printed in assembly
             Arg->addReg(PatmosInstPrinter::getRegisterName(VA.getLocReg()));
 
-            DEBUG( dbgs() <<  TRI->getName(VA.getLocReg()) << " " );
+            DEBUG( dbgs() <<  TM.getRegisterInfo()->getName(VA.getLocReg()) 
+		          << " " );
           }
 
           DEBUG( dbgs() <<  "]\n" );

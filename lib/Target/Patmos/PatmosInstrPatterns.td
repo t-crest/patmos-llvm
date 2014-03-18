@@ -24,11 +24,8 @@ def : Pat<(i32 imm:$imm),     (LIl (i32 imm:$imm))>;
 
 
 
-// for zext-ing an i1 to i32: conditionally load 1 into an RReg
-def : Pat<(zext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
-def : Pat<(sext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
-def : Pat<(anyext (i1 predsel:$p)), (CADDi predsel:$p, (CLR), (i32 1))>;
-
+// sign extensions of single bit
+def : Pat<(sext (i1 predsel:$p)), (CSUBi predsel:$p, (CLR), (i32 1))>;
 def : Pat<(sext_inreg RRegs:$r, i1), (SRAi (SLi RRegs:$r, (i32 31)), (i32 31))>;
 
 
@@ -224,7 +221,7 @@ def : Pat<(add fipat:$fi, imm:$imm) , (ADDl fipat:$fi, imm:$imm)>;
 def : Pat<(PatmosCall tglobaladdr:$sym), (CALL tglobaladdr:$sym)>;
 def : Pat<(PatmosCall texternalsym:$sym), (CALL texternalsym:$sym)>;
 
-def : Pat<(PatmosReturn ), (RET RFB, RFO)>;
+def : Pat<(PatmosReturn ), (RET)>;
 
 // inverted branch condition
 def : Pat<(brcond (notcc predselinv:$p), bb:$target), (BR predselinv:$p, bb:$target)>;
@@ -243,23 +240,28 @@ def : Pat<(setlt  RRegs:$a, RRegs:$b), (CMPLT  RRegs:$a, RRegs:$b)>;
 def : Pat<(setle  RRegs:$a, RRegs:$b), (CMPLE  RRegs:$a, RRegs:$b)>;
 def : Pat<(setult RRegs:$a, RRegs:$b), (CMPULT RRegs:$a, RRegs:$b)>;
 def : Pat<(setule RRegs:$a, RRegs:$b), (CMPULE RRegs:$a, RRegs:$b)>;
-// we find paterns for inverted conditions (instead of Patmos pseudo instructions)
+// we find patterns for inverted conditions (instead of Patmos pseudo instructions)
 def : Pat<(setgt  RRegs:$b, RRegs:$a), (CMPLT  RRegs:$a, RRegs:$b)>;
 def : Pat<(setge  RRegs:$b, RRegs:$a), (CMPLE  RRegs:$a, RRegs:$b)>;
 def : Pat<(setugt RRegs:$b, RRegs:$a), (CMPULT RRegs:$a, RRegs:$b)>;
 def : Pat<(setuge RRegs:$b, RRegs:$a), (CMPULE RRegs:$a, RRegs:$b)>;
+
+def : Pat<(seteq  RRegs:$a, uimm5:$b), (CMPIEQ  RRegs:$a, uimm5:$b)>;
+def : Pat<(setne  RRegs:$a, uimm5:$b), (CMPINEQ RRegs:$a, uimm5:$b)>;
+def : Pat<(setlt  RRegs:$a, uimm5:$b), (CMPILT  RRegs:$a, uimm5:$b)>;
+def : Pat<(setle  RRegs:$a, uimm5:$b), (CMPILE  RRegs:$a, uimm5:$b)>;
+def : Pat<(setult RRegs:$a, uimm5:$b), (CMPIULT RRegs:$a, uimm5:$b)>;
+def : Pat<(setule RRegs:$a, uimm5:$b), (CMPIULE RRegs:$a, uimm5:$b)>;
 
 // FIXME DP:
 // we would also need a pattern for == 0, and invert the use of the result
 // but I have no clue how to achieve that in an elegant way.
 def : Pat<(setne (and RRegs:$a, (shl (i32 1), RRegs:$b)), (i32 0)),
           (BTEST RRegs:$a, RRegs:$b)>;
-/* following saves only for a btest imm variant
 def : Pat<(setne (and RRegs:$a, uimm5mask:$b), (i32 0)),
-          (BTEST RRegs:$a, uimm5mask:$b)>;
-def : Pat<(seteq (and RRegs:$a, uimm5mask:$b), uimm5mask:$b),
-          (BTEST RRegs:$a, uimm5mask:$b)>;
-*/
+          (BTESTI RRegs:$a, uimm5mask:$b)>;
+def : Pat<(seteq (and RRegs:$a, uimm5imask:$b), uimm5imask:$b),
+          (BTESTI RRegs:$a, uimm5imask:$b)>;
 
 // Predicate Combine patterns
 

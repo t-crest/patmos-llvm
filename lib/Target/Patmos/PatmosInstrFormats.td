@@ -20,12 +20,16 @@ def FALUi   : Format<2>;  // ALU with 12bit immediate
 def FALUl   : Format<3>;  // 64bit long immediate instructions
 def FALUc   : Format<4>;  // Compare of registers
 def FALUp   : Format<5>;  // Combine predicates
-def FLDT    : Format<6>;  // Memory ops with 7bit offset
-def FSTT    : Format<7>;  // Memory ops with 7bit offset
-def FSTCi   : Format<8>;  // Stack control with 18bit immediate
-def FSTCr   : Format<9>;  // Stack control with register
-def FCFLb   : Format<10>; // Program flow control with 22bit immediate
-def FCFLi   : Format<11>; // Program flow control indirect
+def FALUb   : Format<6>;  // Bitcopy
+def FALUci  : Format<7>;  // Compare of register and immediate
+def FLDT    : Format<8>;  // Memory ops with 7bit offset
+def FSTT    : Format<9>;  // Memory ops with 7bit offset
+def FSTCi   : Format<10>;  // Stack control with 18bit immediate
+def FSTCr   : Format<11>;  // Stack control with register
+def FCFLi   : Format<12>; // Program flow control with 22bit immediate
+def FCFLri  : Format<13>; // Program flow control with registers
+def FCFLrs  : Format<14>; // Program flow control with registers
+def FCFLrt  : Format<15>; // Program flow control with registers
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -244,6 +248,24 @@ class ALUc<bits<4> func,
   let Inst{11-7}  = rs2;
 }
 
+// ALUci - Compare Immediate
+//
+class ALUci<bits<4> func,
+      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<func, outs, ins, op, asmstr, pattern, FALUci, IIC_ALUci> {
+
+  let Opc = 0b110;
+
+  // unbound fields
+  bits<3> pd;
+  bits<5> rs1;
+  bits<5> imm;
+
+  let Inst{19-17} = pd;
+  let Inst{16-12} = rs1;
+  let Inst{11-7}  = imm;
+}
+
 // ALUp - Predicate Combine
 //
 class ALUp<bits<4> func,
@@ -262,6 +284,24 @@ class ALUp<bits<4> func,
   let Inst{10-7}  = ps2;
 }
 
+// ALUb - Bitcopy
+//
+class ALUb<dag outs, dag ins, string op, string asmstr, list<dag> pattern>
+  : ALU<0, outs, ins, op, asmstr, pattern, FALUb, IIC_ALUb> {
+
+  let Opc = 0b101;
+
+  // unbound fields
+  bits<5> rd;
+  bits<5> rs1;
+  bits<5> imm;
+  bits<4> ps;
+
+  let Inst{21-17} = rd;
+  let Inst{16-12} = rs1;
+  let Inst{11-7}  = imm;
+  let Inst{3-0}   = ps;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -431,67 +471,68 @@ class STCr<bits<2> op,
 ///////////////////////////////////////////////////////////////////////////////
 
 
-// CFL - Program Flow
+// CFLi - Program Flow with immediate
 //
-class CFL<dag outs, dag ins, string op, string asmstr, list<dag> pattern, 
-      Format form, InstrItinClass itin>
-  : PatmosInst<outs, ins, op, asmstr, pattern, form, itin> {
+class CFLi<bits<2> op, bits<1> d,
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, FCFLi, IIC_CFLi> {
 
-  bits<2> CFLOp;
-
-  let Inst{26-25} = 0b11;
-  let Inst{23-22} = CFLOp;
-}
-
-// CFLb - Call / Branch
-//
-class CFLb<bits<2> pflop, dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : CFL<outs, ins, op, asmstr, pattern, FCFLb, IIC_CFLb> {
-
-  let CFLOp = pflop;
+  let Inst{26-25} = 0b10;
+  let Inst{24-23} = op;
+  let Inst{22} = d;
 
   bits<22> target;
 
   let ImmOpNo  = 2;
   let ImmShift = 2; 
 
-  let Inst{24} = 0;
   let Inst{21-0} = target;
 }
 
-// CFLi - Call / Branch Indirect
+// CFLr - Control Flow with registers
 //
-class CFLi<bits<4>op,
+class CFLr<Format form, bits<2>regs, bits<1>d,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFL<outs, ins, asmop, asmstr, pattern, FCFLi, IIC_CFLi> {
+  : PatmosInst<outs, ins, asmop, asmstr, pattern, form, IIC_CFLr> {
 
-  let CFLOp = 0b00;
+  let Inst{26-23} = 0b1100;
+  let Inst{22} = d;
+  let Inst{3-2} = regs;
+}
 
-  // unbound register field
+// CFLri - Control Flow with implicit registers
+//
+class CFLri<bits<2>op, bits<1>d,
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : CFLr<FCFLri, 0b00, d, outs, ins, asmop, asmstr, pattern> {
+
+  let Inst{1-0}  = op;
+}
+
+// CFLrs - Control Flow with single register
+//
+class CFLrs<bits<2>op, bits<1>d,
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : CFLr<FCFLrs, 0b01, d, outs, ins, asmop, asmstr, pattern> {
+
+  // unbound register fields
   bits<5> rs;
 
-  let Inst{24} = 1;
   let Inst{16-12} = rs;
-  let Inst{3-0} = op;
+  let Inst{1-0}  = op;
 }
 
-// CFLr - Return
+// CFLrt - Control Flow with two registers
 //
-class CFLr<bits<4>op,
+class CFLrt<bits<2>op, bits<1>d,
       dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
-  : CFL<outs, ins, asmop, asmstr, pattern, FOther, IIC_CFLr> {
+  : CFLr<FCFLrt, 0b10, d, outs, ins, asmop, asmstr, pattern> {
 
-  let CFLOp = 0b10;
+  // unbound register fields
+  bits<5> rs1;
+  bits<5> rs2;
 
-  // unbound fields
-  bits<5> rb; // function base
-  bits<5> ro; // function offset
-
-  let Inst{16-12} = rb;
-  let Inst{11-7}  = ro;
-
-  let Inst{24} = 1;
-  let Inst{3-0} = op;
+  let Inst{16-12} = rs1;
+  let Inst{11-7} = rs2;
+  let Inst{1-0}  = op;
 }
-
-

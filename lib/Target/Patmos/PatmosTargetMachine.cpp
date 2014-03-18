@@ -117,6 +117,29 @@ namespace {
       return false;
     }
 
+    /// addPreRegAlloc - This method may be implemented by targets that want to
+    /// run passes immediately before register allocation. This should return
+    /// true if -print-machineinstrs should print after these passes.
+    virtual bool addPreRegAlloc() {
+      // For -O0, add a pass that removes dead instructions to avoid issues
+      // with spill code in naked functions containing function calls with
+      // unused return values.
+      if (getOptLevel() == CodeGenOpt::None) {
+        addPass(&DeadMachineInstructionElimID);
+      }
+      return true;
+    }
+
+    /// addPostRegAlloc - This method may be implemented by targets that want to
+    /// run passes after register allocation pass pipeline but before
+    /// prolog-epilog insertion.  This should return true if -print-machineinstrs
+    /// should print after these passes.
+    virtual bool addPostRegAlloc() {
+      addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
+      addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+      addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
+      return false;
+    }
 
 
     /// addPreSched2 - This method may be implemented by targets that want to
@@ -183,6 +206,8 @@ namespace {
         addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
       }
 
+      addPass(createPatmosDelaySlotKillerPass(getPatmosTargetMachine()));
+
       addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
 
       // following pass is a peephole pass that does neither modify
@@ -209,25 +234,6 @@ namespace {
 
       return true;
     }
-
-    /// addPreRegAlloc - This method may be implemented by targets that want to
-    /// run passes immediately before register allocation. This should return
-    /// true if -print-machineinstrs should print after these passes.
-    virtual bool addPreRegAlloc() {
-      return false;
-    }
-
-    /// addPostRegAlloc - This method may be implemented by targets that want to
-    /// run passes after register allocation pass pipeline but before
-    /// prolog-epilog insertion.  This should return true if -print-machineinstrs
-    /// should print after these passes.
-    virtual bool addPostRegAlloc() {
-      addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
-      addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
-      addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
-      return false;
-    }
-
 
   };
 } // namespace

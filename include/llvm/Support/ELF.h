@@ -333,14 +333,14 @@ enum {
 // Patmos relocations.
 enum {
   R_PATMOS_NONE       = 0,
-  R_PATMOS_CFLB_ABS   = 1,
+  R_PATMOS_CFLI_ABS   = 1,
   R_PATMOS_ALUI_ABS   = 3,
   R_PATMOS_ALUL_ABS   = 5,
   R_PATMOS_MEMB_ABS   = 7,
   R_PATMOS_MEMH_ABS   = 8,
   R_PATMOS_MEMW_ABS   = 9,
   R_PATMOS_ABS_32     = 10,
-  R_PATMOS_CFLB_PCREL = 12
+  R_PATMOS_CFLI_PCREL = 12
 };
 
 // Patmos symbol types.

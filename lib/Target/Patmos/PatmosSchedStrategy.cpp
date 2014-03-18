@@ -255,6 +255,7 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   return false;
 }
 
+#ifndef NDEBUG
 void PatmosLatencyQueue::dump()
 {
   dbgs() << "PendingQueue:";
@@ -278,7 +279,7 @@ void PatmosLatencyQueue::dump()
   }
   dbgs() << "\n";
 }
-
+#endif
 
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
@@ -607,12 +608,6 @@ bool PatmosPostRASchedStrategy::isExplicitCFLOperand(MachineInstr *MI,
 
   if (MO.getReg() == Patmos::SRB || MO.getReg() == Patmos::SRO ||
       MO.getReg() == Patmos::SXB || MO.getReg() == Patmos::SXO)
-  {
-    return true;
-  }
-
-  // TODO remove once we change call to write to SRO instead of RFO
-  if (MO.getReg() == Patmos::RFO)
   {
     return true;
   }

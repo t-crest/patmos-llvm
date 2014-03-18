@@ -1556,7 +1556,8 @@ namespace llvm {
 
       // constraint on in-flow of exit nodes
       OS << "ex:\t";
-      bool ex_printed = false;
+      // only used for assertion
+      bool LLVM_ATTRIBUTE_UNUSED ex_printed = false;
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end());
           cs != cse; cs++) {
         OS << " + " << ilp_name(W, *cs);

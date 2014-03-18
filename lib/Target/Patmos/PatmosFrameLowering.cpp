@@ -148,7 +148,6 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
 
     unsigned FIalignment = MFI.getObjectAlignment(FI);
     int64_t FIsize = MFI.getObjectSize(FI);
-    int FIoffset = MFI.getObjectOffset(FI);
 
     if (FIsize > INT_MAX) {
       report_fatal_error("Frame objects with size > INT_MAX not supported.");
@@ -166,7 +165,7 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       if (align(next_SCOffset + FIsize, STC.getStackCacheBlockSize()) <=
           STC.getStackCacheSize()) {
         DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << next_SCOffset
-                    << "(" << FIoffset << ")\n");
+                    << "(" << MFI.getObjectOffset(FI) << ")\n");
 
         // reassign stack offset
         MFI.setObjectOffset(FI, next_SCOffset);
@@ -192,7 +191,7 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       SSOffset = align(SSOffset, FIalignment);
 
       DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SS: " << SSOffset
-                   << "(" << FIoffset << ")\n");
+                   << "(" << MFI.getObjectOffset(FI) << ")\n");
 
       // reassign stack offset
       MFI.setObjectOffset(FI, SSOffset);
@@ -385,19 +384,13 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   }
 
   // load the current function base if it needs to be passed to call sites
-  if (MFI.hasCalls()) {
-    // load long immediate: current function symbol into RFB
-    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL,
-          TII->get(Patmos::LIl), Patmos::RFB))
-      .addGlobalAddress(MF.getFunction());
+  if (MF.getFrameInfo()->hasCalls()) {
     // If we have calls, we need to spill the call link registers
-    MRI.setPhysRegUsed(Patmos::RFB);
-    MRI.setPhysRegUsed(Patmos::RFO);
+    MRI.setPhysRegUsed(Patmos::SRB);
+    MRI.setPhysRegUsed(Patmos::SRO);
   } else {
-    // If we do not have calls, we keep r30/r31 in registers. They are marked
-    // as reserved, so they are not used by the register allocator.
-    MRI.setPhysRegUnused(Patmos::RFB);
-    MRI.setPhysRegUnused(Patmos::RFO);
+    MRI.setPhysRegUnused(Patmos::SRB);
+    MRI.setPhysRegUnused(Patmos::SRO);
   }
 
   // mark all predicate registers as used, for single path support

@@ -41,6 +41,7 @@ namespace llvm {
   FunctionPass *createPatmosDelaySlotFillerPass(const PatmosTargetMachine &tm,
                                                 bool ForceDisable);
   FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);
+  FunctionPass *createPatmosDelaySlotKillerPass(PatmosTargetMachine &tm);
   FunctionPass *createPatmosExportPass(PatmosTargetMachine &TM,
                                        std::string& Filename,
                                        std::string& BitcodeFilename);
