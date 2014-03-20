@@ -382,6 +382,9 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
     }
   }
 
+  StringRef Fmt = Obj->getBytesInAddress() > 4 ? "\t\t%016" PRIx64 ":  " :
+                                                 "\t\t\t%08" PRIx64 ":  ";
+
   // Create a mapping, RelocSecs = SectionRelocMap[S], where sections
   // in RelocSecs contain the relocations for section S.
   error_code EC;
@@ -550,7 +553,7 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
           if (error(rel_cur->getTypeName(name))) goto skip_print_rel;
           if (error(rel_cur->getValueString(val))) goto skip_print_rel;
 
-          outs() << format("\t\t\t%8" PRIx64 ": ", SectionAddr + addr) << name
+          outs() << format(Fmt.data(), SectionAddr + addr) << name
                  << "\t" << val << "\n";
 
         skip_print_rel:
@@ -562,6 +565,8 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
 }
 
 static void PrintRelocations(const ObjectFile *Obj) {
+  StringRef Fmt = Obj->getBytesInAddress() > 4 ? "%016" PRIx64 :
+                                                 "%08" PRIx64;
   for (const SectionRef &Section : Obj->sections()) {
     if (Section.relocation_begin() == Section.relocation_end())
       continue;
@@ -584,7 +589,8 @@ static void PrintRelocations(const ObjectFile *Obj) {
         continue;
       if (error(Reloc.getValueString(valuestr)))
         continue;
-      outs() << address << " " << relocname << " " << valuestr << "\n";
+      outs() << format(Fmt.data(), address) << " " << relocname << " "
+             << valuestr << "\n";
     }
     outs() << "\n";
   }
