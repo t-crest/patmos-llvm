@@ -410,7 +410,12 @@ namespace {
 
       // isFirstDef - Returns true if the given MBB contains the first
       // definition of the given predicate.
+      // This has to be false for a header predicate, as the first
+      // definition is before the loop is entered
       bool isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
+        // header predicate
+        if (pred == 0) return false;
+
         for(unsigned i=0; i<MBBs.size(); i++) {
           if (MBBs[i] == MBB) {
             return !LRs[pred].hasDefBefore(i);
@@ -522,6 +527,8 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   RAInfos.clear();
 
+  //DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
+
   // Get the unused predicate registers
   DEBUG( dbgs() << "Available PRegs:" );
   for (TargetRegisterClass::iterator I=Patmos::PRegsRegClass.begin(),
@@ -570,6 +577,8 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   // Finally, we assign numbers in ascending order to MBBs again.
   MF.RenumberBlocks();
+
+  //DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
 
