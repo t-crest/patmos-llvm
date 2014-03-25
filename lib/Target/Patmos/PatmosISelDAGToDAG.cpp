@@ -120,7 +120,7 @@ SDNode *PatmosDAGToDAGISel::SelectABSPattern(SDNode *N){
     return NULL;
 
   EVT VT = N->getValueType(0);
-  DebugLoc dl = N->getDebugLoc();
+  SDLoc dl(N);
   SDValue ADDSrc0 = XORSrc0.getOperand(0);
   SDValue ADDSrc1 = XORSrc0.getOperand(1);
   SDValue SRASrc0 = XORSrc1.getOperand(0);
@@ -162,7 +162,7 @@ SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
   SDValue Pred   = N->getOperand(1);
   SDValue Target = N->getOperand(2); // branch target
   SDValue PredInvFlag = CurDAG->getTargetConstant(0, MVT::i1);
-  DebugLoc dl = N->getDebugLoc();
+  SDLoc dl(N);
 
   assert(Target.getOpcode()  == ISD::BasicBlock);
   assert(Pred.getValueType() == MVT::i1);

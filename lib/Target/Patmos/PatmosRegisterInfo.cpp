@@ -16,6 +16,7 @@
 #include "Patmos.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosRegisterInfo.h"
+#include "PatmosSinglePathInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -48,12 +49,10 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   //const Function* F = MF->getFunction();
   static const uint16_t CalleeSavedRegs[] = {
     // Special regs
-    Patmos::S0,
+    Patmos::S0, Patmos::SRB, Patmos::SRO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
-    Patmos::R25, Patmos::R26,
-    // return info
-    Patmos::RFB, Patmos::RFO,
+    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28,
     // Predicate regs
     Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
     Patmos::P5, Patmos::P6, Patmos::P7,
@@ -61,13 +60,11 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   };
   static const uint16_t CalleeSavedRegsFP[] = {
     // Special regs
-    Patmos::S0,
+    Patmos::S0, Patmos::SRB, Patmos::SRO,
     // GPR
     Patmos::R21, Patmos::R22, Patmos::R23, Patmos::R24,
-    Patmos::R25, Patmos::R26,
+    Patmos::R25, Patmos::R26, Patmos::R27, Patmos::R28,
     Patmos::RFP,
-    // return info
-    Patmos::RFB, Patmos::RFO,
     // Predicate regs
     Patmos::P1, Patmos::P2, Patmos::P3, Patmos::P4,
     Patmos::P5, Patmos::P6, Patmos::P7,
@@ -108,19 +105,17 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(Patmos::RFP);
   // reserved temp register
   Reserved.set(Patmos::RTR);
-  // return regisers
-  Reserved.set(Patmos::RFB);
-  Reserved.set(Patmos::RFO);
   // Mark frame pointer as reserved if needed.
   if (TFI->hasFP(MF))
     Reserved.set(Patmos::RFP);
 
-#if 0
-  Reserved.set(Patmos::P4);
-  Reserved.set(Patmos::P5);
-  Reserved.set(Patmos::P6);
-  Reserved.set(Patmos::P7);
-#endif
+  if (PatmosSinglePathInfo::isEnabled(MF)) {
+    // Additionally reserved for single-path support
+    Reserved.set(Patmos::R26);
+    // guarantee two available predicate registers
+    Reserved.set(Patmos::P6);
+    Reserved.set(Patmos::P7);
+  }
 
   return Reserved;
 }
@@ -174,13 +169,18 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         //   we implement it as a predicated store of a non-zero value
         //   followed by a predicated (inverted) store of 0
         BuildMI(MBB, II, DL, TII.get(st_opc))
-          .addReg(SrcRegOpnd.getReg()).addImm(0) // predicate
+          .addOperand(SrcRegOpnd).addImm(0) // predicate
           .addReg(basePtr, false).addImm(offset) // adress
           .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
-        BuildMI(MBB, II, DL, TII.get(st_opc))
-          .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
-          .addReg(basePtr, false).addImm(offset) // address
-          .addReg(Patmos::R0); // zero
+
+        // if we are writing $p0 to a stack slot (e.g. to overwrite a prev.
+        // value), there is no need to emit (!p0) sws ..
+        if (SrcRegOpnd.getReg() != Patmos::P0) {
+          BuildMI(MBB, II, DL, TII.get(st_opc))
+            .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
+            .addReg(basePtr, false).addImm(offset) // address
+            .addReg(Patmos::R0); // zero
+        }
       }
       break;
 

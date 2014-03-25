@@ -31,7 +31,6 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
-#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -42,7 +41,7 @@ using namespace llvm;
 
 
 PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
-  TargetLowering(tm, new TargetLoweringObjectFileELF()),
+  TargetLowering(tm, new PatmosTargetObjectFile()),
   Subtarget(*tm.getSubtargetImpl()) {
 
   TD = getDataLayout();
@@ -67,6 +66,14 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
 
   setStackPointerRegisterToSaveRestore(Patmos::RSP);
   setBooleanContents(ZeroOrOneBooleanContent);
+
+  // Allow rather aggressive inlining of memcpy and friends
+  MaxStoresPerMemset = 32;
+  MaxStoresPerMemsetOptSize = 8;
+  MaxStoresPerMemcpy = 16;
+  MaxStoresPerMemcpyOptSize = 4;
+  MaxStoresPerMemmove = 16;
+  MaxStoresPerMemmoveOptSize = 4;
 
   // We require word alignment at least (in log2 bytes here), if code requires 
   // an other alignment, e.g., due to the method-cache, it will be handled 
@@ -160,6 +167,11 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::BR_CC,     MVT::i32,   Expand);
   setOperationAction(ISD::BR_CC,     MVT::Other, Expand);
 
+  setOperationAction(ISD::SETGT,  MVT::i32, Expand);
+  setOperationAction(ISD::SETGE,  MVT::i32, Expand);
+  setOperationAction(ISD::SETUGT, MVT::i32, Expand);
+  setOperationAction(ISD::SETUGE, MVT::i32, Expand);
+
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
 
   // handling of variadic parameters
@@ -182,12 +194,14 @@ SDValue PatmosTargetLowering::LowerOperation(SDValue Op,
     case ISD::UMUL_LOHI:          return LowerMUL_LOHI(Op, DAG);
     case ISD::VASTART:            return LowerVASTART(Op, DAG);
     case ISD::FRAMEADDR:          return LowerFRAMEADDR(Op, DAG);
+    case ISD::RETURNADDR:         return LowerRETURNADDR(Op, DAG);
     default:
       llvm_unreachable("unimplemented operation");
   }
 }
 
-EVT PatmosTargetLowering::getSetCCResultType(EVT VT) const {
+EVT PatmosTargetLowering::getSetCCResultType(LLVMContext &Context, EVT VT) const
+{
   // All our compare results should be i1
   return MVT::i1;
 }
@@ -212,14 +226,14 @@ SDValue PatmosTargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
   assert(load->getMemoryVT() == MVT::i1);
 
   SDValue newLoad = DAG.getLoad(ISD::UNINDEXED, ISD::ZEXTLOAD, MVT::i32,
-                                Op.getDebugLoc(), load->getChain(),
+                                Op, load->getChain(),
                                 load->getBasePtr(), load->getOffset(), MVT::i8,
                                 load->getMemOperand());
 
-  SDValue newTrunc = DAG.getZExtOrTrunc(newLoad, Op.getDebugLoc(), MVT::i1);
+  SDValue newTrunc = DAG.getZExtOrTrunc(newLoad, Op, MVT::i1);
 
   SDValue Ops[2] = { newTrunc, newLoad.getOperand(0) };
-  return DAG.getMergeValues(Ops, 2, Op.getDebugLoc());
+  return DAG.getMergeValues(Ops, 2, Op);
 }
 
 
@@ -228,10 +242,9 @@ SDValue PatmosTargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
   assert(store->getMemoryVT() == MVT::i1);
 
-  SDValue newVal = DAG.getZExtOrTrunc(store->getValue(), Op.getDebugLoc(),
-                                      MVT::i32);
+  SDValue newVal = DAG.getZExtOrTrunc(store->getValue(), Op, MVT::i32);
 
-  return DAG.getTruncStore(store->getChain(), Op.getDebugLoc(), newVal,
+  return DAG.getTruncStore(store->getChain(), Op, newVal,
                            store->getBasePtr(), MVT::i1,
                            store->getMemOperand());
 }
@@ -240,7 +253,7 @@ SDValue PatmosTargetLowering::LowerMUL_LOHI(SDValue Op,
                                             SelectionDAG &DAG) const {
   unsigned MultOpc;
   EVT Ty = Op.getValueType();
-  DebugLoc dl = Op.getDebugLoc();
+  SDLoc dl(Op);
 
   assert(Ty == MVT::i32 && "Unexpected type for MUL");
 
@@ -270,15 +283,37 @@ SDValue PatmosTargetLowering::LowerMUL_LOHI(SDValue Op,
 }
 
 
-SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
-  // check the depth
-  assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
-         "Frame address can only be determined for current frame.");
+SDValue PatmosTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MFI->setReturnAddressIsTaken(true);
 
+  EVT VT = Op.getValueType();
+  SDLoc dl(Op);
+  unsigned Depth = Op.getConstantOperandVal(0);
+  if (Depth) {
+    report_fatal_error("Return address can only be determined for the current frame in " +
+                       DAG.getMachineFunction().getName());
+  }
+
+  // TODO we only return the offset here .. how can we make this both a base and offset??
+  SDValue RetAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl,
+                                         Patmos::SRO, VT);
+  return RetAddr;
+}
+
+SDValue PatmosTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
   MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
   MFI->setFrameAddressIsTaken(true);
+
   EVT VT = Op.getValueType();
-  DebugLoc DL = Op.getDebugLoc();
+  SDLoc DL(Op);
+  unsigned Depth = Op.getConstantOperandVal(0);
+  if (Depth) {
+    report_fatal_error("Frame address can only be determined for current frame in " +
+                       DAG.getMachineFunction().getName());
+  }
+
   SDValue FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), DL,
                                          Patmos::RFP, VT);
   return FrameAddr;
@@ -297,7 +332,7 @@ PatmosTargetLowering::LowerFormalArguments(SDValue Chain,
                                            bool isVarArg,
                                            const SmallVectorImpl<ISD::InputArg>
                                              &Ins,
-                                           DebugLoc dl,
+                                           SDLoc dl,
                                            SelectionDAG &DAG,
                                            SmallVectorImpl<SDValue> &InVals)
                                              const {
@@ -341,7 +376,7 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
                                         bool isVarArg,
                                         const SmallVectorImpl<ISD::InputArg>
                                           &Ins,
-                                        DebugLoc dl,
+                                        SDLoc dl,
                                         SelectionDAG &DAG,
                                         SmallVectorImpl<SDValue> &InVals)
                                           const {
@@ -434,7 +469,7 @@ PatmosTargetLowering::LowerReturn(SDValue Chain,
                                   CallingConv::ID CallConv, bool isVarArg,
                                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                                   const SmallVectorImpl<SDValue> &OutVals,
-                                  DebugLoc dl, SelectionDAG &DAG) const {
+                                  SDLoc dl, SelectionDAG &DAG) const {
 
   // CCValAssign - represent the assignment of the return value to a location
   SmallVector<CCValAssign, 16> RVLocs;
@@ -485,7 +520,7 @@ PatmosTargetLowering::LowerCCCCallTo(CallLoweringInfo &CLI,
                                      SmallVectorImpl<SDValue> &InVals) const
 {
   SelectionDAG &DAG                     = CLI.DAG;
-  DebugLoc &dl                          = CLI.DL;
+  SDLoc &dl                             = CLI.DL;
   SmallVector<ISD::OutputArg, 32> &Outs = CLI.Outs;
   SmallVector<SDValue, 32> &OutVals     = CLI.OutVals;
   SmallVector<ISD::InputArg, 32> &Ins   = CLI.Ins;
@@ -505,7 +540,7 @@ PatmosTargetLowering::LowerCCCCallTo(CallLoweringInfo &CLI,
   unsigned NumBytes = CCInfo.getNextStackOffset();
 
   Chain = DAG.getCALLSEQ_START(Chain, DAG.getConstant(NumBytes,
-                                                      getPointerTy(), true));
+                                                      getPointerTy(), true), dl);
 
   SmallVector<std::pair<unsigned, SDValue>, 4> RegsToPass;
   SmallVector<SDValue, 12> MemOpChains;
@@ -609,7 +644,7 @@ PatmosTargetLowering::LowerCCCCallTo(CallLoweringInfo &CLI,
   Chain = DAG.getCALLSEQ_END(Chain,
                              DAG.getConstant(NumBytes, getPointerTy(), true),
                              DAG.getConstant(0, getPointerTy(), true),
-                             InFlag);
+                             InFlag, dl);
   InFlag = Chain.getValue(1);
 
   // Handle result values, copying them out of physregs into vregs that we
@@ -629,7 +664,7 @@ SDValue
 PatmosTargetLowering::LowerCallResult(SDValue Chain, SDValue InFlag,
                                       CallingConv::ID CallConv, bool isVarArg,
                                       const SmallVectorImpl<ISD::InputArg> &Ins,
-                                      DebugLoc dl, SelectionDAG &DAG,
+                                      SDLoc dl, SelectionDAG &DAG,
                                       SmallVectorImpl<SDValue> &InVals) const {
 
   // Assign locations to each value returned by this call.
@@ -672,7 +707,7 @@ getConstraintType(const std::string &Constraint) const
 
 std::pair<unsigned, const TargetRegisterClass*> PatmosTargetLowering::
 getRegForInlineAsmConstraint(const std::string &Constraint,
-                             EVT VT) const
+                             MVT VT) const
 {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
@@ -719,7 +754,7 @@ PatmosTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
 
   // get VarArgsFI, i.e., the FI used to access the variadic parameters of the 
   // current function
-  DebugLoc dl = Op.getDebugLoc();
+  SDLoc dl(Op);
   SDValue VarArgsFI = DAG.getFrameIndex(PMFI.getVarArgsFI(), getPointerTy());
 
   // get the VarArgsFI and store it to the given address.

@@ -15,6 +15,7 @@
 #include "PatmosFrameLowering.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
+#include "PatmosSinglePathInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
@@ -97,6 +98,12 @@ void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
     SCFIs[PMFI.getRegScavengingFI()] = true;
   }
 
+  // Spill slots / storage introduced for single path conversion
+  const std::vector<int> &SinglePathFIs = PMFI.getSinglePathFIs();
+  for(unsigned i=0; i<SinglePathFIs.size(); i++) {
+    SCFIs[SinglePathFIs[i]] = true;
+  }
+
   // find all FIs that are spill slots
   for(unsigned FI = 0, FIe = MFI.getObjectIndexEnd(); FI != FIe; FI++) {
     if (MFI.isDeadObjectIndex(FI))
@@ -141,7 +148,6 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
 
     unsigned FIalignment = MFI.getObjectAlignment(FI);
     int64_t FIsize = MFI.getObjectSize(FI);
-    int FIoffset = MFI.getObjectOffset(FI);
 
     if (FIsize > INT_MAX) {
       report_fatal_error("Frame objects with size > INT_MAX not supported.");
@@ -159,7 +165,7 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       if (align(next_SCOffset + FIsize, STC.getStackCacheBlockSize()) <=
           STC.getStackCacheSize()) {
         DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << next_SCOffset
-                    << "(" << FIoffset << ")\n");
+                    << "(" << MFI.getObjectOffset(FI) << ")\n");
 
         // reassign stack offset
         MFI.setObjectOffset(FI, next_SCOffset);
@@ -185,7 +191,7 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       SSOffset = align(SSOffset, FIalignment);
 
       DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SS: " << SSOffset
-                   << "(" << FIoffset << ")\n");
+                   << "(" << MFI.getObjectOffset(FI) << ")\n");
 
       // reassign stack offset
       MFI.setObjectOffset(FI, SSOffset);
@@ -228,22 +234,22 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                                   unsigned Opcode) const {
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
-  // align the stack cache size
-  unsigned alignedStackCacheSize =
-                             std::ceil((float)PMFI.getStackCacheReservedBytes()/
-                                       (float)STC.getStackCacheBlockSize());
+  // align the stack cache frame size
+  unsigned alignedStackSize = STC.getAlignedStackFrameSize(
+                                     PMFI.getStackCacheReservedBytes());
+  // STC instructions are specified in words
+  unsigned stackFrameSize = alignedStackSize / 4;
 
-  if (alignedStackCacheSize)
-  {
-    assert(isUInt<22>(alignedStackCacheSize) && "Stack cache size exceeded.");
+  if (stackFrameSize) {
+    assert(isUInt<22>(stackFrameSize) && "Stack cache size exceeded.");
 
-    DebugLoc DL                      = (MI != MBB.end()) ? MI->getDebugLoc()
-                                                                   : DebugLoc();
-    const TargetInstrInfo &TII       = *TM.getInstrInfo();
+    DebugLoc DL = (MI != MBB.end()) ? MI->getDebugLoc() : DebugLoc();
+
+    const TargetInstrInfo &TII = *TM.getInstrInfo();
 
     // emit reserve instruction
     AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Opcode)))
-      .addImm(alignedStackCacheSize);
+      .addImm(stackFrameSize);
   }
 }
 
@@ -254,7 +260,7 @@ void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
          j++) {
       // a call site?
       if (j->isCall()) {
-        MachineBasicBlock::iterator p(next(j));
+        MachineBasicBlock::iterator p(llvm::next(j));
         emitSTC(MF, *i, p, Patmos::SENSi);
       }
     }
@@ -371,31 +377,36 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   if (hasFP(MF)) {
     // if framepointer enabled, set it to point to the stack pointer.
     // Set frame pointer: FP = SP
-    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::MOV), Patmos::RFP))
-      .addReg(Patmos::RSP);
+    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL,
+          TII->get(Patmos::MOV), Patmos::RFP)).addReg(Patmos::RSP);
     // Mark RFP as used
     MRI.setPhysRegUsed(Patmos::RFP);
   }
 
   // load the current function base if it needs to be passed to call sites
   if (MF.getFrameInfo()->hasCalls()) {
-    // load long immediate: current function symbol into RFB
-    AddDefaultPred(BuildMI(EntryMBB, EntryMBB.begin(), DL, TII->get(Patmos::LIl), Patmos::RFB))
-      .addGlobalAddress(MF.getFunction());
     // If we have calls, we need to spill the call link registers
-    MRI.setPhysRegUsed(Patmos::RFB);
-    MRI.setPhysRegUsed(Patmos::RFO);
+    MRI.setPhysRegUsed(Patmos::SRB);
+    MRI.setPhysRegUsed(Patmos::SRO);
   } else {
-    // If we do not have calls, we keep r30/r31 in registers. They are marked
-    // as reserved, so they are not used by the register allocator.
-    MRI.setPhysRegUnused(Patmos::RFB);
-    MRI.setPhysRegUnused(Patmos::RFO);
+    MRI.setPhysRegUnused(Patmos::SRB);
+    MRI.setPhysRegUnused(Patmos::SRO);
+  }
+
+  // mark all predicate registers as used, for single path support
+  // S0 is saved/restored as whole anyway
+  if (PatmosSinglePathInfo::isEnabled(MF)) {
+    MRI.setPhysRegUsed(Patmos::S0);
+    MRI.setPhysRegUsed(Patmos::R26);
   }
 
   // If we need to spill S0, try to find an unused scratch register that we can
   // use instead. This only works if we do not have calls that may clobber
   // the register though.
-  if (MRI.isPhysRegUsed(Patmos::S0) && !MF.getFrameInfo()->hasCalls()) {
+  // It also makes no sense if we single-path convert the function,
+  // because the SP converter introduces spill slots anyway.
+  if (MRI.isPhysRegUsed(Patmos::S0) && !MF.getFrameInfo()->hasCalls()
+      && !PatmosSinglePathInfo::isEnabled(MF)) {
     unsigned SpillReg = 0;
     BitVector Reserved = MRI.getReservedRegs();
     BitVector CalleeSaved(TRI->getNumRegs());
@@ -446,8 +457,8 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
     // Add the callee-saved register as live-in. It's killed at the spill.
     MBB.addLiveIn(Reg);
 
-    // as all PRegs are aliased with SZ, a spill of a Preg will cause
-    // a spill of SZ
+    // as all PRegs are aliased with S0, a spill of a Preg will cause
+    // a spill of S0
     if (Patmos::PRegsRegClass.contains(Reg))
       continue;
 

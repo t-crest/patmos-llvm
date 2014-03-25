@@ -141,8 +141,8 @@ private:
   DenseMap<const MDNode *, LexicalScope *> AbstractScopeMap;
 
   /// AbstractScopesList - Tracks abstract scopes constructed while processing
-  /// a function. 
-  SmallVector<LexicalScope *, 4>AbstractScopesList;
+  /// a function.
+  SmallVector<LexicalScope *, 4> AbstractScopesList;
 
   /// CurrentFnLexicalScope - Top level scope for the current function.
   ///
@@ -159,12 +159,6 @@ public:
   LexicalScope(LexicalScope *P, const MDNode *D, const MDNode *I, bool A)
     : Parent(P), Desc(D), InlinedAtLocation(I), AbstractScope(A),
       LastInsn(0), FirstInsn(0), DFSIn(0), DFSOut(0) {
-
-    // Hack for bug
-    // http://code.google.com/p/nativeclient/issues/detail?id=2786
-    Desc.make_weak();
-    InlinedAtLocation.make_weak();
-
     if (Parent)
       Parent->addChild(this);
   }
@@ -172,13 +166,13 @@ public:
   virtual ~LexicalScope() {}
 
   // Accessors.
-  LexicalScope *getParent() const               { return Parent; }
-  const MDNode *getDesc() const                 { return Desc; }
-  const MDNode *getInlinedAt() const            { return InlinedAtLocation; }
-  const MDNode *getScopeNode() const            { return Desc; }
-  bool isAbstractScope() const                  { return AbstractScope; }
-  SmallVector<LexicalScope *, 4> &getChildren() { return Children; }
-  SmallVector<InsnRange, 4> &getRanges()        { return Ranges; }
+  LexicalScope *getParent() const                { return Parent; }
+  const MDNode *getDesc() const                  { return Desc; }
+  const MDNode *getInlinedAt() const             { return InlinedAtLocation; }
+  const MDNode *getScopeNode() const             { return Desc; }
+  bool isAbstractScope() const                   { return AbstractScope; }
+  SmallVectorImpl<LexicalScope *> &getChildren() { return Children; }
+  SmallVectorImpl<InsnRange> &getRanges()        { return Ranges; }
 
   /// addChild - Add a child scope.
   void addChild(LexicalScope *S) { Children.push_back(S); }

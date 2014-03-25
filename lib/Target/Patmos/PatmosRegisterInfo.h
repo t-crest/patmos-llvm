@@ -33,7 +33,7 @@ private:
   ///
   unsigned StackAlign;
 
-  /// computeLargeFIOffset - Emit an ADDi or ADDl instruction to compute a large 
+  /// computeLargeFIOffset - Emit an ADDi or ADDl instruction to compute a large
   /// FI offset.
   /// \note The offset and basePtr arguments are possibly updated!
   void computeLargeFIOffset(MachineRegisterInfo &MRI,
@@ -72,8 +72,8 @@ public:
   /// hasReservedSpillSlot - Return true if target has reserved a spill slot in
   /// the stack frame of the given function for the specified register. e.g. On
   /// x86, if the frame register is required, the first fixed stack object is
-  /// reserved as its spill slot. This tells PEI not to create a new stack frame
-  /// object for the given register. It should be called only after
+  /// reserved as its spill slot. This tells PEI not to create a new stack
+  /// frame object for the given register. It should be called only after
   /// processFunctionBeforeCalleeSavedScan().
   virtual bool hasReservedSpillSlot(const MachineFunction &MF, unsigned Reg,
                                     int &FrameIdx) const;
@@ -88,6 +88,8 @@ public:
     return false; //FIXME
   }
 
+  /// trackLivenessAfterRegAlloc - returns true if the live-ins should be
+  /// tracked after register allocation.
   virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const {
     return true;
   }

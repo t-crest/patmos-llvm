@@ -20,8 +20,10 @@
 #include "llvm/ADT/ilist.h"
 #include "llvm/ADT/ilist_node.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/TimeValue.h"
 #include <map>
 #include <set>
+#include <vector>
 
 namespace llvm {
   class MemoryBuffer;
@@ -40,6 +42,15 @@ class LLVMContext;         // Global data
 /// of the Archive class instead.
 /// @brief This class represents a single archive member.
 class ArchiveMember : public ilist_node<ArchiveMember> {
+  private:
+    struct FileStatus {
+      unsigned user;
+      unsigned group;
+      unsigned mode;
+      sys::TimeValue modTime;
+      uint64_t fileSize;
+    };
+
   /// @name Types
   /// @{
   public:
@@ -66,34 +77,34 @@ class ArchiveMember : public ilist_node<ArchiveMember> {
 
     /// @returns the path to the Archive's file
     /// @brief Get the path to the archive member
-    const sys::Path& getPath() const     { return path; }
+    const std::string& getPath() const     { return path; }
 
     /// The "user" is the owner of the file per Unix security. This may not
     /// have any applicability on non-Unix systems but is a required component
     /// of the "ar" file format.
     /// @brief Get the user associated with this archive member.
-    unsigned getUser() const             { return info.getUser(); }
+    unsigned getUser() const             { return info.user; }
 
     /// The "group" is the owning group of the file per Unix security. This
     /// may not have any applicability on non-Unix systems but is a required
     /// component of the "ar" file format.
     /// @brief Get the group associated with this archive member.
-    unsigned getGroup() const            { return info.getGroup(); }
+    unsigned getGroup() const            { return info.group; }
 
     /// The "mode" specifies the access permissions for the file per Unix
     /// security. This may not have any applicability on non-Unix systems but is
     /// a required component of the "ar" file format.
     /// @brief Get the permission mode associated with this archive member.
-    unsigned getMode() const             { return info.getMode(); }
+    unsigned getMode() const             { return info.mode; }
 
     /// This method returns the time at which the archive member was last
     /// modified when it was not in the archive.
     /// @brief Get the time of last modification of the archive member.
-    sys::TimeValue getModTime() const    { return info.getTimestamp(); }
+    sys::TimeValue getModTime() const    { return info.modTime; }
 
     /// @returns the size of the archive member in bytes.
     /// @brief Get the size of the archive member.
-    uint64_t getSize() const             { return info.getSize(); }
+    uint64_t getSize() const             { return info.fileSize; }
 
     /// This method returns the total size of the archive member as it
     /// appears on disk. This includes the file content, the header, the
@@ -148,7 +159,7 @@ class ArchiveMember : public ilist_node<ArchiveMember> {
     /// systems.
     /// @returns the status info for the archive member
     /// @brief Obtain the status info for the archive member
-    const sys::FileStatus &getFileStatus() const { return info; }
+    const FileStatus &getFileStatus() const { return info; }
 
     /// This method causes the archive member to be replaced with the contents
     /// of the file specified by \p File. The contents of \p this will be
@@ -156,15 +167,15 @@ class ArchiveMember : public ilist_node<ArchiveMember> {
     /// be readable on entry to this method.
     /// @returns true if an error occurred, false otherwise
     /// @brief Replace contents of archive member with a new file.
-    bool replaceWith(const sys::Path &aFile, std::string* ErrMsg);
+    bool replaceWith(const std::string &aFile, std::string* ErrMsg);
 
   /// @}
   /// @name Data
   /// @{
   private:
     Archive*            parent;   ///< Pointer to parent archive
-    sys::PathWithStatus path;     ///< Path of file containing the member
-    sys::FileStatus     info;     ///< Status info (size,mode,date)
+    std::string         path;     ///< Path of file containing the member
+    FileStatus          info;     ///< Status info (size,mode,date)
     unsigned            flags;    ///< Flags about the archive member
     const char*         data;     ///< Data for the member
 
@@ -271,7 +282,7 @@ class Archive {
     /// @returns An Archive* that represents the new archive file.
     /// @brief Create an empty Archive.
     static Archive* CreateEmpty(
-      const sys::Path& Filename,///< Name of the archive to (eventually) create.
+      const std::string& Filename,///< Name of the archive to (eventually) create.
       LLVMContext& C            ///< Context to use for global information
     );
 
@@ -282,7 +293,7 @@ class Archive {
     /// printing).
     /// @brief Open and load an archive file
     static Archive* OpenAndLoad(
-      const sys::Path& filePath,  ///< The file path to open and load
+      const std::string& filePath,  ///< The file path to open and load
       LLVMContext& C,       ///< The context to use for global information
       std::string* ErrorMessage   ///< An optional error string
     );
@@ -303,7 +314,7 @@ class Archive {
     /// @returns an Archive* that represents the archive file, or null on error.
     /// @brief Open an existing archive and load its symbols.
     static Archive* OpenAndLoadSymbols(
-      const sys::Path& Filename,   ///< Name of the archive file to open
+      const std::string& Filename,   ///< Name of the archive file to open
       LLVMContext& C,              ///< The context to use for global info
       std::string* ErrorMessage=0  ///< An optional error string
     );
@@ -321,7 +332,7 @@ class Archive {
   public:
     /// @returns the path to the archive file.
     /// @brief Get the archive path.
-    const sys::Path& getPath() { return archPath; }
+    const std::string& getPath() { return archPath; }
 
     /// This method is provided so that editing methods can be invoked directly
     /// on the Archive's iplist of ArchiveMember. However, it is recommended
@@ -402,47 +413,12 @@ class Archive {
     bool isBitcodeArchive();
 
   /// @}
-  /// @name Mutators
-  /// @{
-  public:
-    /// This method is the only way to get the archive written to disk. It
-    /// creates or overwrites the file specified when \p this was created
-    /// or opened. The arguments provide options for writing the archive. If
-    /// \p CreateSymbolTable is true, the archive is scanned for bitcode files
-    /// and a symbol table of the externally visible function and global
-    /// variable names is created. If \p TruncateNames is true, the names of the
-    /// archive members will have their path component stripped and the file
-    /// name will be truncated at 15 characters. If \p Compress is specified,
-    /// all archive members will be compressed before being written. If
-    /// \p PrintSymTab is true, the symbol table will be printed to std::cout.
-    /// @returns true if an error occurred, \p error set to error message;
-    /// returns false if the writing succeeded.
-    /// @brief Write (possibly modified) archive contents to disk
-    bool writeToDisk(
-      bool CreateSymbolTable=false,   ///< Create Symbol table
-      bool TruncateNames=false,       ///< Truncate the filename to 15 chars
-      std::string* ErrMessage=0       ///< If non-null, where error msg is set
-    );
-
-    /// This method adds a new file to the archive. The \p filename is examined
-    /// to determine just enough information to create an ArchiveMember object
-    /// which is then inserted into the Archive object's ilist at the location
-    /// given by \p where.
-    /// @returns true if an error occurred, false otherwise
-    /// @brief Add a file to the archive.
-    bool addFileBefore(
-      const sys::Path& filename, ///< The file to be added
-      iterator where,            ///< Insertion point
-      std::string* ErrMsg        ///< Optional error message location
-    );
-
-  /// @}
   /// @name Implementation
   /// @{
   protected:
     /// @brief Construct an Archive for \p filename and optionally  map it
     /// into memory.
-    explicit Archive(const sys::Path& filename, LLVMContext& C);
+    explicit Archive(const std::string& filename, LLVMContext& C);
 
     /// @param data The symbol table data to be parsed
     /// @param len  The length of the symbol table data
@@ -474,26 +450,6 @@ class Archive {
     /// @brief Load just the symbol table.
     bool loadSymbolTable(std::string* ErrMessage);
 
-    /// @brief Write the symbol table to an ofstream.
-    void writeSymbolTable(std::ofstream& ARFile);
-
-    /// Writes one ArchiveMember to an ofstream. If an error occurs, returns
-    /// false, otherwise true. If an error occurs and error is non-null then
-    /// it will be set to an error message.
-    /// @returns false if writing member succeeded,
-    /// returns true if writing member failed, \p error set to error message.
-    bool writeMember(
-      const ArchiveMember& member, ///< The member to be written
-      std::ofstream& ARFile,       ///< The file to write member onto
-      bool CreateSymbolTable,      ///< Should symbol table be created?
-      bool TruncateNames,          ///< Should names be truncated to 11 chars?
-      std::string* ErrMessage      ///< If non-null, place were error msg is set
-    );
-
-    /// @brief Fill in an ArchiveMemberHeader from ArchiveMember.
-    bool fillHeader(const ArchiveMember&mbr,
-                    ArchiveMemberHeader& hdr,int sz, bool TruncateNames) const;
-
     /// @brief Maps archive into memory
     bool mapToMemory(std::string* ErrMsg);
 
@@ -512,7 +468,7 @@ class Archive {
   /// @name Data
   /// @{
   protected:
-    sys::Path archPath;       ///< Path to the archive file we read/write
+    std::string archPath;     ///< Path to the archive file we read/write
     MembersList members;      ///< The ilist of ArchiveMember
     MemoryBuffer *mapfile;    ///< Raw Archive contents mapped into memory
     const char* base;         ///< Base of the memory mapped file data

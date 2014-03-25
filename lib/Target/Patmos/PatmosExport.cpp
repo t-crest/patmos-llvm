@@ -34,7 +34,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/PassManagers.h"
 
 #include <map>
 #include <sstream>
@@ -61,10 +60,35 @@ namespace llvm {
 
     void setCallGraph(MCallGraph *mcg) { MCG = mcg; }
 
+    /// @return true if the list of callees is safe.
+    bool addCallees(MCGNode *Callee, MFList &Callees) {
+      if (Callee && Callee->getMF()) {
+        Callees.push_back(Callee->getMF());
+        return true;
+      }
+      else if (Callee && Callee->isUnknown()) {
+        // Get all functions that match this unknown call.
+        // TODO we might want to mark this flow fact somehow..
+        for (MCGSites::const_iterator ci = Callee->getSites().begin(),
+             ce = Callee->getSites().end(); ci != ce; ci++)
+        {
+          MCGNode *MatchedCallee = (*ci)->getCallee();
+          if (MatchedCallee && MatchedCallee->getMF()) {
+            Callees.push_back(MatchedCallee->getMF());
+          }
+          else if (MatchedCallee && MatchedCallee->isUnknown()) {
+            llvm_unreachable("Callgraph calls unknown functions from "
+                             "unknown call site");
+          }
+        }
+      }
+      return false;
+    }
+
     virtual std::vector<StringRef> getCalleeNames(MachineFunction &Caller,
                                              const MachineInstr *Instr)
     {
-      std::vector<StringRef> Callees;
+      std::vector<StringRef> CalleeNames;
 
       assert(Instr->isCall());
 
@@ -73,32 +97,31 @@ namespace llvm {
 
       if (MO.isGlobal()) {
         // is the global value a function?
-        Callees.push_back(MO.getGlobal()->getName());
+        CalleeNames.push_back(MO.getGlobal()->getName());
       }
       else if (MO.isSymbol()) {
         // find the function in the current module
-        Callees.push_back(MO.getSymbolName());
+        CalleeNames.push_back(MO.getSymbolName());
       }
       else if (MCG) {
-        // TODO should we use the callgraph in any case if we have one?
-        // (but for immediate calls, this is not much of an advantage..)
-
         MCGNode *node = MCG->makeMCGNode(&Caller);
         MCGSite *site = node->findSite(Instr);
 
         if (site && site->getCallee()) {
           MCGNode *Callee = site->getCallee();
-          // TODO for unknown nodes, try to resolve using type??
-          if (Callee->getMF()) {
-            MachineFunction *MF = Callee->getMF();
-            if (MF && MF->getFunction()) {
-              Callees.push_back(MF->getFunction()->getName());
-            }
+          MFList Callees;
+          addCallees(Callee, Callees);
+          for (MFList::iterator it = Callees.begin(), ie = Callees.end();
+               it != ie; it++)
+          {
+            const Function *F = (*it)->getFunction();
+            if (!F) continue;
+            CalleeNames.push_back(F->getName());
           }
         }
       }
 
-      return Callees;
+      return CalleeNames;
     }
 
     virtual MFList getCallees(const Module &M, MachineModuleInfo &MMI,
@@ -108,9 +131,7 @@ namespace llvm {
         MCGNode *node = MCG->makeMCGNode(&MF);
         MCGSite *site = node->findSite(Instr);
         MFList Callees;
-        if (site && site->getCallee() && site->getCallee()->getMF()) {
-          Callees.push_back( site->getCallee()->getMF() );
-        }
+        addCallees(site->getCallee(), Callees);
         return Callees;
       }
       return PMLInstrInfo::getCallees(M, MMI, MF, Instr);
@@ -120,20 +141,26 @@ namespace llvm {
       switch (Instr->getOpcode()) {
       case Patmos::BR:
       case Patmos::BRu: 
+      case Patmos::BRR:
+      case Patmos::BRRu: 
       case Patmos::BRT:
       case Patmos::BRTu:
-	return 2;
+		return 2;
       case Patmos::BRCF:
       case Patmos::BRCFu:
+      case Patmos::BRCFR:
+      case Patmos::BRCFRu:
       case Patmos::BRCFT:
       case Patmos::BRCFTu:
       case Patmos::CALL:
       case Patmos::CALLR:
       case Patmos::RET:
-	return 3;
+      case Patmos::XRET:
+		return 3;
       default:
-	return 0;
+		return 0;
       }
+      // return TM.getSubtargetImpl()->getDelaySlotCycles(Instr);
     }
 
     virtual const std::vector<MachineBasicBlock*> getBranchTargets(
@@ -146,7 +173,11 @@ namespace llvm {
       case Patmos::BR:
       case Patmos::BRu:
       case Patmos::BRCF:
-      case Patmos::BRCFu: {
+      case Patmos::BRCFu:
+      case Patmos::BRND:
+      case Patmos::BRNDu:
+      case Patmos::BRCFND:
+      case Patmos::BRCFNDu: {
         // handle normal branches, return single branch target
         const MachineOperand &MO(Instr->getOperand(2));
 
@@ -159,7 +190,11 @@ namespace llvm {
       case Patmos::BRT:
       case Patmos::BRTu:
       case Patmos::BRCFT:
-      case Patmos::BRCFTu: {
+      case Patmos::BRCFTu:
+      case Patmos::BRTND:
+      case Patmos::BRTNDu:
+      case Patmos::BRCFTND:
+      case Patmos::BRCFTNDu: {
         // read jump table (patmos specific: operand[3] of BR(CF)?Tu?)
         assert(Instr->getNumOperands() == 4);
 
@@ -190,9 +225,7 @@ namespace llvm {
                it != ie; ++it)
           {
             MCGNode *Callee = (*it)->getCallee();
-            if (Callee && Callee->getMF()) {
-              Callees.push_back(Callee->getMF());
-            }
+            addCallees(Callee, Callees);
           }
           return Callees;
         }
@@ -252,6 +285,7 @@ namespace llvm {
     virtual void exportInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
+                                   bool BundledWithPred,
                                    SmallVector<MachineOperand, 4> &Conditions,
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
@@ -271,16 +305,19 @@ namespace llvm {
   class PatmosModuleExportPass : public PMLModuleExportPass {
     static char ID;
 
-    PatmosPMLInstrInfo PII;
   public:
     PatmosModuleExportPass(PatmosTargetMachine &tm, StringRef filename,
                            ArrayRef<std::string> roots)
-      : PMLModuleExportPass(ID, tm, filename, roots), PII(tm)
+      : PMLModuleExportPass(ID, tm, filename, roots)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
+
+      setPMLInstrInfo(new PatmosPMLInstrInfo(tm));
     }
 
-    PMLInstrInfo *getInstrInfo() { return &PII; }
+    PatmosPMLInstrInfo *getPatmosInstrInfo() {
+      return static_cast<PatmosPMLInstrInfo*>(getPMLInstrInfo());
+    }
 
     virtual const char *getPassName() const {
       return "Patmos YAML/PML Module Export";
@@ -295,7 +332,7 @@ namespace llvm {
 
     virtual bool runOnMachineModule(const Module &M) {
       PatmosCallGraphBuilder &PCGB( getAnalysis<PatmosCallGraphBuilder>() );
-      PII.setCallGraph( PCGB.getCallGraph() );
+      getPatmosInstrInfo()->setCallGraph( PCGB.getCallGraph() );
       return PMLModuleExportPass::runOnMachineModule(M);
     }
   };
@@ -314,7 +351,7 @@ namespace llvm {
                       new PatmosModuleExportPass(TM, Filename, Roots);
 
     // Add our own export passes
-    PEP->addExporter( new PatmosMachineExport(TM, *PEP, PEP->getInstrInfo()));
+    PEP->addExporter( new PatmosMachineExport(TM, *PEP, PEP->getPatmosInstrInfo()));
     PEP->addExporter( new PatmosBitcodeExport(TM, *PEP) );
     PEP->addExporter( new PMLRelationGraphExport(TM, *PEP) );
     if (! BitcodeFilename.empty())
@@ -333,7 +370,6 @@ namespace llvm {
   {
       const PatmosTargetLowering *TLI =
         static_cast<const PatmosTargetLowering *>(TM.getTargetLowering());
-      const TargetRegisterInfo *TRI = TM.getRegisterInfo();
       const Function *F = MF.getFunction();
       LLVMContext &Ctx = F->getParent()->getContext();
 
@@ -405,7 +441,8 @@ namespace llvm {
           EVT RegisterVT = TLI->getRegisterType(Ctx, VT);
           unsigned NumRegs = TLI->getNumRegisters(Ctx, VT);
           for (unsigned i = 0; i != NumRegs; ++i) {
-            ISD::InputArg MyFlags(Flags, RegisterVT, isArgValueUsed,
+            // TODO check if the VT arguments are correct.. no docs around.
+            ISD::InputArg MyFlags(Flags, RegisterVT, VT, isArgValueUsed,
                 Idx-1, i*RegisterVT.getStoreSize());
             if (NumRegs > 1 && i == 0)
               MyFlags.Flags.setSplit();
@@ -443,21 +480,20 @@ namespace llvm {
         // corresponding formal argument start
         while(Ins[LAIdx].OrigArgIndex < FAIdx) LAIdx++;
 
-        if (IntegerType *ITy = dyn_cast<IntegerType>(I->getType())) {
+        if (isa<IntegerType>(I->getType())) {
           // being an integer, this might be an interesting parameter
 
           // TODO Do we need to test special flags (zero-/sign-extend)
           //      and output more information?
           // Note that we start with the low-part registers first
-          EVT VT = TLI->getValueType(ITy);
-          assert(VT.isSimple());
+          assert(TLI->getValueType(I->getType()).isSimple());
 
           DEBUG( dbgs() << FAIdx << " " << *I << ": [" );
 
           // FIXME
           // we don't add it immediately to PMF, as we only support
           // arguments in registers at this point
-          std::string ArgName = ("\"%" + I->getName() + "\"").str();
+          std::string ArgName = ("%" + I->getName()).str();
           yaml::Argument *Arg = new yaml::Argument(ArgName, FAIdx);
           bool allInRegs = true;
 
@@ -475,7 +511,8 @@ namespace llvm {
             // we prefer the name of the register as is printed in assembly
             Arg->addReg(PatmosInstPrinter::getRegisterName(VA.getLocReg()));
 
-            DEBUG( dbgs() <<  TRI->getName(VA.getLocReg()) << " " );
+            DEBUG( dbgs() <<  TM.getRegisterInfo()->getName(VA.getLocReg()) 
+		          << " " );
           }
 
           DEBUG( dbgs() <<  "]\n" );
@@ -493,6 +530,7 @@ namespace llvm {
     exportInstruction(MachineFunction &MF,
                       yaml::MachineInstruction *I,
                       const MachineInstr *Instr,
+                      bool BundledWithPred,
                       SmallVector<MachineOperand, 4> &Conditions,
                       bool HasBranchInfo,
                       MachineBasicBlock *TrueSucc,
@@ -529,11 +567,10 @@ namespace llvm {
           case PatmosII::MEM_L: I->MemType = yaml::Name("local");  break;
           case PatmosII::MEM_M: I->MemType = yaml::Name("memory"); break;
           case PatmosII::MEM_C: I->MemType = yaml::Name("cache");  break;
-          default: /*NOP*/;
         }
       }
-      return PMLMachineExport::exportInstruction(MF, I, Instr, Conditions,
-          HasBranchInfo, TrueSucc, FalseSucc);
+      return PMLMachineExport::exportInstruction(MF, I, Instr, BundledWithPred,
+          Conditions, HasBranchInfo, TrueSucc, FalseSucc);
     }
 
 

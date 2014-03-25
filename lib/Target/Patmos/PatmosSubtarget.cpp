@@ -28,20 +28,20 @@ using namespace llvm;
 /// StackCacheBlockSize - Block size of the stack cache in bytes (default: 4,
 /// i.e., word-sized).
 static cl::opt<unsigned> StackCacheBlockSize("mpatmos-stack-cache-block-size",
-                           cl::init(4),
+                           cl::init(32),
                            cl::desc("Block size of the stack cache in bytes."));
 
 /// StackCacheSize - Total size of the stack cache in bytes (default: 4096,
 /// i.e., 1K words).
 static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
-                           cl::init(4096),
+                           cl::init(2048),
                            cl::desc("Total size of the stack cache in bytes."));
 
 /// MethodCacheSize - Total size of the method cache in bytes.
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
-                     cl::init(1024),
+                     cl::init(4096),
                      cl::desc("Total size of the instruction cache in bytes "
-                              "(default 1024)"));
+                              "(default 4096)"));
 
 static cl::opt<unsigned> MinSubfunctionAlign("mpatmos-subfunction-align",
                    cl::init(64),
@@ -53,9 +53,13 @@ static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-basicblock-align",
                    cl::desc("Alignment for basic blocks in bytes "
                            "(default: no alignment)."));
 
+static cl::opt<bool> BranchInsideCFLDelaySlots("mpatmos-nested-branches",
+                     cl::init(false),
+                     cl::desc("Enable scheduling of branch instructions "
+                              "inside CFL delay slots."));
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
-	             cl::init(true),
+	             cl::init(false),
 		     cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
@@ -92,6 +96,13 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
 bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
                                    TargetSubtargetInfo::AntiDepBreakMode& Mode,
                                    RegClassVector& CriticalPathRCs) const {
+  // TODO disabled until call delay slots are properly handled by anti-dep
+  // breaker. Moving a use of a caller-defined register (r1,..) into the delay
+  // slot of a call causes the anti-dep breaker not to detect the use if the def
+  // is in a preceding scheduling region.
+  // Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
+  Mode = ANTIDEP_NONE;
+
   return hasPostRAScheduler(OptLevel);
 }
 
@@ -119,6 +130,39 @@ bool PatmosSubtarget::usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
 
 bool PatmosSubtarget::usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const {
   return hasPostRAScheduler(OptLevel) && !DisablePatmosPostRA;
+}
+
+unsigned PatmosSubtarget::getDelaySlotCycles(const MachineInstr *MI) const {
+  if (MI->isBundle()) {
+    const MachineBasicBlock *MBB = MI->getParent();
+    MachineBasicBlock::const_instr_iterator I = MI, E = MBB->instr_end();
+    unsigned delay = 0;
+    while ((++I != E) && I->isInsideBundle()) {
+      delay = std::max(delay, getDelaySlotCycles(I));
+    }
+    return delay;
+  }
+  else if (MI->isCall() || MI->isReturn() ||
+           MI->getOpcode() == Patmos::BRCFu ||
+           MI->getOpcode() == Patmos::BRCF ||
+           MI->getOpcode() == Patmos::BRCFRu ||
+           MI->getOpcode() == Patmos::BRCFR ||
+           MI->getOpcode() == Patmos::BRCFTu ||
+           MI->getOpcode() == Patmos::BRCFT)
+  {
+    return getCFLDelaySlotCycles(false);
+  }
+  else if (MI->isBranch()) {
+    return getCFLDelaySlotCycles(true);
+  } else {
+    return 0;
+  }
+}
+
+
+bool PatmosSubtarget::allowBranchInsideCFLDelaySots() const
+{
+  return BranchInsideCFLDelaySlots;
 }
 
 unsigned PatmosSubtarget::getIssueWidth(unsigned SchedClass) const {
@@ -157,4 +201,10 @@ unsigned PatmosSubtarget::getStackCacheBlockSize() const {
 
 unsigned PatmosSubtarget::getMethodCacheSize() const {
   return MethodCacheSize;
+}
+
+unsigned PatmosSubtarget::getAlignedStackFrameSize(unsigned frameSize) const {
+  if (frameSize == 0) return 0;
+  return ((frameSize - 1) / getStackCacheBlockSize() + 1) *
+         getStackCacheBlockSize();
 }

@@ -50,8 +50,6 @@ void MachineFunctionAnalysis::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool MachineFunctionAnalysis::doInitialization(Module &M) {
-  // TODO with LLVM 3.3, MMI should have a doInitialization(Module) function,
-  // then the MMI->setModule() call should be done there.
   MachineModuleInfo *MMI = getAnalysisIfAvailable<MachineModuleInfo>();
   assert(MMI && "MMI not around yet??");
   MMI->setModule(&M);

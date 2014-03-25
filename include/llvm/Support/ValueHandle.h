@@ -105,10 +105,6 @@ protected:
   void setValPtrInt(unsigned K) { VP.setInt(K); }
   unsigned getValPtrInt() const { return VP.getInt(); }
 
-  // Hack for bug
-  // http://code.google.com/p/nativeclient/issues/detail?id=2786
-  void setKind(HandleBaseKind K) { PrevPair.setInt(K); }
-
   static bool isValid(Value *V) {
     return V &&
            V != DenseMapInfo<Value *>::getEmptyKey() &&
@@ -235,12 +231,6 @@ public:
     return getValPtr();
   }
 
-  // Hack for bug
-  // http://code.google.com/p/nativeclient/issues/detail?id=2786
-  void make_weak() {
-    setKind(Weak);
-  }
-
   ValueTy *operator->() const { return getValPtr(); }
   ValueTy &operator*() const { return *getValPtr(); }
 };
@@ -349,6 +339,7 @@ public:
 /// rearrange itself when the pointer changes).  Unlike ValueHandleBase, this
 /// class has a vtable and a virtual destructor.
 class CallbackVH : public ValueHandleBase {
+  virtual void anchor();
 protected:
   CallbackVH(const CallbackVH &RHS)
     : ValueHandleBase(Callback, RHS) {}
@@ -375,13 +366,13 @@ public:
   ///
   /// All implementations must remove the reference from this object to the
   /// Value that's being destroyed.
-  virtual void deleted();
+  virtual void deleted() { setValPtr(NULL); }
 
   /// Called when this->getValPtr()->replaceAllUsesWith(new_value) is called,
   /// _before_ any of the uses have actually been replaced.  If WeakVH were
   /// implemented as a CallbackVH, it would use this method to call
   /// setValPtr(new_value).  AssertingVH would do nothing in this method.
-  virtual void allUsesReplacedWith(Value *);
+  virtual void allUsesReplacedWith(Value *) {}
 };
 
 } // End llvm namespace

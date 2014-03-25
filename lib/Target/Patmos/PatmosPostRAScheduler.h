@@ -148,6 +148,12 @@ namespace llvm {
     /// AntiDepBreak - Anti-dependence breaking object, or NULL if none
     AntiDepBreaker *AntiDepBreak;
 
+    /// The index in BB of RegionEnd.
+    ///
+    /// This is the instruction number from the top of the current block, not
+    /// the SlotIndex. It is only used by the AntiDepBreaker.
+    unsigned EndIndex;
+
     /// AA - AliasAnalysis for making memory reference queries.
     AliasAnalysis *AA;
 

@@ -1,0 +1,1 @@
+/usr/bin/cc      CMakeFiles/patch_loads.dir/patch_loads.c.o  -o patch_loads -rdynamic -lelf 

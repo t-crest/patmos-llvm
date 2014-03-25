@@ -258,7 +258,7 @@ void MMIAddrLabelMapCallbackPtr::allUsesReplacedWith(Value *V2) {
 
 MachineModuleInfo::MachineModuleInfo(const TargetMachine &tm)
   : ImmutablePass(ID), TM(&tm),
-    Context(*tm.getMCAsmInfo(), *tm.getRegisterInfo(), *tm.getInstrInfo(),
+    Context(tm.getMCAsmInfo(), tm.getRegisterInfo(), tm.getInstrInfo(),
             &tm.getTargetLowering()->getObjFileLowering()),
     ObjFileMMI(0), CompactUnwindEncoding(0), CurCallSite(0), CallsEHReturn(0),
     CallsUnwindInit(0), DbgInfoAvailable(false),
@@ -274,7 +274,7 @@ MachineModuleInfo::MachineModuleInfo(const TargetMachine &tm)
 
 MachineModuleInfo::MachineModuleInfo()
   : ImmutablePass(ID), TM(0),
-    Context(*(MCAsmInfo*)0, *(MCRegisterInfo*)0, *(MCInstrInfo*)0,
+    Context((MCAsmInfo*)0, (MCRegisterInfo*)0, (MCInstrInfo*)0,
             (MCObjectFileInfo*)0) {
   llvm_unreachable("This MachineModuleInfo constructor should never be called, "
                    "MMI should always be explicitly constructed by "
@@ -333,7 +333,7 @@ bool MachineModuleInfo::doFinalization(Module &M) {
 ///
 void MachineModuleInfo::EndFunction() {
   // Clean up frame info.
-  FrameMoves.clear();
+  FrameInstructions.clear();
 
   // Clean up exception info.
   LandingPads.clear();

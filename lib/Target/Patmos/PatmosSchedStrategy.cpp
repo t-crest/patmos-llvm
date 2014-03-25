@@ -98,6 +98,9 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
   //   predicates and highest ILP/.., but only if at least one of those instr.
   //   has high priority.
   // - find best instructions that fit into the bundle with highest ILP/..
+  //
+  // Instructions are built up into a bundle in Bundle. Instructions are removed
+  // from AvailableQueue in scheduled() once the instruction is actually picked.
 
   unsigned CurrWidth = 0;
   // If the bundle is not empty, we should calculate the initial width
@@ -240,8 +243,8 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   assert(!Bundle.empty() &&
         "Not able to issue the instruction in an empty bundle?");
 
-  // we need to rearrange instructions.. this is a quick hack and might
-  // be improved.
+  // We might need to rearrange instructions.. this is a quick hack and might
+  // be improved for VLIW with >2 slots
   if (canIssueInSlot(SU, 0) && canIssueInSlot(Bundle[0], Bundle.size())) {
     Bundle.push_back(Bundle[0]);
     Bundle[0] = SU;
@@ -252,6 +255,7 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
   return false;
 }
 
+#ifndef NDEBUG
 void PatmosLatencyQueue::dump()
 {
   dbgs() << "PendingQueue:";
@@ -275,7 +279,7 @@ void PatmosLatencyQueue::dump()
   }
   dbgs() << "\n";
 }
-
+#endif
 
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
@@ -299,6 +303,7 @@ bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
   // Do not schedule over inline asm
   // TODO This is not actually really required, but it makes things a bit less
   // error-prone. Check if we want to remove that restriction or not.
+  // Note that the postprocess code assumes that inline asm is a barrier.
   if (MI->isInlineAsm())
     return true;
 
@@ -311,6 +316,9 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
   DAG = dag;
 
   SUnit *CFL = NULL;
+  // Find the inline asm statement, if any. Note that asm is a barrier,
+  // therefore there is at most one CFL or inline asm.
+  SUnit *Asm = NULL;
 
   // Find the branch/call/ret instruction if available
   for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
@@ -322,11 +330,15 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
       CFL = &*it;
       break;
     }
+    if (MI->isInlineAsm()) {
+      Asm = &*it;
+      break;
+    }
   }
 
   const PatmosSubtarget *PST = PTM.getSubtargetImpl();
 
-  unsigned DelaySlot = CFL ? PST->getCFLDelaySlotCycles(CFL->getInstr()) : 0;
+  unsigned DelaySlot = CFL ? PST->getDelaySlotCycles(CFL->getInstr()) : 0;
 
   if (CFL) {
     // RET and CALL have implicit deps on the return values and call
@@ -342,10 +354,33 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     // Add an artificial dep from CFL to exit for the delay slot
     SDep DelayDep(CFL, SDep::Artificial);
     DelayDep.setLatency(DelaySlot + 1);
-    DelayDep.setMinLatency(DelaySlot + 1);
     DAG->ExitSU.addPred(DelayDep);
 
     CFL->isScheduleLow = true;
+  }
+
+  // Add an exit delay between loads and inline asm, in case asm is empty
+  if (Asm) {
+    std::vector<SUnit*> PredLoads;
+    for (SUnit::pred_iterator it = Asm->Preds.begin(), ie = Asm->Preds.end();
+         it != ie; it++)
+    {
+      if (!it->getSUnit()) continue;
+      MachineInstr *MI = it->getSUnit()->getInstr();
+      // Check for loads
+      if (!MI || !MI->mayLoad()) continue;
+      PredLoads.push_back(it->getSUnit());
+    }
+    for (std::vector<SUnit*>::iterator it = PredLoads.begin(),
+         ie = PredLoads.end(); it != ie; it++)
+    {
+      // Add a delay between loads and inline-asm, even if the operand is not
+      // used.
+      SDep Dep(*it, SDep::Artificial);
+      Dep.setLatency( computeExitLatency(**it) );
+
+      Asm->addPred(Dep);
+    }
   }
 
   // remove barriers between loads/stores with different memory type
@@ -357,7 +392,6 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
   // TODO SWS and LWS do not have ST as implicit def edges
   // TODO CALL has chain edges to all SWS/.. instructions, remove
-  // TODO MFS $r1 = $s0 has edges to all SWS/SENS/.. instructions, remove
 
   // TODO remove edges from MUL to other MULs to overlap MUL and MFS for
   //      pipelined muls.
@@ -471,52 +505,73 @@ void PatmosPostRASchedStrategy::releaseBottomNode(SUnit *SU)
 /// This can be done since call and return are scheduling boundaries.
 void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 {
+  assert(SU.getInstr()->isCall() || SU.getInstr()->isReturn());
+
   SmallVector<SDep*,2> RemoveDeps;
+
+  MachineInstr *MI = SU.getInstr();
 
   for (SUnit::pred_iterator it = SU.Preds.begin(), ie = SU.Preds.end();
        it != ie; it++)
   {
     if (!it->getSUnit()) continue;
-    // We only handle Data, Anti and Output deps here.
-    if (it->getKind() == SDep::Order) continue;
 
-    MachineInstr *MI = SU.getInstr();
+    if (it->getKind() == SDep::Order) {
 
-    // Check if it is actually only an implicit use, not a normal operand
-    bool IsImplicit = true;
-    for (unsigned i = 0; i < MI->getNumOperands(); i++) {
-      MachineOperand &MO = MI->getOperand(i);
-
-      if (!MO.isReg()) continue;
-
-      // Check if the register is actually used or defined by the instruction,
-      // either explicit or via a special register
-      if (!isExplicitCFLOperand(MI, MO)) continue;
-
-      // MO is an used/defined operand, check if it is defined or used by the
-      // predecessor
-      if (it->getKind() == SDep::Data) {
-        // .. easy for Deps, since we know the register.
-        if (MO.getReg() == it->getReg()) {
-          IsImplicit = false;
-          break;
-        }
-      } else if (MO.isDef() && (!MO.isImplicit())) {
-        // for Anti and Output dependency we need to check the registers of
-        // the predecessor.
+      if (!it->isMustAlias() && !it->isCluster() && !it->isArtificial()) {
         MachineInstr *PredMI = it->getSUnit()->getInstr();
-        for (unsigned j = 0; j < PredMI->getNumOperands(); j++) {
-          MachineOperand &PredMO = PredMI->getOperand(i);
-          if (PredMO.isReg() && PredMO.getReg() == MO.getReg()) {
-            IsImplicit = false;
-            break;
+
+        if (PredMI->mayStore() || PredMI->mayLoad()) {
+          PatmosII::MemType MT = PII.getMemType(PredMI);
+
+          // If we have a load or store from SPM or stack cache, it does not
+          // interfere with the call and we may move it into the delay slot
+          if (MT == PatmosII::MEM_S || MT == PatmosII::MEM_L) {
+            RemoveDeps.push_back(&*it);
           }
         }
       }
-    }
 
-    if (IsImplicit) {
-      RemoveDeps.push_back(&*it);
+    } else {
+      // We only handle Data, Anti and Output deps here.
+
+      // Check if it is actually only an implicit use, not a normal operand
+      bool IsImplicit = true;
+      for (unsigned i = 0; i < MI->getNumOperands(); i++) {
+        MachineOperand &MO = MI->getOperand(i);
+
+        if (!MO.isReg()) continue;
+
+        // Check if the register is actually used or defined by the instruction,
+        // either explicit or via a special register
+        if (!isExplicitCFLOperand(MI, MO)) continue;
+
+        // MO is an used/defined operand, check if it is defined or used by the
+        // predecessor
+        if (it->getKind() == SDep::Data) {
+          // .. easy for Deps, since we know the register.
+          if (MO.getReg() == it->getReg()) {
+            IsImplicit = false;
+            break;
+          }
+        } else if (MO.isDef()) {
+          // For Anti and Output dependency we need to check the registers of
+          // the predecessor.
+          MachineInstr *PredMI = it->getSUnit()->getInstr();
+          for (unsigned j = 0; j < PredMI->getNumOperands(); j++) {
+            MachineOperand &PredMO = PredMI->getOperand(j);
+            if (PredMO.isReg() && PredMO.getReg() == MO.getReg()) {
+              IsImplicit = false;
+              break;
+            }
+          }
+        }
+      }
+
+      if (IsImplicit) {
+        RemoveDeps.push_back(&*it);
+      }
+
     }
   }
 
@@ -537,6 +592,13 @@ void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 /// different memory types and cannot alias.
 void PatmosPostRASchedStrategy::removeTypedMemBarriers()
 {
+  // TODO remove dependencies between SPM, stack and global memory load/stores
+
+  // Note: Stack accesses usually do not alias with global/local memory since
+  // accesses to stack frame are accesses to known objects (but unknown stores
+  // might still alias with stack frame accesses!)
+
+  // Note: loads to global memory might in fact alias with STC instructions
 
 }
 
@@ -544,7 +606,31 @@ void PatmosPostRASchedStrategy::removeTypedMemBarriers()
 /// predicates.
 void PatmosPostRASchedStrategy::removeExclusivePredDeps()
 {
+  for (std::vector<SUnit>::iterator it = DAG->SUnits.begin(),
+       ie = DAG->SUnits.end(); it != ie; it++)
+  {
+    MachineInstr *MI = it->getInstr();
 
+    for (SUnit::pred_iterator pit = it->Preds.begin(),
+           pie = it->Preds.end(); pit != pie; pit++)
+    {
+      if (!pit->getSUnit()) continue;
+
+      MachineInstr *PI = pit->getSUnit()->getInstr();
+
+      if (pit->getKind() != SDep::Order && PII.haveDisjointPredicates(MI, PI))
+      {
+        unsigned PredPos = MI->getDesc().getNumDefs();
+        if (pit->getReg() != MI->getOperand(PredPos).getReg())
+        {
+          // TODO we must add new edges to the non-mutual-exclusive uses/defs
+          // Otherwise the scheduler might swap instructions around that have
+          // deps
+          //it->removePred(*pit);
+        }
+      }
+    }
+  }
 }
 
 bool PatmosPostRASchedStrategy::isExplicitCFLOperand(MachineInstr *MI,
@@ -575,8 +661,8 @@ unsigned PatmosPostRASchedStrategy::computeExitLatency(SUnit &SU) {
     if (!MO.isReg() || !MO.isDef()) continue;
 
     // Get the default latency as the write cycle of the operand.
-    unsigned OpLatency = DAG->getSchedModel()->computeOperandLatency(PredMI,
-                                                      i, NULL, 0, false);
+    unsigned OpLatency = DAG->getSchedModel()->computeOperandLatency(PredMI, i,
+                                                                     NULL, 0);
 
     Latency = std::max(Latency, OpLatency);
   }

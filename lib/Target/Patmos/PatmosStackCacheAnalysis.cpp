@@ -840,13 +840,10 @@ namespace llvm {
         PatmosMachineFunctionInfo *PMFI =
                                        MF->getInfo<PatmosMachineFunctionInfo>();
 
-        assert(PMFI->getStackCacheReservedBytes() %
-               STC.getStackCacheBlockSize() == 0);
-
         // TODO a function might contain inline asm code that might use 
         // SRES/SFREE, we should check for that.
 
-        return PMFI->getStackCacheReservedBytes();
+        return STC.getAlignedStackFrameSize(PMFI->getStackCacheReservedBytes());
       }
     }
 
@@ -1082,9 +1079,8 @@ namespace llvm {
         if (i->getOpcode() == Patmos::SENSi) {
           assert(i->getOperand(2).isImm());
 
-          // compute actual space to ensure here
-          unsigned int ensure = std::ceil((float)liveAreaSize /
-                                           (float)STC.getStackCacheBlockSize());
+          // compute actual space to ensure here (in words)
+          unsigned int ensure = STC.getAlignedStackFrameSize(liveAreaSize) / 4;
 
           // update the ensure to reserve only the space actually used.
           ENSs[&*i] = std::min(ensure, (unsigned int)i->getOperand(2).getImm());
@@ -1195,8 +1191,7 @@ namespace llvm {
                                     getMaxOccupancy(site->getCallee()));
         }
         else if (i->getOpcode() == Patmos::SENSi) {
-          unsigned int ensure = i->getOperand(2).getImm() *
-                                STC.getStackCacheBlockSize();
+          unsigned int ensure = i->getOperand(2).getImm() * 4;
 
           // does the content of the ensure and all the children in the call
           // graph fit into the stack cache?
@@ -1274,8 +1269,7 @@ namespace llvm {
           // actually remove ensure instructions (if requested)
           for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
               i++) {
-            unsigned int ensure = i->first->getOperand(2).getImm() *
-                                  STC.getStackCacheBlockSize();
+            unsigned int ensure = i->first->getOperand(2).getImm() * 4;
 #ifdef PATMOS_TRACE_DETAILED_RESULTS
             MachineBasicBlock *MBB = i->first->getParent();
             MachineBasicBlock::instr_iterator MI(i->first);
@@ -1355,17 +1349,20 @@ namespace llvm {
       args.push_back(0);
 
       std::string ErrMsg;
-      if (sys::Program::ExecuteAndWait(sys::Program::FindProgramByName(Solve_ilp),
+      if (sys::ExecuteAndWait(sys::FindProgramByName(Solve_ilp),
                                        &args[0],0,0,0,0,&ErrMsg)) {
         report_fatal_error("calling ILP solver (" + Solve_ilp + "): " + ErrMsg);
       }
       else {
         // read solution
         // construct name of solution
-        sys::Path SOLname(LPname);
-        SOLname.appendSuffix("sol");
+        std::string SOLname(LPname);
+        SOLname += ".sol";
 
-        if (!SOLname.canRead())
+        //SmallString<1024> SOLname(LPname);
+        //sys::path::replace_extension(SOLname, ".sol");
+
+        if (!sys::fs::exists(SOLname))
           report_fatal_error("Failed to read ILP solution");
 
         std::ifstream IS(SOLname.c_str());
@@ -1380,8 +1377,7 @@ namespace llvm {
         if (tmp == -1.)
           assert(0 && "unbounded/infeasible ILP");
 
-
-        SOLname.eraseFromDisk();
+        sys::fs::remove(SOLname);
       }
 
       ILPs++;
@@ -1401,14 +1397,16 @@ namespace llvm {
       const SCCInfo &BInfo(BI.getInfo(SCC));
 
       // open LP file.
-      std::string ErrMsg;
-      sys::Path LPname(sys::Path::GetTemporaryDirectory(&ErrMsg));
-      if (LPname.isEmpty()) {
-        errs() << "Error creating temp .lp file: " << ErrMsg << "\n";
+      SmallString<1024> LPname;
+      error_code err = sys::fs::createUniqueDirectory("stack", LPname);
+      if (err) {
+        errs() << "Error creating temp .lp file: " << err.message() << "\n";
         return std::numeric_limits<unsigned int>::max();
       }
 
-      LPname.appendComponent("scc.lp");
+      sys::path::append(LPname, "scc.lp");
+
+      std::string ErrMsg;
       raw_fd_ostream OS(LPname.c_str(), ErrMsg);
       if (!ErrMsg.empty()) {
         errs() << "Error: Failed to open file '" << LPname.str()
@@ -1558,7 +1556,8 @@ namespace llvm {
 
       // constraint on in-flow of exit nodes
       OS << "ex:\t";
-      bool ex_printed = false;
+      // only used for assertion
+      bool LLVM_ATTRIBUTE_UNUSED ex_printed = false;
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end());
           cs != cse; cs++) {
         OS << " + " << ilp_name(W, *cs);
@@ -1644,7 +1643,8 @@ namespace llvm {
 #endif // PATMOS_TRACE_CG_OCCUPANCY_ILP
 
       // remove LP file
-      LPname.eraseFromDisk();
+      // TODO do we need to remove the temp dir??
+      sys::fs::remove(LPname.str());
 
       return result;
     }
@@ -1764,8 +1764,7 @@ namespace llvm {
           }
         }
         else if (i->getOpcode() == Patmos::SENSi && !TII.isPredicated(i)) {
-          unsigned int ensure = i->getOperand(2).getImm() *
-                                STC.getStackCacheBlockSize();
+          unsigned int ensure = i->getOperand(2).getImm() * 4;
           worstOccupancy = std::max(ensure, worstOccupancy);
         }
       }
@@ -2076,11 +2075,11 @@ namespace llvm {
             // update the analysis info pseudo pass
             // (needs to find the SRES instruction first)
             MachineBasicBlock &MBB = (*i)->getMF()->front();
-            MachineBasicBlock::const_iterator I, E;
-            for (I = MBB.begin(), E = MBB.end(); I != E; ++I)
+            MachineBasicBlock::const_instr_iterator I, E;
+            for (I = MBB.instr_begin(), E = MBB.instr_end(); I != E; ++I)
               if (I->getOpcode() == Patmos::SRESi)
                 break;
-            assert(I != MBB.end());
+            assert(I != MBB.instr_end());
             assert(tmp % STC.getStackCacheBlockSize() == 0);
 
             // convert bytes back to blocks
@@ -2138,9 +2137,10 @@ namespace llvm {
       for (MachineFunction::iterator BB = MF.begin(), E = MF.end(); BB != E; ++BB)
       {
         unsigned Index = 0;
-        for (MachineBasicBlock::iterator Ins = BB->begin(), E = BB->end();
-            Ins != E; ++Ins)
+        for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
+             E = BB->instr_end(); Ins != E; ++Ins)
         {
+          if (Ins->isPseudo()) continue;
           MiMap[Ins] = std::make_pair(BB, Index++);
         }
       }
@@ -2177,7 +2177,7 @@ namespace llvm {
       StringRef OutFileName(SCAPMLExport);
       tool_output_file *OutFile;
       std::string ErrorInfo;
-      OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
+      OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo);
       if (!ErrorInfo.empty()) {
         delete OutFile;
         errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";

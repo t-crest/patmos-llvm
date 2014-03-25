@@ -26,13 +26,11 @@ static cl::opt<PrintBytesLevel> PrintBytes("fpatmos-print-bytes",
     ));
 
 
-PatmosMCAsmInfo::PatmosMCAsmInfo(const Target &T, StringRef TT)
- : T(T)
+PatmosMCAsmInfo::PatmosMCAsmInfo(StringRef TT)
 {
   PointerSize = 4;
   IsLittleEndian = false;
   StackGrowsUp = false;
-  PCSymbol=".PC";
   SeparatorString = ";";
   CommentString = "#";
   CommentColumn = 45;

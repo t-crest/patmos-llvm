@@ -666,7 +666,7 @@ module PML
     def called_functions
       return nil if unresolved_call?
       data['callees'].map { |n|
-        block.function.module.by_label(n)
+        block.function.module.by_label(n, true)
       }
     end
 

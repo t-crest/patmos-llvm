@@ -4,6 +4,7 @@ add_llvm_library(LLVMPatmosDesc
   PatmosAsmBackend.cpp
   PatmosMCCodeEmitter.cpp
   PatmosELFObjectWriter.cpp
+  PatmosTargetStreamer.cpp
   )
 
 add_dependencies(LLVMPatmosDesc PatmosCommonTableGen)

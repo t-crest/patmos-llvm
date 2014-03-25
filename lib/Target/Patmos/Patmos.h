@@ -33,9 +33,15 @@ namespace llvm {
   void initializePatmosPMLProfileImportPasS(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
-  FunctionPass *createPatmosDelaySlotFillerPass(PatmosTargetMachine &tm,
+  ModulePass   *createPatmosSPClonePass();
+  ModulePass   *createPatmosSPMarkPass(PatmosTargetMachine &tm);
+  FunctionPass *createPatmosSinglePathInfoPass(const PatmosTargetMachine &tm);
+  FunctionPass *createPatmosSPPreparePass(const PatmosTargetMachine &tm);
+  FunctionPass *createPatmosSPReducePass(const PatmosTargetMachine &tm);
+  FunctionPass *createPatmosDelaySlotFillerPass(const PatmosTargetMachine &tm,
                                                 bool ForceDisable);
   FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);
+  FunctionPass *createPatmosDelaySlotKillerPass(PatmosTargetMachine &tm);
   FunctionPass *createPatmosExportPass(PatmosTargetMachine &TM,
                                        std::string& Filename,
                                        std::string& BitcodeFilename);

@@ -526,7 +526,7 @@ namespace llvm {
     DOTGraphTraits (bool isSimple=false) : DefaultDOTGraphTraits(isSimple) {}
 
     static std::string getGraphName(const MCallSubGraph &G) {
-      return "xxx";
+      return "CallGraph";
     }
 
     template<typename T>

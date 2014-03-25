@@ -160,6 +160,7 @@ namespace llvm {
     virtual void exportInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
+                                   bool BundledWithPred,
                                    SmallVector<MachineOperand, 4> &Conditions,
                                    bool HasBranchInfo,
                                    MachineBasicBlock *TrueSucc,
@@ -255,19 +256,34 @@ namespace llvm {
     MFQueue Queue;
 
   protected:
+    /// Constructor to be used by sub-classes, passes the pass ID to the super
+    /// class. You need to setup a PMLInstrInfo using setPMLInstrInfo before
+    /// using the exporter.
     PMLModuleExportPass(char &ID, TargetMachine &TM, StringRef filename,
-                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
+                        ArrayRef<std::string> roots);
+
+    /// Set the PMLInstrInfo to be used. Takes ownership over the
+    /// InstrInfo object.
+    void setPMLInstrInfo(PMLInstrInfo *pii) { PII = pii; }
+
   public:
+    /// Construct a new PML export pass. The pass will take ownership of the
+    /// given PMLInstrInfo.
     PMLModuleExportPass(TargetMachine &TM, StringRef filename,
-                        ArrayRef<std::string> roots, PMLInstrInfo *PII = 0);
+                        ArrayRef<std::string> roots, PMLInstrInfo *pii);
 
     virtual~PMLModuleExportPass() {
       while(!Exporters.empty()) {
         delete Exporters.back();
         Exporters.pop_back();
       }
+      if (PII) delete PII;
     }
 
+    PMLInstrInfo *getPMLInstrInfo() { return PII; }
+
+    /// Add an exporter to the pass. Exporters will be deleted when this pass is
+    /// deleted.
     void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
 
     void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }

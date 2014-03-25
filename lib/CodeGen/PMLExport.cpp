@@ -145,8 +145,8 @@ PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(const Module &M,
   for (MachineFunction::iterator BB = MF.begin(), BE = MF.end(); BB != BE;
        ++BB)
   {
-    for (MachineBasicBlock::iterator II = BB->begin(), IE = BB->end();
-         II != IE; ++II)
+    for (MachineBasicBlock::instr_iterator II = BB->instr_begin(),
+        IE = BB->instr_end(); II != IE; ++II)
     {
       if (!II->getDesc().isCall()) continue;
 
@@ -225,6 +225,9 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
   yaml::BitcodeBlock *B;
   for (Function::const_iterator BI = Fn->begin(), BE = Fn->end(); BI != BE;
       ++BI) {
+    if (BI->getName().empty()) {
+      llvm::errs() << "warning: unnamed bit-code BB in PML export\n";
+    }
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
     // export loop information
@@ -257,7 +260,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             // than a dump
             std::string s;
             raw_string_ostream os(s);
-            os << "\"" << *SymbolicHeaderBound << "\"";
+            os << *SymbolicHeaderBound;
 
             YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
             // bump statistic counter
@@ -388,9 +391,16 @@ void PMLMachineExport::serialize(MachineFunction &MF)
         Conditions, false);
 
     unsigned Index = 0;
+    bool IsBundled = false;
     for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
         E = BB->instr_end(); Ins != E; ++Ins)
     {
+      // check if this is the first instruction, only set to bundled once we
+      // exported at least one instruction from the bundle (skipping pseudos)
+      if (!Ins->isBundledWithPred()) {
+        IsBundled = false;
+      }
+
       // Do not export any Pseudo instructions with zero size
       if (Ins->isPseudo() && !Ins->isInlineAsm())
         continue;
@@ -399,8 +409,10 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 
       yaml::MachineInstruction *I = B->addInstruction(
           new yaml::MachineInstruction(Index++));
-      exportInstruction(MF, I, Ins, Conditions, HasBranchInfo,
+      exportInstruction(MF, I, Ins, IsBundled, Conditions, HasBranchInfo,
                         TrueSucc, FalseSucc);
+
+      IsBundled = true;
     }
   }
 
@@ -428,7 +440,7 @@ void PMLMachineExport::printDesc(raw_ostream &os, const MachineInstr *Instr)
 
 void PMLMachineExport::
 exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
-                  const MachineInstr *Ins,
+                  const MachineInstr *Ins, bool BundledWithPred,
                   SmallVector<MachineOperand, 4> &Conditions,
                   bool HasBranchInfo, MachineBasicBlock *TrueSucc,
                   MachineBasicBlock *FalseSucc)
@@ -443,7 +455,7 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   I->BranchDelaySlots = PII->getBranchDelaySlots(Ins);
   I->BranchType = yaml::branch_none;
   I->MemMode = yaml::memmode_none;
-  I->Bundled = Ins->isBundledWithPred();
+  I->Bundled = BundledWithPred;
 
   if (Ins->getDesc().isCall()) {
     I->BranchType = yaml::branch_call;
@@ -636,20 +648,22 @@ exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
       assert(V->getType()->getTypeID()==Type::PointerTyID &&
             "Value referenced by a MachineMemOperand is not a pointer!");
 
-      if (const Constant *C = dyn_cast<Constant>(V)) {
-        DEBUG( dbgs() << "C: "; C->dump() );
+      if (isa<Constant>(V)) {
+        DEBUG( const Constant *C = dyn_cast<Constant>(V);
+	       dbgs() << "C: "; C->dump() );
         // global variable, GEP to global array with const indices, etc
         // => we know the address EXACTLY, we don't follow and collect
         // (the set only contains approximations otherwise)
         // TODO export as well?
 
-      } else if (const Argument *A = dyn_cast<Argument>(V)) {
-        DEBUG( dbgs() << "A: "; A->dump() );
+      } else if (isa<Argument>(V)) {
+        DEBUG( const Argument *A = dyn_cast<Argument>(V);
+	       dbgs() << "A: "; A->dump() );
         // a pointer passed as function argument
 
-      } else if (const PseudoSourceValue *P =
-          dyn_cast<PseudoSourceValue>(V)) {
-        DEBUG( dbgs() << "P: "; P->dump() );
+      } else if (isa<PseudoSourceValue>(V)) {
+        DEBUG(const PseudoSourceValue *P = dyn_cast<PseudoSourceValue>(V); 
+	      dbgs() << "P: "; P->dump() );
         // this is a location on the stack frame
 
       } else {
@@ -916,7 +930,7 @@ void addProgressNodes(yaml::RelationGraph *RG,
 void PMLRelationGraphExport::serialize(MachineFunction &MF)
 {
   Function *BF = const_cast<Function*>(MF.getFunction());
-  if (!BF)
+  if (!BF || MF.empty())
     return;
 
   // unmatched events, used as tabu list, and for error reporting
@@ -1096,17 +1110,15 @@ isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target)
 
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
                               StringRef filename,
-                              ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : MachineModulePass(id), OutFileName(filename), Roots(roots)
+                              ArrayRef<std::string> roots)
+  : MachineModulePass(id), PII(0), OutFileName(filename), Roots(roots)
 {
-  PII = pii ? pii : new PMLInstrInfo();
 }
 
 PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
                               ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : MachineModulePass(ID), OutFileName(filename), Roots(roots)
+  : MachineModulePass(ID), PII(pii), OutFileName(filename), Roots(roots)
 {
-  PII = pii ? pii : new PMLInstrInfo();
 }
 
 
@@ -1172,7 +1184,7 @@ bool PMLModuleExportPass::doFinalization(Module &M) {
   yaml::Output *Output;
   std::string ErrorInfo;
 
-  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo, 0);
+  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo);
   if (!ErrorInfo.empty()) {
     delete OutFile;
     errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
@@ -1198,7 +1210,7 @@ bool PMLModuleExportPass::doFinalization(Module &M) {
 
   if (!BitcodeFile.empty()) {
     std::string ErrorInfo;
-    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo, 0);
+    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo);
     WriteBitcodeToFile(&M, BitcodeStream.os());
     if(! ErrorInfo.empty()) {
       errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";
@@ -1240,9 +1252,12 @@ char PMLModuleExportPass::ID = 0;
 
 /// Returns a newly-created PML export pass.
 MachineModulePass *
-createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFileName, ArrayRef<std::string> Roots)
+createPMLExportPass(TargetMachine &TM, std::string& FileName,
+                    std::string& BitcodeFileName, ArrayRef<std::string> Roots)
 {
-  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, 0);
+  PMLInstrInfo *pii = new PMLInstrInfo();
+
+  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, pii);
 
   PEP->addExporter( new PMLBitcodeExport(TM, *PEP) );
   PEP->addExporter( new PMLMachineExport(TM, *PEP) );
