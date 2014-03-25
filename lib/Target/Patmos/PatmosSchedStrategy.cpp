@@ -303,6 +303,7 @@ bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
   // Do not schedule over inline asm
   // TODO This is not actually really required, but it makes things a bit less
   // error-prone. Check if we want to remove that restriction or not.
+  // Note that the postprocess code assumes that inline asm is a barrier.
   if (MI->isInlineAsm())
     return true;
 
@@ -315,6 +316,9 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
   DAG = dag;
 
   SUnit *CFL = NULL;
+  // Find the inline asm statement, if any. Note that asm is a barrier,
+  // therefore there is at most one CFL or inline asm.
+  SUnit *Asm = NULL;
 
   // Find the branch/call/ret instruction if available
   for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
@@ -324,6 +328,10 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     if (!MI) continue;
     if (isPatmosCFL(MI->getOpcode(), MI->getDesc().TSFlags)) {
       CFL = &*it;
+      break;
+    }
+    if (MI->isInlineAsm()) {
+      Asm = &*it;
       break;
     }
   }
@@ -349,6 +357,30 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     DAG->ExitSU.addPred(DelayDep);
 
     CFL->isScheduleLow = true;
+  }
+
+  // Add an exit delay between loads and inline asm, in case asm is empty
+  if (Asm) {
+    std::vector<SUnit*> PredLoads;
+    for (SUnit::pred_iterator it = Asm->Preds.begin(), ie = Asm->Preds.end();
+         it != ie; it++)
+    {
+      if (!it->getSUnit()) continue;
+      MachineInstr *MI = it->getSUnit()->getInstr();
+      // Check for loads
+      if (!MI || !MI->mayLoad()) continue;
+      PredLoads.push_back(it->getSUnit());
+    }
+    for (std::vector<SUnit*>::iterator it = PredLoads.begin(),
+         ie = PredLoads.end(); it != ie; it++)
+    {
+      // Add a delay between loads and inline-asm, even if the operand is not
+      // used.
+      SDep Dep(*it, SDep::Artificial);
+      Dep.setLatency( computeExitLatency(**it) );
+
+      Asm->addPred(Dep);
+    }
   }
 
   // remove barriers between loads/stores with different memory type
