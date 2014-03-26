@@ -5393,6 +5393,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     (void)getControlRoot();
     return 0;
   }
+  case Intrinsic::clear_cache:
+    return TLI->getClearCacheBuiltinName();
   case Intrinsic::donothing:
     // ignore
     return 0;
