@@ -18,6 +18,7 @@
 #ifndef LLVM_IR_FUNCTION_H
 #define LLVM_IR_FUNCTION_H
 
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -409,9 +410,9 @@ public:
   const BasicBlock        &back() const { return BasicBlocks.back();  }
         BasicBlock        &back()       { return BasicBlocks.back();  }
 
-  //===--------------------------------------------------------------------===//
-  // Argument iterator forwarding functions
-  //
+/// @name Function Argument Iteration
+/// @{
+
   arg_iterator arg_begin() {
     CheckLazyArguments();
     return ArgumentList.begin();
@@ -428,6 +429,16 @@ public:
     CheckLazyArguments();
     return ArgumentList.end();
   }
+
+  iterator_range<arg_iterator> args() {
+    return iterator_range<arg_iterator>(arg_begin(), arg_end());
+  }
+
+  iterator_range<const_arg_iterator> args() const {
+    return iterator_range<const_arg_iterator>(arg_begin(), arg_end());
+  }
+
+/// @}
 
   size_t arg_size() const;
   bool arg_empty() const;
