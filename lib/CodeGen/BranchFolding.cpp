@@ -1522,7 +1522,7 @@ MachineBasicBlock::iterator findHoistingInsertPosAndDeps(MachineBasicBlock *MBB,
   // branch from condition setting instruction.
   MachineBasicBlock::iterator PI = Loc;
   --PI;
-  while (PI != MBB->begin() && Loc->isDebugValue())
+  while (PI != MBB->begin() && PI->isDebugValue())
     --PI;
 
   bool IsDef = false;
