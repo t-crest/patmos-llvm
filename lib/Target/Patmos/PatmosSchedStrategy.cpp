@@ -347,16 +347,27 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     if (CFL->getInstr()->isReturn() || CFL->getInstr()->isCall())
       removeImplicitCFLDeps(*CFL);
 
-    // TODO if CFL is a branch and we do not have enough roots/single preds of
-    // roots, i.e. not enough ILP to fill delay slots, replace CFL with a
-    // non-delayed branch
-
     // Add an artificial dep from CFL to exit for the delay slot
     SDep DelayDep(CFL, SDep::Artificial);
     DelayDep.setLatency(DelaySlot + 1);
     DAG->ExitSU.addPred(DelayDep);
 
     CFL->isScheduleLow = true;
+
+    if (PTM.getSubtargetImpl()->getCFLType() == PatmosSubtarget::CFL_NON_DELAYED) {
+      // Add dependencies from all other instructions to exit
+      for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
+             ie = DAG->SUnits.rend(); it != ie; it++) {
+        if (&*it == CFL) continue;
+
+        MachineInstr *MI = it->getInstr();
+        if (!MI) continue;
+
+        SDep Dep(&*it, SDep::Artificial);
+        Dep.setLatency(DelaySlot + 1);
+        DAG->ExitSU.addPred(Dep);
+      }
+    }
   }
 
   // Add an exit delay between loads and inline asm, in case asm is empty

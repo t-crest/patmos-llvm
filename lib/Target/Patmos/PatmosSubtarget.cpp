@@ -78,6 +78,10 @@ static cl::opt<bool> DisablePatmosPostRA("mpatmos-disable-post-ra-patmos",
                      cl::desc("Use the standard LLVM post-RA scheduler instead "
                               "of the Patmos post-RA scheduler."));
 
+static cl::opt<std::string> PatmosCFLType("mpatmos-cfl",
+                            cl::init("mixed"),
+                            cl::desc("Type of generated control-flow instructions: "
+                                     "\"mixed\", \"delayed\", or \"non-delayed\""));
 
 PatmosSubtarget::PatmosSubtarget(const std::string &TT,
                                  const std::string &CPU,
@@ -130,6 +134,12 @@ bool PatmosSubtarget::usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
 
 bool PatmosSubtarget::usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const {
   return hasPostRAScheduler(OptLevel) && !DisablePatmosPostRA;
+}
+
+PatmosSubtarget::CFLType PatmosSubtarget::getCFLType() const {
+  return (PatmosCFLType == "delayed" ? CFL_DELAYED :
+          PatmosCFLType == "non-delayed" ? CFL_NON_DELAYED :
+          CFL_MIXED);
 }
 
 unsigned PatmosSubtarget::getDelaySlotCycles(const MachineInstr *MI) const {

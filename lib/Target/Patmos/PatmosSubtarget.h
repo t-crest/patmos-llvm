@@ -67,6 +67,11 @@ public:
   /// post-RA scheduler.
   bool usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const;
 
+  typedef enum { CFL_DELAYED, CFL_MIXED, CFL_NON_DELAYED } CFLType;
+
+  // Return the type of control-flow instructions to be generated
+  CFLType getCFLType() const;
+
   /////////////////////////////////////////////////////////////////////////////
   // Patmos specific architecture parameters (cache sizes, types, features,..)
 

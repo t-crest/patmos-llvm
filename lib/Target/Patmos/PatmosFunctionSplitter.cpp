@@ -1394,7 +1394,11 @@ namespace llvm {
                                DebugLoc(), TII.get(Opc))).addMBB(target->MBB);
 
         MachineBasicBlock::iterator II = fallthrough->end();
-        unsigned cycles = PII.moveUp(*fallthrough, --II);
+        --II;
+        unsigned cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(&*II);
+        if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_NON_DELAYED) {
+          cycles = PII.moveUp(*fallthrough, II);
+        }
 
         // Pad the *end* of the delay slot with NOPs if needed.
         for (unsigned i = 0; i < cycles; i++) {
@@ -1509,7 +1513,8 @@ namespace llvm {
         // instructions.
         // TODO We could check for latencies of operands here, but defs will
         // probably always be scheduled in the previous cycle anyway.
-        if (!PII.hasRegUse(&*I) && PII.canRemoveFromSchedule(MBB, I)) {
+        if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_NON_DELAYED
+            && !PII.hasRegUse(&*I) && PII.canRemoveFromSchedule(MBB, I)) {
           cycles = PII.moveUp(MBB, I, cycles);
         }
 
