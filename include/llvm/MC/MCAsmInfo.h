@@ -317,6 +317,9 @@ namespace llvm {
     /// construction (see LLVMTargetMachine::initAsmInfo()).
     bool UseIntegratedAssembler;
 
+    /// Compress DWARF debug sections. Defaults to false.
+    bool CompressDebugSections;
+
   public:
     explicit MCAsmInfo();
     virtual ~MCAsmInfo();
@@ -553,6 +556,12 @@ namespace llvm {
     /// Set whether assembly (inline or otherwise) should be parsed.
     virtual void setUseIntegratedAssembler(bool Value) {
       UseIntegratedAssembler = Value;
+    }
+
+    bool compressDebugSections() const { return CompressDebugSections; }
+
+    void setCompressDebugSections(bool CompressDebugSections) {
+      this->CompressDebugSections = CompressDebugSections;
     }
   };
 }
