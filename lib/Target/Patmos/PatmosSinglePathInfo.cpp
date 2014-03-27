@@ -40,9 +40,9 @@ using namespace llvm;
 
 /// SPRootList - Option to enable single-path conversion.
 static cl::list<std::string> SPRootList(
-    "mpatmos-spconv",
+    "mpatmos-singlepath",
     cl::value_desc("list"),
-    cl::desc("Single-Path roots (Patmos only)"),
+    cl::desc("Functions for which single-path code is generated"),
     cl::CommaSeparated,
     cl::Hidden);
 

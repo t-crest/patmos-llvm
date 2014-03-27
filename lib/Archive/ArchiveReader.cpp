@@ -468,12 +468,13 @@ Archive::findModuleDefiningSymbol(const std::string& symbol,
   // because that could affect the size of the symbol table due to VBR encoding.
   // We now have to account for this by adjusting the offset by the size of the
   // symbol table and its header.
+  unsigned offset = SI->second;
   unsigned fileOffset =
-    SI->second +                // offset in symbol-table-less file
+    offset +                    // offset in symbol-table-less file
     firstFileOffset;            // add offset to first "real" file in archive
 
   // See if the module is already loaded
-  ModuleMap::iterator MI = modules.find(fileOffset);
+  ModuleMap::iterator MI = modules.find(offset);
   if (MI != modules.end())
     return MI->second.first;
 
@@ -495,7 +496,7 @@ Archive::findModuleDefiningSymbol(const std::string& symbol,
   if (!m)
     return 0;
 
-  modules.insert(std::make_pair(fileOffset, std::make_pair(m, mbr)));
+  modules.insert(std::make_pair(offset, std::make_pair(m, mbr)));
 
   return m;
 }
