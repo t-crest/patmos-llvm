@@ -28,6 +28,9 @@
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Compression.h"
+#include "llvm/Support/Host.h"
 
 using namespace llvm;
 
@@ -226,6 +229,39 @@ MCEncodedFragment::~MCEncodedFragment() {
 /* *** */
 
 MCEncodedFragmentWithFixups::~MCEncodedFragmentWithFixups() {
+}
+
+/* *** */
+
+const SmallVectorImpl<char> &MCCompressedFragment::getCompressedContents() const {
+  assert(getParent()->size() == 1 &&
+         "Only compress sections containing a single fragment");
+  if (CompressedContents.empty()) {
+    std::unique_ptr<MemoryBuffer> CompressedSection;
+    zlib::Status Success =
+        zlib::compress(StringRef(getContents().data(), getContents().size()),
+                       CompressedSection);
+    (void)Success;
+    assert(Success == zlib::StatusOK);
+    CompressedContents.push_back('Z');
+    CompressedContents.push_back('L');
+    CompressedContents.push_back('I');
+    CompressedContents.push_back('B');
+    uint64_t Size = getContents().size();
+    if (sys::IsLittleEndianHost)
+      Size = sys::SwapByteOrder(Size);
+    CompressedContents.append(reinterpret_cast<char *>(&Size),
+                              reinterpret_cast<char *>(&Size + 1));
+    CompressedContents.append(CompressedSection->getBuffer().begin(),
+                              CompressedSection->getBuffer().end());
+  }
+  return CompressedContents;
+}
+
+SmallVectorImpl<char> &MCCompressedFragment::getContents() {
+  assert(CompressedContents.empty() &&
+         "Fragment contents should not be altered after compression");
+  return MCDataFragment::getContents();
 }
 
 /* *** */
@@ -430,6 +466,8 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
   case MCFragment::FT_Relaxable:
   case MCFragment::FT_CompactEncodedInst:
     return cast<MCEncodedFragment>(F).getContents().size();
+  case MCFragment::FT_Compressed:
+    return cast<MCCompressedFragment>(F).getCompressedContents().size();
   case MCFragment::FT_Fill:
     return cast<MCFillFragment>(F).getSize();
 
@@ -629,60 +667,10 @@ static void writeFragment(const MCAssembler &Asm, const MCAsmLayout &Layout,
     break;
   }
 
-  case MCFragment::FT_ExprAlign: {
-    const MCExprAlignFragment &AF = cast<const MCExprAlignFragment>(F);
-    uint64_t PaddingSize = FragmentSize - AF.getExpressionSize();
-    uint64_t Count = PaddingSize / AF.getValueSize();
-
-    assert(AF.getValueSize() && "Invalid virtual align in concrete fragment!");
-
-    // FIXME: This error shouldn't actually occur (the front end should emit
-    // multiple .align directives to enforce the semantics it wants), but is
-    // severe enough that we want to report it. How to handle this?
-    if (Count * AF.getValueSize() != PaddingSize)
-      report_fatal_error("undefined .fstart directive, value size '" +
-                        Twine(AF.getValueSize()) +
-                        "' is not a divisor of padding size '" +
-                        Twine(PaddingSize) + "'");
-
-    // See if we are aligning with nops, and if so do that first to try to fill
-    // the Count bytes.  Then if that did not fill any bytes or there are any
-    // bytes left to fill use the the Value and ValueSize to fill the rest.
-    // If we are aligning with nops, ask that target to emit the right data.
-    if (AF.hasEmitNops()) {
-      if (!Asm.getBackend().writeNopData(Count, OW))
-        report_fatal_error("unable to write nop sequence of " +
-                          Twine(Count) + " bytes");
-    } else {
-      // Otherwise, write out in multiples of the value size.
-      for (uint64_t i = 0; i != Count; ++i) {
-        switch (AF.getValueSize()) {
-        default: llvm_unreachable("Invalid size!");
-        case 1: OW->Write8 (uint8_t (AF.getValue())); break;
-        case 2: OW->Write16(uint16_t(AF.getValue())); break;
-        case 4: OW->Write32(uint32_t(AF.getValue())); break;
-        case 8: OW->Write64(uint64_t(AF.getValue())); break;
-        }
-      }
-    }
-
-    int64_t ExprValue;
-
-    if (!(AF.getExpression().EvaluateAsAbsolute(ExprValue, Layout))) {
-      report_fatal_error("Unable to evaluate expression as absolute value");
-    }
-
-    switch (AF.getExpressionSize()) {
-    default: llvm_unreachable("Invalid size!");
-    case 1: OW->Write8 (ExprValue); break;
-    case 2: OW->Write16(ExprValue); break;
-    case 4: OW->Write32(ExprValue); break;
-    case 8: OW->Write64(ExprValue); break;
-    }
-
+  case MCFragment::FT_Compressed:
+    ++stats::EmittedDataFragments;
+    OW->WriteBytes(cast<MCCompressedFragment>(F).getCompressedContents());
     break;
-  }
-
 
   case MCFragment::FT_Data: 
     ++stats::EmittedDataFragments;
@@ -760,6 +748,7 @@ void MCAssembler::writeSectionData(const MCSectionData *SD,
            ie = SD->end(); it != ie; ++it) {
       switch (it->getKind()) {
       default: llvm_unreachable("Invalid fragment in virtual section!");
+      case MCFragment::FT_Compressed:
       case MCFragment::FT_Data: {
         // Check that we aren't trying to write a non-zero contents (or fixups)
         // into a virtual section. This is to support clients which use standard
@@ -1089,6 +1078,8 @@ void MCFragment::dump() {
   case MCFragment::FT_Align: OS << "MCAlignFragment"; break;
   case MCFragment::FT_ExprAlign: OS << "MCExprAlignFragment"; break;
   case MCFragment::FT_Data:  OS << "MCDataFragment"; break;
+  case MCFragment::FT_Compressed:
+    OS << "MCCompressedFragment"; break;
   case MCFragment::FT_CompactEncodedInst:
     OS << "MCCompactEncodedInstFragment"; break;
   case MCFragment::FT_Fill:  OS << "MCFillFragment"; break;
@@ -1115,17 +1106,7 @@ void MCFragment::dump() {
        << " MaxBytesToEmit:" << AF->getMaxBytesToEmit() << ">";
     break;
   }
-  case MCFragment::FT_ExprAlign: {
-    const MCExprAlignFragment *AF = cast<MCExprAlignFragment>(this);
-    if (AF->hasEmitNops())
-      OS << " (emit nops)";
-    OS << "\n       ";
-    OS << " Alignment:" << AF->getAlignment()
-       << " Expression:" << AF->getExpression() << " ExpressionSize:" << AF->getExpressionSize()
-       << " Value:" << AF->getValue() << " ValueSize:" << AF->getValueSize()
-       << " MaxBytesToEmit:" << AF->getMaxBytesToEmit() << ">";
-    break;
-  }
+  case MCFragment::FT_Compressed:
   case MCFragment::FT_Data:  {
     const MCDataFragment *DF = cast<MCDataFragment>(this);
     OS << "\n       ";
