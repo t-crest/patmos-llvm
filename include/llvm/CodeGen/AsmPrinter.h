@@ -286,13 +286,8 @@ namespace llvm {
       llvm_unreachable("EmitInstruction not implemented");
     }
 
-    /// EmitBasicBlockBegin - Targets can override this to emit stuff at the beginning of
-    /// basic blocks in the function, after the block label.
-    virtual void EmitBasicBlockBegin(const MachineBasicBlock *) {}
-
-    /// EmitBasicBlockEnd - Targets can override this to emit stuff at the end of
-    /// basic blocks in the function.
-    virtual void EmitBasicBlockEnd(const MachineBasicBlock *) {}
+    /// GetCPISymbol - Return the symbol for the specified constant pool entry.
+    virtual MCSymbol *GetCPISymbol(unsigned CPID) const;
 
     virtual void EmitFunctionEntryLabel();
 
@@ -336,9 +331,6 @@ namespace llvm {
     /// GetExternalSymbolSymbol - Return the MCSymbol for the specified
     /// ExternalSymbol.
     MCSymbol *GetExternalSymbolSymbol(StringRef Sym) const;
-
-    /// GetCPISymbol - Return the symbol for the specified constant pool entry.
-    MCSymbol *GetCPISymbol(unsigned CPID) const;
 
     /// GetJTISymbol - Return the symbol for the specified jump table entry.
     MCSymbol *GetJTISymbol(unsigned JTID, bool isLinkerPrivate = false) const;
