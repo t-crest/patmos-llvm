@@ -1804,11 +1804,14 @@ namespace llvm {
       unsigned bytes = 0;
 
       MachineBasicBlock::iterator it = MI;
-      for (; cycles > 0; cycles--) {
+      for (; cycles > 0; ) {
         it++;
         assert(it != MBB->end() && "Reached end of MBB before end of delay slot");
 
-        bytes += getInstrSize(it, PTM);
+        if (!it->isDebugValue()) {
+          bytes += getInstrSize(it, PTM);
+          --cycles;
+        }
       }
 
       return bytes;
