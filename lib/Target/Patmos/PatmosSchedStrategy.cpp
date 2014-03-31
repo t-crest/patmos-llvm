@@ -320,6 +320,19 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
   // therefore there is at most one CFL or inline asm.
   SUnit *Asm = NULL;
 
+  // Push up loads to ensure load delay slot across BBs
+  for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
+         ie = DAG->SUnits.rend(); it != ie; it++) {
+    MachineInstr *MI = it->getInstr();
+    if (!MI) continue;
+        
+    if (MI->mayLoad()) {
+      SDep Dep(&*it, SDep::Artificial);
+      Dep.setLatency(1);
+      DAG->ExitSU.addPred(Dep);
+    }
+  }
+
   // Find the branch/call/ret instruction if available
   for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
        ie = DAG->SUnits.rend(); it != ie; it++)
