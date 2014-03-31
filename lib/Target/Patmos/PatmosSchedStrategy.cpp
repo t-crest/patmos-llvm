@@ -367,6 +367,33 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
     CFL->isScheduleLow = true;
 
+    if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_DELAYED) {
+      // Push up single instructions that can be scheduled in the same
+      // cycle as the branch
+      unsigned LowCount = 0;
+      SUnit *LowSU = 0;
+      for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
+             ie = DAG->SUnits.rend(); it != ie; it++) {
+        if (&*it == CFL) continue;
+        
+        MachineInstr *MI = it->getInstr();
+        if (!MI) continue;
+        
+        if (it->getHeight() <= DelaySlot) {
+          LowCount++;
+          if (PII.canIssueInSlot(MI, LowCount)) {
+            LowSU = &*it;
+          }
+        }
+      }
+
+      if (LowSU && LowCount == 1) {
+        SDep Dep(LowSU, SDep::Artificial);
+        Dep.setLatency(DelaySlot + 1);
+        DAG->ExitSU.addPred(Dep);
+      }
+    }
+
     if (PTM.getSubtargetImpl()->getCFLType() == PatmosSubtarget::CFL_NON_DELAYED) {
       // Add dependencies from all other instructions to exit
       for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
