@@ -214,7 +214,7 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
   MPM.add(createLoopDeletionPass());          // Delete dead loops
 
   if (!DisableUnrollLoops)
-    MPM.add(createLoopUnrollPass());          // Unroll small loops
+    MPM.add(createSimpleLoopUnrollPass());    // Unroll small loops
   addExtensionsToPM(EP_LoopOptimizerEnd, MPM);
 
   if (OptLevel > 1)
@@ -265,6 +265,9 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
   // changed the code.
   MPM.add(createInstructionCombiningPass());
   MPM.add(createCFGSimplificationPass());
+
+  if (!DisableUnrollLoops)
+    MPM.add(createLoopUnrollPass());    // Unroll small loops
 
   if (!DisableUnitAtATime) {
     // FIXME: We shouldn't bother with this anymore.
