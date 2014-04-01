@@ -116,19 +116,69 @@ namespace {
     /// Returns a reference to the newly created RAInfo.
     RAInfo &createRAInfo(SPScope *S);
 
+    /// getEdgeCondition - Get the predicate operand corresponding
+    /// to a edge (predicate operand is true -> edge is taken)
+    /// Side effect: branch conditions where the register operand
+    /// contained a kill flag are stored in KilledCondRegs.
+    void getEdgeCondition(const SPScope::Edge &E,
+                          SmallVectorImpl<MachineOperand> &Cond);
+
     /// insertPredDefinitions - Insert predicate register definitions
     /// to MBBs of the given SPScope.
     void insertPredDefinitions(SPScope *S);
 
-    /// insertDefsForBV - Helper function to insert definitions for all
-    /// predicates contained in the bitvector bv in MBB at MI, which are
-    /// control dependent on condition Cond.
-    /// Uses RAInfo R to determine locations, including spill slots.
-    void insertDefsForBV(MachineBasicBlock &MBB,
-                         MachineBasicBlock::iterator MI,
-                         const RAInfo &R,
-                         const BitVector &bv,
-                         const SmallVectorImpl<MachineOperand> &Cond);
+    /// insertDefEdge - insert instructions for definition of a predicate
+    /// by a definition edge.
+    /// @param S local scope
+    /// @param Node node of local scope that defines a local predicate
+    /// @param pred the predicate which is defined
+    /// @param e the definition edge (NB if Node is not a subloop, then
+    ///          the source of the edge and Node are equal, otherwise the
+    ///          the edge is an exit edge of he subloop)
+    void insertDefEdge(SPScope *S, MachineBasicBlock &Node,
+                       unsigned pred, const SPScope::Edge e);
+
+    /// insertDefToStackLoc - insert a predicate definition to a predicate
+    /// which is located on a stack spill location
+    /// @param MBB the machine basic block at which end the definition
+    ///            should be placed
+    /// @param stloc the stack location (index)
+    /// @param guard the guard of MBB
+    /// @param Cond the condition which should be assigned to the predicate
+    /// @param isFirstDef true if the definition is the first definition
+    ///                   in the local scope
+    void insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc,
+                             unsigned guard,
+                             const SmallVectorImpl<MachineOperand> &Cond,
+                             bool isFirstDef);
+
+    /// insertDefToRegLoc - insert a predicate definition to a predicate
+    /// which is located in a physical register
+    /// @param MBB the machine basic block at which end the definition
+    ///            should be placed
+    /// @param regloc the reg location (index)
+    /// @param guard the guard of MBB
+    /// @param Cond the condition which should be assigned to the predicate
+    /// @param isMultiDef true if the predicate has multiple definitions
+    /// @param isFirstDef true if the definition is the first definition
+    ///                   in the local scope
+    void insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc,
+                           unsigned guard,
+                           const SmallVectorImpl<MachineOperand> &Cond,
+                           bool isMultiDef, bool isFirstDef);
+
+    /// moveDefUseGuardInstsToEnd - move instructions, which define a predicate
+    /// register that is also their guard to the end of their MBB.
+    /// The instructions were collected in insertDefToRegLoc() calls
+    /// in the private member DefUseGuardInsts.
+    void moveDefUseGuardInstsToEnd(void);
+
+    /// fixupKillFlagOfCondRegs - predicate registers, which are killed at the
+    /// branch at the end of the MBB and used in predicate definitions, are
+    /// collected in the private member KilledCondRegs.
+    /// As the branches are removed, the kill flags need to be hoisted
+    /// appropriately.
+    void fixupKillFlagOfCondRegs(void);
 
     /// applyPredicates - Predicate instructions of MBBs in the given SPScope.
     void applyPredicates(SPScope *S);
@@ -166,6 +216,13 @@ namespace {
 
     unsigned GuardsReg; // RReg to hold all predicates
     unsigned PRTmp;     // temporary PReg
+
+    // Instructions which define a predicate register that is also their guard.
+    // Collected while insertDefToRegLoc(), read and cleared in
+    // moveDefUseGuardInsts().
+    std::vector<MachineInstr *> DefUseGuardInsts;
+
+    std::map<MachineBasicBlock *, MachineOperand> KilledCondRegs;
 
   public:
     /// PatmosSPReduce - Initialize with PatmosTargetMachine
@@ -510,11 +567,6 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
 }
 
 
-
-
-
-
-
 ///////////////////////////////////////////////////////////////////////////////
 //  PatmosSPReduce methods
 ///////////////////////////////////////////////////////////////////////////////
@@ -564,6 +616,14 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
     // Insert predicate definitions.
     insertPredDefinitions(S);
   }
+
+  // After all scopes are handled, perform some global fixups
+
+  // Fixup instructions that define their own guard
+  moveDefUseGuardInstsToEnd();
+
+  // Fixup kill flag of condition predicate registers
+  fixupKillFlagOfCondRegs();
 
   // Following walk of the SPScope tree linearizes the CFG structure,
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
@@ -651,158 +711,240 @@ RAInfo& PatmosSPReduce::createRAInfo(SPScope *S) {
 }
 
 
+void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,
+    SmallVectorImpl<MachineOperand> &Cond) {
+
+  MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(E.first),
+                    *DstMBB = const_cast<MachineBasicBlock*>(E.second);
+
+  // get the branch condition
+  MachineBasicBlock *TBB = NULL, *FBB = NULL;
+  if (TII->AnalyzeBranch(*SrcMBB, TBB, FBB, Cond) || Cond.empty()) {
+    report_fatal_error("AnalyzeBranch for SP-Transformation failed; "
+        "could not determine branch condition");
+  }
+
+  if (TBB != DstMBB) {
+    TII->ReverseBranchCondition(Cond);
+  }
+
+  if (Cond[0].isKill()) {
+    Cond[0].setIsKill(false);
+    // remember MBBs which have their final branch condition killed
+    if (!KilledCondRegs.count(SrcMBB)) {
+      KilledCondRegs.insert(std::make_pair(SrcMBB, Cond[0]));
+    }
+  }
+}
+
+
 void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
   DEBUG( dbgs() << " Insert Predicate Definitions\n" );
-
-  RAInfo &R = RAInfos.at(S);
 
   // For each MBB, check defs
   for (SPScope::iterator I=S->begin(), E=S->end(); I!=E; ++I) {
     MachineBasicBlock *MBB = *I;
-    const PredDefInfo *DI = S->getDefInfo(MBB);
+    const SPScope::PredDefInfo *DI = S->getDefInfo(MBB);
 
-    // check for definitions
+    // procede to next if this does not define any predicates
     if (!DI) continue;
 
     DEBUG( dbgs() << " - MBB#" << MBB->getNumber() << "\n" );
 
-    // get the branch condition
-    SmallVector<MachineOperand, 2> Cond(DI->getCond());
-
-    // insert the predicate definitions before any branch at the MBB end
-    MachineBasicBlock::iterator firstTI = MBB->getFirstTerminator();
-
-    bool condKill = Cond[0].isKill(); // store kill flag
-    Cond[0].setIsKill(false);
-
-    // copy branch condition to true edge definitions
-    insertDefsForBV(*MBB, firstTI, R, DI->getTrue(), Cond);
-
-    // reverse Cond in place
-    TII->ReverseBranchCondition(Cond);
-
-    // copy reversed branch condition to false edge definitions
-    insertDefsForBV(*MBB, firstTI, R, DI->getFalse(), Cond);
-
-    // restore kill flag at the last use
-    //prior(firstTI)->findRegisterUseOperand(Cond[0].getReg())
-    //              ->setIsKill(condKill);
-    // To this end, we search the instruction in which it was last used.
-    for (MachineBasicBlock::iterator lastMI = prior(firstTI),
-                                     firstMI = MBB->begin();
-                                     lastMI != firstMI; --lastMI) {
-      MachineOperand *MO;
-      if ((MO = lastMI->findRegisterUseOperand(Cond[0].getReg())) != NULL) {
-        MO->setIsKill(condKill);
-        break;
-      }
+    // for each definition edge: insert
+    for (SPScope::PredDefInfo::iterator di = DI->begin(), de = DI->end();
+        di != de; ++di) {
+      // Scope, (local) Node, predicate number, edge
+      insertDefEdge(S, *MBB, di->first, di->second);
     }
 
   } // end for each MBB
 }
 
-void PatmosSPReduce::insertDefsForBV(MachineBasicBlock &MBB,
-                                MachineBasicBlock::iterator MI,
-                                const RAInfo &R,
-                                const BitVector &bv,
-                                const SmallVectorImpl<MachineOperand> &Cond) {
 
+
+
+
+void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
+                                   unsigned pred, const SPScope::Edge e) {
+
+  RAInfo &R = RAInfos.at(S); // local scope of definitions
+
+  // the MBB we need to insert the defining instruction is the edge source
+  MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(e.first);
+
+  SmallVector<MachineOperand, 2> Cond;
+  getEdgeCondition(e, Cond);
+
+  // get the guard register for the source block
+  unsigned use_preg = getUsePReg(
+      (e.first == &Node) ? R : RAInfos.at(PSPI->getScopeFor(SrcMBB)),
+      SrcMBB, true);
+
+  unsigned loc;
+
+  // Get the location for predicate r. The function returns true
+  // if it is a register, otherwise false. The resulting location is
+  // stored in loc.
+  if (R.getDefLoc(loc, pred)) {
+    if (S->isSubHeader(&Node)) {
+      // TODO get the scope of the edge source MBB, to know the guard
+      report_fatal_error("cannot handle defining subscopes yet");
+
+    } else {
+      // The definition location of the predicate is a physical register.
+      insertDefToRegLoc(
+          *SrcMBB, loc, use_preg, Cond,
+          R.Scope->getNumDefEdges(pred) > 1, // isMultiDef
+          R.isFirstDef(&Node, pred)           // isFirstDef
+          );
+    }
+  } else {
+    insertDefToStackLoc(
+        *SrcMBB, loc, use_preg, Cond,
+        R.isFirstDef(&Node, pred)
+        );
+  }
+}
+
+void PatmosSPReduce::
+insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
+                  const SmallVectorImpl<MachineOperand> &Cond,
+                  bool isMultiDef, bool isFirstDef) {
+
+  // insert the predicate definitions before any branch at the MBB end
+  MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
   DebugLoc DL(MI->getDebugLoc());
 
-  // get the pred reg for the current block
-  unsigned use_preg = getUsePReg(R, &MBB, true);
-
-  // If we encounter a definition of the predicate that is used for this MBB,
-  // we need to place this definition as last instruction of the MBB
-  // in order to stay semantically correct (for following definitions).
-  // This pointer will be assigned, to such an instruction.
-  MachineInstr *DefUseMI = NULL;
-
-  for (int r=bv.find_first(); r!=-1; r=bv.find_next(r)) {
-    unsigned loc;
-
-    // Get the location for predicate r. The function returns true
-    // if it is a register, otherwise false. The resulting location is
-    // stored in loc.
-    if (R.getDefLoc(loc, r)) {
-
-      // The definition location of the predicate is a physical register.
-      MachineInstr *DefMI;
-      if (R.Scope->getNumDefEdges(r) > 1) {
-        // if this is the first definition, we unconditionally need to
-        // initialize it to false
-        // we can skip this, if use_preg=true anyway
-        if (R.isFirstDef(&MBB, r) && (use_preg != Patmos::P0)) {
-          // the PCLR instruction must not be predicated
-          AddDefaultPred(BuildMI(MBB, MI, DL,
-                TII->get(Patmos::PCLR), AvailPredRegs[loc]));
-          InsertedInstrs++; // STATISTIC
-        }
-        DefMI = BuildMI(MBB, MI, DL,
-            TII->get(Patmos::PMOV), AvailPredRegs[loc])
-          // guard operand
-          .addReg(use_preg).addImm(0)
-          .addOperand(Cond[0]).addOperand(Cond[1]); // condition
-        InsertedInstrs++; // STATISTIC
-      } else {
-        // the PAND instruction must not be predicated
-        DefMI = AddDefaultPred(BuildMI(MBB, MI, DL,
-              TII->get(Patmos::PAND), AvailPredRegs[loc]))
-          // current guard as source
-          .addReg(use_preg).addImm(0)
-          .addOperand(Cond[0]).addOperand(Cond[1]); // condition
-        InsertedInstrs++; // STATISTIC
-      }
-
-      // remember this instruction if it has to be the last one
-      if (use_preg == AvailPredRegs[loc]) {
-        DefUseMI = DefMI;
-      }
-    } else {
-      // The definition location of the predicate is a spill location.
-      int fi = PMFI->getSinglePathExcessSpillFI(loc/32);
-      unsigned tmpReg = GuardsReg;
-      uint32_t or_bitmask = 1 << (loc%32);
-      // load from stack slot
-      MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
-            TII->get(Patmos::LWC), tmpReg))
-        .addFrameIndex(fi).addImm(0); // address
-      TRI->eliminateFrameIndex(loadMI, 0, 3);
-      // clear bit on first definition (unconditionally)
-      if (R.isFirstDef(&MBB, r)) {
-        // R &= ~(1 << loc)
-        AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::ANDl), tmpReg))
-          .addReg(tmpReg).addImm( ~or_bitmask );
-        InsertedInstrs++; // STATISTIC
-      }
-      // FIXME use new instruction for next two steps
-      // compute combined predicate (guard && condition)
+  MachineInstr *DefMI;
+  if (isMultiDef) {
+    // if this is the first definition, we unconditionally need to
+    // initialize it to false
+    // we can skip this, if use_preg=true anyway
+    if (isFirstDef && (guard != Patmos::P0)) {
+      // the PCLR instruction must not be predicated
       AddDefaultPred(BuildMI(MBB, MI, DL,
-            TII->get(Patmos::PAND), PRTmp))
-        .addReg(use_preg).addImm(0) // guard
-        .addOperand(Cond[0]).addOperand(Cond[1]); // condition
-      // set bit
-      // if (guard && cond) R |= (1 << loc)
-      unsigned or_opcode = (isUInt<12>(or_bitmask))? Patmos::ORi : Patmos::ORl;
-      BuildMI(MBB, MI, DL, TII->get(or_opcode), tmpReg)
-        .addReg(PRTmp).addImm(0) // if (guard && cond) == true
-        .addReg(tmpReg)
-        .addImm( or_bitmask );
-      // store back to stack slot
-      MachineInstr *storeMI = AddDefaultPred(BuildMI(MBB, MI, DL,
-            TII->get(Patmos::SWC)))
-        .addFrameIndex(fi).addImm(0) // address
-        .addReg(tmpReg);
-      TRI->eliminateFrameIndex(storeMI, 0, 2);
-      InsertedInstrs += 4; // STATISTIC
+            TII->get(Patmos::PCLR), AvailPredRegs[regloc]));
+      InsertedInstrs++; // STATISTIC
+    }
+    DefMI = BuildMI(MBB, MI, DL,
+        TII->get(Patmos::PMOV), AvailPredRegs[regloc])
+      .addReg(guard).addImm(0) // guard operand
+      .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+    InsertedInstrs++; // STATISTIC
+  } else {
+    // the PAND instruction must not be predicated
+    DefMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+          TII->get(Patmos::PAND), AvailPredRegs[regloc]))
+      .addReg(guard).addImm(0) // current guard as source
+      .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+    InsertedInstrs++; // STATISTIC
+  }
+
+  // remember this instruction if it has to be the last one
+  if (guard == AvailPredRegs[regloc]) {
+    DefUseGuardInsts.push_back(DefMI);
+  }
+}
+
+void PatmosSPReduce::
+insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
+                    const SmallVectorImpl<MachineOperand> &Cond,
+                    bool isFirstDef) {
+
+  // insert the predicate definitions before any branch at the MBB end
+  MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
+  DebugLoc DL(MI->getDebugLoc());
+
+  // The definition location of the predicate is a spill location.
+  int fi = PMFI->getSinglePathExcessSpillFI(stloc / 32);
+  unsigned tmpReg = GuardsReg;
+  uint32_t or_bitmask = 1 << (stloc % 32);
+
+  // load from stack slot
+  MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::LWC), tmpReg))
+    .addFrameIndex(fi).addImm(0); // address
+  TRI->eliminateFrameIndex(loadMI, 0, 3);
+  // clear bit on first definition (unconditionally)
+  if (isFirstDef) {
+    // R &= ~(1 << loc)
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::ANDl), tmpReg))
+      .addReg(tmpReg).addImm( ~or_bitmask );
+    InsertedInstrs++; // STATISTIC
+  }
+  // FIXME use new instruction for next two steps
+  // compute combined predicate (guard && condition)
+  AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::PAND), PRTmp))
+    .addReg(guard).addImm(0) // guard
+    .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+  // set bit
+  // if (guard && cond) R |= (1 << loc)
+  unsigned or_opcode = (isUInt<12>(or_bitmask)) ? Patmos::ORi : Patmos::ORl;
+  BuildMI(MBB, MI, DL, TII->get(or_opcode), tmpReg)
+    .addReg(PRTmp).addImm(0) // if (guard && cond) == true
+    .addReg(tmpReg)
+    .addImm(or_bitmask);
+  // store back to stack slot
+  MachineInstr *storeMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::SWC)))
+    .addFrameIndex(fi).addImm(0) // address
+    .addReg(tmpReg);
+  TRI->eliminateFrameIndex(storeMI, 0, 2);
+  InsertedInstrs += 4; // STATISTIC
+}
+
+
+
+void PatmosSPReduce::moveDefUseGuardInstsToEnd(void) {
+  DEBUG( dbgs() << " Moving DefUse instrs to MBB end\n" );
+  // Move definitions of the currently in use predicate to the end of their MBB
+  for (unsigned i = 0; i < DefUseGuardInsts.size(); i++) {
+    MachineInstr *DefUseMI = DefUseGuardInsts[i];
+    // get containing MBB
+    MachineBasicBlock *MBB = DefUseMI->getParent();
+    // the first branch at the end of MBB
+    MachineBasicBlock::iterator MI = MBB->getFirstTerminator();
+    // if it is not the last instruction, make it the last
+    if (static_cast<MachineInstr*>(prior(MI)) != DefUseMI) {
+      MBB->splice(MI, MBB, DefUseMI);
+
+      DEBUG( dbgs() << "   in MBB#" << MBB->getNumber() << ": ";
+             DefUseMI->dump() );
     }
   }
+  DefUseGuardInsts.clear();
+}
 
-  // We have seen a definition of the currently in use predicate,
-  // let's move this right to the end
-  if (DefUseMI && !(static_cast<MachineInstr*>(prior(MI))==DefUseMI)) {
-    MBB.splice(MI, &MBB, DefUseMI);
-  }
+
+void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
+  DEBUG( dbgs() << " Fixing up kill flags of conditions\n" );
+
+  for (std::map<MachineBasicBlock *, MachineOperand>::iterator
+        I = KilledCondRegs.begin(), E = KilledCondRegs.end(); I != E; ++I) {
+
+    MachineBasicBlock *MBB = (*I).first;
+    MachineOperand CondReg = (*I).second;
+
+    MachineBasicBlock::iterator firstTI = MBB->getFirstTerminator();
+
+    // restore kill flag at the last use
+    // To this end, we search the instruction in which it was last used.
+    for (MachineBasicBlock::iterator lastMI = prior(firstTI),
+        firstMI = MBB->begin();
+        lastMI != firstMI; --lastMI) {
+      MachineOperand *MO;
+      if ((MO = lastMI->findRegisterUseOperand(CondReg.getReg())) != NULL) {
+        MO->setIsKill(true);
+        DEBUG( dbgs() << "   in MBB#" << MBB->getNumber() << ": ";
+               lastMI->dump() );
+        break;
+      }
+    } // end of search
+
+  } // end for all elements in KilledCondRegs
+  KilledCondRegs.clear();
 }
 
 
@@ -889,7 +1031,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
       insertUseSpillLoad(R, MBB);
     }
 
-    // if this is a reachable function, we nead to get the
+    // if this is a reachable function, we need to get the
     // top-level predicate from the caller
     if (S->isTopLevel() && !S->isRootTopLevel() && S->isHeader(MBB)) {
       AddDefaultPred(BuildMI(*MBB, &MBB->front(),
@@ -1062,11 +1204,11 @@ void RAInfo::createLiveRanges(void) {
     // insert use
     LRs[Scope->getPredUse(MBB)].addUse(i);
     // insert defs
-    const PredDefInfo *DI = Scope->getDefInfo(MBB);
+    const SPScope::PredDefInfo *DI = Scope->getDefInfo(MBB);
     if (DI) {
-      for (int r = DI->getBoth().find_first(); r != -1;
-          r = DI->getBoth().find_next(r)) {
-        LRs[r].addDef(i);
+      for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
+          pi != pe; ++pi) {
+        LRs[pi->first].addDef(i);
       }
     }
   }
@@ -1162,13 +1304,12 @@ void RAInfo::assignLocations(void) {
     //     if we need to get new locations for predicates (loc==-1),
     //     assign new ones in nearest-next-use order
     //     FIXME handle live-out predicates from loops
-    const PredDefInfo *DI = Scope->getDefInfo(MBB);
+    const SPScope::PredDefInfo *DI = Scope->getDefInfo(MBB);
     if (DI) {
-      assert( !Scope->isSubHeader(MBB) &&
-          "cannot handle live-out predicates yet");
       std::vector<unsigned> order;
-      for (int r = DI->getBoth().find_first(); r != -1;
-          r = DI->getBoth().find_next(r)) {
+      for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
+          pi != pe; ++pi) {
+        int r = pi->first;
         if (curLocs[r] == -1) {
           // need to get a new loc for predicate r
           order.push_back(r);

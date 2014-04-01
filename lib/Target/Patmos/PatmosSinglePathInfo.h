@@ -48,7 +48,7 @@ namespace llvm {
   // forward decl
   class SPScope;
   class SPScopeWalker;
-  class PredDefInfo;
+
   template <> struct GraphTraits<SPScope*>;
 
   /// PatmosSinglePathInfo - Single-Path analysis pass
@@ -64,6 +64,8 @@ namespace llvm {
       /// Root SPScope
       SPScope *Root;
 
+      /// Map MBBs to their innermost scopes
+      std::map<const MachineBasicBlock *, SPScope *> MBBScopeMap;
 
       /// Analyze a given MachineFunction
       void analyzeFunction(MachineFunction &MF);
@@ -71,7 +73,7 @@ namespace llvm {
       /// createSPScopeTree - Create an SPScope tree, return the root scope.
       /// The tree needs to be destroyed by the client,
       /// by deleting the root scope.
-      SPScope *createSPScopeTree(MachineFunction &MF) const;
+      SPScope *createSPScopeTree(MachineFunction &MF);
 
 
     public:
@@ -132,46 +134,15 @@ namespace llvm {
       /// getRootScope - Return the Root SPScope for this function
       SPScope *getRootScope() const { return Root; }
 
+      /// getScopeFor - Return the innermost scope of an MBB
+      SPScope *getScopeFor(const MachineBasicBlock *MBB) const;
+
       /// walkRoot - Walk the top-level SPScope
       void walkRoot(SPScopeWalker &walker) const;
   };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-/// PredDefInfo - Class containing predicate definition information
-/// of one MachineBasicBlock.
-/// Instances for MBBs are stored in the PredDefs map.
-  class PredDefInfo {
-    private:
-      BitVector TrueEdge;
-      BitVector FalseEdge;
-      const MachineBasicBlock *TBB;
-      const SmallVector<MachineOperand, 2> Cond;
-    public:
-      PredDefInfo(unsigned num_preds, const MachineBasicBlock *tbb,
-          const SmallVector<MachineOperand, 2> &cond)
-        : TBB(tbb), Cond(cond) {
-          TrueEdge  = BitVector(num_preds);
-          FalseEdge = BitVector(num_preds);
-        }
-      bool isTrueDest(const MachineBasicBlock *MBBDst) const {
-        return MBBDst == TBB;
-      }
-      void define(unsigned pred, const MachineBasicBlock *MBBDst) {
-        BitVector &bv = (MBBDst == TBB) ? TrueEdge : FalseEdge;
-        bv.set(pred);
-      }
-      const BitVector &getTrue() const { return TrueEdge; }
-      const BitVector &getFalse() const { return FalseEdge; }
-      const BitVector getBoth() const {
-        BitVector both(TrueEdge);
-        both |= FalseEdge;
-        return both;
-      }
-      const SmallVector<MachineOperand, 2> &getCond() const { return Cond; }
-  };
-
-///////////////////////////////////////////////////////////////////////////////
 
   class SPScope {
     friend class PatmosSinglePathInfo;
@@ -188,8 +159,24 @@ namespace llvm {
       typedef std::pair<const MachineBasicBlock *,
                         const MachineBasicBlock *> Edge;
 
+      /// PredDefInfo - Class containing predicate definition information
+      /// of one MachineBasicBlock.
+      /// Instances for MBBs are stored in the PredDefs map.
+      class PredDefInfo {
+        private:
+          typedef std::vector<std::pair<unsigned, Edge> > PredEdgeList;
+          PredEdgeList Defs;
+        public:
+          typedef PredEdgeList::const_iterator iterator;
+          void define(unsigned pred, const Edge e) {
+            Defs.push_back(std::make_pair(pred, e));
+          }
+          iterator begin() const { return Defs.begin(); }
+          iterator end() const { return Defs.end(); }
+      };
+
       /// Node - a node used internally in the scope to construct a forward CFG
-      //  of the scope MBBs
+      /// of the scope MBBs
       class Node {
         public:
           typedef std::vector<Node*>::iterator child_iterator;
@@ -228,9 +215,7 @@ namespace llvm {
       /// @param entry            The entry MBB;
       /// @param isRootTopLevel   True when this scope is a top level scope of
       ///                         a single-path root function.
-      explicit SPScope(MachineBasicBlock *entry, bool isRootTopLevel,
-                       const TargetInstrInfo &tii);
-
+      explicit SPScope(MachineBasicBlock *entry, bool isRootTopLevel);
 
       /// constructor - Create a loop SPScope
       explicit SPScope(SPScope *parent, MachineLoop &loop);
@@ -363,9 +348,7 @@ namespace llvm {
       // parent SPScope
       SPScope *Parent;
 
-      // TII for AnalyzeBranch (to get True/False edge, Condition)
-      const TargetInstrInfo &TII;
-
+      // local foward CFG
       FCFG FCFG;
 
       // loop latches
