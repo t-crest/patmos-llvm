@@ -58,7 +58,7 @@ if __FILE__ == $0
     Similar to pkg-config, this tool writes the arguments to be passed to $stdout. It uses
     architecture specific implementations, and is typically used like this:
 
-      patmos-clang $(platin pkg-config -t clang -i config.pml -o llvm.pml) -o myprogram myprogram.c
+      patmos-clang $(platin tool-config -t clang -i config.pml -o llvm.pml) -o myprogram myprogram.c
 
     Supported Tools: clang, simulator
   EOF
