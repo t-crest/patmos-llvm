@@ -383,13 +383,6 @@ void PMLMachineExport::serialize(MachineFunction &MF)
       Loop = Loop->getParentLoop();
     }
 
-    // export instruction and branch Information
-    MachineBasicBlock *TrueSucc = 0, *FalseSucc = 0;
-    SmallVector<MachineOperand, 4> Conditions;
-    const TargetInstrInfo *TII = TM.getInstrInfo();
-    bool HasBranchInfo = !TII->AnalyzeBranch(*BB, TrueSucc, FalseSucc,
-        Conditions, false);
-
     unsigned Index = 0;
     bool IsBundled = false;
     for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
@@ -409,8 +402,7 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 
       yaml::MachineInstruction *I = B->addInstruction(
           new yaml::MachineInstruction(Index++));
-      exportInstruction(MF, I, Ins, IsBundled, Conditions, HasBranchInfo,
-                        TrueSucc, FalseSucc);
+      exportInstruction(MF, I, Ins, IsBundled);
 
       IsBundled = true;
     }
@@ -440,10 +432,7 @@ void PMLMachineExport::printDesc(raw_ostream &os, const MachineInstr *Instr)
 
 void PMLMachineExport::
 exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
-                  const MachineInstr *Ins, bool BundledWithPred,
-                  SmallVector<MachineOperand, 4> &Conditions,
-                  bool HasBranchInfo, MachineBasicBlock *TrueSucc,
-                  MachineBasicBlock *FalseSucc)
+                  const MachineInstr *Ins, bool BundledWithPred)
 {
   std::string s;
   raw_string_ostream ss(s);
@@ -463,8 +452,7 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   } else if (Ins->getDesc().isReturn()) {
     I->BranchType = yaml::branch_return;
   } else if (Ins->getDesc().isBranch()) {
-    exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
-                            TrueSucc, FalseSucc);
+    exportBranchInstruction(MF, I, Ins);
   } else if (!Ins->isInlineAsm()) {
     if (Ins->getDesc().mayLoad()) {
       I->MemMode = yaml::memmode_load;
@@ -499,29 +487,13 @@ exportCallInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
 void PMLMachineExport::
 exportBranchInstruction(MachineFunction &MF,
                         yaml::MachineInstruction *I,
-                        const MachineInstr *Ins,
-                        SmallVector<MachineOperand, 4> &Conditions,
-                        bool HasBranchInfo, MachineBasicBlock *TrueSucc,
-                        MachineBasicBlock *FalseSucc)
+                        const MachineInstr *Ins)
 {
-  // Should we check the PMLInstrInfo for branch targets?
-  bool LookupBranchTargets = true;
-
   if (Ins->getDesc().isConditionalBranch()) {
     I->BranchType = yaml::branch_conditional;
-    if (HasBranchInfo && TrueSucc) {
-      I->BranchTargets.push_back(yaml::Name(TrueSucc->getNumber()));
-      LookupBranchTargets = false;
-    }
   }
   else if (Ins->getDesc().isUnconditionalBranch()) {
     I->BranchType = yaml::branch_unconditional;
-    MachineBasicBlock *USucc =
-        Conditions.empty() ? TrueSucc : FalseSucc;
-    if (HasBranchInfo && USucc) {
-      I->BranchTargets.push_back(yaml::Name(USucc->getNumber()));
-      LookupBranchTargets = false;
-    }
   }
   else if (Ins->getDesc().isIndirectBranch()) {
     I->BranchType = yaml::branch_indirect;
@@ -530,14 +502,12 @@ exportBranchInstruction(MachineFunction &MF,
     I->BranchType = yaml::branch_any;
   }
 
-  if (LookupBranchTargets) {
-    typedef const std::vector<MachineBasicBlock*> BTVector;
-    const BTVector& targets = PII->getBranchTargets(MF, Ins);
+  typedef const std::vector<MachineBasicBlock*> BTVector;
+  const BTVector& targets = PII->getBranchTargets(MF, Ins);
 
-    for (BTVector::const_iterator it = targets.begin(),ie=targets.end();
-          it != ie; ++it) {
-      I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
-    }
+  for (BTVector::const_iterator it = targets.begin(),ie=targets.end();
+       it != ie; ++it) {
+    I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
   }
 }
 
