@@ -708,6 +708,9 @@ unsigned int PatmosInstrInfo::getInstrSize(const MachineInstr *MI) const {
     }
     return Size;
   }
+  else if (MI->isPseudo()) {
+    return 0;
+  }
   else {
     // trust the desc..
     return MI->getDesc().getSize();

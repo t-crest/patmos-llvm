@@ -1794,6 +1794,7 @@ namespace llvm {
       return alignSize + branch_fixups;
     }
 
+    /// Get the size of the delay slot of an instruction in bytes.
     static unsigned int getDelaySlotSize(MachineBasicBlock *MBB,
                                          MachineInstr *MI,
                                          PatmosTargetMachine &PTM)
