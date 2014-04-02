@@ -134,18 +134,31 @@ class Architecture < PML::Architecture
 
   def path_wcet(ilist)
     # puts ilist.first.inspect unless ilist.empty?
-    ilist.reduce(0) do |cycles, instr|
+    cost = ilist.reduce(0) do |cycles, instr|
       flushes = 0
-      brtype = instr.branch_type
-      if brtype && instr.delay_slots == 0
-        if brtype == 'call' || brtype == 'return' || instr.opcode.start_with?('BRCF')
+      if instr.delay_slots == 0
+        if instr.branch_type == 'call'
           flushes = 3
-        else          
-          flushes = 2
         end
       end
       cycles + (instr.bundled? ? 0 : 1) + flushes
     end
+    cost
+  end
+
+  def edge_wcet(ilist,index,edge)
+    cost = 0
+    if index
+      instr = ilist[index]
+      if instr.delay_slots == 0
+        if instr.branch_type == 'return' || instr.opcode.start_with?('BRCF')
+          cost = 3
+        else
+          cost = 2
+        end
+      end
+    end
+    cost
   end
 
   def config_for_apx(options)

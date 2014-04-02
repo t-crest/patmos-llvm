@@ -61,12 +61,12 @@ class WCA
     # Build IPET using costs from @pml.arch
     builder.build(entry, flowfacts) do |edge|
       # get list of executed instructions
+      branch_index = nil
       ilist =
         if (edge.kind_of?(Block))
           edge.instructions
         else
           src = edge.source
-          branch_index = nil
           src.instructions.each_with_index { |ins,ix|
             if ins.returns? && edge.target == :exit
               branch_index = ix # last instruction that returns
@@ -74,13 +74,23 @@ class WCA
               branch_index = ix # last instruction that branches to the target
             end
           }
-          if ! branch_index || (src.fallthrough_successor == edge.target)
+          if ! branch_index
             src.instructions
           else
-            src.instructions[0..(branch_index+src.instructions[branch_index].delay_slots)]
+            slots = src.instructions[branch_index].delay_slots
+            slot_end = branch_index
+            instr = src.instructions[slot_end+1]
+            while slots > 0 || (instr && instr.bundled?)
+              if ! instr.bundled?
+                slots = slots - 1
+              end
+              slot_end = slot_end + 1
+              instr = src.instructions[slot_end+1]
+            end
+            src.instructions[0..slot_end]
           end
         end
-      @pml.arch.path_wcet(src.instructions)
+      @pml.arch.path_wcet(ilist) + @pml.arch.edge_wcet(ilist,branch_index,edge)
     end
 
     # run cache analyses

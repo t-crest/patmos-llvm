@@ -416,8 +416,8 @@ class IPETBuilder
           call_edges = @mc_model.add_callsite(cs, @mc_model.calltargets(cs))
           call_edges.each do |ce|
             (mf_function_callers[ce.target] ||= []).push(ce)
-          @call_edges += call_edges
           end
+          @call_edges += call_edges
         end
       end
     end
