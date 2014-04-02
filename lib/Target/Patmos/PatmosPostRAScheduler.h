@@ -219,6 +219,11 @@ namespace llvm {
     ///
     virtual void schedule();
 
+    /// Observe - Update liveness information to account for the current
+    /// instruction, which will not be scheduled.
+    ///
+    void observe(MachineInstr *MI, unsigned Count);
+
     /// Change the position of an instruction within the basic block and update
     /// live ranges and region boundary iterators.
     void moveInstruction(MachineInstr *MI, MachineBasicBlock::iterator InsertPos);

@@ -33,7 +33,7 @@ public:
   typedef std::vector<std::pair<MachineInstr *, MachineInstr *> > 
     DbgValueVector;
 
-  virtual ~AntiDepBreaker();
+  virtual ~AntiDepBreaker() {}
 
   /// Start - Initialize anti-dep breaking for a new basic block.
   virtual void StartBlock(MachineBasicBlock *BB) =0;

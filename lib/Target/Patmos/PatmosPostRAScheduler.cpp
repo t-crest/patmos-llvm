@@ -179,9 +179,12 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
     // Break the block into scheduling regions [I, RegionEnd), and schedule each
     // region as soon as it is discovered. RegionEnd points the scheduling
     // boundary at the bottom of the region. The DAG does not include RegionEnd,
-    // but the region does (i.e. the next RegionEnd is above the previous
+    // but the region does (i.e. the next RegionEnd is the previous
     // RegionBegin). If the current block has no terminator then RegionEnd ==
     // MBB->end() for the bottom region.
+    // StartIndex is the index of the first instruction in the region (I).
+    // EndIndex is the index of RegionEnd, i.e., the start of the previously
+    // scheduled region.
     //
     // The Scheduler may insert instructions during either schedule() or
     // exitRegion(), even for empty regions. So the local iterators 'I' and
@@ -198,6 +201,8 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
         {
           RegionEnd = llvm::prior(RegionEnd);
           --EndIndex;
+
+          Scheduler->observe(RegionEnd, EndIndex);
         }
       }
 
@@ -353,12 +358,19 @@ void ScheduleDAGPostRA::enterRegion(MachineBasicBlock *bb,
                  unsigned endcount) {
   EndIndex = endcount;
 
-  // Call observe over the range of the previously scheduled region
-  if (AntiDepBreak != NULL && end != bb->end())
-    AntiDepBreak->Observe(end, endcount, EndIndex);
-
   ScheduleDAGInstrs::enterRegion(bb, begin, end, endcount);
 }
+
+/// Observe - Update liveness information to account for the current
+/// instruction, which will not be scheduled.
+///
+void ScheduleDAGPostRA::observe(MachineInstr *MI, unsigned Count)
+{
+  // Call observe for a skipped instruction
+  if (AntiDepBreak != NULL)
+    AntiDepBreak->Observe(MI, Count, EndIndex);
+}
+
 
 /// Schedule - Schedule the instruction range using list scheduling.
 ///
