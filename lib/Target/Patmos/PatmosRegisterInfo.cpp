@@ -408,3 +408,21 @@ bool PatmosRegisterInfo::isPReg(unsigned RegNo) const
   return Patmos::PRegsRegClass.contains(RegNo);
 }
 
+
+int PatmosRegisterInfo::getS0Index(unsigned RegNo) const
+{
+  // this might be a non-elegant way to do it, but it should be stable.
+  int res = -1;
+  switch (RegNo) {
+    case Patmos::P0: res = 0; break;
+    case Patmos::P1: res = 1; break;
+    case Patmos::P2: res = 2; break;
+    case Patmos::P3: res = 3; break;
+    case Patmos::P4: res = 4; break;
+    case Patmos::P5: res = 5; break;
+    case Patmos::P6: res = 6; break;
+    case Patmos::P7: res = 7; break;
+    default: break;
+  }
+  return res;
+}

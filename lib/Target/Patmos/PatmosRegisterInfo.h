@@ -69,6 +69,14 @@ public:
   bool isSReg(unsigned RegNo) const;
   bool isPReg(unsigned RegNo) const;
 
+  /// getS0Index - Returns the index of a given PReg in S0; -1 if RegNo is
+  /// not a PReg
+  /// e.g. getS0Index(Patmos::P0) -> 0
+  ///      getS0Index(Patmos::P1) -> 1
+  ///      getS0Index(Patmos::P2) -> 2
+  ///      getS0Index(Patmos::R9) -> -1
+  int getS0Index(unsigned RegNo) const;
+
   /// hasReservedSpillSlot - Return true if target has reserved a spill slot in
   /// the stack frame of the given function for the specified register. e.g. On
   /// x86, if the frame register is required, the first fixed stack object is

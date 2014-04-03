@@ -32,6 +32,8 @@
 
 #define DEBUG_TYPE "patmos-singlepath"
 
+#define USE_BCOPY
+
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
@@ -96,7 +98,7 @@ namespace {
     const PatmosTargetMachine &TM;
     const PatmosSubtarget &STC;
     const PatmosInstrInfo *TII;
-    const TargetRegisterInfo *TRI;
+    const PatmosRegisterInfo *TRI;
 
     // The pointer to the PatmosMachinFunctionInfo is set upon running on a
     // particular function. It contains information about stack slots for
@@ -151,6 +153,21 @@ namespace {
                              unsigned guard,
                              const SmallVectorImpl<MachineOperand> &Cond,
                              bool isFirstDef);
+
+    /// insertDefToS0SpillSlot - insert a predicate definition to a S0 spill
+    /// slot
+    /// @param MBB the machine basic block at which end the definition
+    ///            should be placed
+    /// @param slot the slot number (depth)
+    /// @param regloc the reg location (index)
+    /// @param guard the guard of MBB
+    /// @param Cond the condition which should be assigned to the predicate
+    /// @param isFirstDef true if the definition is the first definition
+    ///                   in the local scope
+    void insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot,
+                    unsigned regloc, unsigned guard,
+                    const SmallVectorImpl<MachineOperand> &Cond,
+                    bool isFirstDef);
 
     /// insertDefToRegLoc - insert a predicate definition to a predicate
     /// which is located in a physical register
@@ -230,7 +247,7 @@ namespace {
       MachineFunctionPass(ID), TM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>()),
       TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
-      TRI(tm.getRegisterInfo())
+      TRI(static_cast<const PatmosRegisterInfo*>(tm.getRegisterInfo()))
     {
       (void) TM; // silence "unused"-warning
     }
@@ -293,31 +310,33 @@ namespace {
   friend class RAInfo;
   private:
     uint64_t uses, defs;
-    unsigned len;
-    void addUse(int pos) { uses |= (1 << pos); }
-    void addDef(int pos) { defs |= (1 << pos); }
+    unsigned long len;
+    void addUse(long pos) { uses |= (1LL << pos); }
+    void addDef(long pos) { defs |= (1LL << pos); }
   public:
-    LiveRange(unsigned length) : uses(0), defs(0), len(length) {
+    LiveRange(unsigned long length) : uses(0), defs(0), len(length) {
       assert(length <= 64 && "Not yet implemented");
     }
-    bool isUse(int pos) const { return uses & (1 << pos); }
-    bool isDef(int pos) const { return defs & (1 << pos); }
-    bool lastUse(int pos) const { return (uses >> (pos+1)) == 0; }
-    bool hasDefBefore(int pos) const { return (defs & ((1 << pos)-1)) != 0; }
-    bool pastFirstUse(int pos) const {
-      return (uses & ((1 << (pos+1))-1)) != 0;
+    bool isUse(long pos) const { return uses & (1LL << pos); }
+    bool isDef(long pos) const { return defs & (1LL << pos); }
+    bool lastUse(long pos) const { return (uses >> (pos+1LL)) == 0; }
+    bool hasDefBefore(long pos) const {
+      return (defs & ((1LL << pos)-1LL)) != 0;
     }
-    bool hasNextUseBefore(int pos, const LiveRange &other) const {
+    bool pastFirstUse(long pos) const {
+      return (uses & ((1LL << (pos+1LL))-1LL)) != 0;
+    }
+    bool hasNextUseBefore(long pos, const LiveRange &other) const {
       return llvm::countTrailingZeros<uint64_t>(uses >> pos)
                 < llvm::countTrailingZeros<uint64_t>(other.uses >> pos);
     }
     std::string str(void) const {
       std::stringbuf buf;
       char kind[] = { '-', 'u', 'd', 'x' };
-      for (unsigned i=0; i<len; i++) {
+      for (unsigned long i = 0; i < len; i++) {
         int x = 0;
-        if (uses & (1 << i)) x += 1;
-        if (defs & (1 << i)) x += 2;
+        if (uses & (1LL << i)) x += 1;
+        if (defs & (1LL << i)) x += 2;
         buf.sputc(kind[x]);
       }
       return buf.str();
@@ -350,6 +369,7 @@ namespace {
                         //   this is the offset to the available registers
                SpillOffset,   // Starting offset for this scope's spill locations
                LoopCntOffset; // Loop counter stack location offset
+
       // UseLoc - Record to hold predicate use information for a MBB
       // - loc:   which location to use (a register)
       // - spill: where to spill loc first (spill location)
@@ -768,18 +788,23 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
                                    unsigned pred, const SPScope::Edge e) {
 
-  RAInfo &R = RAInfos.at(S); // local scope of definitions
+  // if Node is not a subheader, then it must be the source of the edge
+  assert(S->isSubHeader(&Node) || (e.first == &Node));
 
   // the MBB we need to insert the defining instruction is the edge source
   MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(e.first);
+
+  RAInfo &R = RAInfos.at(S); // local scope of definitions
+  // inner scope
+  RAInfo &RI = !S->isSubHeader(&Node) ? R
+                                      : RAInfos.at(PSPI->getScopeFor(SrcMBB));
+
 
   SmallVector<MachineOperand, 2> Cond;
   getEdgeCondition(e, Cond);
 
   // get the guard register for the source block
-  unsigned use_preg = getUsePReg(
-      (e.first == &Node) ? R : RAInfos.at(PSPI->getScopeFor(SrcMBB)),
-      SrcMBB, true);
+  unsigned use_preg = getUsePReg(RI, SrcMBB, true);
 
   unsigned loc;
 
@@ -787,17 +812,33 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
   // if it is a register, otherwise false. The resulting location is
   // stored in loc.
   if (R.getDefLoc(loc, pred)) {
-    if (S->isSubHeader(&Node)) {
-      // TODO get the scope of the edge source MBB, to know the guard
-      report_fatal_error("cannot handle defining subscopes yet");
+    if (!S->isSubHeader(&Node) || (!RI.needsScopeSpill())) {
+      // TODO proper condition to avoid writing to the stack slot
+      // -> the chain of scopes from outer to inner should not contain any
+      // spilling requirements (RAInfo.needsScopeSpill)
 
-    } else {
+      // FIXME assumes direct parent-child relationship, if nested
+      assert(!S->isSubHeader(&Node) || (RI.Scope->getParent() == S));
+
       // The definition location of the predicate is a physical register.
       insertDefToRegLoc(
           *SrcMBB, loc, use_preg, Cond,
           R.Scope->getNumDefEdges(pred) > 1, // isMultiDef
           R.isFirstDef(&Node, pred)           // isFirstDef
           );
+    } else {
+      // assert(there exists an inner R s.t. R.needsScopeSpill());
+      // somewhere on the path from outer to inner scope, S0 is spilled
+
+      // FIXME assumes direct parent-child relationship
+      assert(RI.Scope->getParent() == S);
+      unsigned slot = RI.Scope->getDepth()-1;
+
+      // set a bit in the appropriate S0 spill slot
+      insertDefToS0SpillSlot(
+        *SrcMBB, slot, loc, use_preg, Cond,
+        R.isFirstDef(&Node, pred)
+        );
     }
   } else {
     insertDefToStackLoc(
@@ -859,21 +900,37 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   // The definition location of the predicate is a spill location.
   int fi = PMFI->getSinglePathExcessSpillFI(stloc / 32);
   unsigned tmpReg = GuardsReg;
-  uint32_t or_bitmask = 1 << (stloc % 32);
+  unsigned bitpos = stloc % 32;
 
   // load from stack slot
   MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
         TII->get(Patmos::LWC), tmpReg))
     .addFrameIndex(fi).addImm(0); // address
   TRI->eliminateFrameIndex(loadMI, 0, 3);
+
+#ifdef USE_BCOPY
   // clear bit on first definition (unconditionally)
+  if (isFirstDef) {
+    // bcopy R, bitpos, !P0
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg))
+      .addImm(bitpos)
+      .addReg(Patmos::P0).addImm(-1);
+    InsertedInstrs++; // STATISTIC
+  }
+  // (guard) bcopy R, bitpos, Cond
+  BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg)
+    .addReg(guard).addImm(0) // guard
+    .addImm(bitpos)
+    .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+#else
+  // clear bit on first definition (unconditionally)
+  uint32_t or_bitmask = 1 << bitpos;
   if (isFirstDef) {
     // R &= ~(1 << loc)
     AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::ANDl), tmpReg))
       .addReg(tmpReg).addImm( ~or_bitmask );
     InsertedInstrs++; // STATISTIC
   }
-  // FIXME use new instruction for next two steps
   // compute combined predicate (guard && condition)
   AddDefaultPred(BuildMI(MBB, MI, DL,
         TII->get(Patmos::PAND), PRTmp))
@@ -886,6 +943,7 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
     .addReg(PRTmp).addImm(0) // if (guard && cond) == true
     .addReg(tmpReg)
     .addImm(or_bitmask);
+#endif
   // store back to stack slot
   MachineInstr *storeMI = AddDefaultPred(BuildMI(MBB, MI, DL,
         TII->get(Patmos::SWC)))
@@ -895,6 +953,77 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   InsertedInstrs += 4; // STATISTIC
 }
 
+
+void PatmosSPReduce::
+insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
+                       unsigned guard,
+                       const SmallVectorImpl<MachineOperand> &Cond,
+                       bool isFirstDef) {
+
+  // insert the predicate definitions before any branch at the MBB end
+  MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
+  DebugLoc DL(MI->getDebugLoc());
+
+  int fi = PMFI->getSinglePathS0SpillFI(slot);
+  unsigned tmpReg = GuardsReg;
+  int bitpos = TRI->getS0Index(AvailPredRegs[regloc]);
+  assert(bitpos > 0);
+
+  // load from stack slot
+  MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::LBC), tmpReg))
+    .addFrameIndex(fi).addImm(0); // address
+  TRI->eliminateFrameIndex(loadMI, 0, 3);
+  InsertedInstrs++; // STATISTIC
+
+#ifdef USE_BCOPY
+  // clear bit on first definition (unconditionally)
+  if (isFirstDef) {
+    // bcopy R, bitpos, !P0
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg))
+      .addImm(bitpos)
+      .addReg(Patmos::P0).addImm(-1);
+    InsertedInstrs++; // STATISTIC
+  }
+  // (guard) bcopy R, bitpos, Cond
+  BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg)
+    .addReg(guard).addImm(0) // guard
+    .addImm(bitpos)
+    .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+  InsertedInstrs++; // STATISTIC
+#else
+  // clear bit on first definition (unconditionally)
+  uint32_t or_bitmask = 1 << bitpos;
+  if (isFirstDef) {
+    // R &= ~(1 << loc)
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::ANDl), tmpReg))
+      .addReg(tmpReg).addImm( ~or_bitmask );
+    InsertedInstrs++; // STATISTIC
+  }
+  // compute combined predicate (guard && condition)
+  AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::PAND), PRTmp))
+    .addReg(guard).addImm(0) // guard
+    .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+  InsertedInstrs++; // STATISTIC
+  // set bit
+  // if (guard && cond) R |= (1 << loc)
+  unsigned or_opcode = (isUInt<12>(or_bitmask)) ? Patmos::ORi : Patmos::ORl;
+  assert(or_opcode == Patmos::ORi); // for S0 indexing
+  BuildMI(MBB, MI, DL, TII->get(or_opcode), tmpReg)
+    .addReg(PRTmp).addImm(0) // if (guard && cond) == true
+    .addReg(tmpReg)
+    .addImm(or_bitmask);
+  InsertedInstrs++; // STATISTIC
+#endif
+  // store back to stack slot
+  MachineInstr *storeMI = AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::SBC)))
+    .addFrameIndex(fi).addImm(0) // address
+    .addReg(tmpReg);
+  TRI->eliminateFrameIndex(storeMI, 0, 2);
+  InsertedInstrs++; // STATISTIC
+}
 
 
 void PatmosSPReduce::moveDefUseGuardInstsToEnd(void) {
@@ -1199,6 +1328,10 @@ bool PatmosSPReduce::hasLiveOutPReg(const SPScope *S) const {
 
 void RAInfo::createLiveRanges(void) {
   // create live range infomation for each predicate
+  DEBUG(dbgs() << " Create live-ranges for [MBB#"
+               << Scope->getHeader()->getNumber() << "]\n");
+
+
   for (unsigned i=0, e=MBBs.size(); i<e; i++) {
     MachineBasicBlock *MBB = MBBs[i];
     // insert use
@@ -1220,11 +1353,16 @@ void RAInfo::createLiveRanges(void) {
 
 
 void RAInfo::assignLocations(void) {
+  DEBUG(dbgs() << " Assign locations for [MBB#"
+               << Scope->getHeader()->getNumber() << "]\n");
+
   // vector to keep track of locations during the scan
   std::vector<int> curLocs(Scope->getNumPredicates(),-1);
 
   for (unsigned i=0, e=MBBs.size(); i<e; i++) {
     MachineBasicBlock *MBB = MBBs[i];
+
+    DEBUG( dbgs() << "  MBB#" << MBB->getNumber() << ": " );
 
     // (1) handle use
     unsigned usePred = Scope->getPredUse(MBB);
@@ -1234,18 +1372,13 @@ void RAInfo::assignLocations(void) {
       UseLoc UL;
 
       int &curUseLoc = curLocs[usePred];
+      DEBUG( dbgs() << "use " << usePred << " in loc " << curUseLoc << ", ");
 
-      assert( MBB == Scope->getHeader() || i>0 );
+      assert(MBB == Scope->getHeader() || i>0);
 
-      if ( MBB != Scope->getHeader() ) {
+      if (MBB != Scope->getHeader()) {
         // each use must be preceded by a location assignment
-        if ( curUseLoc < 0 ) {
-          DEBUG( dbgs() << "RegAlloc: Current MBB#" << MBB->getNumber()
-                    << " with pred " << usePred
-                    << " is used but not located!\n" );
-          DEBUG( MBB->getParent()->viewCFGOnly() );
-        }
-        assert( curUseLoc >= 0 );
+        assert(curUseLoc >= 0);
         // if previous location was not a register, we have to allocate
         // a register and/or possibly spill
         if ( curUseLoc >= (int)NumColors ) {
@@ -1292,18 +1425,22 @@ void RAInfo::assignLocations(void) {
         assert(UL.loc == 0);
       }
 
+      DEBUG( dbgs() << "new " << curUseLoc << ". ");
+
       // (2) retire locations
       if (LRs[usePred].lastUse(i)) {
         freeLoc( curUseLoc );
         curUseLoc = -1;
+        DEBUG(dbgs() << "retire. ");
       }
+
+      // store info
       UseLocs[MBB] = UL;
     }
 
     // (3) handle definitions in this basic block.
     //     if we need to get new locations for predicates (loc==-1),
     //     assign new ones in nearest-next-use order
-    //     FIXME handle live-out predicates from loops
     const SPScope::PredDefInfo *DI = Scope->getDefInfo(MBB);
     if (DI) {
       std::vector<unsigned> order;
@@ -1321,22 +1458,27 @@ void RAInfo::assignLocations(void) {
       for (unsigned j=0; j<order.size(); j++) {
         unsigned pred = order[j];
         curLocs[pred] = DefLocs[pred] = getLoc();
+        assert(curLocs[pred] == DefLocs[pred]);
+        DEBUG( dbgs() << "def " << pred << " in loc "
+                      << DefLocs[pred] << ", ");
       }
     }
 
-    //for (unsigned j=0; j<curLocs.size(); j++) {
-    //  DEBUG( dbgs() << " " << curLocs[j] );
-    //}
-  }
+    DEBUG(dbgs() << "\n");
+  } // end of forall MBB
 
   // What is the location of the header predicate after handling all blocks?
   // We store this location, as it is where the next iteration has to get it
   // from (if different from its use location)
-  UseLoc &ul = UseLocs[Scope->getHeader()];
-  if (ul.loc != curLocs[0]) {
-    ul.load = curLocs[0];
+  if (!Scope->isTopLevel()) {
+    UseLoc &ul = UseLocs[Scope->getHeader()];
+    if (ul.loc != curLocs[0]) {
+      ul.load = curLocs[0];
+      // FIXME need to handle this in the back-branch block
+      // case distinction for stack/reg loc?
+      assert(0);
+    }
   }
-
 }
 
 
