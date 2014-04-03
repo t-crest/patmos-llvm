@@ -1800,6 +1800,7 @@ namespace llvm {
                                          PatmosTargetMachine &PTM)
     {
       int cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(MI);
+      const PatmosInstrInfo *PII = PTM.getInstrInfo();
 
       unsigned bytes = 0;
 
@@ -1807,8 +1808,9 @@ namespace llvm {
       for (; cycles > 0; ) {
         it++;
         assert(it != MBB->end() && "Reached end of MBB before end of delay slot");
+        assert(!it->isInlineAsm() && "Inline asm should not be in delay slot");
 
-        if (!it->isDebugValue()) {
+        if (!PII->isPseudo(it)) {
           bytes += getInstrSize(it, PTM);
           --cycles;
         }
