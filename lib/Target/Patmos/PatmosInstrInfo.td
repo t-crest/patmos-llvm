@@ -447,12 +447,6 @@ let isTerminator=1, isBranch=1, hasDelaySlot=0, ImmSigned=1 in {
 //===----------------------------------------------------------------------===//
 
 let isCall=1, hasDelaySlot=1, mayStall=1,
-  // All implicit defs must also be implicitly used. This is to avoid having calls 
-  // split the live range of registers used in the delay slot of the call, as this
-  // would cause issues with the anti-dep breaker and already-scheduled regions.
-  Uses = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
-          R17, R18, R19, R20,
-          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15],
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
@@ -468,12 +462,6 @@ let isCall=1, hasDelaySlot=1, mayStall=1,
 }
 
 let isCall=1, hasDelaySlot=0, mayStall=1,
-  // All implicit defs must also be implicitly used. This is to avoid having calls 
-  // split the live range of registers used in the delay slot of the call, as this
-  // would cause issues with the anti-dep breaker and already-scheduled regions.
-  Uses = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
-          R17, R18, R19, R20,
-          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15],
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
@@ -509,12 +497,6 @@ let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=0, mayStall=1,
 }
 
 let isCall=1, hasDelaySlot=0,
-  // All implicit defs must also be implicitly used. This is to avoid having calls 
-  // split the live range of registers used in the delay slot of the call, as this
-  // would cause issues with the anti-dep breaker and already-scheduled regions.
-  Uses = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
-          R17, R18, R19, R20,
-          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15],
   // Traps are like calls and may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
