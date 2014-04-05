@@ -10,10 +10,15 @@ include PML
 
 class FFXExportTool
 
+  # TODO There should be a common base class to the FFXExportTool and AISExportTool, providing helper-methods for the
+  #      disable-export option and the actual export.
+
   FF_EXPORT_TYPES = %w{jumptables loop-bounds symbolic-loop-bounds flow-constraints infeasible-code call-targets mem-addresses stack-cache}
 
   def FFXExportTool.add_config_options(opts)
-    opts.on("--ff-format FORMAT", "Export flow-facts using F4 or FFX (default=ffx)") { |format| opts.options.ff_format = format } 
+    # TODO should we name the options --ffx-* to be consistent with the tool name and to distinguish from the SWEET ff format,
+    #      or should we keep them as --ff to avoid confusion with F4 export ??
+    opts.on("--ffx", "Export flow-facts using F4 instead of FFX") { |d| opts.options.export_ffx = true } 
     opts.on("--ff-input FILE", "the F4/FFX file is merged into the final F4/FFX file. Needs to be the same format as the output format") { |file|
       opts.option.ff_input = file
     }
@@ -61,7 +66,7 @@ class FFXExportTool
     options.ff_disable_export = Set.new unless options.ff_disable_export
 
     File.open(options.ff_file, "w") { |outfile|
-      if options.ff_format == "ffx"
+      if options.export_ffx
 	ffx = FFXExporter.new(pml, options)
       else
 	ffx = F4Exporter.new(pml, outfile, options)
@@ -94,8 +99,8 @@ class FFXExportTool
         }
       end
 
-      if options.ff_format == "ffx"
-	ffx.write(outfile)
+      if options.export_ffx
+        ffx.write(outfile)
       end
 
       statistics("F4/FFX",
@@ -111,26 +116,27 @@ class OSXExportTool
   def OSXExportTool.add_options(opts, mandatory=true)
     opts.analysis_entry
 
-    opts.osx_memory_file(mandatory)
+    opts.otawa_platform_file(mandatory)
 
     opts.add_check { |options|
-      die_usage "No OSX memory file specified." if mandatory && ! options.osx_memory_file
+      die_usage "No OTAWA platform description file specified." if mandatory && ! options.otawa_platform_file
     }
   end
 
   def OSXExportTool.run(pml, options)
-    needs_options(options, :osx_memory_file)
+    needs_options(options, :otawa_platform_file)
 
-    File.open(options.osx_memory_file, "w") do |fh|
-      osx_exporter = OSXExporter.new(pml, options)
-      osx_exporter.export_memory(fh)
+    osx = OSXExporter.new(pml, options)
+
+    File.open(options.otawa_platform_file, "w") do |fh|
+      osx.export_platform(fh)
     end
   end
 end
 
 if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
-Export flow information from PML as OTAWA F4/FFX file and generate OTAWA OSX configuration files.
+Export flow information from PML as OTAWA F4/FFX file and generate OTAWA OSX platform config files.
 EOF
   options, args = PML::optparse([:input], "file.pml", SYNOPSIS) do |opts|
     FFXExportTool.add_options(opts, false)
@@ -138,11 +144,15 @@ EOF
   end
   pml = PMLDoc.from_files([options.input])
 
+  if options.ff_file.nil? and options.otawa_platform_file.nil?
+    die_usage("Please speficy at least one of the F4/FF$ output file and the OSX platform file.")
+  end
+
   if options.ff_file
     FFXExportTool.run(pml, options)
   end
 
-  if options.osx_memory_file
+  if options.otawa_platform_file
     OSXExportTool.run(pml, options)
   end
 end

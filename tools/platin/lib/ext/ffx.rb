@@ -16,10 +16,6 @@ class OptionParser
     self.on("--ff FILE", "Path to F4/FFX file") { |f| options.ff_file = f }
     self.add_check { |options| die_usage "Option --ff is mandatory" unless options.ff_file } if mandatory
   end
-  def ffx_file(mandatory=true)
-    self.on("--ffx FILE", "Path to FFX file") { |f| options.ffx_file = f }
-    self.add_check { |options| die_usage "Option --ffx is mandatory" unless options.ffx_file } if mandatory
-  end
 end
 
 
@@ -215,7 +211,6 @@ class F4Exporter
     @outfile = f4_file
     @options = options
     @entry = @pml.machine_functions.by_label(@options.analysis_entry)
-    @extracted_arguments = {}
     @stats_generated_facts, @stats_skipped_flowfacts = 0, 0
   end
 
@@ -394,7 +389,7 @@ class FFXExporter
     doc = REXML::Document.new "<?xml version=\"1.0\"?><flowfacts></flowfacts>"
   end
 
-  def merge_ffx(ffxfile)
+  def merge_file(ffxfile)
     # TODO
   end
 
