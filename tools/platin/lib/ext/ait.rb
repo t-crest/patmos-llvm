@@ -253,7 +253,7 @@ class AISExporter
       if area.type != 'code'
         properties.push("#{kw} write time = #{tt_write_first_beat}")
       end
-      adress_range = area.address_range
+      address_range = area.address_range
       address_range = ValueRange.new(0,0xFFFFFFFF,nil) unless address_range
       gen_fact("area #{address_range.to_ais} access #{properties.join(", ")}",
                "PML machine configuration")
