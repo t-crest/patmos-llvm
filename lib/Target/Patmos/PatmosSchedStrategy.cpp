@@ -321,16 +321,13 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
   SUnit *Asm = NULL;
 
   // Push up loads to ensure load delay slot across BBs
-  // TODO why do we actually need those edges (except fo being very 
-  //      conservative)? Loads that define live-outs should have an
-  //      edge to the exit edge with the correct latency, and latencies
-  //      to inline-asm statements are added later on. Maybe some
-  //      live-outs are missing, or wrong exitlatency??
+  // TODO For some reasons, loads do not always have exit edges, and a latency
+  //      of 1; find out why. Happens e.g. in coremark with 16k methods setup.
   for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
          ie = DAG->SUnits.rend(); it != ie; it++) {
     MachineInstr *MI = it->getInstr();
     if (!MI) continue;
-        
+
     if (MI->mayLoad()) {
       SDep Dep(&*it, SDep::Artificial);
       Dep.setLatency(1);
