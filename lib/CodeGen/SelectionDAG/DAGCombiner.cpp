@@ -4956,6 +4956,7 @@ SDValue DAGCombiner::visitSIGN_EXTEND(SDNode *N) {
   // on vectors in one instruction.  We only perform this transformation on
   // scalars.
   if (ISD::isNON_EXTLoad(N0.getNode()) && !VT.isVector() &&
+      ISD::isUNINDEXEDLoad(N0.getNode()) &&
       ((!LegalOperations && !cast<LoadSDNode>(N0)->isVolatile()) ||
        TLI.isLoadExtLegal(ISD::SEXTLOAD, N0.getValueType()))) {
     bool DoXform = true;
@@ -5008,7 +5009,7 @@ SDValue DAGCombiner::visitSIGN_EXTEND(SDNode *N) {
       TLI.isLoadExtLegal(ISD::SEXTLOAD, N0.getValueType()) &&
       (!LegalOperations && TLI.isOperationLegal(N0.getOpcode(), VT))) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0.getOperand(0));
-    if (LN0->getExtensionType() != ISD::ZEXTLOAD) {
+    if (LN0->getExtensionType() != ISD::ZEXTLOAD && LN0->isUnindexed()) {
       bool DoXform = true;
       SmallVector<SDNode*, 4> SetCCs;
       if (!N0.hasOneUse())
@@ -5249,6 +5250,7 @@ SDValue DAGCombiner::visitZERO_EXTEND(SDNode *N) {
   // on vectors in one instruction.  We only perform this transformation on
   // scalars.
   if (ISD::isNON_EXTLoad(N0.getNode()) && !VT.isVector() &&
+      ISD::isUNINDEXEDLoad(N0.getNode()) &&
       ((!LegalOperations && !cast<LoadSDNode>(N0)->isVolatile()) ||
        TLI.isLoadExtLegal(ISD::ZEXTLOAD, N0.getValueType()))) {
     bool DoXform = true;
@@ -5281,7 +5283,7 @@ SDValue DAGCombiner::visitZERO_EXTEND(SDNode *N) {
       TLI.isLoadExtLegal(ISD::ZEXTLOAD, N0.getValueType()) &&
       (!LegalOperations && TLI.isOperationLegal(N0.getOpcode(), VT))) {
     LoadSDNode *LN0 = cast<LoadSDNode>(N0.getOperand(0));
-    if (LN0->getExtensionType() != ISD::SEXTLOAD) {
+    if (LN0->getExtensionType() != ISD::SEXTLOAD && LN0->isUnindexed()) {
       bool DoXform = true;
       SmallVector<SDNode*, 4> SetCCs;
       if (!N0.hasOneUse())
@@ -5477,6 +5479,7 @@ SDValue DAGCombiner::visitANY_EXTEND(SDNode *N) {
   // on vectors in one instruction.  We only perform this transformation on
   // scalars.
   if (ISD::isNON_EXTLoad(N0.getNode()) && !VT.isVector() &&
+      ISD::isUNINDEXEDLoad(N0.getNode()) &&
       ((!LegalOperations && !cast<LoadSDNode>(N0)->isVolatile()) ||
        TLI.isLoadExtLegal(ISD::EXTLOAD, N0.getValueType()))) {
     bool DoXform = true;
