@@ -266,6 +266,8 @@ namespace llvm {
                                       unsigned Flags, SectionKind Kind,
                                       unsigned EntrySize, StringRef Group);
 
+    void renameELFSection(const MCSectionELF *Section, StringRef Name);
+
     const MCSectionELF *CreateELFGroupSection();
 
     const MCSectionCOFF *getCOFFSection(StringRef Section,
