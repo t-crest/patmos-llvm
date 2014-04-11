@@ -120,9 +120,8 @@ namespace {
     /// now.
     ///
     void AddUsersToWorkList(SDNode *N) {
-      for (SDNode::use_iterator UI = N->use_begin(), UE = N->use_end();
-           UI != UE; ++UI)
-        AddToWorkList(*UI);
+      for (SDNode *Node : N->uses())
+        AddToWorkList(Node);
     }
 
     /// visit - call the node-specific routine that knows how to fold each
@@ -7621,9 +7620,7 @@ bool DAGCombiner::CombineToPreIndexedLoadStore(SDNode *N) {
   // a copy of the original base pointer.
   SmallVector<SDNode *, 16> OtherUses;
   if (isa<ConstantSDNode>(Offset))
-    for (SDNode::use_iterator I = BasePtr.getNode()->use_begin(),
-         E = BasePtr.getNode()->use_end(); I != E; ++I) {
-      SDNode *Use = *I;
+    for (SDNode *Use : BasePtr.getNode()->uses()) {
       if (Use == Ptr.getNode())
         continue;
 
@@ -7665,9 +7662,7 @@ bool DAGCombiner::CombineToPreIndexedLoadStore(SDNode *N) {
   SmallPtrSet<const SDNode *, 32> Visited;
   SmallVector<const SDNode *, 16> Worklist;
 
-  for (SDNode::use_iterator I = Ptr.getNode()->use_begin(),
-         E = Ptr.getNode()->use_end(); I != E; ++I) {
-    SDNode *Use = *I;
+  for (SDNode *Use : Ptr.getNode()->uses()) {
     if (Use == N)
       continue;
     if (N->hasPredecessorHelper(Use, Visited, Worklist))
@@ -7803,9 +7798,7 @@ bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
   if (Ptr.getNode()->hasOneUse())
     return false;
 
-  for (SDNode::use_iterator I = Ptr.getNode()->use_begin(),
-         E = Ptr.getNode()->use_end(); I != E; ++I) {
-    SDNode *Op = *I;
+  for (SDNode *Op : Ptr.getNode()->uses()) {
     if (Op == N ||
         (Op->getOpcode() != ISD::ADD && Op->getOpcode() != ISD::SUB))
       continue;
@@ -7831,9 +7824,7 @@ bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
 
       // Check for #1.
       bool TryNext = false;
-      for (SDNode::use_iterator II = BasePtr.getNode()->use_begin(),
-             EE = BasePtr.getNode()->use_end(); II != EE; ++II) {
-        SDNode *Use = *II;
+      for (SDNode *Use : BasePtr.getNode()->uses()) {
         if (Use == Ptr.getNode())
           continue;
 
@@ -7841,9 +7832,7 @@ bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
         // transformation.
         if (Use->getOpcode() == ISD::ADD || Use->getOpcode() == ISD::SUB){
           bool RealUse = false;
-          for (SDNode::use_iterator III = Use->use_begin(),
-                 EEE = Use->use_end(); III != EEE; ++III) {
-            SDNode *UseUse = *III;
+          for (SDNode *UseUse : Use->uses()) {
             if (!canFoldInAddressingMode(Use, UseUse, DAG, TLI))
               RealUse = true;
           }
