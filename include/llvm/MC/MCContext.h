@@ -175,9 +175,8 @@ namespace llvm {
 
   public:
     explicit MCContext(const MCAsmInfo *MAI, const MCRegisterInfo *MRI,
-                       const MCInstrInfo *MII,
-                       const MCObjectFileInfo *MOFI, const SourceMgr *Mgr = 0,
-                       bool DoAutoReset = true);
+                       const MCObjectFileInfo *MOFI,
+                       const SourceMgr *Mgr = nullptr, bool DoAutoReset = true);
     ~MCContext();
 
     const SourceMgr *getSourceManager() const { return SrcMgr; }
@@ -279,7 +278,7 @@ namespace llvm {
                                         SectionKind Kind,
                                         StringRef COMDATSymName,
                                         int Selection,
-                                        const MCSectionCOFF *Assoc = 0);
+                                        const MCSectionCOFF *Assoc = nullptr);
 
     const MCSectionCOFF *getCOFFSection(StringRef Section,
                                         unsigned Characteristics,
