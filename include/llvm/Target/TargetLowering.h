@@ -323,7 +323,7 @@ public:
   bool isTypeLegal(EVT VT) const {
     assert(!VT.isSimple() ||
            (unsigned)VT.getSimpleVT().SimpleTy < array_lengthof(RegClassForVT));
-    return VT.isSimple() && RegClassForVT[VT.getSimpleVT().SimpleTy] != 0;
+    return VT.isSimple() && RegClassForVT[VT.getSimpleVT().SimpleTy] != nullptr;
   }
 
   class ValueTypeActionImpl {
@@ -755,7 +755,7 @@ public:
   /// alignment error (trap) on the target machine.
   virtual bool allowsUnalignedMemoryAccesses(EVT,
                                              unsigned AddrSpace = 0,
-                                             bool * /*Fast*/ = 0) const {
+                                             bool * /*Fast*/ = nullptr) const {
     return false;
   }
 
@@ -1179,7 +1179,7 @@ public:
     int64_t      BaseOffs;
     bool         HasBaseReg;
     int64_t      Scale;
-    AddrMode() : BaseGV(0), BaseOffs(0), HasBaseReg(false), Scale(0) {}
+    AddrMode() : BaseGV(nullptr), BaseOffs(0), HasBaseReg(false), Scale(0) {}
   };
 
   /// Return true if the addressing mode represented by AM is legal for this
@@ -2090,21 +2090,7 @@ public:
       IsVarArg(isVarArg), IsInReg(isInReg), DoesNotReturn(doesNotReturn),
       IsReturnValueUsed(isReturnValueUsed), IsTailCall(isTailCall),
       NumFixedArgs(numFixedArgs), CallConv(callConv), Callee(callee),
-      Args(args), DAG(dag), DL(dl), CS(NULL) {}
-
-    /// CallLoweringInfo - Constructs a call lowering context based on the
-    /// provided call information.
-    CallLoweringInfo(SDValue chain, Type *retTy, bool retSExt, bool retZExt,
-                     bool isVarArg, bool isInReg, unsigned numFixedArgs,
-                     CallingConv::ID callConv, bool isTailCall,
-                     bool doesNotReturn, bool isReturnValueUsed, SDValue callee,
-                     ArgListTy &args, SelectionDAG &dag, SDLoc dl,
-		     const MachinePointerInfo &mpi)
-    : Chain(chain), RetTy(retTy), RetSExt(retSExt), RetZExt(retZExt),
-      IsVarArg(isVarArg), IsInReg(isInReg), DoesNotReturn(doesNotReturn),
-      IsReturnValueUsed(isReturnValueUsed), IsTailCall(isTailCall),
-      NumFixedArgs(numFixedArgs), CallConv(callConv), Callee(callee),
-      Args(args), DAG(dag), DL(dl), CS(NULL), MPI(mpi) {}
+      Args(args), DAG(dag), DL(dl), CS(nullptr) {}
   };
 
   /// This function lowers an abstract call to a function into an actual call.
@@ -2188,7 +2174,7 @@ public:
   /// Returns a 0 terminated array of registers that can be safely used as
   /// scratch registers.
   virtual const MCPhysReg *getScratchRegisters(CallingConv::ID CC) const {
-    return NULL;
+    return nullptr;
   }
 
   /// This callback is used to prepare for a volatile or atomic load.
@@ -2249,7 +2235,7 @@ public:
   /// target does not support "fast" ISel.
   virtual FastISel *createFastISel(FunctionLoweringInfo &,
                                    const TargetLibraryInfo *) const {
-    return 0;
+    return nullptr;
   }
 
 
@@ -2323,7 +2309,7 @@ public:
     AsmOperandInfo(const InlineAsm::ConstraintInfo &info)
       : InlineAsm::ConstraintInfo(info),
         ConstraintType(TargetLowering::C_Unknown),
-        CallOperandVal(0), ConstraintVT(MVT::Other) {
+        CallOperandVal(nullptr), ConstraintVT(MVT::Other) {
     }
   };
 
@@ -2351,7 +2337,7 @@ public:
   /// Op, otherwise an empty SDValue can be passed.
   virtual void ComputeConstraintToUse(AsmOperandInfo &OpInfo,
                                       SDValue Op,
-                                      SelectionDAG *DAG = 0) const;
+                                      SelectionDAG *DAG = nullptr) const;
 
   /// Given a constraint, return the type of constraint it is for this target.
   virtual ConstraintType getConstraintType(const std::string &Constraint) const;

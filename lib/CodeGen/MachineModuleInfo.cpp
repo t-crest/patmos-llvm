@@ -42,8 +42,8 @@ namespace llvm {
 class MMIAddrLabelMapCallbackPtr : CallbackVH {
   MMIAddrLabelMap *Map;
 public:
-  MMIAddrLabelMapCallbackPtr() : Map(0) {}
-  MMIAddrLabelMapCallbackPtr(Value *V) : CallbackVH(V), Map(0) {}
+  MMIAddrLabelMapCallbackPtr() : Map(nullptr) {}
+  MMIAddrLabelMapCallbackPtr(Value *V) : CallbackVH(V), Map(nullptr) {}
 
   void setPtr(BasicBlock *BB) {
     ValueHandleBase::operator=(BB);
@@ -169,9 +169,9 @@ void MMIAddrLabelMap::UpdateForDeletedBlock(BasicBlock *BB) {
   AddrLabelSymEntry Entry = AddrLabelSymbols[BB];
   AddrLabelSymbols.erase(BB);
   assert(!Entry.Symbols.isNull() && "Didn't have a symbol, why a callback?");
-  BBCallbacks[Entry.Index] = 0;  // Clear the callback.
+  BBCallbacks[Entry.Index] = nullptr;  // Clear the callback.
 
-  assert((BB->getParent() == 0 || BB->getParent() == Entry.Fn) &&
+  assert((BB->getParent() == nullptr || BB->getParent() == Entry.Fn) &&
          "Block/parent mismatch");
 
   // Handle both the single and the multiple symbols cases.
@@ -219,7 +219,7 @@ void MMIAddrLabelMap::UpdateForRAUWBlock(BasicBlock *Old, BasicBlock *New) {
     return;
   }
 
-  BBCallbacks[OldEntry.Index] = 0;    // Update the callback.
+  BBCallbacks[OldEntry.Index] = nullptr;    // Update the callback.
 
   // Otherwise, we need to add the old symbol to the new block's set.  If it is
   // just a single entry, upgrade it to a symbol list.
@@ -256,13 +256,10 @@ void MMIAddrLabelMapCallbackPtr::allUsesReplacedWith(Value *V2) {
 
 //===----------------------------------------------------------------------===//
 
-MachineModuleInfo::MachineModuleInfo(const TargetMachine &tm)
-  : ImmutablePass(ID), TM(&tm),
-    Context(tm.getMCAsmInfo(), tm.getRegisterInfo(), tm.getInstrInfo(),
-            &tm.getTargetLowering()->getObjFileLowering()),
-    ObjFileMMI(0), CompactUnwindEncoding(0), CurCallSite(0), CallsEHReturn(0),
-    CallsUnwindInit(0), DbgInfoAvailable(false),
-    UsesVAFloatArgument(false) {
+MachineModuleInfo::MachineModuleInfo(const MCAsmInfo &MAI,
+                                     const MCRegisterInfo &MRI,
+                                     const MCObjectFileInfo *MOFI)
+  : ImmutablePass(ID), Context(&MAI, &MRI, MOFI, nullptr, false) {
   initializeMachineModuleInfoPass(*PassRegistry::getPassRegistry());
   // from now on, we can use MachineFunctions
   initializeMachineFunctionAnalysisPass(*PassRegistry::getPassRegistry());
@@ -273,9 +270,7 @@ MachineModuleInfo::MachineModuleInfo(const TargetMachine &tm)
 }
 
 MachineModuleInfo::MachineModuleInfo()
-  : ImmutablePass(ID), TM(0),
-    Context((MCAsmInfo*)0, (MCRegisterInfo*)0, (MCInstrInfo*)0,
-            (MCObjectFileInfo*)0) {
+  : ImmutablePass(ID), Context(nullptr, nullptr, nullptr) {
   llvm_unreachable("This MachineModuleInfo constructor should never be called, "
                    "MMI should always be explicitly constructed by "
                    "LLVMTargetMachine");
@@ -286,16 +281,16 @@ MachineModuleInfo::~MachineModuleInfo() {
 
 bool MachineModuleInfo::doInitialization(Module &M) {
 
-  ObjFileMMI = 0;
+  ObjFileMMI = nullptr;
   CompactUnwindEncoding = 0;
   CurCallSite = 0;
   CallsEHReturn = 0;
   CallsUnwindInit = 0;
   DbgInfoAvailable = UsesVAFloatArgument = false; 
   // Always emit some info, by default "no personality" info.
-  Personalities.push_back(NULL);
-  AddrLabelSymbols = 0;
-  TheModule = 0;
+  Personalities.push_back(nullptr);
+  AddrLabelSymbols = nullptr;
+  TheModule = nullptr;
 
   for (DenseMap<const Function*, MachineFunction*>::iterator
      it = MachineFunctions.begin(), ie = MachineFunctions.end(); it != ie; it++)
@@ -312,7 +307,7 @@ bool MachineModuleInfo::doFinalization(Module &M) {
   Personalities.clear();
 
   delete AddrLabelSymbols;
-  AddrLabelSymbols = 0;
+  AddrLabelSymbols = nullptr;
 
   for (DenseMap<const Function*, MachineFunction*>::iterator
      it = MachineFunctions.begin(), ie = MachineFunctions.end(); it != ie; it++)
@@ -324,7 +319,7 @@ bool MachineModuleInfo::doFinalization(Module &M) {
   Context.reset();
 
   delete ObjFileMMI;
-  ObjFileMMI = 0;
+  ObjFileMMI = nullptr;
 
   return false;
 }
@@ -372,7 +367,7 @@ void MachineModuleInfo::AnalyzeModule(const Module &M) {
 /// because the block may be accessed outside its containing function.
 MCSymbol *MachineModuleInfo::getAddrLabelSymbol(const BasicBlock *BB) {
   // Lazily create AddrLabelSymbols.
-  if (AddrLabelSymbols == 0)
+  if (!AddrLabelSymbols)
     AddrLabelSymbols = new MMIAddrLabelMap(Context);
   return AddrLabelSymbols->getAddrLabelSymbol(const_cast<BasicBlock*>(BB));
 }
@@ -383,7 +378,7 @@ MCSymbol *MachineModuleInfo::getAddrLabelSymbol(const BasicBlock *BB) {
 std::vector<MCSymbol*> MachineModuleInfo::
 getAddrLabelSymbolToEmit(const BasicBlock *BB) {
   // Lazily create AddrLabelSymbols.
-  if (AddrLabelSymbols == 0)
+  if (!AddrLabelSymbols)
     AddrLabelSymbols = new MMIAddrLabelMap(Context);
  return AddrLabelSymbols->getAddrLabelSymbolToEmit(const_cast<BasicBlock*>(BB));
 }
@@ -397,7 +392,7 @@ void MachineModuleInfo::
 takeDeletedSymbolsForFunction(const Function *F,
                               std::vector<MCSymbol*> &Result) {
   // If no blocks have had their addresses taken, we're done.
-  if (AddrLabelSymbols == 0) return;
+  if (!AddrLabelSymbols) return;
   return AddrLabelSymbols->
      takeDeletedSymbolsForFunction(const_cast<Function*>(F), Result);
 }
@@ -450,7 +445,7 @@ void MachineModuleInfo::addPersonality(MachineBasicBlock *LandingPad,
 
   // If this is the first personality we're adding go
   // ahead and add it at the beginning.
-  if (Personalities[0] == NULL)
+  if (!Personalities[0])
     Personalities[0] = Personality;
   else
     Personalities.push_back(Personality);
@@ -493,7 +488,7 @@ void MachineModuleInfo::TidyLandingPads(DenseMap<MCSymbol*, uintptr_t> *LPMap) {
     if (LandingPad.LandingPadLabel &&
         !LandingPad.LandingPadLabel->isDefined() &&
         (!LPMap || (*LPMap)[LandingPad.LandingPadLabel] == 0))
-      LandingPad.LandingPadLabel = 0;
+      LandingPad.LandingPadLabel = nullptr;
 
     // Special case: we *should* emit LPs with null LP MBB. This indicates
     // "nounwind" case.
@@ -581,13 +576,13 @@ try_next:;
 const Function *MachineModuleInfo::getPersonality() const {
   // FIXME: Until PR1414 will be fixed, we're using 1 personality function per
   // function
-  return !LandingPads.empty() ? LandingPads[0].Personality : NULL;
+  return !LandingPads.empty() ? LandingPads[0].Personality : nullptr;
 }
 
 /// getPersonalityIndex - Return unique index for current personality
 /// function. NULL/first personality function should always get zero index.
 unsigned MachineModuleInfo::getPersonalityIndex() const {
-  const Function* Personality = NULL;
+  const Function* Personality = nullptr;
 
   // Scan landing pads. If there is at least one non-NULL personality - use it.
   for (unsigned i = 0, e = LandingPads.size(); i != e; ++i)

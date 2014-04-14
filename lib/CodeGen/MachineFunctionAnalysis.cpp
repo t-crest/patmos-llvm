@@ -34,10 +34,8 @@ MachineFunctionAnalysis::MachineFunctionAnalysis() :
 }
 
 MachineFunctionAnalysis::MachineFunctionAnalysis(const TargetMachine &tm) :
-  FunctionPass(ID), TM(&tm), MF(0), PreserveMF(false),
-  NextFnNum(0)
-{
-  initializeMachineFunctionAnalysisPass(*PassRegistry::getPassRegistry());
+  FunctionPass(ID), TM(tm), MF(nullptr) {
+  initializeMachineModuleInfoPass(*PassRegistry::getPassRegistry());
 }
 
 MachineFunctionAnalysis::~MachineFunctionAnalysis() {
@@ -101,23 +99,6 @@ bool MachineFunctionAnalysis::runOnFunction(Function &F) {
 }
 
 void MachineFunctionAnalysis::releaseMemory() {
-  // Check whether a MachineFunction exists for F.
-  MachineModuleInfo *MMI = getAnalysisIfAvailable<MachineModuleInfo>();
-
-  if (PreserveMF && MMI && MF) {
-    // Store the MachineFunction instead of destroying it,
-    // but only if MachineFunctionAnalysis has been initialized before
-    // It seems that this happens sometimes when this analysis is free'd
-    // but not used before.
-    MMI->putMachineFunction(MF, MF->getFunction());
-  }
-  else if (MF) {
-    if (MMI) {
-      // If we have a MachineModuleInfo, cleanup there as well.
-      MMI->removeMachineFunction(MF->getFunction());
-    }
-    // Not preserving or not MMI, delete the machine function.
-    delete MF;
-  }
-  MF = 0;
+  delete MF;
+  MF = nullptr;
 }
