@@ -525,7 +525,7 @@ namespace llvm {
     /// Emit llvm.ident metadata in an '.ident' directive.
     void EmitModuleIdents(Module &M);
     void EmitXXStructorList(const Constant *List, bool isCtor);
-    GCMetadataPrinter *GetOrCreateGCPrinter(GCStrategy *C);
+    GCMetadataPrinter *GetOrCreateGCPrinter(GCStrategy &C);
   };
 }
 
