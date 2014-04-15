@@ -67,7 +67,7 @@ ForceBlockLabels("mforce-block-labels",
 
 char AsmPrinter::ID = 0;
 
-typedef DenseMap<GCStrategy*,GCMetadataPrinter*> gcp_map_type;
+typedef DenseMap<GCStrategy*, std::unique_ptr<GCMetadataPrinter>> gcp_map_type;
 static gcp_map_type &getGCMap(void *&P) {
   if (P == 0)
     P = new gcp_map_type();
@@ -120,8 +120,6 @@ AsmPrinter::~AsmPrinter() {
   if (GCMetadataPrinters != 0) {
     gcp_map_type &GCMap = getGCMap(GCMetadataPrinters);
 
-    for (gcp_map_type::iterator I = GCMap.begin(), E = GCMap.end(); I != E; ++I)
-      delete I->second;
     delete &GCMap;
     GCMetadataPrinters = 0;
   }
@@ -2255,7 +2253,7 @@ GCMetadataPrinter *AsmPrinter::GetOrCreateGCPrinter(GCStrategy &S) {
   gcp_map_type &GCMap = getGCMap(GCMetadataPrinters);
   gcp_map_type::iterator GCPI = GCMap.find(&S);
   if (GCPI != GCMap.end())
-    return GCPI->second;
+    return GCPI->second.get();
 
   const char *Name = S.getName().c_str();
 
@@ -2263,10 +2261,10 @@ GCMetadataPrinter *AsmPrinter::GetOrCreateGCPrinter(GCStrategy &S) {
          I = GCMetadataPrinterRegistry::begin(),
          E = GCMetadataPrinterRegistry::end(); I != E; ++I)
     if (strcmp(Name, I->getName()) == 0) {
-      GCMetadataPrinter *GMP = I->instantiate();
+      std::unique_ptr<GCMetadataPrinter> GMP = I->instantiate();
       GMP->S = &S;
-      GCMap.insert(std::make_pair(&S, GMP));
-      return GMP;
+      auto IterBool = GCMap.insert(std::make_pair(&S, std::move(GMP)));
+      return IterBool.first->second.get();
     }
 
   report_fatal_error("no GCMetadataPrinter registered for GC: " + Twine(Name));
