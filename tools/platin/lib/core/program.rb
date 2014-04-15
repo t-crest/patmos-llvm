@@ -519,6 +519,11 @@ module PML
       ".LBB#{fname}_#{bname}"
     end
 
+    # location hint (e.g. file:line)
+    def src_hint
+      data['src-hint'] || ''
+    end
+
     # ProgramPoint#block (return self)
     def block
       self

@@ -404,6 +404,10 @@ void PMLMachineExport::serialize(MachineFunction &MF)
           new yaml::MachineInstruction(Index++));
       exportInstruction(MF, I, Ins, IsBundled);
 
+      const LLVMContext &Ctx = MF.getFunction()->getContext();
+      DebugLoc dl = Ins->getDebugLoc();
+      B->setSrcLocOnce(dl, dl.getScope(Ctx));
+
       IsBundled = true;
     }
   }

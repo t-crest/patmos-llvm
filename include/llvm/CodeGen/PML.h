@@ -20,6 +20,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/DebugInfo.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/raw_ostream.h"
@@ -27,6 +28,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 
 #include <list>
+#include <sstream>
 
 /// YAML serialization for LLVM modules (machinecode,bitcode)
 /// produces one or more documents of type llvm::yaml::Doc.
@@ -310,6 +312,7 @@ struct Block {
   std::vector<Name> Predecessors;
   std::vector<Name> Loops;
   std::vector<InstructionT*> Instructions;
+  Name Loc;
 
   typedef std::vector<InstructionT*> InstrList;
 
@@ -322,6 +325,21 @@ struct Block {
   InstructionT* addInstruction(InstructionT* Ins) {
     Instructions.push_back(Ins);
     return Ins;
+  }
+  /// Set source location hint for this block
+  /// Does not update the location once a valid source location has been set
+  /// (ie. after first instruction that mapped to a debug location).
+  void setSrcLocOnce(const DebugLoc &dl, MDNode *ScopeMD) {
+    if (Loc.empty() && !dl.isUnknown()) {
+      DIScope Scope(ScopeMD);
+      assert((!Scope || Scope.isScope()) &&
+        "Scope of a DebugLoc should be null or a DIScope.");
+      std::stringstream ss;
+      if (Scope)
+        ss << Scope.getFilename().str() << ":";
+      ss << dl.getLine();
+      Loc = ss.str();
+    }
   }
 private:
   Block(const Block<InstructionT>&);            // Disable copy constructor
@@ -337,6 +355,7 @@ struct MappingTraits< Block<InstructionT>* > {
     io.mapRequired("predecessors", B->Predecessors);
     io.mapRequired("successors",   B->Successors);
     io.mapOptional("loops",        B->Loops);
+    io.mapOptional("src-hint",     B->Loc, Name(""));
     io.mapOptional("instructions", B->Instructions);
   }
 };
