@@ -22,7 +22,7 @@ class Visualizer
   attr_reader :options
   def generate(g,outfile)
     debug(options, :visualize) { "Generating #{outfile}" }
-    g.output( :png => "#{outfile}" )
+    g.output( options.graphviz_format.to_sym => "#{outfile}" )
     info("#{outfile} ok") if options.verbose
   end
 protected
@@ -127,7 +127,7 @@ class FlowGraphVisualizer < Visualizer
       bid = block.name
       label = "#{block.name}"
       label << " (#{block.mapsto})" if block.mapsto
-      label << " L#{block.loops.map {|b| b.loopheader.name}.join(",")}" unless block.loops.empty?
+#      label << " L#{block.loops.map {|b| b.loopheader.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
       if options.show_calls
         block.instructions.each do |ins|
@@ -139,7 +139,8 @@ class FlowGraphVisualizer < Visualizer
       #    block.instructions.each do |ins|
       #      label << "\n#{ins.opcode} #{ins.size}"
       #    end
-      nodes[bid] = g.add_nodes(bid.to_s, :label => label)
+      nodes[bid] = g.add_nodes(bid.to_s, :label => label,
+                               :peripheries => block.loops.length + 1)
     end
     function.blocks.each do |block|
       block.successors.each do |s|
@@ -154,7 +155,11 @@ class RelationGraphVisualizer < Visualizer
   def visualize(rg)
     nodes = {}
     g = GraphViz.new( :G, :type => :digraph )
-    g.node[:shape] = "rectangle"
+    g.node[:shape] = "rectangle" 
+
+    # XXX: update me
+    rg = rg.data if rg.kind_of?(RelationGraph)      
+
     name = "#{rg['src'].inspect}/#{rg['dst'].inspect}"
     rg['nodes'].each do |node|
       bid = node['name']
@@ -225,6 +230,8 @@ class HtmlIndexPages
   end
 end
 class VisualizeTool
+  VALID_FORMATS = GraphViz::Constants::FORMATS
+
   def VisualizeTool.default_targets(pml)
     entry = pml.machine_functions.by_label("main")
     pml.machine_functions.reachable_from(entry.name).first.reject { |f|
@@ -236,14 +243,17 @@ class VisualizeTool
   def VisualizeTool.run(pml, options)
     targets = options.functions || VisualizeTool.default_targets(pml)
     outdir = options.outdir || "."
+    options.graphviz_format ||= "png"
+    suffix = "." + options.graphviz_format
     html = HtmlIndexPages.new if options.html
     targets.each do |target|
-      # Visualize the callgraph, scopegraph, bitcode, machine code and relation graphs
+
+      # Visualize call graph
       cgv = CallGraphVisualizer.new(pml, options)
       begin
         mf = pml.machine_functions.by_label(target)
         graph = cgv.visualize_callgraph(mf)
-        file = File.join(outdir, target + ".cg" + ".png")
+        file = File.join(outdir, target + ".cg" + suffix)
         cgv.generate(graph , file)
         html.add(target,"cg",file) if options.html
       rescue Exception => detail
@@ -251,11 +261,12 @@ class VisualizeTool
         puts detail.backtrace
         raise detail if options.raise_on_error
       end
+      # Visualize Scope Graph
       sgv = ScopeGraphVisualizer.new(pml,options)
       begin
         mf = pml.machine_functions.by_label(target)
         graph = sgv.visualize_scopegraph(mf)
-        file = File.join(outdir, target + ".sg" + ".png")
+        file = File.join(outdir, target + ".sg" + suffix)
         sgv.generate(graph , file)
         html.add(target,"sg",file) if options.html
       rescue Exception => detail
@@ -263,20 +274,22 @@ class VisualizeTool
         puts detail.backtrace
         raise detail if options.raise_on_error
       end
+      # Visualize CFG (bitcode)
       fgv = FlowGraphVisualizer.new(pml, options)
       begin
         bf = pml.bitcode_functions.by_name(target)
-        file = File.join(outdir, target + ".bc" + ".png")
+        file = File.join(outdir, target + ".bc" + suffix)
         fgv.generate(fgv.visualize_cfg(bf),file)
         html.add(target,"bc",file) if options.html
       rescue Exception => detail
         puts "Failed to visualize bitcode function #{target}: #{detail}"
         raise detail
       end
+      # Visualize VCFG (machine code)
       begin
         mf = pml.machine_functions.by_label(target)
         graph = fgv.visualize_vcfg(mf, pml.arch)
-        file = File.join(outdir, target + ".mc" + ".png")
+        file = File.join(outdir, target + ".mc" + suffix)
         fgv.generate(graph , file)
         html.add(target,"mc",file) if options.html
       rescue Exception => detail
@@ -284,11 +297,12 @@ class VisualizeTool
         puts detail.backtrace
         raise detail if options.raise_on_error
       end
+      # Visualize relation graph
       begin
         rgv = RelationGraphVisualizer.new(options)
         rg = pml.data['relation-graphs'].find { |f| f['src']['function'] ==target or f['dst']['function'] == target }
         raise Exception.new("Relation Graph not found") unless rg
-        file = File.join(outdir, target + ".rg" + ".png")
+        file = File.join(outdir, target + ".rg" + suffix)
         rgv.generate(rgv.visualize(rg),file)
         html.add(target,"rg",file) if options.html
       rescue Exception => detail
@@ -305,6 +319,16 @@ class VisualizeTool
     opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| opts.options.functions = f.split(/\s*,\s*/) }
     opts.on("--show-calls", "Visualize call sites") { opts.options.show_calls = true }
     opts.on("-O","--outdir DIR","Output directory for image files") { |d| opts.options.outdir = d }
+    opts.on("--graphviz-format FORMAT", "GraphViz output format (=png,svg,...)") { |format|
+      options.graphviz_format = format
+    }
+    opts.add_check { |options|
+      options.graphviz_format ||= "png"
+      unless VisualizeTool::VALID_FORMATS.include?(options.graphviz_format)
+        info("Valid GraphViz formats: #{VisualizeTool.VALID_FORMATS.join(", ")}")
+        die("Bad GraphViz format: #{options.graphviz_format}")
+      end
+    }
   end
 end
 
@@ -313,10 +337,11 @@ SYNOPSIS=<<EOF if __FILE__ == $0
 Visualize bitcode and machine code CFGS, and the control-flow relation
 graph of the specified set of functions
 EOF
-  options, args = PML::optparse([:input],"FILE.pml", SYNOPSIS) do |opts|
+  options, args = PML::optparse([],"", SYNOPSIS) do |opts|
+    opts.needs_pml
     opts.callstring_length
     VisualizeTool.add_options(opts)
   end
-  VisualizeTool.run(PMLDoc.from_files([options.input]), options)
+  VisualizeTool.run(PMLDoc.from_files(options.input), options)
 end
 
