@@ -66,6 +66,9 @@ class LoadInstruction
   def to_s
     "#{tag}@#{insref}"
   end
+  def inspect
+    sprintf("#<LoadInstruction:0x%8x %s>",self.object_id, self.to_s)
+  end
 end
 
 # +MemoryEdge+ is a variable to account for the load of a certain memory
@@ -124,9 +127,10 @@ class CacheRegionAnalysis
       get_all_tags(scopegraph.root, set).each { |tag,load_instructions|
 
         load_instructions = load_instructions.to_a
-        debug(options,:cache) { "Load instructions for tag: #{tag}: #{load_instructions}" }
-        debug(options,:cache) { "Scopes for tag #{tag}: #{conflict_free_scopes[tag].inspect}" }
-
+        debug(options,:cache) { "Load instructions for tag: #{tag}: #{load_instructions.join(",")}" }
+        debug(options,:cache) {
+          "Scopes for tag #{tag}: #{conflict_free_scopes[tag]}"
+        }
         # add a variable for each load instruction
         load_instructions.each { |li|
 

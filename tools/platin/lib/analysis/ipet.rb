@@ -176,6 +176,9 @@ class IPETEdge
     arrow  = @level == 'bitcode' ? "~>" : "->"
     "#{@source}#{arrow}#{:exit == @target ? 'exit' : @target}"
   end
+  def inspect
+    to_s
+  end
   def hash;  @qname.hash ; end
   def ==(other); qname == other.qname ; end
   def eql?(other); self == other; end

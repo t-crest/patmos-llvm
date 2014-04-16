@@ -8,6 +8,12 @@ require 'core/pmlbase'
 
 module PML
 
+  class UnknownFunctionException < Exception
+    def initialize(name)
+      super("No function named or labelled #{name} in analyzed program")
+    end
+  end
+
   # List of functions in the program
   class FunctionList < PMLList
     extend PMLListGen
@@ -20,6 +26,10 @@ module PML
        build_index
     end
 
+    def by_label_or_name(key, error_if_missing = false)
+      by_label(key, false) || by_name(key, error_if_missing)
+    end
+
     # return [rs, unresolved]
     # rs .. list of (known functions) reachable from name
     # unresolved .. set of callsites that could not be resolved
@@ -29,9 +39,7 @@ module PML
         callees = []
         f.callsites.each { |cs|
           cs.callees.each { |n|
-            if(f = by_label(n,false))
-              callees.push(f)
-            elsif(f = by_name(n,false))
+            if(f = by_label_or_name(n,false))
               callees.push(f)
             else
               unresolved.add(cs)
@@ -86,16 +94,15 @@ module PML
     def address ; data['address'] ; end
     def address=(addr); data['address'] = addr; end
 
-    def ProgramPoint.from_pml(functions, data)
+    def ProgramPoint.from_pml(mod, data)
       fname = data['function']
       bname = data['block']
       lname = data['loop']
       iname = data['instruction']
       is_edge = ! data['edgesource'].nil?
-
       assert("ProgramPoint.from_pml: no function attribute: #{data}") { fname }
-      function = functions.by_name(fname)
-
+      function = mod.by_name(fname)
+      raise UnknownFunctionException.new(fname) unless function
       if (lname || bname)
         block = function.blocks.by_name(lname || bname)
         if iname
@@ -603,8 +610,12 @@ module PML
     # called functions
     def called_functions
       return nil if unresolved_call?
-      data['callees'].map { |n|
-        block.function.module.by_label(n, true)
+      data['callees'].reject { |n|
+        # XXX: hackish
+        # filter known pseudo functions on bitcode
+        n =~ /llvm\..*/
+      }.map { |n|
+        block.function.module.by_label_or_name(n, true)
       }
     end
 

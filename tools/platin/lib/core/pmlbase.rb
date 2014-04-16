@@ -99,6 +99,11 @@ module PML
       new_obj.reset_yaml_repr
     end
 
+    # avoid recursive calls when printing an object
+    # subclasses should override to_s/inspect if needed
+    def to_s ; @qname || "#<#{self.class}:#{self.object_id}>" ; end
+    def inspect ; to_s ; end
+
     private
 
     def to_pml
