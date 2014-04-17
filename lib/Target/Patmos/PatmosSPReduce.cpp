@@ -913,6 +913,7 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   if (isFirstDef) {
     // bcopy R, bitpos, !P0
     AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg))
+      .addReg(tmpReg)
       .addImm(bitpos)
       .addReg(Patmos::P0).addImm(-1);
     InsertedInstrs++; // STATISTIC
@@ -920,6 +921,7 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   // (guard) bcopy R, bitpos, Cond
   BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg)
     .addReg(guard).addImm(0) // guard
+    .addReg(tmpReg)
     .addImm(bitpos)
     .addOperand(Cond[0]).addOperand(Cond[1]); // condition
 #else
@@ -981,6 +983,7 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   if (isFirstDef) {
     // bcopy R, bitpos, !P0
     AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg))
+      .addReg(tmpReg)
       .addImm(bitpos)
       .addReg(Patmos::P0).addImm(-1);
     InsertedInstrs++; // STATISTIC
@@ -988,6 +991,7 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   // (guard) bcopy R, bitpos, Cond
   BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg)
     .addReg(guard).addImm(0) // guard
+    .addReg(tmpReg)
     .addImm(bitpos)
     .addOperand(Cond[0]).addOperand(Cond[1]); // condition
   InsertedInstrs++; // STATISTIC

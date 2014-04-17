@@ -813,10 +813,10 @@ let isAsCheapAsAMove = 1,
 }
 
 // Bitcopy
-def BCOPY : ALUb <(outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm5:$imm, PRegs:$ps),
+def BCOPY : ALUb <(outs RRegs:$rd), (ins pred:$p, RRegs:$rs1, uimm5:$imm, predset:$ps),
                   "bcopy", "$rd = $rs1, $imm, $ps",
                   [(set RRegs:$rd, (or (and RRegs:$rs1, (not (shl 1, (i32 uimm5:$imm)))),
-                                       (shl (i32 (zext PRegs:$ps)), (i32 uimm5:$imm))))]>;
+                                       (shl (i32 (zext predsel:$ps)), (i32 uimm5:$imm))))]>;
 
 let rs1 = 0, imm = 0 in
 def MOVpr : ALUb <(outs RRegs:$rd), (ins pred:$p, predset:$ps),
