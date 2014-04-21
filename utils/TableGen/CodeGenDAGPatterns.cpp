@@ -26,8 +26,7 @@
 #include <set>
 using namespace llvm;
 
-static cl::opt<bool> RecursiveXForm("recursive-xform", cl::init(false),
-       cl::desc("Make -gen-dag-isel resolve XForm patterns recursively"));
+#define DEBUG_TYPE "dag-patterns"
 
 //===----------------------------------------------------------------------===//
 //  EEVT::TypeSet Implementation
