@@ -175,7 +175,8 @@ public:
 
   void EmitBytes(StringRef Data) override;
 
-  void EmitValueImpl(const MCExpr *Value, unsigned Size) override;
+  void EmitValueImpl(const MCExpr *Value, unsigned Size,
+                     const SMLoc &Loc = SMLoc()) override;
   void EmitIntValue(uint64_t Value, unsigned Size) override;
 
   void EmitULEB128Value(const MCExpr *Value) override;
@@ -707,7 +708,8 @@ void MCAsmStreamer::EmitIntValue(uint64_t Value, unsigned Size) {
   EmitValue(MCConstantExpr::Create(Value, getContext()), Size);
 }
 
-void MCAsmStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size) {
+void MCAsmStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
+                                  const SMLoc &Loc) {
   assert(Size <= 8 && "Invalid size");
   assert(getCurrentSection().first &&
          "Cannot emit contents before setting section!");
