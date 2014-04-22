@@ -37,7 +37,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "loop-simplify"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/SetOperations.h"
@@ -63,12 +62,7 @@
 #include "llvm/Transforms/Utils/LoopUtils.h"
 using namespace llvm;
 
-
-static cl::opt<bool>
-DisableSeparateNestedLoops("disable-separate-nested-loops",
-    cl::init(false), cl::Hidden,
-    cl::desc("Never create nested loops for loops with multiple backedges."));
-
+#define DEBUG_TYPE "loop-simplify"
 
 STATISTIC(NumInserted, "Number of pre-header or exit blocks inserted");
 STATISTIC(NumNested  , "Number of nested loops split out");
