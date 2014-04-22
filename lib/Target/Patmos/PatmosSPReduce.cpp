@@ -219,6 +219,10 @@ namespace {
     /// mergeMBBs - Merge the linear sequence of MBBs as possible
     void mergeMBBs(MachineFunction &MF);
 
+    /// collectReturnInfoInsts - Collect instructions that store/restore
+    /// return information in ReturnInfoInsts
+    void collectReturnInfoInsts(MachineFunction &MF);
+
     /// hasLiveOutPReg - Check if an unavailable PReg must be preserved
     /// in S0 during predicate allocation SPScope on exiting the SPScope
     bool hasLiveOutPReg(const SPScope *S) const;
@@ -239,7 +243,15 @@ namespace {
     // moveDefUseGuardInsts().
     std::vector<MachineInstr *> DefUseGuardInsts;
 
+    // Branches that set the kill flag on condition operands are remembered,
+    // as the branches themselves are removed. The last use of these
+    // conditions before the branch will be set the kill flag
     std::map<MachineBasicBlock *, MachineOperand> KilledCondRegs;
+
+    // To preserve the call hierarchy (calls are unconditional in single-path
+    // code) instructions that store/restore return information (s7+s8)
+    // need to be excluded from predication
+    std::set<const MachineInstr *> ReturnInfoInsts;
 
   public:
     /// PatmosSPReduce - Initialize with PatmosTargetMachine
@@ -598,6 +610,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
   RAInfos.clear();
+  ReturnInfoInsts.clear();
 
   //DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
 
@@ -620,6 +633,12 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   AvailPredRegs.pop_back();
 
   computeRegAlloc(PSPI->getRootScope());
+
+
+  // before inserting code, we need to obtain additional instructions that are
+  // spared from predication (i.e. need to execute unconditionally)
+  // -> instructions that store/restore return information
+  collectReturnInfoInsts(MF);
 
   // Okay, now actually insert code, handling scopes in no particular order
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
@@ -1115,6 +1134,14 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
           DEBUG_TRACE( dbgs() << "    skip return: " << *MI );
           continue;
       }
+      if (TII->isStackControl(MI)) {
+          DEBUG_TRACE( dbgs() << "    skip stack control: " << *MI );
+          continue;
+      }
+      if (ReturnInfoInsts.count(MI)) {
+          DEBUG_TRACE(dbgs() << "    skip return info (re-)storing: " << *MI);
+          continue;
+      }
 
       if (MI->isCall()) {
           DEBUG_TRACE( dbgs() << "    call: " << *MI );
@@ -1306,6 +1333,71 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
   }
   // invalidate order
   order.clear();
+}
+
+
+void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
+  DEBUG( dbgs() << "Collect return info insts\n" );
+
+  for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+      MBB != MBBe; ++MBB) {
+    for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
+        MI != MIe; ++MI) {
+      if (MI->getOpcode() == Patmos::MFS &&
+          (MI->getOperand(3).getReg() == Patmos::SRB ||
+           MI->getOperand(3).getReg() == Patmos::SRO  )) {
+        // store return info in prologue (reads SRB/SRO)
+        ReturnInfoInsts.insert(MI);
+        DEBUG(dbgs() << "   in MBB#" << MBB->getNumber() << ": "; MI->dump());
+        // get reg it defines
+        unsigned reg = MI->getOperand(0).getReg();
+        // search down for first use of reg (store to stack slot)
+        MachineBasicBlock::iterator UMI = MI;
+        bool found = false;
+        while (++UMI != MIe && !found) {
+          // if UMI uses reg
+          for (unsigned i = 0; i < UMI->getNumOperands(); i++) {
+            const MachineOperand &MO = UMI->getOperand(i);
+            if ( MO.isReg() && MO.getReg() == reg) {
+              ReturnInfoInsts.insert(UMI);
+              DEBUG(dbgs() << "         #" << MBB->getNumber() << ": ";
+                  UMI->dump());
+              found = true;
+              break;
+            }
+          }
+        } // end inner loop
+        continue;
+      }
+      if (MI->getOpcode() == Patmos::MTS &&
+          (MI->getOperand(0).getReg() == Patmos::SRB ||
+           MI->getOperand(0).getReg() == Patmos::SRO  )) {
+        // restore return info in epilogue (writes SRB/SRO)
+        ReturnInfoInsts.insert(MI);
+        DEBUG(dbgs() << "   in MBB#" << MBB->getNumber() << ": "; MI->dump());
+        // get reg it uses
+        unsigned reg = MI->getOperand(3).getReg();
+        // search up for def of reg (load from stack slot)
+        MachineBasicBlock::iterator DMI = prior(MI);
+        bool found = false;
+        while (!found) {
+          // if DMI defines reg
+          if (DMI->definesRegister(reg)) {
+            ReturnInfoInsts.insert(DMI);
+            DEBUG(dbgs() << "         #" << MBB->getNumber() << ": ";
+                DMI->dump());
+            found = true;
+            break;
+          }
+          if (DMI == MBB->begin()) break;
+          --DMI;
+        } // end inner loop
+        continue;
+      }
+    }
+
+  }
+
 }
 
 
