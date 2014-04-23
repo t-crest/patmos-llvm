@@ -54,7 +54,7 @@ class CacheAnalysis
             debug(@options,:cache) { "Branches for tag: #{tag}: #{load_instructions}" }
             debug(@options,:cache) { "Scopes for tag #{tag}: #{conflict_free_scopes[tag].inspect}" }
             load_instructions.each { |branch|
-              ipet_builder.mc_model.add_missprediction_block_constraint(branch.insref.block, conflict_free_scopes[tag])
+              ipet_builder.mc_model.add_misprediction_block_constraint(branch.insref.block, conflict_free_scopes[tag])
             }
           }
         end
@@ -830,7 +830,9 @@ class BranchPredictorAnalysis
   end
 
   def load_instructions(i)
-    if (i.branch_type == "conditional" || i.branch_type == "unconditional")
+    # TODO: This should be defined by the architecture
+    if i.delay_slots == 0 &&
+        ((i.branch_type == "conditional") && ! i.opcode.start_with?('BRCF'))
       [ LoadInstruction.new(i, CacheLine.new(i.address, i.function)) ]
     else
       []

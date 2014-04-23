@@ -62,6 +62,7 @@ class WCA
     builder.build(entry, flowfacts) do |edge|
       # get list of executed instructions
       branch_index = nil
+      edge_match = false
       ilist =
         if (edge.kind_of?(Block))
           edge.instructions
@@ -70,8 +71,15 @@ class WCA
           src.instructions.each_with_index { |ins,ix|
             if ins.returns? && edge.target == :exit
               branch_index = ix # last instruction that returns
-            elsif ! ins.branch_targets.empty? && ins.branch_targets.include?(edge.target)
-              branch_index = ix # last instruction that branches to the target
+              edge_match = true
+            elsif ! ins.branch_targets.empty?
+              if ins.branch_targets.include?(edge.target)
+                branch_index = ix # last instruction that branches to the target
+                edge_match = true
+              elsif !branch_index
+                branch_index = ix
+                edge_match = false
+              end
             end
           }
           if ! branch_index
@@ -90,7 +98,8 @@ class WCA
             src.instructions[0..slot_end]
           end
         end
-      @pml.arch.path_wcet(ilist) + @pml.arch.edge_wcet(ilist,branch_index,edge)
+      @pml.arch.path_wcet(ilist) +
+        @pml.arch.edge_wcet(ilist,branch_index,edge,edge_match,@options.branch_prediction)
     end
 
     # run cache analyses

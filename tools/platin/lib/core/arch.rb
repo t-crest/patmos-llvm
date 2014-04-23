@@ -26,7 +26,7 @@ class Architecture
   def path_wcet(ilist)
     ilist.length # 1-cycle per instruction pseudo cost
   end
-  def edge_wcet(ilist,index,edge)
+  def edge_wcet(ilist,index,edge,edge_match,prediction)
     0 # control flow is for free
   end
 end

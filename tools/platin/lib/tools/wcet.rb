@@ -404,7 +404,8 @@ class WcetTool
     opts.on("--enable-wca", "run platin WCA calculator") { |d| opts.options.enable_wca = true }
     opts.on("--compute-criticalities", "calculate block criticalities") { opts.options.compute_criticalities = true }
     opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
-    opts.on("--branch-prediction PRED","branch prediction model (=optimal)") { |d| opts.options.branch_prediction = d }
+    opts.on("--branch-prediction PRED","branch prediction model (=not-taken)") { |d| opts.options.branch_prediction = d }
+    opts.add_check { |options| options.branch_prediction = "not-taken" unless options.branch_prediction }
     use_sweet = Proc.new { |options| options.enable_sweet }
     opts.bitcode_file(use_sweet)
     opts.alf_file(Proc.new { false })

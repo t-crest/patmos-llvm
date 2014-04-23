@@ -142,7 +142,7 @@ class IPETEdge
   def initialize(edge_source, edge_target, level, kind = :plain)
     @source,@target,@level,@kind = edge_source, edge_target, level.to_sym, kind
     arrow  = @level == :bitcode ? "~>" : "->"
-    suffix = @kind == :misspredict ? "_mp" : ""
+    suffix = @kind == :mispredict ? "_mp" : ""
     @qname = "#{@source.qname}#{arrow}#{:exit == @target ? 'exit' : @target.qname}#{suffix}"
   end
   def backedge?
@@ -168,12 +168,12 @@ class IPETEdge
   def relation_graph_edge?
     source.kind_of?(RelationNode) || target.kind_of?(RelationNode)
   end
-  def misspredict_edge?
-    kind == :misspredict
+  def mispredict_edge?
+    kind == :mispredict
   end
   def to_s
     arrow  = @level == 'bitcode' ? "~>" : "->"
-    suffix = @kind == :misspredict ? "_mp" : ""
+    suffix = @kind == :mispredict ? "_mp" : ""
     "#{@source}#{arrow}#{:exit == @target ? 'exit' : @target}#{suffix}"
   end
   def inspect
@@ -318,7 +318,7 @@ class IPETModel
   end
 
   # misprediction bounds for dynamic predictors
-  def add_missprediction_block_constraint(block, scopes)
+  def add_misprediction_block_constraint(block, scopes)
     # only insert constraints for dynamic prediction
     if (options.branch_prediction != "dynamic")
       return
@@ -354,12 +354,12 @@ class IPETModel
     debug(options, :cache) { "ENTRIES #{entry_edges}" }
 
     block.successors.each { |succ|
-      if (block.may_misspredict?(succ, options.branch_prediction))
+      if (block.may_mispredict?(succ, options.branch_prediction))
         block.successors.each { |other|
           if (succ != other)
-            lhs = [[IPETEdge.new(block,succ,level,:misspredict), 1],
+            lhs = [[IPETEdge.new(block,succ,level,:mispredict), 1],
                    [IPETEdge.new(block,other,level),-1],
-                   [IPETEdge.new(block,other,level,:misspredict),-1]]
+                   [IPETEdge.new(block,other,level,:mispredict),-1]]
             lhs += entry_edges
 
             if (can_leave_straight(block, other, Set.new([block])) &&
@@ -369,13 +369,13 @@ class IPETModel
             else
               leave_corr = 0
             end
-            ilp.add_constraint(lhs,"less-equal",leave_corr,"misspredict_#{block.qname}",:misspredict)
+            ilp.add_constraint(lhs,"less-equal",leave_corr,"mispredict_#{block.qname}",:mispredict)
           end
         }
         if (block.successors.length == 1)
-          lhs = [[IPETEdge.new(block,succ,level,:misspredict), 1]]
+          lhs = [[IPETEdge.new(block,succ,level,:mispredict), 1]]
           lhs += entry_edges
-          ilp.add_constraint(lhs,"less-equal",0,"misspredict_#{block.qname}",:misspredict)
+          ilp.add_constraint(lhs,"less-equal",0,"mispredict_#{block.qname}",:mispredict)
         end
       end
     }
@@ -410,8 +410,8 @@ class IPETModel
       [IPETEdge.new(pred,block,level), factor]
     }
     block.predecessors.each { |pred|
-      if (pred.may_misspredict?(block, options.branch_prediction))
-        sum += [[IPETEdge.new(pred,block,level,:misspredict), factor]]
+      if (pred.may_mispredict?(block, options.branch_prediction))
+        sum += [[IPETEdge.new(pred,block,level,:mispredict), factor]]
       end
     }
     sum
@@ -422,8 +422,8 @@ class IPETModel
       [IPETEdge.new(block,succ,level), factor]
     }
     block.successors.map { |succ|
-      if (block.may_misspredict?(succ, options.branch_prediction))
-        sum += [[IPETEdge.new(block,succ,level,:misspredict), factor]]
+      if (block.may_mispredict?(succ, options.branch_prediction))
+        sum += [[IPETEdge.new(block,succ,level,:mispredict), factor]]
       end
     }
     sum
@@ -441,8 +441,8 @@ class IPETModel
       next if ix != 0 && bb.predecessors.empty? # data block
       bb.successors.each do |bb2|
         yield IPETEdge.new(bb,bb2,level)
-        if (bb.may_misspredict?(bb2, options.branch_prediction))
-          yield IPETEdge.new(bb,bb2,level,:misspredict)
+        if (bb.may_mispredict?(bb2, options.branch_prediction))
+          yield IPETEdge.new(bb,bb2,level,:mispredict)
         end
       end
       if bb.may_return?

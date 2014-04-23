@@ -199,7 +199,7 @@ class VariableElimination
       else # FM elimination
         raise Exception.new("Internal error: equations left") unless eq_constraints[elimvar].empty?
 
-        if (options.branch_prediction != "optimal")
+        if (options.branch_prediction == "dynamic")
           break
         end
 

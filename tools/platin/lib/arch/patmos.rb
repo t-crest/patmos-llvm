@@ -151,15 +151,59 @@ class Architecture < PML::Architecture
     cost
   end
 
-  def edge_wcet(ilist,index,edge)
+  def is_local_branch?(instr)
+    (instr.branch_type == 'conditional' || instr.branch_type == 'unconditional') &&
+      ! instr.opcode.start_with?('BRCF')
+  end
+
+  def branch_cost(instr)
+    if is_local_branch?(instr)
+      cost = 2
+    else
+      cost = 3
+    end
+  end
+
+  def edge_wcet(ilist,index,edge,edge_match,prediction)
     cost = 0
     if index
       instr = ilist[index]
       if instr.delay_slots == 0
-        if instr.branch_type == 'return' || instr.opcode.start_with?('BRCF')
-          cost = 3
-        else
-          cost = 2
+        if ! is_local_branch?(instr)
+          cost = branch_cost(instr)
+        elsif prediction == "optimal"
+          cost = 0
+        elsif prediction == "not-taken"
+          if edge_match
+            cost = branch_cost(instr)
+          end
+        elsif prediction == "taken"
+          if ! edge_match
+            cost = branch_cost(instr)
+          end
+        elsif prediction == "bwd-taken"
+          # bwd-taken predicts unconditional branches perfectly
+          if instr.branch_type == 'conditional'
+            target = instr.branch_targets[0]
+            if edge_match
+              if target.address > instr.address
+                cost = branch_cost(instr)
+              end
+            else
+              if target.address <= instr.address
+              cost = branch_cost(instr)
+              end
+            end
+          end
+        elsif prediction == "dynamic"
+          # dynamic predicts unconditional branches perfectly too
+          if instr.branch_type == 'conditional'
+            if edge.kind == :mispredict
+              cost = branch_cost(instr)
+            end
+          end
+        else # prediction == "worst"
+          cost = branch_cost(instr)
         end
       end
     end
