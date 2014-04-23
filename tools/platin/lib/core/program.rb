@@ -593,6 +593,10 @@ module PML
     end
 
     def may_mispredict?(succ, type)
+      if (function.data['level'] == 'bitcode')
+        return false
+      end
+
       # Never predict indirect branches
       if (successors.length > 2)
         return false

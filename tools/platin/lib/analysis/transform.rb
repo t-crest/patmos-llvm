@@ -199,10 +199,6 @@ class VariableElimination
       else # FM elimination
         raise Exception.new("Internal error: equations left") unless eq_constraints[elimvar].empty?
 
-        if (options.branch_prediction == "dynamic")
-          break
-        end
-
         l, u = [], []
         bound_constraints[elimvar].each { |cref|
           coeff = cref.constraint.get_coeff(elimvar)
@@ -362,6 +358,7 @@ class FlowFactTransformation
         elim_set.push(var)
       end
     end
+
     ve = VariableElimination.new(ilp, options)
     new_constraints = ve.eliminate_set(elim_set)
 
