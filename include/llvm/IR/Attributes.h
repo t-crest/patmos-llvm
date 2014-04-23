@@ -266,6 +266,9 @@ public:
   AttributeSet removeAttribute(LLVMContext &C, unsigned Index, 
                                Attribute::AttrKind Attr) const;
 
+  AttributeSet removeAttribute(LLVMContext &C, unsigned Index,
+                               StringRef Kind) const;
+
   /// \brief Remove the specified attributes at the specified index from this
   /// attribute list. Since attribute lists are immutable, this returns the new
   /// list.

@@ -7,10 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This pass loops over all of the functions in the input module, looking for
-// dead declarations and removes them. Dead declarations are declarations of
-// functions for which no implementation is available (i.e., declarations for
-// unused library functions).
+// This pass clones functions on bitcode level that might be converted to
+// single-path code in the Patmos backend.
+// The reason for this is that you need to maintain a correspondence
+// between a MachineFunction and "its" bitcode function.
+// As function calls might be inserted in the lowering phase,
+// all functions marked as "used" are cloned as well.
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,7 +42,7 @@ STATISTIC(NumSPRoots,     "Number of single-path roots");
 STATISTIC(NumSPReachable, "Number of functions marked as single-path "
                           "reachable from roots");
 STATISTIC(NumSPUsed,      "Number of functions marked as single-path "
-                          "because used attribute");
+                          "because of <used> attribute");
 
 
 namespace {
@@ -199,7 +201,12 @@ Function *PatmosSPClone::cloneAndMark(Function *F, bool reachable) {
   ValueToValueMapTy VMap;
   Function *SPF = CloneFunction(F, VMap, false, NULL);
   SPF->setName(F->getName() + Twine("_sp_"));
+
   SPF->addFnAttr( reachable ? "sp-reachable" : "sp-maybe");
+  // if the root attribute got cloned, remove it
+  if (SPF->hasFnAttribute("sp-root")) {
+    SPF->removeFnAttr("sp-root");
+  }
   F->getParent()->getFunctionList().push_back(SPF);
   return SPF;
 }

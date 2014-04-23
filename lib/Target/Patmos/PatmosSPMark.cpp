@@ -1,4 +1,4 @@
-//===-- PatmosSPMark.cpp - Remove unused function declarations ----===//
+//===-- PatmosSPMark.cpp - Remove unused function declarations ------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,10 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This pass loops over all of the functions in the input module, looking for
-// dead declarations and removes them. Dead declarations are declarations of
-// functions for which no implementation is available (i.e., declarations for
-// unused library functions).
+// This pass marks functions for single-path conversion on machine code level.
+// Functions were cloned on bitcode level, now the lowered calls are there
+// as well. The final decision (single-path or not) is set in
+// PatmosMachineFunctionInfo (setSinglePath()).
+//
+// TODO how to get rid of the large, unnecessarily cloned functions
 //
 //===----------------------------------------------------------------------===//
 
@@ -44,7 +46,6 @@ STATISTIC(NumSPMaybe, "Number of 'used' functions marked as single-path");
 
 namespace {
 
-/// @brief Pass to remove unused function declarations.
 class PatmosSPMark : public MachineModulePass {
 private:
   typedef std::deque<MachineFunction*> Worklist;
