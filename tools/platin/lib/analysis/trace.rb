@@ -539,8 +539,9 @@ class FunctionRecorder
     results.dump(io, header)
   end
 private
-  def in_context(block)
-    [ block, Context.callstack_suffix(@callstack, @callstring_length) ]
+  def in_context(pp)
+    ctx = Context.callstack_suffix(@callstack, @callstring_length)
+    ContextRef.new(pp,ctx)
   end
 end
 
@@ -561,6 +562,7 @@ class FrequencyRecord
     @current_loops = {}
   end
   def init_block(pp)
+    assert("pp has wrong type: #{pp.class}") { pp.kind_of?(ContextRef) }
     @current_record[pp] ||= 0 if @current_record
   end
   def increment_block(pp)
@@ -611,7 +613,7 @@ class FrequencyRecord
     io.puts header if header
     io.puts "  cycles: #{cycles}"
     @blockfreqs.keys.sort.each do |bref|
-      io.puts "  #{bref.to_s.ljust(15)} \\in #{@blockfreqs[bref]}"
+      io.puts "  #{bref.class.to_s.ljust(15)} \\in #{@blockfreqs[bref]}"
     end
     @calltargets.each do |site,recv|
       io.puts "  #{site} calls #{recv.to_a.join(", ")}"

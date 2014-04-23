@@ -85,6 +85,8 @@ bool SUnit::addPred(const SDep &D, bool Required) {
           }
         }
         I->setLatency(D.getLatency());
+        this->setDepthDirty();
+        PredSU ->setHeightDirty();
       }
       return false;
     }

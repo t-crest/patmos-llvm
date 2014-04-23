@@ -8,6 +8,12 @@ require 'core/pmlbase'
 
 module PML
 
+  class UnknownFunctionException < Exception
+    def initialize(name)
+      super("No function named or labelled #{name} in analyzed program")
+    end
+  end
+
   # List of functions in the program
   class FunctionList < PMLList
     extend PMLListGen
@@ -20,6 +26,10 @@ module PML
        build_index
     end
 
+    def by_label_or_name(key, error_if_missing = false)
+      by_label(key, false) || by_name(key, error_if_missing)
+    end
+
     # return [rs, unresolved]
     # rs .. list of (known functions) reachable from name
     # unresolved .. set of callsites that could not be resolved
@@ -29,9 +39,7 @@ module PML
         callees = []
         f.callsites.each { |cs|
           cs.callees.each { |n|
-            if(f = by_label(n,false))
-              callees.push(f)
-            elsif(f = by_name(n,false))
+            if(f = by_label_or_name(n,false))
               callees.push(f)
             else
               unresolved.add(cs)
@@ -86,18 +94,27 @@ module PML
     def address ; data['address'] ; end
     def address=(addr); data['address'] = addr; end
 
-    def ProgramPoint.from_pml(functions, data)
+    def ProgramPoint.from_pml(mod, data)
+      # markers are special global program points
+      if data['marker']
+        return Marker.new(data['marker'])
+      end
+
+      # otherwise, it is a function or part of a function
       fname = data['function']
+      assert("ProgramPoint.from_pml: no function attribute: #{data}") { fname }
+      function = mod.by_name(fname)
+      raise UnknownFunctionException.new(fname) unless function
+
       bname = data['block']
       lname = data['loop']
       iname = data['instruction']
       is_edge = ! data['edgesource'].nil?
-
-      assert("ProgramPoint.from_pml: no function attribute: #{data}") { fname }
-      function = functions.by_name(fname)
-
       if (lname || bname)
         block = function.blocks.by_name(lname || bname)
+        assert("ProgramPoint.from_pml: no such block: #{lname||bname}") {
+          block
+        }
         if iname
           instruction = block.instructions[iname]
           return instruction
@@ -154,10 +171,10 @@ module PML
   class Edge < ProgramPoint
     attr_reader :source, :target
     def initialize(source, target, data = nil)
-      assert("PML Edge: source and target need to be blocks, not #{source.class}/#{target.class}") {
+      assert("PML::Edge: source and target need to be blocks, not #{source.class}/#{target.class}") {
         source.kind_of?(Block) && (target.nil? || target.kind_of?(Block))
       }
-      assert("PML Edge: source and target function need to match") { target.nil? || source.function == target.function }
+      assert("PML::Edge: source and target function need to match") { target.nil? || source.function == target.function }
 
       @source, @target = source, target
       @name = "#{source.name}->#{target ? target.name : '' }"
@@ -181,6 +198,27 @@ module PML
         'edgesource' => source.name }
       pml['edgetarget'] = target.name if target
       pml
+    end
+  end
+
+  # Markers; we use @ as marker prefix
+  class Marker < ProgramPoint
+    attr_reader :name
+    def initialize(name, data = nil)
+      assert("Marker#new: name must not be nil") { ! name.nil? }
+      @name = name
+      @qname = "@#{@name}"
+      set_yaml_repr(data)
+    end
+    def function
+      # no function associated with marker
+      nil
+    end
+    def to_s
+      @qname
+    end
+    def to_pml_ref
+      { 'marker' => @name }
     end
   end
 
@@ -519,6 +557,11 @@ module PML
       ".LBB#{fname}_#{bname}"
     end
 
+    # location hint (e.g. file:line)
+    def src_hint
+      data['src-hint'] || ''
+    end
+
     # ProgramPoint#block (return self)
     def block
       self
@@ -640,6 +683,10 @@ module PML
       functions.by_name(fn).blocks.by_name(bn).instructions[iname]
     end
 
+    def marker
+      data['marker']
+    end
+
     # type of branch this instruction realizes (if any)
     def branch_type
       data['branch-type']
@@ -665,8 +712,12 @@ module PML
     # called functions
     def called_functions
       return nil if unresolved_call?
-      data['callees'].map { |n|
-        block.function.module.by_label(n, true)
+      data['callees'].reject { |n|
+        # XXX: hackish
+        # filter known pseudo functions on bitcode
+        n =~ /llvm\..*/
+      }.map { |n|
+        block.function.module.by_label_or_name(n, true)
       }
     end
 

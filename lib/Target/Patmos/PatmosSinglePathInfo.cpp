@@ -123,6 +123,9 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
     delete Root;
     Root = NULL;
   }
+  // clear for sure
+  MBBScopeMap.clear();
+
   // only consider function actually marked for conversion
   std::string curfunc = MF.getFunction()->getName();
   if ( isConverting(MF) ) {
@@ -150,11 +153,15 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
   DEBUG( print(dbgs()) );
 
-  // XXX for debugging
+  // XXX for extensive debugging
   //MF.viewCFGOnly();
 }
 
 
+SPScope *
+PatmosSinglePathInfo::getScopeFor(const MachineBasicBlock *MBB) const {
+  return MBBScopeMap.at(MBB);
+}
 
 void PatmosSinglePathInfo::print(raw_ostream &os, const Module *M) const {
   assert(Root);
@@ -177,23 +184,14 @@ void PatmosSinglePathInfo::walkRoot(llvm::SPScopeWalker &walker) const {
 }
 
 
-  // helper
-static void printBitVector(raw_ostream &OS, BitVector B) {
-  for (int i=B.size()-1; i>=0; i--) {
-    OS << ( (B.test(i)) ? "1" : "0" );
-  }
-}
-
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // SPScope methods
 ///////////////////////////////////////////////////////////////////////////////
 
 
-SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel,
-                 const TargetInstrInfo &tii)
-                    : Parent(NULL), TII(tii), FCFG(header),
+SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
+                    : Parent(NULL), FCFG(header),
                       RootTopLevel(isRootTopLevel), LoopBound(-1) {
   Depth = 0;
   // add header also to this SPScope's block list
@@ -203,7 +201,7 @@ SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel,
 
 
 SPScope::SPScope(SPScope *parent, MachineLoop &loop)
-  : Parent(parent), TII(parent->TII), FCFG(loop.getHeader()),
+  : Parent(parent), FCFG(loop.getHeader()),
     RootTopLevel(false), LoopBound(-1) {
 
   assert(parent);
@@ -513,7 +511,8 @@ void SPScope::decompose(void) {
     dbgs() << "Decomposed CD:\n";
     dbgs().indent(2) << "map R: MBB -> pN\n";
     for (R_t::iterator RI = R.begin(), RE = R.end(); RI != RE; ++RI) {
-      dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p" << RI->second << "\n";
+      dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p"
+                       << RI->second << "\n";
     }
     dbgs().indent(2) << "map K: pN -> t \\in CD\n";
     for (unsigned long i = 0; i < K.size(); i++) {
@@ -522,8 +521,8 @@ void SPScope::decompose(void) {
             EI!=EE; ++EI) {
         Node *n = EI->first;
         Edge e  = EI->second;
-        FCFG.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1) << ","
-                      << e.second->getNumber() << "), ";
+        FCFG.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1)
+                           << "," << e.second->getNumber() << "), ";
       }
       dbgs() << "}\n";
     }
@@ -546,18 +545,17 @@ void SPScope::decompose(void) {
               EI!=EE; ++EI) {
       Node *n = EI->first;
       Edge e  = EI->second;
-      const MachineBasicBlock *MBBSrc = e.first, *MBBDst = e.second;
       if (n == &FCFG.nentry) {
         // Pseudo edge (from start node)
-        //assert(MBBSrc == NULL);
-        assert(MBBDst == getHeader());
+        //assert(e.first == NULL);
+        assert(e.second == getHeader());
         continue;
       }
 
-      // get pred definition info of MBBSrc
+      // get pred definition info of node
       PredDefInfo &PredDef = getOrCreateDefInfo(n->MBB);
-      // insert definition for predicate i according to MBBDst
-      PredDef.define(i, MBBDst);
+      // insert definition edge for predicate i
+      PredDef.define(i, e);
     } // end for each definition edge
   }
 }
@@ -616,25 +614,28 @@ void SPScope::walk(SPScopeWalker &walker) {
 }
 
 
-static void printUDInfo(const SPScope &S, const MachineBasicBlock *MBB) {
-  dbgs() << "  u=" << S.getPredUse(MBB);
-
-  const PredDefInfo *DI = S.getDefInfo(MBB);
+static void printUDInfo(const SPScope &S, raw_ostream& os,
+                        const MachineBasicBlock *MBB) {
+  os << "  u=" << S.getPredUse(MBB);
+  const SPScope::PredDefInfo *DI = S.getDefInfo(MBB);
   if (DI) {
-    dbgs() << " dT=";
-    printBitVector(dbgs(), DI->getTrue());
-    dbgs() << " dF=";
-    printBitVector(dbgs(), DI->getFalse());
+    os << " d=";
+    for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
+        pi != pe; ++pi) {
+      os << pi->first << ",";
+    }
   }
-  dbgs() << "\n";
+  os << "\n";
 }
 
 
 
 void SPScope::dump(raw_ostream& os) const {
   os.indent(2*Depth) <<  "[BB#" << Blocks.front()->getNumber() << "]";
-  if (Parent) {
-    os << " u=" << Parent->getPredUse(Blocks.front());
+  if (!Parent) {
+    os << " (top)";
+    assert(ExitEdges.empty());
+    assert(Latches.empty());
   }
   if (!ExitEdges.empty()) {
     os << " -> { ";
@@ -651,15 +652,14 @@ void SPScope::dump(raw_ostream& os) const {
     os << "}";
   }
   os << " |P|=" <<  PredCount;
-  printUDInfo(*this, Blocks.front());
+  printUDInfo(*this, os, Blocks.front());
 
   for (unsigned i=1; i<Blocks.size(); i++) {
     MachineBasicBlock *MBB = Blocks[i];
+    os.indent(2*(Depth+1)) << " BB#" << MBB->getNumber();
+    printUDInfo(*this, os, MBB);
     if (HeaderMap.count(MBB)) {
       HeaderMap.at(MBB)->dump(os);
-    } else {
-      os.indent(2*(Depth+1)) << " BB#" << MBB->getNumber();
-      printUDInfo(*this, MBB);
     }
   }
 }
@@ -674,7 +674,8 @@ int SPScope::getPredUse(const MachineBasicBlock *MBB) const {
   return -1;
 }
 
-const PredDefInfo *SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
+const SPScope::PredDefInfo *
+SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
 
   if (PredDefs.count(MBB)) {
     return &PredDefs.at(MBB);
@@ -682,33 +683,12 @@ const PredDefInfo *SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
   return NULL;
 }
 
-PredDefInfo &
+SPScope::PredDefInfo &
 SPScope::getOrCreateDefInfo(const MachineBasicBlock *MBB) {
 
   if (!PredDefs.count(MBB)) {
-    // for AnalyzeBranch
-    MachineBasicBlock *TBB = NULL, *FBB = NULL;
-    SmallVector<MachineOperand, 2> Cond;
-    if (!TII.AnalyzeBranch(*const_cast<MachineBasicBlock*>(MBB),
-          TBB, FBB, Cond)) {
-      // According to AnalyzeBranch spec, at a conditional branch,
-      // Cond will hold the branch conditions
-      // Further, there are two cases for conditional branches:
-      // 1. conditional+fallthrough:   TBB holds branch target
-      // 2. conditional+unconditional: TBB holds target of conditional branch,
-      //                               FBB the target of the unconditional one
-      // Hence, the branch condition will always refer to the TBB edge.
-      if (Cond.empty()) {
-        report_fatal_error("AnalyzeBranch for SP-Transformation failed; "
-          "could not determine branch condition");
-      }
-    } else {
-      report_fatal_error("AnalyzeBranch failed");
-    }
-
     // Create new info
-    PredDefs.insert(
-      std::make_pair(MBB, PredDefInfo(PredCount, TBB, Cond)) );
+    PredDefs.insert(std::make_pair(MBB, PredDefInfo()));
   }
 
   return PredDefs.at(MBB);
@@ -737,14 +717,14 @@ void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
 
 
 SPScope *
-PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) const {
+PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) {
   // Get loop information
   MachineLoopInfo &LI = getAnalysis<MachineLoopInfo>();
 
   // First, create a SPScope tree
   std::map<const MachineLoop *, SPScope *> M;
 
-  SPScope *Root = new SPScope(&MF.front(), isRoot(MF), *TII);
+  SPScope *Root = new SPScope(&MF.front(), isRoot(MF));
 
 
   M[NULL] = Root;
@@ -761,6 +741,8 @@ PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) const {
     MachineBasicBlock *MBB = FI;
     const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
     M[Loop]->addMBB(MBB);
+
+    MBBScopeMap.insert(std::make_pair(MBB, M[Loop]));
   }
 
   return Root;

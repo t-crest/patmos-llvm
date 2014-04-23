@@ -105,10 +105,10 @@ bool PatmosSPClone::doInitialization(Module &M) {
 
 bool PatmosSPClone::doFinalization(Module &M) {
   if (!SPRoots.empty()) {
-    DEBUG( dbgs() << "Following single-path roots not found:\n'" );
+    DEBUG( dbgs() << "Following single-path roots not found:\n" );
     for (std::set<std::string>::iterator it=SPRoots.begin();
             it!=SPRoots.end(); ++it) {
-      DEBUG( dbgs() << *it << "' ");
+      DEBUG( dbgs() << "'" << *it << "' ");
     }
     DEBUG( dbgs() << '\n');
     SPRoots.clear();

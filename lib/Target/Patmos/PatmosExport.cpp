@@ -285,11 +285,7 @@ namespace llvm {
     virtual void exportInstruction(MachineFunction &MF,
                                    yaml::MachineInstruction *I,
                                    const MachineInstr *Instr,
-                                   bool BundledWithPred,
-                                   SmallVector<MachineOperand, 4> &Conditions,
-                                   bool HasBranchInfo,
-                                   MachineBasicBlock *TrueSucc,
-                                   MachineBasicBlock *FalseSucc);
+                                   bool BundledWithPred);
 
     /// exportArgumentRegisterMapping
     /// see below for implementation
@@ -530,11 +526,7 @@ namespace llvm {
     exportInstruction(MachineFunction &MF,
                       yaml::MachineInstruction *I,
                       const MachineInstr *Instr,
-                      bool BundledWithPred,
-                      SmallVector<MachineOperand, 4> &Conditions,
-                      bool HasBranchInfo,
-                      MachineBasicBlock *TrueSucc,
-                      MachineBasicBlock *FalseSucc) {
+                      bool BundledWithPred) {
 
       PatmosStackCacheAnalysisInfo *SCA =
        &P.getAnalysis<PatmosStackCacheAnalysisInfo>();
@@ -569,8 +561,7 @@ namespace llvm {
           case PatmosII::MEM_C: I->MemType = yaml::Name("cache");  break;
         }
       }
-      return PMLMachineExport::exportInstruction(MF, I, Instr, BundledWithPred,
-          Conditions, HasBranchInfo, TrueSucc, FalseSucc);
+      return PMLMachineExport::exportInstruction(MF, I, Instr, BundledWithPred);
     }
 
 

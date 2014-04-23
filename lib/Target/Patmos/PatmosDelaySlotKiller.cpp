@@ -36,12 +36,6 @@ using namespace llvm;
 
 STATISTIC( KilledSlots, "Number of eliminated delay slots");
 
-static cl::opt<bool> EnableDelaySlotKiller(
-  "mpatmos-enable-delay-killer",
-  cl::init(false),
-  cl::desc("Enable the Patmos delay slot killer."),
-  cl::Hidden);
-
 namespace {
 
   class PatmosDelaySlotKiller : public MachineFunctionPass {
@@ -64,7 +58,7 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &F) {
       bool Changed = false;
-      if (EnableDelaySlotKiller) {
+      if (TM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_DELAYED) {
         DEBUG( dbgs() << "\n[DelaySlotKiller] "
                << F.getFunction()->getName() << "\n" );
 
@@ -105,22 +99,28 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
     if (I->hasDelaySlot()) {
       assert( ( I->isCall() || I->isReturn() || I->isBranch() )
               && "Unexpected instruction with delay slot.");
-      if (I->getOpcode() == Patmos::BR ||
-          I->getOpcode() == Patmos::BRu ||
-          I->getOpcode() == Patmos::BRR ||
-          I->getOpcode() == Patmos::BRRu ||
-          I->getOpcode() == Patmos::BRT ||
-          I->getOpcode() == Patmos::BRTu ||
-          I->getOpcode() == Patmos::BRCF ||
-          I->getOpcode() == Patmos::BRCFu ||
-          I->getOpcode() == Patmos::BRCFR ||
-          I->getOpcode() == Patmos::BRCFRu ||
-          I->getOpcode() == Patmos::BRCFT ||
-          I->getOpcode() == Patmos::BRCFTu ||
-          I->getOpcode() == Patmos::CALL ||
-          I->getOpcode() == Patmos::CALLR ||
-          I->getOpcode() == Patmos::RET ||
-          I->getOpcode() == Patmos::XRET) {
+
+      MachineBasicBlock::instr_iterator MI = *I;
+      if (I->isBundle()) { ++MI; }
+
+      unsigned Opcode = MI->getOpcode();
+
+      if (Opcode == Patmos::BR ||
+          Opcode == Patmos::BRu ||
+          Opcode == Patmos::BRR ||
+          Opcode == Patmos::BRRu ||
+          Opcode == Patmos::BRT ||
+          Opcode == Patmos::BRTu ||
+          Opcode == Patmos::BRCF ||
+          Opcode == Patmos::BRCFu ||
+          Opcode == Patmos::BRCFR ||
+          Opcode == Patmos::BRCFRu ||
+          Opcode == Patmos::BRCFT ||
+          Opcode == Patmos::BRCFTu ||
+          Opcode == Patmos::CALL ||
+          Opcode == Patmos::CALLR ||
+          Opcode == Patmos::RET ||
+          Opcode == Patmos::XRET) {
 
         bool onlyNops = true;
         unsigned maxCount = TM.getSubtargetImpl()->getDelaySlotCycles(&*I);
@@ -132,27 +132,27 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
           }
         }
         if (onlyNops) {
-          unsigned Opcode = 0;
-          switch(I->getOpcode()) {
-          case Patmos::BR:     Opcode = Patmos::BRND; break;
-          case Patmos::BRu:    Opcode = Patmos::BRNDu; break;
-          case Patmos::BRR:    Opcode = Patmos::BRRND; break;
-          case Patmos::BRRu:   Opcode = Patmos::BRRNDu; break;
-          case Patmos::BRT:    Opcode = Patmos::BRTND; break;
-          case Patmos::BRTu:   Opcode = Patmos::BRTNDu; break;
-          case Patmos::BRCF:   Opcode = Patmos::BRCFND; break;
-          case Patmos::BRCFu:  Opcode = Patmos::BRCFNDu; break;
-          case Patmos::BRCFR:  Opcode = Patmos::BRCFRND; break;
-          case Patmos::BRCFRu: Opcode = Patmos::BRCFRNDu; break;
-          case Patmos::BRCFT:  Opcode = Patmos::BRCFTND; break;
-          case Patmos::BRCFTu: Opcode = Patmos::BRCFTNDu; break;
-          case Patmos::CALL:   Opcode = Patmos::CALLND; break;
-          case Patmos::CALLR:  Opcode = Patmos::CALLRND; break;
-          case Patmos::RET:    Opcode = Patmos::RETND; break;
-          case Patmos::XRET:   Opcode = Patmos::XRETND; break;
+          unsigned NewOpcode = 0;
+          switch(Opcode) {
+          case Patmos::BR:     NewOpcode = Patmos::BRND; break;
+          case Patmos::BRu:    NewOpcode = Patmos::BRNDu; break;
+          case Patmos::BRR:    NewOpcode = Patmos::BRRND; break;
+          case Patmos::BRRu:   NewOpcode = Patmos::BRRNDu; break;
+          case Patmos::BRT:    NewOpcode = Patmos::BRTND; break;
+          case Patmos::BRTu:   NewOpcode = Patmos::BRTNDu; break;
+          case Patmos::BRCF:   NewOpcode = Patmos::BRCFND; break;
+          case Patmos::BRCFu:  NewOpcode = Patmos::BRCFNDu; break;
+          case Patmos::BRCFR:  NewOpcode = Patmos::BRCFRND; break;
+          case Patmos::BRCFRu: NewOpcode = Patmos::BRCFRNDu; break;
+          case Patmos::BRCFT:  NewOpcode = Patmos::BRCFTND; break;
+          case Patmos::BRCFTu: NewOpcode = Patmos::BRCFTNDu; break;
+          case Patmos::CALL:   NewOpcode = Patmos::CALLND; break;
+          case Patmos::CALLR:  NewOpcode = Patmos::CALLRND; break;
+          case Patmos::RET:    NewOpcode = Patmos::RETND; break;
+          case Patmos::XRET:   NewOpcode = Patmos::XRETND; break;
           }
-          const MCInstrDesc &nonDelayed = TII->get(Opcode);
-          I->setDesc(nonDelayed);
+          const MCInstrDesc &nonDelayed = TII->get(NewOpcode);
+          MI->setDesc(nonDelayed);
 
           unsigned killCount = 0;
           MachineBasicBlock::iterator K = llvm::next(I);

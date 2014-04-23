@@ -146,6 +146,14 @@ static cl::opt<bool> EnableShowCFGs(
 
 namespace llvm {
 
+  STATISTIC(TotalFunctions, "Number of functions visited.");
+  STATISTIC(SplitFunctions, "Number of functions splitted.");
+  STATISTIC(TotalBlocks, "Number of basic blocks in regions.");
+  STATISTIC(TotalRegions, "Number of regions created.");
+  STATISTIC(MaxRegionBlocks, "Maximum number of blocks in any region.");
+  STATISTIC(MaxFunctionBlocks, "Maximum number of blocks in any function.");
+  STATISTIC(MaxFunctionRegions, "Maximum number of regions in any function.");
+
   STATISTIC(FallthroughFixups, "Branches added for fall-throughs after function splitting");
   STATISTIC(BranchRewrites, "Branches rewritten to BRCFs");
   STATISTIC(NOPsInserted, "NOPs inserted by function splitter");
@@ -1394,7 +1402,11 @@ namespace llvm {
                                DebugLoc(), TII.get(Opc))).addMBB(target->MBB);
 
         MachineBasicBlock::iterator II = fallthrough->end();
-        unsigned cycles = PII.moveUp(*fallthrough, --II);
+        --II;
+        unsigned cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(&*II);
+        if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_NON_DELAYED) {
+          cycles = PII.moveUp(*fallthrough, II);
+        }
 
         // Pad the *end* of the delay slot with NOPs if needed.
         for (unsigned i = 0; i < cycles; i++) {
@@ -1426,6 +1438,9 @@ namespace llvm {
       // keep track of fall-through blocks
       ablock *fallThrough = NULL;
 
+      unsigned numBlocks = 0;
+      unsigned numRegions = 0;
+
       // reorder the blocks and fix-up fall-through blocks
       MachineBasicBlock *last = order.back()->MBB;
       for(ablocks::iterator i(order.begin()), ie(order.end()); i != ie; i++) {
@@ -1435,7 +1450,17 @@ namespace llvm {
         // store region entries with the Patmos function info
         if (is_region_entry) {
           PMFI->addMethodCacheRegionEntry(MBB);
+
+          numRegions++;
+
+          // update statistics of last region
+          if (MaxRegionBlocks < numBlocks)
+            MaxRegionBlocks = numBlocks;
+          TotalBlocks += numBlocks;
+          numBlocks = 0;
         }
+
+        numBlocks++;
 
         // don't move the last node before itself ;-)
         if (MBB != last)
@@ -1456,6 +1481,18 @@ namespace llvm {
       if (fallThrough) {
         fixupFallThrough(fallThrough, NULL);
       }
+
+      // update statistics of last region
+      if (MaxRegionBlocks < numBlocks)
+        MaxRegionBlocks = numBlocks;
+      TotalBlocks += numBlocks;
+
+      // update statistics of function
+      if (MaxFunctionRegions < numRegions)
+        MaxFunctionRegions = numRegions;
+      if (MaxFunctionBlocks < order.size())
+        MaxFunctionBlocks = order.size();
+      TotalRegions += numRegions;
 
       // renumber blocks according to the new order
       MF->RenumberBlocks();
@@ -1509,7 +1546,8 @@ namespace llvm {
         // instructions.
         // TODO We could check for latencies of operands here, but defs will
         // probably always be scheduled in the previous cycle anyway.
-        if (!PII.hasRegUse(&*I) && PII.canRemoveFromSchedule(MBB, I)) {
+        if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_NON_DELAYED
+            && !PII.hasRegUse(&*I) && PII.canRemoveFromSchedule(MBB, I)) {
           cycles = PII.moveUp(MBB, I, cycles);
         }
 
@@ -1789,20 +1827,26 @@ namespace llvm {
       return alignSize + branch_fixups;
     }
 
+    /// Get the size of the delay slot of an instruction in bytes.
     static unsigned int getDelaySlotSize(MachineBasicBlock *MBB,
                                          MachineInstr *MI,
                                          PatmosTargetMachine &PTM)
     {
       int cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(MI);
+      const PatmosInstrInfo *PII = PTM.getInstrInfo();
 
       unsigned bytes = 0;
 
       MachineBasicBlock::iterator it = MI;
-      for (; cycles > 0; cycles--) {
+      for (; cycles > 0; ) {
         it++;
         assert(it != MBB->end() && "Reached end of MBB before end of delay slot");
+        assert(!it->isInlineAsm() && "Inline asm should not be in delay slot");
 
-        bytes += getInstrSize(it, PTM);
+        if (!PII->isPseudo(it)) {
+          bytes += getInstrSize(it, PTM);
+          --cycles;
+        }
       }
 
       return bytes;
@@ -2026,6 +2070,8 @@ namespace llvm {
       DEBUG(dbgs() << "\nPatmos Function Splitter: "
                    << MF.getFunction()->getName() << ": " << total_size << "\n");
 
+      TotalFunctions++;
+
       // splitting needed?
       if (total_size > prefer_subfunc_size) {
 
@@ -2042,6 +2088,8 @@ namespace llvm {
 
         // update the basic block order and rewrite branches
         G.applyRegions(order);
+
+        SplitFunctions++;
 
         // Note: We rely on the PatmosEnsureAlignment pass to set alignments,
         // we do not do it in this pass.

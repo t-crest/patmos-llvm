@@ -320,6 +320,21 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
   // therefore there is at most one CFL or inline asm.
   SUnit *Asm = NULL;
 
+  // Push up loads to ensure load delay slot across BBs
+  // TODO For some reasons, loads do not always have exit edges, and a latency
+  //      of 1; find out why. Happens e.g. in coremark with 16k methods setup.
+  for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
+         ie = DAG->SUnits.rend(); it != ie; it++) {
+    MachineInstr *MI = it->getInstr();
+    if (!MI) continue;
+
+    if (MI->mayLoad()) {
+      SDep Dep(&*it, SDep::Artificial);
+      Dep.setLatency(1);
+      DAG->ExitSU.addPred(Dep);
+    }
+  }
+
   // Find the branch/call/ret instruction if available
   for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
        ie = DAG->SUnits.rend(); it != ie; it++)
@@ -347,16 +362,54 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     if (CFL->getInstr()->isReturn() || CFL->getInstr()->isCall())
       removeImplicitCFLDeps(*CFL);
 
-    // TODO if CFL is a branch and we do not have enough roots/single preds of
-    // roots, i.e. not enough ILP to fill delay slots, replace CFL with a
-    // non-delayed branch
-
     // Add an artificial dep from CFL to exit for the delay slot
     SDep DelayDep(CFL, SDep::Artificial);
     DelayDep.setLatency(DelaySlot + 1);
     DAG->ExitSU.addPred(DelayDep);
 
     CFL->isScheduleLow = true;
+
+    if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_DELAYED) {
+      // Push up single instructions that can be scheduled in the same
+      // cycle as the branch
+      unsigned LowCount = 0;
+      SUnit *LowSU = 0;
+      for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
+             ie = DAG->SUnits.rend(); it != ie; it++) {
+        if (&*it == CFL) continue;
+        
+        MachineInstr *MI = it->getInstr();
+        if (!MI) continue;
+        
+        if (it->getHeight() <= DelaySlot) {
+          LowCount++;
+          if (PII.canIssueInSlot(MI, LowCount)) {
+            LowSU = &*it;
+          }
+        }
+      }
+
+      if (LowSU && LowCount == 1) {
+        SDep Dep(LowSU, SDep::Artificial);
+        Dep.setLatency(DelaySlot + 1);
+        DAG->ExitSU.addPred(Dep);
+      }
+    }
+
+    if (PTM.getSubtargetImpl()->getCFLType() == PatmosSubtarget::CFL_NON_DELAYED) {
+      // Add dependencies from all other instructions to exit
+      for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
+             ie = DAG->SUnits.rend(); it != ie; it++) {
+        if (&*it == CFL) continue;
+
+        MachineInstr *MI = it->getInstr();
+        if (!MI) continue;
+
+        SDep Dep(&*it, SDep::Artificial);
+        Dep.setLatency(DelaySlot + 1);
+        DAG->ExitSU.addPred(Dep);
+      }
+    }
   }
 
   // Add an exit delay between loads and inline asm, in case asm is empty

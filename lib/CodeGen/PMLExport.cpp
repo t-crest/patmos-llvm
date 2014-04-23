@@ -15,6 +15,7 @@
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/ADT/Statistic.h"
@@ -199,8 +200,7 @@ yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
 
   FF->setLoopScope(yaml::Name(Fn->getName()), yaml::Name(BB->getName()));
 
-  yaml::ProgramPoint *Block =
-                       new yaml::ProgramPoint(Fn->getName(), BB->getName());
+  yaml::ProgramPoint *Block = yaml::ProgramPoint::CreateBlock(Fn->getName(), BB->getName());
 
   FF->addTermLHS(Block, 1LL);
   FF->RHS = RHS;
@@ -292,17 +292,22 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     for (BasicBlock::const_iterator II = BI->begin(), IE = BI->end(); II != IE;
         ++II)
     {
-      if (!doExportInstruction(II)) { Index++; continue; }
+      if (!doExportInstruction(II)) {
+        Index++;
+        continue;
+      }
 
       yaml::Instruction *I = B->addInstruction(
           new yaml::Instruction(Index++));
       exportInstruction(I, II);
     }
+
   }
   // TODO: we do not compute a hash yet
   F->Hash = StringRef("0");
   YDoc.addFunction(F);
 }
+
 
 yaml::Name PMLBitcodeExport::getOpcode(const Instruction *Instr)
 {
@@ -326,7 +331,21 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
 
   I->Opcode = getOpcode(II);
 
-  if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
+  if (const IntrinsicInst* CI = dyn_cast<const IntrinsicInst>(II)) {
+    if (CI->getIntrinsicID() == Intrinsic::pcmarker) {
+      // for now, we use the argument as ID. Eventually, we
+      // will use strings attached as metadata instead, so
+      // it is possible to reference markers by name
+      if (ConstantInt *MarkerInt = dyn_cast<ConstantInt>(CI->getArgOperand(0))) {
+	uint64_t MarkerId = MarkerInt->getZExtValue();
+	std::string MarkerName = utostr(MarkerId);
+	I->Marker = MarkerName;
+      } else {
+	errs() << "Marker with non-constant argument:\n";
+	CI->print(errs());
+      }
+    }
+  } else if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
     if (const Function *F = CI->getCalledFunction()) {
       I->addCallee(F->getName());
     }
@@ -340,10 +359,12 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
   } else if (isa<StoreInst>(II)) {
     I->MemMode = yaml::memmode_store;
   }
+
 }
 
 
 
+///////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -383,13 +404,6 @@ void PMLMachineExport::serialize(MachineFunction &MF)
       Loop = Loop->getParentLoop();
     }
 
-    // export instruction and branch Information
-    MachineBasicBlock *TrueSucc = 0, *FalseSucc = 0;
-    SmallVector<MachineOperand, 4> Conditions;
-    const TargetInstrInfo *TII = TM.getInstrInfo();
-    bool HasBranchInfo = !TII->AnalyzeBranch(*BB, TrueSucc, FalseSucc,
-        Conditions, false);
-
     unsigned Index = 0;
     bool IsBundled = false;
     for (MachineBasicBlock::instr_iterator Ins = BB->instr_begin(),
@@ -409,8 +423,11 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 
       yaml::MachineInstruction *I = B->addInstruction(
           new yaml::MachineInstruction(Index++));
-      exportInstruction(MF, I, Ins, IsBundled, Conditions, HasBranchInfo,
-                        TrueSucc, FalseSucc);
+      exportInstruction(MF, I, Ins, IsBundled);
+
+      const LLVMContext &Ctx = MF.getFunction()->getContext();
+      DebugLoc dl = Ins->getDebugLoc();
+      B->setSrcLocOnce(dl, dl.getScope(Ctx));
 
       IsBundled = true;
     }
@@ -440,10 +457,7 @@ void PMLMachineExport::printDesc(raw_ostream &os, const MachineInstr *Instr)
 
 void PMLMachineExport::
 exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
-                  const MachineInstr *Ins, bool BundledWithPred,
-                  SmallVector<MachineOperand, 4> &Conditions,
-                  bool HasBranchInfo, MachineBasicBlock *TrueSucc,
-                  MachineBasicBlock *FalseSucc)
+                  const MachineInstr *Ins, bool BundledWithPred)
 {
   std::string s;
   raw_string_ostream ss(s);
@@ -463,8 +477,7 @@ exportInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
   } else if (Ins->getDesc().isReturn()) {
     I->BranchType = yaml::branch_return;
   } else if (Ins->getDesc().isBranch()) {
-    exportBranchInstruction(MF, I, Ins, Conditions, HasBranchInfo,
-                            TrueSucc, FalseSucc);
+    exportBranchInstruction(MF, I, Ins);
   } else if (!Ins->isInlineAsm()) {
     if (Ins->getDesc().mayLoad()) {
       I->MemMode = yaml::memmode_load;
@@ -499,29 +512,13 @@ exportCallInstruction(MachineFunction &MF, yaml::MachineInstruction *I,
 void PMLMachineExport::
 exportBranchInstruction(MachineFunction &MF,
                         yaml::MachineInstruction *I,
-                        const MachineInstr *Ins,
-                        SmallVector<MachineOperand, 4> &Conditions,
-                        bool HasBranchInfo, MachineBasicBlock *TrueSucc,
-                        MachineBasicBlock *FalseSucc)
+                        const MachineInstr *Ins)
 {
-  // Should we check the PMLInstrInfo for branch targets?
-  bool LookupBranchTargets = true;
-
   if (Ins->getDesc().isConditionalBranch()) {
     I->BranchType = yaml::branch_conditional;
-    if (HasBranchInfo && TrueSucc) {
-      I->BranchTargets.push_back(yaml::Name(TrueSucc->getNumber()));
-      LookupBranchTargets = false;
-    }
   }
   else if (Ins->getDesc().isUnconditionalBranch()) {
     I->BranchType = yaml::branch_unconditional;
-    MachineBasicBlock *USucc =
-        Conditions.empty() ? TrueSucc : FalseSucc;
-    if (HasBranchInfo && USucc) {
-      I->BranchTargets.push_back(yaml::Name(USucc->getNumber()));
-      LookupBranchTargets = false;
-    }
   }
   else if (Ins->getDesc().isIndirectBranch()) {
     I->BranchType = yaml::branch_indirect;
@@ -530,14 +527,12 @@ exportBranchInstruction(MachineFunction &MF,
     I->BranchType = yaml::branch_any;
   }
 
-  if (LookupBranchTargets) {
-    typedef const std::vector<MachineBasicBlock*> BTVector;
-    const BTVector& targets = PII->getBranchTargets(MF, Ins);
+  typedef const std::vector<MachineBasicBlock*> BTVector;
+  const BTVector& targets = PII->getBranchTargets(MF, Ins);
 
-    for (BTVector::const_iterator it = targets.begin(),ie=targets.end();
-          it != ie; ++it) {
-      I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
-    }
+  for (BTVector::const_iterator it = targets.begin(),ie=targets.end();
+       it != ie; ++it) {
+    I->BranchTargets.push_back(yaml::Name((*it)->getNumber()));
   }
 }
 
@@ -550,10 +545,10 @@ yaml::ValueFact *PMLMachineExport:: createMemGVFact(const MachineInstr *MI,
 
   yaml::ValueFact *VF = new yaml::ValueFact(yaml::level_machinecode);
 
-  VF->PP = new yaml::ProgramPoint(MF->getFunctionNumber(),
-                                  MBB->getNumber(),
-                                  I->Index.getNameAsInteger()
-                                  );
+  VF->PP = yaml::ProgramPoint::CreateInstruction(MF->getFunctionNumber(),
+                                                 MBB->getNumber(),
+                                                 I->Index.getNameAsInteger()
+                                                 );
   for (std::set<const GlobalValue*>::iterator SI = GVs.begin(), SE = GVs.end();
       SI != SE; ++SI) {
 

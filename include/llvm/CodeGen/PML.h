@@ -20,6 +20,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/DebugInfo.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/raw_ostream.h"
@@ -27,6 +28,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 
 #include <list>
+#include <sstream>
 
 /// YAML serialization for LLVM modules (machinecode,bitcode)
 /// produces one or more documents of type llvm::yaml::Doc.
@@ -215,6 +217,7 @@ struct Instruction {
   Name Index;
   Name Opcode;
   Name Desc;
+  Name Marker;
   std::vector<Name> Callees;
   enum MemMode MemMode;
 
@@ -235,6 +238,7 @@ struct MappingTraits<Instruction*> {
     io.mapRequired("index",   Ins->Index);
     io.mapOptional("opcode",  Ins->Opcode, yaml::Name());
     io.mapOptional("desc",    Ins->Desc, yaml::Name());
+    io.mapOptional("marker",  Ins->Marker, yaml::Name());
     io.mapOptional("callees", Ins->Callees);
     io.mapOptional("memmode",   Ins->MemMode, memmode_none);
   }
@@ -283,6 +287,7 @@ struct MappingTraits<MachineInstruction*> {
     io.mapRequired("index",         Ins->Index);
     io.mapOptional("opcode",        Ins->Opcode, Name(""));
     io.mapOptional("desc",          Ins->Desc, Name(""));
+    io.mapOptional("marker",        Ins->Marker, Name(""));
     io.mapOptional("callees",       Ins->Callees);
     io.mapOptional("size",          Ins->Size);
     io.mapOptional("address",       Ins->Address, (int64_t) -1);
@@ -310,6 +315,7 @@ struct Block {
   std::vector<Name> Predecessors;
   std::vector<Name> Loops;
   std::vector<InstructionT*> Instructions;
+  Name Loc;
 
   typedef std::vector<InstructionT*> InstrList;
 
@@ -322,6 +328,21 @@ struct Block {
   InstructionT* addInstruction(InstructionT* Ins) {
     Instructions.push_back(Ins);
     return Ins;
+  }
+  /// Set source location hint for this block
+  /// Does not update the location once a valid source location has been set
+  /// (ie. after first instruction that mapped to a debug location).
+  void setSrcLocOnce(const DebugLoc &dl, MDNode *ScopeMD) {
+    if (Loc.empty() && !dl.isUnknown()) {
+      DIScope Scope(ScopeMD);
+      assert((!Scope || Scope.isScope()) &&
+        "Scope of a DebugLoc should be null or a DIScope.");
+      std::stringstream ss;
+      if (Scope)
+        ss << Scope.getFilename().str() << ":";
+      ss << dl.getLine();
+      Loc = ss.str();
+    }
   }
 private:
   Block(const Block<InstructionT>&);            // Disable copy constructor
@@ -337,6 +358,7 @@ struct MappingTraits< Block<InstructionT>* > {
     io.mapRequired("predecessors", B->Predecessors);
     io.mapRequired("successors",   B->Successors);
     io.mapOptional("loops",        B->Loops);
+    io.mapOptional("src-hint",     B->Loc, Name(""));
     io.mapOptional("instructions", B->Instructions);
   }
 };
@@ -621,9 +643,7 @@ struct Scope {
   Name Loop;
   std::vector<ContextEntry*> Context;
 
-  Scope(const Name& f) : Function(f)  {}
-  Scope(StringRef   f) : Function(f)  {}
-  Scope(uint64_t    f) : Function(f)  {}
+  Scope(const Name& f) : Function(f) {}
   ~Scope() {
     DELETE_PTR_VEC(Context);
   }
@@ -659,18 +679,31 @@ struct ProgramPoint {
   Name Instruction;
   Name EdgeSource;
   Name EdgeTarget;
+  Name Marker;
   std::vector<ContextEntry*> Context;
-
-  ProgramPoint(Name      function) : Function(function) {}
-  ProgramPoint(StringRef function) : Function(function) {}
-  ProgramPoint(uint64_t  function) : Function(function) {}
-  ProgramPoint(StringRef function, StringRef block)
-  : Function(function), Block(block) {}
-  ProgramPoint(uint64_t  function, uint64_t block, uint64_t instruction)
-    : Function(function), Block(block), Instruction(instruction) {}
-
+  ProgramPoint() {}
   ~ProgramPoint() {
     DELETE_PTR_VEC(Context);
+  }
+  static ProgramPoint *CreateFunction(const Name &Function) {
+    ProgramPoint *PP = new ProgramPoint();
+    PP->Function = Function;
+    return PP;
+  }
+  static ProgramPoint *CreateBlock(const Name &Function, const Name &Block) {
+    ProgramPoint *PP = CreateFunction(Function);
+    PP->Block = Block;
+    return PP;
+  }
+  static ProgramPoint *CreateInstruction(const Name &Function, const Name &Block, const Name &Instruction) {
+    ProgramPoint *PP = CreateBlock(Function, Block);
+    PP->Instruction = Instruction;
+    return PP;
+  }
+  static ProgramPoint *CreateMarker(const Name &Marker) {
+    ProgramPoint *PP = new ProgramPoint();
+    PP->Marker = Marker;
+    return PP;
   }
   // Custom copy constructor and assignment, as the Context members are owned by ProgramPoint
   ProgramPoint(const ProgramPoint& Src) {
@@ -689,6 +722,7 @@ private:
     Instruction = Src.Instruction;
     EdgeSource  = Src.EdgeSource;
     EdgeTarget  = Src.EdgeTarget;
+    Marker      = Src.Marker;
     DELETE_PTR_VEC(Context);
     COPY_PTR_VEC(Context, Src.Context, ContextEntry);
   }
@@ -696,12 +730,13 @@ private:
 template <>
 struct MappingTraits< ProgramPoint* > {
   static void mapping(IO &io, ProgramPoint *&PP) {
-    if (!PP) PP = new ProgramPoint(0);
-    io.mapRequired("function",    PP->Function);
+    if (!PP) PP = new ProgramPoint();
+    io.mapOptional("function",    PP->Function, Name(""));
     io.mapOptional("block",       PP->Block, Name(""));
     io.mapOptional("instruction", PP->Instruction, Name(""));
     io.mapOptional("edgesource",  PP->EdgeSource, Name(""));
     io.mapOptional("edgetarget",  PP->EdgeTarget, Name(""));
+    io.mapOptional("marker", PP->Marker, Name(""));
     io.mapOptional("context",     PP->Context, std::vector<ContextEntry*>());
   }
 };
@@ -839,6 +874,7 @@ struct FlowFact {
     ScopeRef = new Scope(Function);
     ScopeRef->Loop = Loop;
   }
+
 private:
   FlowFact(const FlowFact&);            // Disable copy constructor
   FlowFact* operator=(const FlowFact&); // Disable assignment

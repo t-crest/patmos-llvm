@@ -156,6 +156,9 @@ class LpSolveILP < ILP
     else
       warn("LPSolve: Unbounded functions: #{unbounded_functions.to_a.join(", ")}") unless unbounded_functions.empty?
       warn("LPSolve: Unbounded loops: #{unbounded_loops.to_a.join(", ")}") unless unbounded_loops.empty?
+      unbounded_loops.each { |l|
+        warn("Unbounded hint [#{l}]: #{l.src_hint}") unless l.src_hint.empty?
+      }
     end
     @do_diagnose = true
   end

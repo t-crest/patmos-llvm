@@ -102,31 +102,26 @@ class AnalyzeTraceTool
       suffix = recorder.type
       # Export call targets (mandatory for WCET analysis)
       # Only export if either unresolved in the compiler or the dynamic receiver set is smaller than the static one
-      recorder.results.calltargets.each do |pp,receiverset|
-        cs, call_context = pp
+      recorder.results.calltargets.each do |cs_ref,receiverset|
+        cs = cs_ref.programpoint
         next unless cs.unresolved_call? || cs.callees.size != receiverset.size
-        caller_ref = ContextRef.new(cs, call_context)
         receiver_call_context = call_context.push(cs,call_context.length+1)
         receivers = receiverset.map { |f|
           ContextRef.new(f, receiver_call_context)
         }
-        ff = FlowFact.calltargets(scope, caller_ref, receivers, fact_context)
+        ff = FlowFact.calltargets(scope, cs_ref, receivers, fact_context)
         debug(options,:trace) { "Adding trace flowfact #{ff}" }
         outpml.flowfacts.add(ff)
       end
       # Export block frequencies; infeasible blocks are necessary for WCET analysis
-      recorder.results.blockfreqs.each do |pp,freq|
-        block, call_context = pp
+      recorder.results.blockfreqs.each do |block_ref,freq|
         type = (freq.max == 0) ? "infeasible" : "block"
         next unless recorder.report_block_frequencies || type == "infeasible"
-        block_ref = ContextRef.new(block, call_context)
         outpml.flowfacts.add(FlowFact.block_frequency(scope, block_ref, freq, fact_context))
       end
       # Export loop header bounds (mandatory for WCET analysis) for global analyses
       if recorder.global?
-        recorder.results.loopbounds.each do |pp,bound|
-          loop, call_context = pp
-          loop_ref = ContextRef.new(loop, call_context)
+        recorder.results.loopbounds.each do |loop_ref,bound|
           outpml.flowfacts.add(FlowFact.loop_bound(loop_ref, bound.max, fact_context))
         end
       end

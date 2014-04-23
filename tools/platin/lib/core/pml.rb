@@ -36,10 +36,16 @@ class PMLDoc
     end
 
     # read-only sections
-    @triple = @data['triple'].split('-')
-    @analysis_configurations = AnalysisConfigList.from_pml(self, @data['analysis-configurations'] || [])
-    machine_config = @data['machine-configuration'] ? MachineConfig.from_pml(self, @data['machine-configuration']) : nil
-    @arch = Architecture.from_triple(triple, machine_config)
+    if @data['triple']
+      @triple = @data['triple'].split('-')
+      @analysis_configurations = AnalysisConfigList.from_pml(self, @data['analysis-configurations'] || [])
+      machine_config = @data['machine-configuration'] ? MachineConfig.from_pml(self, @data['machine-configuration']) : nil
+      @arch = Architecture.from_triple(triple, machine_config)
+    else
+      @triple = nil
+      @analysis_configurations = AnalysisConfigList.from_pml(self, [])
+      @arch = nil
+    end
 
     @bitcode_functions = FunctionList.new(@data['bitcode-functions'] || [], :labelkey => 'name')
     @machine_functions = FunctionList.new(@data['machine-functions'] || [], :labelkey => 'mapsto')
