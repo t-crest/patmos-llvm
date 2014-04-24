@@ -593,12 +593,18 @@ module PML
     end
 
     def may_mispredict?(succ, type)
+      # Do not mispredict on bitcode level
       if (function.data['level'] == 'bitcode')
         return false
       end
 
       # Never predict indirect branches
       if (successors.length > 2)
+        return false
+      end
+
+      # Unconditional branches do not mispredict
+      if (successors.length == 1)
         return false
       end
 
