@@ -511,6 +511,11 @@ private
         #     and replace min_coeff * outgoing-edges by min_coeff * block
         out_blocks.keys.each { |b|
           edges = b.successors.map { |b2| IPETEdge.new(b,b2,target_level) }
+          b.successors.each { |b2|
+            if b.may_mispredict?(b2,@options.branch_prediction)
+              edges.push(IPETEdge.new(b,b2,target_level,:mispredict))
+            end
+          }
           edges = [ IPETEdge.new(b,:exit,target_level) ] if b.may_return?
           min_coeff = edges.map { |e| lhs[e] }.min
           if min_coeff != 0

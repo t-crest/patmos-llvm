@@ -694,7 +694,12 @@ private
     # (3),(4)
     rg_edges_of_edge.each do |_level,edgemap|
       edgemap.each do |edge,rg_edges|
-        lhs = rg_edges.map { |rge| [rge,1] } + [[edge,-1]]
+        lhs = rg_edges.map { |rge| [rge,1] }
+        lhs.push([edge,-1])
+        if (edge.target != :exit &&
+            edge.source.may_mispredict?(edge.target,@options.branch_prediction))
+          lhs.push([IPETEdge.new(edge.source,edge.target,edge.level,:mispredict), -1])
+        end
         @ilp.add_constraint(lhs, "equal", 0, "rg_edge_#{edge.qname}", :structural)
       end
     end
