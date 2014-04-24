@@ -111,7 +111,7 @@ struct ParseStatementInfo {
 
   SmallVectorImpl<AsmRewrite> *AsmRewrites;
 
-  ParseStatementInfo() : Opcode(~0U), ParseError(false), AsmRewrites(0) {}
+  ParseStatementInfo() : Opcode(~0U), ParseError(false), AsmRewrites(nullptr) {}
   ParseStatementInfo(SmallVectorImpl<AsmRewrite> *rewrites)
     : Opcode(~0), ParseError(false), AsmRewrites(rewrites) {}
 
@@ -498,7 +498,7 @@ enum { DEFAULT_ADDRSPACE = 0 };
 AsmParser::AsmParser(SourceMgr &_SM, MCContext &_Ctx, MCStreamer &_Out,
                      const MCAsmInfo &_MAI)
     : Lexer(_MAI), Ctx(_Ctx), Out(_Out), MAI(_MAI), SrcMgr(_SM),
-      PlatformParser(0), CurBuffer(0), MacrosEnabledFlag(true),
+      PlatformParser(nullptr), CurBuffer(0), MacrosEnabledFlag(true),
       CppHashLineNumber(0), AssemblerDialect(~0U), IsDarwin(false),
       ParsingInlineAsm(false) {
   // Save the old handler.
@@ -962,7 +962,7 @@ AsmParser::applyModifierToExpr(const MCExpr *E,
   switch (E->getKind()) {
   case MCExpr::Target:
   case MCExpr::Constant:
-    return 0;
+    return nullptr;
 
   case MCExpr::SymbolRef: {
     const MCSymbolRefExpr *SRE = cast<MCSymbolRefExpr>(E);
@@ -980,7 +980,7 @@ AsmParser::applyModifierToExpr(const MCExpr *E,
     const MCUnaryExpr *UE = cast<MCUnaryExpr>(E);
     const MCExpr *Sub = applyModifierToExpr(UE->getSubExpr(), Variant);
     if (!Sub)
-      return 0;
+      return nullptr;
     return MCUnaryExpr::Create(UE->getOpcode(), Sub, getContext());
   }
 
@@ -990,7 +990,7 @@ AsmParser::applyModifierToExpr(const MCExpr *E,
     const MCExpr *RHS = applyModifierToExpr(BE->getRHS(), Variant);
 
     if (!LHS && !RHS)
-      return 0;
+      return nullptr;
 
     if (!LHS)
       LHS = BE->getLHS();
@@ -1016,7 +1016,7 @@ AsmParser::applyModifierToExpr(const MCExpr *E,
 ///
 bool AsmParser::parseExpression(const MCExpr *&Res, SMLoc &EndLoc) {
   // Parse the expression.
-  Res = 0;
+  Res = nullptr;
   if (parsePrimaryExpr(Res, EndLoc) || parseBinOpRHS(1, Res, EndLoc))
     return true;
 
@@ -1053,7 +1053,7 @@ bool AsmParser::parseExpression(const MCExpr *&Res, SMLoc &EndLoc) {
 }
 
 bool AsmParser::parseParenExpression(const MCExpr *&Res, SMLoc &EndLoc) {
-  Res = 0;
+  Res = nullptr;
   return parseParenExpr(Res, EndLoc) || parseBinOpRHS(1, Res, EndLoc);
 }
 
@@ -1726,7 +1726,7 @@ void AsmParser::DiagHandler(const SMDiagnostic &Diag, void *Context) {
     if (Parser->SavedDiagHandler)
       Parser->SavedDiagHandler(Diag, Parser->SavedDiagContext);
     else
-      Diag.print(0, OS);
+      Diag.print(nullptr, OS);
     return;
   }
 
@@ -1748,7 +1748,7 @@ void AsmParser::DiagHandler(const SMDiagnostic &Diag, void *Context) {
   if (Parser->SavedDiagHandler)
     Parser->SavedDiagHandler(NewDiag, Parser->SavedDiagContext);
   else
-    NewDiag.print(0, OS);
+    NewDiag.print(nullptr, OS);
 }
 
 // FIXME: This is mostly duplicated from the function in AsmLexer.cpp. The
@@ -2090,7 +2090,7 @@ bool AsmParser::parseMacroArguments(const MCAsmMacro *M,
 
 const MCAsmMacro *AsmParser::lookupMacro(StringRef Name) {
   StringMap<MCAsmMacro *>::iterator I = MacroMap.find(Name);
-  return (I == MacroMap.end()) ? NULL : I->getValue();
+  return (I == MacroMap.end()) ? nullptr : I->getValue();
 }
 
 void AsmParser::defineMacro(StringRef Name, const MCAsmMacro &Macro) {
@@ -3954,9 +3954,9 @@ bool AsmParser::parseDirectiveIfdef(SMLoc DirectiveLoc, bool expect_defined) {
     MCSymbol *Sym = getContext().LookupSymbol(Name);
 
     if (expect_defined)
-      TheCondState.CondMet = (Sym != NULL && !Sym->isUndefined());
+      TheCondState.CondMet = (Sym && !Sym->isUndefined());
     else
-      TheCondState.CondMet = (Sym == NULL || Sym->isUndefined());
+      TheCondState.CondMet = (!Sym || Sym->isUndefined());
     TheCondState.Ignore = !TheCondState.CondMet;
   }
 
@@ -4199,7 +4199,7 @@ MCAsmMacro *AsmParser::parseMacroLikeBody(SMLoc DirectiveLoc) {
     // Check whether we have reached the end of the file.
     if (getLexer().is(AsmToken::Eof)) {
       Error(DirectiveLoc, "no matching '.endr' in definition");
-      return 0;
+      return nullptr;
     }
 
     if (Lexer.is(AsmToken::Identifier) &&
@@ -4214,7 +4214,7 @@ MCAsmMacro *AsmParser::parseMacroLikeBody(SMLoc DirectiveLoc) {
         Lex();
         if (Lexer.isNot(AsmToken::EndOfStatement)) {
           TokError("unexpected token in '.endr' directive");
-          return 0;
+          return nullptr;
         }
         break;
       }
@@ -4308,7 +4308,7 @@ bool AsmParser::parseDirectiveIrp(SMLoc DirectiveLoc) {
   Lex();
 
   MCAsmMacroArguments A;
-  if (parseMacroArguments(0, A))
+  if (parseMacroArguments(nullptr, A))
     return true;
 
   // Eat the end of statement.
@@ -4348,7 +4348,7 @@ bool AsmParser::parseDirectiveIrpc(SMLoc DirectiveLoc) {
   Lex();
 
   MCAsmMacroArguments A;
-  if (parseMacroArguments(0, A))
+  if (parseMacroArguments(nullptr, A))
     return true;
 
   if (A.size() != 1 || A.front().size() != 1)
