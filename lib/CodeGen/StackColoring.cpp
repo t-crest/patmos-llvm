@@ -542,7 +542,7 @@ void StackColoring::remapInstructions(DenseMap<int, int> &SlotRemap) {
         if (!V || !isa<AllocaInst>(V)) {
           // Clear mem operand since we don't know for sure that it doesn't
           // alias a merged alloca.
-          MMO->setValue(0);
+          //MMO->setValue(0);
           continue;
         }
         const AllocaInst *AI= cast<AllocaInst>(V);
