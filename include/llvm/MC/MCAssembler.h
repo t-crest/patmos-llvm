@@ -1245,7 +1245,13 @@ public:
     return SymbolMap.lookup(&Symbol) != nullptr;
   }
 
-  MCSymbolData &getSymbolData(const MCSymbol &Symbol) const {
+  MCSymbolData &getSymbolData(const MCSymbol &Symbol) {
+    MCSymbolData *Entry = SymbolMap.lookup(&Symbol);
+    assert(Entry && "Missing symbol data!");
+    return *Entry;
+  }
+
+  const MCSymbolData &getSymbolData(const MCSymbol &Symbol) const {
     MCSymbolData *Entry = SymbolMap.lookup(&Symbol);
     assert(Entry && "Missing symbol data!");
     return *Entry;
