@@ -54,32 +54,34 @@ namespace llvm {
     return tmps;
   }
 
+  void MCGNode::print(raw_ostream &OS) const {
+    OS << getLabel();
+  }
+
   void MCGNode::dump() const
   {
-    dbgs() << getLabel();
+    dbgs() << "MCGNode: " << getLabel() << "\n";
   }
 
   //----------------------------------------------------------------------------
 
-  void MCGSite::dump(bool short_format) const
-  {
+  void MCGSite::print(raw_ostream &OS) const {
     if (MI) {
       MachineBasicBlock *MBB = MI->getParent();
-      dbgs() << "BB#" << MBB->getNumber() << ":"
+      OS << "BB#" << MBB->getNumber() << ":"
              << std::distance(MBB->instr_begin(),
                               MachineBasicBlock::instr_iterator(MI)) << ":";
     }
 
-    Caller->dump();
-    dbgs() << " --> ";
-    Callee->dump();
+    OS << *Caller << " --> " << *Callee;
+  }
 
-    if (!short_format && MI) {
-      dbgs() << "\t";
-#ifndef NDEBUG
-      MI->dump();
-#endif
-    }
+  void MCGSite::dump(bool short_format) const
+  {
+    dbgs() << *this;
+    if (!short_format && MI)
+      dbgs() << "\t" << *MI;
+    dbgs() << "\n";
   }
 
   //----------------------------------------------------------------------------

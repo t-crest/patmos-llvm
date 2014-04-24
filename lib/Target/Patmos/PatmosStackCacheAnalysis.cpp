@@ -619,9 +619,7 @@ namespace llvm {
       dbgs() << "Error: Missing bounds for SCC: (";
       for (MCGNodes::const_iterator i(SCC.begin()), ie(SCC.end()); i != ie;
            i++) {
-        dbgs() << "'";
-        (*i)->dump();
-        dbgs() << "' ";
+        dbgs() << "'" << **i << "' ";
       }
       dbgs() << ")\nbounds available: ";
       for (SCCInfos::const_iterator i(Infos.begin()), ie(Infos.end()); i != ie;
@@ -1012,8 +1010,7 @@ namespace llvm {
         for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
             i++) {
           if (!(*i)->isDead()) {
-            (*i)->dump();
-            dbgs() << ": " << getMinMaxOccupancy(*i, Maximize)
+            dbgs() << **i <<  ": " << getMinMaxOccupancy(*i, Maximize)
                    << " (" << getBytesReserved(*i) << ")\n";
           }
         }
@@ -1639,9 +1636,7 @@ namespace llvm {
       unsigned int result = solve_ilp(LPname.c_str(), Maximize);
 
 #ifdef PATMOS_TRACE_CG_OCCUPANCY_ILP
-      dbgs() << "ILP: ";
-      N->dump();
-      dbgs() << ": " << result << "\n";
+      dbgs() << "ILP: " << *N << ": " << result << "\n";
 #endif // PATMOS_TRACE_CG_OCCUPANCY_ILP
 
       // remove LP file
@@ -1832,9 +1827,7 @@ namespace llvm {
                    << " (" << getBytesReserved(*i) << ")\n";
             for(MCGSiteUInt::const_iterator j(WorstCaseSiteOccupancy.begin()),
                 je(WorstCaseSiteOccupancy.end()); j != je; j++) {
-              dbgs() << "  ";
-              j->first->dump();
-              dbgs() << ": " << j->second
+              dbgs() << "  " << *j->first << ": " << j->second
                      << " (" << getMinOccupancy(j->first->getCallee()) << ")\n";
             }
           );
