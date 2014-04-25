@@ -84,8 +84,9 @@ class WcetTool
     trace_analysis if options.trace_analysis
     sweet_analysis if options.enable_sweet
     transform_down(["llvm.bc"],"llvm")
+    transform_down(["user.bc"],"user")
 
-    flow_srcs = ["llvm"]
+    flow_srcs = ["llvm", "user"]
     flow_srcs.push("trace") if options.use_trace_facts
     flow_srcs.push("sweet") if options.enable_sweet
 

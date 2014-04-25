@@ -373,7 +373,6 @@ class FlowFactTransformation
 
   def transform(target_analysis_entry, flowfacts, target_level)
     debug(options, :transform) { "Transforming #{flowfacts.length} flow facts to #{target_level}" }
-
     # partition local flow-facts by entry (if possible), rest is transformed in global scope
     flowfacts_by_entry = { }
     flowfacts.each { |ff|
@@ -399,6 +398,11 @@ class FlowFactTransformation
       begin
         # Build ILP for transformation
         debug(options, :transform) { "Transforming #{ffs.length} flowfacts in scope #{entry} to #{target_level}" }
+        debug(options, :transform) { |&msgs|
+          ffs.each { |ff|
+              msgs.call(" - Adding flow fact #{ff}")
+            }
+        }
         entries =
           if target_level == "machinecode"
             { 'machinecode' => entry, 'bitcode' => pml.bitcode_functions.by_name(entry.label) }
@@ -413,7 +417,6 @@ class FlowFactTransformation
         }
         ve = VariableElimination.new(ilp, options)
         new_constraints = ve.eliminate_set(elim_set)
-
         # Extract and add new flow facts
         new_ffs += extract_flowfacts(new_constraints, entries, target_level).select { |ff|
           # FIXME: for now, we do not export interprocedural flow-facts relative to a function other than the entry,
@@ -423,6 +426,7 @@ class FlowFactTransformation
             warn("Skipping unsupported flow fact scope of transformed flow fact #{ff}: "+
                  "(function: #{ff.scope.function}, local: #{ff.local?})")
           end
+          puts "Transformed flowfact #{ff}" if options.verbose
           r
         }
 
@@ -431,6 +435,7 @@ class FlowFactTransformation
         stats_elim_steps += ve.elim_steps
       rescue Exception => ex
         warn("Failed to transfrom flowfacts for entry #{entry}: #{ex}")
+        raise ex
       end
     }
     new_ffs.each { |ff| pml.flowfacts.add(ff) }

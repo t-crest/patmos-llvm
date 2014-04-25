@@ -27,18 +27,22 @@ module PML
       # context-independent block infeasibility
       c.is_infeasible = ! ff.get_block_infeasible.nil?
       # context-independent calltarget restriction
-      (_,cs,_)        = ff.get_calltargets
+      (_,cs,_) = ff.get_calltargets
       c.is_indirect_calltarget = cs && cs.programpoint.unresolved_call?
 
       # rt: involves machine-code only function (usually from compiler-rt or operating system)
       if @pml
-        c.is_rt       = ff.lhs.any? { |term| @pml.machine_code_only_functions.include?(term.programpoint.function.label) }
+        mcofs = @pml.machine_code_only_functions
+        c.is_rt = ff.lhs.any? { |term|
+                    term.programpoint.function &&
+                    mcofs.include?(term.programpoint.function.label)
+                  }
       else
-        c.is_rt       = false
+        c.is_rt = false
       end
 
-      c.is_minimal    = c.is_loop_bound || c.is_infeasible || c.is_indirect_calltarget
-      c.is_local      = ff.local?
+      c.is_minimal = c.is_loop_bound || c.is_infeasible || c.is_indirect_calltarget
+      c.is_local   = ff.local?
       c
     end
 
@@ -200,7 +204,7 @@ module PML
 
   # Flow Fact utility class
   # Kind of flow facts of interest
-  # validity: * analysis-context ... flow fact is valid in the analysis context
+  # validity: * analysis-context ... flow fact is valid for the analyzed program
   #           * scope            ... flow fact is valid for each execution of its scope
   # scope:    * function,loop    ... flow fact applies to every execution of the scope
   # general:  * edges            ... relates CFG edges
@@ -303,8 +307,18 @@ module PML
       flowfact
     end
 
+    def globally_valid?(entry_function)
+      # local relative flow facts are globally valid
+      return true if local? && rhs.constant? && rhs.to_i == 0
+      # otherwise, the scoep has to be the entry function
+      return scope.programpoint.kind_of?(Function) &&
+             scope.function == entry_function &&
+             scope.context.empty?
+    end
+
     def local?
-      lhs.all? { |term| term.programpoint.function == scope.function }
+      lhs.all? { |term| term.programpoint.function &&
+                        term.programpoint.function == scope.function }
     end
 
     def loop_bound?
@@ -316,7 +330,8 @@ module PML
     end
 
     def context_sensitive?
-      lhs.any? { |term| ! term.context.empty? } || ! scope.context.empty?
+      return true if lhs.any? { |term| ! term.context.empty? }
+      return ! scope.context.empty?
     end
 
     def references_empty_block?

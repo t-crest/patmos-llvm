@@ -15,6 +15,7 @@
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/ADT/Statistic.h"
@@ -199,8 +200,7 @@ yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
 
   FF->setLoopScope(yaml::Name(Fn->getName()), yaml::Name(BB->getName()));
 
-  yaml::ProgramPoint *Block =
-                       new yaml::ProgramPoint(Fn->getName(), BB->getName());
+  yaml::ProgramPoint *Block = yaml::ProgramPoint::CreateBlock(Fn->getName(), BB->getName());
 
   FF->addTermLHS(Block, 1LL);
   FF->RHS = RHS;
@@ -292,17 +292,22 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     for (BasicBlock::const_iterator II = BI->begin(), IE = BI->end(); II != IE;
         ++II)
     {
-      if (!doExportInstruction(II)) { Index++; continue; }
+      if (!doExportInstruction(II)) {
+        Index++;
+        continue;
+      }
 
       yaml::Instruction *I = B->addInstruction(
           new yaml::Instruction(Index++));
       exportInstruction(I, II);
     }
+
   }
   // TODO: we do not compute a hash yet
   F->Hash = StringRef("0");
   YDoc.addFunction(F);
 }
+
 
 yaml::Name PMLBitcodeExport::getOpcode(const Instruction *Instr)
 {
@@ -326,7 +331,21 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
 
   I->Opcode = getOpcode(II);
 
-  if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
+  if (const IntrinsicInst* CI = dyn_cast<const IntrinsicInst>(II)) {
+    if (CI->getIntrinsicID() == Intrinsic::pcmarker) {
+      // for now, we use the argument as ID. Eventually, we
+      // will use strings attached as metadata instead, so
+      // it is possible to reference markers by name
+      if (ConstantInt *MarkerInt = dyn_cast<ConstantInt>(CI->getArgOperand(0))) {
+	uint64_t MarkerId = MarkerInt->getZExtValue();
+	std::string MarkerName = utostr(MarkerId);
+	I->Marker = MarkerName;
+      } else {
+	errs() << "Marker with non-constant argument:\n";
+	CI->print(errs());
+      }
+    }
+  } else if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
     if (const Function *F = CI->getCalledFunction()) {
       I->addCallee(F->getName());
     }
@@ -340,10 +359,12 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
   } else if (isa<StoreInst>(II)) {
     I->MemMode = yaml::memmode_store;
   }
+
 }
 
 
 
+///////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -524,10 +545,10 @@ yaml::ValueFact *PMLMachineExport:: createMemGVFact(const MachineInstr *MI,
 
   yaml::ValueFact *VF = new yaml::ValueFact(yaml::level_machinecode);
 
-  VF->PP = new yaml::ProgramPoint(MF->getFunctionNumber(),
-                                  MBB->getNumber(),
-                                  I->Index.getNameAsInteger()
-                                  );
+  VF->PP = yaml::ProgramPoint::CreateInstruction(MF->getFunctionNumber(),
+                                                 MBB->getNumber(),
+                                                 I->Index.getNameAsInteger()
+                                                 );
   for (std::set<const GlobalValue*>::iterator SI = GVs.begin(), SE = GVs.end();
       SI != SE; ++SI) {
 

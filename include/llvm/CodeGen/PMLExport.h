@@ -12,6 +12,8 @@
 
 #include "llvm/IR/Module.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/ValueMap.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/CodeGen/PML.h"
@@ -89,6 +91,7 @@ namespace llvm {
 
   class PMLBitcodeExport : public PMLExport {
   private:
+
     yaml::PMLDoc YDoc;
     Pass &P;
 
@@ -98,9 +101,16 @@ namespace llvm {
     PMLBitcodeExport(TargetMachine &TM, ModulePass &mp)
     : YDoc(TM.getTargetTriple()), P(mp) {}
 
-    virtual ~PMLBitcodeExport() {}
+    virtual ~PMLBitcodeExport() { }
 
+    // initialize module-level information
+    virtual void initialize(const Module &M) { }
+
+    // export bitcode function
     virtual void serialize(MachineFunction &MF);
+
+    // export module-level information during finalize()
+    virtual void finalize(const Module &M) { }
 
     virtual void writeOutput(yaml::Output *Output) { yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr; }
 

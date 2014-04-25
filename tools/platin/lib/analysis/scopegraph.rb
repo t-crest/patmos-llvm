@@ -132,6 +132,9 @@ class ScopeGraph
     def to_s
       "F:#{function}#{context.qname}"
     end
+    def inspect
+      to_s
+    end
   end
 
   # For SCCs in the callgraph (not yet implemented) and loop nodes
@@ -659,7 +662,7 @@ class CallGraph < PMLObject
       }
     end
     def successors
-      @successors_with_callsite.map { |t,cs| t }
+      Set[*@successors_with_callsite.map { |t,cs| t }].to_a
     end
     def to_s
       "CGNode:#{@function}#{@context.qname}"
@@ -688,11 +691,11 @@ end
 class ScopeGraph
   # get callgraph (scopegraph restricted to FunctionNodes) for scopegraph
   def callgraph
-    nodes, edges = [], []
+    nodes, edges = Set.new, []
     worklist = WorkList.new([ [self.root, self.root] ])
     worklist.process { |node, function_node|
       assert("ScopeGraph#callgraph: function_node of wrong type") { function_node.kind_of?(FunctionNode) }
-      nodes.push(node) if node.kind_of?(FunctionNode)
+      nodes.add(node) if node.kind_of?(FunctionNode)
       node.successors.each { |successor_node|
         if(successor_node.kind_of?(FunctionNode))
           edges.push([function_node,successor_node,node])
