@@ -360,16 +360,15 @@ class IPETModel
             lhs = [[IPETEdge.new(block,succ,level,:mispredict), 1],
                    [IPETEdge.new(block,other,level),-1],
                    [IPETEdge.new(block,other,level,:mispredict),-1]]
-            lhs += entry_edges
 
             if (can_leave_straight(block, other, Set.new([block])) &&
                 !can_leave_straight(block, succ, Set.new([block])))
               debug(options, :cache) { "Block #{block} can leave only via #{other}, not #{succ}" }
-              leave_corr = -1
-            else
-              leave_corr = 0
+              entry_edges = entry_edges.map { |e,f| [e,f+1] }
             end
-            ilp.add_constraint(lhs,"less-equal",leave_corr,"mispredict_#{block.qname}",:mispredict)
+
+            lhs += entry_edges
+            ilp.add_constraint(lhs,"less-equal",0,"mispredict_#{block.qname}",:mispredict)
           end
         }
         if (block.successors.length == 1)
