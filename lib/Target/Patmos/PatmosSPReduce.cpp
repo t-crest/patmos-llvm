@@ -44,6 +44,7 @@
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineDominators.h"
@@ -127,7 +128,7 @@ namespace {
 
     /// insertPredDefinitions - Insert predicate register definitions
     /// to MBBs of the given SPScope.
-    void insertPredDefinitions(SPScope *S);
+    void insertPredDefinitions(SPScope *S, MachineFunction &MF);
 
     /// insertDefEdge - insert instructions for definition of a predicate
     /// by a definition edge.
@@ -198,7 +199,7 @@ namespace {
     void fixupKillFlagOfCondRegs(void);
 
     /// applyPredicates - Predicate instructions of MBBs in the given SPScope.
-    void applyPredicates(SPScope *S);
+    void applyPredicates(SPScope *S, MachineFunction &MF);
 
     /// insertUseSpillLoad - Insert Spill/Load code at the beginning of the
     /// given MBB, according to R.
@@ -638,7 +639,8 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // before inserting code, we need to obtain additional instructions that are
   // spared from predication (i.e. need to execute unconditionally)
   // -> instructions that store/restore return information
-  collectReturnInfoInsts(MF);
+  // NB: we execute the whole frame setup unconditionally!
+  //collectReturnInfoInsts(MF);
 
   // Okay, now actually insert code, handling scopes in no particular order
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
@@ -650,10 +652,10 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
     // Predicate the instructions of blocks in S, also inserting spill/load
     // of predicates not in registers.
-    applyPredicates(S);
+    applyPredicates(S, MF);
 
     // Insert predicate definitions.
-    insertPredDefinitions(S);
+    insertPredDefinitions(S, MF);
   }
 
   // After all scopes are handled, perform some global fixups
@@ -663,6 +665,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   // Fixup kill flag of condition predicate registers
   fixupKillFlagOfCondRegs();
+
+
+  //DEBUG(MF.viewCFGOnly());
 
   // Following walk of the SPScope tree linearizes the CFG structure,
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
@@ -677,6 +682,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Finally, we assign numbers in ascending order to MBBs again.
   MF.RenumberBlocks();
 
+  //DEBUG(MF.viewCFGOnly());
   //DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
@@ -777,7 +783,7 @@ void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,
 }
 
 
-void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
+void PatmosSPReduce::insertPredDefinitions(SPScope *S, MachineFunction &MF) {
   DEBUG( dbgs() << " Insert Predicate Definitions\n" );
 
   // For each MBB, check defs
@@ -1100,7 +1106,7 @@ void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
 }
 
 
-void PatmosSPReduce::applyPredicates(SPScope *S) {
+void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
   DEBUG( dbgs() << " Applying predicates to MBBs\n" );
 
   const RAInfo &R = RAInfos.at(S);
@@ -1138,6 +1144,10 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
           DEBUG_TRACE( dbgs() << "    skip stack control: " << *MI );
           continue;
       }
+      if (MI->getFlag(MachineInstr::FrameSetup)) {
+          continue;
+          DEBUG_TRACE(dbgs() << "    skip frame setup: " << *MI);
+      }
       if (ReturnInfoInsts.count(MI)) {
           DEBUG_TRACE(dbgs() << "    skip return info (re-)storing: " << *MI);
           continue;
@@ -1153,8 +1163,8 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
           continue;
       }
 
-      if (MI->isPredicable()) {
-        if (!TII->isPredicated(MI) || use_preg == Patmos::P0) {
+      if (MI->isPredicable() && use_preg != Patmos::P0) {
+        if (!TII->isPredicated(MI)) {
           // find first predicate operand
           int i = MI->findFirstPredOperandIdx();
           assert(i != -1);
@@ -1173,14 +1183,16 @@ void PatmosSPReduce::applyPredicates(SPScope *S) {
           assert(i != -1);
           MachineOperand &PO1 = MI->getOperand(i);
           MachineOperand &PO2 = MI->getOperand(i+1);
-          // build a new predicate := use_preg & old pred
-          AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
-                              TII->get(Patmos::PAND), PRTmp))
-                .addReg(use_preg).addImm(0)
-                .addOperand(PO1).addOperand(PO2);
-          PO1.setReg(PRTmp); // FIXME
-          PO2.setImm(0);
-          InsertedInstrs++; // STATISTIC
+          if (!(PO1.getReg() == use_preg && PO2.getImm() == 0)) {
+            // build a new predicate := use_preg & old pred
+            AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
+                                TII->get(Patmos::PAND), PRTmp))
+                  .addReg(use_preg).addImm(0)
+                  .addOperand(PO1).addOperand(PO2);
+            PO1.setReg(PRTmp);
+            PO2.setImm(0);
+            InsertedInstrs++; // STATISTIC
+          }
         }
       }
     } // for each instruction in MBB
@@ -1282,12 +1294,9 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
     .addFrameIndex(fi).addImm(0); // address
   TRI->eliminateFrameIndex(loadMI, 0, 3);
   // test bit
-  // LI $rtr, load
-  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::LIi),
-        Patmos::RTR)).addImm(loc%32);
-  // BTEST $Guards, $rtr
-  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::BTEST),
-        target_preg)).addReg(GuardsReg).addReg(Patmos::RTR);
+  // BTESTI $Guards, loc
+  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::BTESTI),
+        target_preg)).addReg(GuardsReg).addImm(loc%32);
   InsertedInstrs += 3; // STATISTIC
 }
 
@@ -1339,13 +1348,20 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
 void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
   DEBUG( dbgs() << "Collect return info insts\n" );
 
+  SmallSet<unsigned, 4> SpecialRegs;
+  SpecialRegs.insert(Patmos::SRB);
+  SpecialRegs.insert(Patmos::SRO);
+  SpecialRegs.insert(Patmos::S0);
+
   for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
       MBB != MBBe; ++MBB) {
     for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
         MI != MIe; ++MI) {
+
+      if (!MI->getFlag(MachineInstr::FrameSetup)) continue;
+
       if (MI->getOpcode() == Patmos::MFS &&
-          (MI->getOperand(3).getReg() == Patmos::SRB ||
-           MI->getOperand(3).getReg() == Patmos::SRO  )) {
+          SpecialRegs.count(MI->getOperand(3).getReg())) {
         // store return info in prologue (reads SRB/SRO)
         ReturnInfoInsts.insert(MI);
         DEBUG(dbgs() << "   in MBB#" << MBB->getNumber() << ": "; MI->dump());
@@ -1359,6 +1375,8 @@ void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
           for (unsigned i = 0; i < UMI->getNumOperands(); i++) {
             const MachineOperand &MO = UMI->getOperand(i);
             if ( MO.isReg() && MO.getReg() == reg) {
+
+              assert(UMI->getFlag(MachineInstr::FrameSetup));
               ReturnInfoInsts.insert(UMI);
               DEBUG(dbgs() << "         #" << MBB->getNumber() << ": ";
                   UMI->dump());
@@ -1370,8 +1388,7 @@ void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
         continue;
       }
       if (MI->getOpcode() == Patmos::MTS &&
-          (MI->getOperand(0).getReg() == Patmos::SRB ||
-           MI->getOperand(0).getReg() == Patmos::SRO  )) {
+          SpecialRegs.count(MI->getOperand(0).getReg())) {
         // restore return info in epilogue (writes SRB/SRO)
         ReturnInfoInsts.insert(MI);
         DEBUG(dbgs() << "   in MBB#" << MBB->getNumber() << ": "; MI->dump());
@@ -1383,6 +1400,7 @@ void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
         while (!found) {
           // if DMI defines reg
           if (DMI->definesRegister(reg)) {
+            assert(DMI->getFlag(MachineInstr::FrameSetup));
             ReturnInfoInsts.insert(DMI);
             DEBUG(dbgs() << "         #" << MBB->getNumber() << ": ";
                 DMI->dump());
