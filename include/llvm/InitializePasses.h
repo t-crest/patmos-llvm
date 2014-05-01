@@ -242,6 +242,7 @@ void initializeSimpleInlinerPass(PassRegistry&);
 void initializeRegisterCoalescerPass(PassRegistry&);
 void initializeSingleLoopExtractorPass(PassRegistry&);
 void initializeSinkingPass(PassRegistry&);
+void initializeSeparateConstOffsetFromGEPPass(PassRegistry &);
 void initializeSlotIndexesPass(PassRegistry&);
 void initializeSpillPlacementPass(PassRegistry&);
 void initializeStackProtectorPass(PassRegistry&);
