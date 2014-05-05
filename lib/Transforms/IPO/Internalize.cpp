@@ -193,6 +193,7 @@ bool InternalizePass::runOnModule(Module &M) {
     if (!shouldInternalize(*I, ExternalNames))
       continue;
 
+    I->setVisibility(GlobalValue::DefaultVisibility);
     I->setLinkage(GlobalValue::InternalLinkage);
 
     if (ExternalNode)
@@ -229,6 +230,7 @@ bool InternalizePass::runOnModule(Module &M) {
     if (!shouldInternalize(*I, ExternalNames))
       continue;
 
+    I->setVisibility(GlobalValue::DefaultVisibility);
     I->setLinkage(GlobalValue::InternalLinkage);
     Changed = true;
     ++NumGlobals;
@@ -241,6 +243,7 @@ bool InternalizePass::runOnModule(Module &M) {
     if (!shouldInternalize(*I, ExternalNames))
       continue;
 
+    I->setVisibility(GlobalValue::DefaultVisibility);
     I->setLinkage(GlobalValue::InternalLinkage);
     Changed = true;
     ++NumAliases;
