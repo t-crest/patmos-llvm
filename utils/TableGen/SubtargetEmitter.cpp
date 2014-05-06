@@ -1462,11 +1462,11 @@ void SubtargetEmitter::run(raw_ostream &OS) {
   if (NumFeatures)
     OS << Target << "FeatureKV, ";
   else
-    OS << "0, ";
+    OS << "None, ";
   if (NumProcs)
     OS << Target << "SubTypeKV, ";
   else
-    OS << "0, ";
+    OS << "None, ";
   OS << '\n'; OS.indent(22);
   OS << Target << "ProcSchedKV, "
      << Target << "WriteProcResTable, "
@@ -1476,10 +1476,10 @@ void SubtargetEmitter::run(raw_ostream &OS) {
     OS << '\n'; OS.indent(22);
     OS << Target << "Stages, "
        << Target << "OperandCycles, "
-       << Target << "ForwardingPaths, ";
+       << Target << "ForwardingPaths";
   } else
-    OS << "0, 0, 0, ";
-  OS << NumFeatures << ", " << NumProcs << ");\n}\n\n";
+    OS << "0, 0, 0";
+  OS << ");\n}\n\n";
 
   OS << "} // End llvm namespace \n";
 
@@ -1540,13 +1540,13 @@ void SubtargetEmitter::run(raw_ostream &OS) {
      << "  : TargetSubtargetInfo() {\n"
      << "  InitMCSubtargetInfo(TT, CPU, FS, ";
   if (NumFeatures)
-    OS << Target << "FeatureKV, ";
+    OS << "makeArrayRef(" << Target << "FeatureKV, " << NumFeatures << "), ";
   else
-    OS << "0, ";
+    OS << "None, ";
   if (NumProcs)
-    OS << Target << "SubTypeKV, ";
+    OS << "makeArrayRef(" << Target << "SubTypeKV, " << NumProcs << "), ";
   else
-    OS << "0, ";
+    OS << "None, ";
   OS << '\n'; OS.indent(22);
   OS << Target << "ProcSchedKV, "
      << Target << "WriteProcResTable, "
@@ -1556,10 +1556,10 @@ void SubtargetEmitter::run(raw_ostream &OS) {
   if (SchedModels.hasItineraries()) {
     OS << Target << "Stages, "
        << Target << "OperandCycles, "
-       << Target << "ForwardingPaths, ";
+       << Target << "ForwardingPaths";
   } else
-    OS << "0, 0, 0, ";
-  OS << NumFeatures << ", " << NumProcs << ");\n}\n\n";
+    OS << "0, 0, 0";
+  OS << ");\n}\n\n";
 
   EmitSchedModelHelpers(ClassName, OS);
 
