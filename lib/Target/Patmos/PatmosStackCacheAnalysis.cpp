@@ -1962,22 +1962,26 @@ namespace llvm {
         // get the site's stack worst-case occupancy
         MCGSite *site = *j;
         MCGNode *callee = site->getCallee();
-        unsigned int worstSiteOccupancy = WorstCaseSiteOccupancy[site];
+        unsigned int worstSiteOccupancy = STC.getStackCacheSize();
+        if (WorstCaseSiteOccupancy.count(site))
+          WorstCaseSiteOccupancy[site];
 
-        // compute the occupancy and spill cost at the callee
-        unsigned int childOccupancy = std::min(nodeOccupancy,
+        // compute the occupancy and the call site
+        unsigned int siteOccupancy = std::min(nodeOccupancy,
                                                worstSiteOccupancy);
 
-        unsigned int totalChildOccupancy = getBytesReserved(callee) +
-                                            childOccupancy;
+        // compute the occupancy after the child's reserve
+        unsigned int childOccupancy = getBytesReserved(callee) +
+                                            siteOccupancy;
 
+        // compute the spill caused by the child's reserve
         unsigned int spillCost =
-            totalChildOccupancy <= STC.getStackCacheSize() ? 0 :
-                                  totalChildOccupancy - STC.getStackCacheSize();
+            childOccupancy <= STC.getStackCacheSize() ? 0 :
+                                  childOccupancy - STC.getStackCacheSize();
 
-        // propagate to calling contexts at callee
+        // the occupancy before child's reserve (and spill cost) is propagated
         SCANode *calleeSCANode;
-        bool isNewNode = SCAGraph.makeNode(callee, childOccupancy, spillCost,
+        bool isNewNode = SCAGraph.makeNode(callee, siteOccupancy, spillCost,
                                            getMaxOccupancy(callee),
                                            IsCallFree[callee], calleeSCANode);
 
