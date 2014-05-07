@@ -162,13 +162,13 @@ mapping:
                              desc: "address of the instruction in the linked binary [type=Address, indexed]"
                           "stack-cache-fill":
                              type: int
-                             desc: "worst-case number of stack cache fills caused by instruction"
+                             desc: "worst-case stack cache filling (bytes) caused by instruction"
                           "stack-cache-spill":
                              type: int
-                             desc: "worst-case number of stack cache spills caused by instruction"
+                             desc: "worst-case stack cache spilling (bytes) caused by instruction"
                           "stack-cache-argument":
                              type: int
-                             desc: "static argument (blocks) of a stack cache reserve and ensure instruction"
+                             desc: "static argument of a stack cache reserve and ensure instruction"
           "subfunctions":
             type: seq
             desc: "subfunctions of the function"

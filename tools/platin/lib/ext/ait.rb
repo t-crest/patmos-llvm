@@ -494,7 +494,10 @@ class AISExporter
       die("aiT: unknown stack cache annotation")
     end
 
-    gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{value}", "SC blocks (source: llvm sca)")
+    # XXX: the value is in bytes, aiT currently expects words (word-size blocks)
+    assert("expected spill/fill value to be a multiple of word") { value % 4 == 0 }
+    words = value / 4
+    gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{words}", "SC words (source: llvm sca)")
   end
 end
 
