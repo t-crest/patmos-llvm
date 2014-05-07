@@ -120,11 +120,11 @@ namespace llvm {
   STATISTIC(FullyFillingSENS, "SENS instructions fully filling (thereof).");
 
   /// Count the number of SRES instructions potentially spilling.
-  STATISTIC(SpillingSRES, "SRES instructions potentially spilling.");
+  STATISTIC(SpillingSRES, "SRES instructions spilling.");
 
   /// Count the number of SRES instructions potentially fully spilling the total 
   /// szie given as their argument.
-  STATISTIC(FullySpillingSRES, "SRES instructions fully spilling (thereof).");
+  STATISTIC(FullySpillingSRES, "SRES instructions fully spilling (of spilling)");
 
   /// Count the number of SRES instructions that certainly do not spill.
   STATISTIC(NonSpillingSRES, "SRES instructions guaranteed to not spill.");
@@ -1145,9 +1145,11 @@ namespace llvm {
           }
 
           // actually update the sizes of the ensure instructions.
-          for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
-              i++) {
-            i->first->getOperand(2).setImm(i->second);
+          if (EnableEnsureOpt) {
+            for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
+                i++) {
+              i->first->getOperand(2).setImm(i->second);
+            }
           }
 
 #ifdef PATMOS_TRACE_BB_LIVEAREA
