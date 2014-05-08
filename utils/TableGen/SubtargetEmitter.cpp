@@ -1202,6 +1202,7 @@ void SubtargetEmitter::EmitProcessorModels(raw_ostream &OS) {
     OS << "static const llvm::MCSchedModel " << PI->ModelName << "(\n";
     EmitProcessorProp(OS, PI->ModelDef, "IssueWidth", ',');
     EmitProcessorProp(OS, PI->ModelDef, "MicroOpBufferSize", ',');
+    EmitProcessorProp(OS, PI->ModelDef, "LoopMicroOpBufferSize", ',');
     EmitProcessorProp(OS, PI->ModelDef, "LoadLatency", ',');
     EmitProcessorProp(OS, PI->ModelDef, "HighLatency", ',');
     EmitProcessorProp(OS, PI->ModelDef, "MispredictPenalty", ',');
