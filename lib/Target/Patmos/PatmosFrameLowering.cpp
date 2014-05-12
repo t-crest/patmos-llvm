@@ -384,7 +384,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   }
 
   // load the current function base if it needs to be passed to call sites
-  if (MF.getFrameInfo()->hasCalls()) {
+  if (MFI.hasCalls()) {
     // If we have calls, we need to spill the call link registers
     MRI.setPhysRegUsed(Patmos::SRB);
     MRI.setPhysRegUsed(Patmos::SRO);

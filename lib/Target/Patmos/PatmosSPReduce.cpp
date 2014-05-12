@@ -1156,10 +1156,27 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
       if (MI->isCall()) {
           DEBUG_TRACE( dbgs() << "    call: " << *MI );
           assert(!TII->isPredicated(MI) && "call predicated");
+          DebugLoc DL = MI->getDebugLoc();
           // copy actual preg to temporary preg
-          AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
+          AddDefaultPred(BuildMI(*MBB, MI, DL,
                 TII->get(Patmos::PMOV), PRTmp))
             .addReg(use_preg).addImm(0);
+
+          // store/restore caller saved R9 (gets dirty during frame setup)
+          int fi = PMFI->getSinglePathCallSpillFI();
+          // store to stack slot
+          MachineInstr *storeMI = AddDefaultPred(BuildMI(*MBB, MI, DL,
+                TII->get(Patmos::SWC)))
+            .addFrameIndex(fi).addImm(0) // address
+            .addReg(Patmos::R9);
+          TRI->eliminateFrameIndex(storeMI, 0, 2);
+          // restore from stack slot (after the call MI)
+          MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, next(MI), DL,
+                TII->get(Patmos::LWC), Patmos::R9))
+            .addFrameIndex(fi).addImm(0); // address
+          TRI->eliminateFrameIndex(loadMI, 0, 3);
+          ++MI; // skip the load operation
+          InsertedInstrs += 3; // STATISTIC
           continue;
       }
 

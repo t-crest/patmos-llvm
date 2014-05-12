@@ -198,6 +198,13 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
     PMFI.addSinglePathFI(fi);
   }
+
+  // if another (_sp_-)function is called, reserve space for re-/storing R9
+  if (MFI.hasCalls()) {
+    PMFI.startSinglePathCallSpill();
+    int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
+    PMFI.addSinglePathFI(fi);
+  }
 }
 
 
