@@ -18,6 +18,7 @@
 #include "PatmosSinglePathInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -31,6 +32,11 @@
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
+
+namespace llvm {
+  /// Count the number of FIs overflowing into the shadow stack
+  STATISTIC(FIsNotFitSC, "FIs that did not fit in the stack cache");
+}
 
 /// EnableStackCache - Command line option to disable the usage of the stack 
 /// cache (enabled by default).
@@ -177,9 +183,10 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
         continue;
       }
       else {
-        // the FI is not assigned to the SC -- fall-through and put it on the 
+        // the FI did not fit in the SC -- fall-through and put it on the 
         // shadow stack
         SCFIs[FI] = false;
+        FIsNotFitSC++;
       }
     }
 
