@@ -16,7 +16,6 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/LegacyPassManagers.h"
 #include "llvm/IR/LegacyPassNameParser.h"
-#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -1342,8 +1341,6 @@ bool BBPassManager::runOnFunction(Function &F) {
         TimeRegion PassTimer(getPassTimer(BP));
 
         LocalChanged |= BP->runOnBasicBlock(*I);
-
-        F.getContext().notifyPassRun(BP, F.getParent(), &F, &*I);
       }
 
       Changed |= LocalChanged;
@@ -1582,8 +1579,6 @@ bool FPPassManager::runOnFunction(Function &F) {
     removeNotPreservedAnalysis(FP);
     recordAvailableAnalysis(FP);
     removeDeadPasses(FP, F.getName(), ON_FUNCTION_MSG);
-
-    F.getContext().notifyPassRun(FP, F.getParent(), &F);
   }
   return Changed;
 }
@@ -1663,8 +1658,6 @@ MPPassManager::runOnModule(Module &M) {
     removeNotPreservedAnalysis(MP);
     recordAvailableAnalysis(MP);
     removeDeadPasses(MP, M.getModuleIdentifier(), ON_MODULE_MSG);
-
-    M.getContext().notifyPassRun(MP, &M);
   }
 
   // Finalize module passes
