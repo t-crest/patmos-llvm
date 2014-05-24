@@ -421,7 +421,7 @@ AC_CACHE_CHECK([target architecture],[llvm_cv_target_arch],
   powerpc*-*)             llvm_cv_target_arch="PowerPC" ;;
   arm64*-*)               llvm_cv_target_arch="ARM64" ;;
   arm*-*)                 llvm_cv_target_arch="ARM" ;;
-  aarch64*-*)             llvm_cv_target_arch="AArch64" ;;
+  aarch64*-*)             llvm_cv_target_arch="ARM64" ;;
   mips-* | mips64-*)      llvm_cv_target_arch="Mips" ;;
   mipsel-* | mips64el-*)  llvm_cv_target_arch="Mips" ;;
   xcore-*)                llvm_cv_target_arch="XCore" ;;
@@ -458,7 +458,7 @@ case $host in
   powerpc*-*)             host_arch="PowerPC" ;;
   arm64*-*)               host_arch="ARM64" ;;
   arm*-*)                 host_arch="ARM" ;;
-  aarch64*-*)             host_arch="AArch64" ;;
+  aarch64*-*)             host_arch="ARM64" ;;
   mips-* | mips64-*)      host_arch="Mips" ;;
   mipsel-* | mips64el-*)  host_arch="Mips" ;;
   xcore-*)                host_arch="XCore" ;;
@@ -787,7 +787,6 @@ else
     PowerPC)     AC_SUBST(TARGET_HAS_JIT,1) ;;
     x86_64)      AC_SUBST(TARGET_HAS_JIT,1) ;;
     ARM)         AC_SUBST(TARGET_HAS_JIT,1) ;;
-    AArch64)     AC_SUBST(TARGET_HAS_JIT,0) ;;
     Mips)        AC_SUBST(TARGET_HAS_JIT,1) ;;
     XCore)       AC_SUBST(TARGET_HAS_JIT,0) ;;
     MSP430)      AC_SUBST(TARGET_HAS_JIT,0) ;;
@@ -799,7 +798,7 @@ else
   esac
 fi
 
-TARGETS_WITH_JIT="AArch64 ARM ARM64 Mips PowerPC SystemZ X86"
+TARGETS_WITH_JIT="ARM ARM64 Mips PowerPC SystemZ X86"
 AC_SUBST(TARGETS_WITH_JIT,$TARGETS_WITH_JIT)
 
 dnl Allow enablement of building and installing docs
@@ -952,7 +951,7 @@ if test "$llvm_cv_enable_crash_overrides" = "yes" ; then
 fi
 
 dnl List all possible targets
-ALL_TARGETS="X86 Sparc PowerPC AArch64 ARM ARM64 Mips XCore MSP430 CppBackend NVPTX Hexagon SystemZ R600"
+ALL_TARGETS="X86 Sparc PowerPC ARM ARM64 Mips XCore MSP430 CppBackend NVPTX Hexagon SystemZ R600"
 AC_SUBST(ALL_TARGETS,$ALL_TARGETS)
 
 dnl Allow specific targets to be specified for building (or not)
@@ -973,7 +972,7 @@ case "$enableval" in
         x86_64)   TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
         sparc)    TARGETS_TO_BUILD="Sparc $TARGETS_TO_BUILD" ;;
         powerpc)  TARGETS_TO_BUILD="PowerPC $TARGETS_TO_BUILD" ;;
-        aarch64)  TARGETS_TO_BUILD="AArch64 $TARGETS_TO_BUILD" ;;
+        aarch64)  TARGETS_TO_BUILD="ARM64 $TARGETS_TO_BUILD" ;;
         arm64)    TARGETS_TO_BUILD="ARM64 $TARGETS_TO_BUILD" ;;
         arm)      TARGETS_TO_BUILD="ARM $TARGETS_TO_BUILD" ;;
         mips)     TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
@@ -993,7 +992,7 @@ case "$enableval" in
             x86_64)      TARGETS_TO_BUILD="X86 $TARGETS_TO_BUILD" ;;
             Sparc)       TARGETS_TO_BUILD="Sparc $TARGETS_TO_BUILD" ;;
             PowerPC)     TARGETS_TO_BUILD="PowerPC $TARGETS_TO_BUILD" ;;
-            AArch64)     TARGETS_TO_BUILD="AArch64 $TARGETS_TO_BUILD" ;;
+            AArch64)     TARGETS_TO_BUILD="ARM64 $TARGETS_TO_BUILD" ;;
             ARM)         TARGETS_TO_BUILD="ARM $TARGETS_TO_BUILD" ;;
             Mips)        TARGETS_TO_BUILD="Mips $TARGETS_TO_BUILD" ;;
             XCore)       TARGETS_TO_BUILD="XCore $TARGETS_TO_BUILD" ;;
