@@ -330,7 +330,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
     if (MI->mayLoad()) {
       SDep Dep(&*it, SDep::Artificial);
-      Dep.setLatency(1);
+      Dep.setLatency(computeExitLatency(*it));
       DAG->ExitSU.addPred(Dep);
     }
   }
