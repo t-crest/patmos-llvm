@@ -271,7 +271,11 @@ class Architecture < PML::Architecture
       opts.push("--scsize")
       opts.push(sc.size)
       opts.push("--sckind")
-      opts.push("block")
+      opts.push(sc.policy || "block")
+    else
+      # no stack cache specified -> default to data cache
+      opts.push("--sckind")
+      opts.push("dcache")
     end
     if mc = method_cache
       opts.push("--icache")
@@ -301,6 +305,18 @@ class Architecture < PML::Architecture
         end
       else
         opts.push("no")
+      end
+    else
+      # if code is mapped to single-cycle access memory,
+      # use an 'ideal' instruction cache
+      code_area = @config.memory_areas.by_name('code')
+      if code_area.memory.ideal?
+        opts.push("--icache")
+        opts.push("icache")
+        opts.push("--ickind")
+        opts.push("ideal")
+      else
+        die("Patmos simulator configuration: underspecified I$")
       end
     end
     opts
