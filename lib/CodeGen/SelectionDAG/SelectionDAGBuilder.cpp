@@ -7184,11 +7184,8 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
       }
       if (Args[i].isNest)
         Flags.setNest();
-      if (NeedsRegBlock) {
+      if (NeedsRegBlock)
         Flags.setInConsecutiveRegs();
-        if (Value == NumValues - 1)
-          Flags.setInConsecutiveRegsLast();
-      }
       Flags.setOrigAlign(OriginalAlignment);
 
       MVT PartVT = getRegisterType(CLI.RetTy->getContext(), VT);
@@ -7233,6 +7230,10 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
           MyFlags.Flags.setSplit();
         else if (j != 0)
           MyFlags.Flags.setOrigAlign(1);
+
+        // Only mark the end at the last register of the last value.
+        if (NeedsRegBlock && Value == NumValues - 1 && j == NumParts - 1)
+          MyFlags.Flags.setInConsecutiveRegsLast();
 
         CLI.Outs.push_back(MyFlags);
         CLI.OutVals.push_back(Parts[j]);
@@ -7420,11 +7421,8 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
       }
       if (F.getAttributes().hasAttribute(Idx, Attribute::Nest))
         Flags.setNest();
-      if (NeedsRegBlock) {
+      if (NeedsRegBlock)
         Flags.setInConsecutiveRegs();
-        if (Value == NumValues - 1)
-          Flags.setInConsecutiveRegsLast();
-      }
       Flags.setOrigAlign(OriginalAlignment);
 
       MVT RegisterVT = TLI->getRegisterType(*CurDAG->getContext(), VT);
@@ -7437,6 +7435,11 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
         // if it isn't first piece, alignment must be 1
         else if (i > 0)
           MyFlags.Flags.setOrigAlign(1);
+
+        // Only mark the end at the last register of the last value.
+        if (NeedsRegBlock && Value == NumValues - 1 && i == NumRegs - 1)
+          MyFlags.Flags.setInConsecutiveRegsLast();
+
         Ins.push_back(MyFlags);
       }
       PartBase += VT.getStoreSize();
