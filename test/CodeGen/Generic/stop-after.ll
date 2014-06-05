@@ -5,6 +5,6 @@
 ; STOP: Loop Strength Reduction
 ; STOP-NEXT: Print module to stderr
 
-; START: -machine-branch-prob -gc-lowering
+; START: -machine-branch-prob -jump-instr-tables -gc-lowering
 ; START: FunctionPass Manager
 ; START-NEXT: Lower Garbage Collection Instructions
