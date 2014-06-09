@@ -1878,6 +1878,7 @@ static void emitGlobalConstantFP(const ConstantFP *CFP, AsmPrinter &AP) {
     SmallString<8> StrVal;
     CFP->getValueAPF().toString(StrVal);
 
+    assert(CFP->getType() != nullptr && "Expecting non-null Type");
     CFP->getType()->print(AP.OutStreamer.GetCommentOS());
     AP.OutStreamer.GetCommentOS() << ' ' << StrVal << '\n';
   }
