@@ -18,6 +18,7 @@
 #include "PatmosSinglePathInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -31,6 +32,11 @@
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
+
+namespace llvm {
+  /// Count the number of FIs overflowing into the shadow stack
+  STATISTIC(FIsNotFitSC, "FIs that did not fit in the stack cache");
+}
 
 /// EnableStackCache - Command line option to disable the usage of the stack 
 /// cache (enabled by default).
@@ -177,9 +183,10 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
         continue;
       }
       else {
-        // the FI is not assigned to the SC -- fall-through and put it on the 
+        // the FI did not fit in the SC -- fall-through and put it on the 
         // shadow stack
         SCFIs[FI] = false;
+        FIsNotFitSC++;
       }
     }
 
@@ -384,7 +391,7 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   }
 
   // load the current function base if it needs to be passed to call sites
-  if (MF.getFrameInfo()->hasCalls()) {
+  if (MFI.hasCalls()) {
     // If we have calls, we need to spill the call link registers
     MRI.setPhysRegUsed(Patmos::SRB);
     MRI.setPhysRegUsed(Patmos::SRO);
@@ -438,18 +445,19 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
 
 bool
 PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                                        MachineBasicBlock::iterator MI,
-                                        const std::vector<CalleeSavedInfo> &CSI,
-                                        const TargetRegisterInfo *TRI) const {
+                                      MachineBasicBlock::iterator MI,
+                                      const std::vector<CalleeSavedInfo> &CSI,
+                                      const TargetRegisterInfo *TRI) const {
   if (CSI.empty())
     return false;
 
   DebugLoc DL;
   if (MI != MBB.end()) DL = MI->getDebugLoc();
 
+  MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *TM.getInstrInfo();
   PatmosMachineFunctionInfo &PMFI =
-                       *MBB.getParent()->getInfo<PatmosMachineFunctionInfo>();
+                       *MF.getInfo<PatmosMachineFunctionInfo>();
 
   unsigned spilledSize = 0;
   for (unsigned i = CSI.size(); i != 0; --i) {
@@ -465,18 +473,21 @@ PatmosFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
     // Spill S0 to a register instead to a slot if there is a free register
     if (Reg == Patmos::S0 && PMFI.getS0SpillReg()) {
       TII.copyPhysReg(MBB, MI, DL, PMFI.getS0SpillReg(), Reg, true);
+      prior(MI)->setFlag(MachineInstr::FrameSetup);
       continue;
     }
 
     // copy to R register first, then spill
     if (Patmos::SRegsRegClass.contains(Reg)) {
       TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Reg, true);
+      prior(MI)->setFlag(MachineInstr::FrameSetup);
       Reg = Patmos::R9;
     }
 
     // spill
     const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-    TII.storeRegToStackSlot(MBB, MI, Reg, true, CSI[i-1].getFrameIdx(), RC, TRI);
+    TII.storeRegToStackSlot(MBB, MI, Reg, true,
+        CSI[i-1].getFrameIdx(), RC, TRI);
     prior(MI)->setFlag(MachineInstr::FrameSetup);
 
     // increment spilled size
@@ -520,6 +531,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
     // Spill S0 to a register instead to a slot if there is a free register
     if (Reg == Patmos::S0 && PMFI.getS0SpillReg()) {
       TII.copyPhysReg(MBB, MI, DL, Reg, PMFI.getS0SpillReg(), true);
+      prior(MI)->setFlag(MachineInstr::FrameSetup);
       continue;
     }
 
@@ -536,6 +548,7 @@ PatmosFrameLowering::restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
     if (tmpReg != Reg)
     {
       TII.copyPhysReg(MBB, MI, DL, Reg, tmpReg, true);
+      prior(MI)->setFlag(MachineInstr::FrameSetup);
     }
   }
 

@@ -104,6 +104,9 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   // Index to the SinglePathFIs where the excess spill slots start
   unsigned SPExcessSpillOffset;
 
+  // Index to the SinglePathFIs where the call spill slots start (R9)
+  unsigned SPCallSpillOffset;
+
   /// Set of entry blocks to code regions that are potentially cached by the
   /// method cache.
   std::set<const MachineBasicBlock*> MethodCacheRegionEntries;
@@ -117,7 +120,8 @@ public:
   explicit PatmosMachineFunctionInfo(MachineFunction &MF) :
     StackCacheReservedBytes(0), StackReservedBytes(0), VarArgsFI(0),
     RegScavengingFI(0), S0SpillReg(0),
-    SinglePathConvert(false), SPS0SpillOffset(0), SPExcessSpillOffset(0)
+    SinglePathConvert(false), SPS0SpillOffset(0), SPExcessSpillOffset(0),
+    SPCallSpillOffset(0)
     {}
 
   /// getStackCacheReservedBytes - Get the number of bytes reserved on the
@@ -216,6 +220,10 @@ public:
     SPExcessSpillOffset = SinglePathFIs.size();
   }
 
+  void startSinglePathCallSpill(void) {
+    SPCallSpillOffset = SinglePathFIs.size();
+  }
+
   int getSinglePathLoopCntFI(unsigned num) const {
     return SinglePathFIs[0 + num];
   }
@@ -226,6 +234,10 @@ public:
 
   int getSinglePathExcessSpillFI(unsigned num) const {
     return SinglePathFIs[SPExcessSpillOffset + num];
+  }
+
+  int getSinglePathCallSpillFI(void) const {
+    return SinglePathFIs[SPCallSpillOffset + 0];
   }
 
   const std::vector<int>& getSinglePathFIs(void) const {

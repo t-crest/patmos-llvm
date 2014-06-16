@@ -736,6 +736,13 @@ AttributeSet AttributeSet::removeAttribute(LLVMContext &C, unsigned Index,
   return removeAttributes(C, Index, AttributeSet::get(C, Index, Attr));
 }
 
+AttributeSet AttributeSet::removeAttribute(LLVMContext &C, unsigned Index,
+                                           StringRef Kind) const {
+  llvm::AttrBuilder B;
+  B.addAttribute(Kind);
+  return removeAttributes(C, Index, AttributeSet::get(C, Index, B));
+}
+
 AttributeSet AttributeSet::removeAttributes(LLVMContext &C, unsigned Index,
                                             AttributeSet Attrs) const {
   if (!pImpl) return AttributeSet();

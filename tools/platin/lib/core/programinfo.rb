@@ -588,7 +588,7 @@ module PML
       @size = data['spillsize']
     end
     def to_s
-      "#{id}:#{function.name}:#{size}"
+      "#{id}:#{function}:#{size}"
     end
     def qname
       return @id

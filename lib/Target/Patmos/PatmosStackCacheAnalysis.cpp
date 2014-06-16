@@ -120,11 +120,11 @@ namespace llvm {
   STATISTIC(FullyFillingSENS, "SENS instructions fully filling (thereof).");
 
   /// Count the number of SRES instructions potentially spilling.
-  STATISTIC(SpillingSRES, "SRES instructions potentially spilling.");
+  STATISTIC(SpillingSRES, "SRES instructions spilling.");
 
   /// Count the number of SRES instructions potentially fully spilling the total 
   /// szie given as their argument.
-  STATISTIC(FullySpillingSRES, "SRES instructions fully spilling (thereof).");
+  STATISTIC(FullySpillingSRES, "SRES instructions fully spilling (of spilling)");
 
   /// Count the number of SRES instructions that certainly do not spill.
   STATISTIC(NonSpillingSRES, "SRES instructions guaranteed to not spill.");
@@ -619,9 +619,7 @@ namespace llvm {
       dbgs() << "Error: Missing bounds for SCC: (";
       for (MCGNodes::const_iterator i(SCC.begin()), ie(SCC.end()); i != ie;
            i++) {
-        dbgs() << "'";
-        (*i)->dump();
-        dbgs() << "' ";
+        dbgs() << "'" << **i << "' ";
       }
       dbgs() << ")\nbounds available: ";
       for (SCCInfos::const_iterator i(Infos.begin()), ie(Infos.end()); i != ie;
@@ -1012,8 +1010,7 @@ namespace llvm {
         for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
             i++) {
           if (!(*i)->isDead()) {
-            (*i)->dump();
-            dbgs() << ": " << getMinMaxOccupancy(*i, Maximize)
+            dbgs() << **i <<  ": " << getMinMaxOccupancy(*i, Maximize)
                    << " (" << getBytesReserved(*i) << ")\n";
           }
         }
@@ -1145,9 +1142,11 @@ namespace llvm {
           }
 
           // actually update the sizes of the ensure instructions.
-          for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
-              i++) {
-            i->first->getOperand(2).setImm(i->second);
+          if (EnableEnsureOpt) {
+            for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
+                i++) {
+              i->first->getOperand(2).setImm(i->second);
+            }
           }
 
 #ifdef PATMOS_TRACE_BB_LIVEAREA
@@ -1637,9 +1636,7 @@ namespace llvm {
       unsigned int result = solve_ilp(LPname.c_str(), Maximize);
 
 #ifdef PATMOS_TRACE_CG_OCCUPANCY_ILP
-      dbgs() << "ILP: ";
-      N->dump();
-      dbgs() << ": " << result << "\n";
+      dbgs() << "ILP: " << *N << ": " << result << "\n";
 #endif // PATMOS_TRACE_CG_OCCUPANCY_ILP
 
       // remove LP file
@@ -1830,9 +1827,7 @@ namespace llvm {
                    << " (" << getBytesReserved(*i) << ")\n";
             for(MCGSiteUInt::const_iterator j(WorstCaseSiteOccupancy.begin()),
                 je(WorstCaseSiteOccupancy.end()); j != je; j++) {
-              dbgs() << "  ";
-              j->first->dump();
-              dbgs() << ": " << j->second
+              dbgs() << "  " << *j->first << ": " << j->second
                      << " (" << getMinOccupancy(j->first->getCallee()) << ")\n";
             }
           );
@@ -1962,22 +1957,26 @@ namespace llvm {
         // get the site's stack worst-case occupancy
         MCGSite *site = *j;
         MCGNode *callee = site->getCallee();
-        unsigned int worstSiteOccupancy = WorstCaseSiteOccupancy[site];
+        unsigned int worstSiteOccupancy = STC.getStackCacheSize();
+        if (WorstCaseSiteOccupancy.count(site))
+          WorstCaseSiteOccupancy[site];
 
-        // compute the occupancy and spill cost at the callee
-        unsigned int childOccupancy = std::min(nodeOccupancy,
+        // compute the occupancy and the call site
+        unsigned int siteOccupancy = std::min(nodeOccupancy,
                                                worstSiteOccupancy);
 
-        unsigned int totalChildOccupancy = getBytesReserved(callee) +
-                                            childOccupancy;
+        // compute the occupancy after the child's reserve
+        unsigned int childOccupancy = getBytesReserved(callee) +
+                                            siteOccupancy;
 
+        // compute the spill caused by the child's reserve
         unsigned int spillCost =
-            totalChildOccupancy <= STC.getStackCacheSize() ? 0 :
-                                  totalChildOccupancy - STC.getStackCacheSize();
+            childOccupancy <= STC.getStackCacheSize() ? 0 :
+                                  childOccupancy - STC.getStackCacheSize();
 
-        // propagate to calling contexts at callee
+        // the occupancy before child's reserve (and spill cost) is propagated
         SCANode *calleeSCANode;
-        bool isNewNode = SCAGraph.makeNode(callee, childOccupancy, spillCost,
+        bool isNewNode = SCAGraph.makeNode(callee, siteOccupancy, spillCost,
                                            getMaxOccupancy(callee),
                                            IsCallFree[callee], calleeSCANode);
 

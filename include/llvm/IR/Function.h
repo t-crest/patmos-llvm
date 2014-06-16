@@ -183,6 +183,11 @@ public:
     setAttributes(AttributeSets.removeAttribute(
         getContext(), AttributeSet::FunctionIndex, N));
   }
+  /// @brief Remove function attributes from this function.
+  void removeFnAttr(StringRef Kind) {
+    setAttributes(AttributeSets.removeAttribute(
+        getContext(), AttributeSet::FunctionIndex, Kind));
+  }
 
   /// @brief Add function attributes to this function.
   void addFnAttr(StringRef Kind) {

@@ -11,7 +11,7 @@ begin
 rescue Exception => details
   $stderr.puts "Failed to load library lpsolve"
   $stderr.puts "  ==> aptitude install liblpsolve55-dev [Debian/Ubuntu]"
-  $stderr.puts "  ==> gem1.9.1 install lpsolve --pre"
+  $stderr.puts "  ==> llvm/tools/platin/install.sh -i INSTALL_DIR [installs gems again]"
   $stderr.puts "Failed to load required ruby libraries"
   exit 1
 end

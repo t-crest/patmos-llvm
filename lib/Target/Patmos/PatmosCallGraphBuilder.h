@@ -127,6 +127,9 @@ namespace llvm {
 
     /// dump - print the call graph node to the debug stream.
     void dump() const;
+
+    /// print - print to given stream.
+    void print(raw_ostream &OS) const;
   };
 
   /// A machine-level call site
@@ -169,6 +172,9 @@ namespace llvm {
 
     /// dump - print the call site to the debug stream.
     void dump(bool short_format = true) const;
+
+    /// print - print to given stream (short format).
+    void print(raw_ostream &OS) const;
   };
 
   /// A machine-level call graph.
@@ -550,4 +556,14 @@ namespace llvm {
       return N->isDead() ? "color=\"red\"" : "";
     }
   };
+
+  inline raw_ostream& operator<<(raw_ostream &OS, const MCGNode &N) {
+    N.print(OS);
+    return OS;
+  }
+
+  inline raw_ostream& operator<<(raw_ostream &OS, const MCGSite &S) {
+    S.print(OS);
+    return OS;
+  }
 }

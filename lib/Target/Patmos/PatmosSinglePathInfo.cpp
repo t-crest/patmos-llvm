@@ -287,7 +287,7 @@ void SPScope::computePredInfos(void) {
   buildfcfg();
   toposort();
   FCFG.postdominators();
-  dumpfcfg(); // uses info about pdom
+  DEBUG_TRACE(dumpfcfg()); // uses info about pdom
   ctrldep();
   decompose();
 }
