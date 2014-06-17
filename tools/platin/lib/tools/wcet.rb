@@ -332,6 +332,7 @@ class WcetTool
         'source' => te.origin,
         'cycles' => te.cycles,
         'cache-cycles' => te.attributes['cache-cycles'] || 0 }
+      te.attributes.select { |k,v| k.start_with? 'cache-misses-' }.each { |k,v| dict[k] = v }
       (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }

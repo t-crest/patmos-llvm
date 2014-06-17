@@ -981,6 +981,17 @@ class AitImport
     profile_list
   end
 
+  # XXX add hits and investigate scope of hit/miss stats
+  def read_cache_misses(wcet_elem, analysis_entry)
+    misses = {}
+    wcet_elem.each_element("wcet_results/wcet_cache_infos/wcet_cache_info") { |e|
+      routine = @routines[e.attributes['routine']]
+      type = e.attributes['type']
+      misses[type] = e.attributes['misses'].to_i
+    }
+    misses
+  end
+
   def run
     analysis_entry  = pml.machine_functions.by_label(options.analysis_entry, true)
     timing_entry = read_result_file(options.ait_report_prefix + ".xml")
@@ -1011,6 +1022,12 @@ class AitImport
       }
       timing_entry.profile = Profile.new(timing_list)
     end
+
+    # read cache statistics
+    read_cache_misses(wcet_elem, analysis_entry).each { |t,v|
+      timing_entry.attributes['cache-misses-' + t] = v if v > 0
+    }
+
     statistics("AIT","imported WCET results" => 1) if options.stats
     pml.timing.add(timing_entry)
   end
