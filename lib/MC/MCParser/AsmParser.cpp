@@ -4569,9 +4569,9 @@ bool AsmParser::parseMSInlineAsm(
     }
 
     // Consider implicit defs to be clobbers.  Think of cpuid and push.
-    const uint16_t *ImpDefs = Desc.getImplicitDefs();
-    for (unsigned I = 0, E = Desc.getNumImplicitDefs(); I != E; ++I)
-      ClobberRegs.push_back(ImpDefs[I]);
+    ArrayRef<uint16_t> ImpDefs(Desc.getImplicitDefs(),
+                               Desc.getNumImplicitDefs());
+    ClobberRegs.insert(ClobberRegs.end(), ImpDefs.begin(), ImpDefs.end());
   }
 
   // Set the number of Outputs and Inputs.
@@ -4609,24 +4609,21 @@ bool AsmParser::parseMSInlineAsm(
   const char *AsmStart = SrcMgr.getMemoryBuffer(0)->getBufferStart();
   const char *AsmEnd = SrcMgr.getMemoryBuffer(0)->getBufferEnd();
   array_pod_sort(AsmStrRewrites.begin(), AsmStrRewrites.end(), rewritesSort);
-  for (SmallVectorImpl<AsmRewrite>::iterator I = AsmStrRewrites.begin(),
-                                             E = AsmStrRewrites.end();
-       I != E; ++I) {
-    AsmRewriteKind Kind = (*I).Kind;
+  for (const AsmRewrite &AR : AsmStrRewrites) {
+    AsmRewriteKind Kind = AR.Kind;
     if (Kind == AOK_Delete)
       continue;
 
-    const char *Loc = (*I).Loc.getPointer();
+    const char *Loc = AR.Loc.getPointer();
     assert(Loc >= AsmStart && "Expected Loc to be at or after Start!");
 
     // Emit everything up to the immediate/expression.
-    unsigned Len = Loc - AsmStart;
-    if (Len)
+    if (unsigned Len = Loc - AsmStart)
       OS << StringRef(AsmStart, Len);
 
     // Skip the original expression.
     if (Kind == AOK_Skip) {
-      AsmStart = Loc + (*I).Len;
+      AsmStart = Loc + AR.Len;
       continue;
     }
 
@@ -4636,7 +4633,7 @@ bool AsmParser::parseMSInlineAsm(
     default:
       break;
     case AOK_Imm:
-      OS << "$$" << (*I).Val;
+      OS << "$$" << AR.Val;
       break;
     case AOK_ImmPrefix:
       OS << "$$";
@@ -4648,7 +4645,7 @@ bool AsmParser::parseMSInlineAsm(
       OS << '$' << OutputIdx++;
       break;
     case AOK_SizeDirective:
-      switch ((*I).Val) {
+      switch (AR.Val) {
       default: break;
       case 8:  OS << "byte ptr "; break;
       case 16: OS << "word ptr "; break;
@@ -4663,7 +4660,7 @@ bool AsmParser::parseMSInlineAsm(
       OS << ".byte";
       break;
     case AOK_Align: {
-      unsigned Val = (*I).Val;
+      unsigned Val = AR.Val;
       OS << ".align " << Val;
 
       // Skip the original immediate.
@@ -4676,12 +4673,12 @@ bool AsmParser::parseMSInlineAsm(
       OS.flush();
       if (AsmStringIR.back() != '.')
         OS << '.';
-      OS << (*I).Val;
+      OS << AR.Val;
       break;
     }
 
     // Skip the original expression.
-    AsmStart = Loc + (*I).Len + AdditionalSkip;
+    AsmStart = Loc + AR.Len + AdditionalSkip;
   }
 
   // Emit the remainder of the asm string.
