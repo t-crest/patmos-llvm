@@ -427,7 +427,7 @@ EOF
     WcetTool.add_options(opts)
   end
   unless which(options.a3)
-    warn("Commercial a3 tools is not available; use --disable-ait to hide this warning")
+    warn("Commercial a3 tools is not available; use --disable-ait to hide this warning") unless options.disable_ait
     options.disable_ait = true
     options.enable_wca = true
   end
