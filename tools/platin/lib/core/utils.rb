@@ -147,6 +147,12 @@ module PML
     return nil
   end
 
+  class MissingToolException < Exception
+    def initialize(msg)
+      super(msg)
+    end
+  end
+
   def file_open(path,mode="r")
     internal_error "file_open: nil" unless path
     if(path=="-")
