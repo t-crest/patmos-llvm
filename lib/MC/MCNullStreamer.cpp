@@ -82,10 +82,6 @@ namespace {
     void EmitBundleUnlock() override {}
 
     void FinishImpl() override {}
-
-    void EmitCFIEndProcImpl(MCDwarfFrameInfo &Frame) override {
-      RecordProcEnd(Frame);
-    }
   };
 
 }
