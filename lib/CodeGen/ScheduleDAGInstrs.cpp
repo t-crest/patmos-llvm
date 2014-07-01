@@ -1522,7 +1522,7 @@ void SchedDFSResult::scheduleTree(unsigned SubtreeID) {
   }
 }
 
-#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+LLVM_DUMP_METHOD
 void ILPValue::print(raw_ostream &OS) const {
   OS << InstrCount << " / " << Length << " = ";
   if (!Length)
@@ -1531,16 +1531,17 @@ void ILPValue::print(raw_ostream &OS) const {
     OS << format("%g", ((double)InstrCount / Length));
 }
 
+LLVM_DUMP_METHOD
 void ILPValue::dump() const {
   dbgs() << *this << '\n';
 }
 
 namespace llvm {
 
+LLVM_DUMP_METHOD
 raw_ostream &operator<<(raw_ostream &OS, const ILPValue &Val) {
   Val.print(OS);
   return OS;
 }
 
 } // namespace llvm
-#endif // !NDEBUG || LLVM_ENABLE_DUMP
