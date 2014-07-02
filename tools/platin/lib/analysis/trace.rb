@@ -37,6 +37,9 @@ class MachineTraceMonitor < TraceMonitor
     @pml, @options = pml, options
     @trace = trace
     @program_entry = @pml.machine_functions.by_label(options.trace_entry)
+    if not @program_entry
+      die("Trace Analysis: Could not find trace entry function '#{options.trace_entry}' in PML file. Make sure it is serialized by patmos-clang.")
+    end
     @start = @program_entry.blocks.first.address
     # whether an instruction is a watch point
     @wp = {}
