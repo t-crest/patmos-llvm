@@ -60,12 +60,15 @@ void DAGTypeLegalizer::ExpandRes_BITCAST(SDNode *N, SDValue &Lo, SDValue &Hi) {
     case TargetLowering::TypeExpandFloat:
       // Convert the expanded pieces of the input.
       GetExpandedOp(InOp, Lo, Hi);
+      if (TLI.hasBigEndianPartOrdering(InVT) !=
+          TLI.hasBigEndianPartOrdering(OutVT))
+        std::swap(Lo, Hi);
       Lo = DAG.getNode(ISD::BITCAST, dl, NOutVT, Lo);
       Hi = DAG.getNode(ISD::BITCAST, dl, NOutVT, Hi);
       return;
     case TargetLowering::TypeSplitVector:
       GetSplitVector(InOp, Lo, Hi);
-      if (TLI.isBigEndian())
+      if (TLI.hasBigEndianPartOrdering(OutVT))
         std::swap(Lo, Hi);
       Lo = DAG.getNode(ISD::BITCAST, dl, NOutVT, Lo);
       Hi = DAG.getNode(ISD::BITCAST, dl, NOutVT, Hi);
@@ -82,7 +85,7 @@ void DAGTypeLegalizer::ExpandRes_BITCAST(SDNode *N, SDValue &Lo, SDValue &Hi) {
       EVT LoVT, HiVT;
       std::tie(LoVT, HiVT) = DAG.GetSplitDestVTs(InVT);
       std::tie(Lo, Hi) = DAG.SplitVector(InOp, dl, LoVT, HiVT);
-      if (TLI.isBigEndian())
+      if (TLI.hasBigEndianPartOrdering(OutVT))
         std::swap(Lo, Hi);
       Lo = DAG.getNode(ISD::BITCAST, dl, NOutVT, Lo);
       Hi = DAG.getNode(ISD::BITCAST, dl, NOutVT, Hi);
@@ -176,7 +179,7 @@ void DAGTypeLegalizer::ExpandRes_BITCAST(SDNode *N, SDValue &Lo, SDValue &Hi) {
                    false, false, MinAlign(Alignment, IncrementSize));
 
   // Handle endianness of the load.
-  if (TLI.isBigEndian())
+  if (TLI.hasBigEndianPartOrdering(OutVT))
     std::swap(Lo, Hi);
 }
 
@@ -245,7 +248,8 @@ void DAGTypeLegalizer::ExpandRes_NormalLoad(SDNode *N, SDValue &Lo,
   SDLoc dl(N);
 
   LoadSDNode *LD = cast<LoadSDNode>(N);
-  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), LD->getValueType(0));
+  EVT ValueVT = LD->getValueType(0);
+  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), ValueVT);
   SDValue Chain = LD->getChain();
   SDValue Ptr = LD->getBasePtr();
   unsigned Alignment = LD->getAlignment();
@@ -275,7 +279,7 @@ void DAGTypeLegalizer::ExpandRes_NormalLoad(SDNode *N, SDValue &Lo,
                       Hi.getValue(1));
 
   // Handle endianness of the load.
-  if (TLI.isBigEndian())
+  if (TLI.hasBigEndianPartOrdering(ValueVT))
     std::swap(Lo, Hi);
 
   // Modified the chain - switch anything that used the old chain to use
@@ -291,22 +295,16 @@ void DAGTypeLegalizer::ExpandRes_VAARG(SDNode *N, SDValue &Lo, SDValue &Hi) {
   SDLoc dl(N);
   const unsigned Align = N->getConstantOperandVal(3);
 
-  // Note: Just swapping the Hi and Lo pointer here does not work. It will
-  // cause one node not to have a chain-use and thus be removed later on, 
-  // shifting the results of subsequent vaarg calls.
-  if (TLI.isBigEndian()) {
-    Hi = DAG.getVAArg(NVT, dl, Chain, Ptr, N->getOperand(2), Align);
-    Lo = DAG.getVAArg(NVT, dl, Hi.getValue(1), Ptr, N->getOperand(2), 0);
-    // Modified the chain - switch anything that used the old chain to use
-    // the new one.
-    ReplaceValueWith(SDValue(N, 1), Lo.getValue(1));
-  } else {
-    Lo = DAG.getVAArg(NVT, dl, Chain, Ptr, N->getOperand(2), Align);
-    Hi = DAG.getVAArg(NVT, dl, Lo.getValue(1), Ptr, N->getOperand(2), 0);
-    // Modified the chain - switch anything that used the old chain to use
-    // the new one.
-    ReplaceValueWith(SDValue(N, 1), Hi.getValue(1));
-  }
+  Lo = DAG.getVAArg(NVT, dl, Chain, Ptr, N->getOperand(2), Align);
+  Hi = DAG.getVAArg(NVT, dl, Lo.getValue(1), Ptr, N->getOperand(2), 0);
+
+  // Handle endianness of the load.
+  if (TLI.hasBigEndianPartOrdering(OVT))
+    std::swap(Lo, Hi);
+
+  // Modified the chain - switch anything that used the old chain to use
+  // the new one.
+  ReplaceValueWith(SDValue(N, 1), Hi.getValue(1));
 }
 
 
@@ -465,8 +463,8 @@ SDValue DAGTypeLegalizer::ExpandOp_NormalStore(SDNode *N, unsigned OpNo) {
   SDLoc dl(N);
 
   StoreSDNode *St = cast<StoreSDNode>(N);
-  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(),
-                                     St->getValue().getValueType());
+  EVT ValueVT = St->getValue().getValueType();
+  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), ValueVT);
   SDValue Chain = St->getChain();
   SDValue Ptr = St->getBasePtr();
   unsigned Alignment = St->getAlignment();
@@ -480,7 +478,7 @@ SDValue DAGTypeLegalizer::ExpandOp_NormalStore(SDNode *N, unsigned OpNo) {
   SDValue Lo, Hi;
   GetExpandedOp(St->getValue(), Lo, Hi);
 
-  if (TLI.isBigEndian())
+  if (TLI.hasBigEndianPartOrdering(ValueVT))
     std::swap(Lo, Hi);
 
   Lo = DAG.getStore(Chain, dl, Lo, Ptr, St->getPointerInfo(),
