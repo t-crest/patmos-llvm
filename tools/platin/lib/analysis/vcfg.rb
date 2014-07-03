@@ -290,13 +290,13 @@ private
     delay_slots_left = ins.delay_slots
 
     # find the bundle in the last delay slot
-    begin
+    while(delay_slots_left > 0)
       # find next bundle
       current_index += 1
       current_index += 1 while block.instructions[current_index].bundled?
       # decrement delay slot count
       delay_slots_left -= 1
-    end while(delay_slots_left > 0)
+    end
 
     # current index now points at the bundle for the last delay slot
     # find the last instruction in this bundle
