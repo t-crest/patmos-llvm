@@ -840,7 +840,7 @@ public:
 
   /// @}
 
-  void dump();
+  void dump() const;
 };
 
 // FIXME: This really doesn't belong here. See comments below.
