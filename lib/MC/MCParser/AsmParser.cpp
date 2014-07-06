@@ -501,7 +501,7 @@ AsmParser::AsmParser(SourceMgr &_SM, MCContext &_Ctx, MCStreamer &_Out,
   SavedDiagContext = SrcMgr.getDiagContext();
   // Set our own handler which calls the saved handler.
   SrcMgr.setDiagHandler(DiagHandler, this);
-  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer));
+  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer());
 
   // Initialize the platform / file format parser.
   switch (_Ctx.getObjectFileInfo()->getObjectFileType()) {
@@ -574,7 +574,7 @@ bool AsmParser::enterIncludeFile(const std::string &Filename) {
     return true;
 
   CurBuffer = NewBuf;
-  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer));
+  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer());
   return false;
 }
 
@@ -595,7 +595,8 @@ bool AsmParser::processIncbinFile(const std::string &Filename) {
 
 void AsmParser::jumpToLoc(SMLoc Loc, unsigned InBuffer) {
   CurBuffer = InBuffer ? InBuffer : SrcMgr.FindBufferContainingLoc(Loc);
-  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer), Loc.getPointer());
+  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer(),
+                  Loc.getPointer());
 }
 
 const AsmToken &AsmParser::Lex() {
@@ -2151,7 +2152,7 @@ bool AsmParser::handleMacroEntry(const MCAsmMacro *M, SMLoc NameLoc) {
 
   // Jump to the macro instantiation and prime the lexer.
   CurBuffer = SrcMgr.AddNewSourceBuffer(MI->Instantiation, SMLoc());
-  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer));
+  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer());
   Lex();
 
   return false;
@@ -4288,7 +4289,7 @@ void AsmParser::instantiateMacroLikeBody(MCAsmMacro *M, SMLoc DirectiveLoc,
 
   // Jump to the macro instantiation and prime the lexer.
   CurBuffer = SrcMgr.AddNewSourceBuffer(MI->Instantiation, SMLoc());
-  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer));
+  Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer());
   Lex();
 }
 
