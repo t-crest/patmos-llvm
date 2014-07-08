@@ -249,6 +249,7 @@ class VisualizeTool
       rescue Exception => detail
         puts "Failed to visualize callgraph for #{target}: #{detail}"
         puts detail.backtrace
+        raise detail if options.raise_on_error
       end
       sgv = ScopeGraphVisualizer.new(pml,options)
       begin
@@ -260,6 +261,7 @@ class VisualizeTool
       rescue Exception => detail
         puts "Failed to visualize scopegraph for #{target}: #{detail}"
         puts detail.backtrace
+        raise detail if options.raise_on_error
       end
       fgv = FlowGraphVisualizer.new(pml, options)
       begin
@@ -280,6 +282,7 @@ class VisualizeTool
       rescue Exception => detail
         puts "Failed to visualize machinecode function #{target}: #{detail}"
         puts detail.backtrace
+        raise detail if options.raise_on_error
       end
       begin
         rgv = RelationGraphVisualizer.new(options)
@@ -290,6 +293,7 @@ class VisualizeTool
         html.add(target,"rg",file) if options.html
       rescue Exception => detail
         puts "Failed to visualize relation graph of #{target}: #{detail}"
+        raise detail if options.raise_on_error
       end
     end
     html.generate(outdir) if options.html
