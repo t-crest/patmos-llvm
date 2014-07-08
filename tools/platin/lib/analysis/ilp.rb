@@ -32,6 +32,7 @@ class IndexedConstraint
     @name, @lhs, @op, @rhs = name, lhs, op, rhs
     @tags = tags
     raise Exception.new("add_indexed_constraint: name is nil") unless name
+    assert("unexpected op #{@op}") { %w{equal less-equal}.include? @op }
     normalize!
   end
   def tautology?
@@ -218,7 +219,7 @@ class ILP
       terms_indexed[index(v)] += c
     }
     c = add_indexed_constraint(terms_indexed,op,const_rhs,name,Set.new([tag]))
-    debug(options, :ilp) { "Adding constraint: #{terms_lhs} #{op} #{const_rhs} => #{c}" }
+    debug(options, :ilp) { "Adding constraint: #{terms_lhs} #{op} #{const_rhs} ==> #{c}" }
     c
   end
 

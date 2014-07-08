@@ -242,21 +242,18 @@ private
           split_node = nil
         end
         if current_instruction.calls?
-          current_node.last_index = index + current_instruction.delay_slots
-          index = current_node.last_index + 1
+          index = get_split_index(current_node, block, index)
           call_node = callnodes[current_instruction] = CallNode.new(self, current_instruction)
           current_node.add_successor(call_node)
           split_node = call_node
         elsif current_instruction.returns?
           has_return = true
-          current_node.last_index = index + current_instruction.delay_slots
-          index = current_node.last_index + 1
+          index = get_split_index(current_node, block, index)
           current_node.add_successor(@exit)
           split_node = current_node
         elsif current_instruction.branches?
           has_branchtarget = true
-          current_node.last_index = index + current_instruction.delay_slots
-          index = current_node.last_index + 1
+          index = get_split_index(current_node, block, index)
           split_node = current_node
           current_instruction.branch_targets.each { |succblock|
             add_block_predecessor(block_predecessors,succblock,split_node)
@@ -284,6 +281,30 @@ private
       current_node.last_index = block.instructions.size - 1
     end
     return [first_nodes, block_predecessors, callnodes]
+  end
+
+  # compute index of instruction that should be the start of a new block after
+  # a branch, call or return
+  def get_split_index(current_node, block, current_index)
+    ins = block.instructions[current_index]
+    delay_slots_left = ins.delay_slots
+
+    # find the bundle in the last delay slot
+    while(delay_slots_left > 0)
+      # find next bundle
+      current_index += 1
+      current_index += 1 while block.instructions[current_index].bundled?
+      # decrement delay slot count
+      delay_slots_left -= 1
+    end
+
+    # current index now points at the bundle for the last delay slot
+    # find the last instruction in this bundle
+    while (current_index+1) < block.instructions.length && block.instructions[current_index+1].bundled?
+      current_index += 1
+    end
+    current_node.last_index = current_index
+    return (current_node.last_index + 1)
   end
 
   def add_block_predecessor(dict, succblock, prednode)
