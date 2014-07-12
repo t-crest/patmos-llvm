@@ -391,6 +391,9 @@ namespace llvm {
   /// MachineDominators - This pass is a machine dominators analysis pass.
   extern char &MachineDominatorsID;
 
+/// MachineDominanaceFrontier - This pass is a machine dominators analysis pass.
+  extern char &MachineDominanceFrontierID;
+
   /// EdgeBundles analysis - Bundle machine CFG edges.
   extern char &EdgeBundlesID;
 

@@ -185,7 +185,7 @@ void initializeMachineBlockPlacementStatsPass(PassRegistry&);
 void initializeMachineBranchProbabilityInfoPass(PassRegistry&);
 void initializeMachineCSEPass(PassRegistry&);
 void initializeMachineDominatorTreePass(PassRegistry&);
-void initializeMachineFunctionAnalysisPass(PassRegistry&);
+void initializeMachineDominanceFrontierPass(PassRegistry&);
 void initializeMachinePostDominatorTreePass(PassRegistry&);
 void initializeMachineLICMPass(PassRegistry&);
 void initializeMachineLoopInfoPass(PassRegistry&);
