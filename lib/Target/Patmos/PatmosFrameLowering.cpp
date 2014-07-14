@@ -44,6 +44,9 @@ static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
                             cl::init(false),
                             cl::desc("Disable the use of Patmos' stack cache"));
 
+static cl::opt<bool> EnableSoftSC("mpatmos-enable-soft-sc",
+                            cl::init(true),
+                            cl::desc("Enable stackcache in software (SPM)"));
 
 PatmosFrameLowering::PatmosFrameLowering(const PatmosTargetMachine &tm)
 : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 4, 0), TM(tm),
@@ -241,9 +244,15 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                                   unsigned Opcode) const {
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
+#if 0
   // align the stack cache frame size
   unsigned alignedStackSize = STC.getAlignedStackFrameSize(
                                      PMFI.getStackCacheReservedBytes());
+#endif
+
+  // XXX 16 byte for testing
+  unsigned alignedStackSize = 16;
+
   // STC instructions are specified in words
   unsigned stackFrameSize = alignedStackSize / 4;
 
@@ -254,9 +263,31 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
 
     const TargetInstrInfo &TII = *TM.getInstrInfo();
 
+    // spill s7, s8 (return base + offset)
+    TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::SRB, true);
+    TII.copyPhysReg(MBB, MI, DL, Patmos::R10, Patmos::SRO, true);
+
     // emit reserve instruction
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Opcode)))
+    const char *scFunc;
+    int ArgReg;
+    switch (Opcode) {
+      case Patmos::SRESi:  scFunc = "_sc_reserve"; ArgReg = Patmos::R1; break;
+      case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R1; break;
+      case Patmos::SFREEi: scFunc = "_sc_free";    ArgReg = Patmos::R8; break;
+      default: llvm_unreachable("unexpected stack cache opcode");
+    }
+
+    // XXX large offsets
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::ADDi), ArgReg))
+      .addReg(Patmos::R0)
       .addImm(stackFrameSize);
+
+    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::CALLND)))
+      .addExternalSymbol(scFunc);
+
+    // restore after reserve call
+    TII.copyPhysReg(MBB, MI, DL, Patmos::SRB, Patmos::R9, true);
+    TII.copyPhysReg(MBB, MI, DL, Patmos::SRO, Patmos::R10, true);
   }
 }
 
@@ -300,12 +331,15 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // assign some FIs to the stack cache if possible
   unsigned stackSize = assignFrameObjects(MF, !DisableStackCache);
 
-  if (!DisableStackCache) {
+  assert(DisableStackCache && "enabled SC not supported right now");
+
+  if (!DisableStackCache || EnableSoftSC) {
     // emit a reserve instruction
     emitSTC(MF, MBB, MBBI, Patmos::SRESi);
 
+    // XXX don't patch call sites right now
     // patch all call sites
-    patchCallSites(MF);
+    //patchCallSites(MF);
   }
 
   //----------------------------------------------------------------------------
