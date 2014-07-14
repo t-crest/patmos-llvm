@@ -292,7 +292,7 @@ const MCSectionCOFF *MCContext::getCOFFSection(StringRef Section,
   if (!IterBool.second)
     return Iter->second;
 
-  const MCSymbol *COMDATSymbol = nullptr;
+  MCSymbol *COMDATSymbol = nullptr;
   if (!COMDATSymName.empty())
     COMDATSymbol = GetOrCreateSymbol(COMDATSymName);
 
