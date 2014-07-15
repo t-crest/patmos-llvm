@@ -1171,7 +1171,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
             .addReg(Patmos::R9);
           TRI->eliminateFrameIndex(storeMI, 0, 2);
           // restore from stack slot (after the call MI)
-          MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, next(MI), DL,
+          MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, llvm::next(MI), DL,
                 TII->get(Patmos::LWC), Patmos::R9))
             .addFrameIndex(fi).addImm(0); // address
           TRI->eliminateFrameIndex(loadMI, 0, 3);
