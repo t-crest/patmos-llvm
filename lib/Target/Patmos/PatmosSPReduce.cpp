@@ -1322,8 +1322,16 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
   DEBUG( dbgs() << "Merge MBBs\n" );
 
   // first, obtain the sequence of MBBs in DF order (as copy!)
-  std::vector<MachineBasicBlock*> order(df_begin(&MF.front()),
-                                        df_end(  &MF.front()));
+  // NB: have to use the version below, as some version of libcxx will not
+  // compile it (similar to
+  //    http://lists.cs.uiuc.edu/pipermail/cfe-commits/Week-of-Mon-20130325/076850.html)
+  //std::vector<MachineBasicBlock*> order(df_begin(&MF.front()),
+  //                                      df_end(  &MF.front()));
+  std::vector<MachineBasicBlock*> order;
+  for (df_iterator<MachineBasicBlock *> I = df_begin(&MF.front()),
+       E = df_end(&MF.front()); I != E; ++I) {
+      order.push_back(*I);
+  }
 
 
   std::vector<MachineBasicBlock*>::iterator I = order.begin(),
