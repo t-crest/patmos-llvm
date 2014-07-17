@@ -4534,7 +4534,8 @@ bool AsmParser::parseMSInlineAsm(
         continue;
 
       // Register operand.
-      if (Operand.isReg() && !Operand.needAddressOf()) {
+      if (Operand.isReg() && !Operand.needAddressOf() &&
+          !getTargetParser().OmitRegisterFromClobberLists(Operand.getReg())) {
         unsigned NumDefs = Desc.getNumDefs();
         // Clobber.
         if (NumDefs && Operand.getMCOperandNum() < NumDefs)
