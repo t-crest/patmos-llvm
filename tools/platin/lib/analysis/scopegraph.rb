@@ -344,7 +344,7 @@ private
         next_index = 0
 
         block.callsites.each { |c|
-          raise Exception.new("unresolved call") if c.unresolved_call?
+          raise Exception.new("unresolved call (in function: #{block.function.label})") if c.unresolved_call?
 
           # block slice node
           first_ins, last_ins = [next_index, c.index + c.delay_slots].map { |ix| block.instructions[ix] }
