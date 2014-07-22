@@ -585,8 +585,9 @@ class FrequencyRecord
   def to_s
     "FrequencyRecord{ name = #{@name} }"
   end
-  def call(callsite,callee)
-    (@calltargets[callsite]||=Set.new).add(callee) if @current_record && callsite
+  # add callee as possible target for ContextRef callsite_ref.
+  def call(callsite_ref,callee)
+    (@calltargets[callsite_ref]||=Set.new).add(callee) if @current_record && callsite_ref
   end
   def stop(cycles)
     die "Recorder: stop without start: #{@name}" unless @current_record

@@ -299,7 +299,7 @@ class AISExporter
     end
 
     called = targets.map { |f| f.ais_ref }.join(", ")
-    gen_fact("instruction #{callsite.ais_ref} calls #{called}",
+    gen_fact("instruction #{callsite.programpoint.function.ais_ref} calls #{called}",
              "global indirect call targets (source: #{ff.origin})",ff)
   end
 

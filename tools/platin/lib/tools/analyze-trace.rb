@@ -105,11 +105,6 @@ class AnalyzeTraceTool
       recorder.results.calltargets.each do |cs_ref,receiverset|
         cs = cs_ref.programpoint
         next unless cs.unresolved_call? || cs.callees.size != receiverset.size
-        #receiver_call_context = call_context.push(cs,call_context.length+1)
-        #receivers = receiverset.map { |f|
-        #  ContextRef.new(f, receiver_call_context)
-        #}
-        #ff = FlowFact.calltargets(scope, cs_ref, receivers, fact_context)
         ff = FlowFact.calltargets(scope, cs_ref, receiverset, fact_context)
         debug(@options,:trace) { "Adding trace flowfact #{ff}" }
         outpml.flowfacts.add(ff)
