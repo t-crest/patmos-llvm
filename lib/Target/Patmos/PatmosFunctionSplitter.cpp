@@ -92,6 +92,7 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Timer.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 
 #include <map>
@@ -2020,10 +2021,23 @@ namespace llvm {
     const PatmosSubtarget &STC;
 
     void writeStats(StringRef Filename, MachineFunction &MF,
-                    agraph &G, ablocks &order)
+                    agraph &G, ablocks &order,
+                    unsigned orig_size, const TimeRecord &Time)
     {
       std::string err;
       raw_fd_ostream f(Filename.str().c_str(), err, sys::fs::F_Append);
+
+      // write a single line per function
+
+      // <module>, <function>, "fun", <#BBs>, <origSize>, <time (ms)>
+      f << "\"" << MF.getMMI().getModule()->getModuleIdentifier() << "\", ";
+      f << "\"" << MF.getName() << "\", ";
+      f << "\"fun\", ";
+      f << MF.size() << ", " << orig_size << ", ";
+      f << Time.getProcessTime() * 1000.0;
+      f << "\n";
+
+      // collect region statistics
 
       int BBs = 0;
       int RegionSize = 0;
@@ -2048,11 +2062,12 @@ namespace llvm {
         // New region starts? Write out previous region stats
         if (i == ie || (*i)->Region != Header) {
 
-          // Emit CSV statistics line
+          // write one line per region
 
-          // <module>, <function>,
+          // <module>, <function>, "reg",
           f << "\"" << MF.getMMI().getModule()->getModuleIdentifier() << "\", ";
           f << "\"" << MF.getName() << "\", ";
+          f << "\"reg\", ";
 
           // <#BBs>, <calc size>, <region size>, <HasCall>,
           f << BBs << ", " << EstRegionSize << ", " << RegionSize << ", "
@@ -2150,6 +2165,11 @@ namespace llvm {
       // splitting needed?
       if (total_size > prefer_subfunc_size) {
 
+        bool CollectStats = !StatsFile.empty();
+        TimeRecord Time;
+
+        if (CollectStats) Time -= TimeRecord::getCurrentTime(true);
+
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
         agraph G(&MF, PTM, PI.createMCQuery(*this, MF), MPDT,
@@ -2164,8 +2184,10 @@ namespace llvm {
         // update the basic block order and rewrite branches
         G.applyRegions(order);
 
-        if (!StatsFile.empty()) {
-          writeStats(StatsFile, MF, G, order);
+        if (CollectStats) {
+          Time += TimeRecord::getCurrentTime(false);
+
+          writeStats(StatsFile, MF, G, order, total_size, Time);
         }
 
         SplitFunctions++;
