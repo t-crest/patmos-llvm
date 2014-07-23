@@ -23,8 +23,6 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case aarch64_be:  return "aarch64_be";
   case arm:         return "arm";
   case armeb:       return "armeb";
-  case arm64:       return "arm64";
-  case arm64_be:    return "arm64_be";
   case hexagon:     return "hexagon";
   case mips:        return "mips";
   case mipsel:      return "mipsel";
@@ -61,8 +59,6 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   default:
     return nullptr;
 
-  case arm64:
-  case arm64_be:
   case aarch64:
   case aarch64_be:  return "aarch64";
 
@@ -181,10 +177,10 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
   return StringSwitch<Triple::ArchType>(Name)
     .Case("aarch64", aarch64)
     .Case("aarch64_be", aarch64_be)
+    .Case("arm64", aarch64) // "arm64" is an alias for "aarch64"
+    .Case("arm64_be", aarch64_be) // "arm64_be" is an alias for "aarch64_be"
     .Case("arm", arm)
     .Case("armeb", armeb)
-    .Case("arm64", arm64)
-    .Case("arm64_be", arm64_be)
     .Case("mips", mips)
     .Case("mipsel", mipsel)
     .Case("mips64", mips64)
@@ -236,7 +232,6 @@ const char *Triple::getArchNameForAssembler() {
     .Cases("armv7", "thumbv7", "armv7")
     .Case("armeb", "armeb")
     .Case("arm64", "arm64")
-    .Case("arm64_be", "arm64")
     .Case("r600", "r600")
     .Case("nvptx", "nvptx")
     .Case("nvptx64", "nvptx64")
@@ -258,6 +253,8 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("powerpc64le", Triple::ppc64le)
     .Case("aarch64", Triple::aarch64)
     .Case("aarch64_be", Triple::aarch64_be)
+    .Case("arm64", Triple::aarch64)
+    .Case("arm64_be", Triple::aarch64_be)
     .Cases("arm", "xscale", Triple::arm)
     // FIXME: It would be good to replace these with explicit names for all the
     // various suffixes supported.
@@ -268,8 +265,6 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .StartsWith("thumbv", Triple::thumb)
     .Case("thumbeb", Triple::thumbeb)
     .StartsWith("thumbebv", Triple::thumbeb)
-    .Case("arm64", Triple::arm64)
-    .Case("arm64_be", Triple::arm64_be)
     .Case("msp430", Triple::msp430)
     .Case("patmos", Triple::patmos)
     .Cases("mips", "mipseb", "mipsallegrex", Triple::mips)
@@ -747,7 +742,7 @@ void Triple::getiOSVersion(unsigned &Major, unsigned &Minor,
     getOSVersion(Major, Minor, Micro);
     // Default to 5.0 (or 7.0 for arm64).
     if (Major == 0)
-      Major = (getArch() == arm64) ? 7 : 5;
+      Major = (getArch() == aarch64) ? 7 : 5;
     break;
   }
 }
@@ -841,8 +836,6 @@ static unsigned getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::kalimba:
     return 32;
 
-  case llvm::Triple::arm64:
-  case llvm::Triple::arm64_be:
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_be:
   case llvm::Triple::mips64:
@@ -877,8 +870,6 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::UnknownArch:
   case Triple::aarch64:
   case Triple::aarch64_be:
-  case Triple::arm64:
-  case Triple::arm64_be:
   case Triple::msp430:
   case Triple::systemz:
   case Triple::ppc64le:
@@ -949,8 +940,6 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::sparcv9:
   case Triple::systemz:
   case Triple::x86_64:
-  case Triple::arm64:
-  case Triple::arm64_be:
     // Already 64-bit.
     break;
 
