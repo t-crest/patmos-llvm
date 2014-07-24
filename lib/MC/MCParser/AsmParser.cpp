@@ -80,9 +80,6 @@ public:
 /// \brief Helper class for storing information about an active macro
 /// instantiation.
 struct MacroInstantiation {
-  /// The macro being instantiated.
-  const MCAsmMacro *TheMacro;
-
   /// The macro instantiation with substitutions.
   MemoryBuffer *Instantiation;
 
@@ -96,8 +93,7 @@ struct MacroInstantiation {
   SMLoc ExitLoc;
 
 public:
-  MacroInstantiation(const MCAsmMacro *M, SMLoc IL, int EB, SMLoc EL,
-                     MemoryBuffer *I);
+  MacroInstantiation(SMLoc IL, int EB, SMLoc EL, MemoryBuffer *I);
 };
 
 struct ParseStatementInfo {
@@ -1885,10 +1881,9 @@ bool AsmParser::expandMacro(raw_svector_ostream &OS, StringRef Body,
   return false;
 }
 
-MacroInstantiation::MacroInstantiation(const MCAsmMacro *M, SMLoc IL, int EB,
-                                       SMLoc EL, MemoryBuffer *I)
-    : TheMacro(M), Instantiation(I), InstantiationLoc(IL), ExitBuffer(EB),
-      ExitLoc(EL) {}
+MacroInstantiation::MacroInstantiation(SMLoc IL, int EB, SMLoc EL,
+                                       MemoryBuffer *I)
+    : Instantiation(I), InstantiationLoc(IL), ExitBuffer(EB), ExitLoc(EL) {}
 
 static bool isOperator(AsmToken::TokenKind kind) {
   switch (kind) {
@@ -2152,7 +2147,7 @@ bool AsmParser::handleMacroEntry(const MCAsmMacro *M, SMLoc NameLoc) {
   // Create the macro instantiation object and add to the current macro
   // instantiation stack.
   MacroInstantiation *MI = new MacroInstantiation(
-      M, NameLoc, CurBuffer, getTok().getLoc(), Instantiation);
+      NameLoc, CurBuffer, getTok().getLoc(), Instantiation);
   ActiveMacros.push_back(MI);
 
   // Jump to the macro instantiation and prime the lexer.
@@ -4316,7 +4311,7 @@ void AsmParser::instantiateMacroLikeBody(MCAsmMacro *M, SMLoc DirectiveLoc,
   // Create the macro instantiation object and add to the current macro
   // instantiation stack.
   MacroInstantiation *MI = new MacroInstantiation(
-      M, DirectiveLoc, CurBuffer, getTok().getLoc(), Instantiation);
+      DirectiveLoc, CurBuffer, getTok().getLoc(), Instantiation);
   ActiveMacros.push_back(MI);
 
   // Jump to the macro instantiation and prime the lexer.
