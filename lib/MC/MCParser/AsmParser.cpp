@@ -359,7 +359,7 @@ private:
     DK_CFI_REGISTER, DK_CFI_WINDOW_SAVE,
     DK_MACROS_ON, DK_MACROS_OFF, DK_MACRO, DK_ENDM, DK_ENDMACRO, DK_PURGEM,
     DK_SLEB128, DK_ULEB128,
-    DK_ERR, DK_ERROR,
+    DK_ERR, DK_ERROR, DK_WARNING,
     DK_END
   };
 
@@ -475,6 +475,9 @@ private:
 
   // ".err" or ".error"
   bool parseDirectiveError(SMLoc DirectiveLoc, bool WithMessage);
+
+  // ".warning"
+  bool parseDirectiveWarning(SMLoc DirectiveLoc);
 
   void initializeDirectiveKindMap();
 };
@@ -1571,6 +1574,8 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
       return parseDirectiveError(IDLoc, false);
     case DK_ERROR:
       return parseDirectiveError(IDLoc, true);
+    case DK_WARNING:
+      return parseDirectiveWarning(IDLoc);
     }
 
     return Error(IDLoc, "unknown directive");
@@ -4097,6 +4102,32 @@ bool AsmParser::parseDirectiveError(SMLoc L, bool WithMessage) {
   return true;
 }
 
+/// parseDirectiveWarning
+///   ::= .warning [string]
+bool AsmParser::parseDirectiveWarning(SMLoc L) {
+  if (!TheCondStack.empty()) {
+    if (TheCondStack.back().Ignore) {
+      eatToEndOfStatement();
+      return false;
+    }
+  }
+
+  StringRef Message = ".warning directive invoked in source file";
+  if (Lexer.isNot(AsmToken::EndOfStatement)) {
+    if (Lexer.isNot(AsmToken::String)) {
+      TokError(".warning argument must be a string");
+      eatToEndOfStatement();
+      return true;
+    }
+
+    Message = getTok().getStringContents();
+    Lex();
+  }
+
+  Warning(L, Message);
+  return false;
+}
+
 /// parseDirectiveEndIf
 /// ::= .endif
 bool AsmParser::parseDirectiveEndIf(SMLoc DirectiveLoc) {
@@ -4229,6 +4260,7 @@ void AsmParser::initializeDirectiveKindMap() {
   DirectiveKindMap[".purgem"] = DK_PURGEM;
   DirectiveKindMap[".err"] = DK_ERR;
   DirectiveKindMap[".error"] = DK_ERROR;
+  DirectiveKindMap[".warning"] = DK_WARNING;
 }
 
 MCAsmMacro *AsmParser::parseMacroLikeBody(SMLoc DirectiveLoc) {
