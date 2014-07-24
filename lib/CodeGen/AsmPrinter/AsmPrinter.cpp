@@ -813,8 +813,7 @@ void AsmPrinter::EmitFunctionBody() {
       }
     }
 
-    // virtual call for target-specific stuff
-    EmitBasicBlockEnd(I);
+    EmitBasicBlockEnd(MBB);
   }
 
   // If the last instruction was a prolog label, then we have a situation where
