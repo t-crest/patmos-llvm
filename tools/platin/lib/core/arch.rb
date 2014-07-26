@@ -283,7 +283,7 @@ class CacheConfig < PMLObject
     attribute_pair['value']
   end
 
-  # synonymous at the moment
+  # synonymous with block_size at the moment
   def line_size
     block_size
   end

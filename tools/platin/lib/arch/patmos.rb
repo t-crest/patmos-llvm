@@ -284,6 +284,8 @@ class Architecture < PML::Architecture
       opts.push(mc.size)
       opts.push("--mbsize")
       opts.push(mc.block_size)
+      opts.push("--mcmethods")
+      opts.push(mc.associativity)
       opts.push("--mckind")
       opts.push((mc.policy || "fifo").downcase)
     elsif ic = instruction_cache
