@@ -1146,7 +1146,7 @@ namespace llvm {
 
       // If the block post-dominates the header, add it in any case as long
       // as it fits into the cache
-      if (region->MBB && header->MBB &&
+      if (region->MBB && header->MBB && header->SCCSize == 0 &&
           MPDT.properlyDominates(header->MBB, region->MBB))
       {
         maxSize = MaxRegionSize;
