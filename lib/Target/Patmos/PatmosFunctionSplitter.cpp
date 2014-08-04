@@ -1946,8 +1946,9 @@ namespace llvm {
             //      updating the DomTree for individual blocks.
             MDT.runOnMachineFunction(*MBB->getParent());
           }
-          // Functions without a return do not have a valid post-dom tree
-          if (!MPDT.getRoots().empty()) {
+          // noreturn calls do not post-dominate and do not have a node in
+          // the tree.
+          if (MPDT.getNode(MBB)) {
             // - the new node is post-dominated by the old block
             MPDT.addNewBlock(newBB, MBB);
             // - the new block post-dominates all nodes post-dominated by
