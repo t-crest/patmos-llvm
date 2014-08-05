@@ -265,7 +265,7 @@ bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
   if (skipOptnoneFunction(*Fn.getFunction()))
     return false;
 
-  TII = Fn.getTarget().getSubtargetImpl()->getInstrInfo();
+  TII = Fn.getSubtarget().getInstrInfo();
   MachineLoopInfo &MLI = getAnalysis<MachineLoopInfo>();
   MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
   AliasAnalysis *AA = &getAnalysis<AliasAnalysis>();
