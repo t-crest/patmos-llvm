@@ -137,6 +137,14 @@ class AnalyzeTraceTool
     opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help=recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
     }
+    opts.on("--max-cycles NUM", Integer,
+            "consider only the first NUM cycles of the trace") { |num|
+      opts.options.max_cycles = num
+    }
+    opts.on("--max-instructions NUM", Integer,
+            "consider only the first NUM instructions of the trace") { |num|
+      opts.options.max_instructions = num
+    }
     opts.register_help_topic('recorders') { |io|
       RecorderSpecification.help(io)
     }
