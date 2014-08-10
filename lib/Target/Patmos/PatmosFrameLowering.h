@@ -27,6 +27,22 @@ protected:
   const PatmosTargetMachine &TM;
   const PatmosSubtarget &STC;
 
+  /// getEffectiveStackCacheSize - Return the size of the stack cache that can
+  /// be used by the compiler.
+  /// \see EnableBlockAlignedStackCache
+  unsigned getEffectiveStackCacheSize() const;
+
+  /// getEffectiveStackCacheBlockSize - Return the size of the stack cache's 
+  /// blocks as seen from the instruction set architecture.
+  /// \see EnableBlockAlignedStackCache
+  unsigned getEffectiveStackCacheBlockSize() const;
+
+  /// getAlignedStackCacheFrameSize - Return the frame size aligned to the 
+  /// effective stack cache block size.
+  /// \see EnableBlockAlignedStackCache
+  /// \see getEffectiveStackCacheBlockSize
+  unsigned getAlignedStackCacheFrameSize(unsigned frameSize) const;
+  
   /// assignFIsToStackCache - Assign some FIs to the stack cache.
   /// Currently this is only done for spill slots.
   /// @param SCFIs - should be set to true for all indices of frame objects

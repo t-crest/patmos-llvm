@@ -210,6 +210,9 @@ class Architecture < PML::Architecture
       end
       opts.push("-mpatmos-stack-cache-block-size=#{sc.block_size}")
       opts.push("-mpatmos-stack-cache-size=#{sc.size}")
+      if sc.policy == 'ablock'
+        opts.push("-mpatmos-enable-block-aligned-stack-cache")
+      end
     else
       opts.push("-mpatmos-disable-stack-cache")
     end

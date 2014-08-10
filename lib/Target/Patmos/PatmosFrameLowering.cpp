@@ -38,11 +38,17 @@ namespace llvm {
   STATISTIC(FIsNotFitSC, "FIs that did not fit in the stack cache");
 }
 
-/// EnableStackCache - Command line option to disable the usage of the stack 
+/// DisableStackCache - Command line option to disable the usage of the stack 
 /// cache (enabled by default).
 static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
                             cl::init(false),
                             cl::desc("Disable the use of Patmos' stack cache"));
+
+/// EnableBlockAlignedStackCache - Command line option to enable the usage of 
+/// the block-aligned stack cache (disabled by default).
+static cl::opt<bool> EnableBlockAlignedStackCache
+          ("mpatmos-enable-block-aligned-stack-cache", cl::init(false),
+           cl::desc("Enable the use of Patmos' block-aligned stack cache"));
 
 
 PatmosFrameLowering::PatmosFrameLowering(const PatmosTargetMachine &tm)
@@ -77,6 +83,27 @@ static unsigned int align(unsigned int offset, unsigned int alignment) {
   return ((offset + alignment - 1) / alignment) * alignment;
 }
 
+unsigned PatmosFrameLowering::getEffectiveStackCacheSize() const
+{
+  return EnableBlockAlignedStackCache ? 
+                        STC.getStackCacheSize() - STC.getStackCacheBlockSize() : 
+                        STC.getStackCacheSize();
+}
+
+unsigned PatmosFrameLowering::getEffectiveStackCacheBlockSize() const
+{
+  return EnableBlockAlignedStackCache ? 4 : STC.getStackCacheBlockSize();
+}
+
+unsigned PatmosFrameLowering::getAlignedStackCacheFrameSize(
+                                                       unsigned frameSize) const
+{
+  if (frameSize == 0)
+    return frameSize;
+  else
+    return EnableBlockAlignedStackCache ? frameSize : 
+                                        STC.getAlignedStackFrameSize(frameSize);
+}
 
 void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
                                                 BitVector &SCFIs) const
@@ -168,8 +195,8 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       unsigned int next_SCOffset = align(SCOffset, FIalignment);
 
       // check if the FI still fits into the SC
-      if (align(next_SCOffset + FIsize, STC.getStackCacheBlockSize()) <=
-          STC.getStackCacheSize()) {
+      if (align(next_SCOffset + FIsize, getEffectiveStackCacheBlockSize()) <=
+          getEffectiveStackCacheSize()) {
         DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << next_SCOffset
                     << "(" << MFI.getObjectOffset(FI) << ")\n");
 
@@ -209,9 +236,9 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
   }
 
   // align stack frame on stack cache
-  unsigned stackCacheSize = align(SCOffset, STC.getStackCacheBlockSize());
+  unsigned stackCacheSize = align(SCOffset, getEffectiveStackCacheBlockSize());
 
-  assert(stackCacheSize <= STC.getStackCacheSize());
+  assert(stackCacheSize <= getEffectiveStackCacheSize());
 
   // align shadow stack. call arguments are already included in SSOffset
   unsigned stackSize = align(SSOffset, getStackAlignment());
@@ -242,8 +269,10 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   // align the stack cache frame size
-  unsigned alignedStackSize = STC.getAlignedStackFrameSize(
+  unsigned alignedStackSize = getAlignedStackCacheFrameSize(
                                      PMFI.getStackCacheReservedBytes());
+  assert(alignedStackSize <= getEffectiveStackCacheSize());
+
   // STC instructions are specified in words
   unsigned stackFrameSize = alignedStackSize / 4;
 
