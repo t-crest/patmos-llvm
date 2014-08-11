@@ -258,7 +258,7 @@ private:
   DenseMap<Pass *, SmallPtrSet<Pass *, 8> > InversedLastUser;
 
   /// Immutable passes are managed by top level manager.
-  SmallVector<ImmutablePass *, 8> ImmutablePasses;
+  SmallVector<ImmutablePass *, 16> ImmutablePasses;
 
   /// TopLevelManagers from which ImmutablePasses are inherited
   SmallVector<PMTopLevelManager *, 4> InheritedPassManagers;
