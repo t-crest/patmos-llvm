@@ -41,7 +41,7 @@ class SimulatorTrace
     else
       begin
         needs_options(@options, :pasim)
-        pasim_options="--debug 0 --debug-fmt trace -b #{@elf}"
+        pasim_options="--debug=0 --debug-fmt=trace -b #{@elf}"
         cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} #{pasim_options} 2>&1 1>/dev/null"
         debug(@options, :patmos) { "Running pasim: #{cmd}" }
         IO.popen("#{cmd}") do |io|
@@ -85,7 +85,7 @@ class Architecture < PML::Architecture
   def Architecture.default_config
     memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
     caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',32,32,1024),
-                                  PML::CacheConfig.new('stack-cache','stack-cache','stack',nil,4,1024),
+                                  PML::CacheConfig.new('stack-cache','stack-cache','block',nil,4,1024),
                                   PML::CacheConfig.new('data-cache','set-associative','lru',4,32,1024) ])
     full_range = PML::ValueRange.new(0,0xFFFFFFFF,nil)
     memory_areas =
