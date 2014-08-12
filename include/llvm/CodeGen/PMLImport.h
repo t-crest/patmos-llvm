@@ -16,7 +16,7 @@
 
 #include "llvm/Pass.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
-#include "llvm/CodeGen/PML.h"
+#include "llvm/PML.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/ValueMap.h"
 
