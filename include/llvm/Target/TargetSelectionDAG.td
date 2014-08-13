@@ -229,8 +229,8 @@ def SDTConvertOp : SDTypeProfile<1, 5, [ //cvtss, su, us, uu, ff, fs, fu, sf, su
   SDTCisVT<2, OtherVT>, SDTCisVT<3, OtherVT>, SDTCisPtrTy<4>, SDTCisPtrTy<5>
 ]>;
 
-def SDTLoopbound : SDTypeProfile<0, 2, [
-  SDTCisSameAs<0, 1>, SDTCisInt<0>
+def SDTLoopbound : SDTypeProfile<0, 3, [
+  SDTCisPtrTy<0>, SDTCisInt<1>, SDTCisSameAs<1, 2>
 ]>;
 
 class SDCallSeqStart<list<SDTypeConstraint> constraints> :

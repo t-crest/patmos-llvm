@@ -276,19 +276,7 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 
 def PSEUDO_LOOPBOUND : PseudoInst<(outs), (ins i32imm:$minv, i32imm:$maxv),
                           "#PSEUDO_LOOPBOUND", "[$minv,$maxv]",
-                          [(loopbound (i32 imm:$minv), (i32 imm:$maxv))]>;
-
-// Pseudo instructions for single-path predication
-let isCodeGenOnly=1 in {
-  let isTerminator=1 in
-  def PSEUDO_SP_PRED_BBEND   : PseudoInst<(outs),
-                                          (ins PRegs:$p),
-                                          "#PSEUDO_SP_PRED_BBEND", "", []>;
-  def PSEUDO_SP_PRED_BBBEGIN : PseudoInst<(outs),
-                                          (ins),
-                                          "#PSEUDO_SP_PRED_BBBEGIN", "", []>;
-}
-
+                          [(loopbound (blockaddress ), (i32 imm:$minv), (i32 imm:$maxv))]>;
 
 
 

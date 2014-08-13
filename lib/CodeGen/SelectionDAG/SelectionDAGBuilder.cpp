@@ -5070,10 +5070,11 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     return 0;
   }
   case Intrinsic::loopbound: {
-    SDValue MinV = getValue(I.getArgOperand(0));
-    SDValue MaxV = getValue(I.getArgOperand(1));
+    SDValue BBAddr = getValue(I.getArgOperand(0));
+    SDValue MinV = getValue(I.getArgOperand(1));
+    SDValue MaxV = getValue(I.getArgOperand(2));
     DAG.setRoot(DAG.getNode(ISD::LOOPBOUND, sdl, MVT::Other, getRoot(),
-                            MinV, MaxV));
+                            BBAddr, MinV, MaxV));
     return 0;
   }
   case Intrinsic::readcyclecounter: {
