@@ -221,6 +221,16 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   loop.getLoopLatches(Latches);
   loop.getExitEdges(ExitEdges);
 
+  // scan the header for loopbound info
+  for (MachineBasicBlock::iterator MI = header->begin(), ME = header->end();
+      MI != ME; ++MI) {
+    if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
+      // max is the second operand (idx 1)
+      LoopBound = MI->getOperand(1).getImm();
+      break;
+    }
+  }
+
 }
 
 

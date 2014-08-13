@@ -78,6 +78,7 @@ using namespace llvm;
 
 STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
+STATISTIC( LoopCounters,        "Number of loop counters introduced");
 
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
 STATISTIC( NoSpillScopes,
@@ -1749,6 +1750,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
       .addReg(tmpReg, RegState::Kill);
     Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 2; // STATISTIC
+    LoopCounters++; // STATISTIC
   }
 
   // append the preheader

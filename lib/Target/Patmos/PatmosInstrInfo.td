@@ -264,7 +264,6 @@ def ADJCALLSTACKUP   : PseudoInst<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 }
 
 
-let isCodeGenOnly=1 in {
 let mayStore=1 in
 def PSEUDO_PREG_SPILL  : PseudoInst<(outs),
                                     (ins RRegs:$ra, i32imm:$imm, PRegs:$ps),
@@ -274,8 +273,10 @@ let mayLoad=1 in
 def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
                                     (ins RRegs:$ra, i32imm:$imm),
                                     "#PSEUDO_PREG_RELOAD", "", []>;
-}
 
+def PSEUDO_LOOPBOUND : PseudoInst<(outs), (ins i32imm:$minv, i32imm:$maxv),
+                          "#PSEUDO_LOOPBOUND", "[$minv,$maxv]",
+                          [(loopbound (i32 imm:$minv), (i32 imm:$maxv))]>;
 
 // Pseudo instructions for single-path predication
 let isCodeGenOnly=1 in {
