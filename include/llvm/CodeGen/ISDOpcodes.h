@@ -636,6 +636,9 @@ namespace ISD {
     /// is the chain and the second operand is the alloca pointer.
     LIFETIME_START, LIFETIME_END,
 
+    /// LOOPBOUND - This corresponds to the loopbound intrinsic.
+    LOOPBOUND,
+
     /// BUILTIN_OP_END - This must be the last enum value in this list.
     /// The target-specific pre-isel opcode values start here.
     BUILTIN_OP_END

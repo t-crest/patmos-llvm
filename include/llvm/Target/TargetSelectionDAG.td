@@ -229,6 +229,10 @@ def SDTConvertOp : SDTypeProfile<1, 5, [ //cvtss, su, us, uu, ff, fs, fu, sf, su
   SDTCisVT<2, OtherVT>, SDTCisVT<3, OtherVT>, SDTCisPtrTy<4>, SDTCisPtrTy<5>
 ]>;
 
+def SDTLoopbound : SDTypeProfile<0, 2, [
+  SDTCisSameAs<0, 1>, SDTCisInt<0>
+]>;
+
 class SDCallSeqStart<list<SDTypeConstraint> constraints> :
         SDTypeProfile<0, 1, constraints>;
 class SDCallSeqEnd<list<SDTypeConstraint> constraints> :
@@ -415,6 +419,9 @@ def prefetch   : SDNode<"ISD::PREFETCH"   , SDTPrefetch,
 
 def readcyclecounter : SDNode<"ISD::READCYCLECOUNTER", SDTIntLeaf,
                      [SDNPHasChain, SDNPSideEffect]>;
+
+def loopbound : SDNode<"ISD::LOOPBOUND", SDTLoopbound,
+                       [SDNPHasChain, SDNPSideEffect]>;
 
 def atomic_fence : SDNode<"ISD::ATOMIC_FENCE" , SDTAtomicFence,
                           [SDNPHasChain, SDNPSideEffect]>;
