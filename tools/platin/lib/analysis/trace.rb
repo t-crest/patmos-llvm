@@ -58,6 +58,7 @@ class MachineTraceMonitor < TraceMonitor
   # run monitor
   def run
     @finished = false # set to true on (observed) program exit
+    @cycles = 0
     @executed_instructions = 0
     @callstack = []
     @loopstack = nil
@@ -70,6 +71,9 @@ class MachineTraceMonitor < TraceMonitor
 
     pending_return, pending_call = nil, nil
     @trace.each do |pc,cycles|
+      break if @options.max_cycles       && @cycles >= @options.max_cycles
+      break if @options.max_instructions &&
+                  @executed_instructions >= @options.max_instructions
 
       @started = true if pc == @start
       next unless @started
@@ -175,7 +179,8 @@ class MachineTraceMonitor < TraceMonitor
       end
     end
     if ! @finished
-      die("Trace Analysis: did not observe return from program entry #{@program_entry}")
+      warn("Trace Analysis: did not observe return from program entry #{@program_entry}")
+      publish(:stop, @cycles)
     end
 
     # Playground: learn about instruction costs
@@ -455,6 +460,10 @@ class RecorderScheduler
     return unless @running
     @active.values.each { |recorder| recorder.loopexit(loop, cycles) }
   end
+  def stop(cycles)
+    return unless @running
+    @active.values.each { |recorder| recorder.stop(cycles) }
+  end
   def eof ; end
   def method_missing(event, *args)
   end
@@ -496,6 +505,10 @@ class FunctionRecorder
     results.start(cycles)
     @callstack = []
     function.blocks.each { |bb| results.init_block(in_context(bb)) } if @record_block_frequencies
+  end
+  def stop(cycles)
+    results.stop(cycles)
+    @scheduler.deactivate(self)
   end
   def function(callee,callsite,cycles)
     results.call(in_context(callsite),callee) if active? && @record_calltargets
@@ -585,8 +598,9 @@ class FrequencyRecord
   def to_s
     "FrequencyRecord{ name = #{@name} }"
   end
-  def call(callsite,callee)
-    (@calltargets[callsite]||=Set.new).add(callee) if @current_record && callsite
+  # add callee as possible target for ContextRef callsite_ref.
+  def call(callsite_ref,callee)
+    (@calltargets[callsite_ref]||=Set.new).add(callee) if @current_record && callsite_ref
   end
   def stop(cycles)
     die "Recorder: stop without start: #{@name}" unless @current_record

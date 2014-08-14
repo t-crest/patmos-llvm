@@ -78,6 +78,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/PMLImport.h"
 #include "llvm/MC/MCNullStreamer.h"
 #include "llvm/MC/MCInst.h"
@@ -91,6 +92,7 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Timer.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 
 #include <map>
@@ -118,19 +120,19 @@ static cl::opt<int> PreferSubfunctionSize(
     cl::init(256),
     cl::desc("Preferred maximum size of subfunctions, defaults to "
         "mpatmos-max-subfunction-size if 0. Larger basic blocks and inline asm "
-        "are not split."));
+        "are not split. (default: 256)"));
 
 static cl::opt<int> PreferSCCSize(
     "mpatmos-preferred-scc-size",
     cl::init(0),
     cl::desc("Preferred maximum size for SCC subfunctions, defaults to "
-             "mpatmos-preferred-subfunction-size if 0."));
+             "mpatmos-preferred-subfunction-size if 0. (default: 0)"));
 
 static cl::opt<int> MaxSubfunctionSize(
     "mpatmos-max-subfunction-size",
     cl::init(1024),
     cl::desc("Maximum size of subfunctions after function splitting, defaults "
-             "to the method cache size if set to 0."));
+             "to the method cache size if set to 0. (default: 1024)"));
 
 static cl::opt<bool> SplitCallBlocks(
     "mpatmos-split-call-blocks",
@@ -143,6 +145,16 @@ static cl::opt<bool> EnableShowCFGs(
   cl::init(false),
   cl::desc("Show CFGs after the Patmos function splitter."),
   cl::Hidden);
+
+static cl::opt<std::string> StatsFile(
+    "mpatmos-function-splitter-stats",
+    cl::desc("Write splitting statistics to the given file"),
+    cl::Hidden);
+
+static cl::opt<bool> AppendStatsFile(
+    "mpatmos-function-splitter-stats-append",
+    cl::desc("Append to splitting statistics file instead of recreating it"),
+    cl::Hidden);
 
 namespace llvm {
 
@@ -1134,7 +1146,7 @@ namespace llvm {
 
       // If the block post-dominates the header, add it in any case as long
       // as it fits into the cache
-      if (region->MBB && header->MBB &&
+      if (region->MBB && header->MBB && header->SCCSize == 0 &&
           MPDT.properlyDominates(header->MBB, region->MBB))
       {
         maxSize = MaxRegionSize;
@@ -1190,10 +1202,10 @@ namespace llvm {
       // whole SCC into increaseRegion?
       if (region == block &&
           block->MBB && block->SCCSize > 0 && !block->HasCallinSCC &&
+          !hasRegionHeaders(region, block->SCC) &&
           increaseRegion(region, block, block->SCC, block->SCCSize,
                          block->HasCallinSCC,
-                         region_size, ready, regions, PreferredSCCSize) &&
-         !hasRegionHeaders(region, block->SCC))
+                         region_size, ready, regions, PreferredSCCSize))
       {
         // A region header of a natural SCC without calls, already size-checked
 
@@ -1934,8 +1946,9 @@ namespace llvm {
             //      updating the DomTree for individual blocks.
             MDT.runOnMachineFunction(*MBB->getParent());
           }
-          // Functions without a return do not have a valid post-dom tree
-          if (!MPDT.getRoots().empty()) {
+          // noreturn calls do not post-dominate and do not have a node in
+          // the tree.
+          if (MPDT.getNode(MBB)) {
             // - the new node is post-dominated by the old block
             MPDT.addNewBlock(newBB, MBB);
             // - the new block post-dominates all nodes post-dominated by
@@ -2008,6 +2021,76 @@ namespace llvm {
     PatmosTargetMachine &PTM;
     const PatmosSubtarget &STC;
 
+    void writeStats(StringRef Filename, MachineFunction &MF,
+                    agraph &G, ablocks &order,
+                    unsigned orig_size, const TimeRecord &Time)
+    {
+      std::string err;
+      raw_fd_ostream f(Filename.str().c_str(), err, sys::fs::F_Append);
+
+      // write a single line per function
+
+      // <module>, <function>, "fun", <#BBs>, <origSize>, <time (ms)>
+      f << "\"" << MF.getMMI().getModule()->getModuleIdentifier() << "\", ";
+      f << "\"" << MF.getName() << "\", ";
+      f << "\"fun\", ";
+      f << MF.size() << ", " << orig_size << ", ";
+      f << Time.getProcessTime() * 1000.0;
+      f << "\n";
+
+      // collect region statistics
+
+      int BBs = 0;
+      int RegionSize = 0;
+      int EstRegionSize = 0;
+      ablock *Header = *order.begin();
+
+      ablocks::iterator i(order.begin()), ie(order.end());
+
+      while (i != ie) {
+        MachineBasicBlock *MBB = (*i)->MBB;
+
+        // add current block to region stats
+        if (MBB) {
+          BBs++;
+          RegionSize += agraph::getBBSize(MBB, PTM);
+          EstRegionSize += (*i)->Size;
+        }
+
+        // continue to next block
+        i++;
+
+        // New region starts? Write out previous region stats
+        if (i == ie || (*i)->Region != Header) {
+
+          // write one line per region
+
+          // <module>, <function>, "reg",
+          f << "\"" << MF.getMMI().getModule()->getModuleIdentifier() << "\", ";
+          f << "\"" << MF.getName() << "\", ";
+          f << "\"reg\", ";
+
+          // <#BBs>, <calc size>, <region size>, <HasCall>,
+          f << BBs << ", " << EstRegionSize << ", " << RegionSize << ", "
+            << Header->HasCall << ", ";
+          // <isSCC>, <SCC size>, <CallInSCC>
+          f << Header->isSCCHeader() << ", " << Header->SCCSize << ", "
+            << Header->HasCallinSCC;
+
+          f << "\n";
+
+          // reset stats
+          BBs = 0;
+          RegionSize = 0;
+          EstRegionSize = 0;
+
+          if (i != ie) Header = (*i)->Region;
+        }
+      }
+
+      f.close();
+    }
+
   public:
     /// PatmosFunctionSplitter - Create a new instance of the function splitter.
     PatmosFunctionSplitter(PatmosTargetMachine &tm) :
@@ -2028,6 +2111,14 @@ namespace llvm {
       AU.addPreserved<MachineDominatorTree>();
       AU.addPreserved<MachinePostDominatorTree>();
       MachineFunctionPass::getAnalysisUsage(AU);
+    }
+
+    virtual bool doInitialization(Module &)  {
+      if (!StatsFile.empty() && !AppendStatsFile && sys::fs::exists(StatsFile))
+      {
+        sys::fs::remove(StatsFile.c_str());
+      }
+      return false;
     }
 
     /// runOnMachineFunction - Run the function splitter on the given function.
@@ -2075,6 +2166,11 @@ namespace llvm {
       // splitting needed?
       if (total_size > prefer_subfunc_size) {
 
+        bool CollectStats = !StatsFile.empty();
+        TimeRecord Time;
+
+        if (CollectStats) Time -= TimeRecord::getCurrentTime(true);
+
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
         agraph G(&MF, PTM, PI.createMCQuery(*this, MF), MPDT,
@@ -2088,6 +2184,12 @@ namespace llvm {
 
         // update the basic block order and rewrite branches
         G.applyRegions(order);
+
+        if (CollectStats) {
+          Time += TimeRecord::getCurrentTime(false);
+
+          writeStats(StatsFile, MF, G, order, total_size, Time);
+        }
 
         SplitFunctions++;
 

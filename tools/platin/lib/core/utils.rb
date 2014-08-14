@@ -140,6 +140,9 @@ module PML
   #
   def which(cmd)
     return nil unless cmd && cmd.length > 0
+    if cmd.include?(File::SEPARATOR)
+      return cmd if File.executable? cmd
+    end
     ENV['PATH'].split(File::PATH_SEPARATOR).each do |path|
       binary = File.join(path, "#{cmd}")
       return binary if File.executable? binary

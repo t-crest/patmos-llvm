@@ -341,7 +341,8 @@ class WcetTool
       pml.timing.each { |te|
         next if te.origin == "trace"
         next unless te.cycles >= 0
-        if te.cycles + 1 < trace_cycles
+	options.tolerated_underestimation = 1 unless options.tolerated_underestimation
+        if te.cycles + options.tolerated_underestimation < trace_cycles
           die("wcet check: cycles for #{te.origin} (#{te.cycles}) less than measurement (#{trace_cycles})")
         end
         if options.runcheck_factor
@@ -413,6 +414,9 @@ class WcetTool
     opts.on("--check [FACTOR]", "check that analyzed WCET is higher than MOET [and less than MOET * FACTOR]") { |factor|
       opts.options.runcheck = true
       opts.options.runcheck_factor = factor.to_f
+    }
+    opts.on("--tolerated-underestimation [CYCLES]", "allow a WCET unterestimation to account for analysis target return costs") { |cycles|
+      opts.options.tolerated_underestimation = cycles.to_i
     }
     TOOLS.each { |toolclass| toolclass.add_config_options(opts) }
   end

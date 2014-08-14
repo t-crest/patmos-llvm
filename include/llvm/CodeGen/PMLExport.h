@@ -16,7 +16,7 @@
 #include "llvm/ADT/ValueMap.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
-#include "llvm/CodeGen/PML.h"
+#include "llvm/PML.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/YAMLTraits.h"
 

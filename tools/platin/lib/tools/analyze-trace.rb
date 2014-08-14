@@ -105,12 +105,8 @@ class AnalyzeTraceTool
       recorder.results.calltargets.each do |cs_ref,receiverset|
         cs = cs_ref.programpoint
         next unless cs.unresolved_call? || cs.callees.size != receiverset.size
-        receiver_call_context = call_context.push(cs,call_context.length+1)
-        receivers = receiverset.map { |f|
-          ContextRef.new(f, receiver_call_context)
-        }
-        ff = FlowFact.calltargets(scope, cs_ref, receivers, fact_context)
-        debug(options,:trace) { "Adding trace flowfact #{ff}" }
+        ff = FlowFact.calltargets(scope, cs_ref, receiverset, fact_context)
+        debug(@options,:trace) { "Adding trace flowfact #{ff}" }
         outpml.flowfacts.add(ff)
       end
       # Export block frequencies; infeasible blocks are necessary for WCET analysis
@@ -140,6 +136,14 @@ class AnalyzeTraceTool
     opts.callstring_length
     opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help=recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
+    }
+    opts.on("--max-cycles NUM", Integer,
+            "consider only the first NUM cycles of the trace") { |num|
+      opts.options.max_cycles = num
+    }
+    opts.on("--max-instructions NUM", Integer,
+            "consider only the first NUM instructions of the trace") { |num|
+      opts.options.max_instructions = num
     }
     opts.register_help_topic('recorders') { |io|
       RecorderSpecification.help(io)

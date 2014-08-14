@@ -2830,6 +2830,7 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
   case ISD::EH_LABEL:
   case ISD::PREFETCH:
   case ISD::PCMARKER:
+  case ISD::LOOPBOUND:
   case ISD::VAEND:
   case ISD::EH_SJLJ_LONGJMP:
     // If the target didn't expand these, there's nothing to do, so just

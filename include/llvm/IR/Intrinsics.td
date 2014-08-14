@@ -477,6 +477,9 @@ def int_trap : Intrinsic<[], [], [IntrNoReturn]>,
 def int_debugtrap : Intrinsic<[]>,
                     GCCBuiltin<"__builtin_debugtrap">;
 
+// Loopbound intrinsic - holds min and max constant loop bounds
+def int_loopbound : Intrinsic<[], [llvm_ptr_ty, llvm_i32_ty, llvm_i32_ty]>;
+
 // NOP: calls/invokes to this intrinsic are removed by codegen
 def int_donothing : Intrinsic<[], [], [IntrNoMem]>;
 
