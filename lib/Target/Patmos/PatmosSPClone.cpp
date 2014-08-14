@@ -183,6 +183,7 @@ void PatmosSPClone::handleRoot(Function *F) {
 
   DEBUG( dbgs() << "SPRoot " << F->getName() << "\n" );
   F->addFnAttr("sp-root");
+  F->addFnAttr(llvm::Attribute::NoInline);
   NumSPRoots++;
 
   // explore from root

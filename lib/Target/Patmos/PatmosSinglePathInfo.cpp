@@ -42,9 +42,8 @@ using namespace llvm;
 static cl::list<std::string> SPRootList(
     "mpatmos-singlepath",
     cl::value_desc("list"),
-    cl::desc("Functions for which single-path code is generated"),
-    cl::CommaSeparated,
-    cl::Hidden);
+    cl::desc("Entry functions for which single-path code is generated"),
+    cl::CommaSeparated);
 
 
 ///////////////////////////////////////////////////////////////////////////////
