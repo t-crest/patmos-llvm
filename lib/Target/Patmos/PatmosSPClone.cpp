@@ -138,8 +138,15 @@ bool PatmosSPClone::runOnModule(Module &M) {
 
     if (F->isDeclaration()) continue;
 
-    // handle single-path root
+    // handle single-path root specified by attribute
+    if (F->hasFnAttribute("sp-root")) {
+      handleRoot(F);
+      continue;
+    }
+
+    // handle single-path root specified on cmdline
     if (SPRoots.count(F->getName())) {
+      F->addFnAttr("sp-root");
       handleRoot(F);
       SPRoots.erase(F->getName());
       continue;
@@ -182,8 +189,9 @@ void PatmosSPClone::loadFromGlobalVariable(SmallSet<std::string, 32> &Result,
 void PatmosSPClone::handleRoot(Function *F) {
 
   DEBUG( dbgs() << "SPRoot " << F->getName() << "\n" );
-  F->addFnAttr("sp-root");
-  F->addFnAttr(llvm::Attribute::NoInline);
+  if (!F->hasFnAttribute(llvm::Attribute::NoInline)) {
+    F->addFnAttr(llvm::Attribute::NoInline);
+  }
   NumSPRoots++;
 
   // explore from root
