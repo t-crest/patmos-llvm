@@ -282,7 +282,6 @@ MachineModuleInfo::~MachineModuleInfo() {
 bool MachineModuleInfo::doInitialization(Module &M) {
 
   ObjFileMMI = nullptr;
-  CompactUnwindEncoding = 0;
   CurCallSite = 0;
   CallsEHReturn = 0;
   CallsUnwindInit = 0;
@@ -338,7 +337,6 @@ void MachineModuleInfo::EndFunction() {
   FilterEnds.clear();
   CallsEHReturn = 0;
   CallsUnwindInit = 0;
-  CompactUnwindEncoding = 0;
   VariableDbgInfos.clear();
 }
 
