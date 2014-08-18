@@ -95,7 +95,8 @@ namespace llvm {
     yaml::PMLDoc YDoc;
     Pass &P;
 
-    yaml::FlowFact *createLoopFact(const BasicBlock *BB, yaml::Name RHS) const;
+    yaml::FlowFact *createLoopFact(const BasicBlock *BB, yaml::Name RHS,
+                                   bool UserAnnot = false) const;
 
   public:
     PMLBitcodeExport(TargetMachine &TM, ModulePass &mp)

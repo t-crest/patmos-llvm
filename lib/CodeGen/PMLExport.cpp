@@ -192,19 +192,21 @@ namespace {
 
 
 yaml::FlowFact *PMLBitcodeExport::createLoopFact(const BasicBlock *BB,
-                                                 yaml::Name RHS) const {
+                                                 yaml::Name RHS,
+                                                 bool UserAnnot) const {
   const Function *Fn = BB->getParent();
 
   yaml::FlowFact *FF = new yaml::FlowFact(yaml::level_bitcode);
 
   FF->setLoopScope(yaml::Name(Fn->getName()), yaml::Name(BB->getName()));
 
-  yaml::ProgramPoint *Block = yaml::ProgramPoint::CreateBlock(Fn->getName(), BB->getName());
+  yaml::ProgramPoint *Block =
+    yaml::ProgramPoint::CreateBlock(Fn->getName(), BB->getName());
 
   FF->addTermLHS(Block, 1LL);
   FF->RHS = RHS;
   FF->Comparison = yaml::cmp_less_equal;
-  FF->Origin = "llvm.bc";
+  FF->Origin = UserAnnot ? "user.bc" : "llvm.bc";
   FF->Classification = "loop-global";
 
   return FF;
@@ -331,18 +333,49 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
   I->Opcode = getOpcode(II);
 
   if (const IntrinsicInst* CI = dyn_cast<const IntrinsicInst>(II)) {
-    if (CI->getIntrinsicID() == Intrinsic::pcmarker) {
-      // for now, we use the argument as ID. Eventually, we
-      // will use strings attached as metadata instead, so
-      // it is possible to reference markers by name
-      if (ConstantInt *MarkerInt = dyn_cast<ConstantInt>(CI->getArgOperand(0))) {
-	uint64_t MarkerId = MarkerInt->getZExtValue();
-	std::string MarkerName = utostr(MarkerId);
-	I->Marker = MarkerName;
-      } else {
-	errs() << "Marker with non-constant argument:\n";
-	CI->print(errs());
-      }
+    switch(CI->getIntrinsicID()) {
+      case Intrinsic::pcmarker:
+        // for now, we use the argument as ID. Eventually, we
+        // will use strings attached as metadata instead, so
+        // it is possible to reference markers by name
+        if (ConstantInt *MarkerInt =
+            dyn_cast<ConstantInt>(CI->getArgOperand(0))) {
+          uint64_t MarkerId = MarkerInt->getZExtValue();
+          std::string MarkerName = utostr(MarkerId);
+          I->Marker = MarkerName;
+        } else {
+          errs() << "Marker with non-constant argument:\n";
+          CI->print(errs());
+        }
+        break;
+      case Intrinsic::loopbound:
+        {
+          const BasicBlock *BB = II->getParent();
+          LoopInfo &LI = P.getAnalysis<LoopInfo>(
+              *const_cast<Function*>(BB->getParent()));
+          // check if basic block is loop header and blockaddress matches
+          if (BlockAddress *BAddr =
+              dyn_cast<BlockAddress>(CI->getArgOperand(0))) {
+            if (BAddr->getBasicBlock() == BB &&
+                LI.isLoopHeader(BAddr->getBasicBlock())) {
+              if (ConstantInt *MaxBoundInt =
+                  dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
+                uint64_t MaxBound = MaxBoundInt->getZExtValue();
+                YDoc.addFlowFact(
+                    createLoopFact(BB, MaxBound, /*UserAnnot=*/true));
+              } else {
+                errs() << "Skipping: Loop bound is not a constant:\n";
+                CI->print(errs());
+              }
+            } else {
+              errs() << "Skipping: Loop bound is not correctly transformed:\n";
+              CI->print(errs());
+            }
+          }
+        }
+        break;
+      default:
+        break;
     }
   } else if (const CallInst *CI = dyn_cast<const CallInst>(II)) {
     if (const Function *F = CI->getCalledFunction()) {
