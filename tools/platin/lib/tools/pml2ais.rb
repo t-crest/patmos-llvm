@@ -13,7 +13,7 @@ class AisExportTool
 
   def AisExportTool.add_config_options(opts)
     opts.on("--ais-header-file FILE", "the contents of this file is copied verbatim to the final AIS file") { |file|
-      opts.option.ais_header_file = file
+      opts.options.ais_header_file = file
     }
     opts.on("--ais-disable-exports LIST","AIS information that should not be exported (see --help=ais)") { |list|
       opts.options.ais_disable_export = Set.new(list.split(/\s*,\s*/))
