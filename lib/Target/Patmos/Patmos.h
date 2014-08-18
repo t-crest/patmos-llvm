@@ -48,7 +48,6 @@ namespace llvm {
   FunctionPass *createPatmosBypassFromPMLPass(PatmosTargetMachine &tm);
   FunctionPass *createPatmosPMLProfileImport(const PatmosTargetMachine &tm);
   FunctionPass *createPatmosEnsureAlignmentPass(PatmosTargetMachine &tm);
-  FunctionPass *createPatmosRmLoopboundPass(const PatmosTargetMachine &tm);
 
   ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
                                            std::string& Filename,

@@ -175,9 +175,6 @@ namespace {
       if (EnableStackCacheAnalysis) {
         addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
-
-      addPass(createPatmosRmLoopboundPass(getPatmosTargetMachine()));
-
       return true;
     }
 

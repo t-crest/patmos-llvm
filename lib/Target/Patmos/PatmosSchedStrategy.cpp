@@ -219,8 +219,8 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
     return false;
   }
 
-  // Inline Asm always gets scheduled on its own.
-  if (SU->getInstr()->isInlineAsm()) {
+  // Inline Asm / Pseudo always gets scheduled on its own.
+  if (SU->getInstr()->isInlineAsm() || SU->getInstr()->isPseudo()) {
     if (!Bundle.empty())
       return false;
     Bundle.push_back(SU);
@@ -254,6 +254,7 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
 
   return false;
 }
+
 
 #ifndef NDEBUG
 void PatmosLatencyQueue::dump()
