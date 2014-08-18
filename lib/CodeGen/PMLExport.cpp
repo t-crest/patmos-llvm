@@ -60,16 +60,24 @@ namespace yaml {
 template <typename Block> struct FlowGraphTrait {};
 template <> struct FlowGraphTrait<const BasicBlock> {
   typedef llvm::succ_const_iterator succ_iterator;
-  inline static succ_iterator succ_begin(const BasicBlock *BB) { return llvm::succ_begin(BB); }
-  inline static succ_iterator succ_end(const BasicBlock *BB) { return llvm::succ_end(BB); }
+  inline static succ_iterator succ_begin(const BasicBlock *BB) {
+    return llvm::succ_begin(BB);
+  }
+  inline static succ_iterator succ_end(const BasicBlock *BB) {
+    return llvm::succ_end(BB);
+  }
   static Name getName(const BasicBlock *BB) {
     return Name(BB->getName());
   }
 };
 template <> struct FlowGraphTrait<MachineBasicBlock> {
   typedef MachineBasicBlock::succ_iterator succ_iterator;
-  inline static succ_iterator succ_begin(MachineBasicBlock *MBB) { return MBB->succ_begin(); }
-  inline static succ_iterator succ_end(MachineBasicBlock *MBB) { return MBB->succ_end(); }
+  inline static succ_iterator succ_begin(MachineBasicBlock *MBB) {
+    return MBB->succ_begin();
+  }
+  inline static succ_iterator succ_end(MachineBasicBlock *MBB) {
+    return MBB->succ_end();
+  }
   static Name getName(MachineBasicBlock*BB) {
     return Name(BB->getNumber());
   }
@@ -218,7 +226,8 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
   if (!Fn) return;
   LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
-  ScalarEvolution &SE = P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
+  ScalarEvolution &SE =
+    P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
 
   // create PML bitcode function
   yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn->getName());
@@ -280,12 +289,12 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     }
 
     /// B->MapsTo = (maybe C-source debug info?)
-    for (const_pred_iterator PI = pred_begin(&*BI), PE = pred_end(&*BI); PI != PE;
-        ++PI) {
+    for (const_pred_iterator PI = pred_begin(&*BI), PE = pred_end(&*BI);
+        PI != PE; ++PI) {
       B->Predecessors.push_back(yaml::Name((*PI)->getName()));
     }
-    for (succ_const_iterator SI = succ_begin(&*BI), SE = succ_end(&*BI); SI != SE;
-        ++SI) {
+    for (succ_const_iterator SI = succ_begin(&*BI), SE = succ_end(&*BI);
+        SI != SE; ++SI) {
       B->Successors.push_back(yaml::Name((*SI)->getName()));
     }
 
@@ -689,7 +698,7 @@ exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
         // a pointer passed as function argument
 
       } else if (isa<PseudoSourceValue>(V)) {
-        DEBUG(const PseudoSourceValue *P = dyn_cast<PseudoSourceValue>(V); 
+        DEBUG(const PseudoSourceValue *P = dyn_cast<PseudoSourceValue>(V);
 	      dbgs() << "P: "; P->dump() );
         // this is a location on the stack frame
 
@@ -717,7 +726,8 @@ exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
 }
 
 void PMLMachineExport::
-exportArgumentRegisterMapping(yaml::MachineFunction *F, const MachineFunction &MF) {
+exportArgumentRegisterMapping(yaml::MachineFunction *F,
+                              const MachineFunction &MF) {
   // must be implemented entirely by target-specific exporters at this stage
 }
 
@@ -798,9 +808,10 @@ struct EventMap {
 /// Progress nodes are characterized by a pair of bitcode/machine block
 typedef std::pair <const BasicBlock*,MachineBasicBlock*> ProgressID;
 
-/// Expand progress node N either at the machine code (Block=MachineBasicBlock) or bitcode (Block=BasicBlock)
-/// level. The RelationGraphHelperTrait<BlockType> class provides the machine/bitcode specific
-/// functionality
+/// Expand progress node N either at the machine code (Block=MachineBasicBlock)
+/// or bitcode (Block=BasicBlock)level.
+/// The RelationGraphHelperTrait<BlockType> class provides the machine/bitcode
+/// specific functionality
 template<typename Block>
 void
 expandProgressNode(yaml::RelationGraph *RG,
@@ -828,7 +839,8 @@ expandProgressNode(yaml::RelationGraph *RG,
         Trait::succ_end(BB); I != E; ++I) {
       Block *BB2 = *I;
       if (EventMap.count(BB2) == 0) {
-        // successor generates no event -> add 'type' relation node, queue successor
+        // successor generates no event -> add 'type' relation node, queue
+        // successor
         if (Created.count(BB2) == 0) {
           DEBUG(dbgs() << "Internal node for "
                        << Trait::getName(BB2).getName() << "("
@@ -964,16 +976,17 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF)
   std::set<StringRef> TabuEvents;
   std::set<StringRef> UnmatchedEvents;
 
-  // As the LLVM mapping is not always good enough, we might have had unmatched events
-  // In this case, we use the list of unmatched machinecode events as Tabu List, and
-  // retry (with a retry limit)
+  // As the LLVM mapping is not always good enough, we might have had unmatched
+  // events.
+  // In this case, we use the list of unmatched machinecode events as Tabu
+  // List, and retry (with a retry limit)
   unsigned TriesLeft = 3;
   yaml::RelationGraph *RG = 0;
   yaml::RelationGraphStatus Status = yaml::rg_status_valid;
   while (TriesLeft-- > 0) {
     if (RG)
       delete RG; // also deletes scopes and nodes
-    /// Create Graph
+    // Create Graph
     yaml::RelationScope *DstScope = new yaml::RelationScope(
         MF.getFunctionNumber(), yaml::level_machinecode);
     yaml::RelationScope *SrcScope = new yaml::RelationScope(
@@ -986,24 +999,24 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF)
         yaml::FlowGraphTrait<MachineBasicBlock>::getName(&MF.front()));
     UnmatchedEvents.clear();
 
-    /// Event Maps
+    // Event Maps
     EventMap<const BasicBlock*>::type IEventMap;
     EventMap<MachineBasicBlock*>::type MEventMap;
 
-    /// Known and visited relation nodes
+    // Known and visited relation nodes
     std::map<ProgressID, yaml::RelationNode*> RMap;
     std::set<yaml::RelationNode*> RVisited;
     std::vector<std::pair<ProgressID, yaml::RelationNode*> > RTodo;
 
-    /// Build event maps using RUnmatched as tabu list
+    // Build event maps using RUnmatched as tabu list
     buildEventMaps(MF, IEventMap, MEventMap, TabuEvents);
 
-    /// We first queue the entry node
+    // We first queue the entry node
     RTodo.push_back(
         std::make_pair(std::make_pair(&BF->getEntryBlock(), &MF.front()),
             RG->getEntryNode()));
 
-    /// while there is an unprocessed progress node (n -> IBB,MBB)
+    // while there is an unprocessed progress node (n -> IBB,MBB)
     while (!RTodo.empty()) {
       std::pair<ProgressID, yaml::RelationNode*> Item = RTodo.back();
       RTodo.pop_back();
@@ -1015,16 +1028,19 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF)
       EventQueueMap<const BasicBlock*> IEvents;
       EventQueueMap<MachineBasicBlock*> MEvents;
 
-      DEBUG(errs() << "Expanding node " << IBB->getName() << " / " << MBB->getNumber() << "\n");
-      /// Expand both at the bitcode and machine level (starting with IBB and MBB, resp.),
-      /// which results in new src/dst nodes being created, and two bitcode and machinecode-level maps from events
-      /// to a list of (bitcode/machine block, list of RG predecessor blocks) pairs
+      DEBUG(errs() << "Expanding node " << IBB->getName() << " / " <<
+              MBB->getNumber() << "\n");
+      // Expand both at the bitcode and machine level (starting with IBB and
+      // MBB, resp.), which results in new src/dst nodes being created, and
+      // two bitcode and machinecode-level maps from events to a list of
+      // (bitcode/machine block, list of RG predecessor blocks) pairs
       expandProgressNode(RG, RN, yaml::rnt_src, IBB, IEventMap, IEvents);
       expandProgressNode(RG, RN, yaml::rnt_dst, MBB, MEventMap, MEvents);
 
-      /// For each event and corresponding bitcode list IList and machinecode MList, create a progress
-      /// node (iblock,mblock) for every pair ((iblock,ipreds),(mblock,mpreds)) \in (IList x MList) and add
-      /// edges from all ipreds and mpreds to that progress node
+      // For each event and corresponding bitcode list IList and machinecode
+      // MList, create a progress node (iblock,mblock) for every pair
+      // ((iblock,ipreds),(mblock,mpreds)) \in (IList x MList) and add
+      // edges from all ipreds and mpreds to that progress node
       addProgressNodes(RG, IEvents, MEvents, RMap, RTodo, UnmatchedEvents);
     }
     if (UnmatchedEvents.empty()) { // No unmatched events this time
@@ -1037,7 +1053,9 @@ void PMLRelationGraphExport::serialize(MachineFunction &MF)
     TabuEvents.insert(UnmatchedEvents.begin(), UnmatchedEvents.end());
   }
   if (!UnmatchedEvents.empty()) {
-    DEBUG(errs() << "[mc2yml] Error: failed to find a correct event mapping for " << MF.getFunction()->getName() << "\n");
+    DEBUG(errs()
+        << "[mc2yml] Error: failed to find a correct event mapping for "
+        << MF.getFunction()->getName() << "\n");
     Status = yaml::rg_status_incomplete;
   }
   RG->Status = Status;
@@ -1056,48 +1074,56 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
 
   BitcodeEventMap.clear();
   MachineEventMap.clear();
-  DEBUG(dbgs() << "buildEventMaps() " << MF.begin()->getParent()->getFunction()->getName() << "\n");
+  DEBUG(dbgs() << "buildEventMaps() "
+      << MF.begin()->getParent()->getFunction()->getName() << "\n");
   std::map<MachineBasicBlock*, StringRef> InitialEvents;
   for (MachineFunction::iterator BlockI = MF.begin(), BlockE = MF.end();
       BlockI != BlockE; ++BlockI) {
-    /// No mapping if there is no information on the original basic block
-    if (!BlockI->getBasicBlock()) {
-      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": no mapping information\n");
+    const BasicBlock *BB = BlockI->getBasicBlock();
+
+    // No mapping if there is no information on the original basic block
+    if (!BB) {
+      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber()
+          << ": no mapping information\n");
       continue;
     }
-    /// No mapping if it maps to the entry node
-    if (BlockI->getBasicBlock() == BlockI->getBasicBlock()->getParent()->begin()) {
-      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": entry node\n");
+    // No mapping if it maps to the entry node
+    if (BB == BB->getParent()->begin()) {
+      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber()
+          << ": entry node\n");
       continue;
     }
-    /// XXX: No mapping if the loop nest levels do not match ?
-    /// No mapping if the block is tabu
-    if (TabuList.count(BlockI->getBasicBlock()->getName()) > 0) {
+    // XXX: No mapping if the loop nest levels do not match ?
+    // No mapping if the block is tabu
+    if (TabuList.count(BB->getName()) > 0) {
       DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": TABU\n");
       continue;
     }
 
-    StringRef Event = BlockI->getBasicBlock()->getName();
+    StringRef Event = BB->getName();
 
     bool IsSubNode = false;
-    /// No mapping if predecessor (excluding loop latches) is mapped to the same block
+    // No mapping if predecessor (excluding loop latches)
+    // is mapped to the same block
     for (MachineBasicBlock::const_pred_iterator PredI = BlockI->pred_begin(),
         PredE = BlockI->pred_end(); PredI != PredE; ++PredI)
     {
       if (BI.isBackEdge(*PredI, BlockI))
           continue;
-      if ((*PredI)->getBasicBlock() == BlockI->getBasicBlock()) {
+      if ((*PredI)->getBasicBlock() == BB) {
         IsSubNode = true;
         break;
       }
     }
     if (IsSubNode) {
-      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber() << ": subgraph node\n");
+      DEBUG(dbgs() << "Not mapping " << BlockI->getNumber()
+          << ": subgraph node\n");
       continue;
     }
-    DEBUG(dbgs() << "MachineEvent " << BlockI->getNumber() << " -> " << Event << "\n");
+    DEBUG(dbgs() << "MachineEvent " << BlockI->getNumber() << " -> "
+        << Event << "\n");
     MachineEventMap.insert(std::make_pair(BlockI, Event));
-    BitcodeEventMap.insert(std::make_pair(BlockI->getBasicBlock(), Event));
+    BitcodeEventMap.insert(std::make_pair(BB, Event));
   }
   // errs() << "EventMaps Bitcode\n";
   // for(std::map<const BasicBlock*,StringRef>::iterator I =
@@ -1186,7 +1212,8 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
   return false;
 }
 
-void PMLModuleExportPass::addCalleesToQueue(const Module &M, MachineModuleInfo &MMI,
+void PMLModuleExportPass::addCalleesToQueue(const Module &M,
+                                            MachineModuleInfo &MMI,
                                             MachineFunction &MF)
 {
   PMLInstrInfo::MFList Callees = PII->getCalledFunctions(M, MMI, MF);
@@ -1240,7 +1267,8 @@ bool PMLModuleExportPass::doFinalization(Module &M) {
     tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo);
     WriteBitcodeToFile(&M, BitcodeStream.os());
     if(! ErrorInfo.empty()) {
-      errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: " << ErrorInfo <<" \n";
+      errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: "
+        << ErrorInfo <<" \n";
     } else {
       BitcodeStream.keep();
     }
