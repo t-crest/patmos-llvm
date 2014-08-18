@@ -32,7 +32,7 @@ class AisExportTool
       io.puts <<-EOF.strip_heredoc
         == AIS Exporter ==
 
-        The option --ais-disable-export controls which information is not exported
+        The option --ais-disable-exports controls which information is not exported
         (default is export everything) and takes a comma-separated list
         including one or more of the following types of information:
 
