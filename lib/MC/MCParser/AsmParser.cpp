@@ -1660,7 +1660,7 @@ bool AsmParser::parseInstruction(StringRef IDVal, SMLoc IDLoc,
 
   // If parsing succeeded, match the instruction.
   if (!HadError) {
-    unsigned ErrorInfo;
+    uint64_t ErrorInfo;
     getTargetParser().MatchAndEmitInstruction(IDLoc, Info.Opcode,
                                               Info.ParsedOperands, Out,
                                               ErrorInfo, ParsingInlineAsm);
