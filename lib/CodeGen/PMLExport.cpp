@@ -46,6 +46,8 @@ STATISTIC( NumConstantBounds, "Number of constant header bounds exported");
 STATISTIC( NumSymbolicBounds, "Number of symbolic header bounds exported");
 STATISTIC( NumSymbolicBoundsNonArg,
            "Number of symbolic header bounds NOT exported (non-arguments)");
+STATISTIC( NumAnnotatedBounds,
+           "Number of user-annotated header bounds exported");
 
 STATISTIC( NumMemExp,   "Number of exported load from array infos");
 }
@@ -372,8 +374,9 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                 uint64_t MaxBound = MaxBoundInt->getZExtValue();
                 YDoc.addFlowFact(
                     createLoopFact(BB, MaxBound, /*UserAnnot=*/true));
+                NumAnnotatedBounds++; // STATISTICS
               } else {
-                errs() << "Skipping: Loop bound is not a constant:\n";
+                errs() << "Skipping: Annotated Loop bound is non-constant:\n";
                 CI->print(errs());
               }
             } else {
