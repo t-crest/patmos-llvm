@@ -455,6 +455,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
 {
   CurrCycle = 0;
+  CurrIsPseudo = false;
   CurrBundle.clear();
   ReadyQ.clear();
 
@@ -481,8 +482,9 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
   if (CurrBundle.empty()) {
     IsBundled = false;
 
-    // Not emitting a bundle at the moment, go back one cycle ..
-    if (!ReadyQ.recedeCycle(++CurrCycle))
+    // Not emitting a bundle at the moment, go back one cycle (but only if
+    // we did not emit only pseudo instructions in the last cycle)
+    if (!CurrIsPseudo && !ReadyQ.recedeCycle(++CurrCycle))
       return false;
 
     DEBUG(dbgs() << "\nPicking node in cycle " << CurrCycle << "\n";
@@ -495,7 +497,12 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
       // TODO try to reschedule an already scheduled node from a later bundle
 
       SU = NULL;
+      CurrIsPseudo = false;
       return true;
+    } else {
+      // Initialize IsPseudo to true when starting a bundle, will be cleared
+      // on first non-pseudo instruction in the bundle.
+      CurrIsPseudo = true;
     }
   } else {
     IsBundled = true;
@@ -504,6 +511,9 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
   // emit an instruction from the current bundle
   SU = CurrBundle.front();
   CurrBundle.erase(CurrBundle.begin());
+
+  // update IsPseudo flag for the current bundle
+  CurrIsPseudo = CurrIsPseudo && SU && SU->getInstr()->isPseudo();
 
   return true;
 }

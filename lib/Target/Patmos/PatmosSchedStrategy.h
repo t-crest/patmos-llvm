@@ -214,6 +214,9 @@ namespace llvm {
     /// Already scheduled cycles to the end of the region.
     unsigned int CurrCycle;
 
+    /// Are we emitting a pure pseudo instructions bundle?
+    bool CurrIsPseudo;
+
     /// The current bundle that we are emitting
     std::vector<SUnit*> CurrBundle;
 
