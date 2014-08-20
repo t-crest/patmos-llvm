@@ -135,10 +135,10 @@ namespace {
 
   public:
     SchedulePostRATDList(
-      MachineFunction &MF, MachineLoopInfo &MLI, MachineDominatorTree &MDT,
-      AliasAnalysis *AA, const RegisterClassInfo&,
-      TargetSubtargetInfo::AntiDepBreakMode AntiDepMode,
-      SmallVectorImpl<const TargetRegisterClass*> &CriticalPathRCs);
+        MachineFunction &MF, MachineLoopInfo &MLI, AliasAnalysis *AA,
+        const RegisterClassInfo &,
+        TargetSubtargetInfo::AntiDepBreakMode AntiDepMode,
+        SmallVectorImpl<const TargetRegisterClass *> &CriticalPathRCs);
 
     ~SchedulePostRATDList();
 
@@ -191,11 +191,11 @@ INITIALIZE_PASS(PostRAScheduler, "post-RA-sched",
                 "Post RA top-down list latency scheduler", false, false)
 
 SchedulePostRATDList::SchedulePostRATDList(
-  MachineFunction &MF, MachineLoopInfo &MLI, MachineDominatorTree &MDT,
-  AliasAnalysis *AA, const RegisterClassInfo &RCI,
-  TargetSubtargetInfo::AntiDepBreakMode AntiDepMode,
-  SmallVectorImpl<const TargetRegisterClass*> &CriticalPathRCs)
-  : ScheduleDAGInstrs(MF, &MLI, &MDT, /*IsPostRA=*/true), AA(AA), EndIndex(0) {
+    MachineFunction &MF, MachineLoopInfo &MLI, AliasAnalysis *AA,
+    const RegisterClassInfo &RCI,
+    TargetSubtargetInfo::AntiDepBreakMode AntiDepMode,
+    SmallVectorImpl<const TargetRegisterClass *> &CriticalPathRCs)
+    : ScheduleDAGInstrs(MF, &MLI, /*IsPostRA=*/true), AA(AA), EndIndex(0) {
 
   const TargetMachine &TM = MF.getTarget();
   const InstrItineraryData *InstrItins =
@@ -267,7 +267,6 @@ bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
 
   TII = Fn.getSubtarget().getInstrInfo();
   MachineLoopInfo &MLI = getAnalysis<MachineLoopInfo>();
-  MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
   AliasAnalysis *AA = &getAnalysis<AliasAnalysis>();
   TargetPassConfig *PassConfig = &getAnalysis<TargetPassConfig>();
 
@@ -301,7 +300,7 @@ bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
 
   DEBUG(dbgs() << "PostRAScheduler\n");
 
-  SchedulePostRATDList Scheduler(Fn, MLI, MDT, AA, RegClassInfo, AntiDepMode,
+  SchedulePostRATDList Scheduler(Fn, MLI, AA, RegClassInfo, AntiDepMode,
                                  CriticalPathRCs);
 
   // Loop over all of the basic blocks
