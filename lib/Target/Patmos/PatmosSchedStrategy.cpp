@@ -513,7 +513,8 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
   CurrBundle.erase(CurrBundle.begin());
 
   // update IsPseudo flag for the current bundle
-  CurrIsPseudo = CurrIsPseudo && SU && SU->getInstr()->isPseudo();
+  CurrIsPseudo = CurrIsPseudo && SU && 
+                (SU->getInstr()->isPseudo() && !SU->getInstr()->isInlineAsm());
 
   return true;
 }
