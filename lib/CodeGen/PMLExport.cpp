@@ -355,8 +355,8 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
           std::string MarkerName = utostr(MarkerId);
           I->Marker = MarkerName;
         } else {
-          errs() << "Marker with non-constant argument:\n";
-          CI->print(errs());
+          errs() << "Marker with non-constant argument:\n"
+            << *CI << "\n";
         }
         break;
       case Intrinsic::loopbound:
@@ -376,12 +376,12 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                     createLoopFact(BB, MaxBound, /*UserAnnot=*/true));
                 NumAnnotatedBounds++; // STATISTICS
               } else {
-                errs() << "Skipping: Annotated Loop bound is non-constant:\n";
-                CI->print(errs());
+                errs() << "Skipping: Annotated Loop bound is non-constant:\n"
+                  << *CI << "\n";
               }
             } else {
-              errs() << "Skipping: Loop bound is not correctly transformed:\n";
-              CI->print(errs());
+              errs() << "Skipping: Loop bound is not correctly transformed:\n"
+                << *CI << "\n";
             }
           }
         }
