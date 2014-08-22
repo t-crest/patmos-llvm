@@ -127,6 +127,7 @@ namespace {
       if (getOptLevel() == CodeGenOpt::None) {
         addPass(&DeadMachineInstructionElimID);
       }
+      addPass(createPatmosNakedReserver(getPatmosTargetMachine()));
       return true;
     }
 
