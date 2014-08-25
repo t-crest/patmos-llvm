@@ -24,11 +24,11 @@ class CacheAnalysis
   def analyze(entry_function, ipet_builder)
     @scope_graph = nil # reset, entry_function might have changed
     if mc = @pml.arch.method_cache
-      mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
-      mca.extend_ipet(scope_graph(entry_function), ipet_builder)
+      @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
+      @mca.extend_ipet(scope_graph(entry_function), ipet_builder)
     elsif ic = @pml.arch.instruction_cache
-      ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
-      ica.extend_ipet(scope_graph(entry_function), ipet_builder)
+      @ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
+      @ica.extend_ipet(scope_graph(entry_function), ipet_builder)
     end
     if sc = @pml.arch.stack_cache
       if @options.use_sca_graph
@@ -45,9 +45,21 @@ class CacheAnalysis
   end
 
   def summarize(options, freqs, cost, report)
-    puts "Cache contribution:" if @sca and options.verbose
-    cycles = @sca.summarize(options, freqs, cost) if @sca
-    report.attributes['cache-cycles'] = cycles
+    ica_cycles, sca_cycles = 0, 0
+    
+    puts "Method cache contribution:" if @mca and options.verbose
+    ica_cycles = @mca.summarize(options, freqs, cost) if @mca
+
+    puts "Instruction cache contribution:" if @ica and options.verbose
+    ica_cycles = @ica.summarize(options, freqs, cost) if @ica
+
+    puts "Stack cache contribution:" if @sca and options.verbose
+    sca_cycles = @sca.summarize(options, freqs, cost) if @sca
+
+    report.attributes['instr-cache-cycles'] = ica_cycles
+    report.attributes['stack-cache-cycles'] = sca_cycles
+    
+    report.attributes['cache-cycles'] = ica_cycles + sca_cycles
   end
 end
 
@@ -118,6 +130,9 @@ class CacheRegionAnalysis
     # cache tags per scope
     @all_tags = {}
 
+    # all memory edges 
+    @all_load_edges = []
+
     # run scope-based analysis
     conflict_free_scopes = analyze(scopegraph)
 
@@ -151,6 +166,8 @@ class CacheRegionAnalysis
           # sum of load edges is equal to load instructions
           load_edge_sum = load_edges.map { |me| [me,1] }
           ipet_builder.mc_model.assert_equal(load_edge_sum, {li=>1}, "load_edges_#{li}",:cache)
+	  # collect all load edges
+	  @all_load_edges.concat(load_edges)
         }
 
         # add variable for tag
@@ -283,6 +300,15 @@ class CacheRegionAnalysis
 
   def persistence_analysis?
     @cache_properties.cache.policy == "lru" && options.wca_persistence_analysis
+  end
+
+  def summarize(options, freqs, cost)
+    cycles = 0
+    @all_load_edges.each { |me|
+      puts "  cache load edge #{me}: #{freqs[me] || '??'} (#{cost[me]} cyc)" if options.verbose
+      cycles += cost[me] || 0
+    }
+    cycles
   end
 end
 
