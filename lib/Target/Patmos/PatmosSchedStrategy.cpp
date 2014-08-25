@@ -85,6 +85,11 @@ void PatmosLatencyQueue::clear()
   AvailableQueue.clear();
 }
 
+bool PatmosLatencyQueue::empty()
+{
+  return AvailableQueue.empty() && PendingQueue.empty();
+}
+
 /// Select a bundle for the current cycle. The selected instructions are
 /// put into bundle in the correct issue order. If no instruction can be
 /// issued, false is returned.
@@ -148,14 +153,9 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
   return true;
 }
 
-/// Go back one cycle and update availability queue. If no more
-/// instructions need to be scheduled, return false.
-bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
+/// Go back one cycle and update availability queue.
+void PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
 {
-  if (PendingQueue.empty() && AvailableQueue.empty()) {
-    return false;
-  }
-
   unsigned avail = 0;
   for (unsigned i = 0; i < PendingQueue.size() - avail; i++) {
     SUnit *SU = PendingQueue[i];
@@ -175,8 +175,6 @@ bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
   }
 
   PendingQueue.resize(PendingQueue.size() - avail);
-
-  return true;
 }
 
 /// Notify the queue that this instruction has now been scheduled.
@@ -482,10 +480,15 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
   if (CurrBundle.empty()) {
     IsBundled = false;
 
+    if (ReadyQ.empty()) {
+      return false;
+    }
+
     // Not emitting a bundle at the moment, go back one cycle (but only if
     // we did not emit only pseudo instructions in the last cycle)
-    if (!CurrIsPseudo && !ReadyQ.recedeCycle(++CurrCycle))
-      return false;
+    if (!CurrIsPseudo) {
+      ReadyQ.recedeCycle(++CurrCycle);
+    }
 
     DEBUG(dbgs() << "\nPicking node in cycle " << CurrCycle << "\n";
           ReadyQ.dump());
