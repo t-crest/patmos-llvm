@@ -2142,8 +2142,8 @@ bool AsmParser::handleMacroEntry(const MCAsmMacro *M, SMLoc NameLoc) {
   // instantiation.
   OS << ".endmacro\n";
 
-  std::unique_ptr<MemoryBuffer> Instantiation(
-      MemoryBuffer::getMemBufferCopy(OS.str(), "<instantiation>"));
+  std::unique_ptr<MemoryBuffer> Instantiation =
+      MemoryBuffer::getMemBufferCopy(OS.str(), "<instantiation>");
 
   // Create the macro instantiation object and add to the current macro
   // instantiation stack.
@@ -4328,8 +4328,8 @@ void AsmParser::instantiateMacroLikeBody(MCAsmMacro *M, SMLoc DirectiveLoc,
                                          raw_svector_ostream &OS) {
   OS << ".endr\n";
 
-  std::unique_ptr<MemoryBuffer> Instantiation(
-      MemoryBuffer::getMemBufferCopy(OS.str(), "<instantiation>"));
+  std::unique_ptr<MemoryBuffer> Instantiation =
+      MemoryBuffer::getMemBufferCopy(OS.str(), "<instantiation>");
 
   // Create the macro instantiation object and add to the current macro
   // instantiation stack.
