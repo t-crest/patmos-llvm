@@ -26,6 +26,30 @@ class OptionParser
     }
     self.add_check { |options| die_usage "Option --ait-report-prefix is mandatory" unless options.ait_report_prefix } if mandatory
   end
+  def ait_icache_mode()
+    self.on("--ait-icache-mode MODE", "aiT instruction cache analysis mode (normal|always-hit|always-miss|miss-if-unknown|hit-if-unknown)") {
+      |f| options.ait_icache_mode = case f 
+              when "normal" then "Normal"
+	      when "always-miss" then "Always miss"
+	      when "always-hit" then "Always hit"
+	      when "miss-if-unknown" then "Miss if unknown"
+	      when "hit-if-unknown" then "Hit if unknown"
+	      else f
+	  end
+    }
+  end
+  def ait_dcache_mode()
+    self.on("--ait-dcache-mode MODE", "aiT data cache analysis mode (normal|always-hit|always-miss|miss-if-unknown|hit-if-unknown)") {
+      |f| options.ait_dcache_mode = case f 
+              when "normal" then "Normal"
+	      when "always-miss" then "Always miss"
+	      when "always-hit" then "Always hit"
+	      when "miss-if-unknown" then "Miss if unknown"
+	      when "hit-if-unknown" then "Hit if unknown"
+	      else f
+	  end
+    }
+  end
 end
 
 # Features not supported by the AIS/APX export module
@@ -530,6 +554,8 @@ class APXExporter
         an_options << rexml_bool("xml_wcet_path", true)
         an_options << rexml_bool("xml_non_wcet_cycles", true)
         an_options << rexml_str("path_analysis_variant", "Prediction file based (ILP))")
+	an_options << rexml_str("instruction_cache_mode", @options.ait_icache_mode) if @options.ait_icache_mode
+	an_options << rexml_str("data_cache_mode", @options.ait_dcache_mode) if @options.ait_dcache_mode
       }
       add_element(proj_options, "general_options") { |gen_options|
         gen_options << rexml_str("include_path",".")

@@ -158,12 +158,17 @@ class WcetTool
 
   def wcet_analysis(srcs)
     run_wca = options.enable_wca
+    if options.combine_wca
+      options.ait_icache_mode = "always-hit" 
+      run_wca = true
+    end
     begin
       wcet_analysis_ait(srcs) unless options.disable_ait
     rescue Exception => ex
       $stderr.puts ex.backtrace
       warn("a3 WCET analysis failed: #{ex}. Trying platin WCET analysis.")
       run_wca = true
+      options.combine_wca = false
     end
     wcet_analysis_platin(srcs) if run_wca
   end
@@ -324,27 +329,39 @@ class WcetTool
 
   def summarize_results(additional_info = {})
     trace_cycles = nil
+    combined_cycles = 0
+
     results = pml.timing.sort_by { |te|
       [ te.scope.qname, te.cycles, te.origin ]
     }.map { |te|
       trace_cycles = te.cycles if te.origin == "trace"
+      combined_cycles += case te.origin
+	  when "aiT"    then te.cycles
+	  when "platin" then te.attributes['cache-cycles-instr'] || 0
+	  else 0
+      end
       dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
-        'cycles' => te.cycles,
-        'data-cache-cycles' => te.attributes['data-cache-cycles'] || 0, 
-        'instr-cache-cycles' => te.attributes['instr-cache-cycles'] || 0,
-        'stack-cache-cycles' => te.attributes['stack-cache-cycles'] || 0,
-        'cache-cycles' => te.attributes['cache-cycles'] || 0 }
-      te.attributes.select { |k,v| k.start_with? 'cache-misses-' }.each { |k,v| dict[k] = v }
+        'cycles' => te.cycles }
+      te.attributes.select { |k,v| k.start_with? 'cache-misses' }.each { |k,v| dict[k] = v }
+      te.attributes.select { |k,v| k.start_with? 'cache-cycles' }.each { |k,v| dict[k] = v }
       (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }
+    if options.combine_wca
+      results.push( { 'analysis-entry' => options.analysis_entry, 
+                      'source' => 'combined', 
+		      'cycles' => combined_cycles 
+		    } )
+    end
     if options.runcheck
-      die("wcet check: Not timing for simulator trace") unless trace_cycles
+      die("wcet check: No timing for simulator trace") unless trace_cycles
       pml.timing.each { |te|
         next if te.origin == "trace"
+	next if te.origin != "combined" and options.combine_wca
         next unless te.cycles >= 0
 	options.tolerated_underestimation = 1 unless options.tolerated_underestimation
+	# TODO remember the trace_cycles per analysis-entry, check depending on analysis-entry
         if te.cycles + options.tolerated_underestimation < trace_cycles
           die("wcet check: cycles for #{te.origin} (#{te.cycles}) less than measurement (#{trace_cycles})")
         end
@@ -407,6 +424,7 @@ class WcetTool
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }
     opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
     opts.on("--enable-wca", "run platin WCA calculator") { |d| opts.options.enable_wca = true }
+    opts.on("--combine-wca", "run both aiT and WCA and combine cache analysis results") { |d| opts.options.combine_wca = true }
     opts.on("--compute-criticalities", "calculate block criticalities") { opts.options.compute_criticalities = true }
     opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
     use_sweet = Proc.new { |options| options.enable_sweet }
@@ -436,6 +454,12 @@ EOF
   unless which(options.a3)
     warn("Commercial a3 tools is not available; use --disable-ait to hide this warning") unless options.disable_ait
     options.disable_ait = true
+    options.enable_wca = true
+    options.combine_wca = false
+  end
+  if options.combine_wca and options.disable_ait
+    warn("Use of a3 has been disabled, combined WCET analysis is not available")
+    options.combine_wca = false
     options.enable_wca = true
   end
   updated_pml = WcetTool.run(PMLDoc.from_files(options.input), options)
