@@ -371,10 +371,12 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                 LI.isLoopHeader(BAddr->getBasicBlock())) {
               if (ConstantInt *MaxBoundInt =
                   dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
-                uint64_t MaxBound = MaxBoundInt->getZExtValue();
-                YDoc.addFlowFact(
-                    createLoopFact(BB, MaxBound, /*UserAnnot=*/true));
-                NumAnnotatedBounds++; // STATISTICS
+                uint64_t MaxHeaderCount = MaxBoundInt->getZExtValue() + 1;
+                if(MaxHeaderCount < 0xFFFFFFFFu) {
+                  YDoc.addFlowFact(
+                      createLoopFact(BB, MaxHeaderCount, /*UserAnnot=*/true));
+                  NumAnnotatedBounds++; // STATISTICS
+                }
               } else {
                 errs() << "Skipping: Annotated Loop bound is non-constant:\n"
                   << *CI << "\n";
