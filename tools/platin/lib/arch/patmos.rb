@@ -84,7 +84,7 @@ class Architecture < PML::Architecture
   end
   def Architecture.default_config
     memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
-    caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',32,32,1024),
+    caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',16,8,4096),
                                   PML::CacheConfig.new('stack-cache','stack-cache','block',nil,4,1024),
                                   PML::CacheConfig.new('data-cache','set-associative','lru',4,32,1024) ])
     full_range = PML::ValueRange.new(0,0xFFFFFFFF,nil)
@@ -216,6 +216,14 @@ class Architecture < PML::Architecture
     else
       opts.push("-mpatmos-disable-stack-cache")
     end
+    @config.memory_areas.each { |c|
+      heap_end = c.get_attribute('heap-end')
+      opts.push("-mpatmos-heap-end=#{heap_end}") if heap_end
+      stack_base = c.get_attribute('stack-base')
+      opts.push("-mpatmos-stack-base=#{stack_base}") if stack_base
+      shadow_stack_base = c.get_attribute('shadow-stack-base')
+      opts.push("-mpatmos-shadow-stack-base=#{shadow_stack_base}") if shadow_stack_base
+    }
     opts
   end
 
@@ -243,34 +251,56 @@ class Architecture < PML::Architecture
     #   -p [ --posted ] arg (=0)  Enable posted writes (sets max queue size)
     #   -l [ --lsize ] arg (=2k)  local memory size in bytes
 
+    def get_cache_kind(cache)
+      if cache.policy && [ "dm", "ideal", "no" ].include?(cache.policy.downcase)
+        # Ignore associativity here
+	dc.policy.downcase
+      elsif cache.associativity && cache.associativity.to_i >= 1
+        if cache.policy && cache.policy.downcase == 'lru'
+          "lru#{cache.associativity}"
+        elsif cache.policy && cache.policy.downcase == 'fifo'
+          "fifo#{cache.associativity}"
+        else
+          warn("Patmos simulator configuration: the only supported cache replacement "+
+               "policies with associativity >= 1 are LRU and FIFO")
+	  "no"
+        end
+      elsif cache.policy && [ "lru", "fifo" ].include?(cache.policy.downcase)
+        # If no associativity is given, use fully-associative caches
+	cache.policy.downcase
+      else
+        "no"
+      end
+    end
+
     if dc = data_cache
       opts.push("--dcsize")
       opts.push(dc.size)
       opts.push("--dlsize")
       opts.push(dc.block_size)
       opts.push("--dckind")
-      if dc.associativity.to_i >= 1
-        if dc.policy && dc.policy.downcase == 'lru'
-          opts.push("lru#{dc.associativity}")
-        elsif dc.policy && dc.policy.downcase == 'fifo'
-          opts.push("fifo#{dc.associativity}")
-        else
-          warn("Patmos simulator configuration: the only supported replacement "+
-               "policy for data cache simulation are LRU and FIFO")
-        end
-      else
-        opts.push("no")
-      end
+      # Note: 'ideal' is not the same as mapping all data accesses to 
+      # an ideal memory; bypasses and stores still have a latency.
+      opts.push( get_cache_kind(dc) )
     else
       # if data is mapped to single-cycle access memory,
       # use an 'ideal' data cache
       data_area = @config.memory_areas.by_name('data')
       if data_area.memory.ideal?
+        # FIXME This is incorrect for bypasses, but simulator does
+	# not support different timings based on access type yet.
+	warn("Bypass data loads and data stores are configured to be single cycle, but this "+
+	     "is not supported by pasim at the moment.")
         opts.push("--dckind")
         opts.push("ideal")
+      else
+	# In case no D$ is specified, disable the data cache
+        opts.push("--dckind")
+        opts.push("no")
       end
     end
     if sc = stack_cache
+      warn("Cache named 'stack-cache' is not of type 'stack-cache'") unless sc.type == "stack-cache"
       opts.push("--scsize")
       opts.push(sc.size)
       opts.push("--sckind")
@@ -281,6 +311,7 @@ class Architecture < PML::Architecture
       opts.push("dcache")
     end
     if mc = method_cache
+      warn("Cache named 'method-cache' is not of type 'method-cache'") unless mc.type == "method-cache"
       opts.push("--icache")
       opts.push("mcache")
       opts.push("--mcsize")
@@ -292,6 +323,7 @@ class Architecture < PML::Architecture
       opts.push("--mckind")
       opts.push((mc.policy || "fifo").downcase)
     elsif ic = instruction_cache
+      warn("Cache named 'instruction-cache' must not be of type 'method-cache'") if ic.type == "method-cache"
       opts.push("--icache")
       opts.push("icache")
       opts.push("--mcsize")
@@ -299,18 +331,7 @@ class Architecture < PML::Architecture
       opts.push("--ilsize")
       opts.push(ic.block_size)
       opts.push("--ickind")
-      if ic.associativity.to_i >= 1
-        if ic.policy && ic.policy.downcase == 'lru'
-          opts.push("lru#{ic.associativity}")
-        elsif ic.policy && ic.policy.downcase == 'fifo'
-          opts.push("fifo#{ic.associativity}")
-        else
-          warn("Patmos simulator configuration: the only supported replacement "+
-               "policy for set-associative I$ simulation are LRU and FIFO")
-        end
-      else
-        opts.push("no")
-      end
+      opts.push( get_cache_kind(ic) )
     else
       # if code is mapped to single-cycle access memory,
       # use an 'ideal' instruction cache

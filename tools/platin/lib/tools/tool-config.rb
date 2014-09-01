@@ -27,9 +27,15 @@ class ToolConfigTool
       roots = pml.analysis_configurations.map { |cs| cs.program_entry }.inject(Set.new) { |s,v| s.add(v) if v; s }.to_a
       opts.push("-mserialize=#{options.output.to_s}") if options.output
       opts.push("-mserialize-roots=#{roots.join(",")}") unless roots.empty?
+      tc = pml.tool_configurations.by_name('clang')
+      opts.concat( tc.options||[] ) if tc
+      # TODO add all analysis_configation tool options for analysis 'default'
       puts opts.map { |opt| escape(opt) }.join(" ")
     when 'simulator'
       opts = pml.arch.config_for_simulator
+      tc = pml.tool_configurations.by_name('simulator')
+      opts.concat( tc.options||[] ) if tc
+      # TODO add all analysis_configation tool options for analysis 'default'
       puts opts.map { |opt| escape(opt) }.join(" ")
     when 'ait'
       AISExporter.new(pml,$stdout,options).export_header

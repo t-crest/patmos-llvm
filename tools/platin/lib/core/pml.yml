@@ -535,6 +535,18 @@ mapping:
                 type: str
                 desc: name of the internal or external memory this area is mapped to
               "address-range": *valuerange
+              "attributes":
+                type: sequence
+                desc: Additional attributes of the memory
+                sequence: &attributes
+                  -
+                    type: map
+                    desc: "key-value pair"
+                    mapping:
+                      "key":
+                        type: str
+                      "value":
+                        type: scalar
       "caches":
         type: seq
         desc: "list of cache configurations"
@@ -552,7 +564,7 @@ mapping:
                 enum: [ "set-associative", "method-cache", "stack-cache" ]
               "policy":
                 type: str
-                desc: "replacement / update policy"
+                desc: "replacement / update policy (lru, fifo, ideal, ..)"
               "associativity":
                 type: int
                 desc: "associativity of the cache (if applicable)"
@@ -560,21 +572,39 @@ mapping:
                 type: seq
                 desc: >-
                   Additional attributes of the cache
-                sequence: &attributes
-                  -
-                    type: map
-                    desc: "key-value pair"
-                    mapping:
-                      "key":
-                        type: str
-                      "value":
-                        type: scalar
+                sequence: *attributes
               "block-size":
                 type: int
                 desc: size of a cache block/cache line (in bytes)
               "size":
                 type: int
                 desc: size of the cache (in bytes)
+  "tool-configurations":
+    type: seq
+    desc: >-
+      Tool configurations
+    sequence: &toolconfigurations
+      -
+        type: map
+        class: ToolConfig
+        desc: Configuration of a compile tool or analysis tool
+        mapping:
+          "name":
+            type: str
+            desc: >-
+              unique name of the tool
+            unique: true
+          "configuration": &configuration
+            type: seq
+            desc: "Key-value configuration pairs"
+            sequence: *attributes
+          "options": &options
+            type: seq
+            desc: "Command line options for the tool"
+            sequence:
+              -
+                type: str
+                desc: "Command line option or value for previous option"
   "analysis-configurations":
     type: seq
     desc: configuration of analyses
@@ -587,7 +617,7 @@ mapping:
           "name":
             type: scalar
             desc: >-
-              unique name of the analysis, or 'default' for the default tool configurations
+              unique name of the analysis, or 'default' for the default analysis configuration
             unique: true
           "program-entry":
             type: str
@@ -604,22 +634,8 @@ mapping:
           "tool-configurations":
             type: seq
             desc: >-
-              Key-Value pairs configuring tools for the analysis
-            sequence:
-              -
-                type: map
-                class: ToolConfig
-                desc: Configuration of an analysis tool
-                mapping:
-                  "name":
-                    type: str
-                    desc: >-
-                      unique name of the tool
-                    unique: true
-                  "configuration": &configuration
-                    type: seq
-                    desc: "key-value pairs"
-                    sequence: *attributes
+              Analysis tool configurations
+            sequence: *toolconfigurations
   "sca-graph":
     type: map
     desc: >-

@@ -24,6 +24,7 @@ class PMLDoc
   attr_reader :data, :triple, :arch, :analysis_configurations
   attr_reader :bitcode_functions,:machine_functions,:relation_graphs
   attr_reader :flowfacts,:valuefacts,:timing
+  attr_reader :tool_configurations
   attr_reader :sca_graph
 
   # constructor expects a YAML document or a list of YAML documents
@@ -39,11 +40,13 @@ class PMLDoc
     if @data['triple']
       @triple = @data['triple'].split('-')
       @analysis_configurations = AnalysisConfigList.from_pml(self, @data['analysis-configurations'] || [])
+      @tool_configurations = ToolConfigList.from_pml(self, @data['tool-configurations'] || [])
       machine_config = @data['machine-configuration'] ? MachineConfig.from_pml(self, @data['machine-configuration']) : nil
       @arch = Architecture.from_triple(triple, machine_config)
     else
       @triple = nil
       @analysis_configurations = AnalysisConfigList.from_pml(self, [])
+      @tool_configurations = ToolConfigList.from_pml(self, [])
       @arch = nil
     end
 
@@ -124,6 +127,7 @@ class PMLDoc
     # The trouble is that we first need to mirror those sections for LLVM's yaml-io :(
     final.delete("machine-configuration")
     final.delete("analysis-configurations")
+    final.delete("tool-configurations")
     final.delete("flowfacts") if @data["flowfacts"] == []
     final.delete("valuefacts") if @data["valuefacts"] == []
     final.delete("timing") if @data["timing"] == []
