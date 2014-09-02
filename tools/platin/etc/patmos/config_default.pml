@@ -6,10 +6,10 @@ machine-configuration:
     - name: "main"
       size: 0x200000
       transfer-size: 16
-      read-latency: 6
-      read-transfer-time: 1
-      write-latency: 6
-      write-transfer-time: 1
+      read-latency: 3
+      read-transfer-time: 4
+      write-latency: 3
+      write-transfer-time: 4
     - name: "local"
       size: 2048
       transfer-size: 4

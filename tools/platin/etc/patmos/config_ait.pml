@@ -6,10 +6,10 @@ machine-configuration:
     - name: "main"
       size: 0x200000
       transfer-size: 8
-      read-latency: 6
-      read-transfer-time: 1
-      write-latency: 6
-      write-transfer-time: 1
+      read-latency: 3
+      read-transfer-time: 2
+      write-latency: 3
+      write-transfer-time: 2
     - name: "local"
       size: 2048
       transfer-size: 4
@@ -26,7 +26,7 @@ machine-configuration:
       type: "set-associative"
     - name: "method-cache"
       block-size: 512
-      associativity: 16
+      associativity: 8
       size: 4096
       policy: "fifo"
       type: "method-cache"
