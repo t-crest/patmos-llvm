@@ -7,6 +7,8 @@ require 'platin'
 require 'ext/ait'
 include PML
 
+$available_tools = ["clang", "pasim", "ait"]
+
 class ToolConfigTool
   def ToolConfigTool.add_options(opts)
     opts.on("-t","--tool TOOL", "tool to configure (=clang)") { |t| opts.options.tool = t }
@@ -21,6 +23,7 @@ class ToolConfigTool
   end
   def ToolConfigTool.run(pml, options)
     needs_options(options, :tool)
+
     case options.tool
     when 'clang'
       opts = pml.arch.config_for_clang(options)
@@ -31,16 +34,19 @@ class ToolConfigTool
       opts.concat( tc.options||[] ) if tc
       # TODO add all analysis_configation tool options for analysis 'default'
       puts opts.map { |opt| escape(opt) }.join(" ")
-    when 'simulator'
+    when 'pasim'
+      die("Cannot use #{options.tool} for an architecture other than Patmos!")\
+        unless pml.arch.instance_of?(Patmos::Architecture)
       opts = pml.arch.config_for_simulator
-      tc = pml.tool_configurations.by_name('simulator')
+      tc = pml.tool_configurations.by_name(options.tool)
       opts.concat( tc.options||[] ) if tc
       # TODO add all analysis_configation tool options for analysis 'default'
       puts opts.map { |opt| escape(opt) }.join(" ")
     when 'ait'
       AISExporter.new(pml,$stdout,options).export_header
     else
-      die("platin tool configuration: Unknown tool specified: #{options.tool} (clang,simulator,ait)")
+      die("platin tool configuration: Unknown tool specified: #{options.tool}"+
+          " (#{$available_tools.join(", ")})")
     end
   end
 
@@ -64,13 +70,12 @@ if __FILE__ == $0
     Similar to pkg-config, this tool writes the arguments to be passed to $stdout. It uses
     architecture specific implementations, and is typically used like this:
 
-      patmos-clang $(platin tool-config -t clang -i config.pml -o llvm.pml) -o myprogram myprogram.c
+      patmos-clang $(platin tool-config -t clang -i config.pml) -o myprogram myprogram.c
 
-    Supported Tools: clang, simulator
+    Supported Tools: #{$available_tools.join(", ")}
   EOF
   options, args = PML::optparse([], "", synopsis) do |opts|
     opts.needs_pml
-    opts.writes_pml
     ToolConfigTool.add_options(opts)
   end
   ToolConfigTool.run(PMLDoc.from_files(options.input), options)
