@@ -126,8 +126,7 @@ public:
   //===--------------------------------------------------------------------===//
 
   /// \brief Return a uniquified Attribute object.
-  static Attribute get(LLVMContext &Context, AttrKind Kind);
-  static Attribute get(LLVMContext &Context, AttrKind Kind, uint64_t Val);
+  static Attribute get(LLVMContext &Context, AttrKind Kind, uint64_t Val = 0);
   static Attribute get(LLVMContext &Context, StringRef Kind,
                        StringRef Val = StringRef());
 
@@ -274,7 +273,7 @@ public:
   /// \brief Remove the specified attribute at the specified index from this
   /// attribute list. Since attribute lists are immutable, this returns the new
   /// list.
-  AttributeSet removeAttribute(LLVMContext &C, unsigned Index,
+  AttributeSet removeAttribute(LLVMContext &C, unsigned Index, 
                                Attribute::AttrKind Attr) const;
 
   AttributeSet removeAttribute(LLVMContext &C, unsigned Index,
@@ -283,7 +282,7 @@ public:
   /// \brief Remove the specified attributes at the specified index from this
   /// attribute list. Since attribute lists are immutable, this returns the new
   /// list.
-  AttributeSet removeAttributes(LLVMContext &C, unsigned Index,
+  AttributeSet removeAttributes(LLVMContext &C, unsigned Index, 
                                 AttributeSet Attrs) const;
 
   //===--------------------------------------------------------------------===//
