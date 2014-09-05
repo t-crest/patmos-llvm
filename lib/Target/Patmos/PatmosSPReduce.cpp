@@ -1224,8 +1224,10 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
     // if this is a reachable function, we need to get the
     // top-level predicate from the caller
     if (S->isTopLevel() && !S->isRootTopLevel() && S->isHeader(MBB)) {
-      AddDefaultPred(BuildMI(*MBB, &MBB->front(),
-            MBB->front().getDebugLoc(),
+      // skip unconditionally executed frame setup
+      MachineBasicBlock::iterator MI = MBB->begin();
+      while (MI->getFlag(MachineInstr::FrameSetup)) ++MI;
+      AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
             TII->get(Patmos::PMOV), use_preg))
         .addReg(PRTmp).addImm(0);
     }
