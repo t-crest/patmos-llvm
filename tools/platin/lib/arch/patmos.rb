@@ -280,7 +280,7 @@ class Architecture < PML::Architecture
       opts.push(dc.block_size)
       opts.push("--dckind")
       # Note: 'ideal' is not the same as mapping all data accesses to 
-      # an ideal memory; bypasses and stores still have a latency.
+      # an ideal memory; bypasses still have a latency.
       opts.push( get_cache_kind(dc) )
     else
       # if data is mapped to single-cycle access memory,
