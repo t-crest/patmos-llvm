@@ -301,7 +301,7 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
     int ArgReg;
     switch (Opcode) {
       case Patmos::SRESi:  scFunc = "_sc_reserve"; ArgReg = Patmos::R1; break;
-      case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R1; break;
+      case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R8; break;
       case Patmos::SFREEi: scFunc = "_sc_free";    ArgReg = Patmos::R8; break;
       default: llvm_unreachable("unexpected stack cache opcode");
     }
@@ -329,6 +329,7 @@ void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
       if (j->isCall()) {
         MachineBasicBlock::iterator p(llvm::next(j));
         emitSTC(MF, *i, p, Patmos::SENSi);
+        j = --p;
       }
     }
   }
@@ -363,12 +364,11 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   assert(DisableStackCache && "enabled SC not supported right now");
 
   if (!DisableStackCache || EnableSoftSC) {
+    // patch all call sites with ensure
+    patchCallSites(MF);
+
     // emit a reserve instruction
     emitSTC(MF, MBB, MBBI, Patmos::SRESi);
-
-    // XXX don't patch call sites right now
-    // patch all call sites
-    //patchCallSites(MF);
   }
 
   //----------------------------------------------------------------------------
