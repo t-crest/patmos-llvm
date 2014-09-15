@@ -600,6 +600,8 @@ static void PrintCOFFSymbolTable(const COFFObjectFile *coff) {
         if (error(coff->getAuxSymbol<coff_aux_section_definition>(SI + 1, asd)))
           return;
 
+        int32_t AuxNumber = asd->getNumber(Symbol->isBigObj());
+
         outs() << "AUX "
                << format("scnlen 0x%x nreloc %d nlnno %d checksum 0x%x "
                          , unsigned(asd->Length)
@@ -607,7 +609,7 @@ static void PrintCOFFSymbolTable(const COFFObjectFile *coff) {
                          , unsigned(asd->NumberOfLinenumbers)
                          , unsigned(asd->CheckSum))
                << format("assoc %d comdat %d\n"
-                         , unsigned(asd->Number)
+                         , unsigned(AuxNumber)
                          , unsigned(asd->Selection));
       } else if (Symbol->isFileRecord()) {
         const char *FileName;
