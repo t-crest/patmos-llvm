@@ -254,7 +254,7 @@ class Architecture < PML::Architecture
     def get_cache_kind(cache)
       if cache.policy && [ "dm", "ideal", "no" ].include?(cache.policy.downcase)
         # Ignore associativity here
-	dc.policy.downcase
+	cache.policy.downcase
       elsif cache.associativity && cache.associativity.to_i >= 1
         if cache.policy && cache.policy.downcase == 'lru'
           "lru#{cache.associativity}"
