@@ -32,7 +32,7 @@ machine-configuration:
       type: "method-cache"
     - name: "stack-cache"
       block-size: 4
-      size: 1024
+      size: 2048
       type: "stack-cache"
   memory-areas:
     - name: "code"
@@ -41,14 +41,14 @@ machine-configuration:
       cache: "method-cache"
       address-range:
         min: 0
-        max: 0xFFFFFFFF
+        max: 0x200000
     - name: "data"
       type: "data"
       memory: "main"
       cache: "data-cache"
       address-range:
         min: 0
-        max: 0xFFFFFFFF
+        max: 0x200000
       attributes:
         - key: "heap-end"
           value: 0x100000

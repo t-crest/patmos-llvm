@@ -254,9 +254,6 @@ class AISExporter
                  "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
       when 'stack-cache'
         # always enabled (new in aiT version >= 205838)
-        if cache.size != 1024
-          warn("aiT: currently not possible to configure stack cache size different from 1024 bytes")
-        end
       end
     }
 
