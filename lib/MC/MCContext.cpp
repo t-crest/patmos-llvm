@@ -74,7 +74,10 @@ void MCContext::reset() {
   Symbols.clear();
   Allocator.Reset();
   Instances.clear();
+  CompilationDir.clear();
+  MainFileName.clear();
   MCDwarfLineTablesCUMap.clear();
+  SectionStartEndSyms.clear();
   MCGenDwarfLabelEntries.clear();
   DwarfDebugFlags = StringRef();
   DwarfCompileUnitID = 0;
