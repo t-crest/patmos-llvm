@@ -72,6 +72,11 @@ void CodeMetrics::analyzeBasicBlock(const BasicBlock *BB,
       if (InvI->hasFnAttr(Attribute::NoDuplicate))
         notDuplicatable = true;
 
+    if (const IntrinsicInst *CI = dyn_cast<const IntrinsicInst>(II))
+      if (CI->getIntrinsicID() == Intrinsic::loopbound)
+        notDuplicatable = true;
+
+
     NumInsts += TTI.getUserCost(&*II);
   }
 

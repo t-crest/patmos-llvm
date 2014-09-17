@@ -78,6 +78,7 @@ using namespace llvm;
 
 STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
+STATISTIC( LoopCounters,        "Number of loop counters introduced");
 
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
 STATISTIC( NoSpillScopes,
@@ -1171,7 +1172,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
             .addReg(Patmos::R9);
           TRI->eliminateFrameIndex(storeMI, 0, 2);
           // restore from stack slot (after the call MI)
-          MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, next(MI), DL,
+          MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, llvm::next(MI), DL,
                 TII->get(Patmos::LWC), Patmos::R9))
             .addFrameIndex(fi).addImm(0); // address
           TRI->eliminateFrameIndex(loadMI, 0, 3);
@@ -1223,8 +1224,10 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
     // if this is a reachable function, we need to get the
     // top-level predicate from the caller
     if (S->isTopLevel() && !S->isRootTopLevel() && S->isHeader(MBB)) {
-      AddDefaultPred(BuildMI(*MBB, &MBB->front(),
-            MBB->front().getDebugLoc(),
+      // skip unconditionally executed frame setup
+      MachineBasicBlock::iterator MI = MBB->begin();
+      while (MI->getFlag(MachineInstr::FrameSetup)) ++MI;
+      AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
             TII->get(Patmos::PMOV), use_preg))
         .addReg(PRTmp).addImm(0);
     }
@@ -1322,8 +1325,16 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
   DEBUG( dbgs() << "Merge MBBs\n" );
 
   // first, obtain the sequence of MBBs in DF order (as copy!)
-  std::vector<MachineBasicBlock*> order(df_begin(&MF.front()),
-                                        df_end(  &MF.front()));
+  // NB: have to use the version below, as some version of libcxx will not
+  // compile it (similar to
+  //    http://lists.cs.uiuc.edu/pipermail/cfe-commits/Week-of-Mon-20130325/076850.html)
+  //std::vector<MachineBasicBlock*> order(df_begin(&MF.front()),
+  //                                      df_end(  &MF.front()));
+  std::vector<MachineBasicBlock*> order;
+  for (df_iterator<MachineBasicBlock *> I = df_begin(&MF.front()),
+       E = df_end(&MF.front()); I != E; ++I) {
+      order.push_back(*I);
+  }
 
 
   std::vector<MachineBasicBlock*>::iterator I = order.begin(),
@@ -1741,6 +1752,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
       .addReg(tmpReg, RegState::Kill);
     Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 2; // STATISTIC
+    LoopCounters++; // STATISTIC
   }
 
   // append the preheader

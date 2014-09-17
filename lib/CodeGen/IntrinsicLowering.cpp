@@ -438,6 +438,10 @@ void IntrinsicLowering::LowerIntrinsicCall(CallInst *CI) {
 
   case Intrinsic::pcmarker:
     break;    // Simply strip out pcmarker on unsupported architectures
+
+  case Intrinsic::loopbound:
+    break;    // Simply strip out loopbound on unsupported architectures
+
   case Intrinsic::readcyclecounter: {
     errs() << "WARNING: this target does not support the llvm.readcyclecoun"
            << "ter intrinsic.  It is being lowered to a constant 0\n";

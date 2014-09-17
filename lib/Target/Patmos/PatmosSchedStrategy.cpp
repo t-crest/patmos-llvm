@@ -85,6 +85,11 @@ void PatmosLatencyQueue::clear()
   AvailableQueue.clear();
 }
 
+bool PatmosLatencyQueue::empty()
+{
+  return AvailableQueue.empty() && PendingQueue.empty();
+}
+
 /// Select a bundle for the current cycle. The selected instructions are
 /// put into bundle in the correct issue order. If no instruction can be
 /// issued, false is returned.
@@ -148,14 +153,9 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
   return true;
 }
 
-/// Go back one cycle and update availability queue. If no more
-/// instructions need to be scheduled, return false.
-bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
+/// Go back one cycle and update availability queue.
+void PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
 {
-  if (PendingQueue.empty() && AvailableQueue.empty()) {
-    return false;
-  }
-
   unsigned avail = 0;
   for (unsigned i = 0; i < PendingQueue.size() - avail; i++) {
     SUnit *SU = PendingQueue[i];
@@ -175,8 +175,6 @@ bool PatmosLatencyQueue::recedeCycle(unsigned CurrCycle)
   }
 
   PendingQueue.resize(PendingQueue.size() - avail);
-
-  return true;
 }
 
 /// Notify the queue that this instruction has now been scheduled.
@@ -219,8 +217,8 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
     return false;
   }
 
-  // Inline Asm always gets scheduled on its own.
-  if (SU->getInstr()->isInlineAsm()) {
+  // Inline Asm / Pseudo always gets scheduled on its own.
+  if (SU->getInstr()->isInlineAsm() || SU->getInstr()->isPseudo()) {
     if (!Bundle.empty())
       return false;
     Bundle.push_back(SU);
@@ -254,6 +252,7 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
 
   return false;
 }
+
 
 #ifndef NDEBUG
 void PatmosLatencyQueue::dump()
@@ -454,6 +453,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
 {
   CurrCycle = 0;
+  CurrIsPseudo = false;
   CurrBundle.clear();
   ReadyQ.clear();
 
@@ -480,9 +480,15 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
   if (CurrBundle.empty()) {
     IsBundled = false;
 
-    // Not emitting a bundle at the moment, go back one cycle ..
-    if (!ReadyQ.recedeCycle(++CurrCycle))
+    if (ReadyQ.empty()) {
       return false;
+    }
+
+    // Not emitting a bundle at the moment, go back one cycle (but only if
+    // we did not emit only pseudo instructions in the last cycle)
+    if (!CurrIsPseudo) {
+      ReadyQ.recedeCycle(++CurrCycle);
+    }
 
     DEBUG(dbgs() << "\nPicking node in cycle " << CurrCycle << "\n";
           ReadyQ.dump());
@@ -494,7 +500,12 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
       // TODO try to reschedule an already scheduled node from a later bundle
 
       SU = NULL;
+      CurrIsPseudo = false;
       return true;
+    } else {
+      // Initialize IsPseudo to true when starting a bundle, will be cleared
+      // on first non-pseudo instruction in the bundle.
+      CurrIsPseudo = true;
     }
   } else {
     IsBundled = true;
@@ -503,6 +514,10 @@ bool PatmosPostRASchedStrategy::pickNode(SUnit *&SU, bool &IsTopNode,
   // emit an instruction from the current bundle
   SU = CurrBundle.front();
   CurrBundle.erase(CurrBundle.begin());
+
+  // update IsPseudo flag for the current bundle
+  CurrIsPseudo = CurrIsPseudo && SU && 
+                (SU->getInstr()->isPseudo() && !SU->getInstr()->isInlineAsm());
 
   return true;
 }

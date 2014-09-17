@@ -418,7 +418,8 @@ class PersistenceAnalysis
   def analyze_conflict_scope(node, tag)
 
     debug(options, :cache) { "Tag #{tag} is not persistent in #{node}" }
-    unless node.kind_of?(ScopeGraph::CallNode) # subscopes already cared
+    # for call nodes, subscopes have been taken care of
+    unless node.kind_of?(ScopeGraph::CallNode)
       rg = get_region_graph(node)
       rg.action_nodes.each { |action_node|
         load_instruction = action_node.action

@@ -13,7 +13,7 @@ class AisExportTool
 
   def AisExportTool.add_config_options(opts)
     opts.on("--ais-header-file FILE", "the contents of this file is copied verbatim to the final AIS file") { |file|
-      opts.option.ais_header_file = file
+      opts.options.ais_header_file = file
     }
     opts.on("--ais-disable-exports LIST","AIS information that should not be exported (see --help=ais)") { |list|
       opts.options.ais_disable_export = Set.new(list.split(/\s*,\s*/))
@@ -32,7 +32,7 @@ class AisExportTool
       io.puts <<-EOF.strip_heredoc
         == AIS Exporter ==
 
-        The option --ais-disable-export controls which information is not exported
+        The option --ais-disable-exports controls which information is not exported
         (default is export everything) and takes a comma-separated list
         including one or more of the following types of information:
 
@@ -96,6 +96,8 @@ end
 
 class ApxExportTool
   def ApxExportTool.add_config_options(opts)
+    opts.ait_icache_mode
+    opts.ait_dcache_mode
   end
   def ApxExportTool.add_options(opts, mandatory=true)
     opts.analysis_entry
@@ -108,7 +110,7 @@ class ApxExportTool
       die_usage "No apx file specified." if mandatory && ! options.apx_file
       if options.apx_file
         die_usage "Option --binary  is mandatory when generating apx file" unless options.binary_file
-        die_usage "Option --ait-report-prefixs is mandatory when generating apx file" unless options.ait_report_prefix
+        die_usage "Option --ait-report-prefix is mandatory when generating apx file" unless options.ait_report_prefix
       end
     }
   end

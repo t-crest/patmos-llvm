@@ -16,7 +16,7 @@
 #include "llvm/ADT/ValueMap.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
-#include "llvm/CodeGen/PML.h"
+#include "llvm/PML.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/YAMLTraits.h"
 
@@ -59,7 +59,9 @@ namespace llvm {
                                      const MachineInstr *Instr);
 
     /// get number of delay slots for this instruction, if any
-    virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) { return 0; }
+    virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) {
+      return 0;
+    }
 
     /// get number of bytes this instruction takes
     virtual int getSize(const MachineInstr *Instr);
@@ -95,7 +97,8 @@ namespace llvm {
     yaml::PMLDoc YDoc;
     Pass &P;
 
-    yaml::FlowFact *createLoopFact(const BasicBlock *BB, yaml::Name RHS) const;
+    yaml::FlowFact *createLoopFact(const BasicBlock *BB, yaml::Name RHS,
+                                   bool UserAnnot = false) const;
 
   public:
     PMLBitcodeExport(TargetMachine &TM, ModulePass &mp)
@@ -112,18 +115,23 @@ namespace llvm {
     // export module-level information during finalize()
     virtual void finalize(const Module &M) { }
 
-    virtual void writeOutput(yaml::Output *Output) { yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr; }
+    virtual void writeOutput(yaml::Output *Output) {
+      yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr;
+    }
 
     yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
-    virtual bool doExportInstruction(const Instruction* Instr) { return true; }
+    virtual bool doExportInstruction(const Instruction* Instr) {
+      return true;
+    }
 
     virtual yaml::Name getOpcode(const Instruction *Instr);
 
     /// get a description for this instruction
     virtual void printDesc(raw_ostream &os, const Instruction *Instr);
 
-    virtual void exportInstruction(yaml::Instruction* I, const Instruction* II);
+    virtual void exportInstruction(yaml::Instruction* I,
+                                   const Instruction* II);
   };
 
 
@@ -156,11 +164,15 @@ namespace llvm {
 
     virtual void serialize(MachineFunction &MF);
 
-    virtual void writeOutput(yaml::Output *Output) { yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr; }
+    virtual void writeOutput(yaml::Output *Output) {
+      yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr;
+    }
 
     yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
-    virtual bool doExportInstruction(const MachineInstr *Instr) { return true; }
+    virtual bool doExportInstruction(const MachineInstr *Instr) {
+      return true;
+    }
 
     virtual yaml::Name getOpcode(const MachineInstr *Instr);
 
@@ -200,16 +212,20 @@ namespace llvm {
 
     virtual ~PMLRelationGraphExport() {}
 
-    /// Build the Control-Flow Relation Graph connection machine code and bitcode
+    /// Build the Control-Flow Relation Graph connection between
+    /// machine code and bitcode
     virtual void serialize(MachineFunction &MF);
 
-    virtual void writeOutput(yaml::Output *Output) { yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr; }
+    virtual void writeOutput(yaml::Output *Output) {
+      yaml::PMLDoc *DocPtr = &YDoc; *Output << DocPtr;
+    }
 
     yaml::PMLDoc& getPMLDoc() { return YDoc; }
 
   private:
 
-    /// Generate (heuristic) MachineBlock->EventName and IR-Block->EventName maps
+    /// Generate (heuristic) MachineBlock->EventName
+    /// and IR-Block->EventName maps
     /// (1) if all forward-CFG predecessors of (MBB originating from BB) map to
     ///     no or a different IR block, MBB generates a BB event.
     /// (2) if there is a MBB generating a event BB, the basic block BB also
@@ -284,13 +300,15 @@ namespace llvm {
 
     PMLInstrInfo *getPMLInstrInfo() { return PII; }
 
-    /// Add an exporter to the pass. Exporters will be deleted when this pass is
-    /// deleted.
+    /// Add an exporter to the pass. Exporters will be deleted when this pass
+    /// is deleted.
     void addExporter(PMLExport *PE) { Exporters.push_back(PE); }
 
     void writeBitcode(std::string& bitcodeFile) { BitcodeFile = bitcodeFile; }
 
-    virtual const char *getPassName() const {return "YAML/PML Module Export";}
+    virtual const char *getPassName() const {
+      return "YAML/PML Module Export";
+    }
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
 
@@ -305,7 +323,8 @@ namespace llvm {
     void addCalleesToQueue(const Module &M, MachineModuleInfo &MMI,
                            MachineFunction &MF);
 
-    void addToQueue(const Module &M, MachineModuleInfo &MMI, std::string FnName);
+    void addToQueue(const Module &M, MachineModuleInfo &MMI,
+                    std::string FnName);
 
     void addToQueue(MachineFunction *MF);
 

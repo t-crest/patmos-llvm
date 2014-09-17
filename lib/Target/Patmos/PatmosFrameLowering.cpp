@@ -38,11 +38,17 @@ namespace llvm {
   STATISTIC(FIsNotFitSC, "FIs that did not fit in the stack cache");
 }
 
-/// EnableStackCache - Command line option to disable the usage of the stack 
+/// DisableStackCache - Command line option to disable the usage of the stack 
 /// cache (enabled by default).
 static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
                             cl::init(false),
                             cl::desc("Disable the use of Patmos' stack cache"));
+
+/// EnableBlockAlignedStackCache - Command line option to enable the usage of 
+/// the block-aligned stack cache (disabled by default).
+static cl::opt<bool> EnableBlockAlignedStackCache
+          ("mpatmos-enable-block-aligned-stack-cache", cl::init(false),
+           cl::desc("Enable the use of Patmos' block-aligned stack cache"));
 
 
 PatmosFrameLowering::PatmosFrameLowering(const PatmosTargetMachine &tm)
@@ -77,6 +83,27 @@ static unsigned int align(unsigned int offset, unsigned int alignment) {
   return ((offset + alignment - 1) / alignment) * alignment;
 }
 
+unsigned PatmosFrameLowering::getEffectiveStackCacheSize() const
+{
+  return EnableBlockAlignedStackCache ? 
+                        STC.getStackCacheSize() - STC.getStackCacheBlockSize() : 
+                        STC.getStackCacheSize();
+}
+
+unsigned PatmosFrameLowering::getEffectiveStackCacheBlockSize() const
+{
+  return EnableBlockAlignedStackCache ? 4 : STC.getStackCacheBlockSize();
+}
+
+unsigned PatmosFrameLowering::getAlignedStackCacheFrameSize(
+                                                       unsigned frameSize) const
+{
+  if (frameSize == 0)
+    return frameSize;
+  else
+    return EnableBlockAlignedStackCache ? frameSize : 
+                                        STC.getAlignedStackFrameSize(frameSize);
+}
 
 void PatmosFrameLowering::assignFIsToStackCache(MachineFunction &MF,
                                                 BitVector &SCFIs) const
@@ -168,8 +195,8 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
       unsigned int next_SCOffset = align(SCOffset, FIalignment);
 
       // check if the FI still fits into the SC
-      if (align(next_SCOffset + FIsize, STC.getStackCacheBlockSize()) <=
-          STC.getStackCacheSize()) {
+      if (align(next_SCOffset + FIsize, getEffectiveStackCacheBlockSize()) <=
+          getEffectiveStackCacheSize()) {
         DEBUG(dbgs() << "PatmosSC: FI: " << FI << " on SC: " << next_SCOffset
                     << "(" << MFI.getObjectOffset(FI) << ")\n");
 
@@ -209,9 +236,9 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
   }
 
   // align stack frame on stack cache
-  unsigned stackCacheSize = align(SCOffset, STC.getStackCacheBlockSize());
+  unsigned stackCacheSize = align(SCOffset, getEffectiveStackCacheBlockSize());
 
-  assert(stackCacheSize <= STC.getStackCacheSize());
+  assert(stackCacheSize <= getEffectiveStackCacheSize());
 
   // align shadow stack. call arguments are already included in SSOffset
   unsigned stackSize = align(SSOffset, getStackAlignment());
@@ -236,16 +263,20 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
 
 
 
-void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
+MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                                   MachineBasicBlock::iterator &MI,
                                   unsigned Opcode) const {
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
   // align the stack cache frame size
-  unsigned alignedStackSize = STC.getAlignedStackFrameSize(
+  unsigned alignedStackSize = getAlignedStackCacheFrameSize(
                                      PMFI.getStackCacheReservedBytes());
+  assert(alignedStackSize <= getEffectiveStackCacheSize());
+
   // STC instructions are specified in words
   unsigned stackFrameSize = alignedStackSize / 4;
+
+  MachineInstr *Inst = NULL;
 
   if (stackFrameSize) {
     assert(isUInt<22>(stackFrameSize) && "Stack cache size exceeded.");
@@ -255,9 +286,10 @@ void PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
     const TargetInstrInfo &TII = *TM.getInstrInfo();
 
     // emit reserve instruction
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Opcode)))
+    Inst = AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Opcode)))
       .addImm(stackFrameSize);
   }
+  return Inst;
 }
 
 void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
@@ -302,7 +334,8 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   if (!DisableStackCache) {
     // emit a reserve instruction
-    emitSTC(MF, MBB, MBBI, Patmos::SRESi);
+    MachineInstr *MI = emitSTC(MF, MBB, MBBI, Patmos::SRESi);
+    if (MI) MI->setFlag(MachineInstr::FrameSetup);
 
     // patch all call sites
     patchCallSites(MF);
@@ -316,12 +349,17 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   if (stackSize) {
     // adjust stack : sp -= stack size
     if (stackSize <= 0xFFF) {
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBi), Patmos::RSP))
+      MachineInstr *MI = AddDefaultPred(BuildMI(MBB, MBBI, dl,
+            TII->get(Patmos::SUBi), Patmos::RSP))
         .addReg(Patmos::RSP).addImm(stackSize);
+      MI->setFlag(MachineInstr::FrameSetup);
+
     }
     else {
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::SUBl), Patmos::RSP))
+      MachineInstr *MI = AddDefaultPred(BuildMI(MBB, MBBI, dl,
+            TII->get(Patmos::SUBl), Patmos::RSP))
         .addReg(Patmos::RSP).addImm(stackSize);
+      MI->setFlag(MachineInstr::FrameSetup);
     }
   }
 
@@ -338,7 +376,8 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
   // Handle Stack Cache
 
   // emit a free instruction
-  emitSTC(MF, MBB, MBBI, Patmos::SFREEi);
+  MachineInstr *MI = emitSTC(MF, MBB, MBBI, Patmos::SFREEi);
+  if (MI) MI->setFlag(MachineInstr::FrameSetup);
 
   //----------------------------------------------------------------------------
   // Handle Shadow Stack
@@ -349,14 +388,16 @@ void PatmosFrameLowering::emitEpilogue(MachineFunction &MF,
   // adjust stack  : sp += stack size
   if (stackSize) {
     if (stackSize <= 0xFFF) {
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::ADDi),
-                             Patmos::RSP))
+      MachineInstr *MI = AddDefaultPred(BuildMI(MBB, MBBI, dl,
+            TII->get(Patmos::ADDi), Patmos::RSP))
         .addReg(Patmos::RSP).addImm(stackSize);
+      MI->setFlag(MachineInstr::FrameSetup);
     }
     else {
-      AddDefaultPred(BuildMI(MBB, MBBI, dl, TII->get(Patmos::ADDl),
-                             Patmos::RSP))
+      MachineInstr *MI = AddDefaultPred(BuildMI(MBB, MBBI, dl,
+            TII->get(Patmos::ADDl), Patmos::RSP))
         .addReg(Patmos::RSP).addImm(stackSize);
+      MI->setFlag(MachineInstr::FrameSetup);
     }
   }
 }

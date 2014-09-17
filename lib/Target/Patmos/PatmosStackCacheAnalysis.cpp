@@ -262,7 +262,7 @@ namespace llvm {
         yFunction = Node->getMF()->getName();
       else
         yFunction = "none";
-      ySpillBlocks = SpillCost / STC.getStackCacheBlockSize();
+      ySpillBlocks = SpillCost; // export in bytes
     }
 
     /// Returns the associated call graph node.
@@ -1294,7 +1294,7 @@ namespace llvm {
 
             // update the analysis info pseudo pass (convert bytes to blocks)
             assert(i->second % STC.getStackCacheBlockSize() == 0);
-            info->Ensures[i->first] = i->second  / STC.getStackCacheBlockSize();
+            info->Ensures[i->first] = i->second; // export in bytes
           }
 
 #ifdef PATMOS_TRACE_SENS_REMOVAL
@@ -2082,7 +2082,7 @@ namespace llvm {
             assert(tmp % STC.getStackCacheBlockSize() == 0);
 
             // convert bytes back to blocks
-            info->Reserves[I] = tmp / STC.getStackCacheBlockSize();
+            info->Reserves[I] = tmp; // export in bytes
           }
         }
       }

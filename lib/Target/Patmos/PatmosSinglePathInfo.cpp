@@ -37,14 +37,14 @@
 
 using namespace llvm;
 
-
-/// SPRootList - Option to enable single-path conversion.
+/// SPRootList - Option to enable single-path code generation and specify entry
+///              functions. This option needs to be present even when all
+///              roots are specified via attributes.
 static cl::list<std::string> SPRootList(
     "mpatmos-singlepath",
     cl::value_desc("list"),
-    cl::desc("Functions for which single-path code is generated"),
-    cl::CommaSeparated,
-    cl::Hidden);
+    cl::desc("Entry functions for which single-path code is generated"),
+    cl::CommaSeparated);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -89,6 +89,7 @@ bool PatmosSinglePathInfo::isMaybe(const MachineFunction &MF) {
 
 void PatmosSinglePathInfo::getRootNames(std::set<std::string> &S) {
   S.insert( SPRootList.begin(), SPRootList.end() );
+  S.erase("");
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -220,6 +221,16 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   // info about loop latches and exit edges
   loop.getLoopLatches(Latches);
   loop.getExitEdges(ExitEdges);
+
+  // scan the header for loopbound info
+  for (MachineBasicBlock::iterator MI = header->begin(), ME = header->end();
+      MI != ME; ++MI) {
+    if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
+      // max is the second operand (idx 1)
+      LoopBound = MI->getOperand(1).getImm();
+      break;
+    }
+  }
 
 }
 

@@ -17,7 +17,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
-#include "llvm/CodeGen/PML.h"
+#include "llvm/PML.h"
 #include "llvm/CodeGen/PMLImport.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Support/CommandLine.h"

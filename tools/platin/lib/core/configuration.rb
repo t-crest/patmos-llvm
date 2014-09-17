@@ -36,15 +36,17 @@ class ToolConfigList < PMLList
 end
 
 class ToolConfig < PMLObject
-  def initialize(name, configuration, data)
-    @name, @configuration = name, configuration
+  attr_reader :name, :configuration, :options
+  def initialize(name, configuration, options, data)
+    @name, @configuration, @options = name, configuration, options
     set_yaml_repr(data)
   end
   def ToolConfig.from_pml(pml, data)
-    ToolConfig.new(data['name'],data['configuration'], data)
+    ToolConfig.new(data['name'],data['configuration'],data['options'], data)
   end
   def to_pml
-    { 'name' => @name, 'configuration' => @configuration }
+    { 'name' => @name, 'configuration' => @configuration, 
+      'options' => @options }.delete_if { |k,v| v.nil? }
   end
 end
 

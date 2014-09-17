@@ -136,6 +136,8 @@ namespace llvm {
 
     void clear();
 
+    bool empty();
+
     void initialize();
 
     /// Select a bundle for the current cycle. The selected instructions are
@@ -143,9 +145,8 @@ namespace llvm {
     /// issued, false is returned.
     bool selectBundle(std::vector<SUnit*> &Bundle);
 
-    /// Go back one cycle and update availability queue. If no more
-    /// instructions need to be scheduled, return false.
-    bool recedeCycle(unsigned CurrCycle);
+    /// Go back one cycle and update availability queue.
+    void recedeCycle(unsigned CurrCycle);
 
     /// Notify the queue that this instruction has now been scheduled.
     void scheduled(SUnit *SU, unsigned CurrCycle);
@@ -213,6 +214,9 @@ namespace llvm {
 
     /// Already scheduled cycles to the end of the region.
     unsigned int CurrCycle;
+
+    /// Are we emitting a pure pseudo instructions bundle?
+    bool CurrIsPseudo;
 
     /// The current bundle that we are emitting
     std::vector<SUnit*> CurrBundle;

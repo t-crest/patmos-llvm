@@ -23,6 +23,7 @@ class AlfTool
   #  ignored_definitions ... ignore the given set of definitions
   def AlfTool.run(options, alf_opts = {})
     needs_options(options, :alf_llc, :alf_file, :bitcode_file)
+    raise MissingToolException.new("alf-llc not found") unless which(options.alf_llc)
     cmd = [ options.alf_llc, "-march=alf", "-o", options.alf_file ]
     cmd.push("-alf-standalone") if alf_opts[:standalone]
     cmd.push("-alf-ignore-volatiles") if alf_opts[:ignore_volatiles]
@@ -98,6 +99,7 @@ class SweetAnalyzeTool
     if options.sweet_ignore_volatiles
       do_args = [ "-do" , "floats=est" ]
     end
+    raise MissingToolException.new("sweet not found") unless which(options.sweet)
     cmd = ([options.sweet] + i_args + do_args + ae_args + ff_args)
     version, commands, parsed = nil, [], []
     $stderr.puts("Executing #{cmd.join(" ")}") if options.verbose

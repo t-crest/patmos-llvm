@@ -26,6 +26,30 @@ class OptionParser
     }
     self.add_check { |options| die_usage "Option --ait-report-prefix is mandatory" unless options.ait_report_prefix } if mandatory
   end
+  def ait_icache_mode()
+    self.on("--ait-icache-mode MODE", "aiT instruction cache analysis mode (normal|always-hit|always-miss|miss-if-unknown|hit-if-unknown)") {
+      |f| options.ait_icache_mode = case f 
+              when "normal" then "Normal"
+	      when "always-miss" then "Always miss"
+	      when "always-hit" then "Always hit"
+	      when "miss-if-unknown" then "Miss if unknown"
+	      when "hit-if-unknown" then "Hit if unknown"
+	      else f
+	  end
+    }
+  end
+  def ait_dcache_mode()
+    self.on("--ait-dcache-mode MODE", "aiT data cache analysis mode (normal|always-hit|always-miss|miss-if-unknown|hit-if-unknown)") {
+      |f| options.ait_dcache_mode = case f 
+              when "normal" then "Normal"
+	      when "always-miss" then "Always miss"
+	      when "always-hit" then "Always hit"
+	      when "miss-if-unknown" then "Miss if unknown"
+	      when "hit-if-unknown" then "Hit if unknown"
+	      else f
+	  end
+    }
+  end
 end
 
 # Features not supported by the AIS/APX export module
@@ -299,7 +323,7 @@ class AISExporter
     end
 
     called = targets.map { |f| f.ais_ref }.join(", ")
-    gen_fact("instruction #{callsite.ais_ref} calls #{called}",
+    gen_fact("instruction #{callsite.programpoint.function.ais_ref} calls #{called}",
              "global indirect call targets (source: #{ff.origin})",ff)
   end
 
@@ -494,7 +518,10 @@ class AISExporter
       die("aiT: unknown stack cache annotation")
     end
 
-    gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{value}", "SC blocks (source: llvm sca)")
+    # XXX: the value is in bytes, aiT currently expects words (word-size blocks)
+    assert("expected spill/fill value to be a multiple of word") { value % 4 == 0 }
+    words = value / 4
+    gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{words}", "SC words (source: llvm sca)")
   end
 end
 
@@ -527,6 +554,8 @@ class APXExporter
         an_options << rexml_bool("xml_wcet_path", true)
         an_options << rexml_bool("xml_non_wcet_cycles", true)
         an_options << rexml_str("path_analysis_variant", "Prediction file based (ILP))")
+	an_options << rexml_str("instruction_cache_mode", @options.ait_icache_mode) if @options.ait_icache_mode
+	an_options << rexml_str("data_cache_mode", @options.ait_dcache_mode) if @options.ait_dcache_mode
       }
       add_element(proj_options, "general_options") { |gen_options|
         gen_options << rexml_str("include_path",".")
@@ -981,6 +1010,17 @@ class AitImport
     profile_list
   end
 
+  # XXX add hits and investigate scope of hit/miss stats
+  def read_cache_misses(wcet_elem, analysis_entry)
+    misses = {}
+    wcet_elem.each_element("wcet_results/wcet_cache_infos/wcet_cache_info") { |e|
+      routine = @routines[e.attributes['routine']]
+      type = e.attributes['type']
+      misses[type] = e.attributes['misses'].to_i
+    }
+    misses
+  end
+
   def run
     analysis_entry  = pml.machine_functions.by_label(options.analysis_entry, true)
     timing_entry = read_result_file(options.ait_report_prefix + ".xml")
@@ -1011,6 +1051,12 @@ class AitImport
       }
       timing_entry.profile = Profile.new(timing_list)
     end
+
+    # read cache statistics
+    read_cache_misses(wcet_elem, analysis_entry).each { |t,v|
+      timing_entry.attributes['cache-misses-' + t] = v if v > 0
+    }
+
     statistics("AIT","imported WCET results" => 1) if options.stats
     pml.timing.add(timing_entry)
   end

@@ -24,11 +24,11 @@ class CacheAnalysis
   def analyze(entry_function, ipet_builder)
     @scope_graph = nil # reset, entry_function might have changed
     if mc = @pml.arch.method_cache
-      mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
-      mca.extend_ipet(scope_graph(entry_function), ipet_builder)
+      @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
+      @mca.extend_ipet(scope_graph(entry_function), ipet_builder)
     elsif ic = @pml.arch.instruction_cache
-      ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
-      ica.extend_ipet(scope_graph(entry_function), ipet_builder)
+      @ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
+      @ica.extend_ipet(scope_graph(entry_function), ipet_builder)
     end
     if sc = @pml.arch.stack_cache
       if @options.use_sca_graph
@@ -63,9 +63,26 @@ class CacheAnalysis
   end
 
   def summarize(options, freqs, cost, report)
-    puts "Cache contribution:" if @sca and options.verbose
-    cycles = @sca.summarize(options, freqs, cost) if @sca
-    report.attributes['cache-cycles'] = cycles
+    total_cycles = 0
+    ica_results, sca_results = Hash.new(0), Hash.new(0)
+    
+    puts "Method cache contribution:" if @mca and options.verbose
+    ica_results = @mca.summarize(options, freqs, cost) if @mca
+
+    puts "Instruction cache contribution:" if @ica and options.verbose
+    ica_results = @ica.summarize(options, freqs, cost) if @ica
+
+    puts "Stack cache contribution:" if @sca and options.verbose
+    sca_results = @sca.summarize(options, freqs, cost) if @sca
+
+    { "instr" => ica_results, "stack" => sca_results }.each { |type,r|
+      r.each { |k,v|
+        report.attributes[k + "-" + type] = v
+	total_cycles += v if k == "cache-cycles"
+      }
+    }
+    
+    report.attributes['cache-cycles'] = total_cycles
   end
 end
 
@@ -133,6 +150,12 @@ class CacheRegionAnalysis
   # extend IPET, using conflict free scopes computed by +analyze+
   def extend_ipet(scopegraph, ipet_builder)
 
+    # cache tags per scope
+    @all_tags = {}
+
+    # all memory edges 
+    @all_load_edges = []
+
     # run scope-based analysis
     conflict_free_scopes = analyze(scopegraph)
 
@@ -166,6 +189,8 @@ class CacheRegionAnalysis
           # sum of load edges is equal to load instructions
           load_edge_sum = load_edges.map { |me| [me,1] }
           ipet_builder.mc_model.assert_equal(load_edge_sum, {li=>1}, "load_edges_#{li}",:cache)
+	  # collect all load edges
+	  @all_load_edges.concat(load_edges)
         }
 
         # add variable for tag
@@ -302,91 +327,140 @@ class CacheRegionAnalysis
   def persistence_analysis?
     @cache_properties.cache.policy == "lru" && options.wca_persistence_analysis
   end
+
+  def summarize(options, freqs, cost)
+    cycles = 0
+    misses = 0
+    @all_load_edges.each { |me|
+      puts "  cache load edge #{me}: #{freqs[me] || '??'} (#{cost[me]} cyc)" if options.verbose
+      cycles += cost[me] || 0
+      misses += freqs[me] || 0
+    }
+    { "cache-cycles" => cycles, "cache-misses" => misses }
+  end
 end
 
+#
+# class to compute conflict-free regions
+#
+class ConflictFreeRegionFormation
+  attr_reader :analysis, :cache_set
 
-class ConflictAnalysis
+  def initialize(region_graph, set, analysis)
+    @rg, @analysis = region_graph, analysis
+    @cache_set = set
+    @only_simple_regions = false
+    @regions, @region_header, @region_nodes = [], {}, {}, {}
+  end
 
-  #
-  # class to compute conflict-free regions
-  #
-  class ConflictFreeRegionFormation
-
-    def initialize(region_graph, analysis)
-      @rg, @analysis = region_graph, analysis
-      @only_simple_regions = false
-      @regions, @region_header, @region_nodes, @region_tags = [], {}, {}, {}, {}
-    end
-
-    def build_regions(set)
-
-      # NOTE: ruby tsort is recursive, and does not work for large graphs :(
-      # therefore, we use our own, efficient implementation
-
-      topological_sort(@rg.entry_node).each { |node|
-        node_tags = Set[*get_tags(node, set)]
-        if(pred_region = expandable?(node, node_tags, set))
-          @region_header[node] = pred_region
-          @region_tags[pred_region] += node_tags
-          @region_nodes[pred_region].push(node)
-        else
-          @region_header[node] = node
-          @region_tags[node] = node_tags
-          @region_nodes[node] = [node]
-          @regions.push(node)
-        end
-      }
-      self
-    end
-
-    # yield region pairs [header, tags]
-    def each
-      @regions.each { |region_header|
-        tags = @region_tags[region_header]
-        yield [region_header, tags]
-      }
-    end
-
-    private
-
-    def tags_of_region(region)
-      @region_tags[region]
-    end
-
-    def get_tags(node, set)
-      if node.kind_of?(RegionGraph::ActionNode)
-        tag = node.action.tag
-        return [] unless @analysis.cache_properties.set_of(tag) == set
-        [tag]
-      elsif node.kind_of?(RegionGraph::SubScopeNode)
-        return [] unless @analysis.conflict_free?(node.scope_node, set)
-        @analysis.get_all_tags(node.scope_node, set).keys
+  def build_regions
+    # NOTE: ruby tsort is recursive, and does not work for large graphs :(
+    # therefore, we use our own, efficient implementation
+    topological_sort(@rg.entry_node).each { |node|
+      if(pred_region = expandable?(node))
+        join_regions(pred_region, node)
       else
-        []
+        new_region(node)
       end
-    end
+    }
+    self
+  end
 
-    def expandable?(node, node_tags, set)
-      return nil if node.kind_of?(RegionGraph::RecNode)
-      return nil if node.kind_of?(RegionGraph::ExitNode)
-      if node.kind_of?(RegionGraph::SubScopeNode)
-        return nil unless @analysis.conflict_free?(node.scope_node, set)
-      end
-      some_pred = node.predecessors.first
-      return nil if some_pred.nil?
-      return nil if node.predecessors.length > 1 && @only_simple_regions
-      pred_region = @region_header[some_pred]
+  def new_region(node)
+    @region_header[node] = node
+    @region_nodes[node] = [node]
+    @regions.push(node)
+  end
 
-      return nil if node.predecessors.any? { |pred| pred.kind_of?(RegionGraph::EntryNode) }
-      return nil if node.predecessors.any? { |pred| @region_header[pred] != pred_region }
+  def join_regions(pred_region, node)
+    @region_header[node] = pred_region
+    @region_nodes[pred_region].push(node)
+  end
 
-      pred_tags = @region_tags[pred_region]
-      return nil unless @analysis.cache_properties.conflict_free?(pred_tags + node_tags)
+  # yields region headers
+  def each
+    @regions.each { |region_header|
+      yield region_header
+    }
+  end
 
-      return pred_region
+  def nodes_of_region(header)
+    @region_nodes[header]
+  end
+
+  def scope_of_region(region_header, scope_node)
+    case region_header
+    when RegionGraph::BlockEntryNode
+      ScopeGraph::BlockNode.new(region_header.block, scope_node.context)
+    when RegionGraph::BlockSliceNode
+      ScopeGraph::BlockNode.new(region_header.block, scope_node.context)
+    when RegionGraph::ActionNode
+      ScopeGraph::BlockNode.new(region_header.block, scope_node.context)
+    when RegionGraph::SubScopeNode
+      region_header.scope_node
+    else
+      # should never be reached, as entry, exit and recursion nodes are isolated without accesses
+      raise Exception.new("#{region_header} of type #{region_node.class} does not correspond to a scope")
     end
   end
 
+  private
+
+  def expandable?(node)
+    return nil if node.kind_of?(RegionGraph::RecNode)
+    return nil if node.kind_of?(RegionGraph::ExitNode)
+    if node.kind_of?(RegionGraph::SubScopeNode)
+      return nil unless analysis.conflict_free?(node.scope_node, cache_set)
+    end
+    some_pred = node.predecessors.first
+    return nil if some_pred.nil?
+    return nil if node.predecessors.length > 1 && @only_simple_regions
+    pred_region = @region_header[some_pred]
+
+    return nil if node.predecessors.any? { |pred| pred.kind_of?(RegionGraph::EntryNode) }
+    return nil if node.predecessors.any? { |pred| @region_header[pred] != pred_region }
+
+    return nil unless expanded_conflict_free?(pred_region, node)
+    return pred_region
+  end
+end
+
+class ConflictAnalysis
+
+  class RegionFormationRA < ConflictFreeRegionFormation
+    def initialize(region_graph, cache_set, analysis)
+      super(region_graph, cache_set, analysis)
+      @region_tags = {}
+    end
+    def new_region(node)
+      super(node)
+      @region_tags[node] = Set[*get_node_tags(node)]
+    end
+    def join_regions(pred_region, new_node)
+      super(pred_region, new_node)
+      @region_tags[pred_region] += get_node_tags(new_node)
+    end
+    def tags_of_region(region)
+      @region_tags[region] || Set.new
+    end
+    def expanded_conflict_free?(pred_region, node)
+      pred_tags = @region_tags[pred_region]
+      node_tags = get_node_tags(node)
+      return analysis.cache_properties.conflict_free?(pred_tags + node_tags)
+    end
+    def get_node_tags(node)
+      if node.kind_of?(RegionGraph::ActionNode)
+        tag = node.action.tag
+        return [] unless analysis.cache_properties.set_of(tag) == cache_set
+        Set[tag]
+      elsif node.kind_of?(RegionGraph::SubScopeNode)
+        return [] unless analysis.conflict_free?(node.scope_node, cache_set)
+        Set[*analysis.get_all_tags(node.scope_node, cache_set).keys]
+      else
+        Set.new
+      end
+    end
+  end
   attr_reader :options
 
   def initialize(cache_analysis, options)
@@ -439,9 +513,11 @@ class ConflictAnalysis
     if rg = @analysis.get_region_graph(node)
       if options.wca_cache_regions
         # process region graph in topological order
-        ConflictFreeRegionFormation.new(rg, self).build_regions(set).each { |header, tags|
+        rf = RegionFormationRA.new(rg, set, self)
+        rf.build_regions.each { |header|
+          tags = rf.tags_of_region(header)
           next if tags.empty?
-          scope_node = region_header_scope(node, header)
+          scope_node = rf.scope_of_region(header, node)
           tags.each { |tag|
             @analysis.add_scope_for_tag(scope_node, tag)
           }
@@ -473,22 +549,6 @@ class ConflictAnalysis
         }
       end
     }
-  end
-
-  def region_header_scope(scope_node, region_node)
-    case region_node
-    when RegionGraph::BlockEntryNode
-      ScopeGraph::BlockNode.new(region_node.block, scope_node.context)
-    when RegionGraph::BlockSliceNode
-      ScopeGraph::BlockNode.new(region_node.block, scope_node.context)
-    when RegionGraph::ActionNode
-      ScopeGraph::BlockNode.new(region_node.block, scope_node.context)
-    when RegionGraph::SubScopeNode
-      region_node.scope_node
-    else
-      # should never be reached, as entry, exit and recursion nodes are isolated without accesses
-      raise Exception.new("#{region_node} of type #{region_node.class} does not correspond to a scope")
-    end
   end
 
 end
@@ -720,25 +780,29 @@ class StackCacheAnalysis
     }
   end
   def summarize(options, freqs, cost)
-    cycles = summarize_fills(options, freqs, cost)
-    cycles += summarize_spills(options, freqs, cost)
-    cycles
+    fills = summarize_fills(options, freqs, cost)
+    spills = summarize_spills(options, freqs, cost)
+    fills.merge!(spills) { |k, v1, v2| v1 + v2 }
   end
   def summarize_fills(options, freqs, cost)
     cycles = 0
+    misses = 0
     @fill_blocks.each { |v,_|
       puts "  sc fill #{v}: #{freqs[v] || '??'} (#{cost[v]} cyc)" if options.verbose
       cycles += cost[v] || 0
+      misses += freqs[v] || 0
     }
-    cycles
+    { "cache-cycles" => cycles, "cache-misses" => misses }
   end
   def summarize_spills(options, freqs, cost)
     cycles = 0
+    misses = 0
     @spill_blocks.each { |v,_|
       puts "  sc spill #{v}: #{freqs[v] || '??'} (#{cost[v]} cyc)" if options.verbose
       cycles += cost[v] || 0
+      misses += freqs[v] || 0
     }
-    cycles
+    { "cache-cycles" => cycles, "cache-misses" => misses }
   end
 end
 
@@ -801,11 +865,13 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
   end
   def summarize_spills(options, freqs, cost)
     cycles = 0
+    misses = 0
     @spills.values.flat_map { |i| i }.each { |v|
       puts "  sc spill #{v}: #{freqs[v]} (#{cost[v]} cyc)" if freqs[v] and freqs[v] > 0 if options.verbose
       cycles += cost[v] || 0
+      misses += freqs[v] || 0
     }
-    cycles
+    { "cache-cycles" => cycles, "cache-misses" => misses }
   end
 end
 
