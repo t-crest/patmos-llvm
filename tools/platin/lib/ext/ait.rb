@@ -930,14 +930,27 @@ class AitImport
               # to the unique out-of-loop successor of the source. If it does not exist, we give up
               if ! target_block && @is_loopblock[target_block_id]
                 exit_successor = nil
-                source.block.successors.each { |s|
-                  if source.block.exitedge_source?(s)
-                    die("More than one exit edge from a block within a loop. This makes it" +
-                        "impossible (for us) to determine correct edge frequencies") if exit_successor
-                    exit_successor = s
-                  end
-                }
-                die("no loop exit successor for #{source}, although there is an edge to end-of-loop node") unless exit_successor
+
+		loop do
+                  source.block.successors.each { |s|
+                    if source.block.exitedge_source?(s)
+                      die("More than one exit edge from a block within a loop. This makes it" +
+                          "impossible (for us) to determine correct edge frequencies") if exit_successor
+                      exit_successor = s
+                    end
+                  }
+		  break if exit_successor
+
+		  # If we did not simplify the CFG, the exit edge might leave from a successor of the block. 
+                  # Hence check if there is a single successor block with a single predecessor, continue the exit search
+                  # from there.
+		  if source.block.successors.length == 1 && source.block.successors.first.predecessors.length == 1
+		    source = source.block.successors.first
+		  else
+                    die("no loop exit successor for #{source}, although there is an edge to end-of-loop node")
+		  end
+		end
+
                 pml_edge = source.block.edge_to(exit_successor)
               end
 
