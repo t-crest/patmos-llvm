@@ -601,6 +601,17 @@ class APXExporter
   end
 end
 
+
+class CacheStats
+  attr_reader :hits, :misses
+  def initialize(hits, misses)
+    @hits, @misses = hits, misses
+  end
+  def empty?
+    @hits == 0 && @misses == 0
+  end
+end
+
 class AitImport
   attr_reader :pml, :options
   def initialize(pml, options)
@@ -629,7 +640,7 @@ class AitImport
       die("routine #{routine.instruction} is not a basic block") unless routine.instruction.block.instructions.first == routine.instruction
       if elem.attributes['loop']
         routine.loop = routine.instruction.block
-        die("loop routine is not a loop header") unless routine.loop.loopheader?
+        die("loop #{routine.loop} with id #{elem.attributes['id']} in loop routine #{routine.instruction} is not a loop header") unless routine.loop.loopheader?
       else
         routine.function = routine.instruction.function
         die("routine is not entry block") unless routine.function.entry_block == routine.instruction.block
@@ -1020,15 +1031,17 @@ class AitImport
     profile_list
   end
 
-  # XXX add hits and investigate scope of hit/miss stats
-  def read_cache_misses(wcet_elem, analysis_entry)
-    misses = {}
+  # Returns a map with [hits,misses] per cache-type
+  # XXX  investigate scope of hit/miss stats
+  def read_cache_stats(wcet_elem, analysis_entry)
+    stats = {}
     wcet_elem.each_element("wcet_results/wcet_cache_infos/wcet_cache_info") { |e|
-      routine = @routines[e.attributes['routine']]
+      # TODO check: can there be cache results for anything else than the analysis entry?
+      #routine = @routines[e.attributes['routine']]
       type = e.attributes['type']
-      misses[type] = e.attributes['misses'].to_i
+      stats[type] = CacheStats.new(e.attributes['hits'].to_i, e.attributes['misses'].to_i)
     }
-    misses
+    stats
   end
 
   def run
@@ -1037,12 +1050,16 @@ class AitImport
 
     ait_report_file = options.ait_report_prefix + ".#{options.analysis_entry}" + ".xml"
     analysis_task_elem = REXML::Document.new(File.read(ait_report_file)).get_elements("a3/wcet_analysis_task").first
-    read_routines(analysis_task_elem)
-    debug(options,:ait) { |&msgs|
-      @routines.each do |id, r|
-        msgs.call("Routine #{id}: #{r}")
-      end
-    }
+    
+    # read routines (but only if they are actually used later on)
+    if options.import_block_timings || options.ait_import_addresses
+      read_routines(analysis_task_elem)
+      debug(options,:ait) { |&msgs|
+	@routines.each do |id, r|
+	  msgs.call("Routine #{id}: #{r}")
+	end
+      }
+    end
 
     # read value analysis results
     read_contexts(analysis_task_elem.get_elements("value_analysis/contexts").first)
@@ -1063,8 +1080,9 @@ class AitImport
     end
 
     # read cache statistics
-    read_cache_misses(wcet_elem, analysis_entry).each { |t,v|
-      timing_entry.attributes['cache-misses-' + t] = v if v > 0
+    read_cache_stats(wcet_elem, analysis_entry).each { |t,v|
+      timing_entry.attributes['cache-hits-' + t] = v.hits unless v.empty?
+      timing_entry.attributes['cache-misses-' + t] = v.misses unless v.empty?
     }
 
     statistics("AIT","imported WCET results" => 1) if options.stats
