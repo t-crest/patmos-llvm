@@ -2603,6 +2603,10 @@ public:
     return SDValue();
   }
 
+  virtual SDValue BuildRSQRTE(SDValue Op, DAGCombinerInfo &DCI) const {
+    return SDValue();
+  }
+
   //===--------------------------------------------------------------------===//
   // Legalization utility functions
   //
