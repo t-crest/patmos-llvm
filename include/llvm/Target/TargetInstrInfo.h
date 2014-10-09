@@ -1197,8 +1197,8 @@ public:
                             const TargetRegisterInfo *TRI) const {}
 
   /// Create machine specific model for scheduling.
-  virtual DFAPacketizer*
-    CreateTargetScheduleState(const TargetMachine*, const ScheduleDAG*) const {
+  virtual DFAPacketizer *
+  CreateTargetScheduleState(const TargetSubtargetInfo &) const {
     return nullptr;
   }
 
