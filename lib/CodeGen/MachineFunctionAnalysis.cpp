@@ -58,43 +58,8 @@ bool MachineFunctionAnalysis::doInitialization(Module &M) {
 
 bool MachineFunctionAnalysis::runOnFunction(Function &F) {
   assert(!MF && "MachineFunctionAnalysis already initialized!");
-
-  // Check whether a MachineFunction exists for F.
-  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
-  MF = MMI.getMachineFunction(&F);
-
-  // If function already exists and we want to restart, force creation
-  if (MF && TM) {
-    MMI.removeMachineFunction(&F);
-    delete MF;
-    MF = 0;
-  }
-
-  // No MachineFunction available? create one ...
-  if (!MF) {
-    if (TM) {
-      MF = new MachineFunction(&F, *TM, NextFnNum++, MMI,
-                               getAnalysisIfAvailable<GCModuleInfo>());
-    }
-    else if (!TM) {
-      // Note: We could retrieve the TargetMachine from MMI and pass a flag to the
-      // constructor to force (re-)creation of MFs (this must be set in
-      // LLVMTargetMachine, otherwise JIT recompilation breaks).
-      // However, we need to make sure functions are numbered properly in that
-      // case, so we need to persist the counter as well or use the number
-      // of persisted functions to calculate the function-number.
-      llvm_unreachable(
-         "MachineFunction has not been preserved. "
-         "Make sure to use MachineModulePasses instead of ModulePasses");
-    }
-  }
-  else {
-    // Once we stored the MF, keep it that way. This is a workaround for the
-    // problem that sometimes this pass is created on the fly and thus not
-    // found by MachineModulePass.
-    PreserveMF = true;
-  }
-
+  MF = new MachineFunction(&F, TM, NextFnNum++,
+                           getAnalysis<MachineModuleInfo>());
   return false;
 }
 
