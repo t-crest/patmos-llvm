@@ -953,7 +953,6 @@ private:
   unsigned BundleAlignSize;
 
   unsigned RelaxAll : 1;
-  unsigned NoExecStack : 1;
   unsigned SubsectionsViaSymbols : 1;
 
   /// ELF specific e_header flags
@@ -1098,9 +1097,6 @@ public:
 
   bool getRelaxAll() const { return RelaxAll; }
   void setRelaxAll(bool Value) { RelaxAll = Value; }
-
-  bool getNoExecStack() const { return NoExecStack; }
-  void setNoExecStack(bool Value) { NoExecStack = Value; }
 
   bool isBundlingEnabled() const {
     return BundleAlignSize != 0;

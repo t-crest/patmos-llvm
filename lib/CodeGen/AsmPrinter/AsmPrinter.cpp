@@ -181,7 +181,7 @@ bool AsmPrinter::doInitialization(Module &M) {
   const_cast<TargetLoweringObjectFile&>(getObjFileLowering())
     .Initialize(OutContext, TM);
 
-  OutStreamer.InitSections();
+  OutStreamer.InitSections(false);
 
   Mang = new Mangler(TM.getSubtargetImpl()->getDataLayout());
 
