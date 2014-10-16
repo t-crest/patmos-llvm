@@ -1291,6 +1291,7 @@ AC_PATH_PROG(GROFF, [groff])
 AC_PATH_PROG(GZIPBIN, [gzip])
 AC_PATH_PROG(PDFROFF, [pdfroff])
 AC_PATH_PROG(ZIP, [zip])
+AC_PATH_PROG(GO, [go])
 AC_PATH_PROGS(OCAMLC, [ocamlc])
 AC_PATH_PROGS(OCAMLOPT, [ocamlopt])
 AC_PATH_PROGS(OCAMLDEP, [ocamldep])
@@ -1871,6 +1872,11 @@ if test "$BINDINGS_TO_BUILD" = auto ; then
   if test "x$OCAMLC" != x -a "x$OCAMLDEP" != x ; then
     BINDINGS_TO_BUILD="ocaml $BINDINGS_TO_BUILD"
   fi
+  if test "x$GO" != x ; then
+    if $GO run ${srcdir}/bindings/go/conftest.go ; then
+      BINDINGS_TO_BUILD="go $BINDINGS_TO_BUILD"
+    fi
+  fi
 fi
 AC_SUBST(BINDINGS_TO_BUILD,$BINDINGS_TO_BUILD)
 
@@ -1902,6 +1908,19 @@ for a_binding in $BINDINGS_TO_BUILD ; do
       else
         # ocaml stdlib is outside our prefix; use libdir/ocaml
         AC_SUBST(OCAML_LIBDIR,${prefix}/lib/ocaml)
+      fi
+    fi
+    ;;
+  go)
+    if test "x$GO" = x ; then
+      AC_MSG_WARN([--enable-bindings=go specified, but go not found. Try configure GO=/path/to/go])
+      binding_prereqs_failed=1
+    else
+      if $GO run ${srcdir}/bindings/go/conftest.go ; then
+        :
+      else
+        AC_MSG_WARN([--enable-bindings=go specified, but need at least Go 1.2. Try configure GO=/path/to/go])
+        binding_prereqs_failed=1
       fi
     fi
     ;;
