@@ -173,7 +173,6 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     const MachineBasicBlock *MBB = MI->getParent();
     MachineBasicBlock::const_instr_iterator MII = MI;
     ++MII;
-    unsigned int IgnoreCount = 0;
     while (MII != MBB->end() && MII->isInsideBundle()) {
       const MachineInstr *MInst = MII;
       if (MInst->isPseudo()) {
@@ -187,7 +186,7 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       ++MII;
     }
     Size = BundleMIs.size();
-    assert((Size+IgnoreCount) == MI->getBundleSize() && "Corrupt Bundle!");
+    assert(Size == MI->getBundleSize() && "Corrupt Bundle!");
   }
   else {
     if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {

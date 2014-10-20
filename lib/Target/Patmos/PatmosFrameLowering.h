@@ -42,7 +42,7 @@ protected:
   /// \see EnableBlockAlignedStackCache
   /// \see getEffectiveStackCacheBlockSize
   unsigned getAlignedStackCacheFrameSize(unsigned frameSize) const;
-  
+
   /// assignFIsToStackCache - Assign some FIs to the stack cache.
   /// Currently this is only done for spill slots.
   /// @param SCFIs - should be set to true for all indices of frame objects
@@ -60,7 +60,8 @@ protected:
   /// and is retrieved via the PatmosMachineFunctionInfo.
   /// \see assignFIsToStackCache
   /// \see PatmosMachineFunctionInfo
-  void emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
+  /// @return The emitted instruction, or NULL if no instruction was emitted.
+  MachineInstr *emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                MachineBasicBlock::iterator &MI, unsigned Opcode) const;
 
   /// patchCallSites - Emit stack ensure operations after every call.

@@ -24,11 +24,11 @@ class CacheAnalysis
   def analyze(entry_function, ipet_builder)
     @scope_graph = nil # reset, entry_function might have changed
     if mc = @pml.arch.method_cache
-      mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
-      mca.extend_ipet(scope_graph(entry_function), ipet_builder)
+      @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
+      @mca.extend_ipet(scope_graph(entry_function), ipet_builder)
     elsif ic = @pml.arch.instruction_cache
-      ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
-      ica.extend_ipet(scope_graph(entry_function), ipet_builder)
+      @ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
+      @ica.extend_ipet(scope_graph(entry_function), ipet_builder)
     end
     if sc = @pml.arch.stack_cache
       if @options.use_sca_graph
@@ -45,9 +45,26 @@ class CacheAnalysis
   end
 
   def summarize(options, freqs, cost, report)
-    puts "Cache contribution:" if @sca and options.verbose
-    cycles = @sca.summarize(options, freqs, cost) if @sca
-    report.attributes['cache-cycles'] = cycles
+    total_cycles = 0
+    ica_results, sca_results = Hash.new(0), Hash.new(0)
+    
+    puts "Method cache contribution:" if @mca and options.verbose
+    ica_results = @mca.summarize(options, freqs, cost) if @mca
+
+    puts "Instruction cache contribution:" if @ica and options.verbose
+    ica_results = @ica.summarize(options, freqs, cost) if @ica
+
+    puts "Stack cache contribution:" if @sca and options.verbose
+    sca_results = @sca.summarize(options, freqs, cost) if @sca
+
+    { "instr" => ica_results, "stack" => sca_results }.each { |type,r|
+      r.each { |k,v|
+        report.attributes[k + "-" + type] = v
+	total_cycles += v if k == "cache-cycles"
+      }
+    }
+    
+    report.attributes['cache-cycles'] = total_cycles
   end
 end
 
@@ -118,6 +135,9 @@ class CacheRegionAnalysis
     # cache tags per scope
     @all_tags = {}
 
+    # all memory edges 
+    @all_load_edges = []
+
     # run scope-based analysis
     conflict_free_scopes = analyze(scopegraph)
 
@@ -151,6 +171,8 @@ class CacheRegionAnalysis
           # sum of load edges is equal to load instructions
           load_edge_sum = load_edges.map { |me| [me,1] }
           ipet_builder.mc_model.assert_equal(load_edge_sum, {li=>1}, "load_edges_#{li}",:cache)
+	  # collect all load edges
+	  @all_load_edges.concat(load_edges)
         }
 
         # add variable for tag
@@ -283,6 +305,17 @@ class CacheRegionAnalysis
 
   def persistence_analysis?
     @cache_properties.cache.policy == "lru" && options.wca_persistence_analysis
+  end
+
+  def summarize(options, freqs, cost)
+    cycles = 0
+    misses = 0
+    @all_load_edges.each { |me|
+      puts "  cache load edge #{me}: #{freqs[me] || '??'} (#{cost[me]} cyc)" if options.verbose
+      cycles += cost[me] || 0
+      misses += freqs[me] || 0
+    }
+    { "cache-cycles" => cycles, "cache-misses" => misses }
   end
 end
 
@@ -726,25 +759,29 @@ class StackCacheAnalysis
     }
   end
   def summarize(options, freqs, cost)
-    cycles = summarize_fills(options, freqs, cost)
-    cycles += summarize_spills(options, freqs, cost)
-    cycles
+    fills = summarize_fills(options, freqs, cost)
+    spills = summarize_spills(options, freqs, cost)
+    fills.merge!(spills) { |k, v1, v2| v1 + v2 }
   end
   def summarize_fills(options, freqs, cost)
     cycles = 0
+    misses = 0
     @fill_blocks.each { |v,_|
       puts "  sc fill #{v}: #{freqs[v] || '??'} (#{cost[v]} cyc)" if options.verbose
       cycles += cost[v] || 0
+      misses += freqs[v] || 0
     }
-    cycles
+    { "cache-cycles" => cycles, "cache-misses" => misses }
   end
   def summarize_spills(options, freqs, cost)
     cycles = 0
+    misses = 0
     @spill_blocks.each { |v,_|
       puts "  sc spill #{v}: #{freqs[v] || '??'} (#{cost[v]} cyc)" if options.verbose
       cycles += cost[v] || 0
+      misses += freqs[v] || 0
     }
-    cycles
+    { "cache-cycles" => cycles, "cache-misses" => misses }
   end
 end
 
@@ -807,11 +844,13 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
   end
   def summarize_spills(options, freqs, cost)
     cycles = 0
+    misses = 0
     @spills.values.flat_map { |i| i }.each { |v|
       puts "  sc spill #{v}: #{freqs[v]} (#{cost[v]} cyc)" if freqs[v] and freqs[v] > 0 if options.verbose
       cycles += cost[v] || 0
+      misses += freqs[v] || 0
     }
-    cycles
+    { "cache-cycles" => cycles, "cache-misses" => misses }
   end
 end
 

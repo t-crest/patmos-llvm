@@ -26,6 +26,30 @@ class OptionParser
     }
     self.add_check { |options| die_usage "Option --ait-report-prefix is mandatory" unless options.ait_report_prefix } if mandatory
   end
+  def ait_icache_mode()
+    self.on("--ait-icache-mode MODE", "aiT instruction cache analysis mode (normal|always-hit|always-miss|miss-if-unknown|hit-if-unknown)") {
+      |f| options.ait_icache_mode = case f 
+              when "normal" then "Normal"
+	      when "always-miss" then "Always miss"
+	      when "always-hit" then "Always hit"
+	      when "miss-if-unknown" then "Miss if unknown"
+	      when "hit-if-unknown" then "Hit if unknown"
+	      else f
+	  end
+    }
+  end
+  def ait_dcache_mode()
+    self.on("--ait-dcache-mode MODE", "aiT data cache analysis mode (normal|always-hit|always-miss|miss-if-unknown|hit-if-unknown)") {
+      |f| options.ait_dcache_mode = case f 
+              when "normal" then "Normal"
+	      when "always-miss" then "Always miss"
+	      when "always-hit" then "Always hit"
+	      when "miss-if-unknown" then "Miss if unknown"
+	      when "hit-if-unknown" then "Hit if unknown"
+	      else f
+	  end
+    }
+  end
 end
 
 # Features not supported by the AIS/APX export module
@@ -230,9 +254,6 @@ class AISExporter
                  "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
       when 'stack-cache'
         # always enabled (new in aiT version >= 205838)
-        if cache.size != 1024
-          warn("aiT: currently not possible to configure stack cache size different from 1024 bytes")
-        end
       end
     }
 
@@ -530,6 +551,8 @@ class APXExporter
         an_options << rexml_bool("xml_wcet_path", true)
         an_options << rexml_bool("xml_non_wcet_cycles", true)
         an_options << rexml_str("path_analysis_variant", "Prediction file based (ILP))")
+	an_options << rexml_str("instruction_cache_mode", @options.ait_icache_mode) if @options.ait_icache_mode
+	an_options << rexml_str("data_cache_mode", @options.ait_dcache_mode) if @options.ait_dcache_mode
       }
       add_element(proj_options, "general_options") { |gen_options|
         gen_options << rexml_str("include_path",".")
@@ -578,6 +601,17 @@ class APXExporter
   end
 end
 
+
+class CacheStats
+  attr_reader :hits, :misses
+  def initialize(hits, misses)
+    @hits, @misses = hits, misses
+  end
+  def empty?
+    @hits == 0 && @misses == 0
+  end
+end
+
 class AitImport
   attr_reader :pml, :options
   def initialize(pml, options)
@@ -606,7 +640,7 @@ class AitImport
       die("routine #{routine.instruction} is not a basic block") unless routine.instruction.block.instructions.first == routine.instruction
       if elem.attributes['loop']
         routine.loop = routine.instruction.block
-        die("loop routine is not a loop header") unless routine.loop.loopheader?
+        die("loop #{routine.loop} with id #{elem.attributes['id']} in loop routine #{routine.instruction} is not a loop header") unless routine.loop.loopheader?
       else
         routine.function = routine.instruction.function
         die("routine is not entry block") unless routine.function.entry_block == routine.instruction.block
@@ -907,14 +941,27 @@ class AitImport
               # to the unique out-of-loop successor of the source. If it does not exist, we give up
               if ! target_block && @is_loopblock[target_block_id]
                 exit_successor = nil
-                source.block.successors.each { |s|
-                  if source.block.exitedge_source?(s)
-                    die("More than one exit edge from a block within a loop. This makes it" +
-                        "impossible (for us) to determine correct edge frequencies") if exit_successor
-                    exit_successor = s
-                  end
-                }
-                die("no loop exit successor for #{source}, although there is an edge to end-of-loop node") unless exit_successor
+
+		loop do
+                  source.block.successors.each { |s|
+                    if source.block.exitedge_source?(s)
+                      die("More than one exit edge from a block within a loop. This makes it" +
+                          "impossible (for us) to determine correct edge frequencies") if exit_successor
+                      exit_successor = s
+                    end
+                  }
+		  break if exit_successor
+
+		  # If we did not simplify the CFG, the exit edge might leave from a successor of the block. 
+                  # Hence check if there is a single successor block with a single predecessor, continue the exit search
+                  # from there.
+		  if source.block.successors.length == 1 && source.block.successors.first.predecessors.length == 1
+		    source = source.block.successors.first
+		  else
+                    die("no loop exit successor for #{source}, although there is an edge to end-of-loop node")
+		  end
+		end
+
                 pml_edge = source.block.edge_to(exit_successor)
               end
 
@@ -984,15 +1031,17 @@ class AitImport
     profile_list
   end
 
-  # XXX add hits and investigate scope of hit/miss stats
-  def read_cache_misses(wcet_elem, analysis_entry)
-    misses = {}
+  # Returns a map with [hits,misses] per cache-type
+  # XXX  investigate scope of hit/miss stats
+  def read_cache_stats(wcet_elem, analysis_entry)
+    stats = {}
     wcet_elem.each_element("wcet_results/wcet_cache_infos/wcet_cache_info") { |e|
-      routine = @routines[e.attributes['routine']]
+      # TODO check: can there be cache results for anything else than the analysis entry?
+      #routine = @routines[e.attributes['routine']]
       type = e.attributes['type']
-      misses[type] = e.attributes['misses'].to_i
+      stats[type] = CacheStats.new(e.attributes['hits'].to_i, e.attributes['misses'].to_i)
     }
-    misses
+    stats
   end
 
   def run
@@ -1001,12 +1050,16 @@ class AitImport
 
     ait_report_file = options.ait_report_prefix + ".#{options.analysis_entry}" + ".xml"
     analysis_task_elem = REXML::Document.new(File.read(ait_report_file)).get_elements("a3/wcet_analysis_task").first
-    read_routines(analysis_task_elem)
-    debug(options,:ait) { |&msgs|
-      @routines.each do |id, r|
-        msgs.call("Routine #{id}: #{r}")
-      end
-    }
+    
+    # read routines (but only if they are actually used later on)
+    if options.import_block_timings || options.ait_import_addresses
+      read_routines(analysis_task_elem)
+      debug(options,:ait) { |&msgs|
+	@routines.each do |id, r|
+	  msgs.call("Routine #{id}: #{r}")
+	end
+      }
+    end
 
     # read value analysis results
     read_contexts(analysis_task_elem.get_elements("value_analysis/contexts").first)
@@ -1027,8 +1080,9 @@ class AitImport
     end
 
     # read cache statistics
-    read_cache_misses(wcet_elem, analysis_entry).each { |t,v|
-      timing_entry.attributes['cache-misses-' + t] = v if v > 0
+    read_cache_stats(wcet_elem, analysis_entry).each { |t,v|
+      timing_entry.attributes['cache-hits-' + t] = v.hits unless v.empty?
+      timing_entry.attributes['cache-misses-' + t] = v.misses unless v.empty?
     }
 
     statistics("AIT","imported WCET results" => 1) if options.stats

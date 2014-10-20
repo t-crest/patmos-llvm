@@ -244,7 +244,7 @@ class CacheConfig < PMLObject
   #
   # type of the cache
   # * YAML key: +type+
-  # * Type: <tt>"standard" | "method-cache" | "stack-cache"</tt>
+  # * Type: <tt>"set-associative" | "method-cache" | "stack-cache"</tt>
   attr_reader :type
 
   ##
@@ -375,11 +375,24 @@ class MemoryArea < PMLObject
   # * Type: -> ValueRange
   attr_reader :address_range
 
+  ##
+  # :attr_reader: attributes
+  #
+  # additional attributes for the memory area (key/value pairs)
+  attr_reader :attributes
+
+  def get_attribute(key)
+    attribute_pair = attributes.find { |e| e['key'] == key }
+    return nil unless attribute_pair
+    attribute_pair['value']
+  end
+
 
   def initialize(name, type, cache, memory, address_range,data = nil)
     @name, @type, @cache, @memory, @address_range =
       name, type, cache, memory, address_range
     set_yaml_repr(data)
+    @attributes = data ? (data['attributes'] ||= []) : []
   end
 
   def MemoryArea.from_pml(memories_caches, data)
@@ -397,7 +410,8 @@ class MemoryArea < PMLObject
       "type" => type,
       "cache" => cache.name,
       "memory" => memory.name,
-      "address-range" => address_range.to_pml
+      "address-range" => address_range.to_pml,
+      "attributes" => attributes
     }.delete_if { |k,v| v.nil? }
   end
 end # class MemoryArea

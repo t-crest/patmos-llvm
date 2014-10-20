@@ -96,6 +96,8 @@ end
 
 class ApxExportTool
   def ApxExportTool.add_config_options(opts)
+    opts.ait_icache_mode
+    opts.ait_dcache_mode
   end
   def ApxExportTool.add_options(opts, mandatory=true)
     opts.analysis_entry

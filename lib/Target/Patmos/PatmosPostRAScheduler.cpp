@@ -593,6 +593,10 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
       DEBUG(dbgs() << "Scheduling NOOP at top\n");
 
       TII->insertNoop(*BB, CurrentTop);
+      // set ReginBegin to the NOP if we inserted a NOP at the region start
+      if (CurrentTop == RegionBegin) {
+	RegionBegin = llvm::prior(CurrentTop);
+      }
     }
   }
   else {
@@ -614,6 +618,14 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
       DEBUG(dbgs() << "Scheduling NOOP at bottom\n");
 
       TII->insertNoop(*BB, CurrentBottom);
+      // recede Top as well if we insert a NOP at the top
+      if (CurrentBottom == CurrentTop) {
+	CurrentTop = llvm::prior(CurrentTop);
+      }
+      // set ReginBegin to the NOP if we inserted a NOP at the region start
+      if (CurrentBottom == RegionBegin) {
+	RegionBegin = llvm::prior(CurrentBottom);
+      }
       CurrentBottom = llvm::prior(CurrentBottom);
     }
   }

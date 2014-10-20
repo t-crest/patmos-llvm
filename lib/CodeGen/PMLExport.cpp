@@ -355,8 +355,8 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
           std::string MarkerName = utostr(MarkerId);
           I->Marker = MarkerName;
         } else {
-          errs() << "Marker with non-constant argument:\n";
-          CI->print(errs());
+          errs() << "Marker with non-constant argument:\n"
+            << *CI << "\n";
         }
         break;
       case Intrinsic::loopbound:
@@ -371,17 +371,19 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
                 LI.isLoopHeader(BAddr->getBasicBlock())) {
               if (ConstantInt *MaxBoundInt =
                   dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
-                uint64_t MaxBound = MaxBoundInt->getZExtValue();
-                YDoc.addFlowFact(
-                    createLoopFact(BB, MaxBound, /*UserAnnot=*/true));
-                NumAnnotatedBounds++; // STATISTICS
+                uint64_t MaxHeaderCount = MaxBoundInt->getZExtValue() + 1;
+                if(MaxHeaderCount < 0xFFFFFFFFu) {
+                  YDoc.addFlowFact(
+                      createLoopFact(BB, MaxHeaderCount, /*UserAnnot=*/true));
+                  NumAnnotatedBounds++; // STATISTICS
+                }
               } else {
-                errs() << "Skipping: Annotated Loop bound is non-constant:\n";
-                CI->print(errs());
+                errs() << "Skipping: Annotated Loop bound is non-constant:\n"
+                  << *CI << "\n";
               }
             } else {
-              errs() << "Skipping: Loop bound is not correctly transformed:\n";
-              CI->print(errs());
+              errs() << "Skipping: Loop bound is not correctly transformed:\n"
+                << *CI << "\n";
             }
           }
         }

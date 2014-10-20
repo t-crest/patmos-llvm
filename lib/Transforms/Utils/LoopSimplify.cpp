@@ -56,11 +56,19 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/CFG.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 using namespace llvm;
+
+
+static cl::opt<bool>
+DisableSeparateNestedLoops("disable-separate-nested-loops",
+    cl::init(false), cl::Hidden,
+    cl::desc("Never create nested loops for loops with multiple backedges."));
+
 
 STATISTIC(NumInserted, "Number of pre-header or exit blocks inserted");
 STATISTIC(NumNested  , "Number of nested loops split out");
@@ -249,7 +257,8 @@ ReprocessLoop:
     // this for loops with a giant number of backedges, just factor them into a
     // common backedge instead.
     if (L->getNumBackEdges() < 8) {
-      if (SeparateNestedLoop(L, LPM, Preheader)) {
+      if (!DisableSeparateNestedLoops &&
+          SeparateNestedLoop(L, LPM, Preheader)) {
         ++NumNested;
         // This is a big restructuring change, reprocess the whole loop.
         Changed = true;
