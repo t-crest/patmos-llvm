@@ -136,9 +136,11 @@ namespace {
     /// prolog-epilog insertion.  This should return true if -print-machineinstrs
     /// should print after these passes.
     virtual bool addPostRegAlloc() {
-      addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
-      addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
-      addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
+      if (PatmosSinglePathInfo::isEnabled()) {
+        addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
+        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+        addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
+      }
       return false;
     }
 
@@ -174,9 +176,6 @@ namespace {
       if (EnableStackCacheAnalysis) {
         addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
       }
-
-      addPass(createPatmosRmLoopboundPass(getPatmosTargetMachine()));
-
       return true;
     }
 

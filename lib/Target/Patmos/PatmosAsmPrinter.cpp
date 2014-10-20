@@ -176,12 +176,13 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     unsigned int IgnoreCount = 0;
     while (MII != MBB->end() && MII->isInsideBundle()) {
       const MachineInstr *MInst = MII;
-      if (MInst->getOpcode() == TargetOpcode::DBG_VALUE ||
-          MInst->getOpcode() == TargetOpcode::IMPLICIT_DEF) {
-          IgnoreCount++;
-          ++MII;
-          continue;
+      if (MInst->isPseudo()) {
+        // DBG_VALUE and IMPLICIT_DEFs outside of bundles are handled in
+        // AsmPrinter::EmitFunctionBody()
+        MInst->dump();
+        report_fatal_error("Pseudo instructions must not be bundled!");
       }
+
       BundleMIs.push_back(MInst);
       ++MII;
     }
@@ -189,6 +190,13 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     assert((Size+IgnoreCount) == MI->getBundleSize() && "Corrupt Bundle!");
   }
   else {
+    if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
+      int LoopBoundMin = MI->getOperand(0).getImm();
+      int LoopBoundMax = MI->getOperand(1).getImm();
+      OutStreamer.GetCommentOS() << "Loop bound: ["
+        << LoopBoundMin << ", " << LoopBoundMax << "]\n";
+      return;
+    }
     BundleMIs.push_back(MI);
   }
 
