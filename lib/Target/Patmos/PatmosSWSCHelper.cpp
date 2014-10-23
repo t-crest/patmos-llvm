@@ -16,6 +16,8 @@
 #include "PatmosInstrInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 
 using namespace llvm;
@@ -47,7 +49,14 @@ namespace {
     }
 
     virtual bool runOnMachineFunction(MachineFunction &MF) {
-      unsigned ReserveList[] = {
+      // Patmos return regs
+      unsigned RetReserveList[] = {
+        Patmos::R1,
+        Patmos::R2
+      };
+
+      // Patmos arg/scratch regs (r9, r10 have special use)
+      unsigned TmpReserveList[] = {
         Patmos::R3,
         Patmos::R4,
         Patmos::R5,
@@ -58,22 +67,46 @@ namespace {
         Patmos::R10
       };
       bool changed = false;
-      if (!MF.getFunction()->hasFnAttribute(Attribute::Naked))
+      if (! (MF.getFunction()->hasFnAttribute("patmos-preserve-ret") ||
+             MF.getFunction()->hasFnAttribute("patmos-preserve-tmp")))
         return false;
 
+
+      if (!MF.getFunction()->hasFnAttribute(Attribute::Naked))
+        llvm_unreachable("reserving regs in non-naked function");
+
+      // a vector to collect the regs to be reserved
+      std::vector<unsigned> Reserved;
+
+      unsigned RetSize = sizeof(RetReserveList) / sizeof(unsigned);
+      unsigned TmpSize = sizeof(TmpReserveList) / sizeof(unsigned);
+
+      // add returns regs based on function attribute
+      if (MF.getFunction()->hasFnAttribute("patmos-preserve-ret"))
+        Reserved.insert(Reserved.end(), &RetReserveList[0],
+                        &RetReserveList[RetSize]);
+
+      // add scratch regs based on function attribute
+      if (MF.getFunction()->hasFnAttribute("patmos-preserve-tmp"))
+        Reserved.insert(Reserved.end(), &TmpReserveList[0],
+                        &TmpReserveList[TmpSize]);
+
+      dbgs() << "LLC-SWSC-Helper: " << Reserved.size()
+        << " reg(s) reserved in " << MF.getFunction()->getName() << ".\n";
+
+      // reserve by marking regs live-in and still live in all 'return's
       for (MachineFunction::iterator FI = MF.begin(), FE = MF.end();
            FI != FE; ++FI) {
         MachineBasicBlock &MBB = *FI;
-        for (unsigned i = 0; i < sizeof(ReserveList) / sizeof(unsigned); ++i)
-          MBB.addLiveIn(ReserveList[i]);
+        for (unsigned i = 0, e = Reserved.size(); i < e; ++i)
+          MBB.addLiveIn(Reserved[i]);
 
         for (MachineBasicBlock::iterator MI = FI->begin(), ME = FI->end();
             MI != ME; ++MI) {
           if (MI->isReturn()) {
-            for (unsigned i = 0; i < sizeof(ReserveList) / sizeof(unsigned);
-                 ++i) {
+            for (unsigned i = 0, e = Reserved.size(); i < e; ++i) {
               MI->addOperand(
-                MachineOperand::CreateReg(ReserveList[i], false, true));
+                MachineOperand::CreateReg(Reserved[i], false, true));
             }
           }
         }
