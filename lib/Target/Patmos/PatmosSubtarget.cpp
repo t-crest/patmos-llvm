@@ -33,9 +33,15 @@ static cl::opt<unsigned> StackCacheBlockSize("mpatmos-stack-cache-block-size",
 
 /// StackCacheSize - Total size of the stack cache in bytes (default: 4096,
 /// i.e., 1K words).
-static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
-                           cl::init(2048),
-                           cl::desc("Total size of the stack cache in bytes."));
+//static cl::opt<unsigned> StackCacheSize("mpatmos-stack-cache-size",
+//                           cl::init(2048),
+//                           cl::desc("Total size of the stack cache in bytes."));
+
+// SWSC
+static cl::opt<unsigned> StackCacheSize("mpatmos-swsc-spm-size",
+                           cl::init(1024),
+                           cl::desc("Size of the software stack cache (SPM)"));
+
 
 /// MethodCacheSize - Total size of the method cache in bytes.
 static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",

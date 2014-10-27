@@ -17,6 +17,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosRegisterInfo.h"
 #include "PatmosSinglePathInfo.h"
+#include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -151,8 +152,65 @@ PatmosRegisterInfo::computeLargeFIOffset(MachineRegisterInfo &MRI,
   offset  = offsetLeft;
 }
 
+void
+PatmosRegisterInfo::computeSWSCAddress(MachineRegisterInfo &MRI,
+                                       const MachineFrameInfo &MFI,
+                                       MachineInstr &MI,
+                                       unsigned FIOperandNum,
+                                       MachineBasicBlock::iterator II) const {
 
+  MachineBasicBlock &MBB = *II->getParent();
+  DebugLoc DL            = II->getDebugLoc();
+  const PatmosSubtarget &STC = getTargetMachine().getSubtarget<PatmosSubtarget>();
 
+  const int FrameIndex        = MI.getOperand(FIOperandNum).getIndex();
+  const int FrameOffset       = MFI.getObjectOffset(FrameIndex);
+  const int FrameDisplacement = MI.getOperand(FIOperandNum+1).getImm();
+
+  //int Offset = SCFIs.empty() ? MFI.getStackSize() + FrameOffset : FrameOffset;
+  int Offset = FrameOffset + FrameDisplacement;
+
+  unsigned Mask = STC.getStackCacheSize() - 1;
+  assert(Offset >= 0);
+  assert(isUInt<12>(Offset));
+  assert(isUInt<12>(Mask));
+
+  unsigned scratchReg = Patmos::RTR;
+  AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::ADDi), scratchReg))
+    .addReg(Patmos::RSWSP).addImm(Offset);
+  AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::ANDi), scratchReg))
+    .addReg(scratchReg).addImm(Mask);
+
+  dbgs() << "rewrite: " << MI << "\n";
+
+  unsigned opcode = MI.getOpcode();
+  switch (opcode)
+  {
+    case Patmos::LWC: case Patmos::LWM: opcode = Patmos::LWL; break;
+    case Patmos::LHC: case Patmos::LHM: opcode = Patmos::LHL; break;
+    case Patmos::LHUC: case Patmos::LHUM: opcode = Patmos::LHUL; break;
+    case Patmos::LBC: case Patmos::LBM: opcode = Patmos::LBL; break;
+    case Patmos::LBUC: case Patmos::LBUM: opcode = Patmos::LBUL; break;
+    case Patmos::SWC: case Patmos::SWM: opcode = Patmos::SWL; break;
+    case Patmos::SHC: case Patmos::SHM: opcode = Patmos::SHL; break;
+    case Patmos::SBC: case Patmos::SBM: opcode = Patmos::SBL; break;
+    //case Patmos::ADDi: case Patmos::ADDl:
+    case Patmos::DBG_VALUE:
+      break;
+    default:
+      llvm_unreachable("Unexpected operation with FrameIndex encountered.");
+  }
+
+  const MCInstrDesc &newMCID = TII.get(opcode);
+  MI.setDesc(newMCID);
+
+  // update the instruction's operands
+  MI.getOperand(FIOperandNum).ChangeToRegister(scratchReg, /*isDef*/false,
+                                               /*isImp*/false, /*iskill*/true);
+  MI.getOperand(FIOperandNum+1).ChangeToImmediate(0);
+
+  dbgs() << "  to: " << MI << "\n";
+}
 
 void
 PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
@@ -237,9 +295,9 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   //----------------------------------------------------------------------------
   // Stack Object / Frame Index
 
-  int FrameIndex        = MI.getOperand(FIOperandNum).getIndex();
-  int FrameOffset       = MFI.getObjectOffset(FrameIndex);
-  int FrameDisplacement = MI.getOperand(FIOperandNum+1).getImm();
+  const int FrameIndex        = MI.getOperand(FIOperandNum).getIndex();
+  const int FrameOffset       = MFI.getObjectOffset(FrameIndex);
+  const int FrameDisplacement = MI.getOperand(FIOperandNum+1).getImm();
 
   //----------------------------------------------------------------------------
   // Stack cache info
@@ -263,6 +321,13 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // no base pointer needed for stack cache
   if (isOnStackCache)
     BasePtr = Patmos::R0;
+
+  // SWSC handling
+  if (isOnStackCache) {
+    assert(!SCFIs.empty());
+    computeSWSCAddress(MRI, MFI, MI, FIOperandNum, II);
+    return;
+  }
 
   //----------------------------------------------------------------------------
   // Update instruction
@@ -354,10 +419,10 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       llvm_unreachable("Unexpected operation with FrameIndex encountered.");
   }
 
-  if (isOnStackCache) {
-    const MCInstrDesc &newMCID = TII.get(opcode);
-    MI.setDesc(newMCID);
-  }
+  //if (isOnStackCache) {
+  //  const MCInstrDesc &newMCID = TII.get(opcode);
+  //  MI.setDesc(newMCID);
+  //}
 
   // update the instruction's operands
   MI.getOperand(FIOperandNum).ChangeToRegister(BasePtr, false, false, computedLargeOffset);

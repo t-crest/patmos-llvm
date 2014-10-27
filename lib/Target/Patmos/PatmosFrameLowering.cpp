@@ -164,7 +164,7 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
   // defaults to false (all objects are assigned to shadow stack)
   BitVector SCFIs(MFI.getObjectIndexEnd());
 
-  if (UseStackCache) {
+  if (UseStackCache || MF.getFunction()->getName() == "victim") {
     assignFIsToStackCache(MF, SCFIs);
   }
 
@@ -272,15 +272,11 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
                                   unsigned Opcode) const {
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
-#if 0
   // align the stack cache frame size
   unsigned alignedStackSize = getAlignedStackCacheFrameSize(
                                      PMFI.getStackCacheReservedBytes());
   assert(alignedStackSize <= getEffectiveStackCacheSize());
-#endif
 
-  // XXX 16 byte for testing
-  unsigned alignedStackSize = 16;
 
   // STC instructions are specified in words
   unsigned stackFrameSize = alignedStackSize / 4;

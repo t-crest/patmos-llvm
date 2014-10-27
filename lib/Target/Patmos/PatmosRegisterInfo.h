@@ -19,6 +19,8 @@
 #define GET_REGINFO_HEADER
 #include "PatmosGenRegisterInfo.inc"
 
+#define RSWSP R27
+
 namespace llvm {
 
 class TargetInstrInfo;
@@ -40,6 +42,12 @@ private:
                             int &offset, unsigned &basePtr,
                             MachineBasicBlock::iterator II,
                             int shl) const;
+  void
+    computeSWSCAddress(MachineRegisterInfo &MRI,
+                       const MachineFrameInfo &MFI,
+                       MachineInstr &MI,
+                       unsigned FIOperandNum,
+                       MachineBasicBlock::iterator II) const;
 
   /// expandPseudoPregInstr - expand PSEUDO_PREG_SPILL or PSEUDO_PREG_RELOAD
   /// to a sequence of real machine instructions.
