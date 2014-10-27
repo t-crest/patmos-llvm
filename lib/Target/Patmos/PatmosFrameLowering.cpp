@@ -47,7 +47,12 @@ static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
 static cl::opt<bool> EnableSoftSC("mpatmos-enable-soft-sc",
                             cl::init(true),
                             cl::desc("Enable stackcache in software (SPM)"));
-                            
+
+static cl::opt<std::string> SWSCFunc("mpatmos-soft-sc-func",
+                              cl::init("-"),
+                              cl::desc("Restrict SWSC to one function"));
+
+
 /// EnableBlockAlignedStackCache - Command line option to enable the usage of 
 /// the block-aligned stack cache (disabled by default).
 static cl::opt<bool> EnableBlockAlignedStackCache
@@ -164,7 +169,8 @@ unsigned PatmosFrameLowering::assignFrameObjects(MachineFunction &MF,
   // defaults to false (all objects are assigned to shadow stack)
   BitVector SCFIs(MFI.getObjectIndexEnd());
 
-  if (UseStackCache || MF.getFunction()->getName() == "victim") {
+  if ((EnableSoftSC && SWSCFunc == "-") ||
+      (EnableSoftSC && MF.getFunction()->getName() == SWSCFunc)) {
     assignFIsToStackCache(MF, SCFIs);
   }
 
@@ -357,10 +363,10 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
     report_fatal_error("Stack alignment other than 4 byte is not supported");
   }
 
+  assert(DisableStackCache && "enabled SC not supported right now");
+
   // assign some FIs to the stack cache if possible
   unsigned stackSize = assignFrameObjects(MF, !DisableStackCache);
-
-  assert(DisableStackCache && "enabled SC not supported right now");
     
   if (!DisableStackCache || EnableSoftSC) {
     // patch all call sites with ensure
