@@ -95,7 +95,7 @@ namespace {
     }
 
     bool runOnMachineFunction(MachineFunction &Fn) override;
-    
+
     bool enablePostRAScheduler(
         const TargetSubtargetInfo &ST, CodeGenOpt::Level OptLevel,
         TargetSubtargetInfo::AntiDepBreakMode &Mode,
@@ -557,10 +557,10 @@ void SchedulePostRATDList::ListScheduleTopDown() {
       if (HT == ScheduleHazardRecognizer::NoHazard) {
         if (HazardRec->ShouldPreferAnother(CurSUnit)) {
           if (!NotPreferredSUnit) {
-	    // If this is the first non-preferred node for this cycle, then
-	    // record it and continue searching for a preferred node. If this
-	    // is not the first non-preferred node, then treat it as though
-	    // there had been a hazard.
+            // If this is the first non-preferred node for this cycle, then
+            // record it and continue searching for a preferred node. If this
+            // is not the first non-preferred node, then treat it as though
+            // there had been a hazard.
             NotPreferredSUnit = CurSUnit;
             continue;
           }
