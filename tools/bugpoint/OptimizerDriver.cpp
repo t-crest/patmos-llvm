@@ -191,17 +191,29 @@ bool BugDriver::runPasses(Module *Program,
   }
 
   std::string tool = OptCmd;
-
-  if (tool.empty()) {
-    // Try searching for a matching version of opt first.
-    tool = PrependMainExecutablePath("opt", getToolName(), (void*)"opt");
-    if (tool.empty() || !llvm::sys::fs::exists(tool)) {
-      tool = sys::FindProgramByName("opt");
-    }
+  if (OptCmd.empty()) {
+    auto Path = sys::findProgramByName("opt");
+    if (!Path)
+      errs() << Path.getError().message() << "\n";
+    else
+      tool = *Path;
   }
-
   if (tool.empty()) {
     errs() << "Cannot find `opt' in PATH!\n";
+    return 1;
+  }
+
+  std::string Prog;
+  if (UseValgrind) {
+    auto Path = sys::findProgramByName("valgrind");
+    if (!Path)
+      errs() << Path.getError().message() << "\n";
+    else
+      Prog = *Path;
+  } else
+    Prog = tool;
+  if (Prog.empty()) {
+    errs() << "Cannot find `valgrind' in PATH!\n";
     return 1;
   }
 
@@ -243,12 +255,6 @@ bool BugDriver::runPasses(Module *Program,
           errs() << " " << Args[i];
         errs() << "\n";
         );
-
-  std::string Prog;
-  if (UseValgrind)
-    Prog = sys::FindProgramByName("valgrind");
-  else
-    Prog = tool;
 
   // Redirect stdout and stderr to nowhere if SilencePasses is given
   StringRef Nowhere;
