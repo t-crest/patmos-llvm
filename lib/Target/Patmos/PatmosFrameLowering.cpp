@@ -315,8 +315,12 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
       .addReg(Patmos::R0)
       .addImm(stackFrameSize);
 
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::CALLND)))
+    const MachineInstr *CallMI =
+      AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::CALL)))
       .addExternalSymbol(scFunc);
+    for (unsigned i = 0; i < STC.getDelaySlotCycles(CallMI); i++) {
+      AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::NOP)));
+    }
 
     // restore after reserve call
     TII.copyPhysReg(MBB, MI, DL, Patmos::SRB, Patmos::R9, true);
