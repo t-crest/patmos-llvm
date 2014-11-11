@@ -303,9 +303,10 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
     // emit reserve instruction
     const char *scFunc;
     int ArgReg;
+    bool isEnsure = false;
     switch (Opcode) {
       case Patmos::SRESi:  scFunc = "_sc_reserve"; ArgReg = Patmos::R1; break;
-      case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R8; break;
+      case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R8; isEnsure = true; break;
       case Patmos::SFREEi: scFunc = "_sc_free";    ArgReg = Patmos::R8; break;
       default: llvm_unreachable("unexpected stack cache opcode");
     }
@@ -315,11 +316,35 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
       .addReg(Patmos::R0)
       .addImm(stackFrameSize);
 
-    const MachineInstr *CallMI =
+    MachineInstr *CallMI =
       AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::CALL)))
       .addExternalSymbol(scFunc);
     for (unsigned i = 0; i < STC.getDelaySlotCycles(CallMI); i++) {
       AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::NOP)));
+    }
+
+    for (int i = CallMI->getNumOperands() - 1; i >= 0; --i) {
+      const MachineOperand MO = CallMI->getOperand(i);
+      if (MO.isReg() && MO.isImplicit()) {
+        int reg = MO.getReg();
+        switch (reg) {
+          case Patmos::R1:
+          case Patmos::R2:
+          case Patmos::R3:
+          case Patmos::R4:
+          case Patmos::R5:
+          case Patmos::R6:
+          case Patmos::R7:
+          case Patmos::R8:
+          case Patmos::R9:
+          case Patmos::R10:
+            CallMI->RemoveOperand(i);
+            break;
+        }
+        if (isEnsure && (reg == Patmos::SRB || reg == Patmos::SRO)) {
+          //CallMI->RemoveOperand(i);
+        }
+      }
     }
 
     // restore after reserve call
