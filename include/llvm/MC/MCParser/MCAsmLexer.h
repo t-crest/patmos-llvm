@@ -158,7 +158,7 @@ public:
   SMLoc getLoc() const;
 
   /// Get the current (last) lexed token.
-  const AsmToken &getTok() {
+  const AsmToken &getTok() const {
     return CurTok;
   }
 
