@@ -53,7 +53,7 @@ private:
   /// to a sequence of real machine instructions.
   void expandPseudoPregInstr(MachineBasicBlock::iterator II,
                              int offset, unsigned basePtr,
-                             bool isOnStackCache) const;
+                             bool isOnStackCache, bool useSWSC) const;
 public:
   PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
 

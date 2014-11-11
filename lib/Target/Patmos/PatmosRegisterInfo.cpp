@@ -184,6 +184,14 @@ PatmosRegisterInfo::computeSWSCAddress(MachineRegisterInfo &MRI,
   DEBUG(dbgs() << "rewrite: " << MI);
 
   unsigned opcode = MI.getOpcode();
+
+  if (opcode == Patmos::PSEUDO_PREG_SPILL
+      || opcode == Patmos::PSEUDO_PREG_RELOAD) {
+    expandPseudoPregInstr(II, 0, scratchReg, true, true);
+    // dbgs() << "expanded pseudo\n\n";
+    return;
+  }
+
   switch (opcode)
   {
     case Patmos::LWC: case Patmos::LWM: opcode = Patmos::LWL; break;
@@ -215,7 +223,7 @@ PatmosRegisterInfo::computeSWSCAddress(MachineRegisterInfo &MRI,
 void
 PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
                                           int offset, unsigned basePtr,
-                                          bool isOnStackCache) const {
+                                          bool isOnStackCache, bool useSWSC) const {
   MachineInstr &PseudoMI = *II;
   MachineBasicBlock &MBB = *PseudoMI.getParent();
   DebugLoc DL            = PseudoMI.getDebugLoc();
@@ -224,7 +232,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
   {
     case Patmos::PSEUDO_PREG_SPILL:
       {
-        unsigned st_opc = (isOnStackCache) ? Patmos::SWS : Patmos::SWC;
+        unsigned st_opc = isOnStackCache ? (useSWSC ? Patmos::SWL : Patmos::SWS) : Patmos::SWC;
         MachineOperand SrcRegOpnd = PseudoMI.getOperand(2);
         // spilling predicate values is sort of hackish:
         //   we implement it as a predicated store of a non-zero value
@@ -248,7 +256,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
 
     case Patmos::PSEUDO_PREG_RELOAD:
       {
-        unsigned ld_opc = (isOnStackCache) ? Patmos::LWS : Patmos::LWC;
+        unsigned ld_opc = isOnStackCache ? (useSWSC ? Patmos::LWL : Patmos::LWS) : Patmos::LWC;
         unsigned DestReg = PseudoMI.getOperand(0).getReg();
 
         AddDefaultPred(BuildMI(MBB, II, DL, TII.get(ld_opc), Patmos::RTR))
@@ -398,7 +406,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   // special handling of pseudo instructions: expand
   if ( opcode==Patmos::PSEUDO_PREG_SPILL ||
        opcode==Patmos::PSEUDO_PREG_RELOAD ) {
-      expandPseudoPregInstr(II, Offset, BasePtr, isOnStackCache);
+      expandPseudoPregInstr(II, Offset, BasePtr, isOnStackCache, false);
       return;
   }
 
