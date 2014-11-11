@@ -45,7 +45,7 @@ static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
                             cl::desc("Disable the use of Patmos' stack cache"));
 
 static cl::opt<bool> EnableSoftSC("mpatmos-enable-soft-sc",
-                            cl::init(true),
+                            cl::init(false),
                             cl::desc("Enable stackcache in software (SPM)"));
 
 static cl::opt<std::string> SWSCFunc("mpatmos-soft-sc-func",

@@ -181,7 +181,7 @@ PatmosRegisterInfo::computeSWSCAddress(MachineRegisterInfo &MRI,
   AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::ANDi), scratchReg))
     .addReg(scratchReg).addImm(Mask);
 
-  dbgs() << "rewrite: " << MI << "\n";
+  DEBUG(dbgs() << "rewrite: " << MI);
 
   unsigned opcode = MI.getOpcode();
   switch (opcode)
@@ -209,7 +209,7 @@ PatmosRegisterInfo::computeSWSCAddress(MachineRegisterInfo &MRI,
                                                /*isImp*/false, /*iskill*/true);
   MI.getOperand(FIOperandNum+1).ChangeToImmediate(0);
 
-  dbgs() << "  to: " << MI << "\n";
+  DEBUG(dbgs() << "  to: " << MI);
 }
 
 void
