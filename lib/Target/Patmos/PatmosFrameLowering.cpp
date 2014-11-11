@@ -319,9 +319,6 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
     MachineInstr *CallMI =
       AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::CALL)))
       .addExternalSymbol(scFunc);
-    for (unsigned i = 0; i < STC.getDelaySlotCycles(CallMI); i++) {
-      AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::NOP)));
-    }
 
     for (int i = CallMI->getNumOperands() - 1; i >= 0; --i) {
       const MachineOperand MO = CallMI->getOperand(i);
