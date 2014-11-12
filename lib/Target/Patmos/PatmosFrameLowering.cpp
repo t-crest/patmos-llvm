@@ -296,10 +296,6 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
 
     const TargetInstrInfo &TII = *TM.getInstrInfo();
 
-    // spill s7, s8 (return base + offset)
-    TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::SRB, true);
-    TII.copyPhysReg(MBB, MI, DL, Patmos::R10, Patmos::SRO, true);
-
     // emit reserve instruction
     const char *scFunc;
     int ArgReg;
@@ -309,6 +305,12 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
       case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R8; isEnsure = true; break;
       case Patmos::SFREEi: scFunc = "_sc_free";    ArgReg = Patmos::R8; break;
       default: llvm_unreachable("unexpected stack cache opcode");
+    }
+
+    // spill s7, s8 (return base + offset)
+    if (!isEnsure) {
+      TII.copyPhysReg(MBB, MI, DL, Patmos::R9, Patmos::SRB, true);
+      TII.copyPhysReg(MBB, MI, DL, Patmos::R10, Patmos::SRO, true);
     }
 
     // XXX large offsets
@@ -338,15 +340,14 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
             CallMI->RemoveOperand(i);
             break;
         }
-        if (isEnsure && (reg == Patmos::SRB || reg == Patmos::SRO)) {
-          //CallMI->RemoveOperand(i);
-        }
       }
     }
 
     // restore after reserve call
-    TII.copyPhysReg(MBB, MI, DL, Patmos::SRB, Patmos::R9, true);
-    TII.copyPhysReg(MBB, MI, DL, Patmos::SRO, Patmos::R10, true);
+    if (!isEnsure) {
+      TII.copyPhysReg(MBB, MI, DL, Patmos::SRB, Patmos::R9, true);
+      TII.copyPhysReg(MBB, MI, DL, Patmos::SRO, Patmos::R10, true);
+    }
   }
   return Inst; // NULL for SWSC
 }
