@@ -41,7 +41,7 @@ namespace llvm {
 /// DisableStackCache - Command line option to disable the usage of the stack 
 /// cache (enabled by default).
 static cl::opt<bool> DisableStackCache("mpatmos-disable-stack-cache",
-                            cl::init(false),
+                            cl::init(true),
                             cl::desc("Disable the use of Patmos' stack cache"));
 
 static cl::opt<bool> EnableSoftSC("mpatmos-enable-soft-sc",
