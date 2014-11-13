@@ -38,14 +38,12 @@ def IIC_ALUm   : InstrItinClass;
 // memory ops
 def IIC_LD     : InstrItinClass; // load from global, data cache or SPM
 def IIC_ST     : InstrItinClass; // store to global, data cache or SPM
-def IIC_LDd    : InstrItinClass; // decoupled load
 def IIC_LDs    : InstrItinClass; // load from stack cache
 def IIC_STs    : InstrItinClass; // store to stack cache
 // stack control
 def IIC_STCi   : InstrItinClass;
 def IIC_STCr   : InstrItinClass; 
-// special delay ops (can only be scheduled in first slot)
-def IIC_SPCw   : InstrItinClass;
+// special register ops
 def IIC_SPCt   : InstrItinClass;
 def IIC_SPCf   : InstrItinClass;
 // control flow ops (only in first slot)
@@ -151,10 +149,6 @@ def PatmosGenericItineraries : ProcessorItineraries<
     InstrItinData<IIC_ST,     [ InstrStage<1, [FU_ALU0]> ],
                               [ 2, 2, 1, 0, 1 ], 
 			      [ NoBypass, NoBypass, PB_GPR, NoBypass, PB_GPR ] >,
-    InstrItinData<IIC_LDd,    [ InstrStage<1, [FU_ALU0]> ],
-                              // Writing to SPR SM in MEM stage
-                              [ 2, 2, 1, 0, 3 ], 
-			      [ NoBypass, NoBypass, PB_GPR ] >,
     InstrItinData<IIC_LDs,    [ InstrStage<1, [FU_ALU0]> ],
                               // Using SPR SS in EX stage
                               [ 3, 2, 2, 1, 0, 2 ], 
@@ -170,8 +164,6 @@ def PatmosGenericItineraries : ProcessorItineraries<
 			      // write to SS/ST in EX stage, read in EX
                               [ 2, 2, 1, 2, 2, 2, 2 ], 
 			      [ NoBypass, NoBypass, PB_GPR ] >,
-    InstrItinData<IIC_SPCw,   [ InstrStage<1, [FU_ALU0]> ],
-                              [ 2, 2 ] >,
     InstrItinData<IIC_SPCt,   [ InstrStage<1, [FU_ALU0, FU_ALU1]> ],
 			      // MTS writes to special reg in EX
                               [ 2, 2, 2, 1 ], 

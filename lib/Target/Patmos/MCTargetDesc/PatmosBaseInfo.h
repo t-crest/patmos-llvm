@@ -165,7 +165,7 @@ inline static unsigned getPatmosRegisterNumbering(unsigned RegEnum)
   switch (RegEnum) {
   case NoRegister: return 0; // Required for default P0 guard
   case R0:  case S0:  case P0:  return 0;
-  case R1:  case SM:  case P1:  return 1;
+  case R1:  case S1:  case P1:  return 1;
   case R2:  case SL:  case P2:  return 2;
   case R3:  case SH:  case P3:  return 3;
   case R4:  case S4:  case P4:  return 4;
