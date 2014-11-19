@@ -381,7 +381,7 @@ void SubtargetEmitter::EmitFunctionalUnits(raw_ostream &OS) {
   for (CodeGenSchedModels::ProcIter PI = SchedModels.procModelBegin(),
          PE = SchedModels.procModelEnd(); PI != PE; ++PI) {
 
-    if (!ItinsDefSet.insert(PI->ItinsDef))
+    if (!ItinsDefSet.insert(PI->ItinsDef).second)
       continue;
 
     std::vector<Record*> FUs = PI->ItinsDef->getValueAsListOfDefs("FU");
@@ -572,7 +572,7 @@ EmitItineraries(raw_ostream &OS,
          PE = SchedModels.procModelEnd(); PI != PE; ++PI, ++ProcItinListsIter) {
 
     Record *ItinsDef = PI->ItinsDef;
-    if (!ItinsDefSet.insert(ItinsDef))
+    if (!ItinsDefSet.insert(ItinsDef).second)
       continue;
 
     // Get processor itinerary name
