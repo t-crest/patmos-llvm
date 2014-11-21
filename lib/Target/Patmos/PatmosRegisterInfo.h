@@ -19,7 +19,7 @@
 #define GET_REGINFO_HEADER
 #include "PatmosGenRegisterInfo.inc"
 
-#define RSWSP R27
+#define RSWSP R19
 
 namespace llvm {
 

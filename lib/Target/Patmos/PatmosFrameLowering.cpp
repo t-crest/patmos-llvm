@@ -322,6 +322,7 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
       AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::CALL)))
       .addExternalSymbol(scFunc);
 
+    // remove imp-def operands
     for (int i = CallMI->getNumOperands() - 1; i >= 0; --i) {
       const MachineOperand MO = CallMI->getOperand(i);
       if (MO.isReg() && MO.isImplicit()) {
@@ -334,7 +335,8 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
           case Patmos::R5:
           case Patmos::R6:
           case Patmos::R7:
-          case Patmos::R8:
+          // used to pass paramenter n
+          //case Patmos::R8:
           case Patmos::R9:
           case Patmos::R10:
             CallMI->RemoveOperand(i);

@@ -119,8 +119,8 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   }
 
   // XXX SW Stack Cache - reserve two regs
-  Reserved.set(Patmos::R27);
-  Reserved.set(Patmos::R28);
+  Reserved.set(Patmos::R19);
+  Reserved.set(Patmos::R20);
   return Reserved;
 }
 
