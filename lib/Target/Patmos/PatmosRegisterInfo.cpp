@@ -18,6 +18,7 @@
 #include "PatmosRegisterInfo.h"
 #include "PatmosSinglePathInfo.h"
 #include "PatmosSubtarget.h"
+#include "PatmosSWSCHelper.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -118,9 +119,9 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
     Reserved.set(Patmos::P7);
   }
 
-  // XXX SW Stack Cache - reserve two regs
-  Reserved.set(Patmos::R19);
-  Reserved.set(Patmos::R20);
+  // SW stack cache reg handling modifies the default from above
+  ReserveRegsSWSC(MF, Reserved);
+
   return Reserved;
 }
 

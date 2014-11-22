@@ -14,13 +14,55 @@
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
+#include "PatmosSWSCHelper.h"
 #include "PatmosTargetMachine.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
 
 using namespace llvm;
+
+void llvm::ReserveRegsSWSC(const MachineFunction &MF, BitVector &Reserved) {
+  // reserve two regs for stack-top, mem-top
+  Reserved.set(Patmos::R19);
+  Reserved.set(Patmos::R20);
+
+  // mutually exlusive use of pred bit 7 avoids having to save/restore S0
+  if (MF.getName().startswith("_sc_")) {
+    Reserved.set(Patmos::P1);
+    Reserved.set(Patmos::P2);
+    Reserved.set(Patmos::P3);
+    Reserved.set(Patmos::P4);
+    Reserved.set(Patmos::P5);
+    Reserved.set(Patmos::P6);
+  } else {
+    Reserved.set(Patmos::P7);
+  }
+
+  // preserve argument regs in _sc_funcs (based on function attribute)
+  if (MF.getFunction()->hasFnAttribute("patmos-sc-func")) {
+    Reserved.set(Patmos::R3);
+    Reserved.set(Patmos::R4);
+    Reserved.set(Patmos::R5);
+    Reserved.set(Patmos::R6);
+    Reserved.set(Patmos::R7);
+    Reserved.set(Patmos::R8);
+    Reserved.set(Patmos::R9);
+    Reserved.set(Patmos::R10);
+    DEBUG(dbgs() << "LLC-SWSC-Helper: "
+      << "arg regs reserved in " << MF.getFunction()->getName() << ".\n");
+  }
+
+  // preserve return regs when we have to (ensure & free)
+  if (MF.getFunction()->hasFnAttribute("patmos-preserve-ret")) {
+    Reserved.set(Patmos::R1);
+    Reserved.set(Patmos::R2);
+    DEBUG(dbgs() << "LLC-SWSC-Helper: "
+      << "ret regs reserved in " << MF.getFunction()->getName() << ".\n");
+  }
+}
 
 // anonymous namespace
 namespace {
@@ -49,6 +91,7 @@ namespace {
     }
 
     virtual bool runOnMachineFunction(MachineFunction &MF) {
+#if 0
       // Patmos return regs
       unsigned RetReserveList[] = {
         Patmos::R1,
@@ -68,7 +111,7 @@ namespace {
       };
       bool changed = false;
       if (! (MF.getFunction()->hasFnAttribute("patmos-preserve-ret") ||
-             MF.getFunction()->hasFnAttribute("patmos-preserve-tmp")))
+             MF.getFunction()->hasFnAttribute("patmos-sc-func")))
         return false;
 
 
@@ -87,7 +130,7 @@ namespace {
                         &RetReserveList[RetSize]);
 
       // add scratch regs based on function attribute
-      if (MF.getFunction()->hasFnAttribute("patmos-preserve-tmp"))
+      if (MF.getFunction()->hasFnAttribute("patmos-sc-func"))
         Reserved.insert(Reserved.end(), &TmpReserveList[0],
                         &TmpReserveList[TmpSize]);
 
@@ -114,6 +157,8 @@ namespace {
       changed = true;
 
       return changed;
+#endif
+    return false;
     }
   };
 
