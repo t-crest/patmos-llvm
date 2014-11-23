@@ -424,7 +424,7 @@ class WcetTool
     opts.on("--enable-trace-analysis", "run trace analysis") { |d| opts.options.trace_analysis = true }
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }
     opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
-    opts.on("--enable-wca", "run platin WCA calculator") { |d| opts.options.enable_wca = true }
+    opts.on("--[no-]enable-wca", "run platin WCA calculator") { |b| opts.options.enable_wca = b }
     opts.on("--combine-wca", "run both aiT and WCA and combine cache analysis results") { |d| opts.options.combine_wca = true }
     opts.on("--compute-criticalities", "calculate block criticalities") { opts.options.compute_criticalities = true }
     opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
