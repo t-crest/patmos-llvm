@@ -2129,6 +2129,8 @@ namespace llvm {
 
       unsigned max_subfunc_size   = MaxSubfunctionSize  ? MaxSubfunctionSize
                                                      : STC.getMethodCacheSize();
+      max_subfunc_size = std::min(max_subfunc_size, STC.getMethodCacheSize());
+
       unsigned prefer_subfunc_size = PreferSubfunctionSize ?
                                                        PreferSubfunctionSize
                                                      : max_subfunc_size;
