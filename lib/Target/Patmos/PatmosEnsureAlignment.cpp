@@ -26,9 +26,9 @@ namespace {
 
   class PatmosEnsureAlignment : public MachineFunctionPass {
   private:
-    unsigned MinSubfunctionAlignment;
+    unsigned SubfunctionAlignment;
 
-    unsigned MinBasicBlockAlignment;
+    unsigned BasicBlockAlignment;
 
     static char ID;
   public:
@@ -38,8 +38,8 @@ namespace {
     {
       const PatmosSubtarget *PST = tm.getSubtargetImpl();
 
-      MinSubfunctionAlignment = PST->getMinSubfunctionAlignment();
-      MinBasicBlockAlignment = PST->getMinBasicBlockAlignment();
+      SubfunctionAlignment = PST->getSubfunctionAlignment();
+      BasicBlockAlignment = PST->getBasicBlockAlignment();
     }
 
     virtual const char *getPassName() const {
@@ -52,8 +52,8 @@ namespace {
 
       bool Changed = false;
 
-      if (MinSubfunctionAlignment > MF.getAlignment()) {
-        MF.ensureAlignment(MinSubfunctionAlignment);
+      if (!MF.getAlignment()) {
+        MF.ensureAlignment(SubfunctionAlignment);
         Changed = true;
       }
 
@@ -62,13 +62,15 @@ namespace {
            i != ie; ++i)
       {
         unsigned align;
-        if (PMFI->isMethodCacheRegionEntry(i)) {
-          align = MinSubfunctionAlignment;
-        } else {
-          align = MinBasicBlockAlignment;
-        }
 
-        if (align > i->getAlignment()) {
+        if (!i->getAlignment())
+        {
+          if (PMFI->isMethodCacheRegionEntry(i)) {
+            align = SubfunctionAlignment;
+          } else {
+            align = BasicBlockAlignment;
+          }
+
           i->setAlignment(align);
           Changed = true;
         }

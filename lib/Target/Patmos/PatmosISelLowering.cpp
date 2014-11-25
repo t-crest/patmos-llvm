@@ -79,7 +79,7 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   // an other alignment, e.g., due to the method-cache, it will be handled 
   // later.
   setMinFunctionAlignment(2);
-  setPrefFunctionAlignment(Subtarget.getMinSubfunctionAlignment());
+  setPrefFunctionAlignment(Subtarget.getSubfunctionAlignment());
 
   // Enable using divmod functions
   setLibcallName(RTLIB::SDIVREM_I32, "__divmodsi4");

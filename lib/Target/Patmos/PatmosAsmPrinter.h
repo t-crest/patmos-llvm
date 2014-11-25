@@ -42,7 +42,7 @@ namespace llvm {
       }
       PTM->setMCSaveTempLabels(true);
 
-      FStartAlignment = PTM->getSubtargetImpl()->getMinSubfunctionAlignment();
+      FStartAlignment = PTM->getSubtargetImpl()->getSubfunctionAlignment();
     }
 
     virtual const char *getPassName() const {

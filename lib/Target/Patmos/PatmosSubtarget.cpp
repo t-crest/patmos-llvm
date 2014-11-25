@@ -43,12 +43,12 @@ static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
                      cl::desc("Total size of the instruction cache in bytes "
                               "(default 4096)"));
 
-static cl::opt<unsigned> MinSubfunctionAlign("mpatmos-subfunction-align",
+static cl::opt<unsigned> SubfunctionAlign("mpatmos-subfunction-align",
                    cl::init(16),
                    cl::desc("Alignment for functions and subfunctions in bytes "
                            "(default: 16 word aligned)."));
 
-static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-basicblock-align",
+static cl::opt<unsigned> BasicBlockAlign("mpatmos-basicblock-align",
                    cl::init(0),
                    cl::desc("Alignment for basic blocks in bytes "
                            "(default: no alignment)."));
@@ -201,12 +201,17 @@ bool PatmosSubtarget::canIssueInSlot(unsigned SchedClass, unsigned Slot) const {
   }
 }
 
-unsigned PatmosSubtarget::getMinSubfunctionAlignment() const {
-  return ceil(log2(MinSubfunctionAlign));
+unsigned PatmosSubtarget::getSubfunctionAlignment() const {
+  return SubfunctionAlign ? ceil(log2(SubfunctionAlign)) : 0;
 }
 
-unsigned PatmosSubtarget::getMinBasicBlockAlignment() const {
-  return ceil(log2(MinBasicBlockAlign));
+unsigned PatmosSubtarget::getBasicBlockAlignment() const {
+  return BasicBlockAlign ? ceil(log2(BasicBlockAlign)) : 0;
+}
+
+unsigned PatmosSubtarget::getHardwareSubfunctionAlignment() const {
+  // This should always return > 0.
+  return 2;
 }
 
 unsigned PatmosSubtarget::getStackCacheSize() const {

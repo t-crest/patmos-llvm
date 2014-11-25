@@ -105,11 +105,16 @@ public:
   /// @see PatmosInstrInfo::canIssueInSlot
   bool canIssueInSlot(unsigned SchedClass, unsigned Slot) const;
 
-  /// Get the minimum (sub)function alignment in log2(bytes).
-  unsigned getMinSubfunctionAlignment() const;
+  /// Get the default (sub)function alignment in log2(bytes).
+  unsigned getSubfunctionAlignment() const;
 
-  /// Get the minimum basic block alignment in log2(bytes).
-  unsigned getMinBasicBlockAlignment() const;
+  /// Get the default basic block alignment in log2(bytes).
+  unsigned getBasicBlockAlignment() const;
+
+  /// Get the alignment for sub-functions for which the base address is
+  /// calculated implicitly by the hardware in log2(bytes).
+  /// In contrast to the MinSubfunctionAlignment, this value MUST be adhered.
+  unsigned getHardwareSubfunctionAlignment() const;
 
   unsigned getStackCacheSize() const;
 

@@ -109,12 +109,6 @@ static cl::opt<bool> DisableFunctionSplitter(
   cl::desc("Disable the Patmos function splitter."),
   cl::Hidden);
 
-static cl::opt<bool> DisableFunctionSplitterRewrite(
-  "mpatmos-disable-function-splitter-rewrite",
-  cl::init(false),
-  cl::desc("Disable the rewriting of code in the Patmos function splitter."),
-  cl::Hidden);
-
 static cl::opt<int> PreferSubfunctionSize(
     "mpatmos-preferred-subfunction-size",
     cl::init(256),
@@ -139,6 +133,11 @@ static cl::opt<bool> SplitCallBlocks(
     cl::init(true),
     cl::desc("Split basic blocks containing calls into own subfunctions."));
 
+
+//
+// Options for evaluation purposes only .. handle with care.
+//
+
 /// EnableShowCFGs - Option to enable the rendering of annotated CFGs.
 static cl::opt<bool> EnableShowCFGs(
   "mpatmos-function-splitter-cfgs",
@@ -155,6 +154,20 @@ static cl::opt<bool> AppendStatsFile(
     "mpatmos-function-splitter-stats-append",
     cl::desc("Append to splitting statistics file instead of recreating it"),
     cl::Hidden);
+
+static cl::opt<bool> DisableFunctionSplitterRewrite(
+  "mpatmos-disable-function-splitter-rewrite",
+  cl::init(false),
+  cl::desc("Disable the rewriting of code in the Patmos function splitter. (for testing only)"),
+  cl::Hidden);
+
+static cl::opt<bool> EnableRegionFallthrough(
+  "mpatmos-enable-subfunction-fallthrough",
+  cl::init(false),
+  cl::desc("Do not insert explicit fallthrough jumps at the end of subfunctions. (for testing only)"),
+  cl::Hidden);
+
+
 
 namespace llvm {
 
@@ -1391,13 +1404,14 @@ namespace llvm {
     /// fixupFallThrough - In case the given layout successor is not the 
     /// fall-through of the given block insert a jump and corresponding NOPs to
     /// the actual fall-through target.
-    void fixupFallThrough(ablock *block, MachineBasicBlock *layout_successor) {
+    /// @return true if the block falls through to the next block without jump.
+    bool fixupFallThrough(ablock *block, MachineBasicBlock *layout_successor) {
       MachineBasicBlock *fallthrough = block->MBB;
       ablock *target = block->FallthroughTarget;
 
       if (!target) {
         // No target, the block might contain a call to a noreturn function.
-        return;
+        return false;
       }
 
       assert(target->MBB && "Fallthrough target is set but has no MBB.");
@@ -1436,9 +1450,18 @@ namespace llvm {
                      <<(layout_successor ? layout_successor->getName() : "NULL")
                      <<  "-->" << target->getName() << "\n");
 #endif
+
+        // Jump added, no fallthrough
+        return false;
       }
-      // TODO else check if there is an unconditional jump to the
-      // successor, remove it if possible.
+      else {
+        // We fall through to the layout successor.
+
+        // TODO else check if there is an unconditional jump to the
+        // successor, remove it if possible.
+
+        return true;
+      }
     }
 
     /// reorderBlocks - Reorder the basic blocks of the function, align them, 
@@ -1446,6 +1469,8 @@ namespace llvm {
     void reorderBlocks(ablocks &order)
     {
       PatmosMachineFunctionInfo *PMFI= MF->getInfo<PatmosMachineFunctionInfo>();
+
+      unsigned HWAlign = STC.getHardwareSubfunctionAlignment();
 
       // keep track of fall-through blocks
       ablock *fallThrough = NULL;
@@ -1480,7 +1505,16 @@ namespace llvm {
 
         // fix-up fall-through blocks
         if (fallThrough) {
-          fixupFallThrough(fallThrough, is_region_entry ? NULL : MBB);
+          bool needs_jump = is_region_entry && !EnableRegionFallthrough;
+
+          if (fixupFallThrough(fallThrough, needs_jump ? NULL : MBB)) {
+            // We fall through to the layout successor. If this is a region
+            // entry, enforce alignment.
+            if (is_region_entry) {
+              MBB->setAlignment(HWAlign);
+            }
+          }
+
         }
 
         // keep track of fall-through blocks
@@ -1818,7 +1852,7 @@ namespace llvm {
       unsigned localDelay = PST->getCFLDelaySlotCycles(true);
       unsigned exitDelay = PST->getCFLDelaySlotCycles(false);
 
-      unsigned blockAlign = (1u << PST->getMinBasicBlockAlignment());
+      unsigned blockAlign = (1u << PST->getBasicBlockAlignment());
 
       // We must be conservative here, the address is not known (and may change)
       unsigned alignSize = (blockAlign < 4) ? 0 : blockAlign - 4;

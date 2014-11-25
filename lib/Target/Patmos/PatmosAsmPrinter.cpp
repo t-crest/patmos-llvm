@@ -27,6 +27,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
 
@@ -95,12 +96,6 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
     OutStreamer.EmitLabel(CurrCodeEnd);
   }
 
-  // Align the next basic block. Emitting the alignment in EmitBasicBlockStart
-  // would be too late as we emit .fstart here already.
-  if (Next->getAlignment()) {
-    EmitAlignment(Next->getAlignment());
-  }
-
   // Emit the start code for the next subfunction
   if (followedByFStart) {
     // We need an address symbol from the next block
@@ -117,9 +112,19 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
     // emit a .size directive
     EmitDotSize(SymStart, CurrCodeEnd);
 
+    // allow the basic block alignment override the default alignment value
+    unsigned align = Next->getAlignment() ? Next->getAlignment()
+                                          : FStartAlignment;
+
     // emit a function/subfunction start directive
-    EmitFStart(SymStart, CurrCodeEnd, FStartAlignment);
+    EmitFStart(SymStart, CurrCodeEnd, align);
   }
+  else if (Next->getAlignment()) {
+    // Align the next basic block. We emit it here instead of in
+    // EmitBasicBlockStart since we handle .fstart here as well.
+    EmitAlignment(Next->getAlignment());
+  }
+
 }
 
 void PatmosAsmPrinter::EmitFunctionBodyEnd() {
