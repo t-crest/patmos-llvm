@@ -426,7 +426,7 @@ struct MatchableInfo {
   SmallVector<AsmOperand, 8> AsmOperands;
 
   /// Predicates - The required subtarget features to match this instruction.
-  SmallVector<const SubtargetFeatureInfo *, 4> RequiredFeatures;
+  SmallVector<SubtargetFeatureInfo*, 4> RequiredFeatures;
 
   /// ConversionFnKind - The enum value which is passed to the generated
   /// convertToMCInst to convert parsed operands into an MCInst for this
@@ -624,7 +624,8 @@ public:
   RegisterClassesTy RegisterClasses;
 
   /// Map of Predicate records to their subtarget information.
-  std::map<Record *, SubtargetFeatureInfo, LessRecordByID> SubtargetFeatures;
+  std::map<Record*, std::unique_ptr<SubtargetFeatureInfo>,
+           LessRecordByID> SubtargetFeatures;
 
   /// Map of AsmOperandClass records to their class information.
   std::map<Record*, ClassInfo*> AsmOperandClasses;
@@ -672,10 +673,10 @@ public:
 
   /// getSubtargetFeature - Lookup or create the subtarget feature info for the
   /// given operand.
-  const SubtargetFeatureInfo *getSubtargetFeature(Record *Def) const {
+  SubtargetFeatureInfo *getSubtargetFeature(Record *Def) const {
     assert(Def->isSubClassOf("Predicate") && "Invalid predicate type!");
     const auto &I = SubtargetFeatures.find(Def);
-    return I == SubtargetFeatures.end() ? nullptr : &I->second;
+    return I == SubtargetFeatures.end() ? nullptr : I->second.get();
   }
 
   RecordKeeper &getRecords() const {
@@ -779,8 +780,8 @@ void MatchableInfo::initialize(const AsmMatcherInfo &Info,
   // Compute the require features.
   std::vector<Record*> Predicates =TheDef->getValueAsListOfDefs("Predicates");
   for (unsigned i = 0, e = Predicates.size(); i != e; ++i)
-    if (const SubtargetFeatureInfo *Feature =
-            Info.getSubtargetFeature(Predicates[i]))
+    if (SubtargetFeatureInfo *Feature =
+        Info.getSubtargetFeature(Predicates[i]))
       RequiredFeatures.push_back(Feature);
 
   // Collect singleton registers, if used.
@@ -1316,11 +1317,11 @@ void AsmMatcherInfo::buildInfo() {
     if (Pred->getName().empty())
       PrintFatalError(Pred->getLoc(), "Predicate has no name!");
 
-    SubtargetFeatures.emplace(
-        std::piecewise_construct, std::forward_as_tuple(Pred),
-        std::forward_as_tuple(Pred, SubtargetFeatures.size()));
-    DEBUG(SubtargetFeatures.find(Pred)->second.dump());
-    assert(SubtargetFeatures.size() <= 64 && "Too many subtarget features!");
+    uint64_t FeatureNo = SubtargetFeatures.size();
+    SubtargetFeatures[Pred] =
+      llvm::make_unique<SubtargetFeatureInfo>(Pred, FeatureNo);
+    DEBUG(SubtargetFeatures[Pred]->dump());
+    assert(FeatureNo < 64 && "Too many subtarget features!");
   }
 
   // Parse the instructions; we need to do this first so that we can gather the
@@ -2183,7 +2184,7 @@ static void emitSubtargetFeatureFlagEnumeration(AsmMatcherInfo &Info,
   OS << "enum SubtargetFeatureFlag : " << getMinimalRequiredFeaturesType(Info)
      << " {\n";
   for (const auto &SF : Info.SubtargetFeatures) {
-    const SubtargetFeatureInfo &SFI = SF.second;
+    SubtargetFeatureInfo &SFI = *SF.second;
     OS << "  " << SFI.getEnumName() << " = (1ULL << " << SFI.Index << "),\n";
   }
   OS << "  Feature_None = 0\n";
@@ -2219,7 +2220,7 @@ static void emitGetSubtargetFeatureName(AsmMatcherInfo &Info, raw_ostream &OS) {
   if (!Info.SubtargetFeatures.empty()) {
     OS << "  switch(Val) {\n";
     for (const auto &SF : Info.SubtargetFeatures) {
-      const SubtargetFeatureInfo &SFI = SF.second;
+      SubtargetFeatureInfo &SFI = *SF.second;
       // FIXME: Totally just a placeholder name to get the algorithm working.
       OS << "  case " << SFI.getEnumName() << ": return \""
          << SFI.TheDef->getValueAsString("PredicateName") << "\";\n";
@@ -2244,7 +2245,7 @@ static void emitComputeAvailableFeatures(AsmMatcherInfo &Info,
      << "ComputeAvailableFeatures(uint64_t FB) const {\n";
   OS << "  uint64_t Features = 0;\n";
   for (const auto &SF : Info.SubtargetFeatures) {
-    const SubtargetFeatureInfo &SFI = SF.second;
+    SubtargetFeatureInfo &SFI = *SF.second;
 
     OS << "  if (";
     std::string CondStorage =
@@ -2290,7 +2291,7 @@ static std::string GetAliasRequiredFeatures(Record *R,
   std::string Result;
   unsigned NumFeatures = 0;
   for (unsigned i = 0, e = ReqFeatures.size(); i != e; ++i) {
-    const SubtargetFeatureInfo *F = Info.getSubtargetFeature(ReqFeatures[i]);
+    SubtargetFeatureInfo *F = Info.getSubtargetFeature(ReqFeatures[i]);
 
     if (!F)
       PrintFatalError(R->getLoc(), "Predicate '" + ReqFeatures[i]->getName() +
