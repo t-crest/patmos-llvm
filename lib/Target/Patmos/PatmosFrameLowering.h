@@ -55,6 +55,7 @@ protected:
   /// @return The final size of the shadow stack.
   unsigned assignFrameObjects(MachineFunction &MF, bool UseStackCache) const;
 
+public:
   /// emitSTC - Emit a stack reserve/free/ensure operation.
   /// The size of the stack frame is calculated before by assignFIsToStackCache
   /// and is retrieved via the PatmosMachineFunctionInfo.
@@ -63,6 +64,7 @@ protected:
   /// @return The emitted instruction, or NULL if no instruction was emitted.
   MachineInstr *emitSTC(MachineFunction &MF, MachineBasicBlock &MBB,
                MachineBasicBlock::iterator &MI, unsigned Opcode) const;
+protected:
 
   /// patchCallSites - Emit stack ensure operations after every call.
   /// The size of the stack frame is calculated before by assignFIsToStackCache

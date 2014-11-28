@@ -778,13 +778,15 @@ namespace llvm {
     const BoundsInformation BI;
 
     MInstrIndex MiMap;
+    const PatmosTargetMachine &TM;
+
   public:
     /// Pass ID
     static char ID;
 
     PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
         MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(*tm.getInstrInfo()), SCAGraph(STC), BI(BoundsFile)
+        TII(*tm.getInstrInfo()), SCAGraph(STC), BI(BoundsFile), TM(tm)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
@@ -793,6 +795,7 @@ namespace llvm {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const
     {
       AU.setPreservesAll();
+      AU.addRequired<MachineModuleInfo>();
       AU.addRequired<PatmosCallGraphBuilder>();
       AU.addRequired<PatmosStackCacheAnalysisInfo>();
 
@@ -2091,6 +2094,102 @@ namespace llvm {
         ViewGraph(SCAGraph, "sca");
     }
 
+    // XXX SCSW: instead of analysis, this pass is now patches the callsite with
+    // a call to the ensure function.
+    // (A full stack cache analysis could remove/downsize further ensures.)
+    virtual bool runOnMachineModule(const Module &M)
+    {
+
+      // get the machine-level module information for M.
+      MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
+
+      // visit all functions in the module
+      for(Module::const_iterator i(M.begin()), ie(M.end()); i != ie; i++) {
+        // get the machine-level function
+        MachineFunction *MF = MMI.getMachineFunction(i);
+
+        // find all call-sites in the MachineFunction
+        if (MF) {
+          // visit each call site within that function
+          visitCallSites(M, MF);
+        }
+      }
+
+      return true;
+    }
+
+    void visitCallSites(const Module &M, MachineFunction *MF) {
+      MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
+      const PatmosFrameLowering *PFL =
+        static_cast<const PatmosFrameLowering*>(TM.getFrameLowering());
+
+      const Function *ResF = M.getFunction("_sc_reserve");
+      const Function *FreeF = M.getFunction("_sc_free");
+      assert(FreeF && ResF);
+
+      // visit all basic blocks
+      for (MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie; ++i) {
+        for (MachineBasicBlock::iterator j(i->begin()), je=(i->end()); j != je;
+             j++) {
+          // a call site?
+          if (j->isCall()) {
+            const Function *F = resolveCall(M, &*j);
+
+            // ignore stack cache management calls
+            if (F == FreeF || F == ResF)
+              continue;
+
+            // does a MachineFunction exist for F?
+            MachineFunction *CalleeMF = F ? MMI.getMachineFunction(F) : NULL;
+
+            if (!CalleeMF) {
+              dbgs() << "ensure opt failed in: " << MF->getName() << "\n";
+              continue;
+            }
+
+            PatmosMachineFunctionInfo *PMFI =
+              CalleeMF->getInfo<PatmosMachineFunctionInfo>();
+
+            unsigned SCSize = PMFI->getStackCacheReservedBytes();
+            if (SCSize == 0) {
+              DEBUG(dbgs() << "no ensure necessary after "
+                    << CalleeMF->getName() << " (" << SCSize << ")\n");
+              continue;
+            } else {
+              //dbgs() << CalleeMF->getName() << ": " << SCSize << "\n";
+            }
+
+            MachineBasicBlock::iterator p(llvm::next(j));
+            // call frame lowering to insert instructions
+            PFL->emitSTC(*MF, *i, p, Patmos::SENSi);
+            j = --p;
+          }
+        }
+      }
+    }
+
+    const Function *resolveCall(const Module &M, const MachineInstr *MI) {
+
+      const Function *F = NULL;
+
+      if (MI->isCall()) {
+        // get target
+        const MachineOperand &MO(MI->getOperand(2));
+
+        // try to find the target of the call
+        if (MO.isGlobal()) {
+          // is the global value a function?
+          F = dyn_cast<Function>(MO.getGlobal());
+        }
+        else if (MO.isSymbol()) {
+          // find the function in the current module
+          F = dyn_cast_or_null<Function>(M.getNamedValue(MO.getSymbolName()));
+        }
+      }
+      return F;
+    }
+
+#if 0
     /// runOnModule - determine the state of the stack cache for each call site.
     virtual bool runOnMachineModule(const Module &M)
     {
@@ -2126,6 +2225,7 @@ namespace llvm {
 
       return false;
     }
+#endif
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {

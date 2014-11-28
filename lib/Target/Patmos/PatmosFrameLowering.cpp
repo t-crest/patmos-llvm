@@ -304,7 +304,9 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
     switch (Opcode) {
       case Patmos::SRESi:  scFunc = "_sc_reserve"; ArgReg = Patmos::R1; break;
       case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R8; isEnsure = true; break;
-      case Patmos::SFREEi: //scFunc = "_sc_free";    ArgReg = Patmos::R8; break;
+
+      case Patmos::SFREEi:
+        // stack cache free is always inlined because it is lightweight
 
         ArgReg = Patmos::R8;
 
@@ -417,10 +419,15 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // assign some FIs to the stack cache if possible
   unsigned stackSize = assignFrameObjects(MF, !DisableStackCache);
-    
+
   if (!DisableStackCache || EnableSoftSC) {
     // patch all call sites with ensure
+    // XXX SWSC: this patching is now done by the PatmosStackCacheAnalysis,
+    // which is thus no longer optional. Delaying ensure patching enables us
+    // to avoid emitting ensures for callees that don't reserve a stack frame.
+#if 0
     patchCallSites(MF);
+#endif
 
     // emit a reserve instruction
     MachineInstr *MI = emitSTC(MF, MBB, MBBI, Patmos::SRESi);

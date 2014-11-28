@@ -55,7 +55,7 @@ namespace {
   /// cache usage.
   static cl::opt<bool> EnableStackCacheAnalysis(
     "mpatmos-enable-stack-cache-analysis",
-    cl::init(false),
+    cl::init(true),
     cl::desc("Enable the Patmos stack cache analysis."),
     cl::Hidden);
   static cl::opt<bool> DisableIfConverter(
