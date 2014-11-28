@@ -2138,8 +2138,8 @@ static void emitMatchTokenString(CodeGenTarget &Target,
   std::vector<StringMatcher::StringPair> Matches;
   for (const auto &CI : Infos) {
     if (CI.Kind == ClassInfo::Token)
-      Matches.push_back(StringMatcher::StringPair(CI.ValueName,
-                                                  "return " + CI.Name + ";"));
+      Matches.push_back(
+          StringMatcher::StringPair(CI.ValueName, "return " + CI.Name + ";"));
   }
 
   OS << "static MatchClassKind matchTokenString(StringRef Name) {\n";
