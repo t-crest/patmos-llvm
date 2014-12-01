@@ -296,6 +296,7 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
 
     const TargetInstrInfo &TII = *TM.getInstrInfo();
 
+
     // emit reserve instruction
     const char *scFunc;
     int ArgReg;
@@ -303,7 +304,27 @@ MachineInstr *PatmosFrameLowering::emitSTC(MachineFunction &MF, MachineBasicBloc
     switch (Opcode) {
       case Patmos::SRESi:  scFunc = "_sc_reserve"; ArgReg = Patmos::R1; break;
       case Patmos::SENSi:  scFunc = "_sc_ensure";  ArgReg = Patmos::R8; isEnsure = true; break;
-      case Patmos::SFREEi: scFunc = "_sc_free";    ArgReg = Patmos::R8; break;
+      case Patmos::SFREEi: //scFunc = "_sc_free";    ArgReg = Patmos::R8; break;
+
+        ArgReg = Patmos::R8;
+
+        AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::ADDi), ArgReg))
+          .addReg(Patmos::R0)
+          .addImm(stackFrameSize);
+
+        AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::SHADD2r), Patmos::R19))
+            .addReg(ArgReg)
+            .addReg(Patmos::R19);
+
+        AddDefaultPred(BuildMI(MBB, MI, DL, TII.get(Patmos::CMPLT), Patmos::P7))
+            .addReg(Patmos::R20)
+            .addReg(Patmos::R19);
+
+        BuildMI(MBB, MI, DL, TII.get(Patmos::MOV), Patmos::R20)
+            .addReg(Patmos::P7).addImm(0) // pred
+            .addReg(Patmos::R19);
+
+        return Inst;
       default: llvm_unreachable("unexpected stack cache opcode");
     }
 
