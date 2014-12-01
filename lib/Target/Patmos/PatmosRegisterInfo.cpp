@@ -177,6 +177,9 @@ PatmosRegisterInfo::computeSWSCAddress(MachineRegisterInfo &MRI,
   assert(isUInt<12>(Mask));
 
   unsigned scratchReg = Patmos::RTR;
+  if (MI.mayLoad()) {
+    scratchReg = MI.getOperand(0).getReg();
+  }
   AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::ADDi), scratchReg))
     .addReg(Patmos::RSWSP).addImm(Offset);
   AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::ANDi), scratchReg))
