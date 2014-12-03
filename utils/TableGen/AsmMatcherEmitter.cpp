@@ -1088,8 +1088,7 @@ struct LessRegisterSet {
 void AsmMatcherInfo::
 buildRegisterClasses(SmallPtrSetImpl<Record*> &SingletonRegisters) {
   const auto &Registers = Target.getRegBank().getRegisters();
-  ArrayRef<CodeGenRegisterClass*> RegClassList =
-    Target.getRegBank().getRegClasses();
+  auto &RegClassList = Target.getRegBank().getRegClasses();
 
   typedef std::set<RegisterSet, LessRegisterSet> RegisterSetSet;
 
