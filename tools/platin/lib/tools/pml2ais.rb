@@ -132,11 +132,12 @@ if __FILE__ == $0
 SYNOPSIS=<<EOF if __FILE__ == $0
 Extract flow information from PML file and export as AbsInt AIS file.
 EOF
-  options, args = PML::optparse([:input], "file.pml", SYNOPSIS) do |opts|
+  options, args = PML::optparse([], "", SYNOPSIS) do |opts|
+    opts.needs_pml
     AisExportTool.add_options(opts)
     ApxExportTool.add_options(opts, false)
   end
-  pml = PMLDoc.from_files([options.input])
+  pml = PMLDoc.from_files(options.input)
   AisExportTool.run(pml, options)
 
   # TODO make this available as separate platin-tool to to generate only the APX file!?
