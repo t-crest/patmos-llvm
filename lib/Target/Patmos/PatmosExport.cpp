@@ -531,9 +531,10 @@ namespace llvm {
       PatmosStackCacheAnalysisInfo *SCA =
        &P.getAnalysis<PatmosStackCacheAnalysisInfo>();
 
-      // Export the argument of reserve and ensure instructions
+      // Export the argument of reserve, ensure, free instructions
       if (Instr->getOpcode() == Patmos::SENSi ||
-          Instr->getOpcode() == Patmos::SRESi) {
+          Instr->getOpcode() == Patmos::SRESi ||
+          Instr->getOpcode() == Patmos::SFREEi) {
         I->StackCacheArg = Instr->getOperand(2).getImm();
       }
       // Export the worst-case spill and fill counts (if analysis available)

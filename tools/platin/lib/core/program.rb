@@ -691,6 +691,10 @@ module PML
       data['branch-delay-slots'] || 0
     end
 
+    def sc_arg
+      data['stack-cache-argument']
+    end
+
     def sc_fill
       data['stack-cache-fill']
     end
