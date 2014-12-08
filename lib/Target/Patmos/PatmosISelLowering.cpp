@@ -175,10 +175,13 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
 
   // handling of variadic parameters
-  setOperationAction(ISD::VASTART, MVT::Other, Custom);
-  setOperationAction(ISD::VAARG  , MVT::Other, Expand);
-  setOperationAction(ISD::VACOPY , MVT::Other, Expand);
-  setOperationAction(ISD::VAEND  , MVT::Other, Expand);
+  setOperationAction(ISD::VASTART     , MVT::Other, Custom);
+  setOperationAction(ISD::VAARG       , MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY      , MVT::Other, Expand);
+  setOperationAction(ISD::VAEND       , MVT::Other, Expand);
+  // llvm.stacksave and restore, rarely seen
+  setOperationAction(ISD::STACKSAVE   , MVT::Other, Expand);
+  setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
 
   setOperationAction(ISD::PCMARKER,  MVT::Other, Expand);
   setOperationAction(ISD::LOOPBOUND, MVT::Other, Legal);
