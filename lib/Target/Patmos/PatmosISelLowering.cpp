@@ -438,13 +438,16 @@ PatmosTargetLowering::LowerCCCArguments(SDValue Chain,
       assert(VA.isMemLoc());
       // Load the argument to a virtual register
       unsigned ObjSize = VA.getLocVT().getSizeInBits()/8;
-      if (ObjSize > 4) {
+      // Create the frame index object for this incoming parameter...
+      int FI = MFI->CreateFixedObject(ObjSize, VA.getLocMemOffset(), true);
+
+      // XXX handle alignment of large arguments
+      if (ObjSize > 4 || MFI->getObjectAlignment(FI) > 4) {
         errs() << "LowerFormalArguments Unhandled argument type: "
              << EVT(VA.getLocVT()).getEVTString()
              << "\n";
+        report_fatal_error("Stack alignment other than 4 byte is not supported");
       }
-      // Create the frame index object for this incoming parameter...
-      int FI = MFI->CreateFixedObject(ObjSize, VA.getLocMemOffset(), true);
 
       // Create the SelectionDAG nodes corresponding to a load
       //from this parameter
