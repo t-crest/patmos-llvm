@@ -321,6 +321,10 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   //----------------------------------------------------------------------------
   // Handle the stack cache -- if enabled.
 
+  // XXX this used to protect against issues with the alignment of large
+  // (greater 4 bytes) objects, which is now guarded against in
+  // PatmosTargetLowering::LowerCCCArguments().
+#if 0
   if (MFI->getMaxAlignment() > 4) {
     dbgs() << "Stack alignment ";
     if (MF.getFunction()) dbgs() << "in " << MF.getFunction()->getName() << " ";
@@ -328,6 +332,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
 
     report_fatal_error("Stack alignment other than 4 byte is not supported");
   }
+#endif
 
   // assign some FIs to the stack cache if possible
   unsigned stackSize = assignFrameObjects(MF, !DisableStackCache);
