@@ -168,10 +168,10 @@ unsigned PatmosSubtarget::getDelaySlotCycles(const MachineInstr *MI) const {
            MI->getOpcode() == Patmos::BRCFTu ||
            MI->getOpcode() == Patmos::BRCFT)
   {
-    return getCFLDelaySlotCycles(false);
+    return MI->hasDelaySlot() ? getCFLDelaySlotCycles(false) : 0;
   }
   else if (MI->isBranch()) {
-    return getCFLDelaySlotCycles(true);
+    return MI->hasDelaySlot() ? getCFLDelaySlotCycles(true) : 0;
   } else {
     return 0;
   }
