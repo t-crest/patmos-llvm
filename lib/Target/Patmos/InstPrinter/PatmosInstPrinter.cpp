@@ -93,7 +93,7 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     // Print as bytes if requested
     bool IsShifted = false;
     if (PrintBytes == PrintAllAsBytes ||
-        (PrintBytes == PrintCallAsBytes && MI->getOpcode() == Patmos::CALL))
+        (PrintBytes == PrintCallAsBytes && isPatmosCall(MI->getOpcode())))
     {
       const MCInstrDesc &MID = MII.get(MI->getOpcode());
       unsigned ImmShift = getPatmosImmediateShift( MID.TSFlags );
@@ -112,7 +112,7 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
       // Print as hex only for some instructions, and only if it is in bytes
       // We have the hex value in the disassembly output anyway, and we do not
       // want to print hex for LIin
-      if (IsShifted && MI->getOpcode() == Patmos::CALL) {
+      if (IsShifted && isPatmosCall(MI->getOpcode())) {
         O << format("0x%x", Value);
       } else {
         O << Value;

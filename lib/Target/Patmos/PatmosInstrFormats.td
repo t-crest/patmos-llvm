@@ -10,8 +10,8 @@
 // Format specifies some properties of the encoding used by the instruction.
 // The format is stored in the TSFlags, the flags must match the table in
 // MCTargetDesc/PatmosBaseInfo.h
-class Format<bits<4> val> {
-      bits<4> Value = val;
+class Format<bits<5> val> {
+      bits<5> Value = val;
 }
 
 def FOther  : Format<0>;
@@ -30,6 +30,7 @@ def FCFLi   : Format<12>; // Program flow control with 22bit immediate
 def FCFLri  : Format<13>; // Program flow control with registers
 def FCFLrs  : Format<14>; // Program flow control with registers
 def FCFLrt  : Format<15>; // Program flow control with registers
+def FCFLsi  : Format<16>; // Program flow control with 5bit immediate
 
 //===----------------------------------------------------------------------===//
 //  Describe Patmos instructions format here
@@ -67,11 +68,11 @@ class PatmosInstBase<dag outs, dag ins, // SizeVal sz,
   bit           mayStall = 0;
 
   // The layout must match the definitions in PatmosBaseInfo.h
-  let TSFlags{12}   = mayStall;
-  let TSFlags{11}   = ImmSigned;
-  let TSFlags{10-8} = ImmShift;
-  let TSFlags{7-4}  = ImmOpNo;
-  let TSFlags{3-0}  = Form.Value;
+  let TSFlags{13}   = mayStall;
+  let TSFlags{12}   = ImmSigned;
+  let TSFlags{11-9} = ImmShift;
+  let TSFlags{8-5}  = ImmOpNo;
+  let TSFlags{4-0}  = Form.Value;
 
   let DecoderNamespace = "Patmos";
 }
@@ -477,6 +478,7 @@ class CFLi<bits<2> op, bits<1> d,
   let Inst{21-0} = target;
 }
 
+
 // CFLr - Control Flow with registers
 //
 class CFLr<Format form, bits<2>regs, bits<1>d,
@@ -524,3 +526,21 @@ class CFLrt<bits<2>op, bits<1>d,
   let Inst{11-7} = rs2;
   let Inst{1-0}  = op;
 }
+
+// CFLsi - Control Flow with single short immediate
+//
+class CFLsi<bits<2>op, bits<1>d,
+      dag outs, dag ins, string asmop, string asmstr, list<dag> pattern>
+  : CFLr<FCFLsi, 0b11, d, outs, ins, asmop, asmstr, pattern> {
+
+  // unbound register fields
+  bits<5> imm;
+
+  let ImmOpNo  = 2;
+  let ImmShift = 0; 
+
+  let Inst{16-12} = imm;
+  let Inst{1-0}  = op;
+}
+
+

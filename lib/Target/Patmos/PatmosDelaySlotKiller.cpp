@@ -119,6 +119,8 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
           Opcode == Patmos::BRCFTu ||
           Opcode == Patmos::CALL ||
           Opcode == Patmos::CALLR ||
+          Opcode == Patmos::CALLSB ||
+          Opcode == Patmos::CALLRSB ||
           Opcode == Patmos::RET ||
           Opcode == Patmos::XRET) {
 
@@ -134,22 +136,24 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
         if (onlyNops) {
           unsigned NewOpcode = 0;
           switch(Opcode) {
-          case Patmos::BR:     NewOpcode = Patmos::BRND; break;
-          case Patmos::BRu:    NewOpcode = Patmos::BRNDu; break;
-          case Patmos::BRR:    NewOpcode = Patmos::BRRND; break;
-          case Patmos::BRRu:   NewOpcode = Patmos::BRRNDu; break;
-          case Patmos::BRT:    NewOpcode = Patmos::BRTND; break;
-          case Patmos::BRTu:   NewOpcode = Patmos::BRTNDu; break;
-          case Patmos::BRCF:   NewOpcode = Patmos::BRCFND; break;
-          case Patmos::BRCFu:  NewOpcode = Patmos::BRCFNDu; break;
-          case Patmos::BRCFR:  NewOpcode = Patmos::BRCFRND; break;
-          case Patmos::BRCFRu: NewOpcode = Patmos::BRCFRNDu; break;
-          case Patmos::BRCFT:  NewOpcode = Patmos::BRCFTND; break;
-          case Patmos::BRCFTu: NewOpcode = Patmos::BRCFTNDu; break;
-          case Patmos::CALL:   NewOpcode = Patmos::CALLND; break;
-          case Patmos::CALLR:  NewOpcode = Patmos::CALLRND; break;
-          case Patmos::RET:    NewOpcode = Patmos::RETND; break;
-          case Patmos::XRET:   NewOpcode = Patmos::XRETND; break;
+          case Patmos::BR:      NewOpcode = Patmos::BRND; break;
+          case Patmos::BRu:     NewOpcode = Patmos::BRNDu; break;
+          case Patmos::BRR:     NewOpcode = Patmos::BRRND; break;
+          case Patmos::BRRu:    NewOpcode = Patmos::BRRNDu; break;
+          case Patmos::BRT:     NewOpcode = Patmos::BRTND; break;
+          case Patmos::BRTu:    NewOpcode = Patmos::BRTNDu; break;
+          case Patmos::BRCF:    NewOpcode = Patmos::BRCFND; break;
+          case Patmos::BRCFu:   NewOpcode = Patmos::BRCFNDu; break;
+          case Patmos::BRCFR:   NewOpcode = Patmos::BRCFRND; break;
+          case Patmos::BRCFRu:  NewOpcode = Patmos::BRCFRNDu; break;
+          case Patmos::BRCFT:   NewOpcode = Patmos::BRCFTND; break;
+          case Patmos::BRCFTu:  NewOpcode = Patmos::BRCFTNDu; break;
+          case Patmos::CALL:    NewOpcode = Patmos::CALLND; break;
+          case Patmos::CALLR:   NewOpcode = Patmos::CALLRND; break;
+          case Patmos::CALLSB:  NewOpcode = Patmos::CALLSBND; break;
+          case Patmos::CALLRSB: NewOpcode = Patmos::CALLRSBND; break;
+          case Patmos::RET:     NewOpcode = Patmos::RETND; break;
+          case Patmos::XRET:    NewOpcode = Patmos::XRETND; break;
           }
           const MCInstrDesc &nonDelayed = TII->get(NewOpcode);
           MI->setDesc(nonDelayed);

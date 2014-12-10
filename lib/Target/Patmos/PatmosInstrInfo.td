@@ -448,6 +448,12 @@ let isCall=1, hasDelaySlot=1, mayStall=1,
 
   def CALLR: CFLrs<0b00, 0b1, (outs), (ins pred:$p, RRegs:$rs),
                    "call", "$rs", [(PatmosCall RRegs:$rs)]>;
+
+  def CALLSB : CFLi<0b11, 0b1, (outs), (ins pred:$p, uimm22s2:$target),
+                   "callsb", "$target", [(PatmosCall uimm22s2:$target)]>;
+
+  def CALLRSB : CFLrs<0b11, 0b1, (outs), (ins pred:$p, RRegs:$rs),
+                   "callsb", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
 let isCall=1, hasDelaySlot=0, mayStall=1,
@@ -463,6 +469,12 @@ let isCall=1, hasDelaySlot=0, mayStall=1,
 
   def CALLRND : CFLrs<0b00, 0b0, (outs), (ins pred:$p, RRegs:$rs),
                      "callnd", "$rs", [(PatmosCall RRegs:$rs)]>;
+
+  def CALLSBND : CFLi<0b11, 0b0, (outs), (ins pred:$p, uimm22s2:$target),
+                  "callsbnd", "$target", [(PatmosCall uimm22s2:$target)]>;
+
+  def CALLRSBND : CFLrs<0b11, 0b0, (outs), (ins pred:$p, RRegs:$rs),
+                     "callsbnd", "$rs", [(PatmosCall RRegs:$rs)]>;
 }
 
 let isReturn=1, isTerminator=1, isBarrier=1, hasDelaySlot=1, mayStall=1,
@@ -490,7 +502,7 @@ let isCall=1, hasDelaySlot=0,
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
           SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
-  def TRAP : CFLi<0b11, 0b0, (outs), (ins pred:$p, uimm5:$target),
+  def TRAP : CFLsi<0b00, 0b0, (outs), (ins pred:$p, uimm5:$target),
   	  	   	 	  "trap", "$target", []>;
 }	
 

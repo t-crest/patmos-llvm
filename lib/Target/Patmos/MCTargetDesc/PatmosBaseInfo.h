@@ -92,7 +92,10 @@ namespace PatmosII {
     /// FrmCFLrt - This form is for instructions of the CFLrt format (flow control, two registers).
     FrmCFLrt    = 15,
 
-    FormMask    = 0x0F
+    /// FrmCFLsi - This form is for instructions of the CFLsi format (flow control, 5bit immediate).
+    FrmCFLsi    = 16,
+
+    FormMask    = 0x1F
   };
 
   enum MemType {
@@ -110,19 +113,19 @@ inline static unsigned getPatmosFormat(uint64_t TSFlags) {
 }
 
 inline static unsigned getPatmosImmediateOpNo(uint64_t TSFlags) {
-  return (TSFlags >> 4) & 0x0F;
+  return (TSFlags >> 5) & 0x0F;
 }
 
 inline static unsigned getPatmosImmediateShift(uint64_t TSFlags) {
-  return (TSFlags >> 8) & 0x07;
+  return (TSFlags >> 9) & 0x07;
 }
 
 inline static bool isPatmosImmediateSigned(uint64_t TSFlags) {
-  return (TSFlags >> 11) & 0x01;
+  return (TSFlags >> 12) & 0x01;
 }
 
 inline static bool isPatmosMayStall(uint64_t TSFlags) {
-  return (TSFlags >> 12) & 0x01;
+  return (TSFlags >> 13) & 0x01;
 }
 
 inline static bool hasPatmosImmediate(uint64_t TSFlags) {
@@ -136,6 +139,22 @@ inline static bool isPatmosCFL(unsigned opcode, uint64_t TSFlags) {
   case PatmosII::FrmCFLri:
   case PatmosII::FrmCFLrs:
   case PatmosII::FrmCFLrt:
+  case PatmosII::FrmCFLsi:
+    return true;
+  }
+  return false;
+}
+
+inline static bool isPatmosCall(unsigned opcode) {
+  switch (opcode) {
+  case Patmos::CALL:
+  case Patmos::CALLSB:
+  case Patmos::CALLND:
+  case Patmos::CALLSBND:
+  case Patmos::CALLR:
+  case Patmos::CALLRSB:
+  case Patmos::CALLRND:
+  case Patmos::CALLRSBND:
     return true;
   }
   return false;
@@ -145,6 +164,7 @@ inline static unsigned getPatmosImmediateSize(uint64_t TSFlags) {
   switch (TSFlags & PatmosII::FormMask) {
   case PatmosII::FrmALUb:  return 5;
   case PatmosII::FrmALUci: return 5;
+  case PatmosII::FrmCFLsi: return 5;
   case PatmosII::FrmLDT:   return 7;
   case PatmosII::FrmSTT:   return 7;
   case PatmosII::FrmALUi:  return 12;
