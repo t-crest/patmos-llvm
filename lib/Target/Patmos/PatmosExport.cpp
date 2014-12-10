@@ -138,29 +138,7 @@ namespace llvm {
     }
 
     virtual unsigned getBranchDelaySlots(const MachineInstr *Instr) {
-      switch (Instr->getOpcode()) {
-      case Patmos::BR:
-      case Patmos::BRu: 
-      case Patmos::BRR:
-      case Patmos::BRRu: 
-      case Patmos::BRT:
-      case Patmos::BRTu:
-		return 2;
-      case Patmos::BRCF:
-      case Patmos::BRCFu:
-      case Patmos::BRCFR:
-      case Patmos::BRCFRu:
-      case Patmos::BRCFT:
-      case Patmos::BRCFTu:
-      case Patmos::CALL:
-      case Patmos::CALLR:
-      case Patmos::RET:
-      case Patmos::XRET:
-		return 3;
-      default:
-		return 0;
-      }
-      // return TM.getSubtargetImpl()->getDelaySlotCycles(Instr);
+      return TM.getSubtargetImpl()->getDelaySlotCycles(Instr);
     }
 
     virtual const std::vector<MachineBasicBlock*> getBranchTargets(
