@@ -182,6 +182,35 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
   else llvm_unreachable("Register class not handled!");
 }
 
+unsigned PatmosInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
+                                             int &FrameIndex) const {
+  // stack stores still go through cache at this point
+  if (MI->getOpcode() == Patmos::SWC ||
+      MI->getOpcode() == Patmos::SHC ||
+      MI->getOpcode() == Patmos::SBC) {
+    if (MI->getOperand(2).isFI() && MI->getOperand(3).isImm() &&
+        MI->getOperand(3).getImm() == 0) {
+      FrameIndex = MI->getOperand(2).getIndex();
+      return MI->getOperand(4).getReg();
+    }
+  }
+  return 0;
+}
+
+unsigned PatmosInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
+                                              int &FrameIndex) const {
+  // stack loads still go through cache at this point
+  if (MI->getOpcode() == Patmos::LWC ||
+      MI->getOpcode() == Patmos::LHC || MI->getOpcode() == Patmos::LHUC ||
+      MI->getOpcode() == Patmos::LBC || MI->getOpcode() == Patmos::LBUC) {
+    if (MI->getOperand(3).isFI() && MI->getOperand(4).isImm() &&
+        MI->getOperand(4).getImm() == 0) {
+      FrameIndex = MI->getOperand(3).getIndex();
+      return MI->getOperand(0).getReg();
+    }
+  }
+  return 0;
+}
 
 void PatmosInstrInfo::insertNoop(MachineBasicBlock &MBB,
       MachineBasicBlock::iterator MI) const {
@@ -522,11 +551,9 @@ PatmosII::MemType PatmosInstrInfo::getMemType(const MachineInstr *MI) const {
     case SWL: case SHL: case SBL:
       return PatmosII::MEM_L;
     case  LWC: case  LHC: case  LBC: case  LHUC: case  LBUC:
-    case DLWC: case DLHC: case DLBC: case DLHUC: case DLBUC:
     case  SWC: case  SHC: case  SBC:
       return PatmosII::MEM_C;
     case  LWM: case  LHM: case  LBM: case  LHUM: case  LBUM:
-    case DLWM: case DLHM: case DLBM: case DLHUM: case DLBUM:
     case  SWM: case  SHM: case  SBM:
       return PatmosII::MEM_M;
     default: llvm_unreachable("Unexpected memory access instruction!");

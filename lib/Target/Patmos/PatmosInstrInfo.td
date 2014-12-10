@@ -439,7 +439,7 @@ let isCall=1, hasDelaySlot=1, mayStall=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
-          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
+          SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
 
   // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
@@ -454,7 +454,7 @@ let isCall=1, hasDelaySlot=0, mayStall=1,
   // Calls may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
-          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
+          SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
 
   // NOTE: This has to be kept consistent with HasPCRELImmediate in PatmosInstrInfo.h
 
@@ -489,7 +489,7 @@ let isCall=1, hasDelaySlot=0,
   // Traps are like calls and may overwrite caller saved registers
   Defs = [R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16,
           R17, R18, R19, R20,
-          SM, SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
+          SL, SH, SRB, SRO, SXB, SXO, S11, S12, S13, S14, S15] in {
   def TRAP : CFLi<0b11, 0b0, (outs), (ins pred:$p, uimm5:$target),
   	  	   	 	  "trap", "$target", []>;
 }	
@@ -813,10 +813,6 @@ def MOVpr : ALUb <(outs RRegs:$rd), (ins pred:$p, predset:$ps),
                   [(set RRegs:$rd, (i32 (zext predsel:$ps)))]>;
 def : Pat<(anyext (i1 predsel:$p)), (MOVpr predsel:$p)>;
 
-// Wait
-let mayStall = 1 in
-def WAIT : SPCw <0b0000, (outs), (ins pred:$p), "wait.mem", "", []>;
-
 // move to special
 let hasExtraDefRegAllocReq = 1 in
 def MTS  : SPCt <(outs SRegs:$sd), (ins pred:$p, RRegs:$rs), "mts", "$sd = $rs", [] >;
@@ -860,36 +856,11 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
                [], IIC_LD>;
 }
 
-let neverHasSideEffects = 1 in // mayLoad is set in format
-multiclass DecoupledLoadTyped<bits<4> ty, Operand immTy, string asmop>
-{
-  let Defs = [SM], rd = 0, ImmOpNo = 3 in
-  {
-    // load from data cache (no pattern to match)
-    def C  : LDT<ty{3-1}, ty{0}, 0b0, (outs /*empty*/),
-                 (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 "d" # asmop # "c", "[${ra:addrmod}${imm:addrmod}]",
-                 [], IIC_LDd>;
-
-    // load from main memory (no pattern to match)
-    def M  : LDT<ty{3-1}, ty{0}, 0b1, (outs /*empty*/),
-                 (ins pred:$p, RRegs:$ra, immTy:$imm),
-                 "d" # asmop # "m", "[${ra:addrmod}${imm:addrmod}]",
-                 [], IIC_LDd>;
-  }
-}
-
 let ImmShift = 2, ImmSigned = 0 in defm LW  : LoadTyped<0b000, uimm7s2, "lw" >;
 let ImmShift = 1, ImmSigned = 0 in defm LH  : LoadTyped<0b001, uimm7s1, "lh" >;
 let ImmShift = 0, ImmSigned = 0 in defm LB  : LoadTyped<0b010, uimm7  , "lb" >;
 let ImmShift = 1, ImmSigned = 0 in defm LHU : LoadTyped<0b011, uimm7s1, "lhu">;
 let ImmShift = 0, ImmSigned = 0 in defm LBU : LoadTyped<0b100, uimm7  , "lbu">;
-
-let ImmShift = 2, ImmSigned = 0 in defm DLW  : DecoupledLoadTyped<0b1010, uimm7s2, "lw" >;
-let ImmShift = 1, ImmSigned = 0 in defm DLH  : DecoupledLoadTyped<0b1011, uimm7s1, "lh" >;
-let ImmShift = 0, ImmSigned = 0 in defm DLB  : DecoupledLoadTyped<0b1100, uimm7  , "lb" >;
-let ImmShift = 1, ImmSigned = 0 in defm DLHU : DecoupledLoadTyped<0b1101, uimm7s1, "lhu">;
-let ImmShift = 0, ImmSigned = 0 in defm DLBU : DecoupledLoadTyped<0b1110, uimm7  , "lbu">;
 
 
 

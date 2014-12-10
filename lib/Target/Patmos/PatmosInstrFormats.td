@@ -321,18 +321,6 @@ class SPC<dag outs, dag ins, string op, string asmstr, list<dag> pattern, InstrI
 }
 
 
-// SPCw - Wait
-//
-class SPCw<bits<4> func,
-      dag outs, dag ins, string op, string asmstr, list<dag> pattern>
-  : SPC<outs, ins, op, asmstr, pattern, IIC_SPCw> {
-
-  let Opc = 0b001;
-
-  let Inst{3-0}   = func;
-}
-
-
 // SPCt - Move To Special
 //
 class SPCt<dag outs, dag ins, string op, string asmstr, list<dag> pattern>

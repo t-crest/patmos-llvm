@@ -40,7 +40,7 @@ machine-configuration:
       memory: "main"
       cache: "method-cache"
       address-range:
-        min: 0x0
+        min: 0
         max: 0x200000
     - name: "data"
       type: "data"

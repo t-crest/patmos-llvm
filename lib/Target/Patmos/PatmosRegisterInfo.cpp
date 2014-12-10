@@ -83,7 +83,7 @@ BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
   // All the special registers are reserved
   Reserved.set(Patmos::S0);
-  Reserved.set(Patmos::SM);
+  Reserved.set(Patmos::S1);
   Reserved.set(Patmos::SL);
   Reserved.set(Patmos::SH);
   Reserved.set(Patmos::S4);

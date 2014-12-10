@@ -144,12 +144,6 @@ bool PatmosBypassFromPML::rewriteInstruction(MachineInstr &MI) {
     case Patmos::LBC:  opc = Patmos::LBM;  break;
     case Patmos::LHUC: opc = Patmos::LHUM; break;
     case Patmos::LBUC: opc = Patmos::LBUM; break;
-                       // decoupled loads
-    case Patmos::DLWC:  opc = Patmos::DLWM;  break;
-    case Patmos::DLHC:  opc = Patmos::DLHM;  break;
-    case Patmos::DLBC:  opc = Patmos::DLBM;  break;
-    case Patmos::DLHUC: opc = Patmos::DLHUM; break;
-    case Patmos::DLBUC: opc = Patmos::DLBUM; break;
     default: /*ignore*/;
   }
 
