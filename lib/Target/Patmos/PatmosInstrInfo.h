@@ -492,7 +492,7 @@ bool HasALUlVariant(unsigned Opcode, unsigned &ALUlOpcode) {
 /// MID has a PC relative immediate (Format == CFLi && Opcode == BR/BRu).
 static inline
 bool HasPCRELImmediate(unsigned Opcode, const MCInstrDesc &MID) {
-  uint64_t Format = (MID.TSFlags & PatmosII::FormMask);
+  uint64_t Format = getPatmosFormat(MID.TSFlags);
   // CFLi and Opcode == BR/BRu => immediate is PCrel
   if (Format != PatmosII::FrmCFLi) return false;
   return (Opcode == Patmos::BR || Opcode == Patmos::BRu 
