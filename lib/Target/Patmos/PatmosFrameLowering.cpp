@@ -435,6 +435,11 @@ void PatmosFrameLowering::processFunctionBeforeCalleeSavedScan(
   if (MFI.hasCalls()) {
     // If we have calls, we need to spill the call link registers
     MRI.setPhysRegUsed(Patmos::SRB);
+    // Would be nice if we could omit the SRO spill costs, but even if we
+    // use callsb only, there might be some (inline) asm that has normal calls.
+    //if (STC.getCSBType() == PatmosSubtarget::CSB_ALL)
+    //  MRI.setPhysRegUnused(Patmos::SRO);
+    //else
     MRI.setPhysRegUsed(Patmos::SRO);
   } else {
     MRI.setPhysRegUnused(Patmos::SRB);
