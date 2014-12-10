@@ -72,6 +72,18 @@ public:
   // Return the type of control-flow instructions to be generated
   CFLType getCFLType() const;
 
+  /// Call return to new block ABI type
+  typedef enum { CSB_NONE, CSB_ALL, CSB_GROW, CSB_ANALYSE } CSBType;
+
+  /// Return the way subfunctions are split at call sites.
+  CSBType getCallSBType() const;
+
+  /// Method cache dispose flag usage
+  typedef enum { MCD_NONE, MCD_ALL, MCD_ANALYSE } MCDType;
+
+  /// Return the way the method cache dispose flag should be used.
+  MCDType getMethodCacheDisposeType() const;
+
   /////////////////////////////////////////////////////////////////////////////
   // Patmos specific architecture parameters (cache sizes, types, features,..)
 

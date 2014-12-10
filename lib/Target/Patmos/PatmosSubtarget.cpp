@@ -93,6 +93,40 @@ static cl::opt<PatmosSubtarget::CFLType> PatmosCFLType("mpatmos-cfl",
                                            "Emit only non-delayed branches and calls"),
                                 clEnumValEnd));
 
+static cl::opt<PatmosSubtarget::CSBType> PatmosCSBType("mpatmos-split-calls",
+                            cl::init(PatmosSubtarget::CSB_NONE),
+                            cl::desc("Split subfunctions at call sites."),
+                            cl::values(
+                                clEnumValN(PatmosSubtarget::CSB_NONE,
+                                           "none",
+                                           "Do not split at call sites"),
+                                clEnumValN(PatmosSubtarget::CSB_ALL,
+                                           "all",
+                                           "Split at all call sites"),
+                                clEnumValN(PatmosSubtarget::CSB_GROW,
+                                           "grow",
+                                           "Handle calls like normal branches"),
+                                clEnumValN(PatmosSubtarget::CSB_ANALYSE,
+                                           "analyse",
+                                           "Use cache analysis to find call sites to split"),
+                                clEnumValEnd));
+
+static cl::opt<PatmosSubtarget::MCDType> PatmosMCDType("mpatmos-dispose-blocks",
+                            cl::init(PatmosSubtarget::MCD_NONE),
+                            cl::desc("Mark method cache blocks as disposable."),
+                            cl::values(
+                                clEnumValN(PatmosSubtarget::MCD_NONE,
+                                           "none",
+                                           "Do not dispose any blocks"),
+                                clEnumValN(PatmosSubtarget::MCD_ALL,
+                                           "all",
+                                           "Mark all blocks as disposable"),
+                                clEnumValN(PatmosSubtarget::MCD_ANALYSE,
+                                           "analyse",
+                                           "Use cache analysis to mark disposable blocks"),
+                                clEnumValEnd));
+
+
 PatmosSubtarget::PatmosSubtarget(const std::string &TT,
                                  const std::string &CPU,
                                  const std::string &FS) :
@@ -148,6 +182,14 @@ bool PatmosSubtarget::usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const
 
 PatmosSubtarget::CFLType PatmosSubtarget::getCFLType() const {
   return PatmosCFLType;
+}
+
+PatmosSubtarget::CSBType PatmosSubtarget::getCallSBType() const {
+  return PatmosCSBType;
+}
+
+PatmosSubtarget::MCDType PatmosSubtarget::getMethodCacheDisposeType() const {
+  return PatmosMCDType;
 }
 
 unsigned PatmosSubtarget::getDelaySlotCycles(const MachineInstr *MI) const {
