@@ -147,7 +147,7 @@ class OSXExporter
 #      add_element(proj_options, "general_options") { |gen_options|
 #        gen_options << rexml_str("include_path",".")
 #      }
-#      if arch_el = @pml.arch.config_for_apx(project)
+#      if arch_el = @pml.arch.config_for_apx(@options)
 #        proj_options << arch_el
 #      end
 #    }

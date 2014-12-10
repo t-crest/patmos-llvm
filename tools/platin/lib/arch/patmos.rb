@@ -163,10 +163,18 @@ class Architecture < PML::Architecture
 
   def config_for_apx(options)
     if sc = stack_cache
-      sc_size = sprintf("0x%x", sc.size)
+      patmos_options = REXML::Element.new("patmos_options")
+      # workaround sets SC size and base address to 0
+      if options.ait_disable_internal_sc
+        sc_option = REXML::Element.new("stack_cache_base")
+        sc_option << REXML::Text.new("0x0")
+        patmos_options << sc_option
+        sc_size = "0x0"
+      else
+        sc_size = sprintf("0x%x", sc.size)
+      end
       sc_option = REXML::Element.new("stack_cache_size")
       sc_option << REXML::Text.new(sc_size)
-      patmos_options = REXML::Element.new("patmos_options")
       patmos_options << sc_option
       patmos_options
     else
