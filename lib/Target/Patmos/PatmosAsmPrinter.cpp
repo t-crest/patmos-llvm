@@ -53,7 +53,11 @@ void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   CurrCodeEnd = OutContext.CreateTempSymbol();
 
   // emit a function/subfunction start directive
-  EmitFStart(CurrentFnSymForSize, CurrCodeEnd, FStartAlignment);
+  unsigned Align = MF->getAlignment() ? MF->getAlignment() : FStartAlignment;
+  bool Dispose;
+  isFStart(MF->begin(), &Dispose);
+
+  EmitFStart(CurrentFnSymForSize, CurrCodeEnd, Align, Dispose);
 
   // Now emit the normal function label
   AsmPrinter::EmitFunctionEntryLabel();
@@ -88,7 +92,8 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
   if (&MBB->getParent()->back() == MBB) return;
   const MachineBasicBlock *Next = MBB->getNextNode();
 
-  bool followedByFStart = isFStart(Next);
+  bool dispose;
+  bool followedByFStart = isFStart(Next, &dispose);
 
   if (followedByFStart) {
     // Next is the start of a new cache block, close the old one before the
@@ -117,7 +122,7 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
                                           : FStartAlignment;
 
     // emit a function/subfunction start directive
-    EmitFStart(SymStart, CurrCodeEnd, align);
+    EmitFStart(SymStart, CurrCodeEnd, align, dispose);
   }
   else if (Next->getAlignment()) {
     // Align the next basic block. We emit it here instead of in
@@ -142,7 +147,7 @@ void PatmosAsmPrinter::EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd) {
 }
 
 void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
-                                     unsigned Alignment) {
+                                     unsigned Alignment, bool Dispose) {
   // convert LLVM's log2-block alignment to bytes
   unsigned AlignBytes = std::max(4u, 1u << Alignment);
 
@@ -155,15 +160,22 @@ void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
   PatmosTargetStreamer &PTS =
             static_cast<PatmosTargetStreamer&>(OutStreamer.getTargetStreamer());
 
-  PTS.EmitFStart(SymStart, SizeExpr, AlignBytes);
+  PTS.EmitFStart(SymStart, SizeExpr, AlignBytes, Dispose);
 }
 
-bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB) const {
+bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB,
+                                bool *Dispose) const {
   // query the machineinfo object - the PatmosFunctionSplitter, or some other
   // pass, has marked all entry blocks already.
   const PatmosMachineFunctionInfo *PMFI =
                                        MF->getInfo<PatmosMachineFunctionInfo>();
-  return PMFI->isMethodCacheRegionEntry(MBB);
+  bool FStart = PMFI->isMethodCacheRegionEntry(MBB);
+
+  if (Dispose) {
+    *Dispose = FStart ? PMFI->isDisposeableRegionEntry(MBB) : false;
+  }
+
+  return FStart;
 }
 
 

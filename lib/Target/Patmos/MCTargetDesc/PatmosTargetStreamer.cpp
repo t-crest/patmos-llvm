@@ -26,9 +26,14 @@ PatmosTargetAsmStreamer::PatmosTargetAsmStreamer(formatted_raw_ostream &OS)
     : OS(OS) {}
 
 void PatmosTargetAsmStreamer::EmitFStart(const MCSymbol *Start, 
-                               const MCExpr* Size, unsigned Alignment)
+                               const MCExpr* Size, unsigned Alignment,
+                               bool Dispose)
 {
-  OS << "\t.fstart\t" << *Start << ", " << *Size << ", " << Alignment << "\n";
+  OS << "\t.fstart\t" << *Start << ", " << *Size << ", " << Alignment;
+  if (Dispose) {
+    OS << ", dispose";
+  }
+  OS << "\n";
 }
 
 MCELFStreamer &PatmosTargetELFStreamer::getStreamer() {
@@ -36,7 +41,7 @@ MCELFStreamer &PatmosTargetELFStreamer::getStreamer() {
 }
 
 void PatmosTargetELFStreamer::EmitFStart(const MCSymbol *Start, 
-	      const MCExpr* Size, unsigned Alignment) 
+	      const MCExpr* Size, unsigned Alignment, bool Dispose)
 {
   // Not used at the moment: This code is used to align the first *instruction*,
   // not the first word (i.e., the size word). Since we need to align the
@@ -54,8 +59,12 @@ void PatmosTargetELFStreamer::EmitFStart(const MCSymbol *Start,
   // or add an EmitAlignedSymbol function to MCStreamer
   //getStreamer().insert(AF);
 
+  uint16_t Flags = 0;
+  if (Dispose) Flags |= 0x1;
+
   getStreamer().EmitCodeAlignment(Alignment);
-  getStreamer().EmitValue(Size, 4);
+  getStreamer().EmitIntValue(Flags, 2);
+  getStreamer().EmitValue(Size, 2);
 
 }
 

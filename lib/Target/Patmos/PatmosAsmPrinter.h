@@ -85,9 +85,9 @@ namespace llvm {
     /// mark the start of an subfunction relocation area.
     /// Alignment is in log2(bytes).
     void EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
-                       unsigned Alignment = 0);
+                       unsigned Alignment = 0, bool Dispose = false);
 
-    bool isFStart(const MachineBasicBlock *MBB) const;
+    bool isFStart(const MachineBasicBlock *MBB, bool *Dispose = 0) const;
   };
 
 } // end of llvm namespace

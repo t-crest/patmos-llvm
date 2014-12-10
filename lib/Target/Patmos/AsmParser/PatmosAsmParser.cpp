@@ -26,6 +26,7 @@
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
@@ -361,7 +362,7 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 
       // If we have an immediate, shift the value according to the asm dialect
       if (MCO.isImm() && (ParseBytes == PrintAllAsBytes ||
-          (ParseBytes == PrintCallAsBytes && Inst.getOpcode() == Patmos::CALL)))
+          (ParseBytes == PrintCallAsBytes && isPatmosCall(Inst.getOpcode())) ))
       {
         unsigned ImmShift = getPatmosImmediateShift( MID.TSFlags );
         MCO.setImm(MCO.getImm() / (1 << ImmShift));
@@ -897,7 +898,7 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
   }
 
   if (getLexer().isNot(AsmToken::Comma))
-    return Error(L, "unexpected token in directive");
+    return Error(getLexer().getLoc(), "unexpected token in directive");
   Parser.Lex();
 
   const MCExpr *Length;
@@ -906,7 +907,7 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
   }
 
   if (getLexer().isNot(AsmToken::Comma))
-    return Error(L, "unexpected token in directive");
+    return Error(getLexer().getLoc(), "unexpected token in directive");
   Parser.Lex();
 
   int64_t Align;
@@ -914,7 +915,26 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
     return true;
   }
   if (Align < 0) {
-    return Error(L, "alignment value must be a positive value");
+    return Error(getLexer().getLoc(), "alignment value must be a positive value");
+  }
+
+  // Parse optional flags
+
+  bool Dispose = false;
+  if (getLexer().is(AsmToken::Comma)) {
+    Parser.Lex();
+
+    StringRef Option;
+    if (Parser.parseIdentifier(Option)) {
+      return true;
+    }
+
+    if (Option == "dispose") {
+      // TODO allow something like , option=value?
+      Dispose = true;
+    } else {
+      return Error(getLexer().getLoc(), "invalid option in directive");
+    }
   }
 
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
@@ -925,7 +945,7 @@ bool PatmosAsmParser::ParseDirectiveFStart(SMLoc L) {
   PatmosTargetStreamer &PTS = static_cast<PatmosTargetStreamer&>(
                                  getParser().getStreamer().getTargetStreamer());
 
-  PTS.EmitFStart(Start, Length, (unsigned)Align);
+  PTS.EmitFStart(Start, Length, (unsigned)Align, Dispose);
 
   return false;
 }

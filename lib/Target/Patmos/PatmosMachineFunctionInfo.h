@@ -98,18 +98,32 @@ class PatmosMachineFunctionInfo : public MachineFunctionInfo {
   /// | LoopCnts | S0Spills | ExcessSpills |
   std::vector<int> SinglePathFIs;
 
-  // Index to the SinglePathFIs where the S0 spill slots start
+  /// Index to the SinglePathFIs where the S0 spill slots start
   unsigned SPS0SpillOffset;
 
-  // Index to the SinglePathFIs where the excess spill slots start
+  /// Index to the SinglePathFIs where the excess spill slots start
   unsigned SPExcessSpillOffset;
 
-  // Index to the SinglePathFIs where the call spill slots start (R9)
+  /// Index to the SinglePathFIs where the call spill slots start (R9)
   unsigned SPCallSpillOffset;
+
+  /// Flags for regions, written using .fstart.
+  /// TODO make this struct public, use it as argument for EmitFStart, allow
+  ///      to set and get the whole struct for a region header.
+  typedef struct {
+    /// Dispose region after executing it.
+    bool Disposable;
+
+    /// Clear cache after executing the region.
+    //bool ClearCache;
+
+  } RegionFlags;
+
+  typedef std::map<const MachineBasicBlock*, RegionFlags> RegionEntryMap;
 
   /// Set of entry blocks to code regions that are potentially cached by the
   /// method cache.
-  std::set<const MachineBasicBlock*> MethodCacheRegionEntries;
+  RegionEntryMap MethodCacheRegionEntries;
 
   /// Store analysis results per function.
   PatmosAnalysisInfo AnalysisInfo;
@@ -189,15 +203,34 @@ public:
   /// addMethodCacheRegionEntry - Add the block to the set of method cache
   /// region entry blocks.
   /// \see MethodCacheRegionEntries
-  void addMethodCacheRegionEntry(const MachineBasicBlock *MBB) {
-    MethodCacheRegionEntries.insert(MBB);
+  void addMethodCacheRegionEntry(const MachineBasicBlock *MBB,
+                                 bool Dispose = false)
+  {
+    RegionFlags Flags;
+    Flags.Disposable = Dispose;
+
+    MethodCacheRegionEntries[MBB] = Flags;
   }
 
   /// isMethodCacheRegionEntry - Return whether the block is a method cache
   /// region entry.
   /// \see MethodCacheRegionEntries
   bool isMethodCacheRegionEntry(const MachineBasicBlock *MBB) const {
-    return MethodCacheRegionEntries.find(MBB) != MethodCacheRegionEntries.end();
+    return MethodCacheRegionEntries.count(MBB) > 0;
+  }
+
+  bool setDisposeableRegionEntry(const MachineBasicBlock *MBB, bool Dispose) {
+    bool old = MethodCacheRegionEntries[MBB].Disposable;
+    MethodCacheRegionEntries[MBB].Disposable = Dispose;
+    return old;
+  }
+
+  bool isDisposeableRegionEntry(const MachineBasicBlock *MBB) const {
+    RegionEntryMap::const_iterator it = MethodCacheRegionEntries.find(MBB);
+    if (it == MethodCacheRegionEntries.end()) {
+      return false;
+    }
+    return it->second.Disposable;
   }
 
   void setSinglePath(bool convert=true) {
