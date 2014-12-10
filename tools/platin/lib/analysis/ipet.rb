@@ -142,7 +142,7 @@ class IPETEdge
   def initialize(edge_source, edge_target, level, kind = :plain)
     @source,@target,@level,@kind = edge_source, edge_target, level.to_sym, kind
     arrow  = @level == :bitcode ? "~>" : "->"
-    suffix = @kind == :mispredict ? "_mp" : ""
+    suffix = @kind == :mispredict ? "_mp" : @kind == :div ? "_div" : ""
     @qname = "#{@source.qname}#{arrow}#{:exit == @target ? 'exit' : @target.qname}#{suffix}"
   end
   def backedge?
@@ -173,7 +173,7 @@ class IPETEdge
   end
   def to_s
     arrow  = @level == 'bitcode' ? "~>" : "->"
-    suffix = @kind == :mispredict ? "_mp" : ""
+    suffix = @kind == :mispredict ? "_mp" : @kind == :div ? "_div" : ""
     "#{@source}#{arrow}#{:exit == @target ? 'exit' : @target}#{suffix}"
   end
   def inspect
@@ -320,7 +320,9 @@ class IPETModel
   # misprediction bounds for dynamic predictors
   def add_misprediction_block_constraint(block, scopes)
     # only insert constraints for dynamic prediction
-    if (options.branch_prediction != "dynamic")
+    if (options.branch_prediction != "1bit" &&
+        options.branch_prediction != "2bitc" &&
+        options.branch_prediction != "2bith" )
       return
     end
 
@@ -328,7 +330,8 @@ class IPETModel
     entry_edges = []
     scopes.each { |scope,f|
       entry = scope.scope_entry
-      factor = 1
+      factor = options.branch_prediction == "1bit" ? 1 : 2
+
       if (entry.is_a?(Function))
         entry = entry.entry_block
         edges = sum_outgoing(entry, -factor)
@@ -357,18 +360,36 @@ class IPETModel
       if (block.may_mispredict?(succ, options.branch_prediction))
         block.successors.each { |other|
           if (succ != other)
-            lhs = [[IPETEdge.new(block,succ,level,:mispredict), 1],
-                   [IPETEdge.new(block,other,level),-1],
-                   [IPETEdge.new(block,other,level,:mispredict),-1]]
-
             if (can_leave_straight(block, other, Set.new([block])) &&
                 !can_leave_straight(block, succ, Set.new([block])))
               debug(options, :cache) { "Block #{block} can leave only via #{other}, not #{succ}" }
               entry_edges = entry_edges.map { |e,f| [e,f+1] }
             end
 
+            lhs = [[IPETEdge.new(block,succ,level,:mispredict), 1],
+                   [IPETEdge.new(block,other,level),-1],
+                   [IPETEdge.new(block,other,level,:mispredict),-1]]
             lhs += entry_edges
             ilp.add_constraint(lhs,"less-equal",0,"mispredict_#{block.qname}",:mispredict)
+
+            if (options.branch_prediction == "2bith")
+              divedge = IPETEdge.new(block,other,level,:div)
+              ilp.add_variable(divedge)
+              divlhs = [[divedge, 2],
+                        [IPETEdge.new(block,other,level),-1],
+                        [IPETEdge.new(block,other,level,:mispredict),-1]]
+              ilp.add_constraint(divlhs,"less-equal",0,"div_#{block.qname}",:div)
+
+              sumlhs = [[IPETEdge.new(block,succ,level,:mispredict), 1],
+                        # [IPETEdge.new(block,other,level,:mispredict),1],
+                        [divedge, -2],
+                        [IPETEdge.new(block,other,level),-1],
+                        # [IPETEdge.new(block,other,level,:mispredict),-1]
+                       ]
+              sumlhs += entry_edges
+              ilp.add_constraint(sumlhs,"less-equal",0,"hyst_#{block.qname}",:hyst)
+            end
+
           end
         }
         if (block.successors.length == 1)

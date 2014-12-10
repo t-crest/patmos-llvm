@@ -205,10 +205,9 @@ class Architecture < PML::Architecture
               index = index - 1
             end
           end
-        elsif prediction == "dynamic"
-          # dynamic predicts unconditional branches perfectly, but the
-          # mispredict edge only exists if there is also a conditional
-          # branch
+        elsif prediction == "1bit" || prediction == "2bitc" || prediction == "2bith"
+          # dynamic prediction predicts unconditional branches perfectly, but the
+          # mispredict edge only exists if there is also a conditional branch
           if edge.kind == :mispredict
             cost = branch_cost(instr)
           end

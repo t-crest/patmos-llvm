@@ -116,6 +116,17 @@ class WCA
     # Solve ILP
     begin
       cycles, freqs = builder.ilp.solve_max
+      # Refine solution for branch prediction with hysteresis
+      if @options.branch_prediction == "2bith"
+        if @options.verbose
+          puts "Relaxed Cycles: #{cycles}"
+        end
+        begin
+          cycles, freqs = builder.ilp.solve_max(true)
+        rescue Exception => ex
+          warn("WCA: ILP refinement failed: #{ex}") unless @options.disable_ipet_diagnosis
+        end
+      end
     rescue Exception => ex
       warn("WCA: ILP failed: #{ex}") unless @options.disable_ipet_diagnosis
       cycles,freqs = -1, {}

@@ -45,7 +45,9 @@ class CacheAnalysis
     if bp = @pml.arch.branch_predictor
       debug(@options,:cache) { "BRANCH PREDICTOR ANALYSIS" }
       bpa = CacheRegionAnalysis.new(BranchPredictorAnalysis.new(bp, @pml, @options), @pml, @options)
-      if @options.branch_prediction == "dynamic"
+      if (@options.branch_prediction == "1bit" ||
+          @options.branch_prediction == "2bitc" ||
+          @options.branch_prediction == "2bith")
         conflict_free_scopes = bpa.analyze(scope_graph(entry_function))
         0.upto(bpa.cache_properties.sets) do |set|
           debug(@options,:cache) { "SET #{set}" }

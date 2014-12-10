@@ -26,23 +26,26 @@ class LpSolveILP < ILP
     @do_diagnose = ! options.disable_ipet_diagnosis
   end
   # run solver to find maximum cost
-  def solve_max
+  def solve_max(hyst = false)
     # create LP problem (maximize)
     lp = create_lp
     lp.set_maxim
     # set objective and add constraints
     lp.set_add_rowmode(true)
     set_objective(lp)
-    add_linear_constraints(lp)
+    add_linear_constraints(lp, hyst)
     # solve
     lp.set_add_rowmode(false)
     lp.print_lp if options.lp_debug
     lp.set_verbose(0)
+    lp.set_timeout(600)
 
     debug(options, :ilp) { self.dump(DebugIO.new) }
     start = Time.now
     r = lp.solve
     @solvertime += (Time.now - start)
+
+    debug(options, :ilp) { "LP solver time: #{@solvertime}" }
 
     # read solution
     lp.print_solution(-1) if options.lp_debug
@@ -77,12 +80,14 @@ class LpSolveILP < ILP
     lp.set_obj_fnex(@costs.map { |v,c| [index(v),c] })
   end
   # add LP constraints
-  def add_linear_constraints(lp)
+  def add_linear_constraints(lp, hyst)
     @constraints.each do |constr|
-      v =  lp.add_constraintex(constr.name,constr.lhs.to_a,lpsolve_op(constr.op),constr.rhs)
-      if ! v
-        dump($stderr)
-        die("constraintex #{constr} failed with return value #{v.inspect}")
+      if hyst || !constr.tags.include?(:hyst)
+        v =  lp.add_constraintex(constr.name,constr.lhs.to_a,lpsolve_op(constr.op),constr.rhs)
+        if ! v
+          dump($stderr)
+          die("constraintex #{constr} failed with return value #{v.inspect}")
+        end
       end
     end
   end

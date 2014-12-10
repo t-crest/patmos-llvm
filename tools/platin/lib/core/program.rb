@@ -608,8 +608,8 @@ module PML
         return false
       end
 
-      # "dynamic" might mispredict, subject to further constraints
-      if (type == "dynamic")
+      # "1bit", "2bitc" and "2bith" might mispredict, subject to further constraints
+      if (type == "1bit" || type == "2bitc" || type == "2bith")
         return true
       end
 
