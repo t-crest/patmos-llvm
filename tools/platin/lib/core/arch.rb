@@ -371,9 +371,10 @@ class MemoryArea < PMLObject
   ##
   # :attr_reader: address_range
   #
+  # due to an aiT workaround, we may update this range on-the-fly
   # * YAML key: +address-range+
   # * Type: -> ValueRange
-  attr_reader :address_range
+  attr_accessor :address_range
 
   ##
   # :attr_reader: attributes
@@ -408,8 +409,8 @@ class MemoryArea < PMLObject
   def to_pml
     { "name" => name,
       "type" => type,
-      "cache" => cache.name,
-      "memory" => memory.name,
+      "cache" => cache ? cache.name : nil,
+      "memory" => memory ? memory.name : nil,
       "address-range" => address_range.to_pml,
       "attributes" => attributes
     }.delete_if { |k,v| v.nil? }

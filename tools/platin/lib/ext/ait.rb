@@ -50,6 +50,9 @@ class OptionParser
 	  end
     }
   end
+  def ait_disable_internal_sc()
+    self.on("--ait-disable-builtin-sc", "disable aiT's internal SC analysis (using a workaround)") { |d| options.ait_disable_internal_sc = true }
+  end
 end
 
 # Features not supported by the AIS/APX export module
@@ -256,6 +259,22 @@ class AISExporter
         # always enabled (new in aiT version >= 205838)
       end
     }
+
+    # work around aiT internal analysis by providing a 0-latency memory range for the stack cache accesses
+    if @options.ait_disable_internal_sc
+      @pml.arch.config.memory_areas.each { |area|
+        if area.type == 'data' and area.address_range.max > 0xFFFF8000
+          ar = area.address_range
+          area.address_range = ValueRange.new(ar.min,0xFFFF7FFF,ar.symbol)
+        end
+      }
+      sc_phantom = MemoryArea.new('sc_no_latency', 'data', nil,
+                                  @pml.arch.config.memories.by_name('local'),
+                                  ValueRange.new(0xFFFF8000,0xFFFFFFFF,nil))
+      @pml.arch.config.memory_areas.add(sc_phantom)
+      warn("aiT SC workaround, reserving phantom no-latency area #{sc_phantom.address_range.to_ais}")
+    end
+
 
     @pml.arch.config.memory_areas.each { |area|
       kw = if area.type == 'code' then 'code' else 'data' end
@@ -557,7 +576,7 @@ class APXExporter
       add_element(proj_options, "general_options") { |gen_options|
         gen_options << rexml_str("include_path",".")
       }
-      if arch_el = @pml.arch.config_for_apx(project)
+      if arch_el = @pml.arch.config_for_apx(@options)
         proj_options << arch_el
       end
     }
