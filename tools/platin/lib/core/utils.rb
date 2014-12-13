@@ -7,6 +7,7 @@ require 'yaml'
 require 'set'
 require 'tsort'
 require 'core/options'
+require 'erb'
 
 module PML
 
@@ -313,5 +314,39 @@ class Hash
     self.each do |k,v|
       puts "#{k.to_s.ljust(24)} #{v}"
     end
+  end
+end
+
+class ERBTemplate
+  def self.add_config_options(opts)
+    opts.on("--ff-template FILE", "process an ERB template and append to flowfact export") { |file|
+      opts.options.ff_template_file = file
+    }
+  end
+
+  def initialize(pml, options, f)
+    @pml, @options  = pml, options
+    @ff_template_file = f
+  end
+  def get_binding
+    return binding
+  end
+  def resolve_marker(marker)
+    @resolver = MarkerLookup.new(@pml, @options) unless @resolver
+    if r = @resolver.transform(marker)
+      return r
+    else
+      die("template rendering: failed to resolve pc-marker #{marker}")
+    end
+  end
+  def resolve_loop(marker)
+    pp = resolve_marker(marker)
+    assert("template rendering: can't handle loop #{pp}") { pp.loops.size == 1 }
+    pp.loops.first.loopheader
+  end
+
+  def render(outfile)
+    tmpl = ERB.new(File.new(@ff_template_file).read, nil, "%<>-")
+    outfile.puts(tmpl.result(get_binding))
   end
 end

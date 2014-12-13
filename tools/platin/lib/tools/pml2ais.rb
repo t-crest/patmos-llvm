@@ -5,6 +5,7 @@
 #
 require 'platin'
 require 'ext/ait'
+require 'core/utils'
 include PML
 
 class AisExportTool
@@ -15,6 +16,7 @@ class AisExportTool
     opts.on("--ais-header-file FILE", "the contents of this file is copied verbatim to the final AIS file") { |file|
       opts.options.ais_header_file = file
     }
+    ERBTemplate.add_config_options(opts)
     opts.on("--ais-disable-exports LIST","AIS information that should not be exported (see --help=ais)") { |list|
       opts.options.ais_disable_export = Set.new(list.split(/\s*,\s*/))
     }
@@ -98,6 +100,8 @@ class AisExportTool
         }
         ais.export_stack_cache_annotations()
       end
+
+      ERBTemplate.new(pml, options, options.ff_template_file).render(outfile) if options.ff_template_file
       statistics("AIS",
                  "exported flow facts" => ais.stats_generated_facts,
                  "unsupported flow facts" => ais.stats_skipped_flowfacts) if options.stats

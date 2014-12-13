@@ -151,6 +151,22 @@ class PMLTool
     puts "" unless set.empty?
   end
 
+  def lookup_marker(marker)
+    ml = MarkerLookup.new(pml,options)
+    begin
+      pp = ml.transform(Integer(marker))
+    rescue ArgumentError
+      warn("marker must be integer")
+      return
+    end
+    if pp == nil
+      warn("failed to transform marker '#{marker}'") if pp == nil
+    else
+      puts "transformed marker '#{marker}' -> #{pp}"
+    end
+  end
+
+
   def PMLTool.run(pml,options)
     tool = PMLTool.new(pml, options)
     if(options.validate)
@@ -160,6 +176,7 @@ class PMLTool
     tool.print_flowfacts if options.print_flowfacts
     tool.print_valuefacts if options.print_valuefacts
     tool.print_timings(options.print_profiles) if options.print_timings || options.print_profiles
+    tool.lookup_marker(options.pc_marker_lookup) if options.pc_marker_lookup
 
     if(options.stats)
       stats = {}
@@ -197,6 +214,9 @@ class PMLTool
     opts.on("--print-all", "print all analysis results stored in PML file") {
       opts.options.print_markers = opts.options.print_flowfacts =
         opts.options.print_valuefacts = opts.options.print_timing = true
+    }
+    opts.on("--lookup-pc-marker MARKER", "lookup MARKER on the machine code level") { |m|
+      opts.options.pc_marker_lookup = m
     }
   end
 end
