@@ -32,7 +32,9 @@
 
 #define DEBUG_TYPE "patmos-singlepath"
 
-#define USE_BCOPY
+//#define USE_BCOPY
+//#define NOSPILL_OPTIMIZATION
+
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
@@ -83,6 +85,7 @@ STATISTIC( LoopCounters,        "Number of loop counters introduced");
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
 STATISTIC( NoSpillScopes,
                   "Number of SPScopes (loops) where S0 spill can be omitted");
+STATISTIC( SPNumPredicates, "Number of predicates for single-path code");
 
 // anonymous namespace
 namespace {
@@ -480,6 +483,7 @@ namespace {
           // compute offset
           Offset = ParentRI.NumLocs + ParentRI.Offset;
         }
+
       }
 
       // assignSpillOffset - Stores the offset provided as spill offset,
@@ -613,6 +617,8 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   RAInfos.clear();
   ReturnInfoInsts.clear();
+  AvailPredRegs.clear();
+  UnavailPredRegs.clear();
 
   //DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
 
@@ -624,7 +630,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
       AvailPredRegs.push_back(*I);
       DEBUG( dbgs() << " " << TRI->getName(*I) );
     } else {
-      UnavailPredRegs.push_back(*I);
+      uNAvailPredRegs.push_back(*I);
     }
   }
   DEBUG( dbgs() << "\n" );
@@ -727,7 +733,9 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
 
     // compute offset for physically available registers
     if (!S->isTopLevel()) {
+#ifdef NOSPILL_OPTIMIZATION
       RI.computePhysOffset( RAInfos.at(S->getParent()) );
+#endif
       if (!RI.needsScopeSpill()) NoSpillScopes++; // STATISTIC
     }
     // assign and update spillLocCnt
@@ -1217,7 +1225,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
 
 
     // insert spill and load instructions for the guard register
-    if (R.hasSpillLoad(MBB)) {
+    if (!S->isHeader(MBB) && R.hasSpillLoad(MBB)) {
       insertUseSpillLoad(R, MBB);
     }
 
@@ -1240,6 +1248,7 @@ unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
                                     const MachineBasicBlock *MBB,
                                     bool getP0) {
   int loc = R.getUseLoc(MBB);
+  DEBUG(dbgs() << "getUsePReg loc = " << loc << "\n");
   if (loc != -1) {
     assert(loc < (int)AvailPredRegs.size());
     return AvailPredRegs[loc];
@@ -1273,6 +1282,15 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
         .addFrameIndex(fi).addImm(0); // address
       TRI->eliminateFrameIndex(loadMI, 0, 3);
       // set/clear bit
+#ifdef USE_BCOPY
+      // (guard) bcopy R, (spill%32), use_preg
+      AddDefaultPred(BuildMI(*MBB, firstMI, DL, TII->get(Patmos::BCOPY),
+            GuardsReg))
+        .addReg(GuardsReg)
+        .addImm(spill % 32)
+        .addReg(use_preg).addImm(0); // condition
+      InsertedInstrs++; // STATISTIC
+#else
       //FIXME use new instruction for that
       // if (guard) R |= (1 << spill)
       uint32_t or_bitmask = 1 << (spill%32);
@@ -1286,13 +1304,15 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
         .addReg(use_preg).addImm(1) // if guard == false
         .addReg(GuardsReg)
         .addImm( ~or_bitmask );
+      InsertedInstrs += 2; // STATISTIC
+#endif
       // store back to stack slot
       MachineInstr *storeMI = AddDefaultPred(BuildMI(*MBB, firstMI, DL,
             TII->get(Patmos::SWC)))
         .addFrameIndex(fi).addImm(0) // address
         .addReg(GuardsReg);
       TRI->eliminateFrameIndex(storeMI, 0, 2);
-      InsertedInstrs += 4; // STATISTIC
+      InsertedInstrs += 2; // STATISTIC (load/store)
     }
 
     // insert load code
@@ -1453,6 +1473,8 @@ bool PatmosSPReduce::hasLiveOutPReg(const SPScope *S) const {
   for (unsigned j=0; j<SuccMBBs.size(); j++) {
     for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
       if (SuccMBBs[j]->isLiveIn(UnavailPredRegs[i])) {
+        DEBUG(dbgs() << "LiveIn: " << TRI->getName(UnavailPredRegs[i])
+            << " into MBB#" << SuccMBBs[j]->getNumber() << "\n");
         return true;
       }
     }
@@ -1497,6 +1519,8 @@ void RAInfo::createLiveRanges(void) {
 void RAInfo::assignLocations(void) {
   DEBUG(dbgs() << " Assign locations for [MBB#"
                << Scope->getHeader()->getNumber() << "]\n");
+
+  SPNumPredicates += Scope->getNumPredicates(); // STATISTIC
 
   // vector to keep track of locations during the scan
   std::vector<int> curLocs(Scope->getNumPredicates(),-1);
@@ -1612,13 +1636,12 @@ void RAInfo::assignLocations(void) {
   // What is the location of the header predicate after handling all blocks?
   // We store this location, as it is where the next iteration has to get it
   // from (if different from its use location)
+  // Code for loading the predicate is placed before the back-branch,
+  // generated in LinearizeWalker::exitSubscope().
   if (!Scope->isTopLevel()) {
     UseLoc &ul = UseLocs[Scope->getHeader()];
     if (ul.loc != curLocs[0]) {
       ul.load = curLocs[0];
-      // FIXME need to handle this in the back-branch block
-      // case distinction for stack/reg loc?
-      assert(0);
     }
   }
 }
@@ -1738,7 +1761,6 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     int loop = S->getLoopBound();
     // Create an instruction to load the loop bound
     // TODO try to find an unused register
-    // FIXME load or copy the actual loop bound
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
           Pass.TII->get( (isUInt<12>(loop)) ? Patmos::LIi : Patmos::LIl),
           tmpReg))
@@ -1778,6 +1800,17 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   nextMBB(BranchMBB);
 
   // now we can fill the MBB with instructions:
+  //
+  // load the header predicate, if necessary
+  unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
+  int loadloc = RI.getLoadLoc(HeaderMBB);
+  if (loadloc != -1) {
+    Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
+        loadloc, header_preg);
+  }
+  // TODO copy between pregs?
+
+
   // load the branch predicate
   unsigned branch_preg = Patmos::NoRegister;
   if (S->hasLoopBound()) {
@@ -1810,15 +1843,8 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 4; // STATISTIC
   } else {
-    // get the header predicate
-    branch_preg = Pass.getUsePReg(RI, HeaderMBB);
-    // get from stack slot, if necessary
-    int loadloc = RI.getLoadLoc(HeaderMBB);
-    if (loadloc != -1) {
-      Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
-          loadloc, branch_preg);
-    }
-    // TODO copy between pregs?
+    // no explicit loop bound: branch on header predicate
+    branch_preg = header_preg;
   }
   // insert branch to header
   assert(branch_preg != Patmos::NoRegister);
@@ -1829,9 +1855,10 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   InsertedInstrs++; // STATISTIC
 
 
-  assert(!Pass.hasLiveOutPReg(S) &&
-         "Unimplemented: handling of live-out PRegs of loops");
-
+  if (Pass.hasLiveOutPReg(S)) {
+    // FIXME Unimplemented: handling of live-out PRegs of loops
+    dbgs() << "WARNING: Unimplemented workaround";
+  }
 
   // create a post-loop MBB to restore the spill predicates, if necessary
   if (RI.needsScopeSpill()) {

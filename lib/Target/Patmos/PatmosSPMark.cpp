@@ -40,8 +40,9 @@
 
 using namespace llvm;
 
-STATISTIC(NumSPTotal, "Total number of functions marked as single-path");
-STATISTIC(NumSPMaybe, "Number of 'used' functions marked as single-path");
+STATISTIC(NumSPTotal,   "Total number of functions marked as single-path");
+STATISTIC(NumSPMaybe,   "Number of 'used' functions marked as single-path");
+STATISTIC(NumSPCleared, "Number of functions cleared again");
 
 
 namespace {
@@ -137,6 +138,35 @@ bool PatmosSPMark::runOnMachineModule(const Module &M) {
     W.pop_front();
     scanAndRewriteCalls(MF, W);
   }
+
+  // clear all cloned machine functions that are not marked as single-path
+  // by now
+  for(Module::const_iterator F(M.begin()), FE(M.end()); F != FE; ++F) {
+    if (F->hasFnAttribute("sp-maybe")) {
+      // get the machine-level function
+      MachineFunction *MF = MMI->getMachineFunction(F);
+      assert( MF );
+      PatmosMachineFunctionInfo *PMFI =
+        MF->getInfo<PatmosMachineFunctionInfo>();
+
+      if (!PMFI->isSinglePath()) {
+        // delete all MBBs
+        while (MF->begin() != MF->end()) {
+          MF->begin()->eraseFromParent();
+        }
+        // insert a new single MBB with a single return instruction
+        MachineBasicBlock *EmptyMBB = MF->CreateMachineBasicBlock();
+        MF->push_back(EmptyMBB);
+
+        DebugLoc DL;
+        AddDefaultPred(BuildMI(*EmptyMBB, EmptyMBB->end(), DL,
+            TM.getInstrInfo()->get(Patmos::RET)));
+
+        NumSPCleared++; // bump STATISTIC
+      };
+    }
+  }
+
   return true;
 }
 
@@ -176,6 +206,15 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
                  << " (indirect call?)\n";
           continue;
         };
+
+        const Function *Target = getCallTarget(MI);
+        if (Target->getName() == "__udivsi3") {
+          //DEBUG(dbgs() << "[Single-Path] skipping call to "
+          //       << Target->getName() << "\n");
+          //continue;
+        }
+
+
         PatmosMachineFunctionInfo *PMFI =
           MF->getInfo<PatmosMachineFunctionInfo>();
         if (!PMFI->isSinglePath()) {
