@@ -47,7 +47,6 @@ STATISTIC(NumSPUsed,      "Number of functions marked as single-path "
 
 namespace {
 
-/// @brief Pass to remove unused function declarations.
 class PatmosSPClone : public ModulePass {
 private:
 
@@ -141,6 +140,8 @@ bool PatmosSPClone::runOnModule(Module &M) {
     // handle single-path root specified by attribute
     if (F->hasFnAttribute("sp-root")) {
       handleRoot(F);
+      // function might be specified also on cmdline
+      (void) SPRoots.erase(F->getName());
       continue;
     }
 
@@ -148,7 +149,7 @@ bool PatmosSPClone::runOnModule(Module &M) {
     if (SPRoots.count(F->getName())) {
       F->addFnAttr("sp-root");
       handleRoot(F);
-      SPRoots.erase(F->getName());
+      (void) SPRoots.erase(F->getName());
       continue;
     }
 
