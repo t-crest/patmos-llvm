@@ -630,7 +630,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
       AvailPredRegs.push_back(*I);
       DEBUG( dbgs() << " " << TRI->getName(*I) );
     } else {
-      uNAvailPredRegs.push_back(*I);
+      UnavailPredRegs.push_back(*I);
     }
   }
   DEBUG( dbgs() << "\n" );
