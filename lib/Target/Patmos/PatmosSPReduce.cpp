@@ -326,34 +326,60 @@ namespace {
   class LiveRange {
   friend class RAInfo;
   private:
-    uint64_t uses, defs;
-    unsigned long len;
-    void addUse(long pos) { uses |= (1LL << pos); }
-    void addDef(long pos) { defs |= (1LL << pos); }
+    BitVector uses, defs;
+    void addUse(long pos) { uses.set(pos); }
+    void addDef(long pos) { defs.set(pos); }
   public:
-    LiveRange(unsigned long length) : uses(0), defs(0), len(length) {
-      assert(length <= 64 && "Not yet implemented");
+    LiveRange(unsigned long length)
+      : uses(length), defs(length) {}
+    bool isUse(long pos) const { return uses.test(pos); }
+    bool isDef(long pos) const { return defs.test(pos); }
+    bool lastUse(long pos) const {
+      // test whether shifting out up to this use will result in an empty
+      // bitvector
+      // return (uses >> (pos+1LL)) == 0;
+      for (unsigned i = pos+1; i < uses.size(); i++) {
+        if (uses.test(i)) return false;
+      }
+      return true;
     }
-    bool isUse(long pos) const { return uses & (1LL << pos); }
-    bool isDef(long pos) const { return defs & (1LL << pos); }
-    bool lastUse(long pos) const { return (uses >> (pos+1LL)) == 0; }
     bool hasDefBefore(long pos) const {
-      return (defs & ((1LL << pos)-1LL)) != 0;
+      // 00000100000 pos
+      // 00000011111 before
+      // -> any common?
+      //return (defs & ((1LL << pos)-1LL)) != 0;
+      unsigned i = pos;
+      while (i-- > 0) {
+        if (defs.test(i)) return true;
+      }
+      return false;
     }
     bool pastFirstUse(long pos) const {
-      return (uses & ((1LL << (pos+1LL))-1LL)) != 0;
+      // check if there is any use before (and including) pos
+      //return (uses & ((1LL << (pos+1LL))-1LL)) != 0;
+      for (unsigned i = 0; i <= pos; i++) {
+        if (uses.test(i)) return true;
+      }
+      return false;
     }
     bool hasNextUseBefore(long pos, const LiveRange &other) const {
-      return llvm::countTrailingZeros<uint64_t>(uses >> pos)
-                < llvm::countTrailingZeros<uint64_t>(other.uses >> pos);
+      assert(uses.size() == other.uses.size());
+      // this   ....10000|...
+      // other ......1000|...   -> no
+      //                ^pos
+      for (unsigned i = pos; i < uses.size(); i++) {
+        if (other.uses.test(i)) break;
+        if (uses.test(i)) return true;
+      }
+      return false;
     }
     std::string str(void) const {
       std::stringbuf buf;
       char kind[] = { '-', 'u', 'd', 'x' };
-      for (unsigned long i = 0; i < len; i++) {
+      for (unsigned long i = 0; i < uses.size(); i++) {
         int x = 0;
-        if (uses & (1LL << i)) x += 1;
-        if (defs & (1LL << i)) x += 2;
+        if (uses.test(i)) x += 1;
+        if (defs.test(i)) x += 2;
         buf.sputc(kind[x]);
       }
       return buf.str();
