@@ -312,7 +312,6 @@ void PatmosFrameLowering::patchCallSites(MachineFunction &MF) const {
 void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // get some references
   MachineBasicBlock &MBB     = MF.front();
-  MachineFrameInfo *MFI      = MF.getFrameInfo();
   const TargetInstrInfo *TII = TM.getInstrInfo();
 
   MachineBasicBlock::iterator MBBI = MBB.begin();
@@ -325,6 +324,7 @@ void PatmosFrameLowering::emitPrologue(MachineFunction &MF) const {
   // (greater 4 bytes) objects, which is now guarded against in
   // PatmosTargetLowering::LowerCCCArguments().
 #if 0
+  MachineFrameInfo *MFI      = MF.getFrameInfo();
   if (MFI->getMaxAlignment() > 4) {
     dbgs() << "Stack alignment ";
     if (MF.getFunction()) dbgs() << "in " << MF.getFunction()->getName() << " ";
