@@ -137,6 +137,11 @@ public:
   /// generated.  The idea is to reduce the size of the IR in memory.
   void populateFunctionPassManager(FunctionPassManager &FPM);
 
+  /// populateFPMBaseline - add baseline optimizations (during a -O0 build),
+  /// performing mem2reg and redundancy elimination, but preserving the CFG.
+  /// Used by the Clang frontend during Patmos builds
+  void populateFPMBaseline(FunctionPassManager &FPM);
+
   /// populateModulePassManager - This sets up the primary pass manager.
   void populateModulePassManager(PassManagerBase &MPM);
   void populateLTOPassManager(PassManagerBase &PM, bool Internalize,

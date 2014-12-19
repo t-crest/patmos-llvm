@@ -129,6 +129,25 @@ void PassManagerBuilder::populateFunctionPassManager(FunctionPassManager &FPM) {
   FPM.add(createLowerExpectIntrinsicPass());
 }
 
+// used by the clang frontend during Patmos builds
+void PassManagerBuilder::populateFPMBaseline(FunctionPassManager &FPM) {
+  // as in populateFunctionPassManager()
+  addInitialAliasAnalysisPasses(FPM);
+
+  // skip createCFGSimplificationPass(), SROA as populateFunctionPassManager()
+  if (UseNewSROA)
+    FPM.add(createSROAPass());
+  else
+    FPM.add(createScalarReplAggregatesPass());
+
+  // skip createLowerExpectIntrinsicPass()
+  FPM.add(createEarlyCSEPass());
+
+  // added these for more redundancy elimination
+  FPM.add(createInstructionCombiningPass()); // performs libcall-simplify??
+  FPM.add(createAggressiveDCEPass());
+}
+
 void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
   // If all optimizations are disabled, just run the always-inline pass.
   if (OptLevel == 0) {
