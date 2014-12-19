@@ -136,7 +136,6 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
       I!=E; ++I) {
     SPScope *S = *I;
-    MachineBasicBlock *Header = S->getHeader();
     unsigned preds = S->getNumPredicates();
     unsigned d = S->getDepth();
 
@@ -145,7 +144,7 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
       PMFI.addSinglePathFI(fi);
     }
 
-    DEBUG( dbgs() << "[MBB#" << Header->getNumber()
+    DEBUG( dbgs() << "[MBB#" << S->getHeader()->getNumber()
                   << "]: d=" << d << ", " << preds << "\n");
 
     // keep track of the maximum required number of predicates for each SPScope

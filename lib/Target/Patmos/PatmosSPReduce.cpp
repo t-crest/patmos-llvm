@@ -32,7 +32,7 @@
 
 #define DEBUG_TYPE "patmos-singlepath"
 
-//#define USE_BCOPY
+#define USE_BCOPY
 //#define NOSPILL_OPTIMIZATION
 
 
@@ -228,9 +228,11 @@ namespace {
     /// return information in ReturnInfoInsts
     void collectReturnInfoInsts(MachineFunction &MF);
 
-    /// hasLiveOutPReg - Check if an unavailable PReg must be preserved
+    /// getLoopLiveOutPRegs - Collect unavailable PRegs that must be preserved
     /// in S0 during predicate allocation SPScope on exiting the SPScope
-    bool hasLiveOutPReg(const SPScope *S) const;
+    /// because it lives in into a loop successor
+    void getLoopLiveOutPRegs(const SPScope *S,
+                             std::vector<unsigned> &pregs) const;
 
     /// Map to hold RA infos for each SPScope
     std::map<const SPScope*, RAInfo> RAInfos;
@@ -646,7 +648,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   AvailPredRegs.clear();
   UnavailPredRegs.clear();
 
-  //DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
+  DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
 
   // Get the unused predicate registers
   DEBUG( dbgs() << "Available PRegs:" );
@@ -700,7 +702,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   fixupKillFlagOfCondRegs();
 
 
-  //DEBUG(MF.viewCFGOnly());
+  DEBUG(MF.viewCFGOnly());
 
   // Following walk of the SPScope tree linearizes the CFG structure,
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
@@ -710,13 +712,13 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
-  mergeMBBs(MF);
+  //mergeMBBs(MF);
 
   // Finally, we assign numbers in ascending order to MBBs again.
-  MF.RenumberBlocks();
+  //MF.RenumberBlocks();
 
-  //DEBUG(MF.viewCFGOnly());
-  //DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
+  DEBUG(MF.viewCFGOnly());
+  DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
 
@@ -829,14 +831,16 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S, MachineFunction &MF) {
     // procede to next if this does not define any predicates
     if (!DI) continue;
 
-    DEBUG( dbgs() << " - MBB#" << MBB->getNumber() << "\n" );
+    DEBUG(dbgs() << " - MBB#" << MBB->getNumber() << ": ");
 
     // for each definition edge: insert
     for (SPScope::PredDefInfo::iterator di = DI->begin(), de = DI->end();
         di != de; ++di) {
+      DEBUG(dbgs() << di->first << " ");
       // Scope, (local) Node, predicate number, edge
       insertDefEdge(S, *MBB, di->first, di->second);
     }
+    DEBUG(dbgs() << "\n");
 
   } // end for each MBB
 }
@@ -918,16 +922,7 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
   DebugLoc DL(MI->getDebugLoc());
 
   MachineInstr *DefMI;
-  if (isMultiDef) {
-    // if this is the first definition, we unconditionally need to
-    // initialize it to false
-    // we can skip this, if use_preg=true anyway
-    if (isFirstDef && (guard != Patmos::P0)) {
-      // the PCLR instruction must not be predicated
-      AddDefaultPred(BuildMI(MBB, MI, DL,
-            TII->get(Patmos::PCLR), AvailPredRegs[regloc]));
-      InsertedInstrs++; // STATISTIC
-    }
+  if (isMultiDef && !isFirstDef) {
     DefMI = BuildMI(MBB, MI, DL,
         TII->get(Patmos::PMOV), AvailPredRegs[regloc])
       .addReg(guard).addImm(0) // guard operand
@@ -1170,7 +1165,6 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
       assert(!MI->isBundle() &&
              "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
 
-      // check for terminators - return? //TODO
       if (MI->isReturn()) {
           DEBUG_TRACE( dbgs() << "    skip return: " << *MI );
           continue;
@@ -1227,7 +1221,6 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           PO1.setReg(use_preg);
           PO2.setImm(0);
         } else {
-          //TODO handle already predicated instructions better?
           DEBUG_TRACE( dbgs() << "    in MBB#" << MBB->getNumber()
                         << ": instruction already predicated: " << *MI );
           // read out the predicate
@@ -1274,7 +1267,6 @@ unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
                                     const MachineBasicBlock *MBB,
                                     bool getP0) {
   int loc = R.getUseLoc(MBB);
-  DEBUG(dbgs() << "getUsePReg loc = " << loc << "\n");
   if (loc != -1) {
     assert(loc < (int)AvailPredRegs.size());
     return AvailPredRegs[loc];
@@ -1317,7 +1309,6 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
         .addReg(use_preg).addImm(0); // condition
       InsertedInstrs++; // STATISTIC
 #else
-      //FIXME use new instruction for that
       // if (guard) R |= (1 << spill)
       uint32_t or_bitmask = 1 << (spill%32);
       unsigned or_opcode = (isUInt<12>(or_bitmask))? Patmos::ORi : Patmos::ORl;
@@ -1493,21 +1484,22 @@ void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
 }
 
 
+void PatmosSPReduce::getLoopLiveOutPRegs(const SPScope *S,
+                                         std::vector<unsigned> &pregs) const {
 
-bool PatmosSPReduce::hasLiveOutPReg(const SPScope *S) const {
   const std::vector<const MachineBasicBlock *> SuccMBBs = S->getSuccMBBs();
+
+  pregs.clear();
   for (unsigned j=0; j<SuccMBBs.size(); j++) {
     for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
       if (SuccMBBs[j]->isLiveIn(UnavailPredRegs[i])) {
         DEBUG(dbgs() << "LiveIn: " << TRI->getName(UnavailPredRegs[i])
             << " into MBB#" << SuccMBBs[j]->getNumber() << "\n");
-        return true;
+        pregs.push_back(UnavailPredRegs[i]);
       }
     }
   }
-  return false;
 }
-
 
 
 
@@ -1578,6 +1570,8 @@ void RAInfo::assignLocations(void) {
             UL.load = curUseLoc;
             UL.loc = getLoc(); // gets a register
             // reassign
+            // curUseLoc is a stack location that needs to be freed again
+            freeLoc( curUseLoc );
             curUseLoc = UL.loc;
           } else {
             // spill and reassign
@@ -1601,6 +1595,8 @@ void RAInfo::assignLocations(void) {
             if (LRs[furthestPred].pastFirstUse(i)) {
               UL.spill = stackLoc;
             } else {
+              // if it has not been used, we change the initial
+              // definition location
               DefLocs[furthestPred] = stackLoc;
             }
             curUseLoc = curLocs[furthestPred];
@@ -1621,9 +1617,9 @@ void RAInfo::assignLocations(void) {
 
       // (2) retire locations
       if (LRs[usePred].lastUse(i)) {
+        DEBUG(dbgs() << "retire. ");
         freeLoc( curUseLoc );
         curUseLoc = -1;
-        DEBUG(dbgs() << "retire. ");
       }
 
       // store info
@@ -1768,17 +1764,23 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     InsertedInstrs += 2; // STATISTIC
   }
 
-  // copy the header predicate for the subloop
+  // copy/load the header predicate for the subloop
   const MachineBasicBlock *HeaderMBB = S->getHeader();
-  unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true),
-           inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
-  assert(inner_preg != Patmos::P0);
-  // TODO handle load from stack slot? (once enabled in regalloc)
-  if (outer_preg != inner_preg) {
-    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-          Pass.TII->get(Patmos::PMOV), inner_preg))
-      .addReg( outer_preg ).addImm(0);
+  int loadloc = RP.getLoadLoc(HeaderMBB);
+  unsigned inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
+  if (loadloc != -1) {
+    Pass.insertPredicateLoad(PrehdrMBB, PrehdrMBB->end(),
+        loadloc, inner_preg);
     InsertedInstrs++; // STATISTIC
+  } else {
+    unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true);
+    assert(inner_preg != Patmos::P0);
+    if (outer_preg != inner_preg) {
+      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+            Pass.TII->get(Patmos::PMOV), inner_preg))
+        .addReg( outer_preg ).addImm(0);
+      InsertedInstrs++; // STATISTIC
+    }
   }
 
   // Initialize the loop bound and store it to the stack slot
@@ -1880,12 +1882,6 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   BranchMBB->addSuccessor(HeaderMBB);
   InsertedInstrs++; // STATISTIC
 
-
-  if (Pass.hasLiveOutPReg(S)) {
-    // FIXME Unimplemented: handling of live-out PRegs of loops
-    dbgs() << "WARNING: Unimplemented workaround";
-  }
-
   // create a post-loop MBB to restore the spill predicates, if necessary
   if (RI.needsScopeSpill()) {
     MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
@@ -1900,6 +1896,19 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
       .addFrameIndex(fi).addImm(0); // address
 
     Pass.TRI->eliminateFrameIndex(loadMI, 0, 3);
+
+    // if there are any PRegs to be preserved, do it now
+    std::vector<unsigned> liveouts;
+    Pass.getLoopLiveOutPRegs(S, liveouts);
+    for(unsigned i = 0; i < liveouts.size(); i++) {
+      AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
+            Pass.TII->get(Patmos::BCOPY), tmpReg))
+        .addReg(tmpReg)
+        .addImm(Pass.TRI->getS0Index(liveouts[i]))
+        .addReg(liveouts[i]).addImm(0);
+      InsertedInstrs++; // STATISTIC
+    }
+
     // assign to S0
     Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
                           Patmos::S0, tmpReg, true);
