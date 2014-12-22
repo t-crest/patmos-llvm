@@ -250,6 +250,11 @@ namespace {
     // moveDefUseGuardInsts().
     std::vector<MachineInstr *> DefUseGuardInsts;
 
+    // Instructions which must stay unconditional, i.e., not predicated by
+    // applyPredicates(). Typically this is the unconditional initialization
+    // of a predicate location.
+    std::set<MachineInstr *> UnconditionalInsertedInsts;
+
     // Branches that set the kill flag on condition operands are remembered,
     // as the branches themselves are removed. The last use of these
     // conditions before the branch will be set the kill flag
@@ -647,6 +652,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   ReturnInfoInsts.clear();
   AvailPredRegs.clear();
   UnavailPredRegs.clear();
+  UnconditionalInsertedInsts.clear();
 
   DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
 
@@ -934,6 +940,7 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
           TII->get(Patmos::PAND), AvailPredRegs[regloc]))
       .addReg(guard).addImm(0) // current guard as source
       .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+    UnconditionalInsertedInsts.insert(DefMI);
     InsertedInstrs++; // STATISTIC
   }
 
@@ -956,6 +963,7 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   int fi = PMFI->getSinglePathExcessSpillFI(stloc / 32);
   unsigned tmpReg = GuardsReg;
   unsigned bitpos = stloc % 32;
+  MachineInstr *UncondInst;
 
   // load from stack slot
   MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
@@ -967,10 +975,12 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   // clear bit on first definition (unconditionally)
   if (isFirstDef) {
     // bcopy R, bitpos, !P0
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg))
+    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
+          TII->get(Patmos::BCOPY), tmpReg))
       .addReg(tmpReg)
       .addImm(bitpos)
       .addReg(Patmos::P0).addImm(-1);
+    UnconditionalInsertedInsts.insert(UncondInst);
     InsertedInstrs++; // STATISTIC
   }
   // (guard) bcopy R, bitpos, Cond
@@ -984,8 +994,10 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   uint32_t or_bitmask = 1 << bitpos;
   if (isFirstDef) {
     // R &= ~(1 << loc)
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::ANDl), tmpReg))
+    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
+          TII->get(Patmos::ANDl), tmpReg))
       .addReg(tmpReg).addImm( ~or_bitmask );
+    UnconditionalInsertedInsts.insert(UncondInst);
     InsertedInstrs++; // STATISTIC
   }
   // compute combined predicate (guard && condition)
@@ -1024,6 +1036,7 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   int fi = PMFI->getSinglePathS0SpillFI(slot);
   unsigned tmpReg = GuardsReg;
   int bitpos = TRI->getS0Index(AvailPredRegs[regloc]);
+  MachineInstr *UncondInst;
   assert(bitpos > 0);
 
   // load from stack slot
@@ -1037,10 +1050,12 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   // clear bit on first definition (unconditionally)
   if (isFirstDef) {
     // bcopy R, bitpos, !P0
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg))
+    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
+          TII->get(Patmos::BCOPY), tmpReg))
       .addReg(tmpReg)
       .addImm(bitpos)
       .addReg(Patmos::P0).addImm(-1);
+    UnconditionalInsertedInsts.insert(UncondInst);
     InsertedInstrs++; // STATISTIC
   }
   // (guard) bcopy R, bitpos, Cond
@@ -1055,8 +1070,10 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   uint32_t or_bitmask = 1 << bitpos;
   if (isFirstDef) {
     // R &= ~(1 << loc)
-    AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::ANDl), tmpReg))
+    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
+          TII->get(Patmos::ANDl), tmpReg))
       .addReg(tmpReg).addImm( ~or_bitmask );
+    UnconditionalInsertedInsts.insert(UncondInst);
     InsertedInstrs++; // STATISTIC
   }
   // compute combined predicate (guard && condition)
@@ -1181,6 +1198,10 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           DEBUG_TRACE(dbgs() << "    skip return info (re-)storing: " << *MI);
           continue;
       }
+      if (UnconditionalInsertedInsts.count(MI)) {
+          DEBUG_TRACE(dbgs() << "    skip unconditional inserted: " << *MI);
+          continue;
+      }
 
       if (MI->isCall()) {
           DEBUG_TRACE( dbgs() << "    call: " << *MI );
@@ -1223,6 +1244,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
         } else {
           DEBUG_TRACE( dbgs() << "    in MBB#" << MBB->getNumber()
                         << ": instruction already predicated: " << *MI );
+          // TODO FIXME lookup and skip an explicit unconditional instruction
           // read out the predicate
           int i = MI->findFirstPredOperandIdx();
           assert(i != -1);
@@ -1569,9 +1591,8 @@ void RAInfo::assignLocations(void) {
           if (hasFreePhys()) {
             UL.load = curUseLoc;
             UL.loc = getLoc(); // gets a register
-            // reassign
-            // curUseLoc is a stack location that needs to be freed again
-            freeLoc( curUseLoc );
+            // reassign, but
+            // DO NOT free stack locations again, i.e. not freeLoc(curUseLoc);
             curUseLoc = UL.loc;
           } else {
             // spill and reassign
