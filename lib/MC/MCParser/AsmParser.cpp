@@ -1617,14 +1617,18 @@ bool AsmParser::parseInstruction(StringRef IDVal, SMLoc IDLoc,
   // directive for the instruction.
   if (!HadError && getContext().getGenDwarfForAssembly() &&
       getContext().getGenDwarfSectionSyms().count(
-        getStreamer().getCurrentSection().first)) {
-
-    unsigned Line = SrcMgr.FindLineNumber(IDLoc, CurBuffer);
+          getStreamer().getCurrentSection().first)) {
+    unsigned Line;
+    if (ActiveMacros.empty())
+      Line = SrcMgr.FindLineNumber(IDLoc, CurBuffer);
+    else
+      Line = SrcMgr.FindLineNumber(ActiveMacros.back()->InstantiationLoc,
+                                   ActiveMacros.back()->ExitBuffer);
 
     // If we previously parsed a cpp hash file line comment then make sure the
     // current Dwarf File is for the CppHashFilename if not then emit the
     // Dwarf File table for it and adjust the line number for the .loc.
-    if (CppHashFilename.size() != 0) {
+    if (CppHashFilename.size()) {
       unsigned FileNumber = getStreamer().EmitDwarfFileDirective(
           0, StringRef(), CppHashFilename);
       getContext().setGenDwarfFileNumber(FileNumber);
