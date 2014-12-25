@@ -21,9 +21,6 @@
 //     setting/loading loop bounds, etc.
 // (4) MBBs are merged and renumbered, as finalization step.
 //
-// TODO: It is desirable to have an optimization pass before (4) to
-//       remove unnecessary loads/stores to spill slots introduced in (2)-(3).
-//
 // TODO: No actual loop bounds are loaded, as this information is not
 //       available yet
 //
@@ -81,6 +78,7 @@ using namespace llvm;
 STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
 STATISTIC( LoopCounters,        "Number of loop counters introduced");
+STATISTIC( ElimLdSt,            "Number of eliminated redundant loads/stores");
 
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
 STATISTIC( NoSpillScopes,
@@ -233,6 +231,23 @@ namespace {
     /// because it lives in into a loop successor
     void getLoopLiveOutPRegs(const SPScope *S,
                              std::vector<unsigned> &pregs) const;
+
+
+    /// isUncondLoadToGuardsReg - Check whether a given instruction is an
+    /// unconditional load to the GuardsReg.
+    /// If so, the function returns true and the register and offset are
+    /// stored. Otherwise the function returns false.
+    bool isUncondLoadToGuardsReg(const MachineInstr *MI, int &reg, int &offs);
+
+    /// isUncondStoreOfGuardsReg - Check whether a given instruction is an
+    /// unconditional store of the GuardsReg.
+    /// If so, the function returns true and the register and offset are
+    /// stored. Otherwise the function returns false.
+    bool isUncondStoreOfGuardsReg(const MachineInstr *MI, int &reg, int &offs);
+
+    /// eliminateRedundantLoadStores - Eliminate redundant loads and stores
+    /// of GuardsReg
+    void eliminateRedundantLoadStores(MachineFunction &MF);
 
     /// Map to hold RA infos for each SPScope
     std::map<const SPScope*, RAInfo> RAInfos;
@@ -708,7 +723,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   fixupKillFlagOfCondRegs();
 
 
-  DEBUG(MF.viewCFGOnly());
+  //DEBUG(MF.viewCFGOnly());
 
   // Following walk of the SPScope tree linearizes the CFG structure,
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
@@ -718,12 +733,15 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
-  //mergeMBBs(MF);
+  mergeMBBs(MF);
+
+  // Perform the elimination of LD/ST on the large basic blocks
+  eliminateRedundantLoadStores(MF);
 
   // Finally, we assign numbers in ascending order to MBBs again.
-  //MF.RenumberBlocks();
+  MF.RenumberBlocks();
 
-  DEBUG(MF.viewCFGOnly());
+  //DEBUG(MF.viewCFGOnly());
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
@@ -1524,6 +1542,99 @@ void PatmosSPReduce::getLoopLiveOutPRegs(const SPScope *S,
 }
 
 
+bool PatmosSPReduce::isUncondLoadToGuardsReg(const MachineInstr *MI,
+                                             int &reg, int &offs) {
+  if ((MI->getOpcode() == Patmos::LWS || MI->getOpcode() == Patmos::LWC)
+      && MI->getOperand(0).getReg() == GuardsReg
+      && MI->getOperand(1).getReg() == Patmos::NoRegister
+      && MI->getOperand(2).getImm() == 0) {
+    reg  = MI->getOperand(3).getReg();
+    offs = MI->getOperand(4).getImm();
+    return true;
+  }
+  return false;
+}
+
+bool PatmosSPReduce::isUncondStoreOfGuardsReg(const MachineInstr *MI,
+                                             int &reg, int &offs) {
+  if ((MI->getOpcode() == Patmos::SWS || MI->getOpcode() == Patmos::SWC)
+      && MI->getOperand(4).getReg() == GuardsReg
+      && MI->getOperand(0).getReg() == Patmos::NoRegister
+      && MI->getOperand(1).getImm() == 0) {
+    reg  = MI->getOperand(2).getReg();
+    offs = MI->getOperand(3).getImm();
+    return true;
+  }
+  return false;
+}
+
+void PatmosSPReduce::eliminateRedundantLoadStores(MachineFunction &MF) {
+  DEBUG( dbgs() << "Eliminate redundant loads/stores to " <<
+      TRI->getName(GuardsReg) << "\n" );
+
+  // for now, we consider each MBB separately (peephole optimization)
+  // might turn this into a data-flow optimization eventually
+  for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+      MBB != MBBe; ++MBB) {
+
+    std::vector<MachineInstr *> removables;
+    std::pair<int, int> lastSlot, curSlot, anySlot = std::make_pair(-1, -1);
+
+    DEBUG(dbgs() << " [MBB#" << MBB->getNumber() << "]\n");
+
+    // For redundant loads, we check if two subsequent loads source the
+    // same location. If so, we can remove the latter one.
+    lastSlot = anySlot;
+    for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
+        MI != MIe; ++MI) {
+      // check for unconditional load word to GuardsReg
+      int reg, offs;
+      if (isUncondLoadToGuardsReg(&*MI, reg, offs)) {
+        curSlot = std::make_pair(reg, offs);
+        if (lastSlot == curSlot) {
+          removables.push_back(&*MI);
+        }
+        lastSlot = curSlot;
+        continue;
+      } // end load
+    }
+
+    // We scan backward through the MBB to find redundant stores of the
+    // GuardsReg. If a store is to the same location as a previous (later)
+    // store, we can eliminate it, provided that there is no load of a
+    // different location between the stores.
+    lastSlot = anySlot;
+    for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
+        MIe = MBB->rend(); MI != MIe; ++MI) {
+      int reg, offs;
+      // check whether a store targets the same location as a previous one
+      if (isUncondStoreOfGuardsReg(&*MI, reg, offs)) {
+        curSlot = std::make_pair(reg, offs);
+        if (lastSlot == curSlot) {
+          removables.push_back(&*MI);
+        }
+        lastSlot = curSlot;
+        continue;
+      }
+      // check if there is a load to a different location between
+      if (isUncondLoadToGuardsReg(&*MI, reg, offs)) {
+        curSlot = std::make_pair(reg, offs);
+        if (lastSlot != curSlot) {
+          lastSlot = anySlot; // reset
+        }
+        continue;
+      }
+    }
+
+    // batch remove instructions from MBB
+    unsigned elimcount = removables.size();
+    ElimLdSt += elimcount; // STATISTIC
+    for (unsigned i = 0; i < elimcount; i++) {
+      DEBUG(dbgs() << "  " << *removables[i]);
+      removables[i]->eraseFromParent();
+    }
+  }
+}
 
 
 ///////////////////////////////////////////////////////////////////////////////
