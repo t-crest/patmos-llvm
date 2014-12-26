@@ -226,6 +226,10 @@ namespace {
     /// return information in ReturnInfoInsts
     void collectReturnInfoInsts(MachineFunction &MF);
 
+    /// eliminateFrameIndices - Batch call TRI->eliminateFrameIndex() on the
+    /// collected stack store and load indices
+    void eliminateFrameIndices(MachineFunction &MF);
+
     /// getLoopLiveOutPRegs - Collect unavailable PRegs that must be preserved
     /// in S0 during predicate allocation SPScope on exiting the SPScope
     /// because it lives in into a loop successor
@@ -235,15 +239,15 @@ namespace {
 
     /// isUncondLoadToGuardsReg - Check whether a given instruction is an
     /// unconditional load to the GuardsReg.
-    /// If so, the function returns true and the register and offset are
-    /// stored. Otherwise the function returns false.
-    bool isUncondLoadToGuardsReg(const MachineInstr *MI, int &reg, int &offs);
+    /// If so, the function returns true and the frame index is stored.
+    /// Otherwise the function returns false.
+    bool isUncondLoadToGuardsReg(const MachineInstr *MI, int &fi);
 
     /// isUncondStoreOfGuardsReg - Check whether a given instruction is an
     /// unconditional store of the GuardsReg.
-    /// If so, the function returns true and the register and offset are
-    /// stored. Otherwise the function returns false.
-    bool isUncondStoreOfGuardsReg(const MachineInstr *MI, int &reg, int &offs);
+    /// If so, the function returns true and the frame index is stored.
+    /// Otherwise the function returns false.
+    bool isUncondStoreOfGuardsReg(const MachineInstr *MI, int &fi);
 
     /// eliminateRedundantLoadStores - Eliminate redundant loads and stores
     /// of GuardsReg
@@ -738,6 +742,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Perform the elimination of LD/ST on the large basic blocks
   eliminateRedundantLoadStores(MF);
 
+  // Remove frame index operands from inserted loads and stores to stack
+  eliminateFrameIndices(MF);
+
   // Finally, we assign numbers in ascending order to MBBs again.
   MF.RenumberBlocks();
 
@@ -984,10 +991,8 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   MachineInstr *UncondInst;
 
   // load from stack slot
-  MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
-        TII->get(Patmos::LWC), tmpReg))
+  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::LWC), tmpReg))
     .addFrameIndex(fi).addImm(0); // address
-  TRI->eliminateFrameIndex(loadMI, 0, 3);
 
 #ifdef USE_BCOPY
   // clear bit on first definition (unconditionally)
@@ -1032,11 +1037,9 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
     .addImm(or_bitmask);
 #endif
   // store back to stack slot
-  MachineInstr *storeMI = AddDefaultPred(BuildMI(MBB, MI, DL,
-        TII->get(Patmos::SWC)))
+  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SWC)))
     .addFrameIndex(fi).addImm(0) // address
-    .addReg(tmpReg);
-  TRI->eliminateFrameIndex(storeMI, 0, 2);
+    .addReg(tmpReg, RegState::Kill);
   InsertedInstrs += 4; // STATISTIC
 }
 
@@ -1058,10 +1061,8 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   assert(bitpos > 0);
 
   // load from stack slot
-  MachineInstr *loadMI = AddDefaultPred(BuildMI(MBB, MI, DL,
-        TII->get(Patmos::LBC), tmpReg))
+  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::LBC), tmpReg))
     .addFrameIndex(fi).addImm(0); // address
-  TRI->eliminateFrameIndex(loadMI, 0, 3);
   InsertedInstrs++; // STATISTIC
 
 #ifdef USE_BCOPY
@@ -1111,11 +1112,9 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   InsertedInstrs++; // STATISTIC
 #endif
   // store back to stack slot
-  MachineInstr *storeMI = AddDefaultPred(BuildMI(MBB, MI, DL,
-        TII->get(Patmos::SBC)))
+  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SBC)))
     .addFrameIndex(fi).addImm(0) // address
-    .addReg(tmpReg);
-  TRI->eliminateFrameIndex(storeMI, 0, 2);
+    .addReg(tmpReg, RegState::Kill);
   InsertedInstrs++; // STATISTIC
 }
 
@@ -1233,16 +1232,13 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           // store/restore caller saved R9 (gets dirty during frame setup)
           int fi = PMFI->getSinglePathCallSpillFI();
           // store to stack slot
-          MachineInstr *storeMI = AddDefaultPred(BuildMI(*MBB, MI, DL,
-                TII->get(Patmos::SWC)))
+          AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::SWC)))
             .addFrameIndex(fi).addImm(0) // address
-            .addReg(Patmos::R9);
-          TRI->eliminateFrameIndex(storeMI, 0, 2);
+            .addReg(Patmos::R9, RegState::Kill);
           // restore from stack slot (after the call MI)
-          MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, llvm::next(MI), DL,
+          AddDefaultPred(BuildMI(*MBB, llvm::next(MI), DL,
                 TII->get(Patmos::LWC), Patmos::R9))
             .addFrameIndex(fi).addImm(0); // address
-          TRI->eliminateFrameIndex(loadMI, 0, 3);
           ++MI; // skip the load operation
           InsertedInstrs += 3; // STATISTIC
           continue;
@@ -1335,10 +1331,9 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
     if (spill != -1) {
       int fi = PMFI->getSinglePathExcessSpillFI(spill/32);
       // load from stack slot
-      MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, firstMI, DL,
-            TII->get(Patmos::LWC), GuardsReg))
+      AddDefaultPred(BuildMI(*MBB, firstMI, DL, TII->get(Patmos::LWC),
+            GuardsReg))
         .addFrameIndex(fi).addImm(0); // address
-      TRI->eliminateFrameIndex(loadMI, 0, 3);
       // set/clear bit
 #ifdef USE_BCOPY
       // (guard) bcopy R, (spill%32), use_preg
@@ -1364,11 +1359,9 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
       InsertedInstrs += 2; // STATISTIC
 #endif
       // store back to stack slot
-      MachineInstr *storeMI = AddDefaultPred(BuildMI(*MBB, firstMI, DL,
-            TII->get(Patmos::SWC)))
+      AddDefaultPred(BuildMI(*MBB, firstMI, DL, TII->get(Patmos::SWC)))
         .addFrameIndex(fi).addImm(0) // address
-        .addReg(GuardsReg);
-      TRI->eliminateFrameIndex(storeMI, 0, 2);
+        .addReg(GuardsReg, RegState::Kill);
       InsertedInstrs += 2; // STATISTIC (load/store)
     }
 
@@ -1386,15 +1379,13 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
   DebugLoc DL;
   int fi = PMFI->getSinglePathExcessSpillFI(loc/32);
   // load from stack slot
-  MachineInstr *loadMI = AddDefaultPred(BuildMI(*MBB, MI, DL,
-        TII->get(Patmos::LWC), GuardsReg))
+  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::LWC), GuardsReg))
     .addFrameIndex(fi).addImm(0); // address
-  TRI->eliminateFrameIndex(loadMI, 0, 3);
   // test bit
   // BTESTI $Guards, loc
   AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::BTESTI),
-        target_preg)).addReg(GuardsReg).addImm(loc%32);
-  InsertedInstrs += 3; // STATISTIC
+        target_preg)).addReg(GuardsReg, RegState::Kill).addImm(loc%32);
+  InsertedInstrs += 2; // STATISTIC
 }
 
 
@@ -1520,7 +1511,23 @@ void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
     }
 
   }
+}
 
+
+void PatmosSPReduce::eliminateFrameIndices(MachineFunction &MF) {
+
+  for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+      MBB != MBBe; ++MBB) {
+    for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
+        MI != MIe; ++MI) {
+      if (MI->mayStore() && MI->getOperand(2).isFI()) {
+        TRI->eliminateFrameIndex(MI, 0, 2);
+      }
+      if (MI->mayLoad() && MI->getOperand(3).isFI()) {
+        TRI->eliminateFrameIndex(MI, 0, 3);
+      }
+    }
+  }
 }
 
 
@@ -1542,27 +1549,26 @@ void PatmosSPReduce::getLoopLiveOutPRegs(const SPScope *S,
 }
 
 
-bool PatmosSPReduce::isUncondLoadToGuardsReg(const MachineInstr *MI,
-                                             int &reg, int &offs) {
-  if ((MI->getOpcode() == Patmos::LWS || MI->getOpcode() == Patmos::LWC)
+bool PatmosSPReduce::isUncondLoadToGuardsReg(const MachineInstr *MI, int &fi) {
+  if ((MI->getOpcode() == Patmos::LBC || MI->getOpcode() == Patmos::LWC)
       && MI->getOperand(0).getReg() == GuardsReg
-      && MI->getOperand(1).getReg() == Patmos::NoRegister
+      && (MI->getOperand(1).getReg() == Patmos::NoRegister ||
+          MI->getOperand(1).getReg() == Patmos::P0)
       && MI->getOperand(2).getImm() == 0) {
-    reg  = MI->getOperand(3).getReg();
-    offs = MI->getOperand(4).getImm();
+    fi = MI->getOperand(3).getIndex();
     return true;
   }
   return false;
 }
 
 bool PatmosSPReduce::isUncondStoreOfGuardsReg(const MachineInstr *MI,
-                                             int &reg, int &offs) {
-  if ((MI->getOpcode() == Patmos::SWS || MI->getOpcode() == Patmos::SWC)
+                                              int &fi) {
+  if ((MI->getOpcode() == Patmos::SBC || MI->getOpcode() == Patmos::SWC)
       && MI->getOperand(4).getReg() == GuardsReg
-      && MI->getOperand(0).getReg() == Patmos::NoRegister
+      && (MI->getOperand(0).getReg() == Patmos::NoRegister ||
+          MI->getOperand(0).getReg() == Patmos::P0)
       && MI->getOperand(1).getImm() == 0) {
-    reg  = MI->getOperand(2).getReg();
-    offs = MI->getOperand(3).getImm();
+    fi = MI->getOperand(2).getIndex();
     return true;
   }
   return false;
@@ -1578,49 +1584,58 @@ void PatmosSPReduce::eliminateRedundantLoadStores(MachineFunction &MF) {
       MBB != MBBe; ++MBB) {
 
     std::vector<MachineInstr *> removables;
-    std::pair<int, int> lastSlot, curSlot, anySlot = std::make_pair(-1, -1);
+    int lastSlot = -1;
+    MachineInstr *lastKill = NULL;
 
     DEBUG(dbgs() << " [MBB#" << MBB->getNumber() << "]\n");
 
     // For redundant loads, we check if two subsequent loads source the
     // same location. If so, we can remove the latter one.
-    lastSlot = anySlot;
+    lastSlot = -1;
     for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
         MI != MIe; ++MI) {
-      // check for unconditional load word to GuardsReg
-      int reg, offs;
-      if (isUncondLoadToGuardsReg(&*MI, reg, offs)) {
-        curSlot = std::make_pair(reg, offs);
-        if (lastSlot == curSlot) {
+      // check for unconditional load to GuardsReg
+      int fi;
+      if (isUncondLoadToGuardsReg(&*MI, fi)) {
+        if (lastSlot == fi) {
           removables.push_back(&*MI);
+          if (lastKill != NULL) {
+            lastKill->clearRegisterKills(GuardsReg, TRI);
+          }
         }
-        lastSlot = curSlot;
+        lastSlot = fi;
+        lastKill = NULL;
         continue;
       } // end load
+
+      // we store the last kill of GuardsReg, because we have to clear it
+      // in case we extend the live-range
+      if (MI->killsRegister(GuardsReg, TRI)) {
+        lastKill = MI;
+        continue;
+      }
     }
 
     // We scan backward through the MBB to find redundant stores of the
     // GuardsReg. If a store is to the same location as a previous (later)
     // store, we can eliminate it, provided that there is no load of a
     // different location between the stores.
-    lastSlot = anySlot;
+    lastSlot = -1;
     for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
         MIe = MBB->rend(); MI != MIe; ++MI) {
-      int reg, offs;
+      int fi;
       // check whether a store targets the same location as a previous one
-      if (isUncondStoreOfGuardsReg(&*MI, reg, offs)) {
-        curSlot = std::make_pair(reg, offs);
-        if (lastSlot == curSlot) {
+      if (isUncondStoreOfGuardsReg(&*MI, fi)) {
+        if (lastSlot == fi) {
           removables.push_back(&*MI);
         }
-        lastSlot = curSlot;
+        lastSlot = fi;
         continue;
       }
       // check if there is a load to a different location between
-      if (isUncondLoadToGuardsReg(&*MI, reg, offs)) {
-        curSlot = std::make_pair(reg, offs);
-        if (lastSlot != curSlot) {
-          lastSlot = anySlot; // reset
+      if (isUncondLoadToGuardsReg(&*MI, fi)) {
+        if (lastSlot != fi) {
+          lastSlot = -1; // reset
         }
         continue;
       }
@@ -1886,13 +1901,10 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     unsigned tmpReg = Pass.GuardsReg;
     Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
         tmpReg, Patmos::S0, false);
-    MachineInstr *storeMI =
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::SBC)))
       .addFrameIndex(fi).addImm(0) // address
-      .addReg(tmpReg);
-
-    Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
+      .addReg(tmpReg, RegState::Kill);
     InsertedInstrs += 2; // STATISTIC
   }
 
@@ -1927,12 +1939,10 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
       .addImm(loop); // the loop bound
 
     int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
-    MachineInstr *storeMI =
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg, RegState::Kill);
-    Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 2; // STATISTIC
     LoopCounters++; // STATISTIC
   }
@@ -1979,11 +1989,9 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // TODO is the loop counter in a register?!
     int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
     unsigned tmpReg = Pass.GuardsReg;
-    MachineInstr *loadMI =
-      AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
             Pass.TII->get(Patmos::LWC), tmpReg))
       .addFrameIndex(fi).addImm(0); // address
-    Pass.TRI->eliminateFrameIndex(loadMI, 0, 3);
 
     // decrement
     AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
@@ -1995,12 +2003,10 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
             Pass.TII->get(Patmos::CMPNEQ), branch_preg))
       .addReg(Patmos::R0).addReg(tmpReg);
     // store back
-    MachineInstr *storeMI =
-      AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg, RegState::Kill);
-    Pass.TRI->eliminateFrameIndex(storeMI, 0, 2);
     InsertedInstrs += 4; // STATISTIC
   } else {
     // no explicit loop bound: branch on header predicate
@@ -2022,12 +2028,9 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // convert it to a stack cache access, if the stack cache is enabled.
     int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth()-1);
     unsigned tmpReg = Pass.GuardsReg;
-    MachineInstr *loadMI =
-      AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
+    AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
             Pass.TII->get(Patmos::LBC), tmpReg))
       .addFrameIndex(fi).addImm(0); // address
-
-    Pass.TRI->eliminateFrameIndex(loadMI, 0, 3);
 
     // if there are any PRegs to be preserved, do it now
     std::vector<unsigned> liveouts;
