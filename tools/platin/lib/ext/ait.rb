@@ -237,8 +237,20 @@ class AISExporter
     @pml.arch.config.caches.each { |cache|
       case cache.name
       when 'data-cache'
-        gen_fact("cache data size=#{cache.size}, associativity=#{cache.associativity}, line-size=#{cache.line_size},"+
-                 "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
+        if cache.policy == "lru" or cache.policy == "fifo"
+          gen_fact("cache data size=#{cache.size}, associativity=#{cache.associativity}, line-size=#{cache.line_size},"+
+                   "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
+        elsif cache.policy == "dm"
+          gen_fact("cache data size=#{cache.size}, associativity=1, line-size=#{cache.line_size},"+
+                   "policy=LRU, may=chaos", "PML machine configuration")
+	elsif cache.policy == "ideal"
+	  # TODO We can only configure an ideal cache by making the data memory zero-cycle accesses, which makes
+	  # it different for bypasses! Check how the underlying memory is configured and die if the configuration
+	  # is impossible to configure!
+	  warn("aiT: found ideal data-cache. This requires the data memory to have zero-cycle access times.")
+	elsif cache.policy != "no"
+	  warn("aiT: unsupported data-cache policy #{cache.policy}, skipping data cache configuration")
+	end
       when 'instruction-cache'
         gen_fact("cache code size=#{cache.size}, associativity=#{cache.associativity}, line-size=#{cache.line_size},"+
                  "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
@@ -257,6 +269,8 @@ class AISExporter
                  "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
       when 'stack-cache'
         # always enabled (new in aiT version >= 205838)
+	# TODO check if the configuration requests a S$ or if the S$ is set to ideal and the memory is ideal, otherwise
+	# die with an unsupported configuration error
       end
     }
 
