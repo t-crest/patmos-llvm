@@ -2841,7 +2841,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  // Find the appropriate table for this asm variant.\n";
   OS << "  const MatchEntry *Start, *End;\n";
   OS << "  switch (VariantID) {\n";
-  OS << "  default: // unreachable\n";
+  OS << "  default: llvm_unreachable(\"invalid variant!\");\n";
   for (unsigned VC = 0; VC != VariantCount; ++VC) {
     Record *AsmVariant = Target.getAsmParserVariant(VC);
     int AsmVariantNo = AsmVariant->getValueAsInt("Variant");
@@ -2895,7 +2895,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  // Find the appropriate table for this asm variant.\n";
   OS << "  const MatchEntry *Start, *End;\n";
   OS << "  switch (VariantID) {\n";
-  OS << "  default: // unreachable\n";
+  OS << "  default: llvm_unreachable(\"invalid variant!\");\n";
   for (unsigned VC = 0; VC != VariantCount; ++VC) {
     Record *AsmVariant = Target.getAsmParserVariant(VC);
     int AsmVariantNo = AsmVariant->getValueAsInt("Variant");
