@@ -300,6 +300,12 @@ namespace llvm {
     bool isSCCHeader() const {
       return SCCSize > 0;
     }
+
+    bool hasAddressTaken() const {
+      if (MBB)
+        return MBB->hasAddressTaken();
+      return false;
+    }
   };
 
   /// aedge - an edge in a transformed copy of the CFG.
@@ -1139,6 +1145,13 @@ namespace llvm {
         region_size += scc_size;
         region->HasCall |= has_call;
         return true;
+      }
+
+      // If a block has its address taken (e.g. is part of a  computed goto),
+      // it needs to start a new region.
+      for(ablocks::iterator i(scc.begin()), ie(scc.end()); i != ie; i++) {
+        if ((*i)->hasAddressTaken())
+          return false;
       }
 
       unsigned int maxSize = preferred_size;
