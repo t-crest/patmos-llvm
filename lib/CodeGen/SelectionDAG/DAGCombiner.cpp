@@ -6927,7 +6927,10 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
         SDValue N00 = N0.getOperand(0);
         if (N00.getOpcode() == ISD::FMUL)
           return DAG.getNode(ISD::FMA, SDLoc(N), VT,
-                             N00.getOperand(0), N00.getOperand(1), N1);
+                             DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                         N00.getOperand(0)),
+                             DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                         N00.getOperand(1)), N1);
       }
 
       // fold (fadd x, (fpext (fmul y, z)), z) -> (fma y, z, x)
@@ -6936,7 +6939,10 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
         SDValue N10 = N1.getOperand(0);
         if (N10.getOpcode() == ISD::FMUL)
           return DAG.getNode(ISD::FMA, SDLoc(N), VT,
-                             N10.getOperand(0), N10.getOperand(1), N0);
+                             DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                         N10.getOperand(0)),
+                             DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                         N10.getOperand(1)), N0);
       }
     }
   }
@@ -7072,8 +7078,10 @@ SDValue DAGCombiner::visitFSUB(SDNode *N) {
         SDValue N00 = N0.getOperand(0);
         if (N00.getOpcode() == ISD::FMUL)
           return DAG.getNode(ISD::FMA, SDLoc(N), VT,
-                             N00.getOperand(0),
-                             N00.getOperand(1),
+                             DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                         N00.getOperand(0)),
+                             DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                         N00.getOperand(1)),
                              DAG.getNode(ISD::FNEG, SDLoc(N), VT, N1));
       }
 
@@ -7084,8 +7092,10 @@ SDValue DAGCombiner::visitFSUB(SDNode *N) {
         if (N10.getOpcode() == ISD::FMUL)
           return DAG.getNode(ISD::FMA, SDLoc(N), VT,
                              DAG.getNode(ISD::FNEG, SDLoc(N), VT,
-                                         N10.getOperand(0)),
-                             N10.getOperand(1),
+                                         DAG.getNode(ISD::FP_EXTEND, SDLoc(N),
+                                                     VT, N10.getOperand(0))),
+                             DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                         N10.getOperand(1)),
                              N0);
       }
 
@@ -7098,8 +7108,10 @@ SDValue DAGCombiner::visitFSUB(SDNode *N) {
           if (N000.getOpcode() == ISD::FMUL) {
             return DAG.getNode(ISD::FMA, dl, VT,
                                DAG.getNode(ISD::FNEG, dl, VT,
-                                           N000.getOperand(0)),
-                               N000.getOperand(1),
+                                           DAG.getNode(ISD::FP_EXTEND, SDLoc(N),
+                                                       VT, N000.getOperand(0))),
+                               DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                           N000.getOperand(1)),
                                DAG.getNode(ISD::FNEG, dl, VT, N1));
           }
         }
@@ -7114,8 +7126,10 @@ SDValue DAGCombiner::visitFSUB(SDNode *N) {
           if (N000.getOpcode() == ISD::FMUL) {
             return DAG.getNode(ISD::FMA, dl, VT,
                                DAG.getNode(ISD::FNEG, dl, VT,
-                                           N000.getOperand(0)),
-                               N000.getOperand(1),
+                                           DAG.getNode(ISD::FP_EXTEND, SDLoc(N),
+                                           VT, N000.getOperand(0))),
+                               DAG.getNode(ISD::FP_EXTEND, SDLoc(N), VT,
+                                           N000.getOperand(1)),
                                DAG.getNode(ISD::FNEG, dl, VT, N1));
           }
         }
