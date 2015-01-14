@@ -206,6 +206,7 @@ void initializeMetaRenamerPass(PassRegistry&);
 void initializeMergeFunctionsPass(PassRegistry&);
 void initializeModuleDebugInfoPrinterPass(PassRegistry&);
 void initializeNoAAPass(PassRegistry&);
+void initializeNoopInsertionPass(PassRegistry&);
 void initializeObjCARCAliasAnalysisPass(PassRegistry&);
 void initializeObjCARCAPElimPass(PassRegistry&);
 void initializeObjCARCExpandPass(PassRegistry&);
