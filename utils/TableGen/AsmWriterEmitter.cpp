@@ -1003,7 +1003,7 @@ void AsmWriterEmitter::EmitPrintAliasInstruction(raw_ostream &O) {
     return;
   }
 
-  if (MCOpPredicates.size())
+  if (!MCOpPredicates.empty())
     O << "static bool " << Target.getName() << ClassName
       << "ValidateMCOperand(\n"
       << "       const MCOperand &MCOp, unsigned PredicateIndex);\n";
@@ -1069,7 +1069,7 @@ void AsmWriterEmitter::EmitPrintAliasInstruction(raw_ostream &O) {
   }    
   O << "}\n\n";
 
-  if (MCOpPredicates.size()) {
+  if (!MCOpPredicates.empty()) {
     O << "static bool " << Target.getName() << ClassName
       << "ValidateMCOperand(\n"
       << "       const MCOperand &MCOp, unsigned PredicateIndex) {\n"

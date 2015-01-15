@@ -399,7 +399,7 @@ void SubtargetEmitter::EmitFunctionalUnits(raw_ostream &OS) {
     OS << "}\n";
 
     std::vector<Record*> BPs = PI->ItinsDef->getValueAsListOfDefs("BP");
-    if (BPs.size()) {
+    if (!BPs.empty()) {
       OS << "\n// Pipeline forwarding pathes for itineraries \"" << Name
          << "\"\n" << "namespace " << Name << "Bypass {\n";
 

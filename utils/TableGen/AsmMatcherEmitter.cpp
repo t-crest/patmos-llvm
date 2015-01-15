@@ -2660,7 +2660,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
      << " bool matchingInlineAsm,\n"
      << "                                unsigned VariantID = 0);\n";
 
-  if (Info.OperandMatchInfo.size()) {
+  if (!Info.OperandMatchInfo.empty()) {
     OS << "\n  enum OperandMatchResultTy {\n";
     OS << "    MatchOperand_Success,    // operand matched successfully\n";
     OS << "    MatchOperand_NoMatch,    // operand did not match\n";
@@ -3018,7 +3018,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  return Match_MissingFeature;\n";
   OS << "}\n\n";
 
-  if (Info.OperandMatchInfo.size())
+  if (!Info.OperandMatchInfo.empty())
     emitCustomOperandParsing(OS, Target, Info, ClassName, StringTable,
                              MaxMnemonicIndex);
 
