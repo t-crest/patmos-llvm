@@ -21,17 +21,12 @@
 //     setting/loading loop bounds, etc.
 // (4) MBBs are merged and renumbered, as finalization step.
 //
-// TODO: No actual loop bounds are loaded, as this information is not
-//       available yet
-//
-//
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "patmos-singlepath"
 
 #define USE_BCOPY
-//#define NOSPILL_OPTIMIZATION
-
+#define NOSPILL_OPTIMIZATION
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
@@ -991,8 +986,10 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
   MachineInstr *UncondInst;
 
   // load from stack slot
-  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::LWC), tmpReg))
+  UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::LWC), tmpReg))
     .addFrameIndex(fi).addImm(0); // address
+  UnconditionalInsertedInsts.insert(UncondInst);
 
 #ifdef USE_BCOPY
   // clear bit on first definition (unconditionally)
@@ -1037,9 +1034,10 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
     .addImm(or_bitmask);
 #endif
   // store back to stack slot
-  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SWC)))
+  UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SWC)))
     .addFrameIndex(fi).addImm(0) // address
     .addReg(tmpReg, RegState::Kill);
+  UnconditionalInsertedInsts.insert(UncondInst);
   InsertedInstrs += 4; // STATISTIC
 }
 
@@ -1061,8 +1059,10 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   assert(bitpos > 0);
 
   // load from stack slot
-  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::LBC), tmpReg))
+  UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::LBC), tmpReg))
     .addFrameIndex(fi).addImm(0); // address
+  UnconditionalInsertedInsts.insert(UncondInst);
   InsertedInstrs++; // STATISTIC
 
 #ifdef USE_BCOPY
@@ -1112,9 +1112,10 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   InsertedInstrs++; // STATISTIC
 #endif
   // store back to stack slot
-  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SBC)))
+  UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SBC)))
     .addFrameIndex(fi).addImm(0) // address
     .addReg(tmpReg, RegState::Kill);
+  UnconditionalInsertedInsts.insert(UncondInst);
   InsertedInstrs++; // STATISTIC
 }
 
