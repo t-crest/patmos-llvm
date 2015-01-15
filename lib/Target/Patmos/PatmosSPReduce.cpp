@@ -27,6 +27,7 @@
 
 #define USE_BCOPY
 #define NOSPILL_OPTIMIZATION
+//#define BOUND_UNDEREST_PROTECTION
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
@@ -2015,6 +2016,17 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   }
   // insert branch to header
   assert(branch_preg != Patmos::NoRegister);
+
+#ifdef BOUND_UNDEREST_PROTECTION
+  if (branch_preg != header_preg) {
+    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+          Pass.TII->get(Patmos::POR), branch_preg))
+      .addReg(branch_preg).addImm(0)
+      .addReg(header_preg).addImm(0);
+    InsertedInstrs++; // STATISTIC
+  }
+#endif
+
   BuildMI(*BranchMBB, BranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
     .addReg(branch_preg).addImm(0)
     .addMBB(HeaderMBB);
