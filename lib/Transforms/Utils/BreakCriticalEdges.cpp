@@ -18,6 +18,7 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/CFG.h"
@@ -196,11 +197,14 @@ BasicBlock *llvm::SplitCriticalEdge(TerminatorInst *TI, unsigned SuccNum,
   // If we don't have a pass object, we can't update anything...
   if (!P) return NewBB;
 
+
+  auto *AA = P->getAnalysisIfAvailable<AliasAnalysis>();
   DominatorTreeWrapperPass *DTWP =
       P->getAnalysisIfAvailable<DominatorTreeWrapperPass>();
   DominatorTree *DT = DTWP ? &DTWP->getDomTree() : nullptr;
   auto *LIWP = P->getAnalysisIfAvailable<LoopInfoWrapperPass>();
   LoopInfo *LI = LIWP ? &LIWP->getLoopInfo() : nullptr;
+  bool PreserveLCSSA = P->mustPreserveAnalysisID(LCSSAID);
 
   // If we have nothing to update, just return.
   if (!DT && !LI)
@@ -295,11 +299,8 @@ BasicBlock *llvm::SplitCriticalEdge(TerminatorInst *TI, unsigned SuccNum,
                "Split point for loop exit is contained in loop!");
 
         // Update LCSSA form in the newly created exit block.
-        if (P->mustPreserveAnalysisID(LCSSAID)) {
-          SmallVector<BasicBlock *, 1> OrigPred;
-          OrigPred.push_back(TIBB);
-          createPHIsForSplitLoopExit(OrigPred, NewBB, DestBB);
-        }
+        if (PreserveLCSSA)
+          createPHIsForSplitLoopExit(TIBB, NewBB, DestBB);
 
         // The only that we can break LoopSimplify form by splitting a critical
         // edge is if after the split there exists some edge from TIL to DestBB
@@ -326,9 +327,9 @@ BasicBlock *llvm::SplitCriticalEdge(TerminatorInst *TI, unsigned SuccNum,
         if (!LoopPreds.empty()) {
           assert(!DestBB->isLandingPad() &&
                  "We don't split edges to landing pads!");
-          BasicBlock *NewExitBB =
-              SplitBlockPredecessors(DestBB, LoopPreds, "split", P);
-          if (P->mustPreserveAnalysisID(LCSSAID))
+          BasicBlock *NewExitBB = SplitBlockPredecessors(
+              DestBB, LoopPreds, "split", AA, DT, LI, PreserveLCSSA);
+          if (PreserveLCSSA)
             createPHIsForSplitLoopExit(LoopPreds, NewExitBB, DestBB);
         }
       }
@@ -336,8 +337,7 @@ BasicBlock *llvm::SplitCriticalEdge(TerminatorInst *TI, unsigned SuccNum,
       // available, which means that all predecessors of loop exit blocks
       // are within the loop. Without LoopSimplify form, it would be
       // necessary to insert a new phi.
-      assert((!P->mustPreserveAnalysisID(LCSSAID) ||
-              P->mustPreserveAnalysisID(LoopSimplifyID)) &&
+      assert((!PreserveLCSSA || P->mustPreserveAnalysisID(LoopSimplifyID)) &&
              "SplitCriticalEdge doesn't know how to update LCCSA form "
              "without LoopSimplify!");
     }
