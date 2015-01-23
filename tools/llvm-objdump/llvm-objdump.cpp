@@ -903,7 +903,8 @@ int main(int argc, char **argv) {
       && !WeakBind
       && !(UniversalHeaders && MachOOpt)
       && !(ArchiveHeaders && MachOOpt)
-      && !(IndirectSymbols && MachOOpt)) {
+      && !(IndirectSymbols && MachOOpt)
+      && !(DataInCode && MachOOpt)) {
     cl::PrintHelpMessage();
     return 2;
   }
