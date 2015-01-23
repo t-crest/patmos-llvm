@@ -78,8 +78,8 @@ public:
   /// Return the way subfunctions are split at call sites.
   CSBType getCallSBType() const;
 
-  /// Method cache dispose flag usage
-  typedef enum { MCD_NONE, MCD_ALL, MCD_ANALYSE } MCDType;
+  /// Method cache disposable flag usage
+  typedef enum { MCD_NONE, MCD_ALL, MCD_SCC, MCD_ANALYSE } MCDType;
 
   /// Return the way the method cache dispose flag should be used.
   MCDType getMethodCacheDisposeType() const;

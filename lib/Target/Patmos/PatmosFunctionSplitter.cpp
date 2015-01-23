@@ -79,6 +79,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
+#include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/PMLImport.h"
 #include "llvm/MC/MCNullStreamer.h"
@@ -222,6 +223,10 @@ namespace llvm {
     /// contains a call.
     bool HasCallinSCC;
 
+    /// Flag indicating whether the block is part of an SCC (not necessarily
+    /// as a loop header)
+    bool IsInSCC;
+
     /// Indices of the jump table that this node references.
     idset JTIDs;
 
@@ -259,7 +264,7 @@ namespace llvm {
     ablock(PatmosTargetMachine &PTM, unsigned id, agraph* g,
            MachineBasicBlock *mbb = NULL)
     : ID(id), G(g), MBB(mbb), FallthroughTarget(0),
-      HasCall(false), HasCallinSCC(false),
+      HasCall(false), HasCallinSCC(false), IsInSCC(false),
       NumBranches(0), Size(0),
       SCCSize(0), Region(NULL), NumPreds(0)
     {
@@ -553,6 +558,35 @@ namespace llvm {
       }
     }
 
+    /// isDisposable -- Check whether the given block should be marked as
+    /// disposable or not.
+    bool isDisposable(ablock *region)
+    {
+      switch (STC.getMethodCacheDisposeType()) {
+        case PatmosSubtarget::MCD_NONE:
+          return false;
+        case PatmosSubtarget::MCD_ALL:
+          return true;
+        case PatmosSubtarget::MCD_SCC:
+          // see if any of the blocks in the region is inside an SCC
+          for(ablocks::const_iterator i(Blocks.begin()), ie(Blocks.end());
+              i != ie; i++) {
+            if ((*i)->Region == region && (*i)->IsInSCC) {
+              return false;
+            }
+          }
+
+          // not a single block in an SCC ... mark as disposable
+          return true;
+        case PatmosSubtarget::MCD_ANALYSE:
+          // TODO: implement
+            llvm_unreachable("MCD_ANALYSE not implemented");
+      }
+
+      llvm_unreachable("Missing case for handling the disposable flag in "
+                       "function splitter.");
+    }
+
     /// mayFallThrough - Return true in case the block terminates with a 
     /// non-barrier branch or without any branch at all, false in case the
     /// block terminates with a barrier branch.
@@ -840,10 +874,18 @@ namespace llvm {
             continue;
           }
 
+          // ok the SCC is a non-trivial SCC, take care of it ...
 #ifdef PATMOS_DUMP_ALL_SCC_DOTS
           write(cnt++);
 #endif
 
+          // mark all blocks in the SCC to be inside an SCC
+          for(ablocks::const_iterator j(scc.begin()), je(scc.end()); j != je;
+              j++) {
+            (*j)->IsInSCC = true;
+          }
+
+          // find edges entering the SCC
           ablock_set headers;
           aedge_vector entering;
           for(aedges::iterator j(Edges.begin()), je(Edges.end()); j != je;
@@ -1575,9 +1617,6 @@ namespace llvm {
 
       unsigned HWAlign = STC.getHardwareSubfunctionAlignment();
 
-      bool MarkDispose = STC.getMethodCacheDisposeType() ==
-                                                       PatmosSubtarget::MCD_ALL;
-
       // keep track of fall-through blocks
       ablock *fallThrough = NULL;
 
@@ -1592,7 +1631,8 @@ namespace llvm {
 
         // store region entries with the Patmos function info
         if (is_region_entry) {
-          PMFI->addMethodCacheRegionEntry(MBB, MarkDispose);
+          bool is_disposable = isDisposable(*i);
+          PMFI->addMethodCacheRegionEntry(MBB, is_disposable);
 
           numRegions++;
 
@@ -2261,6 +2301,7 @@ namespace llvm {
       AU.addRequired<PMLImport>();
       AU.addRequired<MachineDominatorTree>();
       AU.addRequired<MachinePostDominatorTree>();
+      AU.addRequired<MachineLoopInfo>();
       AU.addPreserved<MachineDominatorTree>();
       AU.addPreserved<MachinePostDominatorTree>();
       MachineFunctionPass::getAnalysisUsage(AU);
@@ -2365,10 +2406,29 @@ namespace llvm {
 
         return true;
       }
-      else if (STC.getMethodCacheDisposeType() == PatmosSubtarget::MCD_ALL)
+      else
       {
+        // check whether the function's only region should be marked as
+        // disposable
+        bool is_disposable = false;
+        switch (STC.getMethodCacheDisposeType()) {
+          case PatmosSubtarget::MCD_NONE:
+            is_disposable = false;
+            break;
+          case PatmosSubtarget::MCD_ALL:
+            is_disposable = true;
+            break;
+          case PatmosSubtarget::MCD_SCC:
+            // mark as disposable unless the function contains a loop
+            is_disposable = getAnalysis<MachineLoopInfo>().empty();
+            break;
+          case PatmosSubtarget::MCD_ANALYSE:
+          // TODO: implement
+            llvm_unreachable("MCD_ANALYSE not implemented");
+        }
+
         PatmosMachineFunctionInfo *PMFI= MF.getInfo<PatmosMachineFunctionInfo>();
-        PMFI->addMethodCacheRegionEntry(MF.begin(), true);
+        PMFI->addMethodCacheRegionEntry(MF.begin(), is_disposable);
       }
 
       return blocks_splitted;
