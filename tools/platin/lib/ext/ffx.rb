@@ -8,6 +8,10 @@ require 'platin'
 require "rexml/document"
 require "rexml/formatters/transitive"
 
+# OTAWA currently does not know about all labels, so export address references
+# instead of labels right now
+EXPORT_ADDR = true
+
 module PML
 
 # option extensions for f4/ffx
@@ -137,7 +141,7 @@ end
 
 class Function
   def f4_ref
-    if self.label
+    if self.label && !EXPORT_ADDR
       dquote(self.label)
     elsif self.address
       "0x#{address.to_s(16)}"
@@ -155,7 +159,7 @@ class Block
     if instructions.empty?
       raise F4UnsupportedProgramPoint.new(self, "impossible to reference an empty block")
     end
-    if label
+    if label && !EXPORT_ADDR
       dquote(label)
     elsif address
       "0x#{address.to_s(16)}"
@@ -170,7 +174,7 @@ end
 
 class Instruction
   def f4_ref(opts = {})
-    if address && block.label
+    if address && block.label && !EXPORT_ADDR
       "#{block.f4_ref} + #{self.address - block.address}"
     elsif address
       "0x#{address.to_s(16)}"
@@ -270,7 +274,7 @@ class F4Exporter
       return false
     end
     loopblock = scope.programpoint.loopheader
-    loopname = dquote(loopblock.label)
+    loopname = loopblock.f4_ref
 
     bounds_and_ffs.each { |bound,ff|
       if bound.referenced_vars.empty?

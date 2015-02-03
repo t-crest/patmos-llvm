@@ -50,8 +50,21 @@ class OptionParser
 	  end
     }
   end
-  def ait_disable_internal_sc()
-    self.on("--ait-disable-builtin-sc", "disable aiT's internal SC analysis (using a workaround)") { |d| options.ait_disable_internal_sc = true }
+  def ait_sca_type()
+    # disable aiT's internal SC analysis (using a workaround) or enable different analysis methods using AIS annotations
+    self.on("--ait-sca-type TYPE", "(internal(default)|anno-ptr|none)") { |t|
+      options.ait_sca_type = case t
+            when "internal" then nil # do nothing, the default
+            when "none" # deactivate aiT's internal analysis
+              options.ait_disable_internal_sc = true
+              nil
+            when "anno-ptr" # deactivate aiT's internal analysis, do analysis by tracking SC pointers
+              options.ait_disable_internal_sc = true
+              :anno_ptr
+            else
+              die_usage("unknown TYPE: #{t}")
+            end
+    }
   end
 end
 
@@ -173,8 +186,9 @@ end
 class Instruction
   def ais_ref(opts = {})
     if address && block.label
-      "#{block.ais_ref} + #{self.address - block.address} bytes"
+      "#{block.ais_ref} #{opts[:ais2] ? "->":"+"} #{self.address - block.address} byte"
     elsif opts[:branch_index]
+      assert("FIXME ais2 counts instructions from 0.") { opts[:ais2] == nil }
       "#{block.ais_ref} + #{opts[:branch_index]} branches"
     elsif address
       "0x#{address.to_s(16)}"
@@ -214,6 +228,7 @@ class AISExporter
     @options = options
     @entry = @pml.machine_functions.by_label(@options.analysis_entry)
     @extracted_arguments = {}
+    @sc = {}
     @stats_generated_facts, @stats_skipped_flowfacts = 0, 0
   end
 
@@ -538,21 +553,130 @@ class AISExporter
   end
 
   # export stack cache instruction annotation
-  def export_stack_cache_annotation(type, ins, value)
+  #def export_stack_cache_annotation(type, ins, value)
+  #  assert("cannot annotate stack cache instruction w/o instruction addresses") { ins.address }
+  #  if(type == :fill)
+  #    feature = "stack_cache_fill_count"
+  #  elsif(type == :spill)
+  #    feature = "stack_cache_spill_count"
+  #  else
+  #    die("aiT: unknown stack cache annotation")
+  #  end
+
+  #  # XXX: the value is in bytes, aiT currently expects words (word-size blocks)
+  #  assert("expected spill/fill value to be a multiple of word") { value % 4 == 0 }
+  #  words = value / 4
+  #  gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{words}", "SC words (source: llvm sca)")
+  #end
+
+  def add_stack_cache_inst(type, ins, value)
     assert("cannot annotate stack cache instruction w/o instruction addresses") { ins.address }
-    if(type == :fill)
-      feature = "stack_cache_fill_count"
-    elsif(type == :spill)
-      feature = "stack_cache_spill_count"
-    else
-      die("aiT: unknown stack cache annotation")
+    assert("aiT: unknown stack cache annotation") {[:reserve, :free, :ensure].include? type}
+    @sc[ins] = [type, value * 4]
+  end
+
+  def export_stack_cache_annotations
+    return unless @options.ait_sca_type == :anno_ptr
+
+    # no stack cache instructions to annotate
+    return unless @sc.size
+
+    unless sc_cache = @pml.arch.config.caches.find { |c| c.name == 'stack-cache' }
+      warn("aiT: stack cache not configured, cannot add annotations")
+      return
     end
 
-    # XXX: the value is in bytes, aiT currently expects words (word-size blocks)
-    assert("expected spill/fill value to be a multiple of word") { value % 4 == 0 }
-    words = value / 4
-    gen_fact("instruction #{ins.ais_ref} features \"#{feature}\" = #{words}", "SC words (source: llvm sca)")
+    sz = sc_cache.size
+
+    ais2 = AIS2Helper.new(@outfile)
+    ais2.scope("routine", "#{@entry.ais_ref}")
+    ais2.enter("enter")
+    ais2.put("user(\"sc_top\") = 0x5000000,")
+    ais2.put("user(\"m_top\")  = 0x5000000;")
+    ais2.close
+    ais2.close
+    @sc.each { |instr,(type,n)|
+      n_spill = "max(0, user(\"m_top\") - (user(\"sc_top\") - #{n}) - #{sz})"
+      n_fill  = "max(0, #{n} - (user(\"m_top\") - user(\"sc_top\")))"
+      ais2.scope("instruction", "#{instr.ais_ref(:ais2 => true)}")
+      case type
+      when :reserve
+        ais2.enter("enter")
+        ais2.put("user(\"n_spill\") = #{n_spill};")
+        ais2.close
+      when :ensure
+        ais2.enter("enter")
+        ais2.put("user(\"n_fill\") = #{n_fill};")
+        ais2.close
+      end
+
+      ais2.enter("exit")
+      case type
+      when :reserve
+        ais2.put("user(\"n_spill\") = (-inf..inf),")
+        ais2.put("user(\"sc_top\") = user(\"sc_top\") - #{n},")
+        ais2.put("user(\"m_top\") = user(\"m_top\") - #{n_spill};")
+      when :free
+        ais2.put("user(\"sc_top\") = user(\"sc_top\") + #{n},")
+        ais2.put("user(\"m_top\") = max(user(\"sc_top\") + #{n}, user(\"m_top\"));")
+      when :ensure
+        ais2.put("user(\"n_fill\") = (-inf..inf),")
+        ais2.put("user(\"m_top\") = user(\"m_top\") + #{n_fill};")
+      end
+      ais2.close_n(2)
+    }
+    @outfile.puts("}")
+
+    # generate AIS1 instruction facts for spill/fill latencies
+    @sc.each { |instr,(type,n)|
+      data_area = @pml.arch.config.memory_areas.by_name('data')
+      case type
+      when :reserve
+        gen_fact("instruction #{instr.ais_ref} additionally takes trace(@n_spill) / #{sc_cache.block_size} * "\
+                 "#{data_area.memory.write_transfer_time} + #{data_area.memory.write_latency}  cycles", "spill cost")
+      when :ensure
+        gen_fact("instruction #{instr.ais_ref} additionally takes trace(@n_fill) / #{sc_cache.block_size} * "\
+                 "#{data_area.memory.read_transfer_time} + #{data_area.memory.read_latency} cycles", "fill cost")
+      end
+    }
   end
+end
+
+class AIS2Helper
+  def initialize(outfile)
+    @outfile = outfile
+    @stack = []
+    put("ais2 {")
+    push :scope
+  end
+  def push(s)
+    @stack.push(s)
+  end
+  def pop
+    @stack.pop
+  end
+  def put(str)
+    @outfile.puts(' ' * 2 * @stack.size + str)
+  end
+  def scope(type, pp)
+    put "#{type} #{pp} {"
+    push :scope
+  end
+  def enter(enter_or_exit)
+    put "#{enter_or_exit} with:"
+    push :enter
+  end
+  def close
+    s = pop
+    put "}" if s == :scope
+    s
+  end
+  def close_n (n)
+    while(n > 0 && s = close)
+      n -= 1
+    end
+  end
+
 end
 
 class APXExporter
@@ -814,6 +938,15 @@ class AitImport
     }
     statistics("AIT",value_analysis_stats) if options.stats
     facts
+  end
+
+  # read the message lines with traces for n_spill and n_fill user regs
+  def read_stack_cache_traces(analysis_task_elem)
+    analysis_task_elem.each_element("value_analysis/messages/message/textline") { |e|
+      if e.text =~ /trace.*\(context\w*(.*)\).*\("user_(n_(?:fill|spill))"\).=.(\d+)/
+        yield $1,$2,$3
+      end
+    }
   end
 
   #
@@ -1101,6 +1234,11 @@ class AitImport
         pml.valuefacts.add(valuefact)
       }
     end
+
+    read_stack_cache_traces(analysis_task_elem) { |ctx,sf,bytes|
+      # bytes might be an interval e.g. "0..32"
+      debug(options, :sca) { "#{ctx}: #{sf} = #{bytes} bytes" unless bytes == "0" }
+    }
 
     # read wcet analysis results
     wcet_elem = analysis_task_elem.get_elements("wcet_analysis").first
