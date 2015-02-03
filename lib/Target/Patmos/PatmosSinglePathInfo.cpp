@@ -227,7 +227,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
       MI != ME; ++MI) {
     if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
       // max is the second operand (idx 1)
-      LoopBound = MI->getOperand(1).getImm();
+      LoopBound = MI->getOperand(1).getImm() + 1;
       break;
     }
   }
