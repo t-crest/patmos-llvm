@@ -139,11 +139,6 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     unsigned preds = S->getNumPredicates();
     unsigned d = S->getDepth();
 
-    if (S->hasLoopBound()) {
-      int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
-      PMFI.addSinglePathFI(fi);
-    }
-
     DEBUG( dbgs() << "[MBB#" << S->getHeader()->getNumber()
                   << "]: d=" << d << ", " << preds << "\n");
 
@@ -154,6 +149,12 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
       if (requiredPreds[d] < preds)
         requiredPreds[d] = preds;
     }
+  }
+
+  // create a loop counter slot for each nesting level (no slot required for 0)
+  for (unsigned i = 0; i < requiredPreds.size() - 1; i++) {
+    int fi = MFI.CreateStackObject(RC->getSize(), RC->getAlignment(), false);
+    PMFI.addSinglePathFI(fi);
   }
 
   // store the start index of the S0 spill slots

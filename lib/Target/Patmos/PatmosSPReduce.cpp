@@ -433,8 +433,7 @@ namespace {
                         //   tree: NumLocs + max. CumLocs over the children
                Offset,  // S0 does not need to be spilled around this scope,
                         //   this is the offset to the available registers
-               SpillOffset,   // Starting offset for this scope's spill locations
-               LoopCntOffset; // Loop counter stack location offset
+               SpillOffset; // Starting offset for this scope's spill locations
 
       // UseLoc - Record to hold predicate use information for a MBB
       // - loc:   which location to use (a register)
@@ -493,7 +492,7 @@ namespace {
         Scope(S), NumColors(numcolors), MBBs(S->getBlocks()),
         LRs(S->getNumPredicates(), LiveRange(S->getBlocks().size()+1)),
         DefLocs(S->getNumPredicates(),-1),
-        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0), LoopCntOffset(0) {
+        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0) {
           createLiveRanges();
           assignLocations();
         }
@@ -506,21 +505,6 @@ namespace {
       // Naturally called in a post-order traversal.
       void setCumLocs(unsigned maxFromChildren) {
         CumLocs = NumLocs + maxFromChildren;
-      }
-
-      // setLoopCntOffset - Set the offset to access the stack location
-      // for the loop counter.
-      // Traversal order is not important for this function, depth-first
-      // makes sense though.
-      void setLoopCntOffset(unsigned num) {
-        assert(Scope->hasLoopBound());
-        LoopCntOffset = num;
-      }
-
-      // getLoopCntOffset - Get the offset to access the stack location
-      // for the loop counter.
-      unsigned getLoopCntOffset(void) const {
-        return LoopCntOffset;
       }
 
       // computePhysOffset - Compute the offset into the available colors,
@@ -770,9 +754,7 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   // Visit all scopes in depth-first order to compute offsets:
   // - Offset is inherited during traversal
   // - SpillOffset is assigned increased depth-first, from left to right
-  // - LoopCntOffset as well
-  unsigned spillLocCnt   = 0,
-           loopCntOffset = 0;
+  unsigned spillLocCnt   = 0;
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
         I!=E; ++I) {
     SPScope *S = *I;
@@ -788,11 +770,6 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
     }
     // assign and update spillLocCnt
     RI.assignSpillOffset(spillLocCnt);
-
-    // assign a loop counter offset for the stack location
-    if (S->hasLoopBound()) {
-      RI.setLoopCntOffset(loopCntOffset++);
-    }
 
     DEBUG( RI.dump() );
   } // end df
@@ -1917,7 +1894,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   if (RI.needsScopeSpill()) {
     // we create a SBC instruction here; TRI->eliminateFrameIndex() will
     // convert it to a stack cache access, if the stack cache is enabled.
-    int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth()-1);
+    int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
     unsigned tmpReg = Pass.GuardsReg;
     Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
         tmpReg, Patmos::S0, false);
@@ -2023,7 +2000,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
           tmpReg))
       .addImm(loop); // the loop bound
 
-    int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
+    int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth()-1);
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
@@ -2072,7 +2049,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // load the loop counter, decrement it by one, and if it is not (yet)
     // zero, we enter the loop again.
     // TODO is the loop counter in a register?!
-    int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
+    int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth() - 1);
     unsigned tmpReg = Pass.GuardsReg;
     AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
             Pass.TII->get(Patmos::LWC), tmpReg))
