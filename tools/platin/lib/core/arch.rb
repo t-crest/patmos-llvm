@@ -83,6 +83,24 @@ class MachineConfig < PMLObject
       @memories.by_name('main')
     end
   end
+
+  # Find all memories that are used for a given type of memory area.
+  #
+  # type can be 'code' or 'data'. If no memory area is defined,
+  # this reverts to a memory with the same name as the address space,
+  # or the main memory if such a memory does not exist or if 
+  # the address space is 'global'.
+  # 
+  def memories_for_type(type, address_space='global')
+    mems = @memory_areas.for_type(type, address_space).map { |m| m.memory }.uniq
+    if mems.empty? and address_space != 'global'
+      mems = @memories.by_name(address_space)
+    end
+    if mems.empty?
+      mems = main_memory
+    end
+    mems
+  end
 end
 
 class MemoryConfigList < PMLList
@@ -373,6 +391,13 @@ end # class CacheConfig
 class MemoryAreaList < PMLList
   extend PMLListGen
   pml_list :MemoryArea,[:name],[:type]
+
+  def for_type(type, address_space='global')
+    @list.select { |m| 
+      (m.type == type || type == nil) &&
+      (m.address_space == address_space)
+    }
+  end
 end
 
 # list of memory area descriptions
@@ -438,10 +463,12 @@ class MemoryArea < PMLObject
   end
 
 
-  def initialize(name, type, cache, memory, address_range, address_space, data = nil)
+  def initialize(name, type, cache, memory, address_range, address_space = nil, data = nil)
     @name, @type, @cache, @memory, @address_range, @address_space  =
       name, type, cache, memory, address_range, address_space
     set_yaml_repr(data)
+    @address_range ||= ValueRange.new(0, @memory.size, nil) if @memory
+    @address_space ||= "global"
     @attributes = data ? (data['attributes'] ||= []) : []
   end
 
@@ -453,7 +480,7 @@ class MemoryArea < PMLObject
       data['cache'] ?  caches.by_name(data['cache']) : nil,
       data['memory'] ? memories.by_name(data['memory']) : nil,
       data['address-range'] ? ValueRange.from_pml(nil, data['address-range']) : nil,
-      data['address-space'] ? data['address-space'] : "global",
+      data['address-space'],
       data)
   end
   def to_pml

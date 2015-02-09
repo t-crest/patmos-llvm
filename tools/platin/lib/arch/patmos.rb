@@ -72,10 +72,12 @@ end
 
 class Architecture < PML::Architecture
   attr_reader :triple, :config
+
   def initialize(triple, config)
     @triple, @config = triple, config
     @config = self.class.default_config unless @config
   end
+
   def Architecture.simulator_options(opts)
     opts.on("--pasim-command FILE", "path to pasim (=pasim)") { |f| opts.options.pasim = f }
     opts.add_check do |options|
@@ -102,6 +104,14 @@ class Architecture < PML::Architecture
     2
   end
 
+  def main_memory(area_name)
+    if area = @config.memory_areas.by_name(area_name)
+      area.memory
+    else
+      @config.main_memory
+    end
+  end
+
   def method_cache
     @config.caches.by_name('method-cache')
   end
@@ -112,8 +122,11 @@ class Architecture < PML::Architecture
   # Additionally, we need to consider the alignment of memory
   # transfers
   def subfunction_miss_cost(sf)
-    memory = @config.memory_areas.by_name('code').memory
-    memory.read_delay(sf.entry.address - 4, sf.size + 4)
+    if memory = main_memory('code')
+      memory.read_delay(sf.entry.address - 4, sf.size + 4)
+    else
+      0
+    end
   end
 
   def stack_cache
@@ -343,16 +356,24 @@ class Architecture < PML::Architecture
     else
       # if code is mapped to single-cycle access memory,
       # use an 'ideal' instruction cache
-      code_area = @config.memory_areas.by_name('code')
-      if code_area.memory.ideal?
+
+      code_mem = main_memory('code')
+
+      # TODO if there is a local code area or named global areas configured, use it to setup the I-SPM.
+	
+      if code_mem.ideal?
         opts.push("--icache")
         opts.push("icache")
         opts.push("--ickind")
         opts.push("ideal")
       else
-        die("Patmos simulator configuration: underspecified I$")
+        opts.push("--icache")
+        opts.push("icache")
+        opts.push("--ickind")
+        opts.push("no")
       end
     end
+
     opts
   end
 

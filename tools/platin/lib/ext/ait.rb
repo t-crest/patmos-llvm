@@ -259,10 +259,11 @@ class AISExporter
           gen_fact("cache data size=#{cache.size}, associativity=1, line-size=#{cache.line_size},"+
                    "policy=LRU, may=chaos", "PML machine configuration")
 	elsif cache.policy == "ideal"
-	  # TODO We can only configure an ideal cache by making the data memory zero-cycle accesses, which makes
-	  # it different for bypasses! Check how the underlying memory is configured and die if the configuration
-	  # is impossible to configure!
-	  warn("aiT: found ideal data-cache. This requires the data memory to have zero-cycle access times.")
+          # TODO get the actual memory area for data accesses.
+	  if not @pml.arch.config.main_memory.ideal?
+            # TODO Can we enable always-hit analysis for D$? Does this affect bypasses?
+	    warn("aiT: found ideal data-cache but non-ideal memory, requiring an always-hit D$ analysis. This is currently not supported by platin!")
+	  end
 	elsif cache.policy != "no"
 	  warn("aiT: unsupported data-cache policy #{cache.policy}, skipping data cache configuration")
 	end
@@ -284,8 +285,11 @@ class AISExporter
                  "policy=#{cache.policy.upcase}, may=chaos", "PML machine configuration")
       when 'stack-cache'
         # always enabled (new in aiT version >= 205838)
-	# TODO check if the configuration requests a S$ or if the S$ is set to ideal and the memory is ideal, otherwise
-	# die with an unsupported configuration error
+        # TODO get the actual memory area for data accesses.
+	if cache.policy == "ideal" and not @pml.arch.config.main_memory.ideal? and not @options.ait_disable_internal_sc
+	  # TODO should we just set disable_internal_sc ??
+	  warn("aiT: found ideal stack-cache but non-ideal memory. This is currently not supported by platin!")
+	end
       end
     }
 
@@ -297,8 +301,10 @@ class AISExporter
           area.address_range = ValueRange.new(ar.min,0xFFFF7FFF,ar.symbol)
         end
       }
-      sc_phantom = MemoryArea.new('sc_no_latency', 'data', nil,
-                                  @pml.arch.config.memories.by_name('local'),
+      # TODO create an ideal memory on the fly here if non-existent?
+      local_mem = @pml.arch.config.memories.by_name('local')
+      local_mem = nil unless local_mem.ideal?
+      sc_phantom = MemoryArea.new('sc_no_latency', 'data', nil, local_mem,
                                   ValueRange.new(0xFFFF8000,0xFFFFFFFF,nil))
       @pml.arch.config.memory_areas.add(sc_phantom)
       warn("aiT SC workaround, reserving phantom no-latency area #{sc_phantom.address_range.to_ais}")
@@ -629,6 +635,12 @@ class AISExporter
 
     # generate AIS1 instruction facts for spill/fill latencies
     @sc.each { |instr,(type,n)|
+      # TODO use data_memory instead of data_area.memory. Better, search for memory-areas with
+      #      type=data, address-space=global, and ensure that all such areas use the same memory
+      #      (but Patmos does not support multiple non-ideal global memories anyway).
+      #      Even better, make the 'cache' area attribute a list and search for the area that
+      #      has a stack-cache attached (and ensure there is only one such area).
+      # data_memory = @pml.arch.config.main_memory
       data_area = @pml.arch.config.memory_areas.by_name('data')
       case type
       when :reserve

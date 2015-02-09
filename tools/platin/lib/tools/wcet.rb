@@ -371,7 +371,7 @@ class WcetTool
         if options.runcheck_factor
           tolerated_overestimation = (trace_cycles * options.runcheck_factor) + CHECK_OVERESTIMATION_TOLERANCE
           if te.cycles > tolerated_overestimation
-            die <<-EOF.strip_heredoc
+            die <<-EOF.strip.gsub(/\s+/, ' ')
               WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) larger than
               measurement (#{trace_cycles}) times #{options.runcheck_factor})
             EOF
