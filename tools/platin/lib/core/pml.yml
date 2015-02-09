@@ -495,6 +495,9 @@ mapping:
               "transfer-size":
                 type: int
                 desc: number of bytes for a single beat
+              "min-burst-size":
+                type: int
+                desc: "minimum number of beats (transfer-size each) per request"
               "max-burst-size":
                 type: int
                 desc: "maximum number of beats (transfer-size each) per request"
@@ -525,7 +528,7 @@ mapping:
                 unique: yes
               "type":
                 type: str
-                desc: type / address space
+                desc: memory type (data or code)
                 enum: [ code, data ]
                 required: yes
               "cache":
@@ -535,9 +538,12 @@ mapping:
                 type: str
                 desc: name of the internal or external memory this area is mapped to
               "address-range": *valuerange
+              "address-space":
+                type: str
+                desc: name of the address space of this memory area
               "attributes":
                 type: sequence
-                desc: Additional attributes of the memory
+                desc: additional attributes of the memory
                 sequence: &attributes
                   -
                     type: map

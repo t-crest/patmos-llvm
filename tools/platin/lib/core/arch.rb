@@ -122,6 +122,22 @@ class MemoryConfig < PMLObject
   end
 
   ##
+  # :attr_reader: min_burst_size
+  #
+  # minimum number of bytes of a single burst transfer
+  # * YAML key: +min-burst-size+
+  # * TYPE: <tt>int</tt>
+  attr_reader :min_burst_size
+
+  ##
+  # :attr_reader: max_burst_size
+  #
+  # maximum number of bytes of a single burst transfer
+  # * YAML key: +max-burst-size+
+  # * TYPE: <tt>int</tt>
+  attr_reader :max_burst_size
+
+  ##
   # :attr_reader: read_latency
   #
   # latency per read request
@@ -153,11 +169,22 @@ class MemoryConfig < PMLObject
   # * Type: <tt>int</tt>
   attr_reader :write_transfer_time
 
-  def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
+  ##
+  # :attr_reader: alignment
+  #
+  # alignment of the memory in bytes. Defaults to transfer_size.
+  # * YAML key: TODO
+  # * Type: <tt>int</tt>
+  attr_reader :alignment
+
+  def initialize(name, size, transfer_size, min_burst_size, max_burst_size, read_latency, read_transfer_time, write_latency,
                  write_transfer_time, data=nil)
-    @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time =
-      name, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time
+    @name, @size, @transfer_size, @min_burst_size, @max_burst_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time =
+      name, size, transfer_size, min_burst_size, max_burst_size, read_latency, read_transfer_time, write_latency, write_transfer_time
     set_yaml_repr(data)
+    @min_burst_size ||= @transfer_size
+    @max_burst_size ||= @min_burst_size
+    @alignment = @transfer_size
   end
 
   def MemoryConfig.from_pml(ctx, data)
@@ -165,6 +192,8 @@ class MemoryConfig < PMLObject
       data['name'],
       data['size'],
       data['transfer-size'],
+      data['min-burst-size'],
+      data['max-burst-size'],
       data['read-latency'],
       data['read-transfer-time'],
       data['write-latency'],
@@ -175,6 +204,8 @@ class MemoryConfig < PMLObject
     { "name" => name,
       "size" => size,
       "transfer-size" => transfer_size,
+      "min-burst-size" => min_burst_size,
+      "max-burst-size" => max_burst_size,
       "read-latency" => read_latency,
       "read-transfer-time" => read_transfer_time,
       "write-latency" => write_latency,
@@ -185,37 +216,47 @@ class MemoryConfig < PMLObject
 
   # delay for an (not necessarily aligned) read request
   def read_delay(start_address, size)
-    start_padding = start_address & (@transfer_size-1)
+    start_padding = start_address & (@alignment-1)
     read_delay_aligned(start_padding + size)
   end
 
   # delay for an (not necessarily aligned) read request
   def max_read_delay(size)
-    read_delay(size + transfer_size - 4)
+    read_delay_aligned(size + @alignment - 1)
   end
 
   # delay for a read request aligned to the transfer (burst) size
   def read_delay_aligned(size)
-    read_latency + bytes_to_blocks(size) * read_transfer_time
+    # TODO this is not correct for page-mode bursts. In this case, we have
+    #      one request latency per request, but an additional page open latency
+    #      for bursts that cross a max_burst_size/max_page_size boundary.
+    bytes_to_bursts(size) * @read_latency + bytes_to_blocks(size) * @read_transfer_time
   end
 
   # delay for an (not necessarily aligned write_request)
   def write_delay(start_address, size)
-    start_padding = start_address & (@transfer_size-1)
+    start_padding = start_address & (@alignment-1)
     write_delay_aligned(start_padding + size)
   end
 
   def max_write_delay(size)
-    write_delay(size + transfer_size - 4)
+    write_delay_aligned(size + @alignment - 1)
   end
 
   def write_delay_aligned(size)
-    write_latency + bytes_to_blocks(size) * write_transfer_time
+    # TODO this is not correct for page-mode bursts. In this case, we have
+    #      one request latency per request, but an additional page open latency
+    #      for bursts that cross a max_burst_size/max_page_size boundary.
+    bytes_to_bursts(size) * @write_latency + bytes_to_blocks(size) * @write_transfer_time
   end
 
 
   def bytes_to_blocks(bytes)
-    div_ceil(bytes,transfer_size)
+    div_ceil( [bytes, @min_burst_size].max, @transfer_size )
+  end
+
+  def bytes_to_bursts(bytes)
+    div_ceil( [bytes, @min_burst_size].max, @max_burst_size )
   end
 
   def ideal?
@@ -377,6 +418,14 @@ class MemoryArea < PMLObject
   attr_accessor :address_range
 
   ##
+  # :attr_reader: address_space
+  #
+  # Name of the address space.
+  # * YAML key: +address-space+
+  # * Type: <tt>str</tt>
+  attr_reader :address_space
+
+  ##
   # :attr_reader: attributes
   #
   # additional attributes for the memory area (key/value pairs)
@@ -389,9 +438,9 @@ class MemoryArea < PMLObject
   end
 
 
-  def initialize(name, type, cache, memory, address_range,data = nil)
-    @name, @type, @cache, @memory, @address_range =
-      name, type, cache, memory, address_range
+  def initialize(name, type, cache, memory, address_range, address_space, data = nil)
+    @name, @type, @cache, @memory, @address_range, @address_space  =
+      name, type, cache, memory, address_range, address_space
     set_yaml_repr(data)
     @attributes = data ? (data['attributes'] ||= []) : []
   end
@@ -404,6 +453,7 @@ class MemoryArea < PMLObject
       data['cache'] ?  caches.by_name(data['cache']) : nil,
       data['memory'] ? memories.by_name(data['memory']) : nil,
       data['address-range'] ? ValueRange.from_pml(nil, data['address-range']) : nil,
+      data['address-space'] ? data['address-space'] : "global",
       data)
   end
   def to_pml
@@ -412,6 +462,7 @@ class MemoryArea < PMLObject
       "cache" => cache ? cache.name : nil,
       "memory" => memory ? memory.name : nil,
       "address-range" => address_range.to_pml,
+      "address-space" => address_space,
       "attributes" => attributes
     }.delete_if { |k,v| v.nil? }
   end
