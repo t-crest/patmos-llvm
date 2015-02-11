@@ -155,7 +155,7 @@ module PML
       opts.separator("")
       opts.on("--stats", "print statistics") { options.stats = true }
       opts.on("--verbose", "verbose output") { options.verbose = true }
-      opts.on("--debug [TYPE]", "debug output (trace,ilp,ipet,wca,ait,sweet,visualize,=all)") { |d| options.debug_type = d ? d.to_sym : :all }
+      opts.on("--debug [TYPE]", "debug output (trace,ilp,ipet,wca,ait,sweet,visualize,patmos,=all)") { |d| options.debug_type = d ? d.to_sym : :all }
       opts.on_tail("-h", "--help [TOPIC]", "Show help / help on topic (#{opts.help_topics.join(", ")})") { |topic|
         if topic.nil?
           $stderr.puts opts
