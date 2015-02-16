@@ -431,9 +431,11 @@ namespace {
       unsigned NumLocs, // Total number of locations in this SPScope
                CumLocs, // Cumulative number of locations synthesized up the
                         //   tree: NumLocs + max. CumLocs over the children
-               Offset,  // S0 does not need to be spilled around this scope,
+               Offset,  // If S0 does not need to be spilled around this scope,
                         //   this is the offset to the available registers
                SpillOffset; // Starting offset for this scope's spill locations
+
+      bool NeedsScopeSpill;
 
       // UseLoc - Record to hold predicate use information for a MBB
       // - loc:   which location to use (a register)
@@ -492,7 +494,8 @@ namespace {
         Scope(S), NumColors(numcolors), MBBs(S->getBlocks()),
         LRs(S->getNumPredicates(), LiveRange(S->getBlocks().size()+1)),
         DefLocs(S->getNumPredicates(),-1),
-        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0) {
+        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0),
+        NeedsScopeSpill(true) {
           createLiveRanges();
           assignLocations();
         }
@@ -515,8 +518,8 @@ namespace {
         if ( ParentRI.NumLocs + CumLocs <= NumColors ) {
           // compute offset
           Offset = ParentRI.NumLocs + ParentRI.Offset;
+          NeedsScopeSpill = false;
         }
-
       }
 
       // assignSpillOffset - Stores the offset provided as spill offset,
@@ -533,7 +536,7 @@ namespace {
       // needsScopeSpill - Returns true if S0 must be spilled/restored
       // upon entry/exit of this SPScope.
       bool needsScopeSpill(void) const {
-        return (Offset == 0);
+        return NeedsScopeSpill;
       }
 
       // isFirstDef - Returns true if the given MBB contains the first
