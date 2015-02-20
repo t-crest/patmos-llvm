@@ -240,7 +240,7 @@ void initializeRegionOnlyPrinterPass(PassRegistry&);
 void initializeRegionOnlyViewerPass(PassRegistry&);
 void initializeRegionPrinterPass(PassRegistry&);
 void initializeRegionViewerPass(PassRegistry&);
-void initializeRenderMachineFunctionPass(PassRegistry&);
+void initializeRewriteStatepointsForGCPass(PassRegistry&);
 void initializeSCCPPass(PassRegistry&);
 void initializeSROAPass(PassRegistry&);
 void initializeSROA_DTPass(PassRegistry&);
