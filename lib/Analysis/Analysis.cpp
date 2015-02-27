@@ -50,7 +50,6 @@ void llvm::initializeAnalysis(PassRegistry &Registry) {
   initializeInputDependenceAnalysisPass(Registry);
   initializeInstCountPass(Registry);
   initializeIntervalPartitionPass(Registry);
-  initializeJumpInstrTableInfoPass(Registry);
   initializeLazyValueInfoPass(Registry);
   initializeLibCallAliasAnalysisPass(Registry);
   initializeLintPass(Registry);
