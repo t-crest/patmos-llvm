@@ -221,6 +221,8 @@ namespace llvm {
     /// with a unique but unspecified name.
     MCSymbol *CreateTempSymbol();
 
+    MCSymbol *createTempSymbol(const Twine &Name);
+
     /// getUniqueSymbolID() - Return a unique identifier for use in constructing
     /// symbol names.
     unsigned getUniqueSymbolID() { return NextUniqueID++; }
