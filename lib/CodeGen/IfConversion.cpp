@@ -1558,7 +1558,7 @@ void IfConverter::PredicateBlock(BBInfo &BBI,
     UpdatePredRedefs(I, Redefs);
   }
 
-  std::copy(Cond.begin(), Cond.end(), std::back_inserter(BBI.Predicate));
+  BBI.Predicate.append(Cond.begin(), Cond.end());
 
   BBI.IsAnalyzed = false;
   BBI.NonPredSize = 0;
@@ -1623,9 +1623,8 @@ void IfConverter::CopyAndPredicateBlock(BBInfo &ToBBI, BBInfo &FromBBI,
     }
   }
 
-  std::copy(FromBBI.Predicate.begin(), FromBBI.Predicate.end(),
-            std::back_inserter(ToBBI.Predicate));
-  std::copy(Cond.begin(), Cond.end(), std::back_inserter(ToBBI.Predicate));
+  ToBBI.Predicate.append(FromBBI.Predicate.begin(), FromBBI.Predicate.end());
+  ToBBI.Predicate.append(Cond.begin(), Cond.end());
 
   ToBBI.ClobbersPred |= FromBBI.ClobbersPred;
   ToBBI.IsAnalyzed = false;
@@ -1665,8 +1664,7 @@ void IfConverter::MergeBlocks(BBInfo &ToBBI, BBInfo &FromBBI, bool AddEdges) {
   if (NBB && !FromBBI.BB->isSuccessor(NBB))
     FromBBI.BB->addSuccessor(NBB);
 
-  std::copy(FromBBI.Predicate.begin(), FromBBI.Predicate.end(),
-            std::back_inserter(ToBBI.Predicate));
+  ToBBI.Predicate.append(FromBBI.Predicate.begin(), FromBBI.Predicate.end());
   FromBBI.Predicate.clear();
 
   ToBBI.NonPredSize += FromBBI.NonPredSize;
