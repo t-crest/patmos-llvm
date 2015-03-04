@@ -563,7 +563,7 @@ void AsmPrinter::EmitFunctionHeader() {
   }
 
   if (!MMI->getLandingPads().empty()) {
-    CurrentFnBegin = createTempSymbol("eh_func_begin", getFunctionNumber());
+    CurrentFnBegin = createTempSymbol("func_begin", getFunctionNumber());
 
     if (MAI->useAssignmentForEHBegin()) {
       MCSymbol *CurPos = OutContext.CreateTempSymbol();
@@ -890,7 +890,7 @@ void AsmPrinter::EmitFunctionBody() {
 
   if (!MMI->getLandingPads().empty()) {
     // Create a symbol for the end of function.
-    CurrentFnEnd = createTempSymbol("eh_func_end", getFunctionNumber());
+    CurrentFnEnd = createTempSymbol("func_end", getFunctionNumber());
     OutStreamer.EmitLabel(CurrentFnEnd);
   }
 
