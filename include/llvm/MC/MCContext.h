@@ -244,7 +244,7 @@ namespace llvm {
 
     MCSymbol *getOrCreateSectionSymbol(const MCSectionELF &Section);
 
-    MCSymbol *getOrCreateFrameAllocSymbol(StringRef FuncName);
+    MCSymbol *getOrCreateFrameAllocSymbol(StringRef FuncName, unsigned Idx);
 
     /// LookupSymbol - Get the symbol for \p Name, or null.
     MCSymbol *LookupSymbol(StringRef Name) const;
