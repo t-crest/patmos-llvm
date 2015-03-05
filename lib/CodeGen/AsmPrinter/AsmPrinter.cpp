@@ -562,7 +562,7 @@ void AsmPrinter::EmitFunctionHeader() {
     OutStreamer.EmitLabel(DeadBlockSyms[i]);
   }
 
-  if (!MMI->getLandingPads().empty()) {
+  if (!MMI->getLandingPads().empty() || MMI->hasDebugInfo()) {
     CurrentFnBegin = createTempSymbol("func_begin", getFunctionNumber());
 
     if (MAI->useAssignmentForEHBegin()) {
@@ -888,7 +888,8 @@ void AsmPrinter::EmitFunctionBody() {
   // Emit target-specific gunk after the function body.
   EmitFunctionBodyEnd();
 
-  if (!MMI->getLandingPads().empty() || MAI->hasDotTypeDotSizeDirective()) {
+  if (!MMI->getLandingPads().empty() || MMI->hasDebugInfo() ||
+      MAI->hasDotTypeDotSizeDirective()) {
     // Create a symbol for the end of function.
     CurrentFnEnd = createTempSymbol("func_end", getFunctionNumber());
     OutStreamer.EmitLabel(CurrentFnEnd);
