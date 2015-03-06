@@ -64,6 +64,7 @@
 
 #include <map>
 #include <set>
+#include <queue>
 #include <algorithm>
 #include <sstream>
 #include <iostream>
@@ -74,7 +75,7 @@ using namespace llvm;
 STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
 STATISTIC( LoopCounters,        "Number of loop counters introduced");
-STATISTIC( ElimLdSt,            "Number of eliminated redundant loads/stores");
+STATISTIC( ElimLdStCnt,         "Number of eliminated redundant loads/stores");
 
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
 STATISTIC( NoSpillScopes,
@@ -86,6 +87,7 @@ namespace {
 
   class LinearizeWalker;
   class RAInfo;
+  class RedundantLdStEliminator;
 
   class PatmosSPReduce : public MachineFunctionPass {
   private:
@@ -248,6 +250,10 @@ namespace {
 
     unsigned GuardsReg; // RReg to hold all predicates
     unsigned PRTmp;     // temporary PReg
+
+    // At each doReduce on a function, an instance of the
+    // RedundantLdStEliminator is created
+    RedundantLdStEliminator *GuardsLdStElim;
 
     // Instructions which define a predicate register that is also their guard.
     // Collected while insertDefToRegLoc(), read and cleared in
@@ -616,37 +622,248 @@ namespace {
   class RedundantLdStEliminator {
     public:
       explicit RedundantLdStEliminator(MachineFunction &mf,
-          const PatmosRegisterInfo *tri, unsigned int tgtreg)
-        : MF(mf), TRI(tri), TgtReg(tgtreg) {}
+          const PatmosRegisterInfo *tri, unsigned int tgtreg,
+          const PatmosMachineFunctionInfo &PMFI)
+        : MF(mf), TRI(tri), TgtReg(tgtreg), NumFIs(PMFI.getSinglePathFICnt()),
+          OffsetFIs(PMFI.getSinglePathLoopCntFI(0)) {}
 
       void addRemovableInst(MachineInstr *MI) {
-        Removables.push_back(MI);
+        Removables.insert(MI);
       }
+
 
       void doAnalyze(void) {
         DEBUG( dbgs() << "Eliminate redundant loads/stores to " <<
             TRI->getName(TgtReg) << "\n" );
 
-        // for now, we consider each MBB separately (peephole optimization)
-        // might turn this into a data-flow optimization eventually
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+          collectLoads(MBB);
+          LiveOutFI[MBB] = BitVector(NumFIs);
+          LiveInFI[MBB]  = BitVector(NumFIs);
+          FutureLoadsEntry[MBB] = BitVector(NumFIs);
+          FutureLoadsExit[MBB]  = BitVector(NumFIs);
+        }
+
+        // prereq: collect last loads
+        computeLiveFIs();
+        findRedundantLoads();
+        ElimLdStCnt += doRemove();
+
+        // prereq: collect block loads
+        computeFutureUses();
+        findRedundantStores();
+        ElimLdStCnt += doRemove();
+
+        DEBUG(dump());
+
+      }
+
+      void dump(void) {
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+          dbgs() << "  Analyzed: MBB#" << MBB->getNumber() << "\n";
+          dbgs() << "   lastlds " << (LastLds.count(MBB) ? LastLds[MBB] : -1)
+            << "\n";
+          dbgs() << "   blocklds ";
+          printFISet(BlockLds[MBB], dbgs()); dbgs() << "\n";
+          dbgs() << "   liveins ";
+          printFISet(LiveInFI[MBB], dbgs()); dbgs() << "\n";
+          dbgs() << "   futureloads ";
+          printFISet(FutureLoadsExit[MBB], dbgs()); dbgs() << "\n";
+        }
+
+      }
+
+
+
+      unsigned doRemove(void) {
+        unsigned cnt = Removables.size();
+        for (std::set<MachineInstr *>::iterator I = Removables.begin(),
+            E = Removables.end(); I != E; ++I) {
+          DEBUG(dbgs() << "  " << **I);
+          (*I)->eraseFromParent();
+        }
+        Removables.clear();
+        return cnt;
+      }
+
+    private:
+      MachineFunction &MF;
+      const PatmosRegisterInfo *TRI;
+      const unsigned int TgtReg;
+      const unsigned int NumFIs;
+      const unsigned int OffsetFIs;
+
+      std::set<MachineInstr *> Removables;
+      std::map<const MachineBasicBlock *, int> LastLds;
+      std::map<const MachineBasicBlock *, BitVector> BlockLds;
+
+      std::map<const MachineBasicBlock *, BitVector> LiveOutFI;
+      std::map<const MachineBasicBlock *, BitVector> LiveInFI;
+
+      std::map<const MachineBasicBlock *, BitVector> FutureLoadsEntry;
+      std::map<const MachineBasicBlock *, BitVector> FutureLoadsExit;
+
+      inline unsigned int normalizeFI(int fi) const {
+        unsigned norm = fi - OffsetFIs;
+        assert((fi >= 0 && norm < NumFIs) && "FI out of bounds");
+        return norm;
+      }
+
+      inline int denormalizeFI(unsigned int fi) const {
+        assert(fi < NumFIs && "FI out of bounds");
+        return fi + OffsetFIs;
+      }
+
+      void printFISet(BitVector &BV, raw_ostream &os) const {
+        for (int i = BV.find_first(); i != -1; i = BV.find_next(i)) {
+          os << denormalizeFI(i) << " ";
+        }
+      }
+
+      bool isUncondLoad(const MachineInstr *MI, int &fi) const {
+        if ((MI->getOpcode() == Patmos::LBC || MI->getOpcode() == Patmos::LWC)
+            && MI->getOperand(0).getReg() == TgtReg
+            && (MI->getOperand(1).getReg() == Patmos::NoRegister ||
+              MI->getOperand(1).getReg() == Patmos::P0)
+            && MI->getOperand(2).getImm() == 0) {
+          fi = MI->getOperand(3).getIndex();
+          return true;
+        }
+        return false;
+      }
+
+      bool isUncondStore(const MachineInstr *MI, int &fi) const {
+        if ((MI->getOpcode() == Patmos::SBC || MI->getOpcode() == Patmos::SWC)
+            && MI->getOperand(4).getReg() == TgtReg
+            && (MI->getOperand(0).getReg() == Patmos::NoRegister ||
+              MI->getOperand(0).getReg() == Patmos::P0)
+            && MI->getOperand(1).getImm() == 0) {
+          fi = MI->getOperand(2).getIndex();
+          return true;
+        }
+        return false;
+      }
+
+      // For a given MBB, gather the set of loads and the last load and
+      // store it in the class members LastLds and BlockLds
+      void collectLoads(const MachineBasicBlock *MBB) {
+
+        int fi = -1;
+        BitVector loads = BitVector(NumFIs);
+        for (MachineBasicBlock::const_iterator MI = MBB->begin(),
+            MIe = MBB->end(); MI != MIe; ++MI) {
+          if (isUncondLoad(&*MI, fi)) {
+            loads[normalizeFI(fi)] = true;
+          }
+        }
+        if (fi != -1) {
+          this->LastLds[MBB] = normalizeFI(fi);
+        }
+        this->BlockLds[MBB] = loads;
+      }
+
+      void computeLiveFIs(void) {
+
+        // LiveinFI is required for optimization
+
+        // operate in reverse-postorder
+        bool changed;
+        do {
+          changed = false;
+          ReversePostOrderTraversal<MachineFunction *> RPOT(&MF);
+          for (ReversePostOrderTraversal<MachineFunction *>::rpo_iterator
+              RI = RPOT.begin(),  RE = RPOT.end(); RI != RE; ++RI) {
+            MachineBasicBlock *MBB = *RI;
+            BitVector livein = BitVector(NumFIs);
+            // join from predecessors
+            for (MachineBasicBlock::pred_iterator PI = MBB->pred_begin();
+                PI != MBB->pred_end(); ++PI) {
+              livein |= LiveOutFI[*PI];
+            }
+            // transfer
+            BitVector liveout(livein);
+            // if there is a last load in the block, assign it
+            if (LastLds.count(MBB)) {
+              liveout.reset();
+              liveout.set(LastLds[MBB]);
+            }
+            // was an update?
+            if (LiveOutFI[MBB] != liveout) {
+              LiveOutFI[MBB] = liveout;
+              LiveInFI[MBB] = livein;
+              changed = true;
+            }
+          }
+        } while (changed);
+      }
+
+
+      void computeFutureUses(void) {
+        // FutureLoadsExit is required for optimization
+        //
+        // backward DF problem, operating on block level
+
+        std::queue<MachineBasicBlock *> worklist;
+        // fill worklist initially in dfs postorder
+        for (po_iterator<MachineBasicBlock *> POI = po_begin(&MF.front()),
+            POIe = po_end(&MF.front());  POI != POIe; ++POI) {
+          worklist.push(*POI);
+          collectLoads(*POI);
+        }
+        // iterate.
+        unsigned itcnt = 0;
+        while (!worklist.empty()) {
+          // pop first element
+          MachineBasicBlock *MBB = worklist.front();
+          worklist.pop();
+          // effect
+          for (MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
+              SI != MBB->succ_end(); ++SI) {
+            FutureLoadsExit[MBB] |= FutureLoadsEntry[*SI];
+          }
+
+          BitVector flentry(FutureLoadsExit[MBB]);
+          flentry |= BlockLds[MBB];
+          // was an update?
+          if (FutureLoadsEntry[MBB] != flentry) {
+            FutureLoadsEntry[MBB] = flentry;
+            // add predecessors to worklist
+            for (MachineBasicBlock::pred_iterator PI=MBB->pred_begin();
+                PI!=MBB->pred_end(); ++PI) {
+              worklist.push(*PI);
+            }
+          }
+          itcnt++;
+        }
+      }
+
+
+      void findRedundantLoads(void) {
         for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
             MBB != MBBe; ++MBB) {
 
-          int lastSlot = -1;
-          MachineInstr *lastKill = NULL;
-
-          DEBUG(dbgs() << " [MBB#" << MBB->getNumber() << "]\n");
+          DEBUG(dbgs() << " redundant loads in [MBB#"
+              << MBB->getNumber() << "]\n");
 
           // For redundant loads, we check if two subsequent loads source the
           // same location. If so, we can remove the latter one.
-          lastSlot = -1;
+          int lastSlot = -1;
+          // check liveins on TgtReg of this BB: if only a single bit is set,
+          // there is only one possible value -> assign lastSlot to it
+          const BitVector liveins = LiveInFI[MBB];
+          if (liveins.count() == 1) {
+            lastSlot = denormalizeFI(liveins.find_first());
+          }
+          MachineInstr *lastKill = NULL;
           for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
               MI != MIe; ++MI) {
             // check for unconditional load to TgtReg
             int fi;
             if (isUncondLoad(&*MI, fi)) {
               if (lastSlot == fi) {
-                Removables.push_back(&*MI);
+                Removables.insert(&*MI);
                 if (lastKill != NULL) {
                   lastKill->clearRegisterKills(TgtReg, TRI);
                 }
@@ -663,25 +880,39 @@ namespace {
               continue;
             }
           }
+        }
+      }
+
+      void findRedundantStores(void) {
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+
+          DEBUG(dbgs() << " redundant stores in [MBB#"
+              << MBB->getNumber() << "]\n");
 
           // We scan backward through the MBB to find redundant stores of the
           // TgtReg. If a store is to the same location as a previous (later)
           // store, we can eliminate it, provided that there is no load of a
           // different location between the stores.
-          lastSlot = -1;
+          int lastSlot = -1;
+          // we carry the set of future loads, test it at every store and
+          // update it on loads
+          BitVector futureloads = FutureLoadsExit[MBB];
           for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
               MIe = MBB->rend(); MI != MIe; ++MI) {
             int fi;
             // check whether a store targets the same location as a previous one
             if (isUncondStore(&*MI, fi)) {
-              if (lastSlot == fi) {
-                Removables.push_back(&*MI);
+              if (lastSlot == fi ||
+                  futureloads.test(normalizeFI(fi)) == false) {
+                Removables.insert(&*MI);
               }
               lastSlot = fi;
               continue;
             }
             // check if there is a load to a different location between
             if (isUncondLoad(&*MI, fi)) {
+              futureloads.set(normalizeFI(fi));
               if (lastSlot != fi) {
                 lastSlot = -1; // reset
               }
@@ -689,46 +920,6 @@ namespace {
             }
           }
         }
-      }
-
-      unsigned doRemove(void) {
-        unsigned cnt = Removables.size();
-        for (unsigned i = 0; i < cnt; i++) {
-          DEBUG(dbgs() << "  " << *Removables[i]);
-          Removables[i]->eraseFromParent();
-        }
-        return cnt;
-      }
-
-    private:
-      MachineFunction &MF;
-      const PatmosRegisterInfo *TRI;
-      unsigned int TgtReg;
-
-      std::vector<MachineInstr *> Removables;
-
-      bool isUncondLoad(const MachineInstr *MI, int &fi) {
-        if ((MI->getOpcode() == Patmos::LBC || MI->getOpcode() == Patmos::LWC)
-            && MI->getOperand(0).getReg() == TgtReg
-            && (MI->getOperand(1).getReg() == Patmos::NoRegister ||
-              MI->getOperand(1).getReg() == Patmos::P0)
-            && MI->getOperand(2).getImm() == 0) {
-          fi = MI->getOperand(3).getIndex();
-          return true;
-        }
-        return false;
-      }
-
-      bool isUncondStore(const MachineInstr *MI, int &fi) {
-        if ((MI->getOpcode() == Patmos::SBC || MI->getOpcode() == Patmos::SWC)
-            && MI->getOperand(4).getReg() == TgtReg
-            && (MI->getOperand(0).getReg() == Patmos::NoRegister ||
-              MI->getOperand(0).getReg() == Patmos::P0)
-            && MI->getOperand(1).getImm() == 0) {
-          fi = MI->getOperand(2).getIndex();
-          return true;
-        }
-        return false;
       }
 
   };
@@ -814,8 +1005,12 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Fixup kill flag of condition predicate registers
   fixupKillFlagOfCondRegs();
 
-
   //DEBUG(MF.viewCFGOnly());
+
+  // we create an instance of the eliminator here, such that we can
+  // insert dummy instructions for analysis and mark them as 'to be removed'
+  // with the eliminator
+  GuardsLdStElim = new RedundantLdStEliminator(MF, TRI, GuardsReg, *PMFI);
 
   // Following walk of the SPScope tree linearizes the CFG structure,
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
@@ -828,9 +1023,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   mergeMBBs(MF);
 
   // Perform the elimination of LD/ST on the large basic blocks
-  RedundantLdStEliminator RedLdStElim(MF, TRI, GuardsReg);
-  RedLdStElim.doAnalyze();
-  ElimLdSt += RedLdStElim.doRemove();
+  GuardsLdStElim->doAnalyze();
+  delete GuardsLdStElim;
+
 
   // Remove frame index operands from inserted loads and stores to stack
   eliminateFrameIndices(MF);
@@ -1908,17 +2103,21 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   DebugLoc DL;
 
   if (RI.needsScopeSpill()) {
-    // we create a SBC instruction here; TRI->eliminateFrameIndex() will
-    // convert it to a stack cache access, if the stack cache is enabled.
+    // load the predicate registers to GuardsReg, and store them to the
+    // allocated stack slot for this scope depth.
     int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
-    unsigned tmpReg = Pass.GuardsReg;
     Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
-        tmpReg, Patmos::S0, false);
+        Pass.GuardsReg, Patmos::S0, false);
+    // we insert a dummy load for the RedundantLdStEliminator
+    MachineInstr *Dummy = AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(),
+          DL, Pass.TII->get(Patmos::LBC), Pass.GuardsReg))
+          .addFrameIndex(fi).addImm(0); // address
+    Pass.GuardsLdStElim->addRemovableInst(Dummy);
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::SBC)))
       .addFrameIndex(fi).addImm(0) // address
-      .addReg(tmpReg, RegState::Kill);
-    InsertedInstrs += 2; // STATISTIC
+      .addReg(Pass.GuardsReg, RegState::Kill);
+    InsertedInstrs += 3; // STATISTIC
   }
 
   // copy/load the header predicate for the subloop
@@ -1977,14 +2176,9 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
 
       int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
       // load from stack slot
-      // NB: do not load, it would overwrite the contents of MFS
-      //     because the eliminateRedundantLoadStores optimization does not see
-      //     it
-      /*
       AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::LBC), Pass.GuardsReg))
         .addFrameIndex(fi).addImm(0); // address
-      */
       // mask out the initialization bits
       AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
           Pass.TII->get(Patmos::ANDl), Pass.GuardsReg))
@@ -2018,6 +2212,12 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
       .addImm(loop); // the loop bound
 
     int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth()-1);
+    // we insert a dummy load for the RedundantLdStEliminator
+    MachineInstr *Dummy = AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(),
+          DL, Pass.TII->get(Patmos::LWC), Pass.GuardsReg))
+          .addFrameIndex(fi).addImm(0); // address
+    Pass.GuardsLdStElim->addRemovableInst(Dummy);
+    // store the initialized loop bound to its stack slot
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
