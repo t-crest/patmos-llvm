@@ -2090,8 +2090,12 @@ static void handleIndirectSymViaGOTPCRel(AsmPrinter &AP, const MCExpr **ME,
   //
   //    gotpcrelcst := <offset from @foo base> + <cst>
   //
+  // Only encode <cst> if the target supports it.
+  //
   int64_t GOTPCRelCst = Offset + MV.getConstant();
   if (GOTPCRelCst < 0)
+    return;
+  if (!AP.getObjFileLowering().supportGOTPCRelWithOffset() && GOTPCRelCst != 0)
     return;
 
   // Emit the GOT PC relative to replace the got equivalent global, i.e.:
@@ -2116,7 +2120,8 @@ static void handleIndirectSymViaGOTPCRel(AsmPrinter &AP, const MCExpr **ME,
   const GlobalValue *FinalGV = dyn_cast<GlobalValue>(GV->getOperand(0));
   const MCSymbol *FinalSym = AP.getSymbol(FinalGV);
   *ME = AP.getObjFileLowering().getIndirectSymViaGOTPCRel(FinalSym,
-                                                          GOTPCRelCst);
+                                                          GOTPCRelCst,
+                                                          AP.OutStreamer);
 
   // Update GOT equivalent usage information
   --NumUses;
