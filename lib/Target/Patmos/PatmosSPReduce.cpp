@@ -632,53 +632,39 @@ namespace {
       }
 
 
-      void doAnalyze(void) {
+      unsigned int process(void) {
         DEBUG( dbgs() << "Eliminate redundant loads/stores to " <<
             TRI->getName(TgtReg) << "\n" );
 
+        unsigned int count = 0;
+        // create the container with the bitvectors for each basic block
+        // for the data-flow analyses
         for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
             MBB != MBBe; ++MBB) {
-          collectLoads(MBB);
-          LiveOutFI[MBB] = BitVector(NumFIs);
-          LiveInFI[MBB]  = BitVector(NumFIs);
-          FutureLoadsEntry[MBB] = BitVector(NumFIs);
-          FutureLoadsExit[MBB]  = BitVector(NumFIs);
+          BlockInfos.insert(std::make_pair(MBB, Blockinfo(NumFIs)));
         }
 
+        // First we remove redundant loads.
         // prereq: collect last loads
         computeLiveFIs();
         findRedundantLoads();
-        ElimLdStCnt += doRemove();
+        count += remove();
 
+        // Having redundant loads eliminated enables simpler removal
+        // of redundant stores
         // prereq: collect block loads
         computeFutureUses();
         findRedundantStores();
-        ElimLdStCnt += doRemove();
+        count += remove();
+
 
         DEBUG(dump());
 
+        return count;
       }
 
-      void dump(void) {
-        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
-            MBB != MBBe; ++MBB) {
-          dbgs() << "  Analyzed: MBB#" << MBB->getNumber() << "\n";
-          dbgs() << "   lastlds " << (LastLds.count(MBB) ? LastLds[MBB] : -1)
-            << "\n";
-          dbgs() << "   blocklds ";
-          printFISet(BlockLds[MBB], dbgs()); dbgs() << "\n";
-          dbgs() << "   liveins ";
-          printFISet(LiveInFI[MBB], dbgs()); dbgs() << "\n";
-          dbgs() << "   futureloads ";
-          printFISet(FutureLoadsExit[MBB], dbgs()); dbgs() << "\n";
-        }
-
-      }
-
-
-
-      unsigned doRemove(void) {
-        unsigned cnt = Removables.size();
+      unsigned int remove(void) {
+        unsigned int cnt = Removables.size();
         for (std::set<MachineInstr *>::iterator I = Removables.begin(),
             E = Removables.end(); I != E; ++I) {
           DEBUG(dbgs() << "  " << **I);
@@ -686,6 +672,21 @@ namespace {
         }
         Removables.clear();
         return cnt;
+      }
+
+      void dump(void) {
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+          const Blockinfo &B = BlockInfos.at(MBB);
+          dbgs() << "  Analyzed: MBB#" << MBB->getNumber() << "\n";
+          dbgs() << "   lastld " << B.LastLd << "\n";
+          dbgs() << "   blocklds ";
+          printFISet(B.BlockLd, dbgs()); dbgs() << "\n";
+          dbgs() << "   liveins ";
+          printFISet(B.LiveInFI, dbgs()); dbgs() << "\n";
+          dbgs() << "   futureloads ";
+          printFISet(B.FutureLoadsExit, dbgs()); dbgs() << "\n";
+        }
       }
 
     private:
@@ -696,14 +697,21 @@ namespace {
       const unsigned int OffsetFIs;
 
       std::set<MachineInstr *> Removables;
-      std::map<const MachineBasicBlock *, int> LastLds;
-      std::map<const MachineBasicBlock *, BitVector> BlockLds;
 
-      std::map<const MachineBasicBlock *, BitVector> LiveOutFI;
-      std::map<const MachineBasicBlock *, BitVector> LiveInFI;
+      struct Blockinfo {
+        // required for elimination of redundant loads
+        int LastLd;
+        BitVector LiveOutFI, LiveInFI;
+        // required for elimination of redundant stores
+        BitVector BlockLd;
+        BitVector FutureLoadsEntry, FutureLoadsExit;
 
-      std::map<const MachineBasicBlock *, BitVector> FutureLoadsEntry;
-      std::map<const MachineBasicBlock *, BitVector> FutureLoadsExit;
+        Blockinfo(unsigned int size)
+          : LastLd(-1), LiveOutFI(size), LiveInFI(size),
+            BlockLd(size), FutureLoadsEntry(size), FutureLoadsExit(size) {}
+      };
+
+      std::map<const MachineBasicBlock *, Blockinfo> BlockInfos;
 
       inline unsigned int normalizeFI(int fi) const {
         unsigned norm = fi - OffsetFIs;
@@ -716,7 +724,7 @@ namespace {
         return fi + OffsetFIs;
       }
 
-      void printFISet(BitVector &BV, raw_ostream &os) const {
+      void printFISet(const BitVector &BV, raw_ostream &os) const {
         for (int i = BV.find_first(); i != -1; i = BV.find_next(i)) {
           os << denormalizeFI(i) << " ";
         }
@@ -746,99 +754,61 @@ namespace {
         return false;
       }
 
-      // For a given MBB, gather the set of loads and the last load and
-      // store it in the class members LastLds and BlockLds
-      void collectLoads(const MachineBasicBlock *MBB) {
 
-        int fi = -1;
-        BitVector loads = BitVector(NumFIs);
-        for (MachineBasicBlock::const_iterator MI = MBB->begin(),
-            MIe = MBB->end(); MI != MIe; ++MI) {
+
+      void findLastLoad(const MachineBasicBlock *MBB) {
+        for (MachineBasicBlock::const_reverse_iterator MI = MBB->rbegin(),
+            MIe = MBB->rend(); MI != MIe; ++MI) {
+          int fi = -1;
           if (isUncondLoad(&*MI, fi)) {
-            loads[normalizeFI(fi)] = true;
+            this->BlockInfos.at(MBB).LastLd = normalizeFI(fi);
+            break;
           }
         }
-        if (fi != -1) {
-          this->LastLds[MBB] = normalizeFI(fi);
-        }
-        this->BlockLds[MBB] = loads;
       }
 
       void computeLiveFIs(void) {
-
-        // LiveinFI is required for optimization
+        // backward DF problem, operating on block level
+        //
+        // find the last load of each MBB, if any
+        // (= gen set for the DF analysis)
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+          findLastLoad(MBB);
+        }
 
         // operate in reverse-postorder
+        ReversePostOrderTraversal<MachineFunction *> RPOT(&MF);
         bool changed;
         do {
           changed = false;
-          ReversePostOrderTraversal<MachineFunction *> RPOT(&MF);
           for (ReversePostOrderTraversal<MachineFunction *>::rpo_iterator
               RI = RPOT.begin(),  RE = RPOT.end(); RI != RE; ++RI) {
             MachineBasicBlock *MBB = *RI;
+            Blockinfo &BI = this->BlockInfos.at(MBB);
             BitVector livein = BitVector(NumFIs);
             // join from predecessors
             for (MachineBasicBlock::pred_iterator PI = MBB->pred_begin();
                 PI != MBB->pred_end(); ++PI) {
-              livein |= LiveOutFI[*PI];
+              livein |= this->BlockInfos.at(*PI).LiveOutFI;
             }
             // transfer
             BitVector liveout(livein);
             // if there is a last load in the block, assign it
-            if (LastLds.count(MBB)) {
+            // (kill all but the last load)
+            if (BI.LastLd != -1) {
               liveout.reset();
-              liveout.set(LastLds[MBB]);
+              liveout.set(BI.LastLd);
             }
             // was an update?
-            if (LiveOutFI[MBB] != liveout) {
-              LiveOutFI[MBB] = liveout;
-              LiveInFI[MBB] = livein;
+            if (BI.LiveOutFI != liveout) {
+              BI.LiveOutFI = liveout;
+              BI.LiveInFI = livein;
               changed = true;
             }
           }
         } while (changed);
       }
-
-
-      void computeFutureUses(void) {
-        // FutureLoadsExit is required for optimization
-        //
-        // backward DF problem, operating on block level
-
-        std::queue<MachineBasicBlock *> worklist;
-        // fill worklist initially in dfs postorder
-        for (po_iterator<MachineBasicBlock *> POI = po_begin(&MF.front()),
-            POIe = po_end(&MF.front());  POI != POIe; ++POI) {
-          worklist.push(*POI);
-          collectLoads(*POI);
-        }
-        // iterate.
-        unsigned itcnt = 0;
-        while (!worklist.empty()) {
-          // pop first element
-          MachineBasicBlock *MBB = worklist.front();
-          worklist.pop();
-          // effect
-          for (MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
-              SI != MBB->succ_end(); ++SI) {
-            FutureLoadsExit[MBB] |= FutureLoadsEntry[*SI];
-          }
-
-          BitVector flentry(FutureLoadsExit[MBB]);
-          flentry |= BlockLds[MBB];
-          // was an update?
-          if (FutureLoadsEntry[MBB] != flentry) {
-            FutureLoadsEntry[MBB] = flentry;
-            // add predecessors to worklist
-            for (MachineBasicBlock::pred_iterator PI=MBB->pred_begin();
-                PI!=MBB->pred_end(); ++PI) {
-              worklist.push(*PI);
-            }
-          }
-          itcnt++;
-        }
-      }
-
 
       void findRedundantLoads(void) {
         for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
@@ -852,7 +822,7 @@ namespace {
           int lastSlot = -1;
           // check liveins on TgtReg of this BB: if only a single bit is set,
           // there is only one possible value -> assign lastSlot to it
-          const BitVector liveins = LiveInFI[MBB];
+          const BitVector liveins = this->BlockInfos.at(MBB).LiveInFI;
           if (liveins.count() == 1) {
             lastSlot = denormalizeFI(liveins.find_first());
           }
@@ -883,6 +853,54 @@ namespace {
         }
       }
 
+      void collectBlockLoads(const MachineBasicBlock *MBB) {
+        BitVector loads = BitVector(NumFIs);
+        for (MachineBasicBlock::const_iterator MI = MBB->begin(),
+            MIe = MBB->end(); MI != MIe; ++MI) {
+          int fi = -1;
+          if (isUncondLoad(&*MI, fi)) {
+            loads[normalizeFI(fi)] = true;
+          }
+        }
+        this->BlockInfos.at(MBB).BlockLd = loads;
+      }
+
+      void computeFutureUses(void) {
+        // backward DF problem, operating on block level
+        std::queue<MachineBasicBlock *> worklist;
+        // fill worklist initially in dfs postorder
+        for (po_iterator<MachineBasicBlock *> POI = po_begin(&MF.front()),
+            POIe = po_end(&MF.front());  POI != POIe; ++POI) {
+          worklist.push(*POI);
+          collectBlockLoads(*POI);
+        }
+        // iterate.
+        while (!worklist.empty()) {
+          // pop first element
+          MachineBasicBlock *MBB = worklist.front();
+          worklist.pop();
+          Blockinfo &BI = this->BlockInfos.at(MBB);
+          // effect
+          for (MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
+              SI != MBB->succ_end(); ++SI) {
+            BI.FutureLoadsExit |= this->BlockInfos.at(*SI).FutureLoadsEntry;
+          }
+
+          BitVector flentry(BI.FutureLoadsExit);
+          flentry |= BI.BlockLd;
+          // was an update?
+          if (BI.FutureLoadsEntry != flentry) {
+            BI.FutureLoadsEntry = flentry;
+            // add predecessors to worklist
+            for (MachineBasicBlock::pred_iterator PI=MBB->pred_begin();
+                PI!=MBB->pred_end(); ++PI) {
+              worklist.push(*PI);
+            }
+          }
+        }
+      }
+
+
       void findRedundantStores(void) {
         for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
             MBB != MBBe; ++MBB) {
@@ -897,11 +915,11 @@ namespace {
           int lastSlot = -1;
           // we carry the set of future loads, test it at every store and
           // update it on loads
-          BitVector futureloads = FutureLoadsExit[MBB];
+          BitVector futureloads = this->BlockInfos.at(MBB).FutureLoadsExit;
           for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
               MIe = MBB->rend(); MI != MIe; ++MI) {
             int fi;
-            // check whether a store targets the same location as a previous one
+            // check whether a store targets the same FI as a previous one
             if (isUncondStore(&*MI, fi)) {
               if (lastSlot == fi ||
                   futureloads.test(normalizeFI(fi)) == false) {
@@ -1023,7 +1041,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   mergeMBBs(MF);
 
   // Perform the elimination of LD/ST on the large basic blocks
-  GuardsLdStElim->doAnalyze();
+  ElimLdStCnt += GuardsLdStElim->process();
   delete GuardsLdStElim;
 
 
