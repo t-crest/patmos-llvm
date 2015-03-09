@@ -32,7 +32,7 @@ detect_ruby() {
 	echo "ruby not found. Please install ruby (e.g., sudo aptitude install ruby1.9.1)" >&2
 	exit 1
     elif [ -z "${RUBY19}" ] ; then
-	echo "ruby1.9 not found. Falling back to unsupported ruby version `${RUBY} -v`"
+	echo "ruby1.9 not found. Falling back to unsupported ruby version `${RUBY} -v`" >&2
     fi
 }
 
