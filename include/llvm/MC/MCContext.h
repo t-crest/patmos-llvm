@@ -43,8 +43,8 @@ namespace llvm {
   class MCSectionELF;
   class MCSectionCOFF;
 
-  /// MCContext - Context object for machine code objects.  This class owns all
-  /// of the sections that it creates.
+  /// Context object for machine code objects.  This class owns all of the
+  /// sections that it creates.
   ///
   class MCContext {
     MCContext(const MCContext&) = delete;
@@ -67,13 +67,13 @@ namespace llvm {
     /// The MCObjectFileInfo for this target.
     const MCObjectFileInfo *MOFI;
 
-    /// Allocator - Allocator object used for creating machine code objects.
+    /// Allocator object used for creating machine code objects.
     ///
     /// We use a bump pointer allocator to avoid the need to track all allocated
     /// objects.
     BumpPtrAllocator Allocator;
 
-    /// Symbols - Bindings of names to symbols.
+    /// Bindings of names to symbols.
     SymbolTable Symbols;
 
     /// ELF sections can have a corresponding symbol. This maps one to the
@@ -88,12 +88,11 @@ namespace llvm {
     /// We have three labels represented by the pairs (1, 0), (2, 0) and (1, 1)
     DenseMap<std::pair<unsigned, unsigned>, MCSymbol*> LocalSymbols;
 
-    /// UsedNames - Keeps tracks of names that were used both for used declared
-    /// and artificial symbols.
+    /// Keeps tracks of names that were used both for used declared and
+    /// artificial symbols.
     StringMap<bool, BumpPtrAllocator&> UsedNames;
 
-    /// NextUniqueID - The next ID to dole out to an unnamed assembler temporary
-    /// symbol.
+    /// The next ID to dole out to an unnamed assembler temporary symbol.
     unsigned NextUniqueID;
 
     /// Instances of directional local labels.
@@ -212,18 +211,17 @@ namespace llvm {
     /// @name Symbol Management
     /// @{
 
-    /// CreateLinkerPrivateTempSymbol - Create and return a new linker temporary
-    /// symbol with a unique but unspecified name.
+    /// Create and return a new linker temporary symbol with a unique but
+    /// unspecified name.
     MCSymbol *CreateLinkerPrivateTempSymbol();
 
-    /// CreateTempSymbol - Create and return a new assembler temporary symbol
-    /// with a unique but unspecified name.
+    /// Create and return a new assembler temporary symbol with a unique but
+    /// unspecified name.
     MCSymbol *CreateTempSymbol();
 
     MCSymbol *createTempSymbol(const Twine &Name);
 
-    /// getUniqueSymbolID() - Return a unique identifier for use in constructing
-    /// symbol names.
+    /// Return a unique identifier for use in constructing symbol names.
     unsigned getUniqueSymbolID() { return NextUniqueID++; }
 
     /// Create the definition of a directional local symbol for numbered label
@@ -234,9 +232,8 @@ namespace llvm {
     /// for "1b" or 1f" references).
     MCSymbol *GetDirectionalLocalSymbol(unsigned LocalLabelVal, bool Before);
 
-    /// GetOrCreateSymbol - Lookup the symbol inside with the specified
-    /// @p Name.  If it exists, return it.  If not, create a forward
-    /// reference and return it.
+    /// Lookup the symbol inside with the specified @p Name.  If it exists,
+    /// return it.  If not, create a forward reference and return it.
     ///
     /// @param Name - The symbol name, which must be unique across all symbols.
     MCSymbol *GetOrCreateSymbol(StringRef Name);
@@ -246,7 +243,7 @@ namespace llvm {
 
     MCSymbol *getOrCreateFrameAllocSymbol(StringRef FuncName, unsigned Idx);
 
-    /// LookupSymbol - Get the symbol for \p Name, or null.
+    /// Get the symbol for \p Name, or null.
     MCSymbol *LookupSymbol(StringRef Name) const;
     MCSymbol *LookupSymbol(const Twine &Name) const;
 
@@ -263,8 +260,8 @@ namespace llvm {
     /// @name Section Management
     /// @{
 
-    /// getMachOSection - Return the MCSection for the specified mach-o section.
-    /// This requires the operands to be valid.
+    /// Return the MCSection for the specified mach-o section.  This requires
+    /// the operands to be valid.
     const MCSectionMachO *getMachOSection(StringRef Segment,
                                           StringRef Section,
                                           unsigned TypeAndAttributes,
@@ -334,7 +331,7 @@ namespace llvm {
     /// \brief Set the main file name and override the default.
     void setMainFileName(StringRef S) { MainFileName = S; }
 
-    /// GetDwarfFile - creates an entry in the dwarf file and directory tables.
+    /// Creates an entry in the dwarf file and directory tables.
     unsigned GetDwarfFile(StringRef Directory, StringRef FileName,
                           unsigned FileNumber, unsigned CUID);
 
@@ -377,10 +374,10 @@ namespace llvm {
       getMCDwarfLineTable(CUID).setCompilationDir(CompilationDir);
     }
 
-    /// setCurrentDwarfLoc - saves the information from the currently parsed
-    /// dwarf .loc directive and sets DwarfLocSeen.  When the next instruction
-    /// is assembled an entry in the line number table with this information and
-    /// the address of the instruction will be created.
+    /// Saves the information from the currently parsed dwarf .loc directive
+    /// and sets DwarfLocSeen.  When the next instruction is assembled an entry
+    /// in the line number table with this information and the address of the
+    /// instruction will be created.
     void setCurrentDwarfLoc(unsigned FileNum, unsigned Line, unsigned Column,
                             unsigned Flags, unsigned Isa,
                             unsigned Discriminator) {
