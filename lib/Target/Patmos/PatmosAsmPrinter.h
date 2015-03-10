@@ -21,7 +21,7 @@
 #include "llvm/MC/MCContext.h"
 
 namespace llvm {
-  class PatmosAsmPrinter : public AsmPrinter {
+  class LLVM_LIBRARY_VISIBILITY PatmosAsmPrinter : public AsmPrinter {
   private:
     PatmosTargetMachine *PTM;
 
@@ -34,7 +34,7 @@ namespace llvm {
     MCSymbol *CurrCodeEnd;
 
   public:
-    PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
+    explicit PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
       : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrCodeEnd(0)
     {
       if (!(PTM = static_cast<PatmosTargetMachine*>(&TM))) {

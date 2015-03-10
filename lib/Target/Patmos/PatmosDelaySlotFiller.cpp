@@ -407,7 +407,8 @@ insertAfterMul(MachineBasicBlock &MBB, const MachineBasicBlock::iterator I) {
     if (J == MBB.end() || (MI = TII->hasOpcode(J, Patmos::MFS)) ) {
 
       // TODO We do not look over BB boundaries for now
-      unsigned Reg = J != MBB.end() ? MI->getOperand(3).getReg() : Patmos::SL;
+      unsigned Reg = J != MBB.end() ? MI->getOperand(3).getReg() :
+                                      (unsigned)Patmos::SL;
 
       if (Reg == Patmos::SL || Reg == Patmos::SH) {
         while (Latency > 0) {
