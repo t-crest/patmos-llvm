@@ -63,12 +63,19 @@ namespace llvm {
 
     /// Flag indicating whether the node's function is dead code.
     bool IsDead;
+
+    /// Flag indicating whether a call-site exists that is potentially called
+    /// multiple times (e.g., in loops or due to recursion).
+    bool IsInSCC;
   public:
     /// Construct a new call graph node.
-    explicit MCGNode(MachineFunction *mf) : MF(mf), T(NULL), IsDead(true) {}
+    explicit MCGNode(MachineFunction *mf) :
+        MF(mf), T(NULL), IsDead(true), IsInSCC(false)
+    {
+    }
 
     /// Construct a new call graph node.
-    explicit MCGNode(Type *t) : MF(NULL), T(t), IsDead(true) {}
+    explicit MCGNode(Type *t) : MF(NULL), T(t), IsDead(true), IsInSCC(false) {}
 
     /// getMF - Return the node's MachineFunction.
     MachineFunction *getMF() const
@@ -119,6 +126,14 @@ namespace llvm {
       return MF == NULL;
     }
 
+    /// isInSCC - Returns whether the node's function is called from within a
+    /// strongly connected component (either from within a loop or due to
+    /// recursion).
+    bool isInSCC() const
+    {
+      return IsInSCC;
+    }
+
     /// findSite - Find the call site of the given MachineInstr.
     MCGSite *findSite(const MachineInstr *MI) const;
 
@@ -145,10 +160,15 @@ namespace llvm {
     /// The call graph node referenced by this call site.
     MCGNode *Callee;
 
+    /// A flag indicating whether the call site is inside a strongly connected
+    /// component, i.e., a loop.
+    bool IsInSCC;
+
   public:
     /// Construct a new call site.
-    MCGSite(MCGNode *caller, MachineInstr *mi, MCGNode *callee) :
-        Caller(caller), MI(mi), Callee(callee)
+    MCGSite(MCGNode *caller, MachineInstr *mi, MCGNode *callee, 
+            bool is_in_scc) :
+        Caller(caller), MI(mi), Callee(callee), IsInSCC(is_in_scc)
     {
     }
 
@@ -168,6 +188,13 @@ namespace llvm {
     MCGNode *getCallee() const
     {
       return Callee;
+    }
+
+    /// isInSCC - Returns whether the call site is within a strongly connected
+    /// component.
+    bool isInSCC() const
+    {
+      return IsInSCC;
     }
 
     /// dump - print the call site to the debug stream.
@@ -196,6 +223,10 @@ namespace llvm {
     /// areTypesIsomorphic - check whether two types are isomorphic.
     /// This is taken from LinkModules.cpp.
     int areTypesIsomorphic(Type *DstTy, Type *SrcTy);
+
+    // check if a call site is in some form of an SCC (loop)
+    bool isInSCC(MachineInstr *MI);
+
   public:
     /// getNodes - Return the graph's nodes.
     const MCGNodes &getNodes() const
@@ -232,6 +263,10 @@ namespace llvm {
 
     /// makeMCGSite - Return a call site.
     MCGSite *makeMCGSite(MCGNode *Caller, MachineInstr *MI, MCGNode *Callee);
+
+    /// markNodesInSCC - Find nodes that whose call sites are potentially
+    /// executed multiple times (either within a loop or due to recursion).
+    void markNodesInSCC();
 
     /// dump - print all call sites of the call graph to the debug stream.
     void dump() const;
@@ -326,6 +361,12 @@ namespace llvm {
     /// name.
     MCGNode *getMCGNode(const Module &M, const char *name);
 
+    /// getMCGNode - Return the call graph node of the given function.
+    MCGNode *getMCGNode(MachineFunction *MF)
+    {
+      return MCG.makeMCGNode(MF);
+    }
+
     /// markLive_ - Mark the node and all its callees as live.
     void markLive_(MCGNode *N);
 
@@ -368,6 +409,10 @@ namespace llvm {
         return I == a.I;
       }
 
+      bool operator==(const ChildIteratorType a) const {
+        return I == a.I;
+      }
+
       ChildIteratorType operator++() {
         I++;
         return *this;
@@ -385,6 +430,11 @@ namespace llvm {
 
       NodeType *operator*() {
         return (*I)->getCallee();
+      }
+
+      const MCGSite *getSite() const
+      {
+        return (*I);
       }
     };
 
@@ -445,8 +495,24 @@ namespace llvm {
     }
 
     static std::string getNodeAttributes(const MCGNode *N,
-                                         const MCallGraph &G) {
-      return N->isDead() ? "color=\"red\"" : "";
+                                         const MCallGraph &G)
+    {
+      std::string result;
+      if (N->isDead()) result += "color=\"red\"";
+      if (N->isInSCC())
+      {
+        if (!result.empty())
+          result += ", ";
+        result += "style=\"bold\"";
+      }
+
+      return result;
+    }
+
+    static std::string getEdgeAttributes(const MCGNode *N,
+                                  GraphTraits<MCallGraph>::ChildIteratorType ci,
+                                  const MCallGraph &G) {
+      return ci.getSite()->isInSCC() ? "style=\"bold\"" : "";
     }
   };
 
@@ -475,6 +541,10 @@ namespace llvm {
         return I == a.I;
       }
 
+      bool operator==(const ChildIteratorType a) const {
+        return I == a.I;
+      }
+
       ChildIteratorType operator++() {
         I++;
         return *this;
@@ -492,6 +562,11 @@ namespace llvm {
 
       NodeType *operator*() {
         return (*I)->getCallee();
+      }
+
+      const MCGSite *getSite() const
+      {
+        return (*I);
       }
     };
 
@@ -553,7 +628,22 @@ namespace llvm {
 
     static std::string getNodeAttributes(const MCGNode *N,
                                          const MCallSubGraph &G) {
-      return N->isDead() ? "color=\"red\"" : "";
+      std::string result;
+      if (N->isDead()) result += "color=\"red\"";
+      if (N->isInSCC())
+      {
+        if (!result.empty())
+          result += ", ";
+        result += "style=\"bold\"";
+      }
+
+      return result;
+    }
+
+    static std::string getEdgeAttributes(const MCGNode *N,
+                               GraphTraits<MCallSubGraph>::ChildIteratorType ci,
+                               const MCallSubGraph &G) {
+      return ci.getSite()->isInSCC() ? "style=\"bold\"" : "";
     }
   };
 
