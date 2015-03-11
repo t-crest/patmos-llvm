@@ -64,6 +64,7 @@
 
 #include "Patmos.h"
 #include "PatmosAsmPrinter.h"
+#include "PatmosCallGraphBuilder.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosSubtarget.h"
@@ -399,6 +400,11 @@ namespace llvm {
     unsigned PreferredSCCSize;
     unsigned MaxRegionSize;
 
+    // Flag indicating whether the function, corresponding to the agraph, is
+    // in an SCC (i.e., one of its call sites is either in a loop or is called
+    // recursively.
+    bool IsFunctionInSCC;
+
     PMLMCQuery *PML;
     PMLQuery::BlockDoubleMap Criticalities;
 
@@ -407,11 +413,13 @@ namespace llvm {
     /// Construct a graph from a machine function.
     agraph(MachineFunction *mf, PatmosTargetMachine &tm, PMLMCQuery *pml,
            MachinePostDominatorTree &mpdt, unsigned int preferredRegionSize,
-           unsigned int preferredSCCSize, unsigned int maxRegionSize)
+           unsigned int preferredSCCSize, unsigned int maxRegionSize,
+           bool isFunctionInSCC)
     : MF(mf), PTM(tm), STC(tm.getSubtarget<PatmosSubtarget>()),
       PII(*tm.getInstrInfo()),
       PreferredRegionSize(preferredRegionSize),
       PreferredSCCSize(preferredSCCSize), MaxRegionSize(maxRegionSize),
+      IsFunctionInSCC(isFunctionInSCC),
       PML(pml), MPDT(mpdt)
     {
       Blocks.reserve(mf->size());
@@ -568,16 +576,10 @@ namespace llvm {
         case PatmosSubtarget::MCD_ALL:
           return true;
         case PatmosSubtarget::MCD_SCC:
-          // see if any of the blocks in the region is inside an SCC
-          for(ablocks::const_iterator i(Blocks.begin()), ie(Blocks.end());
-              i != ie; i++) {
-            if ((*i)->Region == region && (*i)->IsInSCC) {
-              return false;
-            }
-          }
-
-          // not a single block in an SCC ... mark as disposable
-          return true;
+          // Only mark disposable if the region header is not in an SCC, or the
+          // function, to which the region belongs, is itself in an SCC (either
+          // loop or recursion).
+          return !(region->IsInSCC || IsFunctionInSCC);
         case PatmosSubtarget::MCD_ANALYSE:
           // TODO: implement
             llvm_unreachable("MCD_ANALYSE not implemented");
@@ -2290,6 +2292,7 @@ namespace llvm {
       MachineFunctionPass(ID), PTM(tm),
       STC(tm.getSubtarget<PatmosSubtarget>())
     {
+      initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
 
     /// getPassName - Return the pass' name.
@@ -2302,6 +2305,7 @@ namespace llvm {
       AU.addRequired<MachineDominatorTree>();
       AU.addRequired<MachinePostDominatorTree>();
       AU.addRequired<MachineLoopInfo>();
+      AU.addRequired<PatmosCallGraphBuilder>();
       AU.addPreserved<MachineDominatorTree>();
       AU.addPreserved<MachinePostDominatorTree>();
       MachineFunctionPass::getAnalysisUsage(AU);
@@ -2320,6 +2324,10 @@ namespace llvm {
       // the pass got disabled?
       if (DisableFunctionSplitter)
         return false;
+
+      PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
+      MCGNode *MCGN = PCGB.getMCGNode(&MF);
+      bool isFunctionInSCC = MCGN->isInSCC();
 
       unsigned max_subfunc_size   = MaxSubfunctionSize  ? MaxSubfunctionSize
                                                      : STC.getMethodCacheSize();
@@ -2382,7 +2390,8 @@ namespace llvm {
         // construct a copy of the CFG.
         PMLImport &PI = getAnalysis<PMLImport>();
         agraph G(&MF, PTM, PI.createMCQuery(*this, MF), MPDT,
-                 prefer_subfunc_size, prefer_scc_size, max_subfunc_size);
+                 prefer_subfunc_size, prefer_scc_size, max_subfunc_size,
+                 isFunctionInSCC);
         G.transformSCCs();
 
         // compute regions -- i.e., split the function
@@ -2419,8 +2428,9 @@ namespace llvm {
             is_disposable = true;
             break;
           case PatmosSubtarget::MCD_SCC:
-            // mark as disposable unless the function contains a loop
-            is_disposable = getAnalysis<MachineLoopInfo>().empty();
+            // mark as disposable unless called from within an SCC (either loop
+            // or recursion)
+            is_disposable = !isFunctionInSCC;
             break;
           case PatmosSubtarget::MCD_ANALYSE:
           // TODO: implement
