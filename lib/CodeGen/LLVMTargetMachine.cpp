@@ -199,10 +199,9 @@ bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
     if (!MCE || !MAB)
       return true;
 
-    AsmStreamer.reset(
-        getTarget()
-            .createMCObjectStreamer(getTargetTriple(), *Context, *MAB, Out, MCE,
-                                    STI, Options.MCOptions.MCRelaxAll));
+    Triple T(getTargetTriple());
+    AsmStreamer.reset(getTarget().createMCObjectStreamer(
+        T, *Context, *MAB, Out, MCE, STI, Options.MCOptions.MCRelaxAll));
     break;
   }
   case CGFT_Null:
@@ -251,9 +250,9 @@ bool LLVMTargetMachine::addPassesToEmitMC(PassManagerBase &PM,
   if (!MCE || !MAB)
     return true;
 
+  Triple T(getTargetTriple());
   std::unique_ptr<MCStreamer> AsmStreamer(getTarget().createMCObjectStreamer(
-      getTargetTriple(), *Ctx, *MAB, Out, MCE, STI,
-      Options.MCOptions.MCRelaxAll));
+      T, *Ctx, *MAB, Out, MCE, STI, Options.MCOptions.MCRelaxAll));
 
   // Create the AsmPrinter, which takes ownership of AsmStreamer if successful.
   FunctionPass *Printer =
