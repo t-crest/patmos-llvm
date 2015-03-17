@@ -107,7 +107,7 @@ static unsigned getGVAlignmentLog2(const GlobalValue *GV, const DataLayout &DL,
 AsmPrinter::AsmPrinter(TargetMachine &tm, std::unique_ptr<MCStreamer> Streamer)
     : MachineFunctionPass(ID), TM(tm), MAI(tm.getMCAsmInfo()),
       OutContext(Streamer->getContext()), OutStreamer(*Streamer.release()),
-      LastMI(nullptr), LastFn(0), Counter(~0U), SetCounter(0) {
+      LastMI(nullptr), LastFn(0), Counter(~0U) {
   DD = nullptr;
   MMI = nullptr;
   LI = nullptr;
@@ -896,7 +896,7 @@ void AsmPrinter::EmitFunctionBody() {
   if (!MMI->getLandingPads().empty() || MMI->hasDebugInfo() ||
       MAI->hasDotTypeDotSizeDirective()) {
     // Create a symbol for the end of function.
-    CurrentFnEnd = createTempSymbol("func_end", getFunctionNumber());
+    CurrentFnEnd = createTempSymbol("func_end");
     OutStreamer.EmitLabel(CurrentFnEnd);
   }
 
@@ -1139,7 +1139,7 @@ bool AsmPrinter::doFinalization(Module &M) {
 
 MCSymbol *AsmPrinter::getCurExceptionSym() {
   if (!CurExceptionSym)
-    CurExceptionSym = createTempSymbol("exception", getFunctionNumber());
+    CurExceptionSym = createTempSymbol("exception");
   return CurExceptionSym;
 }
 
@@ -1153,7 +1153,7 @@ void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
   bool NeedsLocalForSize = MAI->needsLocalForSize();
   if (!MMI->getLandingPads().empty() || MMI->hasDebugInfo() ||
       NeedsLocalForSize) {
-    CurrentFnBegin = createTempSymbol("func_begin", getFunctionNumber());
+    CurrentFnBegin = createTempSymbol("func_begin");
     if (NeedsLocalForSize)
       CurrentFnSymForSize = CurrentFnBegin;
   }
@@ -1583,7 +1583,7 @@ void AsmPrinter::EmitLabelDifference(const MCSymbol *Hi, const MCSymbol *Lo,
   }
 
   // Otherwise, emit with .set (aka assignment).
-  MCSymbol *SetLabel = createTempSymbol("set", SetCounter++);
+  MCSymbol *SetLabel = createTempSymbol("set");
   OutStreamer.EmitAssignment(SetLabel, Diff);
   OutStreamer.EmitSymbolValue(SetLabel, Size);
 }
@@ -2258,8 +2258,8 @@ void AsmPrinter::printOffset(int64_t Offset, raw_ostream &OS) const {
 // Symbol Lowering Routines.
 //===----------------------------------------------------------------------===//
 
-MCSymbol *AsmPrinter::createTempSymbol(const Twine &Name, unsigned ID) const {
-  return OutContext.createTempSymbol(Name + Twine(ID));
+MCSymbol *AsmPrinter::createTempSymbol(const Twine &Name) const {
+  return OutContext.createTempSymbol(Name, true);
 }
 
 MCSymbol *AsmPrinter::GetBlockAddressSymbol(const BlockAddress *BA) const {
