@@ -854,7 +854,7 @@ void Triple::setArchName(StringRef Str) {
   Triple += getVendorName();
   Triple += "-";
   Triple += getOSAndEnvironmentName();
-  setTriple(Triple.str());
+  setTriple(Triple);
 }
 
 void Triple::setVendorName(StringRef Str) {
