@@ -177,7 +177,7 @@ def PatmosGenericItineraries : ProcessorItineraries<
     InstrItinData<IIC_CFLr,   [ InstrStage<1, [FU_ALU0]> ],
                               [ 2, 2, 1, 1 ], 
 			      [ NoBypass, NoBypass, PB_GPR, PB_GPR ] >,
-    InstrItinData<IIC_Pseudo, [ InstrStage<1, [FU_ALU0]> ]>
+    InstrItinData<IIC_Pseudo, [ ]>
   ]>;
 
 def PatmosGenericModel : SchedMachineModel {
