@@ -16,7 +16,6 @@
 #include "PatmosCallGraphBuilder.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"

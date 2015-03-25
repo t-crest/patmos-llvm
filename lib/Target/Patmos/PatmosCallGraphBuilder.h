@@ -11,6 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef _LLVM_TARGET_PATMOSCALLGRAPHBUILDER_H_
+#define _LLVM_TARGET_PATMOSCALLGRAPHBUILDER_H_
+
 #include "Patmos.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -19,6 +22,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/Support/DOTGraphTraits.h"
 #include "llvm/Support/GraphWriter.h"
@@ -367,6 +371,33 @@ namespace llvm {
       return MCG.makeMCGNode(MF);
     }
 
+     /// getMCGNode - Return the call graph node of the given function.
+    MCGNode *getMCGNode(const MachineFunction *MF)
+    {
+      for(MCGNodes::const_iterator i(MCG.getNodes().begin()),
+          ie(MCG.getNodes().end()); i != ie; i++) {
+        if ((*i)->getMF() == MF)
+          return *i;
+      }
+      return NULL;
+    }
+
+    /// getMCGNode - Return the call graph node of the given function.
+    MCGSites getMCGSites(const MachineInstr *MI)
+    {
+      const MachineFunction *MF = MI->getParent()->getParent();
+      MCGNode *N = getMCGNode(MF);
+
+      MCGSites result;
+      for(MCGSites::const_iterator i(N->getSites().begin()),
+          ie(N->getSites().end()); i != ie; i++) {
+        if ((*i)->getMI() == MI)
+          result.push_back(*i);
+      }
+
+      return result;
+    }
+
     /// markLive_ - Mark the node and all its callees as live.
     void markLive_(MCGNode *N);
 
@@ -657,3 +688,5 @@ namespace llvm {
     return OS;
   }
 }
+
+#endif // _LLVM_TARGET_PATMOSCALLGRAPHBUILDER_H_
