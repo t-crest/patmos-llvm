@@ -1046,7 +1046,10 @@ bool MCAssembler::relaxInstruction(MCAsmLayout &Layout,
 
 bool MCAssembler::relaxLEB(MCAsmLayout &Layout, MCLEBFragment &LF) {
   uint64_t OldSize = LF.getContents().size();
-  int64_t Value = LF.getValue().evaluateKnownAbsolute(Layout);
+  int64_t Value;
+  bool Abs = LF.getValue().evaluateKnownAbsolute(Value, Layout);
+  if (!Abs)
+    report_fatal_error("sleb128 and uleb128 expressions must be absolute");
   SmallString<8> &Data = LF.getContents();
   Data.clear();
   raw_svector_ostream OSE(Data);
@@ -1062,7 +1065,9 @@ bool MCAssembler::relaxDwarfLineAddr(MCAsmLayout &Layout,
                                      MCDwarfLineAddrFragment &DF) {
   MCContext &Context = Layout.getAssembler().getContext();
   uint64_t OldSize = DF.getContents().size();
-  int64_t AddrDelta = DF.getAddrDelta().evaluateKnownAbsolute(Layout);
+  int64_t AddrDelta;
+  bool Abs = DF.getAddrDelta().evaluateKnownAbsolute(AddrDelta, Layout);
+  assert(Abs && "We created a line delta with an invalid expression");
   int64_t LineDelta;
   LineDelta = DF.getLineDelta();
   SmallString<8> &Data = DF.getContents();
@@ -1077,7 +1082,9 @@ bool MCAssembler::relaxDwarfCallFrameFragment(MCAsmLayout &Layout,
                                               MCDwarfCallFrameFragment &DF) {
   MCContext &Context = Layout.getAssembler().getContext();
   uint64_t OldSize = DF.getContents().size();
-  int64_t AddrDelta = DF.getAddrDelta().evaluateKnownAbsolute(Layout);
+  int64_t AddrDelta;
+  bool Abs = DF.getAddrDelta().evaluateKnownAbsolute(AddrDelta, Layout);
+  assert(Abs && "We created call frame with an invalid expression");
   SmallString<8> &Data = DF.getContents();
   Data.clear();
   raw_svector_ostream OSE(Data);
