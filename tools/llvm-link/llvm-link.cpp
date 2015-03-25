@@ -139,49 +139,13 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    // Otherwise, FilePos or LibPos is smaller (or all are -1).
-    if (FilePos < LibPos) {
-      // Link in a module or archive
-      const std::string &FileName = *FileIt++;
-      if (!sys::fs::exists(FileName)) {
-        errs() << argv[0] << ": invalid file name: '" << FileName << "'\n";
-        return 1;
-      }
-
-      bool IsNative;
-      if (isFileType(FileName, sys::fs::file_magic::archive)) {
-        // Link the archive in if it will resolve symbols
-        if (L.linkInArchive(FileName, IsNative))
-        {
-          errs() << argv[0] << ": error linking archive: '" << FileName << "'\n";
-          return 1;
-        }
-      }
-      else if (isFileType(FileName, sys::fs::file_magic::bitcode)) {
-        // Link the bitcode file in
-        if (L.linkInFile(FileName, IsNative)) {
-          errs() << argv[0] << ": error linking bitcode file: '" << FileName << "'\n";
-          return 1;
-        }
-      }
-      else {
-        // Not an archive nor bitcode so attempt to parse it as LLVM
-        // assembly.
-        SMDiagnostic Err;
-        std::auto_ptr<Module> M(ParseIRFile(FileName, Err, Context));
-        if (M.get() == 0) {
-          errs() << argv[0] << ": error parsing LLVM assembly file: '" << FileName << "'\n";
-          return 1;
-        }
-        std::string ErrMessage;
-        if (L.linkInModule(M.get(), &ErrMessage)) {
-          errs() << argv[0] << ": link error in '" << FileName
-                 << "': " << ErrMessage << "\n";
-          return 1;
-        }
-      }
-      continue;
+    if (verifyModule(*M)) {
+      errs() << argv[0] << ": input module '" << InputFilenames[i]
+             << "' is broken!\n";
+      return 1;
     }
+
+    if (Verbose) errs() << "Linking in '" << InputFilenames[i] << "'\n";
 
     if (L.linkInModule(M.get()))
       return 1;
