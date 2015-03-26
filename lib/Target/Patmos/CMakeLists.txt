@@ -15,6 +15,7 @@ tablegen(LLVM PatmosGenDisassemblerTables.inc -gen-disassembler)
 add_public_tablegen_target(PatmosCommonTableGen)
 
 add_llvm_target(PatmosCodeGen
+  PatmosDFA.cpp
   PatmosISelDAGToDAG.cpp
   PatmosISelLowering.cpp
   PatmosInstrInfo.cpp
