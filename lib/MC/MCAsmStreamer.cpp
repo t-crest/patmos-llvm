@@ -1267,7 +1267,7 @@ void MCAsmStreamer::EmitInstruction(const MCInst &Inst, const MCSubtargetInfo &S
 
   // If we have an AsmPrinter, use that to print, otherwise print the MCInst.
   if (InstPrinter)
-    InstPrinter->printInst(&Inst, OS, "");
+    InstPrinter->printInst(&Inst, OS, "", STI);
   else
     Inst.print(OS);
   EmitEOL();
