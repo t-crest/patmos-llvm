@@ -363,7 +363,7 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
         {
           const BasicBlock *BB = II->getParent();
           if (ConstantInt *MaxBoundInt =
-              dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
+              dyn_cast<ConstantInt>(CI->getArgOperand(1))) {
             uint64_t MaxHeaderCount = MaxBoundInt->getZExtValue() + 1;
             if(MaxHeaderCount < 0xFFFFFFFFu) {
               YDoc.addFlowFact(
