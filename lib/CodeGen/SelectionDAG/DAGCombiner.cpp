@@ -1577,8 +1577,8 @@ SDValue DAGCombiner::visitADD(SDNode *N) {
 
   // fold vector ops
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     // fold (add x, 0) -> x, vector edition
     if (ISD::isBuildVectorAllZeros(N1.getNode()))
@@ -1821,8 +1821,8 @@ SDValue DAGCombiner::visitSUB(SDNode *N) {
 
   // fold vector ops
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     // fold (sub x, 0) -> x, vector edition
     if (ISD::isBuildVectorAllZeros(N1.getNode()))
@@ -1977,8 +1977,8 @@ SDValue DAGCombiner::visitMUL(SDNode *N) {
   APInt ConstValue0, ConstValue1;
   // fold vector ops
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     N0IsConst = isConstantSplatVector(N0.getNode(), ConstValue0);
     N1IsConst = isConstantSplatVector(N1.getNode(), ConstValue1);
@@ -2088,10 +2088,9 @@ SDValue DAGCombiner::visitSDIV(SDNode *N) {
   EVT VT = N->getValueType(0);
 
   // fold vector ops
-  if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
-  }
+  if (VT.isVector())
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
   // fold (sdiv c1, c2) -> c1/c2
   ConstantSDNode *N0C = isConstOrConstSplat(N0);
@@ -2178,10 +2177,9 @@ SDValue DAGCombiner::visitUDIV(SDNode *N) {
   EVT VT = N->getValueType(0);
 
   // fold vector ops
-  if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
-  }
+  if (VT.isVector())
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
   // fold (udiv c1, c2) -> c1/c2
   ConstantSDNode *N0C = isConstOrConstSplat(N0);
@@ -2801,8 +2799,8 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
 
   // fold vector ops
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     // fold (and x, 0) -> 0, vector edition
     if (ISD::isBuildVectorAllZeros(N0.getNode()))
@@ -3461,8 +3459,8 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
 
   // fold vector ops
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     // fold (or x, 0) -> x, vector edition
     if (ISD::isBuildVectorAllZeros(N0.getNode()))
@@ -3864,8 +3862,8 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
 
   // fold vector ops
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     // fold (xor x, 0) -> x, vector edition
     if (ISD::isBuildVectorAllZeros(N0.getNode()))
@@ -4140,8 +4138,8 @@ SDValue DAGCombiner::visitSHL(SDNode *N) {
   // fold vector ops
   ConstantSDNode *N1C = dyn_cast<ConstantSDNode>(N1);
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     BuildVectorSDNode *N1CV = dyn_cast<BuildVectorSDNode>(N1);
     // If setcc produces all-one true value then:
@@ -4320,8 +4318,8 @@ SDValue DAGCombiner::visitSRA(SDNode *N) {
   // fold vector ops
   ConstantSDNode *N1C = dyn_cast<ConstantSDNode>(N1);
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     N1C = isConstOrConstSplat(N1);
   }
@@ -4466,8 +4464,8 @@ SDValue DAGCombiner::visitSRL(SDNode *N) {
   // fold vector ops
   ConstantSDNode *N1C = dyn_cast<ConstantSDNode>(N1);
   if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
     N1C = isConstOrConstSplat(N1);
   }
@@ -7194,10 +7192,9 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
   const TargetOptions &Options = DAG.getTarget().Options;
 
   // fold vector ops
-  if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
-  }
+  if (VT.isVector())
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
   // fold (fadd c1, c2) -> c1 + c2
   if (N0CFP && N1CFP)
@@ -7388,10 +7385,9 @@ SDValue DAGCombiner::visitFSUB(SDNode *N) {
   const TargetOptions &Options = DAG.getTarget().Options;
 
   // fold vector ops
-  if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
-  }
+  if (VT.isVector())
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
   // fold (fsub c1, c2) -> c1-c2
   if (N0CFP && N1CFP)
@@ -7540,9 +7536,9 @@ SDValue DAGCombiner::visitFMUL(SDNode *N) {
   // fold vector ops
   if (VT.isVector()) {
     // This just handles C1 * C2 for vectors. Other vector folds are below.
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode())
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
       return FoldedVOp;
+
     // Canonicalize vector constant to RHS.
     if (N0.getOpcode() == ISD::BUILD_VECTOR &&
         N1.getOpcode() != ISD::BUILD_VECTOR)
@@ -7722,10 +7718,9 @@ SDValue DAGCombiner::visitFDIV(SDNode *N) {
   const TargetOptions &Options = DAG.getTarget().Options;
 
   // fold vector ops
-  if (VT.isVector()) {
-    SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
-  }
+  if (VT.isVector())
+    if (SDValue FoldedVOp = SimplifyVBinOp(N))
+      return FoldedVOp;
 
   // fold (fdiv c1, c2) -> c1/c2
   if (N0CFP && N1CFP)
