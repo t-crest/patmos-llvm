@@ -644,21 +644,15 @@ namespace {
           BlockInfos.insert(std::make_pair(MBB, Blockinfo(NumFIs)));
         }
 
-        // First we remove redundant loads.
-        // prereq: collect last loads
-        computeLiveFIs();
+        DEBUG(dbgs() << "Removing redundant loads:\n");
         findRedundantLoads();
         count += remove();
 
         // Having redundant loads eliminated enables simpler removal
         // of redundant stores
-        // prereq: collect block loads
-        computeFutureUses();
+        DEBUG(dbgs() << "Removing redundant stores:\n");
         findRedundantStores();
         count += remove();
-
-
-        DEBUG(dump());
 
         return count;
       }
@@ -674,21 +668,6 @@ namespace {
         return cnt;
       }
 
-      void dump(void) {
-        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
-            MBB != MBBe; ++MBB) {
-          const Blockinfo &B = BlockInfos.at(MBB);
-          dbgs() << "  Analyzed: MBB#" << MBB->getNumber() << "\n";
-          dbgs() << "   lastld " << B.LastLd << "\n";
-          dbgs() << "   blocklds ";
-          printFISet(B.BlockLd, dbgs()); dbgs() << "\n";
-          dbgs() << "   liveins ";
-          printFISet(B.LiveInFI, dbgs()); dbgs() << "\n";
-          dbgs() << "   futureloads ";
-          printFISet(B.FutureLoadsExit, dbgs()); dbgs() << "\n";
-        }
-      }
-
     private:
       MachineFunction &MF;
       const PatmosRegisterInfo *TRI;
@@ -700,15 +679,15 @@ namespace {
 
       struct Blockinfo {
         // required for elimination of redundant loads
-        int LastLd;
-        BitVector LiveOutFI, LiveInFI;
+        BitVector LiveFIExit, LiveFIEntry;
         // required for elimination of redundant stores
-        BitVector BlockLd;
+        BitVector SubseqStoresEntry, SubseqStoresExit;
         BitVector FutureLoadsEntry, FutureLoadsExit;
 
         Blockinfo(unsigned int size)
-          : LastLd(-1), LiveOutFI(size), LiveInFI(size),
-            BlockLd(size), FutureLoadsEntry(size), FutureLoadsExit(size) {}
+          : LiveFIExit(size), LiveFIEntry(size),
+            SubseqStoresEntry(size), SubseqStoresExit(size),
+            FutureLoadsEntry(size), FutureLoadsExit(size) {}
       };
 
       std::map<const MachineBasicBlock *, Blockinfo> BlockInfos;
@@ -755,28 +734,9 @@ namespace {
       }
 
 
-
-      void findLastLoad(const MachineBasicBlock *MBB) {
-        for (MachineBasicBlock::const_reverse_iterator MI = MBB->rbegin(),
-            MIe = MBB->rend(); MI != MIe; ++MI) {
-          int fi = -1;
-          if (isUncondLoad(&*MI, fi)) {
-            this->BlockInfos.at(MBB).LastLd = normalizeFI(fi);
-            break;
-          }
-        }
-      }
-
-      void computeLiveFIs(void) {
-        // backward DF problem, operating on block level
-        //
-        // find the last load of each MBB, if any
-        // (= gen set for the DF analysis)
-        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
-            MBB != MBBe; ++MBB) {
-          findLastLoad(MBB);
-        }
-
+      void findRedundantLoads(void) {
+        // forward DF problem
+        std::map<MachineInstr *, BitVector> collected_loads;
         // operate in reverse-postorder
         ReversePostOrderTraversal<MachineFunction *> RPOT(&MF);
         bool changed;
@@ -786,111 +746,117 @@ namespace {
               RI = RPOT.begin(),  RE = RPOT.end(); RI != RE; ++RI) {
             MachineBasicBlock *MBB = *RI;
             Blockinfo &BI = this->BlockInfos.at(MBB);
-            BitVector livein = BitVector(NumFIs);
+
+            BitVector livein = BitVector(NumFIs, true);
             // join from predecessors
-            for (MachineBasicBlock::pred_iterator PI = MBB->pred_begin();
-                PI != MBB->pred_end(); ++PI) {
-              livein |= this->BlockInfos.at(*PI).LiveOutFI;
+            if (MBB->pred_size() > 0) {
+              for (MachineBasicBlock::pred_iterator PI = MBB->pred_begin();
+                  PI != MBB->pred_end(); ++PI) {
+                 livein &= this->BlockInfos.at(*PI).LiveFIExit;
+              }
+            } else {
+              livein.reset();
             }
+            if (BI.LiveFIEntry != livein) {
+              BI.LiveFIEntry = livein;
+              changed = true;
+            }
+
             // transfer
-            BitVector liveout(livein);
-            // if there is a last load in the block, assign it
-            // (kill all but the last load)
-            if (BI.LastLd != -1) {
-              liveout.reset();
-              liveout.set(BI.LastLd);
+            BitVector livefi(livein);
+            for (MachineBasicBlock::iterator MI = MBB->begin(),
+                MIe = MBB->end(); MI != MIe; ++MI) {
+              // check for unconditional load to TgtReg
+              int fi;
+              if (isUncondLoad(&*MI, fi)) {
+                // remember load with livefi at entry
+                collected_loads[&*MI] = livefi;
+                // update
+                livefi.reset();
+                livefi.set(normalizeFI(fi));
+              }
             }
             // was an update?
-            if (BI.LiveOutFI != liveout) {
-              BI.LiveOutFI = liveout;
-              BI.LiveInFI = livein;
+            if (BI.LiveFIExit != livefi) {
+              BI.LiveFIExit = livefi;
               changed = true;
             }
           }
         } while (changed);
-      }
 
-      void findRedundantLoads(void) {
-        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
-            MBB != MBBe; ++MBB) {
-
-          DEBUG(dbgs() << " redundant loads in [MBB#"
-              << MBB->getNumber() << "]\n");
-
-          // For redundant loads, we check if two subsequent loads source the
-          // same location. If so, we can remove the latter one.
-          int lastSlot = -1;
-          // check liveins on TgtReg of this BB: if only a single bit is set,
-          // there is only one possible value -> assign lastSlot to it
-          const BitVector liveins = this->BlockInfos.at(MBB).LiveInFI;
-          if (liveins.count() == 1) {
-            lastSlot = denormalizeFI(liveins.find_first());
-          }
-          MachineInstr *lastKill = NULL;
-          for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
-              MI != MIe; ++MI) {
-            // check for unconditional load to TgtReg
-            int fi;
-            if (isUncondLoad(&*MI, fi)) {
-              if (lastSlot == fi) {
-                Removables.insert(&*MI);
-                if (lastKill != NULL) {
-                  lastKill->clearRegisterKills(TgtReg, TRI);
-                }
-              }
-              lastSlot = fi;
-              lastKill = NULL;
-              continue;
-            } // end load
-
-            // we store the last kill of TgtReg, because we have to clear it
-            // in case we extend the live-range
-            if (MI->killsRegister(TgtReg, TRI)) {
-              lastKill = MI;
-              continue;
-            }
+        // now inspect the livefi at entry of each load. if it is equal to
+        // the fi of the load, the load is redundant and we can remove it.
+        for (std::map<MachineInstr *, BitVector>::iterator
+            I = collected_loads.begin(), E = collected_loads.end();
+            I != E; ++I) {
+          int fi;
+          (void) isUncondLoad(I->first, fi);
+          if (I->second.test(normalizeFI(fi))) {
+            Removables.insert(I->first);
           }
         }
       }
 
-      void collectBlockLoads(const MachineBasicBlock *MBB) {
-        BitVector loads = BitVector(NumFIs);
-        for (MachineBasicBlock::const_iterator MI = MBB->begin(),
-            MIe = MBB->end(); MI != MIe; ++MI) {
-          int fi = -1;
-          if (isUncondLoad(&*MI, fi)) {
-            loads[normalizeFI(fi)] = true;
-          }
-        }
-        this->BlockInfos.at(MBB).BlockLd = loads;
-      }
-
-      void computeFutureUses(void) {
-        // backward DF problem, operating on block level
+      void findRedundantStores(void) {
+        // backward DF problems
+        std::map<MachineInstr *,
+                 std::pair<BitVector, BitVector> > collected_stores;
         std::queue<MachineBasicBlock *> worklist;
+
         // fill worklist initially in dfs postorder
         for (po_iterator<MachineBasicBlock *> POI = po_begin(&MF.front()),
             POIe = po_end(&MF.front());  POI != POIe; ++POI) {
           worklist.push(*POI);
-          collectBlockLoads(*POI);
         }
+
         // iterate.
         while (!worklist.empty()) {
           // pop first element
           MachineBasicBlock *MBB = worklist.front();
           worklist.pop();
           Blockinfo &BI = this->BlockInfos.at(MBB);
-          // effect
-          for (MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
-              SI != MBB->succ_end(); ++SI) {
-            BI.FutureLoadsExit |= this->BlockInfos.at(*SI).FutureLoadsEntry;
+
+          BitVector subseqstores(NumFIs, true);
+          BitVector futureloads(NumFIs);
+          if (MBB->succ_size() > 0) {
+            for (MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
+                SI != MBB->succ_end(); ++SI) {
+              Blockinfo &BISucc = this->BlockInfos.at(*SI);
+              futureloads  |= BISucc.FutureLoadsEntry;
+              subseqstores &= BISucc.SubseqStoresEntry;
+            }
+          } else {
+            subseqstores.reset();
+          }
+          BI.FutureLoadsExit = futureloads;
+          BI.SubseqStoresExit = subseqstores;
+
+          // transfer
+          for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
+              MIe = MBB->rend(); MI != MIe; ++MI) {
+            int fi;
+            if (isUncondLoad(&*MI, fi)) {
+              int nfi = normalizeFI(fi);
+              futureloads.set(nfi);
+              if (!subseqstores.test(nfi)) subseqstores.reset();
+              continue;
+            }
+            if (isUncondStore(&*MI, fi)) {
+              // remember store-inst with futureloads/subseq-st at exit
+              collected_stores[&*MI] = std::make_pair(futureloads,
+                                                      subseqstores);
+              // update
+              subseqstores.reset();
+              subseqstores.set(normalizeFI(fi));
+              continue;
+            }
           }
 
-          BitVector flentry(BI.FutureLoadsExit);
-          flentry |= BI.BlockLd;
           // was an update?
-          if (BI.FutureLoadsEntry != flentry) {
-            BI.FutureLoadsEntry = flentry;
+          if (BI.FutureLoadsEntry  != futureloads ||
+              BI.SubseqStoresEntry != subseqstores) {
+            BI.FutureLoadsEntry  = futureloads;
+            BI.SubseqStoresEntry = subseqstores;
             // add predecessors to worklist
             for (MachineBasicBlock::pred_iterator PI=MBB->pred_begin();
                 PI!=MBB->pred_end(); ++PI) {
@@ -898,44 +864,21 @@ namespace {
             }
           }
         }
-      }
 
-
-      void findRedundantStores(void) {
-        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
-            MBB != MBBe; ++MBB) {
-
-          DEBUG(dbgs() << " redundant stores in [MBB#"
-              << MBB->getNumber() << "]\n");
-
-          // We scan backward through the MBB to find redundant stores of the
-          // TgtReg. If a store is to the same location as a previous (later)
-          // store, we can eliminate it, provided that there is no load of a
-          // different location between the stores.
-          int lastSlot = -1;
-          // we carry the set of future loads, test it at every store and
-          // update it on loads
-          BitVector futureloads = this->BlockInfos.at(MBB).FutureLoadsExit;
-          for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
-              MIe = MBB->rend(); MI != MIe; ++MI) {
-            int fi;
-            // check whether a store targets the same FI as a previous one
-            if (isUncondStore(&*MI, fi)) {
-              if (lastSlot == fi ||
-                  futureloads.test(normalizeFI(fi)) == false) {
-                Removables.insert(&*MI);
-              }
-              lastSlot = fi;
-              continue;
-            }
-            // check if there is a load to a different location between
-            if (isUncondLoad(&*MI, fi)) {
-              futureloads.set(normalizeFI(fi));
-              if (lastSlot != fi) {
-                lastSlot = -1; // reset
-              }
-              continue;
-            }
+        // Now iterate through the collected store instructions.
+        // If the fi of a store is covered by a subsequent store, or the
+        // fi is never loaded again in the future, the store can be removed.
+        for (std::map<MachineInstr *,
+                      std::pair<BitVector, BitVector> >::iterator
+             I = collected_stores.begin(), E = collected_stores.end();
+             I != E; ++I) {
+          int fi, nfi;
+          (void) isUncondStore(I->first, fi);
+          nfi = normalizeFI(fi);
+          BitVector futureloads  = I->second.first;
+          BitVector subseqstores = I->second.second;
+          if (subseqstores.test(nfi) || !futureloads.test(nfi)) {
+            Removables.insert(I->first);
           }
         }
       }
