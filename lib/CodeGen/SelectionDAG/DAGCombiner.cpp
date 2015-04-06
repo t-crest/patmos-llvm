@@ -8193,11 +8193,10 @@ SDValue DAGCombiner::visitFP_EXTEND(SDNode *N) {
 
 SDValue DAGCombiner::visitFCEIL(SDNode *N) {
   SDValue N0 = N->getOperand(0);
-  ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
   EVT VT = N->getValueType(0);
 
   // fold (fceil c1) -> fceil(c1)
-  if (N0CFP)
+  if (isConstantFPBuildVectorOrConstantFP(N0))
     return DAG.getNode(ISD::FCEIL, SDLoc(N), VT, N0);
 
   return SDValue();
@@ -8205,11 +8204,10 @@ SDValue DAGCombiner::visitFCEIL(SDNode *N) {
 
 SDValue DAGCombiner::visitFTRUNC(SDNode *N) {
   SDValue N0 = N->getOperand(0);
-  ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
   EVT VT = N->getValueType(0);
 
   // fold (ftrunc c1) -> ftrunc(c1)
-  if (N0CFP)
+  if (isConstantFPBuildVectorOrConstantFP(N0))
     return DAG.getNode(ISD::FTRUNC, SDLoc(N), VT, N0);
 
   return SDValue();
@@ -8217,11 +8215,10 @@ SDValue DAGCombiner::visitFTRUNC(SDNode *N) {
 
 SDValue DAGCombiner::visitFFLOOR(SDNode *N) {
   SDValue N0 = N->getOperand(0);
-  ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
   EVT VT = N->getValueType(0);
 
   // fold (ffloor c1) -> ffloor(c1)
-  if (N0CFP)
+  if (isConstantFPBuildVectorOrConstantFP(N0))
     return DAG.getNode(ISD::FFLOOR, SDLoc(N), VT, N0);
 
   return SDValue();
