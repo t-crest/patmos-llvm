@@ -183,6 +183,9 @@ mapping:
                     required: yes
                     unique: yes
                     desc: "name of the subfunction, usually the name of the entry block"
+                  "disposable":
+                    type: bool
+                    desc: "If true, the subfunction is evicted immediately after its use."
                   "blocks":
                     type: seq
                     desc: "list of blocks in the subfunction"

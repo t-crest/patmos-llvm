@@ -391,10 +391,14 @@ YAML_IS_PTR_SEQUENCE_VECTOR(Argument)
 
 struct Subfunction {
   Name SFName;
+  bool Disposable;
   std::vector<Name> Blocks;
 
-  Subfunction(uint64_t index) : SFName(index) {}
-  Subfunction(StringRef name) : SFName(name) {}
+  Subfunction(uint64_t index, bool dispose=false)
+   : SFName(index), Disposable(dispose) {}
+
+  Subfunction(StringRef name, bool dispose=false)
+   : SFName(name), Disposable(dispose) {}
 
   void addBlock(StringRef block) {
     Blocks.push_back(yaml::Name(block));
@@ -407,8 +411,9 @@ template <>
 struct MappingTraits<Subfunction*> {
   static void mapping(IO &io, Subfunction*& S) {
     if (!S) S = new Subfunction("");
-    io.mapRequired("name",      S->SFName);
-    io.mapRequired("blocks",    S->Blocks);
+    io.mapRequired("name",       S->SFName);
+    io.mapOptional("disposable", S->Disposable, false);
+    io.mapRequired("blocks",     S->Blocks);
   }
 };
 YAML_IS_PTR_SEQUENCE_VECTOR(Subfunction)

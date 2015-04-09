@@ -267,11 +267,12 @@ module PML
 
   class SubFunction < PMLObject
     include QNameObject
-    attr_reader :name, :blocks
+    attr_reader :name, :disposable, :blocks
     def initialize(function, data)
       blocknames = data['blocks']
       assert("subfunction: empty block list") { ! blocknames.empty? }
       @name = data['name']
+      @disposable = data['disposable']
       @qname = "SF:#{function}/#{name}"
       @function = function
       @blocks = blocknames.map { |bname| function.blocks.by_name(bname) }

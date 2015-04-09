@@ -561,10 +561,12 @@ namespace llvm {
     void PatmosMachineExport::exportSubfunctions(MachineFunction &MF,
                                                  yaml::MachineFunction *PMF)
     {
-      // TODO use some PML mapping function to get the unique label for MBBs
-      yaml::Subfunction *S = new yaml::Subfunction(MF.begin()->getNumber());
       const PatmosMachineFunctionInfo *PMFI =
                                         MF.getInfo<PatmosMachineFunctionInfo>();
+
+      // TODO use some PML mapping function to get the unique label for MBBs
+      yaml::Subfunction *S = new yaml::Subfunction(MF.begin()->getNumber());
+      S->Disposable = PMFI->isDisposeableRegionEntry(MF.begin());
 
       for (MachineFunction::iterator bb = MF.begin(), be = MF.end(); bb != be;
            bb++)
@@ -572,6 +574,7 @@ namespace llvm {
         if (bb != MF.begin() && PMFI->isMethodCacheRegionEntry(bb)) {
           PMF->addSubfunction(S);
           S = new yaml::Subfunction(bb->getNumber());
+          S->Disposable = PMFI->isDisposeableRegionEntry(bb);
         }
         S->addBlock(bb->getNumber());
       }

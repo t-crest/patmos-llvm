@@ -175,18 +175,21 @@ class CacheRegionAnalysis
 	  @all_load_edges.concat(load_edges)
         }
 
-        # add variable for tag
-        ipet_builder.ilp.add_variable(tag)
+	# check if tag is cached within scopes
+	if not @cache_properties.uncached?(tag, set)
+          # add variable for tag
+          ipet_builder.ilp.add_variable(tag)
 
-        # sum of all load instructions is equal to tag
-        load_ins_sum = load_instructions.map { |li| [li,1] }
-        ipet_builder.mc_model.assert_equal(load_ins_sum, {tag=>1}, "tag_#{tag}", :cache)
+          # sum of all load instructions is equal to tag
+          load_ins_sum = load_instructions.map { |li| [li,1] }
+          ipet_builder.mc_model.assert_equal(load_ins_sum, {tag=>1}, "tag_#{tag}", :cache)
 
-        # tag is less equal sum of all scopes
-        scope_sum = conflict_free_scopes[tag].map { |scope_node, f|
-          [scope_node.scope_entry, f]
-        }
-        ipet_builder.mc_model.assert_less_equal({tag=>1}, scope_sum, "tagsum_#{tag}", :cache)
+          # tag is less equal sum of all scopes
+          scope_sum = conflict_free_scopes[tag].map { |scope_node, f|
+            [scope_node.scope_entry, f]
+          }
+          ipet_builder.mc_model.assert_less_equal({tag=>1}, scope_sum, "tagsum_#{tag}", :cache)
+	end
       }
     end
   end
@@ -590,15 +593,24 @@ class MethodCacheAnalysis
     return false if @options.wca_minimal_cache
     return true  if @options.wca_ideal_cache
 
+    # Distinguish between disposable and non-disposable subfunctions
+    disposed = subfunctions.select { |sf| sf.disposable }
+    cached   = subfunctions.select { |sf| !sf.disposable }
+
     # the number of blocks occupied by all subfunctions may not exceed the
     # number of blocks available in the cache
-    c1 = subfunctions.map { |sf| blocks_for_tag(sf) }.inject(0,:+) <= block_capacity
+    c1 = cached.map { |sf| blocks_for_tag(sf) }.inject(0,:+) + 
+         disposed.map { |sf| blocks_for_tag(sf) }.max.to_i <= block_capacity
 
     # the number of subfunctions in the cache may not exceed the
     # associativity of the cache
-    c2 = subfunctions.length <= @cache.associativity
+    c2 = cached.length + (disposed.empty? ? 0 : 1) <= @cache.associativity
 
     c1 && c2
+  end
+
+  def uncached?(subfunction, set)
+    subfunction.disposable
   end
 
   def size_in_bytes(subfunctions)
@@ -695,6 +707,10 @@ class InstructionCacheAnalysis
     return true  if @options.wca_ideal_cache
 
     cache_lines.length <= cache.associativity
+  end
+
+  def uncached?(cache_line, set)
+    false
   end
 
   def load_cost(cache_line)
