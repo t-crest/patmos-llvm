@@ -49,11 +49,18 @@ class AisExportTool
     }
   end
 
+  # return the list of exports (filter the ones given in the 'except' argument)
+  def AisExportTool.get_exports_list(except = [])
+    unknown = (Set[*except] - Set[*AIS_EXPORT_TYPES])
+    assert("unknown export(s): #{unknown.map {|e| e}.join(',')}") { unknown.empty? }
+    return Set[*AIS_EXPORT_TYPES] - Set[*except]
+  end
+
   def AisExportTool.add_options(opts)
     AisExportTool.add_config_options(opts)
     opts.ais_file(true)
     opts.flow_fact_selection
-    opts.ait_disable_internal_sc
+    opts.ait_sca_type
   end
 
   def AisExportTool.run(pml, options)
@@ -82,11 +89,14 @@ class AisExportTool
         pml.machine_functions.each { |func|
           func.blocks.each { |mbb|
             mbb.instructions.each { |ins|
-              ais.export_stack_cache_annotation(:fill, ins, ins.sc_fill) if ins.sc_fill
-              ais.export_stack_cache_annotation(:spill, ins, ins.sc_spill) if ins.sc_spill
+              ais.add_stack_cache_inst(:reserve, ins, ins.sc_arg) if ins.opcode == "SRESi"
+              ais.add_stack_cache_inst(:free, ins, ins.sc_arg) if ins.opcode == "SFREEi"
+              ais.add_stack_cache_inst(:ensure, ins, ins.sc_arg) if ins.opcode == "SENSi"
+              #ais.export_stack_cache_update(:spill, ins, ins.sc_spill) if ins.sc_spill
             }
           }
         }
+        ais.export_stack_cache_annotations()
       end
       statistics("AIS",
                  "exported flow facts" => ais.stats_generated_facts,
@@ -99,7 +109,7 @@ class ApxExportTool
   def ApxExportTool.add_config_options(opts)
     opts.ait_icache_mode
     opts.ait_dcache_mode
-    opts.ait_disable_internal_sc
+    opts.ait_sca_type
   end
   def ApxExportTool.add_options(opts, mandatory=true)
     opts.analysis_entry

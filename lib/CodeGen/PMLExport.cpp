@@ -362,29 +362,17 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
       case Intrinsic::loopbound:
         {
           const BasicBlock *BB = II->getParent();
-          LoopInfo &LI = P.getAnalysis<LoopInfo>(
-              *const_cast<Function*>(BB->getParent()));
-          // check if basic block is loop header and blockaddress matches
-          if (BlockAddress *BAddr =
-              dyn_cast<BlockAddress>(CI->getArgOperand(0))) {
-            if (BAddr->getBasicBlock() == BB &&
-                LI.isLoopHeader(BAddr->getBasicBlock())) {
-              if (ConstantInt *MaxBoundInt =
-                  dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
-                uint64_t MaxHeaderCount = MaxBoundInt->getZExtValue() + 1;
-                if(MaxHeaderCount < 0xFFFFFFFFu) {
-                  YDoc.addFlowFact(
-                      createLoopFact(BB, MaxHeaderCount, /*UserAnnot=*/true));
-                  NumAnnotatedBounds++; // STATISTICS
-                }
-              } else {
-                errs() << "Skipping: Annotated Loop bound is non-constant:\n"
-                  << *CI << "\n";
-              }
-            } else {
-              errs() << "Skipping: Loop bound is not correctly transformed:\n"
-                << *CI << "\n";
+          if (ConstantInt *MaxBoundInt =
+              dyn_cast<ConstantInt>(CI->getArgOperand(2))) {
+            uint64_t MaxHeaderCount = MaxBoundInt->getZExtValue() + 1;
+            if(MaxHeaderCount < 0xFFFFFFFFu) {
+              YDoc.addFlowFact(
+                  createLoopFact(BB, MaxHeaderCount, /*UserAnnot=*/true));
+              NumAnnotatedBounds++; // STATISTICS
             }
+          } else {
+            errs() << "Skipping: Annotated Loop bound is non-constant:\n"
+              << *CI << "\n";
           }
         }
         break;

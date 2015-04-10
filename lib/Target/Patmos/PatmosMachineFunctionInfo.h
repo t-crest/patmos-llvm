@@ -244,6 +244,10 @@ public:
     return SinglePathFIs;
   }
 
+  unsigned getSinglePathFICnt(void) const {
+    return SinglePathFIs.size();
+  }
+
   PatmosAnalysisInfo &getAnalysisInfo() { return AnalysisInfo; }
 
   const PatmosAnalysisInfo &getAnalysisInfo() const { return AnalysisInfo; }

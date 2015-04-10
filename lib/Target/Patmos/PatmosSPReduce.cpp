@@ -21,17 +21,13 @@
 //     setting/loading loop bounds, etc.
 // (4) MBBs are merged and renumbered, as finalization step.
 //
-// TODO: No actual loop bounds are loaded, as this information is not
-//       available yet
-//
-//
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "patmos-singlepath"
 
 #define USE_BCOPY
-//#define NOSPILL_OPTIMIZATION
-
+#define NOSPILL_OPTIMIZATION
+//#define BOUND_UNDEREST_PROTECTION
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
@@ -68,6 +64,7 @@
 
 #include <map>
 #include <set>
+#include <queue>
 #include <algorithm>
 #include <sstream>
 #include <iostream>
@@ -78,7 +75,7 @@ using namespace llvm;
 STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
 STATISTIC( LoopCounters,        "Number of loop counters introduced");
-STATISTIC( ElimLdSt,            "Number of eliminated redundant loads/stores");
+STATISTIC( ElimLdStCnt,         "Number of eliminated redundant loads/stores");
 
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
 STATISTIC( NoSpillScopes,
@@ -90,6 +87,7 @@ namespace {
 
   class LinearizeWalker;
   class RAInfo;
+  class RedundantLdStEliminator;
 
   class PatmosSPReduce : public MachineFunctionPass {
   private:
@@ -128,9 +126,13 @@ namespace {
     void getEdgeCondition(const SPScope::Edge &E,
                           SmallVectorImpl<MachineOperand> &Cond);
 
+    /// insertStackLocInitializations - Insert predicate initializations
+    /// for predicates located on the stack.
+    void insertStackLocInitializations(SPScope *S);
+
     /// insertPredDefinitions - Insert predicate register definitions
     /// to MBBs of the given SPScope.
-    void insertPredDefinitions(SPScope *S, MachineFunction &MF);
+    void insertPredDefinitions(SPScope *S);
 
     /// insertDefEdge - insert instructions for definition of a predicate
     /// by a definition edge.
@@ -150,12 +152,9 @@ namespace {
     /// @param stloc the stack location (index)
     /// @param guard the guard of MBB
     /// @param Cond the condition which should be assigned to the predicate
-    /// @param isFirstDef true if the definition is the first definition
-    ///                   in the local scope
     void insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc,
                              unsigned guard,
-                             const SmallVectorImpl<MachineOperand> &Cond,
-                             bool isFirstDef);
+                             const SmallVectorImpl<MachineOperand> &Cond);
 
     /// insertDefToS0SpillSlot - insert a predicate definition to a S0 spill
     /// slot
@@ -165,12 +164,9 @@ namespace {
     /// @param regloc the reg location (index)
     /// @param guard the guard of MBB
     /// @param Cond the condition which should be assigned to the predicate
-    /// @param isFirstDef true if the definition is the first definition
-    ///                   in the local scope
     void insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot,
                     unsigned regloc, unsigned guard,
-                    const SmallVectorImpl<MachineOperand> &Cond,
-                    bool isFirstDef);
+                    const SmallVectorImpl<MachineOperand> &Cond);
 
     /// insertDefToRegLoc - insert a predicate definition to a predicate
     /// which is located in a physical register
@@ -179,13 +175,16 @@ namespace {
     /// @param regloc the reg location (index)
     /// @param guard the guard of MBB
     /// @param Cond the condition which should be assigned to the predicate
-    /// @param isMultiDef true if the predicate has multiple definitions
-    /// @param isFirstDef true if the definition is the first definition
-    ///                   in the local scope
+    /// @param isMultiDef    true if the predicate has multiple definitions
+    /// @param isFirstDef    true if the definition is the first definition
+    ///                      in the local scope
+    /// @param isExitEdgeDef true if the definition is on an exit edge of a
+    ///                      subloop
     void insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc,
                            unsigned guard,
                            const SmallVectorImpl<MachineOperand> &Cond,
-                           bool isMultiDef, bool isFirstDef);
+                           bool isMultiDef, bool isFirstDef,
+                           bool isExitEdgeDef);
 
     /// moveDefUseGuardInstsToEnd - move instructions, which define a predicate
     /// register that is also their guard to the end of their MBB.
@@ -219,6 +218,11 @@ namespace {
     unsigned getUsePReg(const RAInfo &R, const MachineBasicBlock *MBB,
                         bool getP0=false);
 
+    /// getStackLocPair - Return frame index and bit position within,
+    /// given by a stack location
+    void getStackLocPair(int &fi, unsigned &bitpos,
+                         const unsigned stloc) const;
+
     /// mergeMBBs - Merge the linear sequence of MBBs as possible
     void mergeMBBs(MachineFunction &MF);
 
@@ -236,23 +240,6 @@ namespace {
     void getLoopLiveOutPRegs(const SPScope *S,
                              std::vector<unsigned> &pregs) const;
 
-
-    /// isUncondLoadToGuardsReg - Check whether a given instruction is an
-    /// unconditional load to the GuardsReg.
-    /// If so, the function returns true and the frame index is stored.
-    /// Otherwise the function returns false.
-    bool isUncondLoadToGuardsReg(const MachineInstr *MI, int &fi);
-
-    /// isUncondStoreOfGuardsReg - Check whether a given instruction is an
-    /// unconditional store of the GuardsReg.
-    /// If so, the function returns true and the frame index is stored.
-    /// Otherwise the function returns false.
-    bool isUncondStoreOfGuardsReg(const MachineInstr *MI, int &fi);
-
-    /// eliminateRedundantLoadStores - Eliminate redundant loads and stores
-    /// of GuardsReg
-    void eliminateRedundantLoadStores(MachineFunction &MF);
-
     /// Map to hold RA infos for each SPScope
     std::map<const SPScope*, RAInfo> RAInfos;
 
@@ -264,15 +251,14 @@ namespace {
     unsigned GuardsReg; // RReg to hold all predicates
     unsigned PRTmp;     // temporary PReg
 
+    // At each doReduce on a function, an instance of the
+    // RedundantLdStEliminator is created
+    RedundantLdStEliminator *GuardsLdStElim;
+
     // Instructions which define a predicate register that is also their guard.
     // Collected while insertDefToRegLoc(), read and cleared in
     // moveDefUseGuardInsts().
     std::vector<MachineInstr *> DefUseGuardInsts;
-
-    // Instructions which must stay unconditional, i.e., not predicated by
-    // applyPredicates(). Typically this is the unconditional initialization
-    // of a predicate location.
-    std::set<MachineInstr *> UnconditionalInsertedInsts;
 
     // Branches that set the kill flag on condition operands are remembered,
     // as the branches themselves are removed. The last use of these
@@ -434,10 +420,11 @@ namespace {
       unsigned NumLocs, // Total number of locations in this SPScope
                CumLocs, // Cumulative number of locations synthesized up the
                         //   tree: NumLocs + max. CumLocs over the children
-               Offset,  // S0 does not need to be spilled around this scope,
+               Offset,  // If S0 does not need to be spilled around this scope,
                         //   this is the offset to the available registers
-               SpillOffset,   // Starting offset for this scope's spill locations
-               LoopCntOffset; // Loop counter stack location offset
+               SpillOffset; // Starting offset for this scope's spill locations
+
+      bool NeedsScopeSpill;
 
       // UseLoc - Record to hold predicate use information for a MBB
       // - loc:   which location to use (a register)
@@ -496,7 +483,8 @@ namespace {
         Scope(S), NumColors(numcolors), MBBs(S->getBlocks()),
         LRs(S->getNumPredicates(), LiveRange(S->getBlocks().size()+1)),
         DefLocs(S->getNumPredicates(),-1),
-        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0), LoopCntOffset(0) {
+        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0),
+        NeedsScopeSpill(true) {
           createLiveRanges();
           assignLocations();
         }
@@ -511,21 +499,6 @@ namespace {
         CumLocs = NumLocs + maxFromChildren;
       }
 
-      // setLoopCntOffset - Set the offset to access the stack location
-      // for the loop counter.
-      // Traversal order is not important for this function, depth-first
-      // makes sense though.
-      void setLoopCntOffset(unsigned num) {
-        assert(Scope->hasLoopBound());
-        LoopCntOffset = num;
-      }
-
-      // getLoopCntOffset - Get the offset to access the stack location
-      // for the loop counter.
-      unsigned getLoopCntOffset(void) const {
-        return LoopCntOffset;
-      }
-
       // computePhysOffset - Compute the offset into the available colors,
       // given the parent RAInfo. Naturally called in a pre-order traversal.
       void computePhysOffset(const RAInfo &ParentRI) {
@@ -534,8 +507,8 @@ namespace {
         if ( ParentRI.NumLocs + CumLocs <= NumColors ) {
           // compute offset
           Offset = ParentRI.NumLocs + ParentRI.Offset;
+          NeedsScopeSpill = false;
         }
-
       }
 
       // assignSpillOffset - Stores the offset provided as spill offset,
@@ -552,7 +525,7 @@ namespace {
       // needsScopeSpill - Returns true if S0 must be spilled/restored
       // upon entry/exit of this SPScope.
       bool needsScopeSpill(void) const {
-        return (Offset == 0);
+        return NeedsScopeSpill;
       }
 
       // isFirstDef - Returns true if the given MBB contains the first
@@ -640,7 +613,340 @@ namespace {
       void dump(void) const;
   };
 
+///////////////////////////////////////////////////////////////////////////////
 
+  /// RedundantLdStEliminator - Class that implements the removal
+  /// of redundant loads and stores (to a tracked register), which are
+  /// inserted in the course of the transformation.
+  /// This includes predicate spill code and loop counters.
+  class RedundantLdStEliminator {
+    public:
+      explicit RedundantLdStEliminator(MachineFunction &mf,
+          const PatmosRegisterInfo *tri, unsigned int tgtreg,
+          const PatmosMachineFunctionInfo &PMFI)
+        : MF(mf), TRI(tri), TgtReg(tgtreg), NumFIs(PMFI.getSinglePathFICnt()),
+          OffsetFIs(PMFI.getSinglePathLoopCntFI(0)) {}
+
+      void addRemovableInst(MachineInstr *MI) {
+        Removables.insert(MI);
+      }
+
+
+      unsigned int process(void) {
+        DEBUG( dbgs() << "Eliminate redundant loads/stores to " <<
+            TRI->getName(TgtReg) << "\n" );
+
+        unsigned int count = 0;
+        // create the container with the bitvectors for each basic block
+        // for the data-flow analyses
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+          BlockInfos.insert(std::make_pair(MBB, Blockinfo(NumFIs)));
+        }
+
+        // First we remove redundant loads.
+        // prereq: collect last loads
+        computeLiveFIs();
+        findRedundantLoads();
+        count += remove();
+
+        // Having redundant loads eliminated enables simpler removal
+        // of redundant stores
+        // prereq: collect block loads
+        computeFutureUses();
+        findRedundantStores();
+        count += remove();
+
+
+        DEBUG(dump());
+
+        return count;
+      }
+
+      unsigned int remove(void) {
+        unsigned int cnt = Removables.size();
+        for (std::set<MachineInstr *>::iterator I = Removables.begin(),
+            E = Removables.end(); I != E; ++I) {
+          DEBUG(dbgs() << "  " << **I);
+          (*I)->eraseFromParent();
+        }
+        Removables.clear();
+        return cnt;
+      }
+
+      void dump(void) {
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+          const Blockinfo &B = BlockInfos.at(MBB);
+          dbgs() << "  Analyzed: MBB#" << MBB->getNumber() << "\n";
+          dbgs() << "   lastld " << B.LastLd << "\n";
+          dbgs() << "   blocklds ";
+          printFISet(B.BlockLd, dbgs()); dbgs() << "\n";
+          dbgs() << "   liveins ";
+          printFISet(B.LiveInFI, dbgs()); dbgs() << "\n";
+          dbgs() << "   futureloads ";
+          printFISet(B.FutureLoadsExit, dbgs()); dbgs() << "\n";
+        }
+      }
+
+    private:
+      MachineFunction &MF;
+      const PatmosRegisterInfo *TRI;
+      const unsigned int TgtReg;
+      const unsigned int NumFIs;
+      const unsigned int OffsetFIs;
+
+      std::set<MachineInstr *> Removables;
+
+      struct Blockinfo {
+        // required for elimination of redundant loads
+        int LastLd;
+        BitVector LiveOutFI, LiveInFI;
+        // required for elimination of redundant stores
+        BitVector BlockLd;
+        BitVector FutureLoadsEntry, FutureLoadsExit;
+
+        Blockinfo(unsigned int size)
+          : LastLd(-1), LiveOutFI(size), LiveInFI(size),
+            BlockLd(size), FutureLoadsEntry(size), FutureLoadsExit(size) {}
+      };
+
+      std::map<const MachineBasicBlock *, Blockinfo> BlockInfos;
+
+      inline unsigned int normalizeFI(int fi) const {
+        unsigned norm = fi - OffsetFIs;
+        assert((fi >= 0 && norm < NumFIs) && "FI out of bounds");
+        return norm;
+      }
+
+      inline int denormalizeFI(unsigned int fi) const {
+        assert(fi < NumFIs && "FI out of bounds");
+        return fi + OffsetFIs;
+      }
+
+      void printFISet(const BitVector &BV, raw_ostream &os) const {
+        for (int i = BV.find_first(); i != -1; i = BV.find_next(i)) {
+          os << denormalizeFI(i) << " ";
+        }
+      }
+
+      bool isUncondLoad(const MachineInstr *MI, int &fi) const {
+        if ((MI->getOpcode() == Patmos::LBC || MI->getOpcode() == Patmos::LWC)
+            && MI->getOperand(0).getReg() == TgtReg
+            && (MI->getOperand(1).getReg() == Patmos::NoRegister ||
+              MI->getOperand(1).getReg() == Patmos::P0)
+            && MI->getOperand(2).getImm() == 0) {
+          fi = MI->getOperand(3).getIndex();
+          return true;
+        }
+        return false;
+      }
+
+      bool isUncondStore(const MachineInstr *MI, int &fi) const {
+        if ((MI->getOpcode() == Patmos::SBC || MI->getOpcode() == Patmos::SWC)
+            && MI->getOperand(4).getReg() == TgtReg
+            && (MI->getOperand(0).getReg() == Patmos::NoRegister ||
+              MI->getOperand(0).getReg() == Patmos::P0)
+            && MI->getOperand(1).getImm() == 0) {
+          fi = MI->getOperand(2).getIndex();
+          return true;
+        }
+        return false;
+      }
+
+
+
+      void findLastLoad(const MachineBasicBlock *MBB) {
+        for (MachineBasicBlock::const_reverse_iterator MI = MBB->rbegin(),
+            MIe = MBB->rend(); MI != MIe; ++MI) {
+          int fi = -1;
+          if (isUncondLoad(&*MI, fi)) {
+            this->BlockInfos.at(MBB).LastLd = normalizeFI(fi);
+            break;
+          }
+        }
+      }
+
+      void computeLiveFIs(void) {
+        // backward DF problem, operating on block level
+        //
+        // find the last load of each MBB, if any
+        // (= gen set for the DF analysis)
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+          findLastLoad(MBB);
+        }
+
+        // operate in reverse-postorder
+        ReversePostOrderTraversal<MachineFunction *> RPOT(&MF);
+        bool changed;
+        do {
+          changed = false;
+          for (ReversePostOrderTraversal<MachineFunction *>::rpo_iterator
+              RI = RPOT.begin(),  RE = RPOT.end(); RI != RE; ++RI) {
+            MachineBasicBlock *MBB = *RI;
+            Blockinfo &BI = this->BlockInfos.at(MBB);
+            BitVector livein = BitVector(NumFIs);
+            // join from predecessors
+            for (MachineBasicBlock::pred_iterator PI = MBB->pred_begin();
+                PI != MBB->pred_end(); ++PI) {
+              livein |= this->BlockInfos.at(*PI).LiveOutFI;
+            }
+            // transfer
+            BitVector liveout(livein);
+            // if there is a last load in the block, assign it
+            // (kill all but the last load)
+            if (BI.LastLd != -1) {
+              liveout.reset();
+              liveout.set(BI.LastLd);
+            }
+            // was an update?
+            if (BI.LiveOutFI != liveout) {
+              BI.LiveOutFI = liveout;
+              BI.LiveInFI = livein;
+              changed = true;
+            }
+          }
+        } while (changed);
+      }
+
+      void findRedundantLoads(void) {
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+
+          DEBUG(dbgs() << " redundant loads in [MBB#"
+              << MBB->getNumber() << "]\n");
+
+          // For redundant loads, we check if two subsequent loads source the
+          // same location. If so, we can remove the latter one.
+          int lastSlot = -1;
+          // check liveins on TgtReg of this BB: if only a single bit is set,
+          // there is only one possible value -> assign lastSlot to it
+          const BitVector liveins = this->BlockInfos.at(MBB).LiveInFI;
+          if (liveins.count() == 1) {
+            lastSlot = denormalizeFI(liveins.find_first());
+          }
+          MachineInstr *lastKill = NULL;
+          for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
+              MI != MIe; ++MI) {
+            // check for unconditional load to TgtReg
+            int fi;
+            if (isUncondLoad(&*MI, fi)) {
+              if (lastSlot == fi) {
+                Removables.insert(&*MI);
+                if (lastKill != NULL) {
+                  lastKill->clearRegisterKills(TgtReg, TRI);
+                }
+              }
+              lastSlot = fi;
+              lastKill = NULL;
+              continue;
+            } // end load
+
+            // we store the last kill of TgtReg, because we have to clear it
+            // in case we extend the live-range
+            if (MI->killsRegister(TgtReg, TRI)) {
+              lastKill = MI;
+              continue;
+            }
+          }
+        }
+      }
+
+      void collectBlockLoads(const MachineBasicBlock *MBB) {
+        BitVector loads = BitVector(NumFIs);
+        for (MachineBasicBlock::const_iterator MI = MBB->begin(),
+            MIe = MBB->end(); MI != MIe; ++MI) {
+          int fi = -1;
+          if (isUncondLoad(&*MI, fi)) {
+            loads[normalizeFI(fi)] = true;
+          }
+        }
+        this->BlockInfos.at(MBB).BlockLd = loads;
+      }
+
+      void computeFutureUses(void) {
+        // backward DF problem, operating on block level
+        std::queue<MachineBasicBlock *> worklist;
+        // fill worklist initially in dfs postorder
+        for (po_iterator<MachineBasicBlock *> POI = po_begin(&MF.front()),
+            POIe = po_end(&MF.front());  POI != POIe; ++POI) {
+          worklist.push(*POI);
+          collectBlockLoads(*POI);
+        }
+        // iterate.
+        while (!worklist.empty()) {
+          // pop first element
+          MachineBasicBlock *MBB = worklist.front();
+          worklist.pop();
+          Blockinfo &BI = this->BlockInfos.at(MBB);
+          // effect
+          for (MachineBasicBlock::succ_iterator SI = MBB->succ_begin();
+              SI != MBB->succ_end(); ++SI) {
+            BI.FutureLoadsExit |= this->BlockInfos.at(*SI).FutureLoadsEntry;
+          }
+
+          BitVector flentry(BI.FutureLoadsExit);
+          flentry |= BI.BlockLd;
+          // was an update?
+          if (BI.FutureLoadsEntry != flentry) {
+            BI.FutureLoadsEntry = flentry;
+            // add predecessors to worklist
+            for (MachineBasicBlock::pred_iterator PI=MBB->pred_begin();
+                PI!=MBB->pred_end(); ++PI) {
+              worklist.push(*PI);
+            }
+          }
+        }
+      }
+
+
+      void findRedundantStores(void) {
+        for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
+            MBB != MBBe; ++MBB) {
+
+          DEBUG(dbgs() << " redundant stores in [MBB#"
+              << MBB->getNumber() << "]\n");
+
+          // We scan backward through the MBB to find redundant stores of the
+          // TgtReg. If a store is to the same location as a previous (later)
+          // store, we can eliminate it, provided that there is no load of a
+          // different location between the stores.
+          int lastSlot = -1;
+          // we carry the set of future loads, test it at every store and
+          // update it on loads
+          BitVector futureloads = this->BlockInfos.at(MBB).FutureLoadsExit;
+          for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
+              MIe = MBB->rend(); MI != MIe; ++MI) {
+            int fi;
+            // check whether a store targets the same FI as a previous one
+            if (isUncondStore(&*MI, fi)) {
+              if (lastSlot == fi ||
+                  futureloads.test(normalizeFI(fi)) == false) {
+                Removables.insert(&*MI);
+              }
+              lastSlot = fi;
+              continue;
+            }
+            // check if there is a load to a different location between
+            if (isUncondLoad(&*MI, fi)) {
+              futureloads.set(normalizeFI(fi));
+              if (lastSlot != fi) {
+                lastSlot = -1; // reset
+              }
+              continue;
+            }
+          }
+        }
+      }
+
+  };
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
   char PatmosSPReduce::ID = 0;
 
 } // end of anonymous namespace
@@ -664,17 +970,12 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
 
 void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
+  DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
 
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
 
-  RAInfos.clear();
-  ReturnInfoInsts.clear();
   AvailPredRegs.clear();
   UnavailPredRegs.clear();
-  UnconditionalInsertedInsts.clear();
-
-  DEBUG( dbgs() << "BEFORE Single-Path Reduce\n"; MF.dump() );
-
   // Get the unused predicate registers
   DEBUG( dbgs() << "Available PRegs:" );
   for (TargetRegisterClass::iterator I=Patmos::PRegsRegClass.begin(),
@@ -702,20 +1003,16 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // NB: we execute the whole frame setup unconditionally!
   //collectReturnInfoInsts(MF);
 
-  // Okay, now actually insert code, handling scopes in no particular order
+  // Guard the instructions (no particular order necessary)
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
-        I!=E; ++I) {
-    SPScope *S = *I;
-
-    DEBUG( dbgs() << "Insert code in [MBB#" << S->getHeader()->getNumber()
-                  << "]\n");
-
-    // Predicate the instructions of blocks in S, also inserting spill/load
-    // of predicates not in registers.
-    applyPredicates(S, MF);
-
-    // Insert predicate definitions.
-    insertPredDefinitions(S, MF);
+        I != E; ++I) {
+    applyPredicates(*I, MF);
+  }
+  // Insert predicate definitions (no particular order necessary)
+  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
+        I != E; ++I) {
+    insertPredDefinitions(*I);
+    insertStackLocInitializations(*I);
   }
 
   // After all scopes are handled, perform some global fixups
@@ -726,8 +1023,12 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Fixup kill flag of condition predicate registers
   fixupKillFlagOfCondRegs();
 
-
   //DEBUG(MF.viewCFGOnly());
+
+  // we create an instance of the eliminator here, such that we can
+  // insert dummy instructions for analysis and mark them as 'to be removed'
+  // with the eliminator
+  GuardsLdStElim = new RedundantLdStEliminator(MF, TRI, GuardsReg, *PMFI);
 
   // Following walk of the SPScope tree linearizes the CFG structure,
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
@@ -740,7 +1041,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   mergeMBBs(MF);
 
   // Perform the elimination of LD/ST on the large basic blocks
-  eliminateRedundantLoadStores(MF);
+  ElimLdStCnt += GuardsLdStElim->process();
+  delete GuardsLdStElim;
+
 
   // Remove frame index operands from inserted loads and stores to stack
   eliminateFrameIndices(MF);
@@ -756,6 +1059,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   DEBUG( dbgs() << "RegAlloc\n" );
 
+  RAInfos.clear();
 
   // perform reg-allocation in post-order to compute cumulative location
   // numbers in one go
@@ -781,9 +1085,7 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   // Visit all scopes in depth-first order to compute offsets:
   // - Offset is inherited during traversal
   // - SpillOffset is assigned increased depth-first, from left to right
-  // - LoopCntOffset as well
-  unsigned spillLocCnt   = 0,
-           loopCntOffset = 0;
+  unsigned spillLocCnt   = 0;
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
         I!=E; ++I) {
     SPScope *S = *I;
@@ -799,11 +1101,6 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
     }
     // assign and update spillLocCnt
     RI.assignSpillOffset(spillLocCnt);
-
-    // assign a loop counter offset for the stack location
-    if (S->hasLoopBound()) {
-      RI.setLoopCntOffset(loopCntOffset++);
-    }
 
     DEBUG( RI.dump() );
   } // end df
@@ -850,11 +1147,71 @@ void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,
   }
 }
 
+void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
+  DEBUG( dbgs() << " Insert StackLoc Initializations in [MBB#"
+                << S->getHeader()->getNumber() << "]\n");
 
-void PatmosSPReduce::insertPredDefinitions(SPScope *S, MachineFunction &MF) {
-  DEBUG( dbgs() << " Insert Predicate Definitions\n" );
+  // register allocation information
+  RAInfo &R = RAInfos.at(S);
 
-  // For each MBB, check defs
+  // Create the masks
+  std::map<int, uint32_t> masks;
+  DEBUG(dbgs() << "  - Stack Loc: " );
+  // 0 is the header predicate, which we never need to clear
+  for (unsigned pred = 1; pred < S->getNumPredicates(); pred++) {
+    unsigned stloc;
+    if (!R.getDefLoc(stloc, pred)) {
+      // pred is defined in a stack location
+      int fi; unsigned bitpos;
+      getStackLocPair(fi, bitpos, stloc);
+      DEBUG(dbgs() << "p" << pred << " " << stloc
+          << " ("  << fi  << "/" << bitpos << "); ");
+      if (!masks.count(fi)) {
+        masks[fi] = 0;
+      }
+      masks[fi] |= (1 << bitpos);
+    }
+  }
+  DEBUG(dbgs() << "\n");
+
+  // Clear stack locations according to masks, at the beginning of the header
+  MachineBasicBlock *MBB = S->getHeader();
+  MachineBasicBlock::iterator MI = MBB->begin();
+  if (S->isTopLevel()) {
+    // skip frame setup
+    while (MI->getFlag(MachineInstr::FrameSetup)) ++MI;
+  }
+
+  DEBUG(dbgs() << "  - Masks:\n" );
+  DebugLoc DL;
+  for (std::map<int, uint32_t>::iterator I = masks.begin(), E = masks.end();
+      I != E; ++I) {
+    int fi = I->first;
+    uint32_t mask = I->second;
+    DEBUG(dbgs() << "    fi " << fi  << " mask " << mask << "\n");
+    // load from stack slot
+    AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::LWC), GuardsReg))
+      .addFrameIndex(fi).addImm(0); // address
+    // insert AND instruction to clear predicates according to mask
+    AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::ANDl),
+          GuardsReg))
+      .addReg(GuardsReg)
+      .addImm(~mask);
+    // store to stack slot
+    AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::SWC)))
+      .addFrameIndex(fi).addImm(0) // address
+      .addReg(GuardsReg, RegState::Kill);
+    InsertedInstrs += 3; // STATISTIC
+  }
+}
+
+
+
+void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
+  DEBUG( dbgs() << " Insert Predicate Definitions in [MBB#"
+                << S->getHeader()->getNumber() << "]\n");
+
+  // Visit the MBBs (in topological order).
   for (SPScope::iterator I=S->begin(), E=S->end(); I!=E; ++I) {
     MachineBasicBlock *MBB = *I;
     const SPScope::PredDefInfo *DI = S->getDefInfo(MBB);
@@ -919,7 +1276,8 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
       insertDefToRegLoc(
           *SrcMBB, loc, use_preg, Cond,
           R.Scope->getNumDefEdges(pred) > 1, // isMultiDef
-          R.isFirstDef(&Node, pred)           // isFirstDef
+          R.isFirstDef(&Node, pred),         // isFirstDef
+          S->isSubHeader(&Node)              // isExitEdgeDef
           );
     } else {
       // assert(there exists an inner R s.t. R.needsScopeSpill());
@@ -930,30 +1288,24 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
       unsigned slot = RI.Scope->getDepth()-1;
 
       // set a bit in the appropriate S0 spill slot
-      insertDefToS0SpillSlot(
-        *SrcMBB, slot, loc, use_preg, Cond,
-        R.isFirstDef(&Node, pred)
-        );
+      insertDefToS0SpillSlot(*SrcMBB, slot, loc, use_preg, Cond);
     }
   } else {
-    insertDefToStackLoc(
-        *SrcMBB, loc, use_preg, Cond,
-        R.isFirstDef(&Node, pred)
-        );
+    insertDefToStackLoc(*SrcMBB, loc, use_preg, Cond);
   }
 }
 
 void PatmosSPReduce::
 insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
                   const SmallVectorImpl<MachineOperand> &Cond,
-                  bool isMultiDef, bool isFirstDef) {
+                  bool isMultiDef, bool isFirstDef, bool isExitEdgeDef) {
 
   // insert the predicate definitions before any branch at the MBB end
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
   DebugLoc DL(MI->getDebugLoc());
 
   MachineInstr *DefMI;
-  if (isMultiDef && !isFirstDef) {
+  if (isExitEdgeDef || (isMultiDef && !isFirstDef)) {
     DefMI = BuildMI(MBB, MI, DL,
         TII->get(Patmos::PMOV), AvailPredRegs[regloc])
       .addReg(guard).addImm(0) // guard operand
@@ -965,7 +1317,6 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
           TII->get(Patmos::PAND), AvailPredRegs[regloc]))
       .addReg(guard).addImm(0) // current guard as source
       .addOperand(Cond[0]).addOperand(Cond[1]); // condition
-    UnconditionalInsertedInsts.insert(DefMI);
     InsertedInstrs++; // STATISTIC
   }
 
@@ -977,52 +1328,32 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
 
 void PatmosSPReduce::
 insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
-                    const SmallVectorImpl<MachineOperand> &Cond,
-                    bool isFirstDef) {
+                    const SmallVectorImpl<MachineOperand> &Cond) {
 
   // insert the predicate definitions before any branch at the MBB end
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
   DebugLoc DL(MI->getDebugLoc());
 
   // The definition location of the predicate is a spill location.
-  int fi = PMFI->getSinglePathExcessSpillFI(stloc / 32);
+  int fi; unsigned bitpos;
+  getStackLocPair(fi, bitpos, stloc);
   unsigned tmpReg = GuardsReg;
-  unsigned bitpos = stloc % 32;
-  MachineInstr *UncondInst;
 
   // load from stack slot
   AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::LWC), tmpReg))
     .addFrameIndex(fi).addImm(0); // address
 
 #ifdef USE_BCOPY
-  // clear bit on first definition (unconditionally)
-  if (isFirstDef) {
-    // bcopy R, bitpos, !P0
-    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
-          TII->get(Patmos::BCOPY), tmpReg))
-      .addReg(tmpReg)
-      .addImm(bitpos)
-      .addReg(Patmos::P0).addImm(-1);
-    UnconditionalInsertedInsts.insert(UncondInst);
-    InsertedInstrs++; // STATISTIC
-  }
   // (guard) bcopy R, bitpos, Cond
   BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg)
     .addReg(guard).addImm(0) // guard
     .addReg(tmpReg)
     .addImm(bitpos)
     .addOperand(Cond[0]).addOperand(Cond[1]); // condition
+  InsertedInstrs++; // STATISTIC
 #else
   // clear bit on first definition (unconditionally)
   uint32_t or_bitmask = 1 << bitpos;
-  if (isFirstDef) {
-    // R &= ~(1 << loc)
-    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
-          TII->get(Patmos::ANDl), tmpReg))
-      .addReg(tmpReg).addImm( ~or_bitmask );
-    UnconditionalInsertedInsts.insert(UncondInst);
-    InsertedInstrs++; // STATISTIC
-  }
   // compute combined predicate (guard && condition)
   AddDefaultPred(BuildMI(MBB, MI, DL,
         TII->get(Patmos::PAND), PRTmp))
@@ -1035,20 +1366,20 @@ insertDefToStackLoc(MachineBasicBlock &MBB, unsigned stloc, unsigned guard,
     .addReg(PRTmp).addImm(0) // if (guard && cond) == true
     .addReg(tmpReg)
     .addImm(or_bitmask);
+  InsertedInstrs += 2; // STATISTIC
 #endif
   // store back to stack slot
   AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SWC)))
     .addFrameIndex(fi).addImm(0) // address
     .addReg(tmpReg, RegState::Kill);
-  InsertedInstrs += 4; // STATISTIC
+  InsertedInstrs += 2; // STATISTIC
 }
 
 
 void PatmosSPReduce::
 insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
                        unsigned guard,
-                       const SmallVectorImpl<MachineOperand> &Cond,
-                       bool isFirstDef) {
+                       const SmallVectorImpl<MachineOperand> &Cond) {
 
   // insert the predicate definitions before any branch at the MBB end
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
@@ -1057,26 +1388,14 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
   int fi = PMFI->getSinglePathS0SpillFI(slot);
   unsigned tmpReg = GuardsReg;
   int bitpos = TRI->getS0Index(AvailPredRegs[regloc]);
-  MachineInstr *UncondInst;
   assert(bitpos > 0);
 
   // load from stack slot
-  AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::LBC), tmpReg))
+  AddDefaultPred(BuildMI(MBB, MI, DL,
+        TII->get(Patmos::LBC), tmpReg))
     .addFrameIndex(fi).addImm(0); // address
-  InsertedInstrs++; // STATISTIC
 
 #ifdef USE_BCOPY
-  // clear bit on first definition (unconditionally)
-  if (isFirstDef) {
-    // bcopy R, bitpos, !P0
-    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
-          TII->get(Patmos::BCOPY), tmpReg))
-      .addReg(tmpReg)
-      .addImm(bitpos)
-      .addReg(Patmos::P0).addImm(-1);
-    UnconditionalInsertedInsts.insert(UncondInst);
-    InsertedInstrs++; // STATISTIC
-  }
   // (guard) bcopy R, bitpos, Cond
   BuildMI(MBB, MI, DL, TII->get(Patmos::BCOPY), tmpReg)
     .addReg(guard).addImm(0) // guard
@@ -1085,37 +1404,26 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
     .addOperand(Cond[0]).addOperand(Cond[1]); // condition
   InsertedInstrs++; // STATISTIC
 #else
-  // clear bit on first definition (unconditionally)
   uint32_t or_bitmask = 1 << bitpos;
-  if (isFirstDef) {
-    // R &= ~(1 << loc)
-    UncondInst = AddDefaultPred(BuildMI(MBB, MI, DL,
-          TII->get(Patmos::ANDl), tmpReg))
-      .addReg(tmpReg).addImm( ~or_bitmask );
-    UnconditionalInsertedInsts.insert(UncondInst);
-    InsertedInstrs++; // STATISTIC
-  }
   // compute combined predicate (guard && condition)
   AddDefaultPred(BuildMI(MBB, MI, DL,
         TII->get(Patmos::PAND), PRTmp))
     .addReg(guard).addImm(0) // guard
     .addOperand(Cond[0]).addOperand(Cond[1]); // condition
-  InsertedInstrs++; // STATISTIC
   // set bit
   // if (guard && cond) R |= (1 << loc)
-  unsigned or_opcode = (isUInt<12>(or_bitmask)) ? Patmos::ORi : Patmos::ORl;
-  assert(or_opcode == Patmos::ORi); // for S0 indexing
-  BuildMI(MBB, MI, DL, TII->get(or_opcode), tmpReg)
+  assert(isUInt<12>(or_bitmask);
+  BuildMI(MBB, MI, DL, TII->get(Patmos::ORi), tmpReg)
     .addReg(PRTmp).addImm(0) // if (guard && cond) == true
     .addReg(tmpReg)
     .addImm(or_bitmask);
-  InsertedInstrs++; // STATISTIC
+  InsertedInstrs += 2; // STATISTIC
 #endif
   // store back to stack slot
   AddDefaultPred(BuildMI(MBB, MI, DL, TII->get(Patmos::SBC)))
     .addFrameIndex(fi).addImm(0) // address
     .addReg(tmpReg, RegState::Kill);
-  InsertedInstrs++; // STATISTIC
+  InsertedInstrs += 2; // STATISTIC
 }
 
 
@@ -1171,9 +1479,13 @@ void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
 
 
 void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
-  DEBUG( dbgs() << " Applying predicates to MBBs\n" );
+  DEBUG( dbgs() << " Applying predicates in [MBB#"
+                << S->getHeader()->getNumber() << "]\n");
 
   const RAInfo &R = RAInfos.at(S);
+
+  // Predicate the instructions of blocks in S, also inserting spill/load
+  // of predicates not in registers.
 
   // for each MBB
   for (SPScope::iterator I=S->begin(), E=S->end(); I!=E; ++I) {
@@ -1215,10 +1527,6 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           DEBUG_TRACE(dbgs() << "    skip return info (re-)storing: " << *MI);
           continue;
       }
-      if (UnconditionalInsertedInsts.count(MI)) {
-          DEBUG_TRACE(dbgs() << "    skip unconditional inserted: " << *MI);
-          continue;
-      }
 
       if (MI->isCall()) {
           DEBUG_TRACE( dbgs() << "    call: " << *MI );
@@ -1258,7 +1566,6 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
         } else {
           DEBUG_TRACE( dbgs() << "    in MBB#" << MBB->getNumber()
                         << ": instruction already predicated: " << *MI );
-          // TODO FIXME lookup and skip an explicit unconditional instruction
           // read out the predicate
           int i = MI->findFirstPredOperandIdx();
           assert(i != -1);
@@ -1310,6 +1617,14 @@ unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
   return (getP0) ? Patmos::P0 : Patmos::NoRegister;
 }
 
+
+void PatmosSPReduce::getStackLocPair(int &fi, unsigned &bitpos,
+                                     const unsigned stloc) const {
+  fi = PMFI->getSinglePathExcessSpillFI(stloc / 32);
+  bitpos = stloc % 32;
+}
+
+
 void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
                                         MachineBasicBlock *MBB) {
 
@@ -1329,23 +1644,24 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
 
     // insert spill code
     if (spill != -1) {
-      int fi = PMFI->getSinglePathExcessSpillFI(spill/32);
+      int fi; unsigned bitpos;
+      getStackLocPair(fi, bitpos, spill);
       // load from stack slot
-      AddDefaultPred(BuildMI(*MBB, firstMI, DL, TII->get(Patmos::LWC),
-            GuardsReg))
+      AddDefaultPred(BuildMI(*MBB, firstMI, DL,
+            TII->get(Patmos::LWC), GuardsReg))
         .addFrameIndex(fi).addImm(0); // address
       // set/clear bit
 #ifdef USE_BCOPY
       // (guard) bcopy R, (spill%32), use_preg
-      AddDefaultPred(BuildMI(*MBB, firstMI, DL, TII->get(Patmos::BCOPY),
-            GuardsReg))
+      AddDefaultPred(BuildMI(*MBB, firstMI, DL,
+            TII->get(Patmos::BCOPY), GuardsReg))
         .addReg(GuardsReg)
-        .addImm(spill % 32)
+        .addImm(bitpos)
         .addReg(use_preg).addImm(0); // condition
       InsertedInstrs++; // STATISTIC
 #else
       // if (guard) R |= (1 << spill)
-      uint32_t or_bitmask = 1 << (spill%32);
+      uint32_t or_bitmask = 1 << bitpos;
       unsigned or_opcode = (isUInt<12>(or_bitmask))? Patmos::ORi : Patmos::ORl;
       BuildMI(*MBB, firstMI, DL, TII->get(or_opcode), GuardsReg)
         .addReg(use_preg).addImm(0) // if guard == true
@@ -1377,14 +1693,15 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
                                          int loc, unsigned target_preg) {
   assert(loc != -1);
   DebugLoc DL;
-  int fi = PMFI->getSinglePathExcessSpillFI(loc/32);
+  int fi; unsigned bitpos;
+  getStackLocPair(fi, bitpos, loc);
   // load from stack slot
   AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::LWC), GuardsReg))
     .addFrameIndex(fi).addImm(0); // address
   // test bit
   // BTESTI $Guards, loc
-  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::BTESTI),
-        target_preg)).addReg(GuardsReg, RegState::Kill).addImm(loc%32);
+  AddDefaultPred(BuildMI(*MBB, MI, DL, TII->get(Patmos::BTESTI), target_preg))
+    .addReg(GuardsReg, RegState::Kill).addImm(bitpos);
   InsertedInstrs += 2; // STATISTIC
 }
 
@@ -1443,6 +1760,8 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
 
 void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
   DEBUG( dbgs() << "Collect return info insts\n" );
+
+  ReturnInfoInsts.clear();
 
   SmallSet<unsigned, 4> SpecialRegs;
   SpecialRegs.insert(Patmos::SRB);
@@ -1549,108 +1868,6 @@ void PatmosSPReduce::getLoopLiveOutPRegs(const SPScope *S,
 }
 
 
-bool PatmosSPReduce::isUncondLoadToGuardsReg(const MachineInstr *MI, int &fi) {
-  if ((MI->getOpcode() == Patmos::LBC || MI->getOpcode() == Patmos::LWC)
-      && MI->getOperand(0).getReg() == GuardsReg
-      && (MI->getOperand(1).getReg() == Patmos::NoRegister ||
-          MI->getOperand(1).getReg() == Patmos::P0)
-      && MI->getOperand(2).getImm() == 0) {
-    fi = MI->getOperand(3).getIndex();
-    return true;
-  }
-  return false;
-}
-
-bool PatmosSPReduce::isUncondStoreOfGuardsReg(const MachineInstr *MI,
-                                              int &fi) {
-  if ((MI->getOpcode() == Patmos::SBC || MI->getOpcode() == Patmos::SWC)
-      && MI->getOperand(4).getReg() == GuardsReg
-      && (MI->getOperand(0).getReg() == Patmos::NoRegister ||
-          MI->getOperand(0).getReg() == Patmos::P0)
-      && MI->getOperand(1).getImm() == 0) {
-    fi = MI->getOperand(2).getIndex();
-    return true;
-  }
-  return false;
-}
-
-void PatmosSPReduce::eliminateRedundantLoadStores(MachineFunction &MF) {
-  DEBUG( dbgs() << "Eliminate redundant loads/stores to " <<
-      TRI->getName(GuardsReg) << "\n" );
-
-  // for now, we consider each MBB separately (peephole optimization)
-  // might turn this into a data-flow optimization eventually
-  for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
-      MBB != MBBe; ++MBB) {
-
-    std::vector<MachineInstr *> removables;
-    int lastSlot = -1;
-    MachineInstr *lastKill = NULL;
-
-    DEBUG(dbgs() << " [MBB#" << MBB->getNumber() << "]\n");
-
-    // For redundant loads, we check if two subsequent loads source the
-    // same location. If so, we can remove the latter one.
-    lastSlot = -1;
-    for (MachineBasicBlock::iterator MI = MBB->begin(), MIe = MBB->end();
-        MI != MIe; ++MI) {
-      // check for unconditional load to GuardsReg
-      int fi;
-      if (isUncondLoadToGuardsReg(&*MI, fi)) {
-        if (lastSlot == fi) {
-          removables.push_back(&*MI);
-          if (lastKill != NULL) {
-            lastKill->clearRegisterKills(GuardsReg, TRI);
-          }
-        }
-        lastSlot = fi;
-        lastKill = NULL;
-        continue;
-      } // end load
-
-      // we store the last kill of GuardsReg, because we have to clear it
-      // in case we extend the live-range
-      if (MI->killsRegister(GuardsReg, TRI)) {
-        lastKill = MI;
-        continue;
-      }
-    }
-
-    // We scan backward through the MBB to find redundant stores of the
-    // GuardsReg. If a store is to the same location as a previous (later)
-    // store, we can eliminate it, provided that there is no load of a
-    // different location between the stores.
-    lastSlot = -1;
-    for (MachineBasicBlock::reverse_iterator MI = MBB->rbegin(),
-        MIe = MBB->rend(); MI != MIe; ++MI) {
-      int fi;
-      // check whether a store targets the same location as a previous one
-      if (isUncondStoreOfGuardsReg(&*MI, fi)) {
-        if (lastSlot == fi) {
-          removables.push_back(&*MI);
-        }
-        lastSlot = fi;
-        continue;
-      }
-      // check if there is a load to a different location between
-      if (isUncondLoadToGuardsReg(&*MI, fi)) {
-        if (lastSlot != fi) {
-          lastSlot = -1; // reset
-        }
-        continue;
-      }
-    }
-
-    // batch remove instructions from MBB
-    unsigned elimcount = removables.size();
-    ElimLdSt += elimcount; // STATISTIC
-    for (unsigned i = 0; i < elimcount; i++) {
-      DEBUG(dbgs() << "  " << *removables[i]);
-      removables[i]->eraseFromParent();
-    }
-  }
-}
-
 
 ///////////////////////////////////////////////////////////////////////////////
 //  RAInfo methods
@@ -1735,7 +1952,12 @@ void RAInfo::assignLocations(void) {
             unsigned furthestPred = order.back();
             int stackLoc = getLoc(); // new stack loc
             assert( stackLoc >= (int)NumColors );
-            freeLoc( curUseLoc );
+            // Do not free the stack location, as it would require
+            // re-initialization with 0. I assume, batch initialization with
+            // masks in the header are cheaper than an additional instruction
+            // before the first definition (provided there are more than one
+            // stack locations for predicates).
+            //freeLoc(curUseLoc); // <-- we don't do this!
             UL.load  = curUseLoc;
             UL.loc   = curLocs[furthestPred];
             // differentiate between already used and not yet used
@@ -1889,27 +2111,34 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
   MF.push_back(PrehdrMBB);
 
+  const SPScope *SParent = S->getParent();
+
+  const MachineBasicBlock *HeaderMBB = S->getHeader();
 
   const RAInfo &RI = Pass.RAInfos.at(S),
-               &RP = Pass.RAInfos.at(S->getParent());
+               &RP = Pass.RAInfos.at(SParent);
 
   DebugLoc DL;
+
   if (RI.needsScopeSpill()) {
-    // we create a SBC instruction here; TRI->eliminateFrameIndex() will
-    // convert it to a stack cache access, if the stack cache is enabled.
-    int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth()-1);
-    unsigned tmpReg = Pass.GuardsReg;
+    // load the predicate registers to GuardsReg, and store them to the
+    // allocated stack slot for this scope depth.
+    int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
     Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
-        tmpReg, Patmos::S0, false);
+        Pass.GuardsReg, Patmos::S0, false);
+    // we insert a dummy load for the RedundantLdStEliminator
+    MachineInstr *Dummy = AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(),
+          DL, Pass.TII->get(Patmos::LBC), Pass.GuardsReg))
+          .addFrameIndex(fi).addImm(0); // address
+    Pass.GuardsLdStElim->addRemovableInst(Dummy);
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::SBC)))
       .addFrameIndex(fi).addImm(0) // address
-      .addReg(tmpReg, RegState::Kill);
-    InsertedInstrs += 2; // STATISTIC
+      .addReg(Pass.GuardsReg, RegState::Kill);
+    InsertedInstrs += 3; // STATISTIC
   }
 
   // copy/load the header predicate for the subloop
-  const MachineBasicBlock *HeaderMBB = S->getHeader();
   int loadloc = RP.getLoadLoc(HeaderMBB);
   unsigned inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
   if (loadloc != -1) {
@@ -1927,10 +2156,72 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     }
   }
 
+  // Insert initialization code in the preheader for predicates that are
+  // defined in a register location by exit-edges of the entered subscope.
+  // The subscope is represented by the header.
+  // NB: We need to do this after copying the header predicate, as the
+  //     predicate might retire, be reused for exit edge defs and the
+  //     initialization code would clear the header predicate before ever
+  //     used in the subloop
+  const SPScope::PredDefInfo *DI = SParent->getDefInfo(HeaderMBB);
+  if (DI) {
+    DEBUG(dbgs() << "  (reg loc first defined in subscope: ");
+
+    std::vector<unsigned> defregs;
+    // for each definition edge
+    for (SPScope::PredDefInfo::iterator di = DI->begin(), de = DI->end();
+        di != de; ++di) {
+      unsigned loc, pred = di->first;
+      if (RP.getDefLoc(loc, pred)) {
+        // pred is defined in a register; we only need initialisation code if
+        // it is defined in the subscope as first definition
+        if (RP.isFirstDef(HeaderMBB, pred)) {
+          unsigned reg = Pass.AvailPredRegs[loc];
+          defregs.push_back(reg);
+          DEBUG(dbgs() << Pass.TRI->getName(reg) << ", ");
+        }
+      }
+    }
+    DEBUG(dbgs() << ")\n");
+
+    // insert the instructions
+    if (RI.needsScopeSpill()) {
+      uint32_t mask = 0;
+      for (unsigned i = 0; i < defregs.size(); i++) {
+        mask |= (1 << Pass.TRI->getS0Index(defregs[i]));
+      }
+      assert(isUInt<12>(mask));
+
+      int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
+      // load from stack slot
+      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+            Pass.TII->get(Patmos::LBC), Pass.GuardsReg))
+        .addFrameIndex(fi).addImm(0); // address
+      // mask out the initialization bits
+      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+          Pass.TII->get(Patmos::ANDl), Pass.GuardsReg))
+      .addReg(Pass.GuardsReg)
+      .addImm(~mask);
+      // store back to stack slot
+      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+            Pass.TII->get(Patmos::SBC)))
+        .addFrameIndex(fi).addImm(0) // address
+        .addReg(Pass.GuardsReg, RegState::Kill);
+      InsertedInstrs += 3; // STATISTIC
+    } else {
+      for (unsigned i = 0; i < defregs.size(); i++) {
+        AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+              Pass.TII->get(Patmos::PCLR), defregs[i]));
+        InsertedInstrs++; // STATISTIC
+      }
+    }
+  } // end if (DI)
+
+
   // Initialize the loop bound and store it to the stack slot
   if (S->hasLoopBound()) {
     unsigned tmpReg = Pass.GuardsReg;
-    int loop = S->getLoopBound();
+    uint32_t loop = S->getLoopBound();
     // Create an instruction to load the loop bound
     // TODO try to find an unused register
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
@@ -1938,7 +2229,13 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
           tmpReg))
       .addImm(loop); // the loop bound
 
-    int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
+    int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth()-1);
+    // we insert a dummy load for the RedundantLdStEliminator
+    MachineInstr *Dummy = AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(),
+          DL, Pass.TII->get(Patmos::LWC), Pass.GuardsReg))
+          .addFrameIndex(fi).addImm(0); // address
+    Pass.GuardsLdStElim->addRemovableInst(Dummy);
+    // store the initialized loop bound to its stack slot
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
@@ -1987,7 +2284,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // load the loop counter, decrement it by one, and if it is not (yet)
     // zero, we enter the loop again.
     // TODO is the loop counter in a register?!
-    int fi = Pass.PMFI->getSinglePathLoopCntFI(RI.getLoopCntOffset());
+    int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth() - 1);
     unsigned tmpReg = Pass.GuardsReg;
     AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
             Pass.TII->get(Patmos::LWC), tmpReg))
@@ -2000,7 +2297,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // compare with 0, PRTmp as predicate register
     branch_preg = Pass.PRTmp;
     AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
-            Pass.TII->get(Patmos::CMPNEQ), branch_preg))
+            Pass.TII->get(Patmos::CMPLT), branch_preg))
       .addReg(Patmos::R0).addReg(tmpReg);
     // store back
     AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
@@ -2014,6 +2311,18 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   }
   // insert branch to header
   assert(branch_preg != Patmos::NoRegister);
+
+#ifdef BOUND_UNDEREST_PROTECTION
+  if (branch_preg != header_preg) {
+    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+          Pass.TII->get(Patmos::POR), branch_preg))
+      .addReg(branch_preg).addImm(0)
+      .addReg(header_preg).addImm(0);
+    InsertedInstrs++; // STATISTIC
+  }
+#endif
+
+  // branch condition: not(<= zero)
   BuildMI(*BranchMBB, BranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
     .addReg(branch_preg).addImm(0)
     .addMBB(HeaderMBB);

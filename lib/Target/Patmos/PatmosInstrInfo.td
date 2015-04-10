@@ -276,7 +276,7 @@ def PSEUDO_PREG_RELOAD : PseudoInst<(outs PRegs:$pd),
 
 def PSEUDO_LOOPBOUND : PseudoInst<(outs), (ins i32imm:$minv, i32imm:$maxv),
                           "#PSEUDO_LOOPBOUND", "[$minv,$maxv]",
-                          [(loopbound (blockaddress ), (i32 imm:$minv), (i32 imm:$maxv))]>;
+                          [(loopbound (i32 imm:$minv), (i32 imm:$maxv))]>;
 
 
 
