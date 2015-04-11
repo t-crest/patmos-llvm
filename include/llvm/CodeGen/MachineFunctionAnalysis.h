@@ -41,9 +41,8 @@ private:
   unsigned NextFnNum;
 public:
   static char ID;
-  MachineFunctionAnalysis();
-  MachineFunctionAnalysis(const TargetMachine &tm);
-  ~MachineFunctionAnalysis();
+  explicit MachineFunctionAnalysis(const TargetMachine &tm);
+  ~MachineFunctionAnalysis() override;
 
   /// preserveMF - Indicate that the MachineFunction should be preserved even
   /// after this MachineFunctionAnalysis instance has been freed.

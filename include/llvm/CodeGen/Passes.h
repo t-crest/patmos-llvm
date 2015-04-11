@@ -127,7 +127,7 @@ public:
   // Dummy constructor.
   TargetPassConfig();
 
-  virtual ~TargetPassConfig();
+  ~TargetPassConfig() override;
 
   static char ID;
 

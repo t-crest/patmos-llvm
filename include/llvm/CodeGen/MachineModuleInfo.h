@@ -204,8 +204,9 @@ public:
 
   MachineModuleInfo();  // DUMMY CONSTRUCTOR, DO NOT CALL.
   // Real constructor.
-  MachineModuleInfo(const TargetMachine &TM);
-  ~MachineModuleInfo();
+  MachineModuleInfo(const MCAsmInfo &MAI, const MCRegisterInfo &MRI,
+                    const MCObjectFileInfo *MOFI);
+  ~MachineModuleInfo() override;
 
   // Initialization and Finalization
   bool doInitialization(Module &) override;
