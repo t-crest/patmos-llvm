@@ -30,6 +30,8 @@ INITIALIZE_PASS(PatmosCallGraphBuilder, "patmos-mcg",
 namespace llvm {
   char PatmosCallGraphBuilder::ID = 0;
 
+  const char *MCallGraph::EntrySymbol = "_start";
+
   //----------------------------------------------------------------------------
 
   MCGSite *MCGNode::findSite(const MachineInstr *MI) const
@@ -446,23 +448,6 @@ namespace llvm {
     }
   }
 
-  MCGNode *PatmosCallGraphBuilder::getMCGNode(const Module &M, const char *name)
-  {
-    Function *F = dyn_cast_or_null<Function>(M.getNamedValue(name));
-    if (F) {
-      // get the machine-level module information for M.
-      MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
-
-      // get the MachineFunction
-      MachineFunction *MF = MMI.getMachineFunction(F);
-
-      if (MF)
-        return MCG.makeMCGNode(MF);
-    }
-
-    return NULL;
-  }
-
   void PatmosCallGraphBuilder::markLive_(MCGNode *N)
   {
     // skip nodes that have been visited before
@@ -510,15 +495,16 @@ namespace llvm {
         // represent external callers
         const Function *F = MF->getFunction();
         Type *T = F ? F->getType() : NULL;
-        if (i->hasAddressTaken()) {
+        if (i->hasAddressTaken() && F->getName() != MCallGraph::EntrySymbol) {
           MCG.makeMCGSite(MCG.getUnknownNode(T), NULL, MCGN);
         }
       }
     }
 
     // discover live/dead functions
-    markLive(getMCGNode(M, "_start"));
-    markLive(getMCGNode(M, "main"));
+    MCGNode *entry = MCG.getEntryNode();
+    if (entry)
+      markLive(entry);
 
     // Mark live nodes to be within SCCs (loops or recursion)
     MCG.markNodesInSCC();

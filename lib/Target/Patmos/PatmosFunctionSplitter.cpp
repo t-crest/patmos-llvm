@@ -2303,8 +2303,7 @@ namespace llvm {
     /// PatmosFunctionSplitter - Create a new instance of the function splitter.
     PatmosFunctionSplitter(PatmosTargetMachine &tm) :
       MachineFunctionPass(ID), PTM(tm),
-      STC(tm.getSubtarget<PatmosSubtarget>())
-    {
+      STC(tm.getSubtarget<PatmosSubtarget>()) {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
 
@@ -2339,7 +2338,7 @@ namespace llvm {
         return false;
 
       PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
-      MCGNode *MCGN = PCGB.getMCGNode(&MF);
+      MCGNode *MCGN = PCGB.getNode(&MF);
       bool isFunctionInSCC = MCGN->isInSCC();
 
       unsigned max_subfunc_size   = MaxSubfunctionSize  ? MaxSubfunctionSize

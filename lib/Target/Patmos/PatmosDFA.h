@@ -315,7 +315,7 @@ namespace llvm {
             if (C->empty() || !C->back()->getMI()) {
               // ok, no context information available. so, the call site cannot
               // be extracted from the context.
-              const MCGNode *N = PCGB->getMCGNode(MF);
+              const MCGNode *N = PCGB->getNode(MF);
               assert(N);
 
               addReturnSuccessorLocations(N, *i, LOCs);
@@ -390,7 +390,7 @@ namespace llvm {
         LOCs.insert(PatmosDFALocation(C, MI));
       else {
         // get call sites associated with the instruction
-        MCGSites CSs(PCGB->getMCGSites(MI));
+        MCGSites CSs(PCGB->getSites(MI));
         assert(!CSs.empty());
 
         // create new contexts for each call site
@@ -467,7 +467,7 @@ namespace llvm {
               // instruction (call sites from UNKNOWN nodes). We cannot extract
               // the call site from the context. Instead, check all call sites
               // leading to the current function.
-              const MCGNode *N = PCGB->getMCGNode(MF);
+              const MCGNode *N = PCGB->getNode(MF);
               assert(N);
 
               addEntryPredecessorLocations(N, *i, result);
@@ -511,7 +511,7 @@ namespace llvm {
       // find the immediate successor of the location.
       if (MI->isCall() && isInterprocedural()) {
         // get call sites associated with the instruction
-        MCGSites CSs(PCGB->getMCGSites(MI));
+        MCGSites CSs(PCGB->getSites(MI));
         assert(!CSs.empty());
 
         // create new contexts for each call site

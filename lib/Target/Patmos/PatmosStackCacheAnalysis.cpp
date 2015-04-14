@@ -2096,33 +2096,36 @@ namespace llvm {
     {
       PatmosCallGraphBuilder &PCGB(getAnalysis<PatmosCallGraphBuilder>());
       const MCallGraph &G(*PCGB.getCallGraph());
-      MCGNode *main = PCGB.getMCGNode(M, "main");
+      MCGNode *entry = PCGB.getEntryNode();
 
-      // find out whether a call free path exists in each function
-      checkCallFreePaths(G);
+      if (entry) {
+        // find out whether a call free path exists in each function
+        checkCallFreePaths(G);
 
-      // find the amount of live stack content after each ensure instruction
-      propagateLiveArea(G);
+        // find the amount of live stack content after each ensure instruction
+        propagateLiveArea(G);
 
-      // compute call-graph-level information on maximal stack cache occupancy
-      computeMinMaxOccupancy(G, true);
+        // compute call-graph-level information on maximal stack cache occupancy
+        computeMinMaxOccupancy(G, true);
 
-      // compute ensure behavior and optionally remove useless SENS instructions
-      analyzeEnsures(G);
+        // compute ensure behavior and optionally remove useless SENS instructions
+        analyzeEnsures(G);
 
-      // compute call-graph-level information on minimal stack cache occupancy
-      computeMinMaxOccupancy(G, false);
+        // compute call-graph-level information on minimal stack cache occupancy
+        computeMinMaxOccupancy(G, false);
 
-      // propagate the worst-case stack occupancy at call sites locally within 
-      // functions, assuming a full stack cache at function entry.
-      propagateWorstCaseOccupancyAtSite(G);
+        // propagate the worst-case stack occupancy at call sites locally within
+        // functions, assuming a full stack cache at function entry.
+        propagateWorstCaseOccupancyAtSite(G);
 
-      // propagate the maximum stack occupancy on the call graph and analyze 
-      // the worst-case spilling at reserves.
-      propagateMaxOccupancy(G, main);
+        // propagate the maximum stack occupancy on the call graph and analyze
+        // the worst-case spilling at reserves.
+        propagateMaxOccupancy(G, entry);
 
-      if (!SCAPMLExport.empty())
-        exportPML(G, SCAGraph);
+
+        if (!SCAPMLExport.empty())
+          exportPML(G, SCAGraph);
+      }
 
       return false;
     }

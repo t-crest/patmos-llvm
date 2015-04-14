@@ -214,7 +214,11 @@ namespace llvm {
     friend struct GraphTraits<MCallGraph>;
     friend struct DOTGraphTraits<MCallGraph>;
     friend class PatmosCallGraphBuilder;
+    friend class MCallSubGraph;
   private:
+    /// Name of the program's entry function
+    static const char *EntrySymbol;
+
     /// The graph's nodes.
     MCGNodes Nodes;
 
@@ -254,6 +258,24 @@ namespace llvm {
     MCGSites &getSites()
     {
       return Sites;
+    }
+
+    /// getMCGNode - Return the call graph node of the function with the given
+    /// name.
+    MCGNode *getEntryNode() const {
+      return getNode(EntrySymbol);
+    }
+
+     /// getMCGNode - Return the call graph node of the function with the given
+     /// name.
+    MCGNode *getNode(const char *name) const {
+      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+          i++) {
+        if (!(*i)->isUnknown() &&
+            (*i)->getMF()->getFunction()->getName() == name)
+          return *i;
+      }
+      return NULL;
     }
 
     /// makeMCGNode - Return a call graph node for the MachineFunction. The node
@@ -299,6 +321,24 @@ namespace llvm {
       return std::find(Nodes.begin(), Nodes.end(), N) == Nodes.end();
     }
 
+    /// getMCGNode - Return the call graph node of the function with the given
+    /// name.
+    MCGNode *getEntryNode() const {
+      return getNode(MCallGraph::EntrySymbol);
+    }
+
+     /// getMCGNode - Return the call graph node of the function with the given
+     /// name.
+    MCGNode *getNode(const char *name) const {
+      for(MCGNodes::const_iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
+          i++) {
+        if (!(*i)->isUnknown() &&
+            (*i)->getMF()->getFunction()->getName() == name)
+          return *i;
+      }
+      return NULL;
+    }
+
     /// view - show a DOT dump of the call graph.
     void view();
   };
@@ -310,50 +350,48 @@ namespace llvm {
     /// A call graph.
     MCallGraph MCG;
 
+    /// markLive_ - Mark the node and all its callees as live.
+    void markLive_(MCGNode *N);
+
+    /// markLive - Mark the node and all its callees as live.
+    void markLive(MCGNode *N);
   public:
     /// Pass ID
     static char ID;
 
-    PatmosCallGraphBuilder() : MachineModulePass(ID)
-    {
+    PatmosCallGraphBuilder() : MachineModulePass(ID) {
     }
 
     /// getAnalysisUsage - Inform the pass manager that nothing is modified
     /// here.
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const
-    {
+    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
       AU.addRequired<MachineModuleInfo>();
 
       ModulePass::getAnalysisUsage(AU);
     }
 
-    MCallGraph *getCallGraph()
-    {
+    MCallGraph *getCallGraph() {
       return &MCG;
     }
 
     /// getNodes - Return the graph's nodes.
-    const MCGNodes &getNodes() const
-    {
+    const MCGNodes &getNodes() const {
       return MCG.getNodes();
     }
 
     /// getNodes - Return the graph's nodes.
-    MCGNodes &getNodes()
-    {
+    MCGNodes &getNodes() {
       return MCG.getNodes();
     }
 
     /// getSites - Return the graph's call sites.
-    const MCGSites &getSites() const
-    {
+    const MCGSites &getSites() const {
       return MCG.getSites();
     }
 
     /// getSites - Return the graph's call sites.
-    MCGSites &getSites()
-    {
+    MCGSites &getSites() {
       return MCG.getSites();
     }
 
@@ -363,17 +401,12 @@ namespace llvm {
 
     /// getMCGNode - Return the call graph node of the function with the given
     /// name.
-    MCGNode *getMCGNode(const Module &M, const char *name);
-
-    /// getMCGNode - Return the call graph node of the given function.
-    MCGNode *getMCGNode(MachineFunction *MF)
-    {
-      return MCG.makeMCGNode(MF);
+    MCGNode *getEntryNode() const {
+      return MCG.getEntryNode();
     }
 
-     /// getMCGNode - Return the call graph node of the given function.
-    MCGNode *getMCGNode(const MachineFunction *MF)
-    {
+    /// getMCGNode - Return the call graph node of the given function.
+    MCGNode *getNode(const MachineFunction *MF) const {
       for(MCGNodes::const_iterator i(MCG.getNodes().begin()),
           ie(MCG.getNodes().end()); i != ie; i++) {
         if ((*i)->getMF() == MF)
@@ -383,10 +416,9 @@ namespace llvm {
     }
 
     /// getMCGNode - Return the call graph node of the given function.
-    MCGSites getMCGSites(const MachineInstr *MI)
-    {
+    MCGSites getSites(const MachineInstr *MI) {
       const MachineFunction *MF = MI->getParent()->getParent();
-      MCGNode *N = getMCGNode(MF);
+      MCGNode *N = getNode(MF);
 
       MCGSites result;
       for(MCGSites::const_iterator i(N->getSites().begin()),
@@ -397,12 +429,6 @@ namespace llvm {
 
       return result;
     }
-
-    /// markLive_ - Mark the node and all its callees as live.
-    void markLive_(MCGNode *N);
-
-    /// markLive - Mark the node and all its callees as live.
-    void markLive(MCGNode *N);
 
     /// runOnModule - Construct a simple machine-level call graph from the given
     /// module.
@@ -477,13 +503,7 @@ namespace llvm {
     }
 
     static NodeType *getEntryNode(const MCallGraph &G) {
-      for(MCGNodes::const_iterator i(G.Nodes.begin()), ie(G.Nodes.end());
-          i != ie; i++) {
-        if ((*i)->getMF() && (*i)->getMF()->getFunction()->getName() == "main")
-          return *i;
-      }
-
-      return G.Nodes.front();
+      return G.getEntryNode() ? G.getEntryNode() : G.Nodes.front();
     }
 
     // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
@@ -609,13 +629,7 @@ namespace llvm {
     }
 
     static NodeType *getEntryNode(const MCallSubGraph &G) {
-      for(MCGNodes::const_iterator i(G.Nodes.begin()), ie(G.Nodes.end());
-          i != ie; i++) {
-        if ((*i)->getMF() && (*i)->getMF()->getFunction()->getName() == "main")
-          return *i;
-      }
-
-      return G.Nodes.front();
+      return G.getEntryNode() ? G.getEntryNode() : G.Nodes.front();
     }
 
     // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
