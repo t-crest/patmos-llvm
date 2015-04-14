@@ -143,7 +143,7 @@ static MCContext *addPassesToGenerateCode(LLVMTargetMachine *TM,
 }
 
 bool LLVMTargetMachine::addPassesToEmitFile(
-    PassManagerBase &PM, raw_ostream &Out, CodeGenFileType FileType,
+    PassManagerBase &PM, raw_pwrite_stream &Out, CodeGenFileType FileType,
     bool DisableVerify, AnalysisID StartAfter, AnalysisID StopAfter) {
   // Add common CodeGen passes.
   MCContext *Context = addPassesToGenerateCode(this, PM, DisableVerify,
@@ -229,9 +229,8 @@ bool LLVMTargetMachine::addPassesToEmitFile(
 /// code is not supported. It fills the MCContext Ctx pointer which can be
 /// used to build custom MCStreamer.
 ///
-bool LLVMTargetMachine::addPassesToEmitMC(PassManagerBase &PM,
-                                          MCContext *&Ctx,
-                                          raw_ostream &Out,
+bool LLVMTargetMachine::addPassesToEmitMC(PassManagerBase &PM, MCContext *&Ctx,
+                                          raw_pwrite_stream &Out,
                                           bool DisableVerify) {
   // Add common CodeGen passes.
   Ctx = addPassesToGenerateCode(this, PM, DisableVerify, nullptr, nullptr);
