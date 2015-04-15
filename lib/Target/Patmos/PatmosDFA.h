@@ -97,15 +97,26 @@ namespace llvm {
     /// append - Append a new call site to a context.
     const PatmosDFAContext *append(const PatmosDFAContext *C,
                                    const MCGSite *S) {
-      // make
+      // reserve space for a new context
+      PatmosDFAContext tmp;
+
       if (MaxDepth == 0) {
+        // just return the default context when context-depth is 0
         if (CallingContexts[C].empty())
           CallingContexts[C].push_back(C);
         return getDefaultContext();
       }
 
-      // make a new context sequence
-      PatmosDFAContext tmp(++C->begin(), C->end());
+
+      if (C->front()) {
+        // maximum length reached?
+        tmp.insert(tmp.begin(), C->begin(), --C->end());
+      }
+      else {
+        // still space left?
+        tmp.insert(tmp.begin(), ++C->begin(), C->end());
+      }
+
       tmp.push_back(S);
       assert(tmp.size() == MaxDepth);
 
@@ -547,9 +558,7 @@ namespace llvm {
         // are not revisited. Leading to the problem.
         //
         // Thus simply add the immediate successors of the call here.
-        if (LOC.first->size() < 2) {
-          addImmSuccessorLocations(LOC, result);
-        }
+        addImmSuccessorLocations(LOC, result);
       }
       else
         addImmSuccessorLocations(LOC, result);
@@ -740,6 +749,13 @@ namespace llvm {
         }
 #endif // TRACE_SUCCS
 
+#ifdef TRACE_WORKLIST
+        dbgs() << "  OUT:";
+        llvm::dump(newLOC);
+        dbgs() << " => ";
+        D.dump();
+        dbgs() << "\n";
+#endif // TRACE_WORKLIST
       }
     }
 
