@@ -423,8 +423,8 @@ class FlowFactTransformation
           # because this is not supported by any of the WCET analyses
           r = ff.local? || ff.scope.function == target_analysis_entry
           unless r
-            warn("Skipping unsupported flow fact scope of transformed flow fact #{ff}: "+
-                 "(function: #{ff.scope.function}, local: #{ff.local?})")
+            debug(options, :transform) { "Skipping unsupported flow fact scope of transformed flow fact #{ff}: "+
+                 "(function: #{ff.scope.function}, local: #{ff.local?})" }
           end
           puts "Transformed flowfact #{ff}" if options.verbose
           r
@@ -635,6 +635,7 @@ class SymbolicBoundTransformation
       return nil
     end
     rg = @pml.relation_graphs.by_name(function.name, rg_src_level)
+    return nil if rg.status != 'valid'
 
     # Simple Strategy:
     # for all referenced blocks B (including the loop block and loops
