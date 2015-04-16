@@ -528,6 +528,7 @@ private
   def add_bitcode_variables(machine_function)
     return unless @pml.relation_graphs.has_named?(machine_function.name, :dst)
     rg = @pml.relation_graphs.by_name(machine_function.name, :dst)
+    return if rg.status != 'valid'
     bitcode_function = rg.get_function(:src)
     @bc_model.each_edge(bitcode_function) do |edge|
       @ilp.add_variable(edge, :bitcode)
@@ -569,6 +570,7 @@ private
   def add_bitcode_constraints(machine_function)
     return unless @pml.relation_graphs.has_named?(machine_function.name, :dst)
     rg = @pml.relation_graphs.by_name(machine_function.name, :dst)
+    return if rg.status != 'valid'
     bitcode_function = rg.get_function(:src)
     bitcode_function.blocks.each { |block|
       @bc_model.add_block_constraint(block)
