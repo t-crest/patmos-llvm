@@ -433,6 +433,9 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 
     // export loop information
     MachineLoop *Loop = MLI.getLoopFor(BB);
+    if (Loop && Loop->getHeader() == BB) {
+      exportLoopInfo(MF, YDoc, Loop);
+    }
     while (Loop) {
       B->Loops.push_back(yaml::Name(Loop->getHeader()->getNumber()));
       Loop = Loop->getParentLoop();

@@ -28,6 +28,8 @@
 
 namespace llvm {
 
+  class MachineLoop;
+
   /// Provides information about machine instructions, can be overloaded for
   /// specific targets.
   class PMLInstrInfo {
@@ -199,6 +201,9 @@ namespace llvm {
 
     virtual void exportSubfunctions(MachineFunction &MF,
                                     yaml::MachineFunction *PMF) { }
+    virtual void exportLoopInfo(MachineFunction &MF,
+                                yaml::PMLDoc &YDoc,
+                                MachineLoop *Loop) { }
   };
 
   class PMLRelationGraphExport : public PMLExport {
