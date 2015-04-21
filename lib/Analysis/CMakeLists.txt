@@ -29,6 +29,7 @@ add_llvm_library(LLVMAnalysis
   InstructionSimplify.cpp
   Interval.cpp
   IntervalPartition.cpp
+  IteratedDominanceFrontier.cpp
   LazyCallGraph.cpp
   LazyValueInfo.cpp
   LibCallAliasAnalysis.cpp
