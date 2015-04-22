@@ -2065,7 +2065,7 @@ TreePatternNode *TreePattern::ParseTreePattern(Init *TheInit, StringRef OpName){
   }
 
   // ?:$name or just $name.
-  if (TheInit == UnsetInit::get()) {
+  if (isa<UnsetInit>(TheInit)) {
     if (OpName.empty())
       error("'?' argument requires a name to match with operand list");
     TreePatternNode *Res = new TreePatternNode(TheInit, 1);
