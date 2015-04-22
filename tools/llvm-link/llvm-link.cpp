@@ -48,22 +48,10 @@ static cl::list<std::string>
 InputFilenames(cl::Positional, cl::OneOrMore,
                cl::desc("<input bitcode files>"));
 
-static cl::list<std::string>
-LibrarySearchPaths("L", cl::Prefix, cl::ZeroOrMore, 
-                   cl::desc("Library search paths"),
-                   cl::value_desc("dir"));
-
-static cl::alias
-LibrarySearchPathsA("-library-path", cl::desc("Alias for -L"),
-                    cl::value_desc("dir"), cl::aliasopt(LibrarySearchPaths));
-
-static cl::list<std::string>
-Libraries("l", cl::Prefix, cl::ZeroOrMore,
-          cl::desc("Libraries"), cl::value_desc("library"));
-
-static cl::alias
-LibrariesA("-library", cl::desc("Alias for -l"), cl::value_desc("library"),
-           cl::aliasopt(Libraries));
+static cl::list<std::string> OverridingInputs(
+    "override", cl::ZeroOrMore, cl::value_desc("filename"),
+    cl::desc(
+        "input bitcode file which can override previously defined symbol(s)"));
 
 static cl::opt<std::string>
 OutputFilename("o", cl::desc("Override output filename"), cl::init("-"),
@@ -135,7 +123,8 @@ static void diagnosticHandler(const DiagnosticInfo &DI) {
 }
 
 static bool linkFiles(const char *argv0, LLVMContext &Context, Linker &L,
-                      const cl::list<std::string> &Files) {
+                      const cl::list<std::string> &Files,
+                      bool OverrideDuplicateSymbols) {
   for (const auto &File : Files) {
     std::unique_ptr<Module> M = loadFile(argv0, File, Context);
     if (!M.get()) {
@@ -151,7 +140,7 @@ static bool linkFiles(const char *argv0, LLVMContext &Context, Linker &L,
     if (Verbose)
       errs() << "Linking in '" << File << "'\n";
 
-    if (L.linkInModule(M.get()))
+    if (L.linkInModule(M.get(), OverrideDuplicateSymbols))
       return false;
   }
 
@@ -170,7 +159,12 @@ int main(int argc, char **argv) {
   auto Composite = make_unique<Module>("llvm-link", Context);
   Linker L(Composite.get(), diagnosticHandler);
 
-  if (!linkFiles(argv[0], Context, L, InputFilenames))
+  // First add all the regular input files
+  if (!linkFiles(argv[0], Context, L, InputFilenames, false))
+    return 1;
+
+  // Next the -override ones.
+  if (!linkFiles(argv[0], Context, L, OverridingInputs, true))
     return 1;
 
   Module &Composite = *L.getModule();
