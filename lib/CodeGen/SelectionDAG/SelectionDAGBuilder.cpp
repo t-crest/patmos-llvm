@@ -2126,6 +2126,7 @@ void SelectionDAGBuilder::sortAndRangeify(CaseClusterVector &Clusters) {
       // the previous cluster.
       Clusters[DstIndex - 1].High = CaseVal;
       Clusters[DstIndex - 1].Weight += CC.Weight;
+      assert(Clusters[DstIndex - 1].Weight >= CC.Weight && "Weight overflow!");
     } else {
       std::memmove(&Clusters[DstIndex++], &Clusters[SrcIndex],
                    sizeof(Clusters[SrcIndex]));
@@ -7237,13 +7238,14 @@ bool SelectionDAGBuilder::buildJumpTable(CaseClusterVector &Clusters,
                                          CaseCluster &JTCluster) {
   assert(First <= Last);
 
-  uint64_t Weight = 0;
+  uint32_t Weight = 0;
   unsigned NumCmps = 0;
   std::vector<MachineBasicBlock*> Table;
   DenseMap<MachineBasicBlock*, uint32_t> JTWeights;
   for (unsigned I = First; I <= Last; ++I) {
     assert(Clusters[I].Kind == CC_Range);
     Weight += Clusters[I].Weight;
+    assert(Weight >= Clusters[I].Weight && "Weight overflow!");
     APInt Low = Clusters[I].Low->getValue();
     APInt High = Clusters[I].High->getValue();
     NumCmps += (Low == High) ? 1 : 2;
@@ -7470,7 +7472,7 @@ bool SelectionDAGBuilder::buildBitTests(CaseClusterVector &Clusters,
   }
 
   CaseBitsVector CBV;
-  uint64_t TotalWeight = 0;
+  uint32_t TotalWeight = 0;
   for (unsigned i = First; i <= Last; ++i) {
     // Find the CaseBits for this destination.
     unsigned j;
@@ -7489,8 +7491,8 @@ bool SelectionDAGBuilder::buildBitTests(CaseClusterVector &Clusters,
       CB->Bits++;
     }
     CB->ExtraWeight += Clusters[i].Weight;
-    assert(CB->ExtraWeight >= Clusters[i].Weight && "Weight sum overflowed!");
     TotalWeight += Clusters[i].Weight;
+    assert(TotalWeight >= Clusters[i].Weight && "Weight overflow!");
   }
 
   BitTestInfo BTI;
@@ -7700,8 +7702,10 @@ void SelectionDAGBuilder::lowerWorkItem(SwitchWorkListItem W, Value *Cond,
 
   // Compute total weight.
   uint32_t UnhandledWeights = 0;
-  for (CaseClusterIt I = W.FirstCluster; I <= W.LastCluster; ++I)
+  for (CaseClusterIt I = W.FirstCluster; I <= W.LastCluster; ++I) {
     UnhandledWeights += I->Weight;
+    assert(UnhandledWeights >= I->Weight && "Weight overflow!");
+  }
 
   MachineBasicBlock *CurMBB = W.MBB;
   for (CaseClusterIt I = W.FirstCluster, E = W.LastCluster; I <= E; ++I) {
@@ -7866,8 +7870,10 @@ void SelectionDAGBuilder::visitSwitch(const SwitchInst &SI) {
     MachineBasicBlock *Succ = FuncInfo.MBBMap[I.getCaseSuccessor()];
     const ConstantInt *CaseVal = I.getCaseValue();
     uint32_t Weight = 0; // FIXME: Use 1 instead?
-    if (BPI)
+    if (BPI) {
       Weight = BPI->getEdgeWeight(SI.getParent(), I.getSuccessorIndex());
+      assert(Weight <= UINT32_MAX / SI.getNumSuccessors());
+    }
     Clusters.push_back(CaseCluster::range(CaseVal, CaseVal, Succ, Weight));
   }
 
