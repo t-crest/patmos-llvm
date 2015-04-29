@@ -230,7 +230,9 @@ class HtmlIndexPages
   end
 end
 class VisualizeTool
-  VALID_FORMATS = GraphViz::Constants::FORMATS
+  # TODO use GraphViz::Constants::FORMATS? Packaged ruby-graphviz 1.0.8 defines
+  #      Constants at top-level instead of inside GraphViz, giving a ruby warning (?)
+  VALID_FORMATS = Constants::FORMATS
 
   def VisualizeTool.default_targets(pml)
     entry = pml.machine_functions.by_label("main")
