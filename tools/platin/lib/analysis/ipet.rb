@@ -318,7 +318,7 @@ class IPETModel
   end
 
   # misprediction bounds for dynamic predictors
-  def add_misprediction_block_constraint(block, scopes)
+  def add_misprediction_block_constraint(block, scopes, predictor_entries)
     # only insert constraints for dynamic prediction
     if (options.branch_prediction != "1bit" &&
         options.branch_prediction != "2bitc" &&
@@ -330,7 +330,7 @@ class IPETModel
     entry_edges = []
     scopes.each { |scope,f|
       entry = scope.scope_entry
-      factor = options.branch_prediction == "1bit" ? 1 : 2
+      factor = predictor_entries * (options.branch_prediction == "1bit" ? 1 : 2)
 
       if (entry.is_a?(Function))
         entry = entry.entry_block

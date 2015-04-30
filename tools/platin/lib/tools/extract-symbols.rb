@@ -97,7 +97,17 @@ class ExtractSymbols
   }x
   def objdump_extract(line)
     return nil unless line =~ /\A#{RE_OBJDUMP_LABEL}$/
-    OpenStruct.new(:address => Integer("0x#{$1}"), :section => $2, :value => 3, :label => $4)
+    SymbolRecord.new(Integer("0x#{$1}"), $2, $3, $4)
+  end
+end
+
+class SymbolRecord
+  attr_reader :address, :section, :label
+  def initialize(address, section, value, label)
+    @address = address
+    @section = section
+    @value = value
+    @label = label
   end
 end
 

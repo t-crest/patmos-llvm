@@ -43,23 +43,11 @@ class CacheAnalysis
       warn("Datacache at the moment not supported by platin")
     end
     if bp = @pml.arch.branch_predictor
-      debug(@options,:cache) { "BRANCH PREDICTOR ANALYSIS" }
-      bpa = CacheRegionAnalysis.new(BranchPredictorAnalysis.new(bp, @pml, @options), @pml, @options)
       if (@options.branch_prediction == "1bit" ||
           @options.branch_prediction == "2bitc" ||
           @options.branch_prediction == "2bith")
-        conflict_free_scopes = bpa.analyze(scope_graph(entry_function))
-        0.upto(bpa.cache_properties.sets) do |set|
-          debug(@options,:cache) { "SET #{set}" }
-          bpa.get_all_tags(scope_graph(entry_function).root, set).each { |tag,load_instructions|
-            load_instructions = load_instructions.to_a
-            debug(@options,:cache) { "Branches for tag: #{tag}: #{load_instructions}" }
-            debug(@options,:cache) { "Scopes for tag #{tag}: #{conflict_free_scopes[tag].inspect}" }
-            load_instructions.each { |branch|
-              ipet_builder.mc_model.add_misprediction_block_constraint(branch.insref.block, conflict_free_scopes[tag])
-            }
-          }
-        end
+        @bpa = BranchPredictorAnalysis.new(bp, @pml, @options, entry_function)
+        @bpa.extend_ipet(scope_graph(entry_function), ipet_builder)
       end
     end
   end
@@ -877,6 +865,19 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
   end
 end
 
+class PredictorEntry
+  include QNameObject
+  attr_reader :instruction, :set
+  def initialize(instruction, history, set)
+    @instruction = instruction
+    @set = set
+    @qname = "PredictorEntry: #{instruction}/#{history}->#{set}"
+  end
+  def to_s
+    qname
+  end
+end
+
 class BranchPredictorAnalysis
 
   attr_reader :cache
@@ -885,23 +886,64 @@ class BranchPredictorAnalysis
     "BP"
   end
 
-  def initialize(cache, pml, options)
+  def initialize(cache, pml, options, entry)
     @cache, @pml, @options = cache, pml, options
+    @sets = @cache.size / (@cache.associativity * @cache.line_size)
+
+    bcffs,mcffs = ['bitcode','machinecode'].map { |level|
+      @pml.flowfacts.filter(@pml,@options.flow_fact_selection,@options.flow_fact_srcs,level)
+    }
+    ctxm = ContextManager.new(@options.callstring_length)
+    mc_model = ControlFlowModel.new(@pml.machine_functions, entry,
+                                    mcffs, ctxm, @pml.arch)
+    bhs = BranchHistorySemantics.new(Math.log2(@sets))
+    @dfa = Interpreter.new(bhs, mc_model)
+
+    @dfa.interpret(mc_model.get_vcfg(entry).entry, bhs.top)
   end
 
   def sets
-    @cache.size / (@cache.associativity * @cache.line_size)
+    @sets
   end
 
-  def set_of(cache_line)
-    (cache_line.address/4) & (sets - 1)
+  def set_of(predictor_entry)
+    predictor_entry.set
+  end  
+
+  def indexfun(pc, h)
+    index = pc # local
+    #index = h # GAg
+    #index = (pc << 5) | (h & 0x1f) # gselect, h=5
+    #index = pc ^ h # gshare
+    index & (@sets - 1)    
   end
 
-  def load_instructions(i)
+  def entries(i)
     # TODO: This should be defined by the architecture
     if i.delay_slots == 0 &&
-        ((i.branch_type == "conditional") && ! i.opcode.start_with?('BRCF'))
-      [ LoadInstruction.new(i, CacheLine.new(i.address, i.function)) ]
+        ((i.branch_type == "conditional") && !i.opcode.start_with?('BRCF'))
+
+      debug(@options,:cache) { "INSTR: #{i}" }
+      hists = Set.new
+
+      @dfa.inputs_by_node.each do |node,ctxs|
+        if node.kind_of?(BlockSliceNode) && node.block == i.block
+          ctxs.each do |ctx,hist|
+            hists.merge(hist)
+          end
+        end
+      end
+
+      if hists.empty?
+        die("No history values for branch instruction #{i}");
+      else
+        debug(@options,:cache) { "VALUES: |#{hists.size}| #{hists.to_a}" }
+      end
+
+      entries = hists.map do |h|
+        PredictorEntry.new(i, h, indexfun(i.address/4, h))
+      end
+      entries.uniq { |e| e.set }
     else
       []
     end
@@ -911,11 +953,93 @@ class BranchPredictorAnalysis
     @cache.line_size * cache_lines.length
   end
 
-  def conflict_free?(cache_lines)
+  def conflict_free?(predictor_entries)
     return false if @options.wca_minimal_cache
     return true  if @options.wca_ideal_cache
 
-    cache_lines.length <= cache.associativity
+    predictor_entries.length <= cache.associativity
+  end
+
+  def extend_ipet(scopegraph, ipet_builder)
+    entries = {}
+
+    scopegraph.bottom_up.each { |scope|
+      scope_entries = Set.new
+      debug(@options,:cache) { "SCOPE: #{scope}" }
+      if scope.kind_of?(ScopeGraph::CallNode)
+        scope.successors.each { |s|
+          scope_entries += entries[s]
+        }
+      elsif rg = scope.region
+        rg_entries = entries[rg]
+        if !rg_entries
+          rg_entries = Set.new
+          rg.nodes.each { |node|
+            if node.kind_of?(RegionGraph::BlockSliceNode)
+              debug(@options,:cache) { "SLICE: #{node}" }
+              node_entries = entries[node]
+              if !node_entries
+                node_entries = Set.new
+                node.first.index.upto(node.last.index) { |ix|
+                  instr = node.block.instructions[ix]
+                  node_entries += entries(instr)
+                }
+                entries[node] = node_entries
+              end
+              rg_entries += node_entries
+            elsif node.kind_of?(RegionGraph::SubScopeNode)
+              debug(@options,:cache) { "SUBSCOPE: #{node}" }
+              rg_entries += entries[node.scope_node]
+            else
+              debug(@options,:cache) { "RG NODE: #{node}" }
+            end
+          }
+          entries[rg] = rg_entries
+        end
+        scope_entries += rg_entries
+      end          
+      entries[scope] = scope_entries
+    }
+
+    entries.each { |node,entries|
+      next if entries.empty?
+      next if node.is_a?(RegionGraph)
+
+      persistent_branches = entries.map { |e| e.instruction }
+      persistent_branches.uniq!
+      debug(@options,:cache) { "BRANCHES #{node} => #{persistent_branches}" }
+      
+      sets = []
+      entries.each { |e|
+        sets[e.set] ||= []
+        sets[e.set].push(e)
+      }
+
+      sets.each { |set_entries|
+        next unless set_entries
+        debug(@options,:cache) { "SET: #{set_entries}" }
+        if !conflict_free?(set_entries)
+          persistent_branches -= set_entries.map { |e| e.instruction }
+          break if persistent_branches == []
+        end
+      }
+      
+      debug(@options,:cache) { "PERSISTENT: #{node} => #{persistent_branches}" }
+
+      persistent_branches.each { |branch|
+        if node.kind_of?(ScopeGraph::Node)
+          scope = node
+        elsif node.kind_of?(RegionGraph::BlockSliceNode)
+          scope = ScopeGraph::BlockNode.new(node.block, Context.empty)
+        else
+          die("Unknown branch persistence node type: #{node}")
+        end
+
+        predictor_entries = entries(branch)
+
+        ipet_builder.mc_model.add_misprediction_block_constraint(branch.block, [scope], predictor_entries.length)
+      }
+    }
   end
 end
 

@@ -33,7 +33,7 @@ class BoundedStack
     @stack.length
   end
   def push(elem, maxlength)
-    return if maxlength == 0
+    return BoundedStack.empty if maxlength == 0
     return BoundedStack.create([elem]) if maxlength==1
     if stack.length < maxlength
       BoundedStack.create(stack + [elem])
@@ -42,7 +42,7 @@ class BoundedStack
     end
   end
   def prefix(length)
-    return BoundedStack.create([]) unless length > 0
+    return BoundedStack.empty unless length > 0
     BoundedStack.create(stack.dup[0..(length-1)])
   end
   def pop
@@ -61,6 +61,7 @@ class BoundedStack
   end
   # return array of stack elements, top-most first
   def to_a
+    return [] if @stack.empty?
     @stack.reverse
   end
   def to_s

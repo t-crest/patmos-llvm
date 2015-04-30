@@ -147,13 +147,13 @@ private
     @flowfacts.each do |ff|
       # set indirect call targets
       scope,cs,targets = ff.get_calltargets
-      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.any_context?
+      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.context.empty?
         target_vcfgs = targets.map { |fref| get_vcfg(fref.function) }
         get_callnode(cs.instruction).refine_calltargets(to_bounded_stack(cs.context), target_vcfgs)
       end
       # set infeasible blocks
       scope,bref = ff.get_block_infeasible
-      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.any_context?
+      if scope && scope.programpoint.kind_of?(Function) && scope.programpoint == @entry && scope.context.empty?
         get_vcfg(bref.function).get_blockstart(bref.block).set_infeasible(to_bounded_stack(bref.context))
       end
     end
@@ -161,8 +161,9 @@ private
   def get_callnode(cs)
     get_vcfg(cs.function).get_callnode(cs)
   end
-  def to_bounded_stack(callstring)
-    BoundedStack.create(callstring.callsites.map { |csref| get_callnode(csref.instruction) })
+  def to_bounded_stack(context)
+    BoundedStack.create(context.callstring)
+    # TODO: BoundedStack.create(context.callstring.map { |csref| get_callnode(csref.instruction) })
   end
 end
 
@@ -329,9 +330,9 @@ class CfgNode
 
   def initialize(vcfg)
     @vcfg, @nid, @successors, @predecessors = vcfg, vcfg.nodes.size, [], []
-#    @qname = "#{@vcfg.qname}/#{@nid}"
     @vcfg.nodes.push(self)
     @context_tree = ContextTree.new
+    @qname = "#{@vcfg.qname}/#{@nid}"
   end
 
   def add_successor(node)
@@ -349,10 +350,14 @@ class CfgNode
   def instructions ; [] ; end
   def entry? ; false ; end
   def exit? ; false ; end
+  def qname ; @qname ; end
 end
 
 class EntryNode < CfgNode
-  def initialize(vcfg) ; super(vcfg); end
+  def initialize(vcfg)
+    super(vcfg)
+    @qname = "#{@vcfg.qname}/#{@vcfg.function}:entry"
+  end
   def entry? ; true ; end
   def to_s
     "#<EntryNode #{vcfg.function}>"
@@ -371,6 +376,7 @@ class BlockSliceNode < CfgNode
     super(vcfg)
     @block, @first_index, @last_index = block, first_ins, last_ins
     @infeasible = ContextTree.new
+    @qname = "#{@vcfg.qname}/#{@block}:#{first_index}..#{last_index}"
   end
   def set_infeasible(callstring)
     @infeasible.set(callstring.to_a, true)
@@ -396,6 +402,7 @@ class CallNode < CfgNode
     super(vcfg)
     @callsite = callsite
     @targets = ContextTree.new
+    @qname = "#{@vcfg.qname}/#{@callsite}"
   end
 
   def refine_calltargets(callstring, targetset)
@@ -457,7 +464,10 @@ class CallNode < CfgNode
 end
 
 class ExitNode < CfgNode
-  def initialize(vcfg) ; super(vcfg) ; end
+  def initialize(vcfg)
+    super(vcfg)
+    @qname = "#{@vcfg.qname}/#{@vcfg.function}:exit"
+  end
   def exit? ; true ; end
   def successors_with_context(cfmodel, location)
     Enumerator.new do |ss|
@@ -473,10 +483,13 @@ class ExitNode < CfgNode
       cfmodel.record_scope_exit(vcfg.entry, scope_entry_context, location)
 
       # for all registered scope entry contexts
-      cfmodel.matching_scope_entries(vcfg.entry, scope_entry_context).each { |scope_context_before|
-        refined_context = return_context.with_scope_context(scope_context_before)
-        callnode.successors.each { |s| ss << cfmodel.location(s, refined_context) }
-      }
+      if callnode # TODO: is the absence of a call node a problem?
+        cfmodel.matching_scope_entries(vcfg.entry, scope_entry_context).each { |scope_context_before|
+
+          refined_context = return_context.with_scope_context(scope_context_before)
+          callnode.successors.each { |s| ss << cfmodel.location(s, refined_context) }
+        }
+      end
     end
   end
   def to_s
@@ -490,6 +503,7 @@ class LoopStateNode < CfgNode
   def initialize(vcfg, loop, action)
     super(vcfg)
     @loop, @action = loop, action
+    @qname = "#{@vcfg.qname}/#{@loop}:#{action}"
   end
 
   def successors_with_context(cfmodel, location)
@@ -506,14 +520,18 @@ class LoopStateNode < CfgNode
       when :exit
         # get return context
         exit_context, loopnode = cfmodel.ctx_manager.exit_loop(location.context)
-        scope_entry_context = cfmodel.ctx_manager.reset_loop(location.context, loopnode).scope_context
-        # record scope exit
-        cfmodel.record_scope_exit(loopnode, scope_entry_context, location)
-        # for all registered scope entry contexts
-        cfmodel.matching_scope_entries(loopnode, scope_entry_context).each { |scope_context_before|
-          refined_context = exit_context.with_scope_context(scope_context_before)
-          successors.each { |s| ss << cfmodel.location(s, refined_context) }
-        }
+        if loopnode
+          scope_entry_context = cfmodel.ctx_manager.reset_loop(location.context, loopnode).scope_context
+          # record scope exit
+          cfmodel.record_scope_exit(loopnode, scope_entry_context, location)
+          # for all registered scope entry contexts
+          cfmodel.matching_scope_entries(loopnode, scope_entry_context).each { |scope_context_before|
+            refined_context = exit_context.with_scope_context(scope_context_before)
+            successors.each { |s| ss << cfmodel.location(s, refined_context) }
+          }
+        else
+          successors.each { |s| ss << cfmodel.location(s, exit_context) }
+        end
       else
         raise Exception.new("Bad loop state action")
       end
@@ -585,11 +603,11 @@ class Interpreter
       @steps += 1
       loc = @queue.pop
       inval = @in[loc]
-      outval  = @semantics.transfer_value(loc.node, inval)
-      loc.successors.each { |loc|
-        if change = @semantics.merge(@in[loc],outval)
-          @in[loc] = change[1]
-          @queue.unshift(loc)
+      loc.successors.each { |l|
+        outval = @semantics.transfer_value(loc.node, inval, l.node)
+        if change = @semantics.merge(@in[l],outval)
+          @in[l] = change[1]
+          @queue.unshift(l)
         end
       }
       # enqueue matching scope exit nodes (lazy construction of context-sensitive callgraph)
@@ -627,7 +645,7 @@ BOTTOM=:bottom
 
 # reachability semantics (trivial)
 class ReachabilitySemantics
-  def transfer_value(node, inval) ; inval ; end
+  def transfer_value(node, inval, succ) ; inval ; end
   def merge(oldval, newval)
     if oldval
       false # no change
@@ -637,5 +655,94 @@ class ReachabilitySemantics
   end
 end
 
+class BranchHistorySemantics
+
+  BH_1 = 1
+  BH_0 = 0
+
+  def initialize(bits)
+    @bits = bits
+    @mask = (1 << bits) - 1
+  end
+
+  def null() ; [0].to_set ; end
+
+  def top() ; topbits(@bits).to_set ; end  
+
+  def topbits(n)
+    if (n > 0)
+      bits = topbits(n-1)
+      bits.map{|b| (b << 1) | BH_0} + bits.map{|b| (b << 1) | BH_1}
+    else
+      [0]
+    end
+  end
+
+  def fmt_val(v) ; v.to_s(2).rjust(@bits, "0") ; end
+
+  def leq(x, y)
+    if x == nil
+      true
+    elsif y == nil
+      false
+    else
+      if x.kind_of?(Hash) && y.kind_of?(Hash)
+        x.all?{|k,v| leq(v, y[k]) }
+      else
+        x.subset?(y)
+      end
+    end
+  end
+
+  def join(newval, oldval)
+    if newval == nil
+      oldval
+    elsif oldval == nil
+      newval.dup
+    else
+      if oldval.kind_of?(Hash) && newval.kind_of?(Hash)
+        newval.each{|k,v| join(v, oldval[k])}
+      else
+        oldval.merge(newval)
+        oldval
+      end
+    end
+  end
+
+  def transfer_value(node, inval, succ)
+    retval = inval
+    if node.kind_of?(BlockSliceNode) && succ.kind_of?(BlockSliceNode) && node.successors.length == 2
+      if succ.block == node.block.fallthrough_successor
+        retval = inval.map{|x| ((x << 1) | BH_0) & @mask}.to_set
+      else
+        retval = inval.map{|x| ((x << 1) | BH_1) & @mask}.to_set
+      end
+    end
+    if succ.kind_of?(LoopStateNode)
+      retval = Hash[succ.successors.map{|s| [s, transfer_value(node, inval, s)]}]
+    end
+    if node.kind_of?(LoopStateNode)
+      retval = inval[succ]
+    end
+
+    # puts "XFER: #{node} -> #{succ}"
+    # if !inval.kind_of?(Hash)
+    #   puts "INPUT:  #{inval.to_a.map{|v| fmt_val(v)}}"
+    # end
+    # if !retval.kind_of?(Hash)
+    #   puts "OUTPUT: #{retval.to_a.map{|v| fmt_val(v)}}"
+    # end
+
+    retval
+  end
+
+  def merge(oldval, newval)
+    if leq(newval, oldval)
+      false # no change
+    else
+      [true, join(newval, oldval)]
+    end
+  end
+end
 
 end # module PML
