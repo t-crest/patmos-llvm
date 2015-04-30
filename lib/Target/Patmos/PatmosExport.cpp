@@ -261,6 +261,16 @@ namespace llvm {
   #include "PatmosGenCallingConv.inc"
 
   class PatmosMachineExport : public PMLMachineExport {
+  protected:
+
+    bool isSinglepathFunction(const MachineFunction &MF) {
+      const Function *F = MF.getFunction();
+      if (!F) return false;
+      return F->hasFnAttribute("sp-root") ||
+             F->hasFnAttribute("sp-reachable") ||
+             F->hasFnAttribute("sp-maybe");
+    }
+
   public:
     PatmosMachineExport(PatmosTargetMachine &tm, ModulePass &mp,
                         PMLInstrInfo *PII)
@@ -295,6 +305,10 @@ namespace llvm {
 
     virtual void exportSubfunctions(MachineFunction &MF,
                                         yaml::MachineFunction *PMF);
+
+    virtual void exportLoopInfo(MachineFunction &MF,
+                                yaml::PMLDoc &YDoc,
+                                MachineLoop *Loop);
   };
 
 
@@ -586,5 +600,44 @@ namespace llvm {
       PMF->addSubfunction(S);
     }
 
+    void PatmosMachineExport::exportLoopInfo(MachineFunction &MF,
+                                             yaml::PMLDoc &YDoc,
+                                             MachineLoop *Loop)
+    {
+      // Export user loop bounds for single-path functions since we
+      // know that they are the exact loop bounds.
+      if (!isSinglepathFunction(MF)) return;
+
+      // scan the header for loopbound info
+      // TODO this is copied from PatmosSinglePathInfo.cpp
+      MachineBasicBlock *Header = Loop->getHeader();
+      int LoopBound = -1;
+      for (MachineBasicBlock::iterator MI = Header->begin(), ME = Header->end();
+          MI != ME; ++MI) {
+        if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
+          // max is the second operand (idx 1)
+          LoopBound = MI->getOperand(1).getImm() + 1;
+          break;
+        }
+      }
+      if (LoopBound >= 0) {
+        yaml::FlowFact *FF = new yaml::FlowFact(yaml::level_machinecode);
+
+        FF->setLoopScope(yaml::Name(MF.getFunctionNumber()),
+                         yaml::Name(Header->getNumber()));
+
+        yaml::ProgramPoint *Block =
+          yaml::ProgramPoint::CreateBlock(MF.getFunctionNumber(),
+                                          Header->getNumber());
+
+        FF->addTermLHS(Block, 1LL);
+        FF->RHS = LoopBound;
+        FF->Comparison = yaml::cmp_less_equal;
+        FF->Origin = "user.bc";
+        FF->Classification = "loop-local";
+
+        YDoc.addFlowFact(FF);
+      }
+    }
 } // end namespace llvm
 

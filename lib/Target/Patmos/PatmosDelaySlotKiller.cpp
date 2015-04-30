@@ -127,6 +127,7 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
         unsigned count = 0;
         for (MachineBasicBlock::iterator K = llvm::next(I), E = MBB.end();
              K != E && count < maxCount; ++K, ++count) {
+          TII->skipPseudos(MBB, K);
           if (K->getOpcode() != Patmos::NOP) {
             onlyNops = false;
           }
@@ -158,6 +159,7 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
           MachineBasicBlock::iterator K = llvm::next(I);
           for (MachineBasicBlock::iterator E = MBB.end();
                K != E && killCount < count; ++K, ++killCount) {
+            TII->skipPseudos(MBB, K);
             KilledSlots++;
           }
           MBB.erase(llvm::next(I), K);

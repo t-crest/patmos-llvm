@@ -362,17 +362,24 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
       case Intrinsic::loopbound:
         {
           const BasicBlock *BB = II->getParent();
-          if (ConstantInt *MaxBoundInt =
-              dyn_cast<ConstantInt>(CI->getArgOperand(1))) {
-            uint64_t MaxHeaderCount = MaxBoundInt->getZExtValue() + 1;
-            if(MaxHeaderCount < 0xFFFFFFFFu) {
-              YDoc.addFlowFact(
-                  createLoopFact(BB, MaxHeaderCount, /*UserAnnot=*/true));
-              NumAnnotatedBounds++; // STATISTICS
+          LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(BB->getParent()));
+          Loop *Loop = LI.getLoopFor(BB);
+
+          if (Loop) {
+            if (ConstantInt *MaxBoundInt = dyn_cast<ConstantInt>(CI->getArgOperand(1))) {
+              uint64_t MaxHeaderCount = MaxBoundInt->getZExtValue() + 1;
+              if(MaxHeaderCount < 0xFFFFFFFFu) {
+                YDoc.addFlowFact(createLoopFact(Loop->getHeader(),
+                                                MaxHeaderCount, /*UserAnnot=*/true));
+                NumAnnotatedBounds++; // STATISTICS
+              }
+            } else {
+              errs() << "Skipping: Annotated loop bound is non-constant:\n"
+                     << *CI << "\n";
             }
           } else {
-            errs() << "Skipping: Annotated Loop bound is non-constant:\n"
-              << *CI << "\n";
+            errs() << "Skipping: Cannot find loop for annotated loop bound:\n"
+                   << *CI << "\n";
           }
         }
         break;
@@ -433,6 +440,9 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 
     // export loop information
     MachineLoop *Loop = MLI.getLoopFor(BB);
+    if (Loop && Loop->getHeader() == BB) {
+      exportLoopInfo(MF, YDoc, Loop);
+    }
     while (Loop) {
       B->Loops.push_back(yaml::Name(Loop->getHeader()->getNumber()));
       Loop = Loop->getParentLoop();
