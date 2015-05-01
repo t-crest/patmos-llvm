@@ -214,6 +214,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("hexagon", hexagon)
     .Case("patmos", patmos)
     .Case("sparc", sparc)
+    .Case("sparcel", sparcel)
     .Case("sparcv9", sparcv9)
     .Case("systemz", systemz)
     .Case("tce", tce)
