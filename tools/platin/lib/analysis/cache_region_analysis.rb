@@ -23,14 +23,14 @@ class CacheAnalysis
   end
   def analyze(entry_function, ipet_builder)
     @scope_graph = nil # reset, entry_function might have changed
-    if mc = @pml.arch.method_cache
+    if mc = @pml.arch.method_cache and not @options.disable_ica
       @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
       @mca.extend_ipet(scope_graph(entry_function), ipet_builder)
-    elsif ic = @pml.arch.instruction_cache
+    elsif ic = @pml.arch.instruction_cache and not options.disable_ica
       @ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
       @ica.extend_ipet(scope_graph(entry_function), ipet_builder)
     end
-    if sc = @pml.arch.stack_cache
+    if sc = @pml.arch.stack_cache and not @options.disable_sca
       if @options.use_sca_graph
         @sca = StackCacheAnalysisGraphBased.new(sc, @pml, @options)
       else
@@ -39,7 +39,7 @@ class CacheAnalysis
       @sca.analyze_nonscope()
       @sca.extend_ipet(ipet_builder)
     end
-    if dc = @pml.arch.data_cache
+    if dc = @pml.arch.data_cache and not @options.disable_dca
       warn("Datacache at the moment not supported by platin")
     end
   end

@@ -404,8 +404,10 @@ class IPETBuilder
       # machinecode variables + cost
       @mc_model.each_edge(mf_function) do |edge|
         @ilp.add_variable(edge, :machinecode)
-        cost = yield edge
-        @ilp.add_cost(edge, cost)
+	if not @options.ignore_instruction_timing
+	  cost = yield edge
+	  @ilp.add_cost(edge, cost)
+	end
       end
 
       # bitcode variables and markers
