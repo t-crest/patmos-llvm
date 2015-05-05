@@ -159,6 +159,7 @@ class WcetTool
   def wcet_analysis(srcs)
     run_wca = options.enable_wca
     if options.combine_wca
+      # TODO is there a way to disable the stack cache analysis in aiT as well and use the platin analysis??
       options.ait_icache_mode = "always-hit" 
       run_wca = true
     end
@@ -182,6 +183,12 @@ class WcetTool
       opts.timing_output = [opts.timing_output,'platin'].compact.join("/")
       opts.flow_fact_selection ||= "all"
       opts.flow_fact_srcs = srcs
+      if opts.combine_wca
+        # We only need the I$ analysis in this mode, everything else *must* be disabled
+        opts.ignore_instruction_timing = true
+	opts.disable_sca = true
+	opts.disable_dca = true
+      end
       WcaTool.run(pml, opts)
       compute_criticalities(opts) { |pml,tmp_opts,src,round|
         tmp_opts.flow_fact_srcs.push(src)
@@ -204,6 +211,7 @@ class WcetTool
         opts.import_block_timing = true if opts.compute_criticalities
         opts.flow_fact_srcs = simplified_sources
         opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
+        # Note: for opts.combined_wca mode we already disabled the I$ analsis earlier, everything else is used (for now)
         AitTool.run(pml,opts)
 
         # criticality analysis
@@ -465,6 +473,11 @@ EOF
     options.combine_wca = false
     options.enable_wca = true
   end
+  if options.combine_wca and options.compute_criticalities
+    # We could still do it using aiT, but it would be rather imprecise
+    die("Computing criticalities is not possible in combined-WCA mode")
+  end
+
   updated_pml = WcetTool.run(PMLDoc.from_files(options.input), options)
   updated_pml.dump_to_file(options.output) if options.output
 end
