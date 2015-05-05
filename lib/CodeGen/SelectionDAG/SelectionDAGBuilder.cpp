@@ -6440,7 +6440,7 @@ void SelectionDAGBuilder::visitVACopy(const CallInst &I) {
 std::pair<SDValue, SDValue>
 SelectionDAGBuilder::lowerCallOperands(ImmutableCallSite CS, unsigned ArgIdx,
                                        unsigned NumArgs, SDValue Callee,
-                                       bool UseVoidTy,
+                                       Type *ReturnTy,
                                        MachineBasicBlock *LandingPad,
                                        bool IsPatchPoint) {
   TargetLowering::ArgListTy Args;
@@ -6461,10 +6461,9 @@ SelectionDAGBuilder::lowerCallOperands(ImmutableCallSite CS, unsigned ArgIdx,
     Args.push_back(Entry);
   }
 
-  Type *retTy = UseVoidTy ? Type::getVoidTy(*DAG.getContext()) : CS->getType();
   TargetLowering::CallLoweringInfo CLI(DAG);
   CLI.setDebugLoc(getCurSDLoc()).setChain(getRoot())
-    .setCallee(CS.getCallingConv(), retTy, Callee, std::move(Args), NumArgs)
+    .setCallee(CS.getCallingConv(), ReturnTy, Callee, std::move(Args), NumArgs)
     .setDiscardResult(CS->use_empty()).setIsPatchPoint(IsPatchPoint);
 
   return lowerInvokable(CLI, LandingPad);
@@ -6606,8 +6605,10 @@ void SelectionDAGBuilder::visitPatchpoint(ImmutableCallSite CS,
 
   // For AnyRegCC the arguments are lowered later on manually.
   unsigned NumCallArgs = IsAnyRegCC ? 0 : NumArgs;
+  Type *ReturnTy =
+    IsAnyRegCC ? Type::getVoidTy(*DAG.getContext()) : CS->getType();
   std::pair<SDValue, SDValue> Result =
-    lowerCallOperands(CS, NumMetaOpers, NumCallArgs, Callee, IsAnyRegCC,
+    lowerCallOperands(CS, NumMetaOpers, NumCallArgs, Callee, ReturnTy,
                       LandingPad, true);
 
   SDNode *CallEnd = Result.second.getNode();
