@@ -1377,7 +1377,7 @@ AttrBuilder &AttrBuilder::addRawValue(uint64_t Val) {
 //===----------------------------------------------------------------------===//
 
 /// \brief Which attributes cannot be applied to a type.
-AttributeSet AttributeFuncs::typeIncompatible(Type *Ty, uint64_t Index) {
+AttrBuilder AttributeFuncs::typeIncompatible(const Type *Ty) {
   AttrBuilder Incompatible;
 
   if (!Ty->isIntegerTy())
@@ -1399,5 +1399,5 @@ AttributeSet AttributeFuncs::typeIncompatible(Type *Ty, uint64_t Index) {
       .addAttribute(Attribute::StructRet)
       .addAttribute(Attribute::InAlloca);
 
-  return AttributeSet::get(Ty->getContext(), Index, Incompatible);
+  return Incompatible;
 }
