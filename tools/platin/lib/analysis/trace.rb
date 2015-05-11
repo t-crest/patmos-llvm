@@ -70,6 +70,8 @@ class MachineTraceMonitor < TraceMonitor
     # @inscost   = {}  # XXX: playing
 
     pending_return, pending_call = nil, nil
+    # keep track of how many times we executed the target
+    trace_count = 0
     @trace.each do |pc,cycles|
       break if @options.max_cycles       && @cycles >= @options.max_cycles
       break if @options.max_instructions &&
@@ -105,7 +107,12 @@ class MachineTraceMonitor < TraceMonitor
           if ! handle_return(*pending_return)
             # Finished
             @finished = true
-            break
+	    trace_count += 1
+	    if @options.max_target_traces && trace_count >= @options.max_target_traces
+	      break
+	    else
+              @started = false
+	    end
           end
           pending_return = nil
         end
@@ -168,6 +175,7 @@ class MachineTraceMonitor < TraceMonitor
           c.function == @current_function
         }
         pending_call = [c, @executed_instructions]
+	@finished = false
         # debug(@options, :trace) { "#{pc}: Call: #{c} in #{@current_function}" }
       end
 
@@ -420,6 +428,7 @@ class RecorderScheduler
     recorder = @recorder_map[key]
     if ! recorder
       rid = @recorder_map.size
+      assert("Global recorder must not have a context.") { type != :global || scope_context == nil }
       @recorder_map[key] = recorder = case type
                                    when :global;   FunctionRecorder.new(self, rid, scope_entity, scope_context, spec)
                                    when :function; FunctionRecorder.new(self, rid, scope_entity, scope_context, spec)

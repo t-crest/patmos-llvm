@@ -145,6 +145,10 @@ class AnalyzeTraceTool
             "consider only the first NUM instructions of the trace") { |num|
       opts.options.max_instructions = num
     }
+    opts.on("--max-target-traces NUM", Integer,
+            "maximum number of target function executions to trace (unlimited if not set)") { |num|
+      opts.options.max_target_traces = num
+    }
     opts.register_help_topic('recorders') { |io|
       RecorderSpecification.help(io)
     }
