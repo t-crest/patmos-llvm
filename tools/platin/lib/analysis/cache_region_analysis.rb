@@ -24,7 +24,7 @@ class CacheAnalysis
   def analyze(entry_function, ipet_builder)
     @scope_graph = nil # reset, entry_function might have changed
     if mc = @pml.arch.method_cache and not @options.disable_ica
-      @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, @pml, @options), @pml, @options)
+      @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, entry_function, @pml, @options), @pml, @options)
       @mca.extend_ipet(scope_graph(entry_function), ipet_builder)
     elsif ic = @pml.arch.instruction_cache and not options.disable_ica
       @ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
@@ -539,9 +539,10 @@ class MethodCacheAnalysis
   end
 
   attr_reader :cache
-  def initialize(cache, pml, options)
+  def initialize(cache, entry_function, pml, options)
     @cache, @pml, @options = cache, pml, options
     @block_subfunction_map = {}
+    @entry_function = entry_function
   end
 
   def block_capacity
@@ -569,8 +570,14 @@ class MethodCacheAnalysis
   def load_instructions(i)
     function = i.function
     sf = subfunction_of_block(i.block)
-    if i.index == 0 && sf.entry == i.block
+    # Load subfunction on entry (but skip the initial load when entering the target function)
+    # TODO Do not skip the load instruction for recursive target function calls.
+    #      This requires us to detect if we are in a region node for the root function of the scope graph.
+    #      At the moment, recursive functions are not supported anyway though.
+    if i.index == 0 && sf.entry == i.block && 
+       (i.block != @entry_function.entry_block || @options.target_callret_costs)
        [LoadInstruction.new(i, sf)]
+    # Load subfunction when returning into the subfunction after a call site.
     elsif i.may_return_to?
        [LoadInstruction.new(i, sf)]
     else

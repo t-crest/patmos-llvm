@@ -28,7 +28,7 @@ class AnalyzeTraceTool
       tm.subscribe(VerboseRecorder.new(DebugIO.new))
       "Starting trace analysis"
     }
-    @main_recorder = RecorderScheduler.new(@options.recorders, @entry)
+    @main_recorder = RecorderScheduler.new(@options.recorders, @entry, @options)
     tm.subscribe(@main_recorder)
     tm.run
 
@@ -134,6 +134,7 @@ class AnalyzeTraceTool
     Architecture.simulator_options(opts)
     opts.trace_entry
     opts.callstring_length
+    opts.target_callret_costs
     opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help=recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
     }

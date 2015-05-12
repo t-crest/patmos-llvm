@@ -98,6 +98,10 @@ class Architecture < PML::Architecture
     SimulatorTrace.new(options.binary_file, self, options)
   end
 
+  def return_stall_cycles(ret_instruction, ret_latency)
+    ret_latency - 1
+  end
+
   def num_slots
     2
   end
