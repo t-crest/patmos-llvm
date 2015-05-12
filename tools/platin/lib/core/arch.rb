@@ -23,6 +23,9 @@ class Architecture
     die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]
     @@register[archname].new(triple, machine_config)
   end
+  def return_stall_cycles(ret_instruction, ret_latency)
+    0 # no miss costs by the return instruction itself in the traces
+  end
   def path_wcet(ilist)
     ilist.length # 1-cycle per instruction pseudo cost
   end

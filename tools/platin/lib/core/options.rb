@@ -131,6 +131,11 @@ module PML
           options.use_sca_graph = true
       }
     end
+    def target_callret_costs
+      self.on("--[no-]target-call-return-costs", "Account for call and/or return miss costs for the target call. Beware, simulation and analysis can count costs differently.") { |b|
+        options.target_callret_costs = b
+      }
+    end
     # Run argument checks
     def check!(arg_range = nil)
       if arg_range.kind_of?(Array)

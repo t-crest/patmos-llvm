@@ -27,6 +27,7 @@ class WcaTool
       options.wca_cache_regions = true if options.wca_cache_regions.nil?
     }
     opts.stack_cache_analysis
+    opts.target_callret_costs
   end
 
   def WcaTool.add_options(opts)
