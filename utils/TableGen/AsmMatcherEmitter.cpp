@@ -1877,7 +1877,7 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
           break;
 
         CvtOS << "    case " << Name << ":\n"
-              << "      Inst.addOperand(MCOperand::CreateImm(" << Val << "));\n"
+              << "      Inst.addOperand(MCOperand::createImm(" << Val << "));\n"
               << "      break;\n";
 
         OpOS << "    case " << Name << ":\n"
@@ -1908,7 +1908,7 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
         if (!IsNewConverter)
           break;
         CvtOS << "    case " << Name << ":\n"
-              << "      Inst.addOperand(MCOperand::CreateReg(" << Reg << "));\n"
+              << "      Inst.addOperand(MCOperand::createReg(" << Reg << "));\n"
               << "      break;\n";
 
         OpOS << "    case " << Name << ":\n"
