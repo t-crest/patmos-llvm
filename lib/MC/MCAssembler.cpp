@@ -1295,7 +1295,7 @@ void MCSectionData::dump() {
 void MCSymbolData::dump() const {
   raw_ostream &OS = llvm::errs();
 
-  OS << "<MCSymbolData Symbol:" << getSymbol()
+  OS << "<MCSymbolData"
      << " Fragment:" << getFragment();
   if (!isCommon())
     OS << " Offset:" << getOffset();
@@ -1324,7 +1324,11 @@ void MCAssembler::dump() {
 
   for (symbol_iterator it = symbol_begin(), ie = symbol_end(); it != ie; ++it) {
     if (it != symbol_begin()) OS << ",\n           ";
+    OS << "(";
     it->dump();
+    OS << ",";
+    it->getData().dump();
+    OS << ")";
   }
   OS << "]>\n";
 }
