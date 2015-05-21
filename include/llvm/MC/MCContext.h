@@ -475,7 +475,7 @@ namespace llvm {
     void setGenDwarfFileNumber(unsigned FileNumber) {
       GenDwarfFileNumber = FileNumber;
     }
-    MapVector<const MCSection *, std::pair<MCSymbol *, MCSymbol *>> &
+    const MapVector<const MCSection *, std::pair<MCSymbol *, MCSymbol *>> &
     getGenDwarfSectionSyms() {
       return SectionStartEndSyms;
     }
