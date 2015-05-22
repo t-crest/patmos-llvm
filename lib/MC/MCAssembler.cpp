@@ -1281,7 +1281,7 @@ void MCSymbolData::dump() const {
      << " Fragment:" << getFragment();
   if (!isCommon())
     OS << " Offset:" << getOffset();
-  OS << " Flags:" << getFlags() << " Index:" << getIndex();
+  OS << " Flags:" << getFlags();
   if (isCommon())
     OS << " (common, size:" << getCommonSize()
        << " align: " << getCommonAlignment() << ")";
@@ -1308,7 +1308,7 @@ void MCAssembler::dump() {
     if (it != symbol_begin()) OS << ",\n           ";
     OS << "(";
     it->dump();
-    OS << ",";
+    OS << ", Index:" << it->getIndex() << ", ";
     it->getData().dump();
     OS << ")";
   }
