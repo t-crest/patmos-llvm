@@ -68,8 +68,8 @@ public:
 private:
   FragmentType Kind;
 
-  /// Parent - The data for the section this fragment is in.
-  MCSectionData *Parent;
+  /// The data for the section this fragment is in.
+  MCSection *Parent;
 
   /// Atom - The atom this fragment is in, as represented by it's defining
   /// symbol.
@@ -90,7 +90,7 @@ private:
   /// @}
 
 protected:
-  MCFragment(FragmentType Kind, MCSectionData *Parent = nullptr);
+  MCFragment(FragmentType Kind, MCSection *Parent = nullptr);
 
 public:
   // Only for sentinel.
@@ -99,8 +99,10 @@ public:
 
   FragmentType getKind() const { return Kind; }
 
-  MCSectionData *getParent() const { return Parent; }
-  void setParent(MCSectionData *Value) { Parent = Value; }
+  MCSectionData *getParent() const {
+    return &Parent->getSectionData();
+  }
+  void setParent(MCSection *Value) { Parent = Value; }
 
   const MCSymbol *getAtom() const { return Atom; }
   void setAtom(const MCSymbol *Value) { Atom = Value; }
@@ -139,8 +141,8 @@ class MCEncodedFragment : public MCFragment {
   uint8_t BundlePadding;
 
 public:
-  MCEncodedFragment(MCFragment::FragmentType FType, MCSectionData *SD = nullptr)
-      : MCFragment(FType, SD), BundlePadding(0) {}
+  MCEncodedFragment(MCFragment::FragmentType FType, MCSection *Sec = nullptr)
+      : MCFragment(FType, Sec), BundlePadding(0) {}
   ~MCEncodedFragment() override;
 
   virtual SmallVectorImpl<char> &getContents() = 0;
@@ -171,8 +173,8 @@ class MCEncodedFragmentWithFixups : public MCEncodedFragment {
 
 public:
   MCEncodedFragmentWithFixups(MCFragment::FragmentType FType,
-                              MCSectionData *SD = nullptr)
-      : MCEncodedFragment(FType, SD) {}
+                              MCSection *Sec = nullptr)
+      : MCEncodedFragment(FType, Sec) {}
 
   ~MCEncodedFragmentWithFixups() override;
 
@@ -210,8 +212,8 @@ class MCDataFragment : public MCEncodedFragmentWithFixups {
   SmallVector<MCFixup, 4> Fixups;
 
 public:
-  MCDataFragment(MCSectionData *SD = nullptr)
-      : MCEncodedFragmentWithFixups(FT_Data, SD), HasInstructions(false),
+  MCDataFragment(MCSection *Sec = nullptr)
+      : MCEncodedFragmentWithFixups(FT_Data, Sec), HasInstructions(false),
         AlignToBundleEnd(false) {}
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
@@ -252,8 +254,9 @@ class MCCompactEncodedInstFragment : public MCEncodedFragment {
   SmallVector<char, 4> Contents;
 
 public:
-  MCCompactEncodedInstFragment(MCSectionData *SD = nullptr)
-      : MCEncodedFragment(FT_CompactEncodedInst, SD), AlignToBundleEnd(false) {}
+  MCCompactEncodedInstFragment(MCSection *Sec = nullptr)
+      : MCEncodedFragment(FT_CompactEncodedInst, Sec), AlignToBundleEnd(false) {
+  }
 
   bool hasInstructions() const override { return true; }
 
@@ -290,8 +293,8 @@ class MCRelaxableFragment : public MCEncodedFragmentWithFixups {
 
 public:
   MCRelaxableFragment(const MCInst &Inst, const MCSubtargetInfo &STI,
-                      MCSectionData *SD = nullptr)
-      : MCEncodedFragmentWithFixups(FT_Relaxable, SD), Inst(Inst), STI(STI) {}
+                      MCSection *Sec = nullptr)
+      : MCEncodedFragmentWithFixups(FT_Relaxable, Sec), Inst(Inst), STI(STI) {}
 
   SmallVectorImpl<char> &getContents() override { return Contents; }
   const SmallVectorImpl<char> &getContents() const override { return Contents; }
@@ -348,8 +351,8 @@ protected:
 
 public:
   MCAlignFragment(unsigned Alignment, int64_t Value, unsigned ValueSize,
-                  unsigned MaxBytesToEmit, MCSectionData *SD = nullptr)
-      : MCFragment(FT_Align, SD), Alignment(Alignment), Value(Value),
+                  unsigned MaxBytesToEmit, MCSection *Sec = nullptr)
+      : MCFragment(FT_Align, Sec), Alignment(Alignment), Value(Value),
         ValueSize(ValueSize), MaxBytesToEmit(MaxBytesToEmit), EmitNops(false) {}
 
   /// \name Accessors
@@ -418,8 +421,8 @@ class MCFillFragment : public MCFragment {
 
 public:
   MCFillFragment(int64_t Value, unsigned ValueSize, uint64_t Size,
-                 MCSectionData *SD = nullptr)
-      : MCFragment(FT_Fill, SD), Value(Value), ValueSize(ValueSize),
+                 MCSection *Sec = nullptr)
+      : MCFragment(FT_Fill, Sec), Value(Value), ValueSize(ValueSize),
         Size(Size) {
     assert((!ValueSize || (Size % ValueSize) == 0) &&
            "Fill size must be a multiple of the value size!");
@@ -451,8 +454,8 @@ class MCOrgFragment : public MCFragment {
   int8_t Value;
 
 public:
-  MCOrgFragment(const MCExpr &Offset, int8_t Value, MCSectionData *SD = nullptr)
-      : MCFragment(FT_Org, SD), Offset(&Offset), Value(Value) {}
+  MCOrgFragment(const MCExpr &Offset, int8_t Value, MCSection *Sec = nullptr)
+      : MCFragment(FT_Org, Sec), Offset(&Offset), Value(Value) {}
 
   /// \name Accessors
   /// @{
@@ -480,9 +483,8 @@ class MCLEBFragment : public MCFragment {
   SmallString<8> Contents;
 
 public:
-  MCLEBFragment(const MCExpr &Value_, bool IsSigned_,
-                MCSectionData *SD = nullptr)
-      : MCFragment(FT_LEB, SD), Value(&Value_), IsSigned(IsSigned_) {
+  MCLEBFragment(const MCExpr &Value_, bool IsSigned_, MCSection *Sec = nullptr)
+      : MCFragment(FT_LEB, Sec), Value(&Value_), IsSigned(IsSigned_) {
     Contents.push_back(0);
   }
 
@@ -518,8 +520,8 @@ class MCDwarfLineAddrFragment : public MCFragment {
 
 public:
   MCDwarfLineAddrFragment(int64_t LineDelta, const MCExpr &AddrDelta,
-                          MCSectionData *SD = nullptr)
-      : MCFragment(FT_Dwarf, SD), LineDelta(LineDelta), AddrDelta(&AddrDelta) {
+                          MCSection *Sec = nullptr)
+      : MCFragment(FT_Dwarf, Sec), LineDelta(LineDelta), AddrDelta(&AddrDelta) {
     Contents.push_back(0);
   }
 
@@ -550,8 +552,8 @@ class MCDwarfCallFrameFragment : public MCFragment {
   SmallString<8> Contents;
 
 public:
-  MCDwarfCallFrameFragment(const MCExpr &AddrDelta, MCSectionData *SD = nullptr)
-      : MCFragment(FT_DwarfFrame, SD), AddrDelta(&AddrDelta) {
+  MCDwarfCallFrameFragment(const MCExpr &AddrDelta, MCSection *Sec = nullptr)
+      : MCFragment(FT_DwarfFrame, Sec), AddrDelta(&AddrDelta) {
     Contents.push_back(0);
   }
 
