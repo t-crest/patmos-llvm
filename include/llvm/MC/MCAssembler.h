@@ -597,9 +597,6 @@ private:
   FragmentListType Fragments;
   MCSection *Section;
 
-  /// Ordinal - The section index in the assemblers section list.
-  unsigned Ordinal;
-
   /// LayoutOrder - The index of this section in the layout order.
   unsigned LayoutOrder;
 
@@ -638,8 +635,8 @@ public:
   bool hasInstructions() const { return HasInstructions; }
   void setHasInstructions(bool Value) { HasInstructions = Value; }
 
-  unsigned getOrdinal() const { return Ordinal; }
-  void setOrdinal(unsigned Value) { Ordinal = Value; }
+  unsigned getOrdinal() const;
+  void setOrdinal(unsigned Value);
 
   unsigned getLayoutOrder() const { return LayoutOrder; }
   void setLayoutOrder(unsigned Value) { LayoutOrder = Value; }
