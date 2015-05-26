@@ -17,6 +17,7 @@ add_public_tablegen_target(PatmosCommonTableGen)
 add_llvm_target(PatmosCodeGen
   PatmosLPGenerator.cpp
   PatmosDFA.cpp
+  PatmosiCFG.cpp
   PatmosISelDAGToDAG.cpp
   PatmosISelLowering.cpp
   PatmosInstrInfo.cpp
