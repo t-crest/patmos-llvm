@@ -207,7 +207,7 @@ bool MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
     // important for matching the string table that 'as' generates.
     IndirectSymbolData ISD;
     ISD.Symbol = Symbol;
-    ISD.SectionData = getCurrentSectionData();
+    ISD.Section = &getCurrentSectionData()->getSection();
     getAssembler().getIndirectSymbols().push_back(ISD);
     return true;
   }
