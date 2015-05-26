@@ -173,7 +173,7 @@ namespace llvm {
   ///   - Domain of the analysis
   ///   - Objects of DOM represent abstract values
   ///   - DOM provides static transfer functions for machine instructions
-  template<class DOM, PatmosDFADirection DIR = DFA_FORWARD,
+  template<class DOM, class DOMCTX, PatmosDFADirection DIR = DFA_FORWARD,
            PatmosDFALevel LEVEL = DFA_BLOCK>
   class PatmosDFA
   {
@@ -188,7 +188,7 @@ namespace llvm {
     typedef std::vector<const MachineInstr*> MIs;
 
     // The target machine of the Patmos processor.
-    const PatmosTargetMachine &PTM;
+    DOMCTX &AnalysisContext;
 
     /// The underlying machine-level call graph
     PatmosCallGraphBuilder *PCGB;
@@ -395,11 +395,14 @@ namespace llvm {
     /// return edges of the call graph.
     void addReturnPredecessorLocations(const PatmosDFAContext *C,
                                        const MachineInstr *MI,
-                                       DFALocations &LOCs) {
+                                       DFALocations &preds,
+                                       DFALocations &immPreds) {
       // not a call? only add the location itself
       if (!MI->isCall() || !isInterprocedural())
-        LOCs.insert(PatmosDFALocation(C, MI));
+        preds.insert(PatmosDFALocation(C, MI));
       else {
+        immPreds.insert(PatmosDFALocation(C, MI));
+
         // get call sites associated with the instruction
         MCGSites CSs(PCGB->getSites(MI));
         assert(!CSs.empty());
@@ -418,31 +421,37 @@ namespace llvm {
             for(MCGSites::const_iterator j(callee->getSites().begin()),
                 je(callee->getSites().end()); j != je; j++) {
               addReturnLocations((*j)->getCallee()->getMF(),
-                                 Contexts.append(P, *j), LOCs);
+                                 Contexts.append(P, *j), preds);
             }
           }
           else
-            addReturnLocations(callee->getMF(), P, LOCs);
+            addReturnLocations(callee->getMF(), P, preds);
         }
       }
     }
 
-    /// Find the locations immediately preceding a location (depending on the
+    /// Find the locations (immediately) preceding a location (depending on the
     /// direction of the data-flow analysis).
-    DFALocations getPredecessors(const PatmosDFALocation &LOC) {
+    void getPredecessors(const PatmosDFALocation &LOC, DFALocations &preds,
+                         DFALocations &immPreds) {
+      // clear results
+      preds.clear();
+      immPreds.clear();
+
       switch(DIR) {
         case DFA_FORWARD:
-          return getFWPredecessors(LOC);
+          getFWPredecessors(LOC, preds, immPreds);
+          break;
         case DFA_BACKWARD:
-          return getBWPredecessors(LOC);
+          getBWPredecessors(LOC, preds, immPreds);
+          break;
       }
     }
 
-    /// Find the locations immediately preceding a location for forward
+    /// Find the locations (immediately) preceding a location for forward
     /// analyses.
-    DFALocations getFWPredecessors(const PatmosDFALocation &LOC) {
-      DFALocations result;
-
+    void getFWPredecessors(const PatmosDFALocation &LOC, DFALocations &preds,
+                           DFALocations &immPreds) {
       const MachineInstr *MI = LOC.second;
       assert(MI);
 
@@ -454,7 +463,7 @@ namespace llvm {
       // find the immediate predecessors of the location.
       if (PMI) {
         // an instruction in the middle of the basic block.
-        addReturnPredecessorLocations(LOC.first, PMI, result);
+        addReturnPredecessorLocations(LOC.first, PMI, preds, immPreds);
       }
       else {
         if (!MBB->pred_empty()) {
@@ -462,7 +471,8 @@ namespace llvm {
           // predecessors.
           for(MachineBasicBlock::const_pred_iterator i(MBB->pred_begin()),
               ie(MBB->pred_end()); i != ie; i++) {
-            addReturnPredecessorLocations(LOC.first, getLast(*i), result);
+            addReturnPredecessorLocations(LOC.first, getLast(*i), preds,
+                                          immPreds);
           }
         }
 
@@ -481,41 +491,47 @@ namespace llvm {
               const MCGNode *N = PCGB->getNode(MF);
               assert(N);
 
-              addEntryPredecessorLocations(N, *i, result);
+              addEntryPredecessorLocations(N, *i, preds);
             }
             else {
               // just one call site per calling context.
-              result.insert(PatmosDFALocation(*i, C->back()->getMI()));
+              preds.insert(PatmosDFALocation(*i, C->back()->getMI()));
             }
           }
         }
       }
-
-      return result;
     }
 
-    /// Find the locations immediately preceding a location for backward
+    /// Find the locations (immediately) preceding a location for backward
     /// analyses.
-    DFALocations getBWPredecessors(const PatmosDFALocation &LOC) {
+    void getBWPredecessors(const PatmosDFALocation &LOC, DFALocations &preds,
+                           DFALocations &immPreds) {
       // TODO: implement
       llvm_unreachable("Implement getBWPredecessors");
     }
 
-    /// Find the locations immediately succeeding a location (depending on the
+    /// Find the locations (immediately) succeeding a location (depending on the
     /// direction of the data-flow analysis).
-    DFALocations getSuccessors(const PatmosDFALocation &LOC) {
+    void getSuccessors(const PatmosDFALocation &LOC, DFALocations &succs,
+                       DFALocations &immSuccs) {
+      // clear return values
+      succs.clear();
+      immSuccs.clear();
+
       switch(DIR) {
         case DFA_FORWARD:
-          return getFWSuccessors(LOC);
+          getFWSuccessors(LOC, succs, immSuccs);
+          break;
         case DFA_BACKWARD:
-          return getBWSuccessors(LOC);
+          getBWSuccessors(LOC, succs, immSuccs);
+          break;
       }
     }
 
-    /// Find the locations immediately succeeding a location for forward
+    /// Find the locations (immediately) succeeding a location for forward
     /// analyses.
-    DFALocations getFWSuccessors(const PatmosDFALocation &LOC) {
-      DFALocations result;
+    void getFWSuccessors(const PatmosDFALocation &LOC, DFALocations &succs,
+                         DFALocations &immSuccs) {
       const MachineInstr *MI = LOC.second;
       assert(MI);
 
@@ -534,14 +550,14 @@ namespace llvm {
             // graph. No analysis information can be associated with it, so just
             // skip it and move on to its children.
             addUnknownSuccessorLocations(Contexts.append(LOC.first, *i), callee,
-                                         result);
+                                         succs);
           }
           else {
             // make new context
             const PatmosDFAContext *C(Contexts.append(LOC.first, *i));
 
             // find first instruction in the called function and add location
-            result.insert(PatmosDFALocation(C, getFirst(callee->getMF())));
+            succs.insert(PatmosDFALocation(C, getFirst(callee->getMF())));
           }
         }
 
@@ -558,17 +574,16 @@ namespace llvm {
         // are not revisited. Leading to the problem.
         //
         // Thus simply add the immediate successors of the call here.
-        addImmSuccessorLocations(LOC, result);
+        addImmSuccessorLocations(LOC, immSuccs);
       }
       else
-        addImmSuccessorLocations(LOC, result);
-
-      return result;
+        addImmSuccessorLocations(LOC, succs);
     }
 
-    /// Find the locations immediately succeeding a location for backward
+    /// Find the locations (immediately) succeeding a location for backward
     /// analyses.
-    DFALocations getBWSuccessors(const PatmosDFALocation &LOC) {
+    void getBWSuccessors(const PatmosDFALocation &LOC, DFALocations &succs,
+                         DFALocations &immSuccs) {
       // TODO: implement
       llvm_unreachable("Implement getBWSuccessors");
     }
@@ -639,7 +654,9 @@ namespace llvm {
       DOM D;
 
       // find preceding locations.
-      DFALocations preds(getPredecessors(LOC));
+      DFALocations preds;
+      DFALocations immPreds;
+      getPredecessors(LOC, preds, immPreds);
 
       // merge OUT information of predecessors.
       for(typename DFALocations::const_iterator i(preds.begin()),
@@ -655,13 +672,13 @@ namespace llvm {
                  i->second->getParent() == LOC.second->getParent());
 
           DOM P(getFWResultBefore(*i));
-          P.transform(*i, PTM);
+          P.transform(*i, AnalysisContext);
 
-          D.merge(P);
+          D.merge(P, *i, LOC, AnalysisContext);
         }
         else {
           // merge the values of predecessors
-          D.merge(j->second);
+          D.merge(j->second, *i, LOC, AnalysisContext);
         }
       }
 
@@ -675,16 +692,19 @@ namespace llvm {
     // Update data-flow equations for a given location (update OUTs and WL).
     void update(const PatmosDFALocation &LOC) {
       // Defaul-value of the domain
-      DOM D;
+      DOM D(LOC, AnalysisContext);
 
       // find preceding locations.
-      DFALocations preds(getPredecessors(LOC));
+      DFALocations preds;
+      DFALocations immPreds;
+      getPredecessors(LOC, preds, immPreds);
 
       // merge OUT information of predecessors.
       for(typename DFALocations::const_iterator i(preds.begin()),
           ie(preds.end()); i != ie; i++) {
 
-        D.merge(OUTs[*i]);
+        if (OUTs.find(*i) != OUTs.end())
+          D.merge(OUTs.at(*i), *i, LOC, AnalysisContext);
 
 #ifdef TRACE_MERGE
         dbgs() << "  merge:";
@@ -697,8 +717,26 @@ namespace llvm {
 #endif // TRACE_MERGE
       }
 
+      // merge OUT information of predecessors.
+      for(typename DFALocations::const_iterator i(immPreds.begin()),
+          ie(immPreds.end()); i != ie; i++) {
+
+        if (OUTs.find(*i) != OUTs.end())
+          D.mergeImm(OUTs.at(*i), *i, LOC, AnalysisContext);
+
+#ifdef TRACE_MERGE
+        dbgs() << "  mergeImm:";
+        dump(*i);
+        dbgs() << ": ";
+        OUTs[*i].dump();
+        dbgs() << " => ";
+        D.dump();
+        dbgs() << "\n";
+#endif // TRACE_MERGE
+      }
+
       // apply transfer function
-      D.transform(LOC, PTM);
+      D.transform(LOC, AnalysisContext);
 
 #ifdef TRACE_MERGE
       dbgs() << "  transfer:";
@@ -715,7 +753,7 @@ namespace llvm {
       // hit whose analysis information needs to be retained.
       while ((canSkipLocation(MI))) {
         PatmosDFALocation tmp(LOC.first, MI);
-        D.transform(tmp, PTM);
+        D.transform(tmp, AnalysisContext);
 
 #ifdef TRACE_MERGE
         dbgs() << "  transfer:";
@@ -732,13 +770,17 @@ namespace llvm {
       assert(MI);
 
       // see if the analysis information of the location changed:
-      if (D != OUTs[newLOC]) {
+
+      if (OUTs.find(newLOC) == OUTs.end() || D != OUTs.at(newLOC)) {
         // update the analysis information of the location
-        OUTs[newLOC] = D;
+        OUTs.insert(std::make_pair(newLOC, D));
 
         // update the work list
-        DFALocations succs(getSuccessors(newLOC));
+        DFALocations succs;
+        DFALocations immSuccs;
+        getSuccessors(newLOC, succs, immSuccs);
         WL.insert(succs.begin(), succs.end());
+        WL.insert(immSuccs.begin(), immSuccs.end());
 
 #ifdef TRACE_SUCCS
         for(typename DFALocations::const_iterator i(succs.begin()),
@@ -781,9 +823,9 @@ namespace llvm {
       }
     }
   public:
-    PatmosDFA(const PatmosTargetMachine &ptm, unsigned int context_depth = 0,
+    PatmosDFA(DOMCTX &analysis_context, unsigned int context_depth = 0,
               PatmosCallGraphBuilder *pcgb = NULL) :
-        PTM(ptm), PCGB(pcgb), Contexts(context_depth) {
+        AnalysisContext(analysis_context), PCGB(pcgb), Contexts(context_depth) {
     }
 
     /// Return the states computed by the analysis results.
