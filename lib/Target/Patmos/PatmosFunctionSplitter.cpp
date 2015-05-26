@@ -138,6 +138,17 @@ static cl::opt<bool> SplitCallBlocks(
     cl::desc("Split basic blocks containing calls into separate subfunctions "
              "(deprecated)."));
 
+static cl::opt<bool> SplitFunctionsWithCallInLoop(
+    "mpatmos-split-function-with-call-in-loop",
+    cl::init(true),
+    cl::desc("Split functions that have calls in loops."));
+
+static cl::opt<bool> SplitDisposable(
+    "mpatmos-split-disposable",
+    cl::init(true),
+    cl::desc("Split regions when transitioning from disposable to "
+             "non-disposable basic blocks."));
+
 
 //
 // Options for evaluation purposes only .. handle with care.
@@ -920,6 +931,7 @@ namespace llvm {
             // to the previous headers to that new header, and append edges from
             // the new header to each previous header.
             header = createHeader(headers, entering);
+            header->IsInSCC = true;
 
             // fix-up surrounding SCCs -- the header has to be part of these.
             ablock *scc_node = *scc.begin();
@@ -1299,6 +1311,11 @@ namespace llvm {
         // only exit edge out of the SCC; then the MBB containing the call would
         // not be part of the SCC; Hence we need to split some call site
         // inside the SCC).
+        return false;
+      }
+
+      // Never mix disposable blocks and non-disposable blocks in a region
+      if (SplitDisposable && isDisposable(region) != isDisposable(header)) {
         return false;
       }
 
@@ -2364,6 +2381,19 @@ namespace llvm {
       MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
       MachinePostDominatorTree &MPDT = getAnalysis<MachinePostDominatorTree>();
 
+      // check if the function contains a call in a loop
+      bool has_call_in_loop = false;
+      if (SplitFunctionsWithCallInLoop) {
+        for(MCGSites::const_iterator i(MCGN->getSites().begin()),
+            ie(MCGN->getSites().end()); i != ie; i++) {
+          if ((*i)->isInSCC()) {
+            has_call_in_loop = true;
+            break;
+          }
+        }
+      }
+
+      // check if individual basic blocks need to be split
       for(MachineFunction::iterator i(MF.begin()), ie(MF.end()); i != ie; i++) {
 
         // Note: We are counting instruction sizes again in splitBlock(), but
@@ -2392,7 +2422,7 @@ namespace llvm {
       TotalFunctions++;
 
       // splitting needed?
-      if (total_size > prefer_subfunc_size || split_calls)
+      if (total_size > prefer_subfunc_size || split_calls || has_call_in_loop)
       {
         bool CollectStats = !StatsFile.empty();
         TimeRecord Time;
