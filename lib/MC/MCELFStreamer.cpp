@@ -39,7 +39,7 @@
 using namespace llvm;
 
 bool MCELFStreamer::isBundleLocked() const {
-  return getCurrentSectionData()->isBundleLocked();
+  return getCurrentSectionOnly()->isBundleLocked();
 }
 
 MCELFStreamer::~MCELFStreamer() {
@@ -149,7 +149,7 @@ static void setSectionAlignmentForBundling(const MCAssembler &Assembler,
 
 void MCELFStreamer::ChangeSection(MCSection *Section,
                                   const MCExpr *Subsection) {
-  MCSection *CurSection = getCurrentSectionData();
+  MCSection *CurSection = getCurrentSectionOnly();
   if (CurSection && isBundleLocked())
     report_fatal_error("Unterminated .bundle_lock when changing a section");
 
@@ -207,7 +207,7 @@ bool MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
     // important for matching the string table that 'as' generates.
     IndirectSymbolData ISD;
     ISD.Symbol = Symbol;
-    ISD.Section = getCurrentSectionData();
+    ISD.Section = getCurrentSectionOnly();
     getAssembler().getIndirectSymbols().push_back(ISD);
     return true;
   }
@@ -516,7 +516,7 @@ void MCELFStreamer::EmitInstToData(const MCInst &Inst,
   MCDataFragment *DF;
 
   if (Assembler.isBundlingEnabled()) {
-    MCSection &Sec = *getCurrentSectionData();
+    MCSection &Sec = *getCurrentSectionOnly();
     if (Assembler.getRelaxAll() && isBundleLocked())
       // If the -mc-relax-all flag is used and we are bundle-locked, we re-use
       // the current bundle group.
@@ -584,7 +584,7 @@ void MCELFStreamer::EmitBundleAlignMode(unsigned AlignPow2) {
 }
 
 void MCELFStreamer::EmitBundleLock(bool AlignToEnd) {
-  MCSection &Sec = *getCurrentSectionData();
+  MCSection &Sec = *getCurrentSectionOnly();
 
   // Sanity checks
   //
@@ -605,7 +605,7 @@ void MCELFStreamer::EmitBundleLock(bool AlignToEnd) {
 }
 
 void MCELFStreamer::EmitBundleUnlock() {
-  MCSection &Sec = *getCurrentSectionData();
+  MCSection &Sec = *getCurrentSectionOnly();
 
   // Sanity checks
   if (!getAssembler().isBundlingEnabled())
@@ -663,7 +663,7 @@ void MCELFStreamer::Flush() {
 
 void MCELFStreamer::FinishImpl() {
   // Ensure the last section gets aligned if necessary.
-  MCSection *CurSection = getCurrentSectionData();
+  MCSection *CurSection = getCurrentSectionOnly();
   setSectionAlignmentForBundling(getAssembler(), CurSection);
 
   EmitFrames(nullptr);
