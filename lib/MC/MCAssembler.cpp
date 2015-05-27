@@ -288,10 +288,6 @@ MCEncodedFragmentWithFixups::~MCEncodedFragmentWithFixups() {
 
 /* *** */
 
-MCSectionData::MCSectionData(MCSection &Section) : Section(&Section) {}
-
-/* *** */
-
 MCAssembler::MCAssembler(MCContext &Context_, MCAsmBackend &Backend_,
                          MCCodeEmitter &Emitter_, MCObjectWriter &Writer_,
                          raw_ostream &OS_)
@@ -755,8 +751,8 @@ void MCAssembler::writeSectionData(const MCSection *Sec,
     assert(Layout.getSectionFileSize(Sec) == 0 && "Invalid size for section!");
 
     // Check that contents are only things legal inside a virtual section.
-    for (MCSectionData::const_iterator it = Sec->begin(), ie = Sec->end();
-         it != ie; ++it) {
+    for (MCSection::const_iterator it = Sec->begin(), ie = Sec->end(); it != ie;
+         ++it) {
       switch (it->getKind()) {
       default: llvm_unreachable("Invalid fragment in virtual section!");
       case MCFragment::FT_Data: {
@@ -798,8 +794,8 @@ void MCAssembler::writeSectionData(const MCSection *Sec,
   uint64_t Start = getWriter().getStream().tell();
   (void)Start;
 
-  for (MCSectionData::const_iterator it = Sec->begin(), ie = Sec->end();
-       it != ie; ++it)
+  for (MCSection::const_iterator it = Sec->begin(), ie = Sec->end(); it != ie;
+       ++it)
     writeFragment(*this, Layout, *it);
 
   assert(getWriter().getStream().tell() - Start ==
@@ -849,7 +845,7 @@ void MCAssembler::Finish() {
     Sec->setLayoutOrder(i);
 
     unsigned FragmentIndex = 0;
-    for (MCSectionData::iterator iFrag = Sec->begin(), iFragEnd = Sec->end();
+    for (MCSection::iterator iFrag = Sec->begin(), iFragEnd = Sec->end();
          iFrag != iFragEnd; ++iFrag)
       iFrag->setLayoutOrder(FragmentIndex++);
   }
@@ -877,8 +873,8 @@ void MCAssembler::Finish() {
 
   // Evaluate and apply the fixups, generating relocation entries as necessary.
   for (MCAssembler::iterator it = begin(), ie = end(); it != ie; ++it) {
-    for (MCSectionData::iterator it2 = it->begin(),
-           ie2 = it->end(); it2 != ie2; ++it2) {
+    for (MCSection::iterator it2 = it->begin(), ie2 = it->end(); it2 != ie2;
+         ++it2) {
       MCEncodedFragmentWithFixups *F =
         dyn_cast<MCEncodedFragmentWithFixups>(it2);
       if (F) {
@@ -1021,7 +1017,7 @@ bool MCAssembler::layoutSectionOnce(MCAsmLayout &Layout, MCSection &Sec) {
   MCFragment *FirstRelaxedFragment = nullptr;
 
   // Attempt to relax all the fragments in the section.
-  for (MCSectionData::iterator I = Sec.begin(), IE = Sec.end(); I != IE; ++I) {
+  for (MCSection::iterator I = Sec.begin(), IE = Sec.end(); I != IE; ++I) {
     // Check if this is a fragment that needs relaxation.
     bool RelaxedFrag = false;
     switch(I->getKind()) {
@@ -1201,18 +1197,6 @@ void MCFragment::dump() {
   OS << ">";
 }
 
-void MCSectionData::dump() {
-  raw_ostream &OS = llvm::errs();
-
-  OS << "<MCSectionData";
-  OS << " Fragments:[\n      ";
-  for (iterator it = begin(), ie = end(); it != ie; ++it) {
-    if (it != begin()) OS << ",\n      ";
-    it->dump();
-  }
-  OS << "]>";
-}
-
 void MCSymbolData::dump() const {
   raw_ostream &OS = llvm::errs();
 
@@ -1238,7 +1222,7 @@ void MCAssembler::dump() {
   OS << "  Sections:[\n    ";
   for (iterator it = begin(), ie = end(); it != ie; ++it) {
     if (it != begin()) OS << ",\n    ";
-    it->getSectionData().dump();
+    it->dump();
   }
   OS << "],\n";
   OS << "  Symbols:[";
