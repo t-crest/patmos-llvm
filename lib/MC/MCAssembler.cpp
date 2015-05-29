@@ -1201,7 +1201,6 @@ void MCSymbolData::dump() const {
 
   OS << "<MCSymbolData"
      << " Fragment:" << getFragment();
-  OS << " Flags:" << getFlags();
   if (isExternal())
     OS << " (external)";
   if (isPrivateExtern())
