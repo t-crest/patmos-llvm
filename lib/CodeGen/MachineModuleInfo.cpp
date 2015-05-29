@@ -334,6 +334,7 @@ void MachineModuleInfo::EndFunction() {
 
   // Clean up exception info.
   LandingPads.clear();
+  PersonalityTypeCache = EHPersonality::Unknown;
   CallSiteMap.clear();
   TypeInfos.clear();
   FilterIds.clear();
