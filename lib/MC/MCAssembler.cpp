@@ -473,6 +473,9 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
   case MCFragment::FT_LEB:
     return cast<MCLEBFragment>(F).getContents().size();
 
+  case MCFragment::FT_SafeSEH:
+    return 4;
+
   case MCFragment::FT_Align: {
     const MCAlignFragment &AF = cast<MCAlignFragment>(F);
     unsigned Offset = Layout.getFragmentOffset(&AF);
@@ -713,6 +716,12 @@ static void writeFragment(const MCAssembler &Asm, const MCAsmLayout &Layout,
   case MCFragment::FT_LEB: {
     const MCLEBFragment &LF = cast<MCLEBFragment>(F);
     OW->WriteBytes(LF.getContents());
+    break;
+  }
+
+  case MCFragment::FT_SafeSEH: {
+    const MCSafeSEHFragment &SF = cast<MCSafeSEHFragment>(F);
+    OW->Write32(SF.getSymbol()->getIndex());
     break;
   }
 
@@ -1099,6 +1108,7 @@ void MCFragment::dump() {
   case MCFragment::FT_Dwarf: OS << "MCDwarfFragment"; break;
   case MCFragment::FT_DwarfFrame: OS << "MCDwarfCallFrameFragment"; break;
   case MCFragment::FT_LEB:   OS << "MCLEBFragment"; break;
+  case MCFragment::FT_SafeSEH:    OS << "MCSafeSEHFragment"; break;
   }
 
   OS << "<MCFragment " << (void*) this << " LayoutOrder:" << LayoutOrder
@@ -1191,6 +1201,13 @@ void MCFragment::dump() {
     OS << " Value:" << LF->getValue() << " Signed:" << LF->isSigned();
     break;
   }
+  case MCFragment::FT_SafeSEH: {
+    const MCSafeSEHFragment *F = cast<MCSafeSEHFragment>(this);
+    OS << "\n       ";
+    OS << " Sym:";
+    F->getSymbol()->print(OS);
+    break;
+  }
   }
   OS << ">";
 }
@@ -1229,5 +1246,6 @@ void MCExprAlignFragment::anchor() { }
 void MCFillFragment::anchor() { }
 void MCOrgFragment::anchor() { }
 void MCLEBFragment::anchor() { }
+void MCSafeSEHFragment::anchor() { }
 void MCDwarfLineAddrFragment::anchor() { }
 void MCDwarfCallFrameFragment::anchor() { }
