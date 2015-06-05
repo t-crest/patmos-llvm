@@ -302,10 +302,8 @@ public:
 
   // Delete on the fly managers.
   ~MPPassManager() override {
-    for (std::map<Pass *, FunctionPassManagerImpl *>::iterator
-           I = OnTheFlyManagers.begin(), E = OnTheFlyManagers.end();
-         I != E; ++I) {
-      FunctionPassManagerImpl *FPP = I->second;
+    for (auto &OnTheFlyManager : OnTheFlyManagers) {
+      FunctionPassManagerImpl *FPP = OnTheFlyManager.second;
       delete FPP;
     }
   }
@@ -475,9 +473,8 @@ public:
   ~TimingInfo() {
     // Delete all of the timers, which accumulate their info into the
     // TimerGroup.
-    for (DenseMap<Pass*, Timer*>::iterator I = TimingData.begin(),
-         E = TimingData.end(); I != E; ++I)
-      delete I->second;
+    for (auto &I : TimingData)
+      delete I.second;
     // TimerGroup is deleted next, printing the report.
   }
 
@@ -520,9 +517,7 @@ PMTopLevelManager::setLastUser(ArrayRef<Pass*> AnalysisPasses, Pass *P) {
   if (P->getResolver())
     PDepth = P->getResolver()->getPMDataManager().getDepth();
 
-  for (SmallVectorImpl<Pass *>::const_iterator I = AnalysisPasses.begin(),
-         E = AnalysisPasses.end(); I != E; ++I) {
-    Pass *AP = *I;
+  for (Pass *AP : AnalysisPasses) {
     LastUser[AP] = P;
 
     if (P == AP)
@@ -703,39 +698,19 @@ void PMTopLevelManager::schedulePass(Pass *P) {
 Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
 
   // Check pass managers
-  for (SmallVectorImpl<PMDataManager *>::iterator I = PassManagers.begin(),
-         E = PassManagers.end(); I != E; ++I)
-    if (Pass *P = (*I)->findAnalysisPass(AID, false))
+  for (PMDataManager *PassManager : PassManagers)
+    if (Pass *P = PassManager->findAnalysisPass(AID, false))
       return P;
 
   // Check other pass managers
-  for (SmallVectorImpl<PMDataManager *>::iterator
-         I = IndirectPassManagers.begin(),
-         E = IndirectPassManagers.end(); I != E; ++I)
-    if (Pass *P = (*I)->findAnalysisPass(AID, false))
+  for (PMDataManager *IndirectPassManager : IndirectPassManagers)
+    if (Pass *P = IndirectPassManager->findAnalysisPass(AID, false))
       return P;
 
   // Check the immutable passes. Iterate in reverse order so that we find
   // the most recently registered passes first.
-  Pass *IP;
-  if ((IP = getImmutablePass(AID)))
-    return IP;
-
-  // Search inherited pass managers
-  for (SmallVectorImpl<PMTopLevelManager*>::iterator
-      I = InheritedPassManagers.begin(), E = InheritedPassManagers.end();
-      I != E; ++I) {
-    if ((IP = (*I)->getImmutablePass(AID)))
-      return IP;
-  }
-
-  return 0;
-}
-
-Pass *PMTopLevelManager::getImmutablePass(AnalysisID AID) {
-
-  for (SmallVector<ImmutablePass *, 8>::reverse_iterator I =
-       ImmutablePasses.rbegin(), E = ImmutablePasses.rend(); I != E; ++I) {
+  for (auto I = ImmutablePasses.rbegin(), E = ImmutablePasses.rend(); I != E;
+       ++I) {
     AnalysisID PI = (*I)->getPassID();
     if (PI == AID)
       return *I;
@@ -745,11 +720,9 @@ Pass *PMTopLevelManager::getImmutablePass(AnalysisID AID) {
     assert(PassInf && "Expected all immutable passes to be initialized");
     const std::vector<const PassInfo*> &ImmPI =
       PassInf->getInterfacesImplemented();
-    for (std::vector<const PassInfo*>::const_iterator II = ImmPI.begin(),
-         EE = ImmPI.end(); II != EE; ++II) {
-      if ((*II)->getTypeInfo() == AID)
+    for (const PassInfo *PI : ImmPI)
+      if (PI->getTypeInfo() == AID)
         return *I;
-    }
   }
 
   return nullptr;
@@ -781,10 +754,8 @@ void PMTopLevelManager::dumpPasses(unsigned Offset) const {
   // (sometimes indirectly), but there's no inheritance relationship
   // between PMDataManager and Pass, so we have to getAsPass to get
   // from a PMDataManager* to a Pass*.
-  for (SmallVector<PMDataManager *, 8>::const_iterator I = PassManagers.begin(),
-         E = PassManagers.end(); I != E; ++I) {
-    (*I)->getAsPass()->dumpPassStructure(Offset + 1);
-  }
+  for (PMDataManager *Manager : PassManagers)
+    Manager->getAsPass()->dumpPassStructure(1);
 }
 
 void PMTopLevelManager::dumpArguments() const {
@@ -1454,11 +1425,8 @@ bool FunctionPassManagerImpl::doInitialization(Module &M) {
   dumpArguments();
   dumpPasses();
 
-  SmallVectorImpl<ImmutablePass *>& IPV = getImmutablePasses();
-  for (SmallVectorImpl<ImmutablePass *>::const_iterator I = IPV.begin(),
-       E = IPV.end(); I != E; ++I) {
-    Changed |= (*I)->doInitialization(M);
-  }
+  for (ImmutablePass *ImPass : getImmutablePasses())
+    Changed |= ImPass->doInitialization(M);
 
   for (unsigned Index = 0; Index < getNumContainedManagers(); ++Index)
     Changed |= getContainedManager(Index)->doInitialization(M);
@@ -1472,11 +1440,8 @@ bool FunctionPassManagerImpl::doFinalization(Module &M) {
   for (int Index = getNumContainedManagers() - 1; Index >= 0; --Index)
     Changed |= getContainedManager(Index)->doFinalization(M);
 
-  SmallVectorImpl<ImmutablePass *>& IPV = getImmutablePasses();
-  for (SmallVectorImpl<ImmutablePass *>::const_iterator I = IPV.begin(),
-       E = IPV.end(); I != E; ++I) {
-    Changed |= (*I)->doFinalization(M);
-  }
+  for (ImmutablePass *ImPass : getImmutablePasses())
+    Changed |= ImPass->doFinalization(M);
 
   return Changed;
 }
@@ -1843,9 +1808,8 @@ void PMStack::push(PMDataManager *PM) {
 
 // Dump content of the pass manager stack.
 void PMStack::dump() const {
-  for (std::vector<PMDataManager *>::const_iterator I = S.begin(),
-         E = S.end(); I != E; ++I)
-    dbgs() << (*I)->getAsPass()->getPassName() << ' ';
+  for (PMDataManager *Manager : S)
+    dbgs() << Manager->getAsPass()->getPassName() << ' ';
 
   if (!S.empty())
     dbgs() << '\n';
