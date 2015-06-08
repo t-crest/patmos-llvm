@@ -17,7 +17,7 @@
 
 #include "llvm/Pass.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/ADT/ArrayRef.h"
+#include <functional>
 #include <string>
 
 namespace llvm {
