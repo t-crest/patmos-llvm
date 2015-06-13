@@ -255,7 +255,7 @@ bool PostRAScheduler::enablePostRAScheduler(
     TargetSubtargetInfo::RegClassVector &CriticalPathRCs) const {
   Mode = ST.getAntiDepBreakMode();
   ST.getCriticalPathRCs(CriticalPathRCs);
-  return ST.enablePostMachineScheduler() &&
+  return ST.enablePostRAScheduler() &&
          OptLevel >= ST.getOptLevelToEnablePostRAScheduler();
 }
 
