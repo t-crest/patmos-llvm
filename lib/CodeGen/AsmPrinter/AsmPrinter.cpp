@@ -906,7 +906,8 @@ void AsmPrinter::EmitFunctionBody() {
     const MCExpr *SizeExp = MCBinaryExpr::createSub(
         MCSymbolRefExpr::create(CurrentFnEnd, OutContext),
         MCSymbolRefExpr::create(CurrentFnSymForSize, OutContext), OutContext);
-    OutStreamer->emitELFSize(cast<MCSymbolELF>(CurrentFnSym), SizeExp);
+    if (auto Sym = dyn_cast<MCSymbolELF>(CurrentFnSym))
+      OutStreamer->emitELFSize(Sym, SizeExp);
   }
 
   for (const HandlerInfo &HI : Handlers) {
