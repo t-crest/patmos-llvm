@@ -20,6 +20,7 @@ namespace llvm {
 
 class TargetMachine;
 class MachineFunction;
+class MachineFunctionInitializer;
 class TargetMachine;
 
 /// MachineFunctionAnalysis - This class is a Pass that manages a
@@ -39,9 +40,12 @@ private:
   bool PreserveMF;
 
   unsigned NextFnNum;
+  MachineFunctionInitializer *MFInitializer;
+
 public:
   static char ID;
-  explicit MachineFunctionAnalysis(const TargetMachine &tm);
+  explicit MachineFunctionAnalysis(const TargetMachine &tm,
+                                   MachineFunctionInitializer *MFInitializer);
   ~MachineFunctionAnalysis() override;
 
   /// preserveMF - Indicate that the MachineFunction should be preserved even

@@ -15,10 +15,7 @@
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/IR/Function.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Support/Debug.h"
-
+#include "llvm/CodeGen/MachineFunctionInitializer.h"
 using namespace llvm;
 
 INITIALIZE_PASS(MachineFunctionAnalysis, "machinefunctionanalysis",
@@ -26,15 +23,9 @@ INITIALIZE_PASS(MachineFunctionAnalysis, "machinefunctionanalysis",
 
 char MachineFunctionAnalysis::ID = 0;
 
-MachineFunctionAnalysis::MachineFunctionAnalysis() :
-  FunctionPass(ID), TM(0), MF(0), PreserveMF(false),
-  NextFnNum(0)
-{
-  initializeMachineFunctionAnalysisPass(*PassRegistry::getPassRegistry());
-}
-
-MachineFunctionAnalysis::MachineFunctionAnalysis(const TargetMachine &tm) :
-  FunctionPass(ID), TM(tm), MF(nullptr) {
+MachineFunctionAnalysis::MachineFunctionAnalysis(
+    const TargetMachine &tm, MachineFunctionInitializer *MFInitializer)
+    : FunctionPass(ID), TM(tm), MF(nullptr), MFInitializer(MFInitializer) {
   initializeMachineModuleInfoPass(*PassRegistry::getPassRegistry());
 }
 
@@ -60,6 +51,8 @@ bool MachineFunctionAnalysis::runOnFunction(Function &F) {
   assert(!MF && "MachineFunctionAnalysis already initialized!");
   MF = new MachineFunction(&F, TM, NextFnNum++,
                            getAnalysis<MachineModuleInfo>());
+  if (MFInitializer)
+    MFInitializer->initializeMachineFunction(*MF);
   return false;
 }
 
