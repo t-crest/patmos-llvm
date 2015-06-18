@@ -1313,7 +1313,10 @@ void MCAsmStreamer::EmitInstruction(const MCInst &Inst, const MCSubtargetInfo &S
     GetCommentOS() << "\n";
   }
 
-  InstPrinter->printInst(&Inst, OS, "", STI);
+  if(getTargetStreamer())
+    getTargetStreamer()->prettyPrintAsm(*InstPrinter, OS, Inst, STI);
+  else
+    InstPrinter->printInst(&Inst, OS, "", STI);
 
   EmitEOL();
 }
