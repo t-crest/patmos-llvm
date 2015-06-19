@@ -103,7 +103,7 @@ public:
   void UpdateForDeletedBlock(BasicBlock *BB);
   void UpdateForRAUWBlock(BasicBlock *Old, BasicBlock *New);
 };
-}
+} // namespace llvm
 
 MCSymbol *MMIAddrLabelMap::getAddrLabelSymbol(BasicBlock *BB) {
   assert(BB->hasAddressTaken() &&

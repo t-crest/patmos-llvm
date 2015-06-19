@@ -484,7 +484,7 @@ private:
 
   void initializeDirectiveKindMap();
 };
-}
+} // namespace
 
 namespace llvm {
 
@@ -1964,7 +1964,7 @@ public:
 private:
   AsmLexer &Lexer;
 };
-}
+} // namespace
 
 bool AsmParser::parseMacroArgument(MCAsmMacroArgument &MA, bool Vararg) {
 

@@ -217,6 +217,6 @@ public:
   virtual void onLabelParsed(MCSymbol *Symbol) { };
 };
 
-} // End llvm namespace
+} // namespace llvm
 
 #endif
