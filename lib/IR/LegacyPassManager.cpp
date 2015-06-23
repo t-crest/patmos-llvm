@@ -284,8 +284,8 @@ public:
 void FunctionPassManagerImpl::anchor() {}
 
 char FunctionPassManagerImpl::ID = 0;
-} // namespace legacy
-} // namespace llvm
+} // End of legacy namespace
+} // End of llvm namespace
 
 namespace {
 //===----------------------------------------------------------------------===//
@@ -449,8 +449,8 @@ public:
 void PassManagerImpl::anchor() {}
 
 char PassManagerImpl::ID = 0;
-} // namespace legacy
-} // namespace llvm
+} // End of legacy namespace
+} // End of llvm namespace
 
 namespace {
 
@@ -496,7 +496,7 @@ public:
   }
 };
 
-} // namespace
+} // End of anon namespace
 
 static TimingInfo *TheTimeInfo;
 

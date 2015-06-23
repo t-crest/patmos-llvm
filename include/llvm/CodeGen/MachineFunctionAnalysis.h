@@ -65,6 +65,6 @@ private:
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
 
-} // namespace llvm
+} // End llvm namespace
 
 #endif

@@ -850,7 +850,7 @@ getELFDynamicSymbolIterators(const SymbolicFile *Obj) {
   return cast<ELFObjectFileBase>(Obj)->getELFDynamicSymbolIterators();
 }
 
-} // namespace object
-} // namespace llvm
+}
+}
 
 #endif

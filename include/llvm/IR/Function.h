@@ -623,6 +623,6 @@ struct OperandTraits<Function> : public OptionalOperandTraits<Function> {};
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(Function, Value)
 
-} // namespace llvm
+} // End llvm namespace
 
 #endif

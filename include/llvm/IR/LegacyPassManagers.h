@@ -487,6 +487,6 @@ public:
 
 Timer *getPassTimer(Pass *);
 
-} // namespace llvm
+}
 
 #endif

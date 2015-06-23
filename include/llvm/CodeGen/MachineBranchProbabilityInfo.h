@@ -89,7 +89,7 @@ public:
                                     const MachineBasicBlock *Dst) const;
 };
 
-} // namespace llvm
+}
 
 
 #endif
