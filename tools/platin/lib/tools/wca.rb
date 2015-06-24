@@ -23,8 +23,13 @@ class WcaTool
     opts.on("--wca-minimal-cache","assume there is only one cache block (=false)") { |b|
       opts.options.wca_minimal_cache = b
     }
+    opts.on("--wca-data-cache-analysis","data cache analysis type (scope,always-hit,=always-miss)") { |v|
+      opts.options.wca_data_cache_analysis = v
+    }
     opts.add_check { |options|
       options.wca_cache_regions = true if options.wca_cache_regions.nil?
+      # TODO change this default to 'scope' once the scope analysis works properly
+      options.wca_data_cache_analysis = 'always-miss' if options.wca_data_cache_analysis.nil?
     }
     opts.stack_cache_analysis
     opts.target_callret_costs

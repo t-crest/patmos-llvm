@@ -39,8 +39,23 @@ class CacheAnalysis
       @sca.analyze_nonscope()
       @sca.extend_ipet(ipet_builder)
     end
-    if dc = @pml.arch.data_cache and not @options.disable_dca
-      warn("Datacache at the moment not supported by platin")
+    if dm = @pml.arch.data_memory and not dm.ideal? and not @options.disable_dca
+      # Note: We also run the data cache analysis if there is no data-cache configured, since we
+      #       also add the costs for uncached loads and stores here!
+      # Note: @options.disable_dca disables *all* data memory access costs and assumes *0* costs.
+      #       To disable only the data-cache analysis itself, set the cache analysis type to always-miss.
+      #       (for future reference)
+      # TODO This is a bit misleading; find a way to add costs for uncached memory accesses outside of
+      #      this analysis, only handle the case 'if @pml.arch.data_cache' here?! Maybe rename option to
+      #      'disable_dma' and move this whole code into a separate DataMemoryAnalysis class.
+      dc = @pml.arch.data_cache
+      ideal_dc = @options.dca_analysis_type == 'always-hit' || (dc && dc.ideal?)
+      if not dc or ideal_dc or @options.dca_analysis_type == 'always-miss'
+        @dca = AlwaysMissCacheAnalysis.new(NoDataCacheAnalysis.new(dm, ideal_dc, @pml, @options), @pml, @options)
+      else
+        @dca = CacheRegionAnalysis.new(DataCacheAnalysis.new(dm, dc, @pml, @options), @pml, @options)
+      end
+      @dca.extend_ipet(scope_graph(entry_function), ipet_builder)
     end
   end
 
@@ -57,7 +72,10 @@ class CacheAnalysis
     puts "Stack cache contribution:" if @sca and options.verbose
     sca_results = @sca.summarize(options, freqs, cost) if @sca
 
-    { "instr" => ica_results, "stack" => sca_results }.each { |type,r|
+    puts "Data cache contribution:" if @dca and options.verbose
+    dca_results = @dca.summarize(options, freqs, cost) if @dca
+
+    { "instr" => ica_results, "stack" => sca_results, "data" => dca_results }.each { |type,r|
       r.each { |k,v|
         report.attributes[k + "-" + type] = v
 	total_cycles += v if k == "cache-cycles"
@@ -72,13 +90,29 @@ end
 # at a certain program point.
 class LoadInstruction
   include QNameObject
-  attr_reader :insref, :tag
-  def initialize(insref, tag)
-    @insref, @tag = insref, tag
+  attr_reader :insref, :tag, :store, :bypass
+  def initialize(insref, tag, store=false, bypass=false)
+    @insref, @tag, @store, @bypass = insref, tag, store, bypass
     @qname = "#{@tag.qname}@#{insref.qname}"
   end
   def function
     @insref.function
+  end
+  def store?
+    return @store
+  end
+  def bypass?
+    return @bypass
+  end
+  # True if the accessed address is known precisely
+  def known?
+    return false unless tag and tag.respond_to?(:known?)
+    tag.known?
+  end
+  # True if the address is not known at all (no range or symbol)
+  def unknown?
+    return false unless tag and tag.respond_to?(:unknown?)
+    tag.unknown?
   end
   def to_s
     "#{tag}@#{insref}"
@@ -93,7 +127,7 @@ end
 # incoming block the program point is contained in
 class MemoryEdge
   include QNameObject
-  attr_reader :edgeref
+  attr_reader :edgeref,:load_instruction
   def initialize(edgeref, load_instruction)
     @edgeref, @load_instruction = edgeref, load_instruction
     @qname = "#{edgeref.qname}->#{load_instruction.qname}"
@@ -102,8 +136,101 @@ class MemoryEdge
     @load_instruction.insref.function
   end
   def to_s
-    @qname = "#{edgeref}->#{@load_instruction}"
+    @qname = "#{@edgeref}->#{@load_instruction}"
   end
+end
+
+class CacheAnalysisBase
+  def summarize(options, freqs, cost)
+    cycles = 0
+    accesses = 0
+    misses = 0
+    stores = 0
+    bypasses = 0
+    known = 0
+    unknown = 0
+    @all_load_edges.each { |me|
+      li = me.load_instruction
+      puts "  cache load edge #{me}: #{freqs[me] || '??'} (#{cost[me]} cyc)" if options.verbose
+      cycles += cost[me] || 0
+      accesses += freqs[me] || 0
+      # count store and bypass separately
+      misses += freqs[me] || 0 unless li.bypass? or li.store?
+      stores += freqs[me] || 0 if li.store?
+      bypasses += freqs[me] || 0 if li.bypass?
+      # count known and unknown accesses indepenently
+      known += freqs[me] || 0 if li.known?
+      unknown += freqs[me] || 0 if li.unknown?
+    }
+    { "cache-cycles" => cycles, "cache-accesses" => accesses, "cache-misses" => misses,
+      "cache-stores" => stores, "cache-bypasses" => bypasses,
+      "cache-known-address" => known, "cache-unknown-address" => unknown 
+    }.select { |k,v| v > 0 }.map { |k,v| [k,v.to_i] }
+  end
+end
+
+#
+# A simple cache analysis driver implementation that does not check
+# for conflicts, it just adds all the costs to the IPET.
+# 
+class AlwaysMissCacheAnalysis < CacheAnalysisBase
+
+  attr_reader :pml, :options, :cache_properties
+
+  def initialize(cache_properties, pml, options)
+    @cache_properties, @pml, @options = cache_properties, pml, options
+  end
+
+  # extend IPET with load costs
+  def extend_ipet(scopegraph, ipet_builder)
+
+    # all memory edges 
+    @all_load_edges = []
+
+    # iterate over all instructions in the call graph
+    scopegraph.bottom_up.each { |n|
+      # TODO Handle SCCNodes from recursive calls
+      next unless n.kind_of?(ScopeGraph::FunctionNode)
+
+      n.function.blocks.each { |block|
+        block.instructions.each { |i|
+	 
+	  load_instructions = @cache_properties.load_instructions(i)
+	  next unless load_instructions
+
+          load_instructions = load_instructions.to_a
+          next if load_instructions.empty?
+
+          debug(options,:cache) { "Load instructions for instruction: #{i}: #{load_instructions.join(",")}" }
+
+          # add a variable for each load instruction
+          load_instructions.each { |li|
+
+	    ipet_builder.ilp.add_variable(li)
+	    # load instruction is less equal to instruction frequency
+	    ipet_builder.mc_model.assert_less_equal({li=>1},{li.insref=>1},"load_ins_#{li}",:cache)
+
+	    # add load edges to attribute cost to
+	    load_edges = []
+	    li.insref.block.outgoing_edges.each { |edge|
+	      me = MemoryEdge.new(edge, li)
+	      ipet_builder.ilp.add_variable(me)
+	      ipet_builder.ilp.add_cost(me, @cache_properties.load_cost(li.tag))
+	      # memory edge frequency is less equal to edge frequency
+	      ipet_builder.mc_model.assert_less_equal({me=>1},{me.edgeref=>1},"load_edge_#{me}",:cache)
+	      load_edges.push(me)
+	    }
+	    # sum of load edges is equal to load instructions
+	    load_edge_sum = load_edges.map { |me| [me,1] }
+	    ipet_builder.mc_model.assert_equal(load_edge_sum, {li=>1}, "load_edges_#{li}",:cache)
+	    # collect all load edges
+	    @all_load_edges.concat(load_edges)
+	  }
+	}
+      }
+    }
+  end
+
 end
 
 #
@@ -112,7 +239,7 @@ end
 # LRU analysis) and modification of the ipet to account for memory
 # transfer costs.
 #
-class CacheRegionAnalysis
+class CacheRegionAnalysis < CacheAnalysisBase
 
   # cache tags
   class Tag
@@ -307,16 +434,6 @@ class CacheRegionAnalysis
     @cache_properties.cache.policy == "lru" && options.wca_persistence_analysis
   end
 
-  def summarize(options, freqs, cost)
-    cycles = 0
-    misses = 0
-    @all_load_edges.each { |me|
-      puts "  cache load edge #{me}: #{freqs[me] || '??'} (#{cost[me]} cyc)" if options.verbose
-      cycles += cost[me] || 0
-      misses += freqs[me] || 0
-    }
-    { "cache-cycles" => cycles, "cache-misses" => misses }
-  end
 end
 
 #
@@ -612,7 +729,6 @@ class MethodCacheAnalysis
   def blocks_for_tag(subfunction)
     @cache.bytes_to_blocks(subfunction.size)
   end
-
 end
 
 class CacheLine
@@ -679,7 +795,7 @@ class InstructionCacheAnalysis
     end
     if ! same_cache_line_as_prev || i.may_return_to?
       get_aligned_addresses(i.address, last_byte).map { |addr|
-        LoadInstruction.new(i, CacheLine.new(addr, i.function))
+        [LoadInstruction.new(i, CacheLine.new(addr, i.function))]
       }
     else
       []
@@ -702,8 +818,206 @@ class InstructionCacheAnalysis
     # info("read_delay for cache_line at #{cache_line.address} (#{cache_line.address & (@cache.line_size-1)}): #{d}")
     d
   end
-
 end
+
+
+
+class DataCacheLine
+  include QNameObject
+  
+  attr_reader :address, :function, :memmode, :memtype
+  def initialize(address, function, memmode, memtype)
+    @address, @function, @memmode, @memtype = address, function, memmode, memtype
+    # TODO For now the cache analysis does not support that the same cache line (equal qname) appears in
+    #      multiple sets, since it tries to add a new variable to the ILP per set. 
+    #      As a workaround we need to ensure that an (unknown) cache line in different sets has different names.
+    if not address
+      @qname = "CacheLine: unknown"
+      if not cached?
+        @qname = "#{qname} (uncached)"
+      end
+    else
+      @qname = "CacheLine: #{address}"
+    end
+  end
+  def bypass?
+    memtype == 'memory'
+  end
+  def store?
+    memmode == 'store'
+  end
+  # True if the accessed address is known precisely
+  def known?
+    address
+  end
+  # True if the address is not known at all (no range or symbol)
+  def unknown?
+    address.nil?
+  end
+  def cached?
+    not bypass? and not store?
+  end
+  def to_s
+    qname
+  end
+end
+
+#
+# Base class for data cache analysis implementations
+#
+class DataCacheAnalysisBase
+  attr_reader :memory, :line_size
+
+  def initialize(memory, pml, options)
+    @memory, @pml, @options = memory, pml, options
+  end
+
+  def name
+    "D$"
+  end
+
+  def aligned_addr(addr)
+    addr & ~(@line_size - 1)
+  end
+
+  def get_aligned_addresses(first_address, last_address)
+    addrs = []
+    addr = aligned_addr(first_address)
+    while addr <= last_address
+      addrs.push(addr)
+      addr += @line_size
+    end
+    addrs
+  end
+
+  def load_cost(cache_line)
+    if cache_line.store?
+      if cache_line.known?
+        d = @memory.write_delay(cache_line.address, @line_size)
+      else
+        d = @memory.write_delay_aligned(@line_size)
+      end
+    else
+      if cache_line.known?
+        d = @memory.read_delay(cache_line.address, @line_size)
+      else
+        d = @memory.read_delay_aligned(@line_size)
+      end
+    end
+    # info("read_delay for cache_line at #{cache_line.address} (#{cache_line.address & (@cache.line_size-1)}): #{d}")
+    d
+  end
+end
+
+#
+# Data access analysis for setups without a data-cache
+# 
+class NoDataCacheAnalysis < DataCacheAnalysisBase
+
+  attr_reader :always_hit
+
+  def initialize(memory, always_hit, pml, options)
+    super(memory, pml, options)
+    @always_hit = always_hit
+    @line_size = @pml.arch.max_data_transfer_bytes
+  end
+
+  def sets
+    1
+  end
+
+  def set_of(cache_line)
+    0
+  end
+
+  def load_instructions(i)
+    if i.memmode == 'load' or i.memmode == 'store'
+      line = DataCacheLine.new(nil, i.function, i.memmode, i.memtype)
+      # Skip data-cache loads in case we are in always-hit mode..
+      return [] if @always_hit and line.cached?
+      # .. but handle stores and bypass loads nevertheless.
+      [LoadInstruction.new(i, line, line.store?, line.bypass?)]
+    else
+      []
+    end
+  end
+
+  def conflict_free?(cache_lines)
+    false
+  end
+end
+
+# 
+# Data-cache analysis plugin for scope based cache analysis
+#
+class DataCacheAnalysis < DataCacheAnalysisBase
+
+  attr_reader :cache
+
+  def initialize(memory, cache, pml, options)
+    super(memory, pml, options)
+    @cache = cache
+    @line_size = cache.line_size
+    @offset_bits = Math.log2(@line_size).to_i 
+  end
+
+  def sets
+    # TODO for now, we only have two sets: (unknown) accesses to data-cache, and
+    #      all bypasses and stores
+    2
+
+    # We put bypass loads and stores to a separate set
+    # TODO we could also run two separate analyses for cached and uncached accesses..
+    #@cache.size / (@cache.associativity * @cache.line_size) + 1
+  end
+
+  def set_of(cache_line)
+    return sets - 1 unless cache_line.cached?
+    # TODO all other accesses go to set 0 for now.
+    #      For unknown accesses we should instead return a set of
+    #      all set-ids, and the cache analysis must put the cache line
+    #      into all those sets (same for ranges).
+    0
+    #(cache_line.address >> @offset_bits) & (sets - 1)
+  end
+
+  def size_in_bytes(cache_lines)
+    @line_size * cache_lines.length
+  end
+
+  def load_instructions(i)
+    if i.memmode == 'load' or i.memmode == 'store'
+      # TODO try to determine address (range) of access
+      line = DataCacheLine.new(nil, i.function, i.memmode, i.memtype)
+      [LoadInstruction.new(i, line, line.store?, line.bypass?)]
+    else
+      []
+    end
+  end
+
+  def conflict_free?(cache_lines)
+    return false if @options.wca_minimal_cache
+    return true  if @options.wca_ideal_cache
+    
+    # Check if any set entry is an uncached acccess
+    # We could also check for set-id, if we would get it here
+    cache_lines.each { |cache_line|
+      return false unless cache_line.cached?
+
+      # We need to be conservative here if we do not know the address exactly,
+      # because we do not know *how many* times this access is performed in this scope, and
+      # each access might be a *different* unknown access.
+      # TODO we could be less conservative here if we do not know the address but know that it will 
+      #      always be the same value (eg a symbol), or if this access is (only) outside any loop within its
+      #      conflict scope. We need to distinguish different unknowm accesses for that, i.e. the cacheline 
+      #      tag (qname) must be different for constant and truly unknown accesses.
+      return false unless cache_line.known?
+    }
+
+    cache_lines.length <= @cache.associativity
+  end
+end
+
 
 class StackCacheAnalysis
   def initialize(cache, pml, options)

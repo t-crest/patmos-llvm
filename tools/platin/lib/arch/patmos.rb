@@ -120,11 +120,23 @@ class Architecture < PML::Architecture
     memory.read_delay(sf.entry.address - 4, sf.size + 4)
   end
 
+  def code_memory
+    cm = @config.memory_areas.by_name('code')
+    cm.memory if cm
+  end
+
+  def data_memory
+    dm = @config.memory_areas.by_name('data')
+    dm.memory if dm
+  end
+
   def stack_cache
     @config.caches.by_name('stack-cache')
   end
 
   def data_cache
+    # TODO check if this is consistent with what is configured in the 
+    #      data memory-area (but check only once!)
     @config.caches.by_name('data-cache')
   end
 
@@ -134,6 +146,11 @@ class Architecture < PML::Architecture
 
   def instruction_fetch_bytes
     num_slots * 4
+  end
+
+  # Return the maximum size of a load or store in bytes.
+  def max_data_transfer_bytes
+    4
   end
 
   def path_wcet(ilist)

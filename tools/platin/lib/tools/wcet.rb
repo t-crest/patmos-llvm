@@ -353,9 +353,8 @@ class WcetTool
       dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
         'cycles' => te.cycles }
-      te.attributes.select { |k,v| k.start_with? 'cache-misses' }.each { |k,v| dict[k] = v }
-      te.attributes.select { |k,v| k.start_with? 'cache-hits' }.each { |k,v| dict[k] = v }
-      te.attributes.select { |k,v| k.start_with? 'cache-cycles' }.each { |k,v| dict[k] = v }
+      te.attributes.select { |k,v| k.start_with? 'memory-' }.each { |k,v| dict[k] = v }
+      te.attributes.select { |k,v| k.start_with? 'cache-' }.each { |k,v| dict[k] = v }
       (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }
