@@ -355,6 +355,15 @@ class CacheConfig < PMLObject
   end
 
   ##
+  # Check if this is an ideal cache.
+  #
+  # Note: In order to be consistent with 'pasim', an ideal cache does not even have
+  # cold misses.
+  def ideal?
+    @policy == 'ideal'
+  end
+
+  ##
   # :attr_reader: size
   #
   # size of the cache in bytes
