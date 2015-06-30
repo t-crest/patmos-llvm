@@ -2230,7 +2230,7 @@ static void emitSubtargetFeatureFlagEnumeration(AsmMatcherInfo &Info,
      << " {\n";
   for (const auto &SF : Info.SubtargetFeatures) {
     const SubtargetFeatureInfo &SFI = SF.second;
-    OS << "  " << SFI.getEnumName() << " = " << SFI.Index << ",\n";
+    OS << "  " << SFI.getEnumName() << " = (1ULL << " << SFI.Index << "),\n";
   }
   OS << "  Feature_None = 0\n";
   OS << "};\n\n";
@@ -2261,9 +2261,9 @@ static void emitOperandDiagnosticTypes(AsmMatcherInfo &Info, raw_ostream &OS) {
 static void emitGetSubtargetFeatureName(AsmMatcherInfo &Info, raw_ostream &OS) {
   OS << "// User-level names for subtarget features that participate in\n"
      << "// instruction matching.\n"
-     << "static const char *getSubtargetFeatureName(uint64_t Feature) {\n";
+     << "static const char *getSubtargetFeatureName(uint64_t Val) {\n";
   if (!Info.SubtargetFeatures.empty()) {
-    OS << "  switch(Feature) {\n";
+    OS << "  switch(Val) {\n";
     for (const auto &SF : Info.SubtargetFeatures) {
       const SubtargetFeatureInfo &SFI = SF.second;
       // FIXME: Totally just a placeholder name to get the algorithm working.
@@ -2286,9 +2286,9 @@ static void emitComputeAvailableFeatures(AsmMatcherInfo &Info,
   std::string ClassName =
     Info.AsmParser->getValueAsString("AsmParserClassName");
 
-  OS << "FeatureBitset " << Info.Target.getName() << ClassName << "::\n"
+  OS << "uint64_t " << Info.Target.getName() << ClassName << "::\n"
      << "ComputeAvailableFeatures(const FeatureBitset& FB) const {\n";
-  OS << "  FeatureBitset Features;\n";
+  OS << "  uint64_t Features = 0;\n";
   for (const auto &SF : Info.SubtargetFeatures) {
     const SubtargetFeatureInfo &SFI = SF.second;
 
@@ -2322,7 +2322,7 @@ static void emitComputeAvailableFeatures(AsmMatcherInfo &Info,
     } while (true);
 
     OS << ")\n";
-    OS << "    Features.set(" << SFI.getEnumName() << ", 1);\n";
+    OS << "    Features |= " << SFI.getEnumName() << ";\n";
   }
   OS << "  return Features;\n";
   OS << "}\n\n";
@@ -2407,7 +2407,7 @@ static void emitMnemonicAliasVariant(raw_ostream &OS,const AsmMatcherInfo &Info,
 
       if (!MatchCode.empty())
         MatchCode += "else ";
-      MatchCode += "if ((Features & FeatureBitset({"+FeatureMask+"})) == FeatureBitset({"+FeatureMask+"}))\n";
+      MatchCode += "if ((Features & " + FeatureMask + ") == "+FeatureMask+")\n";
       MatchCode += "  Mnemonic = \"" +R->getValueAsString("ToMnemonic")+"\";\n";
     }
 
@@ -2438,7 +2438,7 @@ static bool emitMnemonicAliases(raw_ostream &OS, const AsmMatcherInfo &Info,
   if (Aliases.empty()) return false;
 
   OS << "static void applyMnemonicAliases(StringRef &Mnemonic, "
-    "FeatureBitset Features, unsigned VariantID) {\n";
+    "uint64_t Features, unsigned VariantID) {\n";
   OS << "  switch (VariantID) {\n";
   unsigned VariantCount = Target.getAsmParserVariantCount();
   for (unsigned VC = 0; VC != VariantCount; ++VC) {
@@ -2474,7 +2474,8 @@ static void emitCustomOperandParsing(raw_ostream &OS, CodeGenTarget &Target,
   // Emit the static custom operand parsing table;
   OS << "namespace {\n";
   OS << "  struct OperandMatchEntry {\n";
-  OS << "    FeatureBitset RequiredFeatures;\n";
+  OS << "    " << getMinimalRequiredFeaturesType(Info)
+               << " RequiredFeatures;\n";
   OS << "    " << getMinimalTypeForRange(MaxMnemonicIndex)
                << " Mnemonic;\n";
   OS << "    " << getMinimalTypeForRange(std::distance(
@@ -2517,14 +2518,12 @@ static void emitCustomOperandParsing(raw_ostream &OS, CodeGenTarget &Target,
 
     // Write the required features mask.
     if (!II.RequiredFeatures.empty()) {
-      OS << "{";
       for (unsigned i = 0, e = II.RequiredFeatures.size(); i != e; ++i) {
-        if (i) OS << ",";
+        if (i) OS << "|";
         OS << II.RequiredFeatures[i]->getEnumName();
       }
-      OS << "}";
     } else
-      OS << "{}";
+      OS << "0";
 
     // Store a pascal-style length byte in the mnemonic.
     std::string LenMnemonic = char(II.Mnemonic.size()) + II.Mnemonic.str();
@@ -2580,7 +2579,7 @@ static void emitCustomOperandParsing(raw_ostream &OS, CodeGenTarget &Target,
 
   // Emit code to get the available features.
   OS << "  // Get the current feature set.\n";
-  OS << "  FeatureBitset AvailableFeatures = getAvailableFeatures();\n\n";
+  OS << "  uint64_t AvailableFeatures = getAvailableFeatures();\n\n";
 
   OS << "  // Get the next operand index.\n";
   OS << "  unsigned NextOpNum = Operands.size()-1;\n";
@@ -2683,7 +2682,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "#undef GET_ASSEMBLER_HEADER\n";
   OS << "  // This should be included into the middle of the declaration of\n";
   OS << "  // your subclasses implementation of MCTargetAsmParser.\n";
-  OS << "  FeatureBitset ComputeAvailableFeatures(const FeatureBitset& FB) const;\n";
+  OS << "  uint64_t ComputeAvailableFeatures(const FeatureBitset& FB) const;\n";
   OS << "  void convertToMCInst(unsigned Kind, MCInst &Inst, "
      << "unsigned Opcode,\n"
      << "                       const OperandVector "
@@ -2693,9 +2692,8 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  bool mnemonicIsValid(StringRef Mnemonic, unsigned VariantID) override;\n";
   OS << "  unsigned MatchInstructionImpl(const OperandVector &Operands,\n"
      << "                                MCInst &Inst,\n"
-     << "                                uint64_t &ErrorInfo,\n"
-     << "                                FeatureBitset &ErrorMissingFeature,\n"
-     << "                                bool matchingInlineAsm,\n"
+     << "                                uint64_t &ErrorInfo,"
+     << " bool matchingInlineAsm,\n"
      << "                                unsigned VariantID = 0);\n";
 
   if (!Info.OperandMatchInfo.empty()) {
@@ -2806,7 +2804,8 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "    uint16_t Opcode;\n";
   OS << "    " << getMinimalTypeForRange(Info.Matchables.size())
                << " ConvertFn;\n";
-  OS << "    FeatureBitset RequiredFeatures;\n";
+  OS << "    " << getMinimalRequiredFeaturesType(Info)
+               << " RequiredFeatures;\n";
   OS << "    " << getMinimalTypeForRange(
                       std::distance(Info.Classes.begin(), Info.Classes.end()))
      << " Classes[" << MaxNumOperands << "];\n";
@@ -2852,14 +2851,12 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
 
       // Write the required features mask.
       if (!MI->RequiredFeatures.empty()) {
-        OS << "{";
         for (unsigned i = 0, e = MI->RequiredFeatures.size(); i != e; ++i) {
-          if (i) OS << ",";
+          if (i) OS << "|";
           OS << MI->RequiredFeatures[i]->getEnumName();
         }
-        OS << "}";
       } else
-        OS << "{}";
+        OS << "0";
 
       OS << ", { ";
       for (unsigned i = 0, e = MI->AsmOperands.size(); i != e; ++i) {
@@ -2898,7 +2895,6 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "unsigned " << Target.getName() << ClassName << "::\n"
      << "MatchInstructionImpl(const OperandVector &Operands,\n";
   OS << "                     MCInst &Inst, uint64_t &ErrorInfo,\n"
-     << "                     FeatureBitset &ErrorMissingFeature,\n"
      << "                     bool matchingInlineAsm, unsigned VariantID) {\n";
 
   OS << "  // Eliminate obvious mismatches.\n";
@@ -2909,7 +2905,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
 
   // Emit code to get the available features.
   OS << "  // Get the current feature set.\n";
-  OS << "  FeatureBitset AvailableFeatures = getAvailableFeatures();\n\n";
+  OS << "  uint64_t AvailableFeatures = getAvailableFeatures();\n\n";
 
   OS << "  // Get the instruction mnemonic, which is the first token.\n";
   OS << "  StringRef Mnemonic = ((" << Target.getName()
@@ -2925,7 +2921,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  bool HadMatchOtherThanFeatures = false;\n";
   OS << "  bool HadMatchOtherThanPredicate = false;\n";
   OS << "  unsigned RetCode = Match_InvalidOperand;\n";
-  OS << "  FeatureBitset MissingFeatures(~0ULL);\n";
+  OS << "  uint64_t MissingFeatures = ~0ULL;\n";
   OS << "  // Set ErrorInfo to the operand that mismatches if it is\n";
   OS << "  // wrong for all instances of the instruction.\n";
   OS << "  ErrorInfo = ~0ULL;\n";
@@ -3001,10 +2997,10 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "    if ((AvailableFeatures & it->RequiredFeatures) "
      << "!= it->RequiredFeatures) {\n";
   OS << "      HadMatchOtherThanFeatures = true;\n";
-  OS << "      FeatureBitset NewMissingFeatures = it->RequiredFeatures & "
+  OS << "      uint64_t NewMissingFeatures = it->RequiredFeatures & "
         "~AvailableFeatures;\n";
-  OS << "      if (NewMissingFeatures.count() <=\n"
-        "          MissingFeatures.count())\n";
+  OS << "      if (countPopulation(NewMissingFeatures) <=\n"
+        "          countPopulation(MissingFeatures))\n";
   OS << "        MissingFeatures = NewMissingFeatures;\n";
   OS << "      continue;\n";
   OS << "    }\n";
@@ -3054,7 +3050,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  if (HadMatchOtherThanPredicate || !HadMatchOtherThanFeatures)\n";
   OS << "    return RetCode;\n\n";
   OS << "  // Missing feature matches return which features were missing\n";
-  OS << "  ErrorMissingFeature = MissingFeatures;\n";
+  OS << "  ErrorInfo = MissingFeatures;\n";
   OS << "  return Match_MissingFeature;\n";
   OS << "}\n\n";
 
