@@ -833,7 +833,7 @@ class DataCacheLine
     #      As a workaround we need to ensure that an (unknown) cache line in different sets has different names.
     if not address
       @qname = "CacheLine: unknown"
-      if not cached?
+      if uncached?
         @qname = "#{qname} (uncached)"
       end
     else
@@ -854,8 +854,8 @@ class DataCacheLine
   def unknown?
     address.nil?
   end
-  def cached?
-    not bypass? and not store?
+  def uncached?
+    bypass? or store?
   end
   def to_s
     qname
@@ -934,7 +934,7 @@ class NoDataCacheAnalysis < DataCacheAnalysisBase
     if i.memmode == 'load' or i.memmode == 'store'
       line = DataCacheLine.new(nil, i.function, i.memmode, i.memtype)
       # Skip data-cache loads in case we are in always-hit mode..
-      return [] if @always_hit and line.cached?
+      return [] if @always_hit and not line.uncached?
       # .. but handle stores and bypass loads nevertheless.
       [LoadInstruction.new(i, line, line.store?, line.bypass?)]
     else
@@ -972,7 +972,7 @@ class DataCacheAnalysis < DataCacheAnalysisBase
   end
 
   def set_of(cache_line)
-    return sets - 1 unless cache_line.cached?
+    return sets - 1 if cache_line.uncached?
     # TODO all other accesses go to set 0 for now.
     #      For unknown accesses we should instead return a set of
     #      all set-ids, and the cache analysis must put the cache line
@@ -1002,7 +1002,7 @@ class DataCacheAnalysis < DataCacheAnalysisBase
     # Check if any set entry is an uncached acccess
     # We could also check for set-id, if we would get it here
     cache_lines.each { |cache_line|
-      return false unless cache_line.cached?
+      return false if cache_line.uncached?
 
       # We need to be conservative here if we do not know the address exactly,
       # because we do not know *how many* times this access is performed in this scope, and
