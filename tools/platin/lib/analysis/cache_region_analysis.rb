@@ -959,7 +959,15 @@ class NoDataCacheAnalysis < DataCacheAnalysisBase
   end
 
   def conflict_free?(cache_lines)
+    # TODO do we need this here since we define them as uncached anyway?
+    #      maybe return true and save a lot of constraints in the ILP.
     false
+  end
+
+  def uncached?(cache_line, set)
+    # Cached always_hit accesses do not get LoadInstructions in the first place.
+    # All other accesses are misses.
+    true
   end
 end
 
@@ -1015,9 +1023,14 @@ class DataCacheAnalysis < DataCacheAnalysisBase
     return false if @options.wca_minimal_cache
     return true  if @options.wca_ideal_cache
     
-    # Check if any set entry is an uncached acccess
-    # We could also check for set-id, if we would get it here
     cache_lines.each { |cache_line|
+      # Workaround: If any access is uncached, then this should be the 'uncached' set and all entries
+      # should be uncached, which we model by making all of them conflicts.
+      # We could also check for set-id, but we do not know it here.
+      # TODO check if we still need this: since we now do not generate constraints for uncached accesses,
+      #      we might as well just skip them here and save some constraints.
+      # TODO check if we could avoid the separate set for uncached accesses, but then we only need to count
+      #      the cached accesses here for checking against the associativity later.
       return false if cache_line.uncached?
 
       # We need to be conservative here if we do not know the address exactly,
@@ -1031,6 +1044,12 @@ class DataCacheAnalysis < DataCacheAnalysisBase
     }
 
     cache_lines.length <= @cache.associativity
+  end
+
+  def uncached?(cache_line, set)
+    # Do not generate a scope miss count constraint for uncached accesses, they
+    # are only constrained by the control flow constraints.
+    cache_line.uncached?
   end
 end
 
