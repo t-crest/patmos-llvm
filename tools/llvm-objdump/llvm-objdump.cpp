@@ -96,6 +96,10 @@ llvm::LazyBind("lazy-bind", cl::desc("Display mach-o lazy binding info"));
 cl::opt<bool>
 llvm::WeakBind("weak-bind", cl::desc("Display mach-o weak binding info"));
 
+cl::opt<bool>
+llvm::RawClangAST("raw-clang-ast",
+    cl::desc("Dump the raw binary contents of the clang AST section"));
+
 static cl::opt<bool>
 MachOOpt("macho", cl::desc("Use MachO specific object file parser"));
 static cl::alias
@@ -1306,6 +1310,43 @@ void llvm::printWeakBindTable(const ObjectFile *o) {
   }
 }
 
+/// Dump the raw contents of the __clangast section so the output can be piped
+/// into llvm-bcanalyzer.
+void llvm::printRawClangAST(const ObjectFile *Obj) {
+  if (outs().is_displayed()) {
+    errs() << "The -raw-clang-ast option will dump the raw binary contents of "
+              "the clang ast section.\n"
+              "Please redirect the output to a file or another program such as "
+              "llvm-bcanalyzer.\n";
+    return;
+  }
+
+  StringRef ClangASTSectionName("__clangast");
+  if (isa<COFFObjectFile>(Obj)) {
+    ClangASTSectionName = "clangast";
+  }
+
+  Optional<object::SectionRef> ClangASTSection;
+  for (auto Sec : Obj->sections()) {
+    StringRef Name;
+    Sec.getName(Name);
+    if (Name == ClangASTSectionName) {
+      ClangASTSection = Sec;
+      break;
+    }
+  }
+  if (!ClangASTSection)
+    return;
+
+  StringRef ClangASTContents;
+  if (error(ClangASTSection.getValue().getContents(ClangASTContents))) {
+    errs() << "Could not read the " << ClangASTSectionName << " section!\n";
+    return;
+  }
+
+  outs().write(ClangASTContents.data(), ClangASTContents.size());
+}
+
 static void printFaultMaps(const ObjectFile *Obj) {
   const char *FaultMapSectionName = nullptr;
 
@@ -1360,9 +1401,12 @@ static void printPrivateFileHeader(const ObjectFile *o) {
 }
 
 static void DumpObject(const ObjectFile *o) {
-  outs() << '\n';
-  outs() << o->getFileName()
-         << ":\tfile format " << o->getFileFormatName() << "\n\n";
+  // Avoid other output when using a raw option.
+  if (!RawClangAST) {
+    outs() << '\n';
+    outs() << o->getFileName()
+           << ":\tfile format " << o->getFileFormatName() << "\n\n";
+  }
 
   if (Disassemble)
     DisassembleObject(o, Relocations);
@@ -1388,6 +1432,8 @@ static void DumpObject(const ObjectFile *o) {
     printLazyBindTable(o);
   if (WeakBind)
     printWeakBindTable(o);
+  if (RawClangAST)
+    printRawClangAST(o);
   if (PrintFaultMaps)
     printFaultMaps(o);
 }
@@ -1478,6 +1524,7 @@ int main(int argc, char **argv) {
       && !Bind
       && !LazyBind
       && !WeakBind
+      && !RawClangAST
       && !(UniversalHeaders && MachOOpt)
       && !(ArchiveHeaders && MachOOpt)
       && !(IndirectSymbols && MachOOpt)
