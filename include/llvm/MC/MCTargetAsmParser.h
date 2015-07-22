@@ -214,7 +214,7 @@ public:
     return nullptr;
   }
 
-  virtual void onLabelParsed(MCSymbol *Symbol) { };
+  virtual void onLabelParsed(MCSymbol *Symbol) { }
 };
 
 } // End llvm namespace
