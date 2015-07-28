@@ -2822,6 +2822,10 @@ public:
   virtual bool useLoadStackGuardNode() const {
     return false;
   }
+
+  /// Lower TLS global address SDNode for target independent emulated TLS model.
+  virtual SDValue LowerToTLSEmulatedModel(const GlobalAddressSDNode *GA,
+                                          SelectionDAG &DAG) const;
 };
 
 /// Given an LLVM IR type and return type attributes, compute the return value
