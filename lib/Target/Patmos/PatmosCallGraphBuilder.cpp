@@ -16,9 +16,11 @@
 #include "PatmosCallGraphBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
-#include "llvm/CodeGen/MachineModuleInfo.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <set>
 
 using namespace llvm;
 
@@ -27,6 +29,8 @@ INITIALIZE_PASS(PatmosCallGraphBuilder, "patmos-mcg",
 
 namespace llvm {
   char PatmosCallGraphBuilder::ID = 0;
+
+  const char *MCallGraph::EntrySymbol = "_start";
 
   //----------------------------------------------------------------------------
 
@@ -55,7 +59,7 @@ namespace llvm {
   }
 
   void MCGNode::print(raw_ostream &OS) const {
-    OS << getLabel();
+    OS << (IsInSCC ? "*" : "") << getLabel();
   }
 
   void MCGNode::dump() const
@@ -73,7 +77,7 @@ namespace llvm {
                               MachineBasicBlock::instr_iterator(MI)) << ":";
     }
 
-    OS << *Caller << " --> " << *Callee;
+    OS << *Caller << (IsInSCC ? " *--> " : " --> ") << *Callee;
   }
 
   void MCGSite::dump(bool short_format) const
@@ -208,6 +212,27 @@ namespace llvm {
     return retval;
   }
 
+  bool MCallGraph::isInSCC(MachineInstr *MI)
+  {
+    if (!MI)
+      return false;
+
+    MachineBasicBlock *MBB = MI->getParent();
+    MachineFunction *MF = MBB->getParent();
+
+    for(scc_iterator<MachineFunction*> i(scc_begin(MF)), ie(scc_end(MF));
+        i != ie; i++)
+    {
+      if (i.hasLoop())
+      {
+        if (std::find((*i).begin(), (*i).end(), MBB) != (*i).end())
+          return true;
+      }
+    }
+
+    return false;
+  }
+
   MCGNode *MCallGraph::makeMCGNode(MachineFunction *MF)
   {
     // does a call graph node for the machine function exist?
@@ -261,7 +286,12 @@ namespace llvm {
   MCGSite *MCallGraph::makeMCGSite(MCGNode *Caller, MachineInstr *MI,
                                    MCGNode *Callee)
   {
-    MCGSite *newSite = new MCGSite(Caller, MI, Callee);
+    // TODO: check also for non-natural loops here
+    // check if the call site is in a loop
+    bool is_site_in_SCC = isInSCC(MI);
+
+    // allocate the call site
+    MCGSite *newSite = new MCGSite(Caller, MI, Callee, is_site_in_SCC);
 
     // store the site with the graph
     Sites.push_back(newSite);
@@ -273,6 +303,65 @@ namespace llvm {
     Callee->CallingSites.push_back(newSite);
 
     return newSite;
+  }
+
+  void MCallGraph::markNodesInSCC()
+  {
+    // Work list of nodes being
+    typedef std::set<MCGNode*> MCGNodeSet;
+    MCGNodeSet WL;
+    for(scc_iterator<MCallGraph> i(scc_begin(*this)), ie(scc_end(*this));
+        i != ie; i++)
+    {
+      // See if the node is in an SCC of the call graph --> mark it directly ...
+      if (i.hasLoop())
+      {
+        WL.insert((*i).begin(), (*i).end());
+      }
+      else
+      {
+        // ok the node is not in an SCC of the call graph, but maybe one of
+        // its call sites it in a loop
+        MCGNode *MCGN = *(*i).begin();
+        const MCGSites &calling(MCGN->getCallingSites());
+        for(MCGSites::const_iterator j(calling.begin()), je(calling.end());
+            j != je; j++)
+        {
+          if ((*j)->isInSCC())
+          {
+            WL.insert(MCGN);
+            break;
+          }
+        }
+      }
+    }
+
+    // now mark all descendents of a node
+    while (!WL.empty())
+    {
+      // pop an element from the work list
+      MCGNode *MCGN = *WL.begin();
+      WL.erase(MCGN);
+
+      // skip dead nodes
+      if (MCGN->isDead())
+        continue;
+
+      // mark it as being in an SCC
+      MCGN->IsInSCC = true;
+
+      // mark all its descendents as well
+      const MCGSites &called(MCGN->getSites());
+      for(MCGSites::const_iterator j(called.begin()), je(called.end()); j != je;
+          j++)
+      {
+        MCGNode *callee = (*j)->getCallee();
+        if (!callee->isInSCC())
+        {
+          WL.insert(callee);
+        }
+      }
+    }
   }
 
   void MCallGraph::dump() const
@@ -423,15 +512,19 @@ namespace llvm {
         // represent external callers
         const Function *F = MF->getFunction();
         Type *T = F ? F->getType() : NULL;
-        if (i->hasAddressTaken()) {
+        if (i->hasAddressTaken() && F->getName() != MCallGraph::EntrySymbol) {
           MCG.makeMCGSite(MCG.getUnknownNode(T), NULL, MCGN);
         }
       }
     }
 
     // discover live/dead functions
-    markLive(getMCGNode(M, "_start"));
-    markLive(getMCGNode(M, "main"));
+    MCGNode *entry = MCG.getEntryNode();
+    if (entry)
+      markLive(entry);
+
+    // Mark live nodes to be within SCCs (loops or recursion)
+    MCG.markNodesInSCC();
 
     DEBUG(
       std::string tmp;
