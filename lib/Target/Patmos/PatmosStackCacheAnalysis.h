@@ -44,9 +44,12 @@ public:
   bool isValid() const { return Valid; }
 
   typedef std::map<const MachineInstr*, unsigned int> FillSpillCounts;
+  typedef std::map<const MachineInstr*, int> CallMap;
 
   FillSpillCounts Reserves;
   FillSpillCounts Ensures;
+
+  CallMap CallIDs;
 
   static char ID; // Pass identification, replacement for typeid
 };
