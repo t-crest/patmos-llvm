@@ -121,9 +121,6 @@ protected:
   /// Default setting for -enable-tail-merge on this target.
   bool EnableTailMerge;
 
-  /// Default setting for -enable-shrink-wrap on this target.
-  bool EnableShrinkWrap;
-
 public:
   TargetPassConfig(TargetMachine *tm, PassManagerBase &pm);
   // Dummy constructor.
@@ -194,9 +191,6 @@ public:
 
   /// Return true if the optimized regalloc pipeline is enabled.
   bool getOptimizeRegAlloc() const;
-
-  /// Return true if shrink wrapping is enabled.
-  bool getEnableShrinkWrap() const;
 
   /// Return true if the default global register allocator is in use and
   /// has not be overriden on the command line with '-regalloc=...'
@@ -370,6 +364,14 @@ protected:
   /// Add a pass to perform basic verification of the machine function if
   /// verification is enabled.
   void addVerifyPass(const std::string &Banner);
+
+  /// Create an instance of ShrinkWrap using the runShrinkWrap predicate
+  /// function.  
+  FunctionPass *createShrinkWrapPass();
+  
+  /// Predicate function passed to a ShrinkWrap object to determine if shrink
+  /// wrapping should be run on a MachineFunction.
+  virtual bool runShrinkWrap(const MachineFunction &Fn) const;
 };
 } // namespace llvm
 
