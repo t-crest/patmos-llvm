@@ -159,6 +159,7 @@ class WcetTool
   def wcet_analysis(srcs)
     run_wca = options.enable_wca
     if options.combine_wca
+      # TODO is there a way to disable the stack cache analysis in aiT as well and use the platin analysis??
       options.ait_icache_mode = "always-hit" 
       run_wca = true
     end
@@ -182,6 +183,12 @@ class WcetTool
       opts.timing_output = [opts.timing_output,'platin'].compact.join("/")
       opts.flow_fact_selection ||= "all"
       opts.flow_fact_srcs = srcs
+      if opts.combine_wca
+        # We only need the I$ analysis in this mode, everything else *must* be disabled
+        opts.ignore_instruction_timing = true
+	opts.disable_sca = true
+	opts.disable_dca = true
+      end
       WcaTool.run(pml, opts)
       compute_criticalities(opts) { |pml,tmp_opts,src,round|
         tmp_opts.flow_fact_srcs.push(src)
@@ -204,6 +211,7 @@ class WcetTool
         opts.import_block_timing = true if opts.compute_criticalities
         opts.flow_fact_srcs = simplified_sources
         opts.timing_output = [options.timing_output,'aiT'].compact.join("/")
+        # Note: for opts.combined_wca mode we already disabled the I$ analsis earlier, everything else is used (for now)
         AitTool.run(pml,opts)
 
         # criticality analysis
@@ -345,9 +353,8 @@ class WcetTool
       dict = { 'analysis-entry' => options.analysis_entry,
         'source' => te.origin,
         'cycles' => te.cycles }
-      te.attributes.select { |k,v| k.start_with? 'cache-misses' }.each { |k,v| dict[k] = v }
-      te.attributes.select { |k,v| k.start_with? 'cache-hits' }.each { |k,v| dict[k] = v }
-      te.attributes.select { |k,v| k.start_with? 'cache-cycles' }.each { |k,v| dict[k] = v }
+      te.attributes.select { |k,v| k.start_with? 'memory-' }.each { |k,v| dict[k] = v }
+      te.attributes.select { |k,v| k.start_with? 'cache-' }.each { |k,v| dict[k] = v }
       (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }
@@ -363,9 +370,8 @@ class WcetTool
         next if te.origin == "trace"
 	next if te.origin != "combined" and options.combine_wca
         next unless te.cycles >= 0
-	options.tolerated_underestimation = 1 unless options.tolerated_underestimation
 	# TODO remember the trace_cycles per analysis-entry, check depending on analysis-entry
-        if te.cycles + options.tolerated_underestimation < trace_cycles
+        if te.cycles < trace_cycles
           die("wcet check: cycles for #{te.origin} (#{te.cycles}) less than measurement (#{trace_cycles})")
         end
         if options.runcheck_factor
@@ -441,9 +447,6 @@ class WcetTool
       opts.options.runcheck = true
       opts.options.runcheck_factor = factor.to_f
     }
-    opts.on("--tolerated-underestimation [CYCLES]", "allow a WCET unterestimation to account for analysis target return costs") { |cycles|
-      opts.options.tolerated_underestimation = cycles.to_i
-    }
     TOOLS.each { |toolclass| toolclass.add_config_options(opts) }
   end
 end
@@ -467,6 +470,11 @@ EOF
     options.combine_wca = false
     options.enable_wca = true
   end
+  if options.combine_wca and options.compute_criticalities
+    # We could still do it using aiT, but it would be rather imprecise
+    die("Computing criticalities is not possible in combined-WCA mode")
+  end
+
   updated_pml = WcetTool.run(PMLDoc.from_files(options.input), options)
   updated_pml.dump_to_file(options.output) if options.output
 end

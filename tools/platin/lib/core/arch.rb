@@ -23,6 +23,9 @@ class Architecture
     die("unknown architecture #{triple} (#{@@register})") unless @@register[archname]
     @@register[archname].new(triple, machine_config)
   end
+  def return_stall_cycles(ret_instruction, ret_latency)
+    0 # no miss costs by the return instruction itself in the traces
+  end
   def path_wcet(ilist)
     ilist.length # 1-cycle per instruction pseudo cost
   end
@@ -290,6 +293,15 @@ class CacheConfig < PMLObject
 
   def bytes_to_blocks(bytes)
     (bytes+block_size-1) / block_size
+  end
+
+  ##
+  # Check if this is an ideal cache.
+  #
+  # Note: In order to be consistent with 'pasim', an ideal cache does not even have
+  # cold misses.
+  def ideal?
+    @policy == 'ideal'
   end
 
   ##

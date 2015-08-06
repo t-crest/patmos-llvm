@@ -83,10 +83,10 @@ class Architecture < PML::Architecture
     end
   end
   def Architecture.default_config
-    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',64*1024*1024,8,0,0,0,0)])
+    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',2*1024*1024,16,0,21,0,21)])
     caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',16,8,4096),
-                                  PML::CacheConfig.new('stack-cache','stack-cache','block',nil,4,1024),
-                                  PML::CacheConfig.new('data-cache','set-associative','lru',4,32,1024),
+                                  PML::CacheConfig.new('stack-cache','stack-cache','block',nil,4,2048),
+                                  PML::CacheConfig.new('data-cache','set-associative','dm',nil,16,2048),
                                   PML::CacheConfig.new('branch-predictor','set-associative','lru',1,1,16) ])
     full_range = PML::ValueRange.new(0,0xFFFFFFFF,nil)
     memory_areas =
@@ -97,6 +97,10 @@ class Architecture < PML::Architecture
 
   def simulator_trace(options)
     SimulatorTrace.new(options.binary_file, self, options)
+  end
+
+  def return_stall_cycles(ret_instruction, ret_latency)
+    ret_latency - 1
   end
 
   def num_slots
@@ -117,11 +121,23 @@ class Architecture < PML::Architecture
     memory.read_delay(sf.entry.address - 4, sf.size + 4)
   end
 
+  def code_memory
+    cm = @config.memory_areas.by_name('code')
+    cm.memory if cm
+  end
+
+  def data_memory
+    dm = @config.memory_areas.by_name('data')
+    dm.memory if dm
+  end
+
   def stack_cache
     @config.caches.by_name('stack-cache')
   end
 
   def data_cache
+    # TODO check if this is consistent with what is configured in the 
+    #      data memory-area (but check only once!)
     @config.caches.by_name('data-cache')
   end
 
@@ -135,6 +151,11 @@ class Architecture < PML::Architecture
 
   def instruction_fetch_bytes
     num_slots * 4
+  end
+
+  # Return the maximum size of a load or store in bytes.
+  def max_data_transfer_bytes
+    4
   end
 
   def path_wcet(ilist)

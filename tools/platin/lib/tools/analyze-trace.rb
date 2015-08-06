@@ -28,7 +28,7 @@ class AnalyzeTraceTool
       tm.subscribe(VerboseRecorder.new(DebugIO.new))
       "Starting trace analysis"
     }
-    @main_recorder = RecorderScheduler.new(@options.recorders, @entry)
+    @main_recorder = RecorderScheduler.new(@options.recorders, @entry, @options)
     tm.subscribe(@main_recorder)
     tm.run
 
@@ -134,6 +134,7 @@ class AnalyzeTraceTool
     Architecture.simulator_options(opts)
     opts.trace_entry
     opts.callstring_length
+    opts.target_callret_costs
     opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help=recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
     }
@@ -144,6 +145,10 @@ class AnalyzeTraceTool
     opts.on("--max-instructions NUM", Integer,
             "consider only the first NUM instructions of the trace") { |num|
       opts.options.max_instructions = num
+    }
+    opts.on("--max-target-traces NUM", Integer,
+            "maximum number of target function executions to trace (unlimited if not set)") { |num|
+      opts.options.max_target_traces = num
     }
     opts.register_help_topic('recorders') { |io|
       RecorderSpecification.help(io)

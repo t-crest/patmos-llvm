@@ -70,6 +70,8 @@ class MachineTraceMonitor < TraceMonitor
     # @inscost   = {}  # XXX: playing
 
     pending_return, pending_call = nil, nil
+    # keep track of how many times we executed the target
+    trace_count = 0
     @trace.each do |pc,cycles|
       break if @options.max_cycles       && @cycles >= @options.max_cycles
       break if @options.max_instructions &&
@@ -87,6 +89,11 @@ class MachineTraceMonitor < TraceMonitor
       next unless @wp[pc] || pending_return
 
       @cycles = cycles
+      # Detect return stalls
+      if pending_return && pending_return[1] + 1 == @executed_instructions
+	# TODO maybe move this detection entirely into @pml.arch
+	pending_return[3] = @pml.arch.return_stall_cycles(pending_return[0], @cycles - pending_return[2])
+      end
       # Handle Return (TODO)
       if pending_return && pending_return[1] + pending_return[0].delay_slots + 1 == @executed_instructions
         # debug(@options, :trace) { "Return from #{pending_return.first} -> #{@callstack[-1]}" }
@@ -105,7 +112,12 @@ class MachineTraceMonitor < TraceMonitor
           if ! handle_return(*pending_return)
             # Finished
             @finished = true
-            break
+	    trace_count += 1
+	    if @options.max_target_traces && trace_count >= @options.max_target_traces
+	      break
+	    else
+              @started = false
+	    end
           end
           pending_return = nil
         end
@@ -168,13 +180,15 @@ class MachineTraceMonitor < TraceMonitor
           c.function == @current_function
         }
         pending_call = [c, @executed_instructions]
+	@finished = false
         # debug(@options, :trace) { "#{pc}: Call: #{c} in #{@current_function}" }
       end
 
       # Handle Return Block
       # TODO: in order to handle predicated returns, we need to know where return instructions ar
       if r = @wp_return_instr[pc]
-        pending_return = [r,@executed_instructions]
+	# Format is: <instruction, instruction counter at instruction, cycle counter at instruction, return latency>
+        pending_return = [r,@executed_instructions,@cycles,0]
         # debug(@options, :trace) { "Scheduling return at #{r}" }
       end
     end
@@ -216,12 +230,12 @@ class MachineTraceMonitor < TraceMonitor
     # debug(@options, :trace) { "Call from #{@callstack.inspect}" }
   end
 
-  def handle_return(r, ret_pc)
+  def handle_return(r, ret_exec_counter, ret_cycles, stall_cycles)
     exit_loops_downto(0)
     if @callstack.empty?
-      publish(:ret, r, nil, @cycles)
+      publish(:ret, r, nil, @cycles, stall_cycles)
     else
-      publish(:ret, r, @callstack[-1], @cycles)
+      publish(:ret, r, @callstack[-1], @cycles, stall_cycles)
     end
     return nil if(r.function == @program_entry) # intended program exit
     assert("Callstack empty at return (inconsistent callstack)") { ! @callstack.empty? }
@@ -362,8 +376,9 @@ end
 # Recorder that schedules other recorders
 class RecorderScheduler
   attr_accessor :start, :runs, :executed_blocks
-  def initialize(recorder_specs, analysis_entry)
+  def initialize(recorder_specs, analysis_entry, options)
     @start = analysis_entry
+    @options = options
     @runs = 0
     @executed_blocks = {}
     @recorder_map = {}
@@ -420,9 +435,10 @@ class RecorderScheduler
     recorder = @recorder_map[key]
     if ! recorder
       rid = @recorder_map.size
+      assert("Global recorder must not have a context.") { type != :global || scope_context == nil }
       @recorder_map[key] = recorder = case type
-                                   when :global;   FunctionRecorder.new(self, rid, scope_entity, scope_context, spec)
-                                   when :function; FunctionRecorder.new(self, rid, scope_entity, scope_context, spec)
+                                   when :global;   FunctionRecorder.new(self, rid, scope_entity, scope_context, spec, @options)
+                                   when :function; FunctionRecorder.new(self, rid, scope_entity, scope_context, spec, @options)
                                    end
     end
     @active[recorder.rid] = recorder
@@ -432,9 +448,9 @@ class RecorderScheduler
   def deactivate(recorder)
     @active.delete(recorder.rid)
   end
-  def ret(rsite,csite,cycles)
+  def ret(rsite, csite, cycles, stall_cycles)
     if @running
-      @active.values.each { |recorder| recorder.ret(rsite,csite,cycles) }
+      @active.values.each { |recorder| recorder.ret(rsite,csite,cycles,stall_cycles) }
       # stop if the callstack is empty
       if @callstack.empty?
         @running = false
@@ -472,9 +488,10 @@ end
 # Recorder for a function (intra- or interprocedural)
 class FunctionRecorder
   attr_reader :results, :rid, :report_block_frequencies
-  def initialize(scheduler, rid, function, context, spec)
+  def initialize(scheduler, rid, function, context, spec, options)
     @scheduler = scheduler
     @rid, @function, @context = rid, function, context
+    @options = options
     @callstack, @calllimit = [], spec.calllimit
     @callstring_length = spec.entity_context
     @report_block_frequencies = spec.entity_types.include?(:block_frequencies)
@@ -510,7 +527,7 @@ class FunctionRecorder
     results.stop(cycles)
     @scheduler.deactivate(self)
   end
-  def function(callee,callsite,cycles)
+  def function(callee, callsite, cycles)
     results.call(in_context(callsite),callee) if active? && @record_calltargets
     @callstack.push(callsite)
     callee.blocks.each { |bb| results.init_block(in_context(bb)) } if active? && @record_block_frequencies
@@ -535,9 +552,12 @@ class FunctionRecorder
     assert("loopexit: not a loop") { loop.kind_of?(Loop) }
     results.stop_loop(in_context(loop)) if @record_loopheaders
   end
-  def ret(rsite,csite,cycles)
+  def ret(rsite, csite, cycles, stall_cycles)
     if @callstack.length == 0
       # puts "#{self}: stopping at #{rsite}->#{csite}"
+      if global? and not @options.target_callret_costs
+	cycles -= stall_cycles
+      end
       results.stop(cycles)
       @scheduler.deactivate(self)
     else
@@ -700,7 +720,7 @@ class ProgressTraceRecorder
     # debug(@options,:trace) { "Visiting node: #{@node} (#{bb})" }
   end
   # set current relation graph
-  def ret(rsite,csite,cycles)
+  def ret(rsite, csite, cycles, stall_cycles)
     return if csite.nil?
     @rg = @pml.relation_graphs.by_name(csite.function.name, @rg_level)
     @node = @rg_callstack.pop

@@ -59,7 +59,7 @@ static cl::opt<bool> BranchInsideCFLDelaySlots("mpatmos-nested-branches",
                               "inside CFL delay slots."));
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
-	             cl::init(false),
+	             cl::init(true),
 		     cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
@@ -79,7 +79,7 @@ static cl::opt<bool> DisablePatmosPostRA("mpatmos-disable-post-ra-patmos",
                               "of the Patmos post-RA scheduler."));
 
 static cl::opt<PatmosSubtarget::CFLType> PatmosCFLType("mpatmos-cfl",
-                            cl::init(PatmosSubtarget::CFL_MIXED),
+                            cl::init(PatmosSubtarget::CFL_DELAYED),
                             cl::desc("Type of generated control-flow instructions"),
                             cl::values(
                                 clEnumValN(PatmosSubtarget::CFL_DELAYED,
