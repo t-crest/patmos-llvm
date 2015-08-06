@@ -274,8 +274,8 @@ class AISExporter
         mcache_policy, mcache_assoc =  cache.policy.upcase, cache.associativity
         max_mcache_assoc = MAX_METHODCACHE_ASSOCIATIVITY[mcache_policy.upcase]
         if mcache_assoc > max_mcache_assoc
-          warn("aiT: method cache with policy #{mcache_policy} and associativity > #{max_mcache_assoc}"+
-               " is not supported by aiT (assuming associativity #{max_mcache_assoc})")
+          warn("aiT: method cache with policy #{mcache_policy} does not support associativity > #{max_mcache_assoc}"+
+               " (assuming associativity #{max_mcache_assoc})")
           mcache_assoc = max_mcache_assoc
         end
         line_size = 4 # template by absint
@@ -307,9 +307,6 @@ class AISExporter
 
     @pml.arch.config.memory_areas.each { |area|
       kw = if area.type == 'code' then 'code' else 'data' end
-      if area.memory.transfer_size != 8
-        warn("aiT: currently the only valid size for one burst is 8 bytes")
-      end
       tt_read_first_beat = area.memory.read_latency + area.memory.read_transfer_time
       tt_write_first_beat = area.memory.write_latency + area.memory.write_transfer_time
       properties = [ "#{kw} read transfer-time = [#{tt_read_first_beat},#{area.memory.read_transfer_time}]" ]
@@ -324,7 +321,8 @@ class AISExporter
       end
       address_range = area.address_range
       address_range = ValueRange.new(0,0xFFFFFFFF,nil) unless address_range
-      gen_fact("area #{address_range.to_ais} access #{properties.join(", ")}",
+      transfer_bitsize = area.memory.transfer_size * 8
+      gen_fact("area #{address_range.to_ais} features \"port_width\" = #{transfer_bitsize} and access #{properties.join(", ")}",
                "PML machine configuration")
     }
   end

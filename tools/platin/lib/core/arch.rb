@@ -74,8 +74,8 @@ class MachineConfig < PMLObject
   end
   def to_pml
     { "memories" => memories.to_pml,
-      "memory-areas" => memory_areas.to_pml,
-      "caches" => caches.to_pml
+      "caches" => caches.to_pml,
+      "memory-areas" => memory_areas.to_pml
     }.delete_if { |k,v| v.nil? }
   end
 
@@ -156,10 +156,18 @@ class MemoryConfig < PMLObject
   # * Type: <tt>int</tt>
   attr_reader :write_transfer_time
 
-  def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
-                 write_transfer_time, data=nil)
-    @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time =
-      name, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time
+  ##
+  # :attr_reader: max_burst_size
+  #
+  # maximum number of bytes of one single (page-)burst request
+  # * YAML key: +max-burst-size+
+  # * Type: <tt>int</tt>
+  attr_reader :max_burst_size
+  
+   def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
+                 write_transfer_time, max_burst_size=nil, data=nil)
+    @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time, @max_burst_size =
+      name, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time, max_burst_size
     set_yaml_repr(data)
   end
 
@@ -172,6 +180,7 @@ class MemoryConfig < PMLObject
       data['read-transfer-time'],
       data['write-latency'],
       data['write-transfer-time'],
+      data['max-burst-size'],
       data)
   end
   def to_pml
@@ -182,9 +191,44 @@ class MemoryConfig < PMLObject
       "read-transfer-time" => read_transfer_time,
       "write-latency" => write_latency,
       "write-transfer-time" => write_transfer_time,
+      "max-burst-size" => max_burst_size,
     }.delete_if { |k,v| v.nil? }
   end
 
+  def size=(value)
+    @size = value
+    data['size'] = value
+  end
+  
+  def transfer_size=(value)
+    @transfer_size = value
+    data['transfer-size'] = value
+  end
+  
+  def read_latency=(value)
+    @read_latency = value
+    data['read-latency'] = value
+  end
+  
+  def read_transfer_time=(value)
+    @read_transfer_time = value
+    data['read-transfer-time'] = value
+  end
+  
+  def write_latency=(value)
+    @write_latency = value
+    data['write-latency'] = value
+  end
+  
+  def write_transfer_time=(value)
+    @write_transfer_time = value
+    data['write-transfer-time'] = value
+  end
+
+  def max_burst_size=(value)
+    @max_burst_size = value
+    data['max-burst-size'] = value
+  end
 
   # delay for an (not necessarily aligned) read request
   def read_delay(start_address, size)
@@ -286,6 +330,19 @@ class CacheConfig < PMLObject
     attribute_pair['value']
   end
 
+  def set_attribute(key, value)
+    attribute_pair = @attributes.find { |e| e['key'] == key }
+    if attribute_pair
+      attribute_pair['value'] = value
+    else
+      # Ensure that @attributes and data['attributes'] are linked
+      # Note: If we would remove all attributes, data['attributes'] 
+      #       should be removed again.
+      data['attributes'] = @attributes
+      @attributes.push( { 'key' => key, 'value' => value } )
+    end
+  end
+
   # synonymous with block_size at the moment
   def line_size
     block_size
@@ -316,8 +373,39 @@ class CacheConfig < PMLObject
     @name, @type, @policy, @associativity, @block_size, @size =
       name, type, policy, associativity, block_size, size
     set_yaml_repr(data)
-    @attributes = data ? (data['attributes'] ||= []) : []
+    # Ensure that associativity is set correctly depending on the policy
+    @associativity = 1 if @policy == 'dm'
+    @associativity = @size / @block_size if (not @associativity or @policy == 'ideal') and @block_size
+    # Note: If data['attributes'] does not exist, @attributes is detached from data (and vice versa).
+    #       We reattach it once we have some attributes.
+    @attributes = data ? (data['attributes'] || []) : []
   end
+
+  def type=(value)
+    @type = value
+    data['type'] = value
+  end
+
+  def policy=(value)
+    @policy = value
+    data['policy'] = value
+  end
+
+  def associativity=(value)
+    @associativity = value
+    data['associativity'] = value
+  end
+
+  def block_size=(value)
+    @block_size = value
+    data['block-size'] = value
+  end
+
+  def size=(value)
+    @size = value
+    data['size'] = value
+  end
+
 
   def CacheConfig.from_pml(ctx, data)
     CacheConfig.new(
@@ -337,7 +425,7 @@ class CacheConfig < PMLObject
       "block-size" => block_size,
       "size" => size,
       "attributes" => attributes
-    }.delete_if { |k,v| v.nil? }
+    }.delete_if { |k,v| v.nil? or v == [] }
   end
 end # class CacheConfig
 
@@ -372,6 +460,12 @@ class MemoryArea < PMLObject
   # * Type: <tt>str</tt>
   attr_reader :cache
 
+  # Set the PML Cache object (not the name)
+  def cache=(cache)
+    @cache = cache
+    data['cache'] = cache ? cache.name : nil
+  end
+
   ##
   # :attr_reader: memory
   #
@@ -400,12 +494,26 @@ class MemoryArea < PMLObject
     attribute_pair['value']
   end
 
+  def set_attribute(key, value)
+    attribute_pair = @attributes.find { |e| e['key'] == key }
+    if attribute_pair
+      attribute_pair['value'] = value
+    else
+      # Ensure that @attributes and data['attributes'] are linked
+      # Note: If we would remove all attributes, data['attributes'] 
+      #       should be removed again.
+      data['attributes'] = @attributes
+      @attributes.push( { 'key' => key, 'value' => value } )
+    end
+  end
 
-  def initialize(name, type, cache, memory, address_range,data = nil)
+  def initialize(name, type, cache, memory, address_range, data = nil)
     @name, @type, @cache, @memory, @address_range =
       name, type, cache, memory, address_range
     set_yaml_repr(data)
-    @attributes = data ? (data['attributes'] ||= []) : []
+    # Note: If data['attributes'] does not exist, @attributes is detached from data (and vice versa).
+    #       We reattach it once we have some attributes.
+    @attributes = data ? (data['attributes'] || []) : []
   end
 
   def MemoryArea.from_pml(memories_caches, data)
@@ -425,7 +533,7 @@ class MemoryArea < PMLObject
       "memory" => memory ? memory.name : nil,
       "address-range" => address_range.to_pml,
       "attributes" => attributes
-    }.delete_if { |k,v| v.nil? }
+    }.delete_if { |k,v| v.nil? or v == [] }
   end
 end # class MemoryArea
 
