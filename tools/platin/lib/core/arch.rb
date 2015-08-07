@@ -157,17 +157,25 @@ class MemoryConfig < PMLObject
   attr_reader :write_transfer_time
 
   ##
-  # :attr_reader: max_burst_size
-  #
+  # minimum number of bytes of one single (page-)burst request
+  # * YAML key: +min-burst-size+
+  # * Type: <tt>int</tt>
+  def min_burst_size
+    @min_burst_size || transfer_size
+  end
+
+  ##
   # maximum number of bytes of one single (page-)burst request
   # * YAML key: +max-burst-size+
   # * Type: <tt>int</tt>
-  attr_reader :max_burst_size
+  def max_burst_size
+    @max_burst_size || min_burst_size
+  end
   
-   def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
-                 write_transfer_time, max_burst_size=nil, data=nil)
-    @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time, @max_burst_size =
-      name, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time, max_burst_size
+  def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
+                 write_transfer_time, min_burst_size=nil, max_burst_size=nil, data=nil)
+    @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time, @min_burst_size, @max_burst_size =
+      name, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time, min_burst_size, max_burst_size
     set_yaml_repr(data)
   end
 
@@ -180,18 +188,20 @@ class MemoryConfig < PMLObject
       data['read-transfer-time'],
       data['write-latency'],
       data['write-transfer-time'],
+      data['min-burst-size'],
       data['max-burst-size'],
       data)
   end
   def to_pml
-    { "name" => name,
-      "size" => size,
-      "transfer-size" => transfer_size,
-      "read-latency" => read_latency,
-      "read-transfer-time" => read_transfer_time,
-      "write-latency" => write_latency,
-      "write-transfer-time" => write_transfer_time,
-      "max-burst-size" => max_burst_size,
+    { "name" => @name,
+      "size" => @size,
+      "transfer-size" => @transfer_size,
+      "read-latency" => @read_latency,
+      "read-transfer-time" => @read_transfer_time,
+      "write-latency" => @write_latency,
+      "write-transfer-time" => @write_transfer_time,
+      "min-burst-size" => @min_burst_size,
+      "max-burst-size" => @max_burst_size,
     }.delete_if { |k,v| v.nil? }
   end
 
@@ -223,6 +233,11 @@ class MemoryConfig < PMLObject
   def write_transfer_time=(value)
     @write_transfer_time = value
     data['write-transfer-time'] = value
+  end
+
+  def min_burst_size=(value)
+    @min_burst_size = value
+    data['min-burst-size'] = value
   end
 
   def max_burst_size=(value)
