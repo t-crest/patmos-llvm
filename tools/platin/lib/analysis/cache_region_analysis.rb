@@ -146,29 +146,30 @@ end
 class CacheAnalysisBase
   def summarize(options, freqs, cost)
     cycles = 0
-    accesses = 0
     misses = 0
+    hits = 0
     stores = 0
     bypasses = 0
     known = 0
     unknown = 0
     @all_load_edges.each { |me|
       li = me.load_instruction
-      puts "  cache load edge #{me}: #{freqs[me] || '??'} (#{cost[me]} cyc)" if options.verbose
+      puts "  cache load edge #{me}: #{freqs[me] || '??'} / #{freqs[me.edgeref] || '??'} (#{cost[me]} cyc)" if options.verbose
       cycles += cost[me] || 0
-      accesses += freqs[me] || 0
       # count store and bypass separately
       misses += freqs[me] || 0 unless li.bypass? or li.store?
+      hits += (freqs[me.edgeref] || 0) - (freqs[me] || 0) unless li.bypass? or li.store?
+      # TODO depending on the cache, we might count stores as hits+misses too..
       stores += freqs[me] || 0 if li.store?
       bypasses += freqs[me] || 0 if li.bypass?
       # count known and unknown accesses indepenently
       known += freqs[me] || 0 if li.known?
       unknown += freqs[me] || 0 if li.unknown?
     }
-    { "cache-cycles" => cycles, "cache-access" => accesses, "cache-misses" => misses,
+    { "cache-cycles" => cycles, "cache-hits" => hits, "cache-misses" => misses,
       "cache-stores" => stores, "cache-bypass" => bypasses,
       "cache-known-address" => known, "cache-unknown-address" => unknown 
-    }.select { |k,v| v > 0 or ['cache-cycles', 'cache-misses'].include?(k) }.map { |k,v| [k,v.to_i] }
+    }.select { |k,v| v > 0 or %w[cache-cycles cache-misses cache-hits].include?(k) }.map { |k,v| [k,v.to_i] }
   end
 end
 
