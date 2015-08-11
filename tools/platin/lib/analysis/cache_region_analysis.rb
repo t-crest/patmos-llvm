@@ -82,7 +82,7 @@ class CacheAnalysis
       r.each { |k,v|
         report.attributes[k + "-" + type] = v
 	total_cycles += v if k == "cache-cycles"
-      }
+      } if r
     }
     
     report.attributes['cache-cycles'] = total_cycles
