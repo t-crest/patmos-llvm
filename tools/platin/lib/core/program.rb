@@ -178,7 +178,7 @@ module PML
 
       @source, @target = source, target
       @name = "#{source.name}->#{target ? target.name : '' }"
-      @qname = "#{source.qname}->#{target ? target.name : '' }"
+      @qname = "#{source.qname}->#{target ? target.qname : 'exit' }"
       set_yaml_repr(data)
     end
     def ref
