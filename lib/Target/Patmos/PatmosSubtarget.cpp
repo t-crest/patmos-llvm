@@ -79,7 +79,7 @@ static cl::opt<bool> DisablePatmosPostRA("mpatmos-disable-post-ra-patmos",
                               "of the Patmos post-RA scheduler."));
 
 static cl::opt<PatmosSubtarget::CFLType> PatmosCFLType("mpatmos-cfl",
-                            cl::init(PatmosSubtarget::CFL_DELAYED),
+                            cl::init(PatmosSubtarget::CFL_MIXED),
                             cl::desc("Type of generated control-flow instructions"),
                             cl::values(
                                 clEnumValN(PatmosSubtarget::CFL_DELAYED,
