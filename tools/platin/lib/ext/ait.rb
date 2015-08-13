@@ -705,7 +705,7 @@ class APXExporter
         an_options << rexml_bool("persistence_analysis", true)
         an_options << rexml_bool("xml_wcet_path", true)
         an_options << rexml_bool("xml_non_wcet_cycles", true)
-        an_options << rexml_str("path_analysis_variant", "Prediction file based (ILP))")
+        an_options << rexml_str("path_analysis_variant", "Prediction file based (ILP)")
 	an_options << rexml_str("instruction_cache_mode", @options.ait_icache_mode) if @options.ait_icache_mode
 	an_options << rexml_str("data_cache_mode", @options.ait_dcache_mode) if @options.ait_dcache_mode
       }
