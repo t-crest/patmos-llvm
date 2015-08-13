@@ -998,7 +998,6 @@ bool MCAssembler::relaxInstruction(MCAsmLayout &Layout,
   SmallString<256> Code;
   raw_svector_ostream VecOS(Code);
   getEmitter().encodeInstruction(Relaxed, VecOS, Fixups, F.getSubtargetInfo());
-  VecOS.flush();
 
   // Update the fragment.
   F.setInst(Relaxed);
@@ -1021,7 +1020,6 @@ bool MCAssembler::relaxLEB(MCAsmLayout &Layout, MCLEBFragment &LF) {
     encodeSLEB128(Value, OSE);
   else
     encodeULEB128(Value, OSE);
-  OSE.flush();
   return OldSize != LF.getContents().size();
 }
 
@@ -1040,7 +1038,6 @@ bool MCAssembler::relaxDwarfLineAddr(MCAsmLayout &Layout,
   raw_svector_ostream OSE(Data);
   MCDwarfLineAddr::Encode(Context, getDWARFLinetableParams(), LineDelta,
                           AddrDelta, OSE);
-  OSE.flush();
   return OldSize != Data.size();
 }
 
@@ -1056,7 +1053,6 @@ bool MCAssembler::relaxDwarfCallFrameFragment(MCAsmLayout &Layout,
   Data.clear();
   raw_svector_ostream OSE(Data);
   MCDwarfFrameEmitter::EncodeAdvanceLoc(Context, AddrDelta, OSE);
-  OSE.flush();
   return OldSize != Data.size();
 }
 
