@@ -91,7 +91,7 @@ class PMLConfigTool
     opts.on("-C", "--icache KIND", %w[mcache icache], "Type of instruction cache (mcache, icache)") { |k|
       opts.options.instr_cache_kind = k
     }
-    opts.on("-M", "--ickind KIND", "Policy of instruction cache (ideal, no, dm, lru<N>, fifo<N>). 'dm' is applicable to a method cache.") { |p|
+    opts.on("-M", "--ickind KIND", "Policy of instruction cache (ideal, no, dm, lru<N>, fifo<N>). 'dm' is not applicable to a method cache.") { |p|
       opts.options.instr_cache_policy = parse_policy(p)
     }
     opts.on("--ibsize SIZE", "Size of an instruction cache line or method cache block in bytes") { |s|
