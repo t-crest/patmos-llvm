@@ -26,7 +26,7 @@ class CacheAnalysis
     if mc = @pml.arch.method_cache and not @options.disable_ica
       @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, entry_function, @pml, @options), @pml, @options)
       @mca.extend_ipet(scope_graph(entry_function), ipet_builder)
-    elsif ic = @pml.arch.instruction_cache and not options.disable_ica
+    elsif ic = @pml.arch.instruction_cache and not @options.disable_ica
       @ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
       @ica.extend_ipet(scope_graph(entry_function), ipet_builder)
     end
@@ -799,7 +799,7 @@ class InstructionCacheAnalysis
     end
     if ! same_cache_line_as_prev || i.may_return_to?
       get_aligned_addresses(i.address, last_byte).map { |addr|
-        [LoadInstruction.new(i, CacheLine.new(addr, i.function))]
+        LoadInstruction.new(i, CacheLine.new(addr, i.function))
       }
     else
       []
