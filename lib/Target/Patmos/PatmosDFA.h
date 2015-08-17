@@ -596,7 +596,7 @@ namespace llvm {
       switch(LEVEL) {
         case DFA_INSTR:
           // all information should be retained, so never skip
-          return NULL; 
+          return false;
         case DFA_BLOCK:
           switch(DIR) {
             case DFA_FORWARD:
@@ -878,3 +878,4 @@ namespace llvm {
 }
 
 #endif // _LLVM_TARGET_PATMOSDFA_H_
+
