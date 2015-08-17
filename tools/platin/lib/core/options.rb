@@ -50,6 +50,12 @@ module PML
       }
       needs(:input, "No input PML file specified")
     end
+    # tool can have input PML option
+    def reads_pml
+      self.on("-i", "--input FILE", "PML input files (can be specified multiple times)") { |f|
+        (options.input||=[]).push(f)
+      }
+    end
     # tool writes PML file (if output is specified)
     def writes_pml
       self.on("-o", "--output FILE", "PML output file (allowed to be equivalent to an input file)") { |f| options.output = f }

@@ -39,14 +39,10 @@ class PMLDoc
     # read-only sections
     if @data['triple']
       @triple = @data['triple'].split('-')
-      @analysis_configurations = AnalysisConfigList.from_pml(self, @data['analysis-configurations'] || [])
-      @tool_configurations = ToolConfigList.from_pml(self, @data['tool-configurations'] || [])
       machine_config = @data['machine-configuration'] ? MachineConfig.from_pml(self, @data['machine-configuration']) : nil
       @arch = Architecture.from_triple(triple, machine_config)
     else
       @triple = nil
-      @analysis_configurations = AnalysisConfigList.from_pml(self, [])
-      @tool_configurations = ToolConfigList.from_pml(self, [])
       @arch = nil
     end
 
@@ -54,6 +50,12 @@ class PMLDoc
     @machine_functions = FunctionList.new(@data['machine-functions'] || [], :labelkey => 'mapsto')
     @relation_graphs   = RelationGraphList.new(@data['relation-graphs'] || [],
                                                @bitcode_functions, @machine_functions)
+
+    # usually read-only sections, but might be modified by pml-config
+    @data['analysis-configurations'] ||= []
+    @analysis_configurations = AnalysisConfigList.from_pml(self, @data['analysis-configurations'])
+    @data['tool-configurations'] ||= []
+    @tool_configurations = ToolConfigList.from_pml(self, @data['tool-configurations'])
 
     # read-write sections
     @data['flowfacts'] ||= []
@@ -110,24 +112,24 @@ class PMLDoc
             flowfacts.length,valuefacts.length,timing.length)
   end
 
-  def dump_to_file(filename)
+  def dump_to_file(filename, write_config=false)
     if filename.nil? || filename == '-'
-      dump($>)
+      dump($>, write_config)
     else
       File.open(filename, "w") do |fh|
-        dump(fh)
+        dump(fh, write_config)
       end
     end
   end
 
-  def dump(io)
+  def dump(io, write_config=false)
     final = deep_data_clone # eliminate sharing to enable YAML import in LLVM
 
-    # XXX: we do not export machine-configuration and analysis-configurations for now
+    # XXX: we do not export machine-configuration and analysis-configurations by default for now
     # The trouble is that we first need to mirror those sections for LLVM's yaml-io :(
-    final.delete("machine-configuration")
-    final.delete("analysis-configurations")
-    final.delete("tool-configurations")
+    final.delete("machine-configuration") if @data["machine-configuration"] == [] or not write_config
+    final.delete("analysis-configurations") if @data["analysis-configurations"] == [] or not write_config
+    final.delete("tool-configurations") if @data["tool-configurations"] == [] or not write_config
     final.delete("flowfacts") if @data["flowfacts"] == []
     final.delete("valuefacts") if @data["valuefacts"] == []
     final.delete("timing") if @data["timing"] == []

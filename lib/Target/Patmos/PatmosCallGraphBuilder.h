@@ -170,7 +170,7 @@ namespace llvm {
 
   public:
     /// Construct a new call site.
-    MCGSite(MCGNode *caller, MachineInstr *mi, MCGNode *callee, 
+    MCGSite(MCGNode *caller, MachineInstr *mi, MCGNode *callee,
             bool is_in_scc) :
         Caller(caller), MI(mi), Callee(callee), IsInSCC(is_in_scc)
     {
@@ -315,7 +315,7 @@ namespace llvm {
   public:
     MCallSubGraph(const MCallGraph &g, MCGNodes &nodes) : Nodes(nodes) { }
 
-    /// isNodeHidden - Callback from DOTGraphTraits, check if node is in 
+    /// isNodeHidden - Callback from DOTGraphTraits, check if node is in
     /// sub-graph.
     bool isNodeHidden(const MCGNode *N) const {
       return std::find(Nodes.begin(), Nodes.end(), N) == Nodes.end();
@@ -394,6 +394,10 @@ namespace llvm {
     MCGSites &getSites() {
       return MCG.getSites();
     }
+
+    /// getMCGNode - Return the call graph node of the function with the given
+    /// name.
+    MCGNode *getMCGNode(const Module &M, const char *name);
 
     /// visitCallSites - Visit all call-sites of the MachineFunction and append
     /// them to a simple machine-level call graph.
