@@ -306,10 +306,11 @@ module PML
 
   # PML function wrapper
   class Function < ProgramPoint
-    attr_reader :module, :blocks, :loops, :arguments, :subfunctions
+    attr_reader :module, :level, :blocks, :loops, :arguments, :subfunctions
     def initialize(mod, data, opts)
       set_yaml_repr(data)
       @name = data['name']
+      @level = data['level']
       @module = mod
       @qname = name
       @loops = []

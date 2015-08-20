@@ -80,7 +80,49 @@ end
 
 class FlowGraphVisualizer < Visualizer
   def initialize(pml, options) ; @pml, @options = pml, options ; end
-  def visualize_vcfg(function, arch)
+  def extract_timing(function, timing)
+    return {} unless timing and timing.profile
+    profile = {}
+    timing.profile.select { |e|
+      e.reference.function == function
+    }.each { |e|
+      next unless e
+      edge = e.reference.programpoint
+      # We only keep edge profiles here
+      next unless edge.kind_of?(Edge)
+      profile[edge.source]||=[]
+      profile[edge.source].push(e)
+    }
+    profile
+  end
+  def get_vblocks(node, adjacentcy)
+    [*node].map { |n|
+      n.block || get_vblocks(n.send(adjacentcy), adjacentcy)
+    }.flatten
+  end
+  def find_vnode_timing(profile, node)
+    if node.block
+      profile[node.block]||[]
+    else
+      find_vedge_timing(profile, node.predecessors, node.successors)
+    end
+  end
+  def find_vedge_timing(profile, node, succ)
+    start = Set.new( get_vblocks(node, :predecessors) )
+    targets = Set.new( get_vblocks(succ, :successors) )
+    if start == targets and not (succ.kind_of?(CfgNode) and succ.block_start?)
+      find_vnode_timing(profile, node)
+    elsif succ.kind_of?(ExitNode)
+      start.map{ |b| profile[b]||[] }.flatten.select { |t|
+        t.reference.programpoint.exitedge?
+      }
+    else
+      start.map{ |b| profile[b]||[] }.flatten.select { |t|
+	targets.include?( t.reference.programpoint.target )
+      }
+    end
+  end
+  def visualize_vcfg(function, arch, timing=nil)
     g = GraphViz.new( :G, :type => :digraph )
     g.node[:shape] = "rectangle"
     vcfg = VCFG.new(function, arch)
@@ -88,6 +130,8 @@ class FlowGraphVisualizer < Visualizer
     name << "/#{function.mapsto}" if function.mapsto
     g[:label] = "CFG for " + name
     nodes = {}
+    block_timing = extract_timing(function, timing)
+    sf_headers = function.subfunctions.map { |sf| sf.entry }
     vcfg.nodes.each do |node|
       nid = node.nid
       label = "" # "[#{nid}] "
@@ -107,11 +151,58 @@ class FlowGraphVisualizer < Visualizer
       elsif node.kind_of?(LoopStateNode)
         label += "LOOP #{node.action} #{node.loop.name}"
       end
-      nodes[nid] = g.add_nodes(nid.to_s, :label => label)
+      options = { :label => label }
+      if node.block_start? and sf_headers.include?(node.block)
+	# Mark subfunction headers
+	options["fillcolor"] = "#ffffcc"
+	options["style"] = "filled"
+      elsif not node.block or node.kind_of?(CallNode)
+        options["style"] = "rounded"
+      end
+      if find_vnode_timing(block_timing, node).any? { |e| e.wcetfreq > 0 }
+        # TODO visualize criticality < 1
+	options["color"] = "#ff0000"
+	options["penwidth"] = 2
+      end
+      nodes[nid] = g.add_nodes(nid.to_s, options)
     end
     vcfg.nodes.each do |node|
       node.successors.each do |s|
-        g.add_edges(nodes[node.nid],nodes[s.nid])
+        options = {}
+	# Find WCET results for edge
+	# TODO It can be the case that there are multiple edges from different slices
+	#      of the same block to the same target. This is actually just a single edge
+	#      in PML, but we annotate all edges here, making it look as we would count
+	#      them twice. No easy way to fix this tough.. If we choose to annotate only
+	#      one of those edges here, it should be edge with the longest path through
+	#      the block at least.
+	t = find_vedge_timing(block_timing, node, s)
+	freq, cycles, wcet, crit = t.inject([0,0,0,0]) { |v,e|
+	  freq, cycles, wcet, crit = v
+	  [freq + e.wcetfreq, 
+	   [cycles, e.cycles].max, 
+	   wcet + e.wcet_contribution,
+	   [crit, e.criticality || 1].max
+	  ]
+	}
+	if freq > 0
+	  # TODO visualize criticality < 1
+	  options["color"] = "#ff0000"
+	  options["penwidth"] = 2
+	  # Annotate frequency and cycles only to 'real' edges between blocks
+	  # These are edges from a block node to either a different block, a self loop, 
+	  # or edges to virtual nodes (assuming the VCFG does not insert virtual nodes
+	  # within a block)
+	  if node.block and ( node.block != s.block or s.block_start? )
+	    # Avoid overlapping of the first character and the edge by starting 
+	    # the label with a space
+	    options["label"] = " f = #{freq}"
+	    options["label"] += "\\l max = #{cycles} cycles"
+	    options["label"] += "\\l sum = #{wcet} cycles"
+	    options["label"] += "\\l crit = #{crit}" if crit < 1
+	  end
+	end
+        g.add_edges(nodes[node.nid],nodes[s.nid],options)
       end
     end
     g
@@ -290,7 +381,8 @@ class VisualizeTool
       # Visualize VCFG (machine code)
       begin
         mf = pml.machine_functions.by_label(target)
-        graph = fgv.visualize_vcfg(mf, pml.arch)
+	t = pml.timing.find { |t| t.level == mf.level && t.origin == options.show_timings }
+        graph = fgv.visualize_vcfg(mf, pml.arch, t)
         file = File.join(outdir, target + ".mc" + suffix)
         fgv.generate(graph , file)
         html.add(target,"mc",file) if options.html
@@ -320,9 +412,10 @@ class VisualizeTool
     opts.on("--[no-]html","Generate HTML index pages") { |b| opts.options.html = b }
     opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| opts.options.functions = f.split(/\s*,\s*/) }
     opts.on("--show-calls", "Visualize call sites") { opts.options.show_calls = true }
+    opts.on("--show-timings ORIGIN", "Show timing results in flow graphs") { |o| opts.options.show_timings = o }
     opts.on("-O","--outdir DIR","Output directory for image files") { |d| opts.options.outdir = d }
     opts.on("--graphviz-format FORMAT", "GraphViz output format (=png,svg,...)") { |format|
-      options.graphviz_format = format
+      opts.options.graphviz_format = format
     }
     opts.add_check { |options|
       options.graphviz_format ||= "png"
