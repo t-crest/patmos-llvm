@@ -220,6 +220,7 @@ class AlwaysMissCacheAnalysis < CacheAnalysisBase
 	      me = MemoryEdge.new(edge, li)
 	      ipet_builder.ilp.add_variable(me)
 	      ipet_builder.ilp.add_cost(me, @cache_properties.load_cost(li.tag))
+              debug(@options, :cache, :costs) { "Costs for load edge #{me}: #{@cache_properties.load_cost(li.tag)}" }
 	      # memory edge frequency is less equal to edge frequency
 	      ipet_builder.mc_model.assert_less_equal({me=>1},{me.edgeref=>1},"load_edge_#{me}",:cache)
 	      load_edges.push(me)
@@ -278,7 +279,7 @@ class CacheRegionAnalysis < CacheAnalysisBase
       get_all_tags(scopegraph.root, set).each { |tag,load_instructions|
 
         load_instructions = load_instructions.to_a
-        debug(options,:cache) { "Load instructions for tag: #{tag}: #{load_instructions.join(",")}" }
+        debug(options,:cache) { "Load instructions for tag #{tag}: #{load_instructions.join(",")}" }
         debug(options,:cache) {
           "Scopes for tag #{tag}: #{conflict_free_scopes[tag]}"
         }
@@ -295,6 +296,7 @@ class CacheRegionAnalysis < CacheAnalysisBase
             me = MemoryEdge.new(edge, li)
             ipet_builder.ilp.add_variable(me)
             ipet_builder.ilp.add_cost(me, @cache_properties.load_cost(tag))
+            debug(@options, :cache, :costs) { "Costs for load edge #{me}: #{@cache_properties.load_cost(li.tag)}" }
             # memory edge frequency is less equal to edge frequency
             ipet_builder.mc_model.assert_less_equal({me=>1},{me.edgeref=>1},"load_edge_#{me}",:cache)
             load_edges.push(me)
@@ -1073,7 +1075,7 @@ class StackCacheAnalysis
     @fill_blocks.each { |instruction,fill_blocks|
       begin
         delay = @pml.arch.config.main_memory.read_delay(0, fill_blocks*@cache.block_size)
-        debug(@options, :cache) { "Cost for stack cache fill: #{fill_blocks}*#{@cache.block_size}=#{delay}" }
+        debug(@options, :cache, :costs) { "Cost for stack cache fill: #{fill_blocks}*#{@cache.block_size}=#{delay}" }
         #ipet_builder.mc_model.add_block_cost(instruction.block, delay)
         ipet_builder.mc_model.add_instruction(instruction)
         ipet_builder.ilp.add_cost(instruction, delay)
@@ -1086,7 +1088,7 @@ class StackCacheAnalysis
     @spill_blocks.each { |instruction,spill_blocks|
       begin
         delay = @pml.arch.config.main_memory.write_delay(0, spill_blocks*@cache.block_size)
-        debug(@options, :cache) { "Cost for stack cache spill: #{spill_blocks}*#{@cache.block_size}=#{delay}" }
+        debug(@options, :cache, :costs) { "Cost for stack cache spill: #{spill_blocks}*#{@cache.block_size}=#{delay}" }
         #ipet_builder.mc_model.add_block_cost(instruction.block, delay)
         ipet_builder.mc_model.add_instruction(instruction)
         ipet_builder.ilp.add_cost(instruction, delay)
@@ -1167,7 +1169,11 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
     }
     @spills.values.flat_map { |i| i }.each { |e|
       ilp.add_variable(e)
-      ilp.add_cost(e, @pml.arch.config.main_memory.write_delay(0, e.target.size*@cache.block_size)) if e.target.size > 0
+      next if e.target.size == 0
+      # TODO we should get the memory for the 'data' area
+      delay = @pml.arch.config.main_memory.write_delay(0, e.target.size*@cache.block_size)
+      debug(@options, :cache, :costs) { "Cost for stack cache spill: #{e.target.size}*#{@cache.block_size}=#{delay}" }
+      ilp.add_cost(e, delay)
     }
     #puts ipet_builder.ilp.variables.select{ |v| v.kind_of? IPETEdge and v.call_edge? }
     ipet_builder.call_edges.each { |ce|
