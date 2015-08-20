@@ -323,7 +323,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
 
 yaml::Name PMLBitcodeExport::getOpcode(const Instruction *Instr)
 {
-  return yaml::Name(Instr->getName());
+  return yaml::Name(Instr->getOpcodeName());
 }
 
 void PMLBitcodeExport::printDesc(raw_ostream &os, const Instruction *Instr)
