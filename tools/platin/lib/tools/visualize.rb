@@ -81,19 +81,22 @@ end
 class FlowGraphVisualizer < Visualizer
   def initialize(pml, options) ; @pml, @options = pml, options ; end
   def extract_timing(function, timing)
-    return {} unless timing and timing.profile
-    profile = {}
-    timing.profile.select { |e|
-      e.reference.function == function
-    }.each { |e|
-      next unless e
-      edge = e.reference.programpoint
-      # We only keep edge profiles here
-      next unless edge.kind_of?(Edge)
-      profile[edge.source]||=[]
-      profile[edge.source].push(e)
-    }
-    profile
+    Hash[ 
+      timing.select{ |t| t.profile }.map { |t|
+	profile = {}
+	t.profile.select { |e|
+	  e.reference.function == function
+	}.each { |e|
+	  next unless e
+	  edge = e.reference.programpoint
+	  # We only keep edge profiles here
+	  next unless edge.kind_of?(Edge)
+	  profile[edge.source]||=[]
+	  profile[edge.source].push(e)
+	}
+	[t.origin, profile]
+      }.select{ |k,v| not v.empty? }
+    ]
   end
   def get_vblocks(node, adjacentcy)
     [*node].map { |n|
@@ -148,6 +151,12 @@ class FlowGraphVisualizer < Visualizer
         label += "#{block.name}"
         label << "(#{block.mapsto})" if block.mapsto
         label << " [#{node.first_index}..#{node.last_index}]"
+	if @options.show_instructions
+	  node.instructions.each do |ins|
+	    label << "\\l#{ins.opcode} #{ins.size}"
+	  end
+	  label << "\\l"
+	end
       elsif node.kind_of?(LoopStateNode)
         label += "LOOP #{node.action} #{node.loop.name}"
       end
@@ -159,7 +168,7 @@ class FlowGraphVisualizer < Visualizer
       elsif not node.block or node.kind_of?(CallNode)
         options["style"] = "rounded"
       end
-      if find_vnode_timing(block_timing, node).any? { |e| e.wcetfreq > 0 }
+      if block_timing.any?{ |o,profile| find_vnode_timing(profile, node).any? { |e| e.wcetfreq > 0 } }
         # TODO visualize criticality < 1
 	options["color"] = "#ff0000"
 	options["penwidth"] = 2
@@ -176,16 +185,10 @@ class FlowGraphVisualizer < Visualizer
 	#      them twice. No easy way to fix this tough.. If we choose to annotate only
 	#      one of those edges here, it should be edge with the longest path through
 	#      the block at least.
-	t = find_vedge_timing(block_timing, node, s)
-	freq, cycles, wcet, crit = t.inject([0,0,0,0]) { |v,e|
-	  freq, cycles, wcet, crit = v
-	  [freq + e.wcetfreq, 
-	   [cycles, e.cycles].max, 
-	   wcet + e.wcet_contribution,
-	   [crit, e.criticality || 1].max
-	  ]
-	}
-	if freq > 0
+	t = block_timing.map{ |origin,profile| 
+	  [origin, find_vedge_timing(profile, node, s).select{ |e| e.wcetfreq > 0 } ]
+	}.select{ |o,p| not p.empty? }
+	if not t.empty?
 	  # TODO visualize criticality < 1
 	  options["color"] = "#ff0000"
 	  options["penwidth"] = 2
@@ -194,12 +197,33 @@ class FlowGraphVisualizer < Visualizer
 	  # or edges to virtual nodes (assuming the VCFG does not insert virtual nodes
 	  # within a block)
 	  if node.block and ( node.block != s.block or s.block_start? )
-	    # Avoid overlapping of the first character and the edge by starting 
-	    # the label with a space
-	    options["label"] = " f = #{freq}"
-	    options["label"] += "\\l max = #{cycles} cycles"
-	    options["label"] += "\\l sum = #{wcet} cycles"
-	    options["label"] += "\\l crit = #{crit}" if crit < 1
+	    options["label"] = ""
+	    t.each do |origin, profile|
+	      # TODO We need a way to merge results from different contexts properly.
+	      #      aiT returns multiple loop context results, frequencies must
+	      #      be merged properly for sub-contexts.
+	      #      Merging timing results should go into core library functions.
+	      #      We might need to merge differently depending on origin!!
+	      #      In that case, ask the ext plugins (aiT,..) to do the work.
+	      freq, cycles, wcet, crit = profile.inject([0,0,0,0]) { |v,e|
+		freq, cycles, wcet, crit = v
+		[freq + e.wcetfreq, 
+		 [cycles, e.cycles].max, 
+		 wcet + e.wcet_contribution,
+		 [crit, e.criticality || 1].max
+		]
+	      }
+	      # Avoid overlapping of the first character and the edge by starting 
+	      # the label with a space
+	      options["label"] += "\\l" if options["label"] != ""
+	      options["label"] += " -- #{origin} --" if block_timing.length > 1
+	      options["label"] += "\\l" if options["label"] != ""
+	      options["label"] += " f = #{freq}"
+	      options["label"] += "\\l max = #{cycles} cycles"
+	      options["label"] += "\\l sum = #{wcet} cycles"
+	      options["label"] += "\\l crit = #{crit}" if crit < 1
+	    end
+	    options["label"] += "\\l"
 	  end
 	end
         g.add_edges(nodes[node.nid],nodes[s.nid],options)
@@ -220,16 +244,19 @@ class FlowGraphVisualizer < Visualizer
       label << " (#{block.mapsto})" if block.mapsto
 #      label << " L#{block.loops.map {|b| b.loopheader.name}.join(",")}" unless block.loops.empty?
       label << " |#{block.instructions.length}|"
-      if options.show_calls
+      if @options.show_calls
         block.instructions.each do |ins|
           unless ins.callees.empty?
-            label << "\n " << ins.callees.map { |c| "#{c}()" }.join(",")
+            label << "\\l call " << ins.callees.map { |c| "#{c}()" }.join(",")
           end
         end
       end
-      #    block.instructions.each do |ins|
-      #      label << "\n#{ins.opcode} #{ins.size}"
-      #    end
+      if @options.show_instructions
+	block.instructions.each do |ins|
+	  label << "\\l#{ins.opcode} #{ins.size}"
+	end
+	label << "\\l"
+      end
       nodes[bid] = g.add_nodes(bid.to_s, :label => label,
                                :peripheries => block.loops.length + 1)
     end
@@ -381,7 +408,10 @@ class VisualizeTool
       # Visualize VCFG (machine code)
       begin
         mf = pml.machine_functions.by_label(target)
-	t = pml.timing.find { |t| t.level == mf.level && t.origin == options.show_timings }
+	t = pml.timing.select { |t| 
+	  t.level == mf.level && 
+	  (options.show_timings.include?(t.origin) || options.show_timings.include?("all"))
+	}
         graph = fgv.visualize_vcfg(mf, pml.arch, t)
         file = File.join(outdir, target + ".mc" + suffix)
         fgv.generate(graph , file)
@@ -412,7 +442,10 @@ class VisualizeTool
     opts.on("--[no-]html","Generate HTML index pages") { |b| opts.options.html = b }
     opts.on("-f","--function FUNCTION,...","Name of the function(s) to visualize") { |f| opts.options.functions = f.split(/\s*,\s*/) }
     opts.on("--show-calls", "Visualize call sites") { opts.options.show_calls = true }
-    opts.on("--show-timings ORIGIN", "Show timing results in flow graphs") { |o| opts.options.show_timings = o }
+    opts.on("--show-instr", "Show instructions in basic block nodes") { opts.options.show_instructions = true }
+    opts.on("--show-timings [ORIGIN]", Array, "Show timing results in flow graphs (=all; can be a list of origins))") { |o| 
+      opts.options.show_timings = o ? o : ["all"]
+    }
     opts.on("-O","--outdir DIR","Output directory for image files") { |d| opts.options.outdir = d }
     opts.on("--graphviz-format FORMAT", "GraphViz output format (=png,svg,...)") { |format|
       opts.options.graphviz_format = format
