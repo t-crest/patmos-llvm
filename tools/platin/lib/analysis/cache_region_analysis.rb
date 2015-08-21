@@ -48,6 +48,12 @@ class CacheAnalysis
       # TODO This is a bit misleading; find a way to add costs for uncached memory accesses outside of
       #      this analysis, only handle the case 'if @pml.arch.data_cache' here?! Maybe rename option to
       #      'disable_dma' and move this whole code into a separate DataMemoryAnalysis class.
+      # TODO We should instantiate an additional cache analysis for local memory accesses (stack, d-spm, IO-devices).
+      #      Instantiating the cache analyses should be driven by @pml.arch, so that it can create the proper
+      #      set of analyses based on the architecture (M$, I$, D$, S$, SPM, ..) and matches the way @pml.arch
+      #      calculates basic block timings (with or without latencies for bypass memory accesses,..).
+      #      The DataCacheAnalysis classes should take a functor block that determines which instructions
+      #      should be handled by that instance of the cache analysis (instead of checking @pml.arch.data_cache_access?)
       dc = @pml.arch.data_cache
       always_hit = false
       always_hit = :cached if @options.dca_analysis_type == 'always-hit'
@@ -950,6 +956,7 @@ class NoDataCacheAnalysis < DataCacheAnalysisBase
 
   def load_instructions(i)
     if i.memmode == 'load' or i.memmode == 'store'
+      return [] if not @pml.arch.data_cache_access?(i)
       line = DataCacheLine.new(nil, i.function, i.memmode, i.memtype)
       # Skip data-cache loads in case we are in always-hit mode..
       return [] if always_hit(line)
@@ -1006,6 +1013,7 @@ class DataCacheAnalysis < DataCacheAnalysisBase
   def load_instructions(i)
     if i.memmode == 'load' or i.memmode == 'store'
       # TODO try to determine address (range) of access
+      return [] if not @pml.arch.data_cache_access?(i)
       line = DataCacheLine.new(nil, i.function, i.memmode, i.memtype)
       [LoadInstruction.new(i, line, line.store?, line.bypass?)]
     else

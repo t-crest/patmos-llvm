@@ -139,6 +139,11 @@ class Architecture < PML::Architecture
     dm.memory if dm
   end
 
+  def local_memory
+    # used for local scratchpad and stack cache accesses
+    @config.memories.by_name("local")
+  end
+
   def stack_cache
     sc = @config.caches.by_name('stack-cache')
     return nil if sc.nil? or sc.type == 'none'
@@ -166,6 +171,23 @@ class Architecture < PML::Architecture
   # Return the maximum size of a load or store in bytes.
   def max_data_transfer_bytes
     4
+  end
+
+  # Check if this instruction accesses the data cache.
+  # TODO This check is used to determine if the access should be handled
+  #      by the generic DataCache analysis. We use the DataCache analysis
+  #      to attach costs to cached and bypass loads/stores, but we skip
+  #      stack and local accesses. For now we assume that stack and local
+  #      accesses always have zero latency. 
+  #      We should instantiate a separate DataCacheAnalysis that uses the
+  #      memory named "local" and a different line-size (4) handles
+  #      all local memory accesses.
+  def data_cache_access?(instr)
+    instr.memtype == "cache" || instr.memtype == "memory"
+  end
+
+  def local_access?(instr)
+    instr.memtype == "local" || instr.memtype == "stack"
   end
 
   def path_wcet(ilist)
