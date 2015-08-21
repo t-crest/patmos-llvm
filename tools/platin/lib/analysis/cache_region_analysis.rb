@@ -87,11 +87,11 @@ class CacheAnalysis
     { "instr" => ica_results, "stack" => sca_results, "data" => dca_results }.each { |type,r|
       r.each { |k,v|
         report.attributes[k + "-" + type] = v
-	total_cycles += v if k == "cache-cycles"
+	total_cycles += v if k == "cache-max-cycles"
       } if r
     }
     
-    report.attributes['cache-cycles'] = total_cycles
+    report.attributes['cache-max-cycles'] = total_cycles
   end
 end
 
@@ -172,10 +172,10 @@ class CacheAnalysisBase
       known += freqs[me] || 0 if li.known?
       unknown += freqs[me] || 0 if li.unknown?
     }
-    { "cache-cycles" => cycles, "cache-hits" => hits, "cache-misses" => misses,
-      "cache-stores" => stores, "cache-bypass" => bypasses,
+    { "cache-max-cycles" => cycles, "cache-min-hits" => hits, "cache-max-misses" => misses,
+      "cache-max-stores" => stores, "cache-max-bypass" => bypasses,
       "cache-known-address" => known, "cache-unknown-address" => unknown 
-    }.select { |k,v| v > 0 or %w[cache-cycles cache-misses cache-hits].include?(k) }.map { |k,v| [k,v.to_i] }
+    }.select { |k,v| v > 0 or %w[cache-max-cycles cache-max-misses cache-min-hits].include?(k) }.map { |k,v| [k,v.to_i] }
   end
 end
 
@@ -1118,7 +1118,7 @@ class StackCacheAnalysis
       cycles += cost[v] || 0
       misses += freqs[v] || 0
     }
-    { "cache-cycles" => cycles, "cache-misses" => misses }
+    { "cache-max-cycles" => cycles, "cache-max-misses" => misses }
   end
   def summarize_spills(options, freqs, cost)
     cycles = 0
@@ -1128,7 +1128,7 @@ class StackCacheAnalysis
       cycles += cost[v] || 0
       misses += freqs[v] || 0
     }
-    { "cache-cycles" => cycles, "cache-misses" => misses }
+    { "cache-max-cycles" => cycles, "cache-max-misses" => misses }
   end
 end
 
@@ -1201,7 +1201,7 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
       cycles += cost[v] || 0
       misses += freqs[v] || 0
     }
-    { "cache-cycles" => cycles, "cache-misses" => misses }
+    { "cache-max-cycles" => cycles, "cache-max-misses" => misses }
   end
 end
 

@@ -1250,8 +1250,8 @@ class AitImport
 
     # read cache statistics
     read_cache_stats(wcet_elem, analysis_entry).each { |t,v|
-      timing_entry.attributes['cache-hits-' + t] = v.hits unless v.empty?
-      timing_entry.attributes['cache-misses-' + t] = v.misses unless v.empty?
+      timing_entry.attributes['cache-max-hits-' + t] = v.hits unless v.empty?
+      timing_entry.attributes['cache-max-misses-' + t] = v.misses unless v.empty?
     }
 
     statistics("AIT","imported WCET results" => 1) if options.stats
