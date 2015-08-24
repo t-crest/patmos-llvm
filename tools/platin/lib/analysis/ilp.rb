@@ -185,6 +185,7 @@ class ILP
   # add cost to the specified variable
   def add_cost(variable, cost)
     @costs[variable] += cost
+    debug(@options, :ilp) { "Adding costs #{variable} = #{cost}" }
   end
 
   # add a new variable, if necessary

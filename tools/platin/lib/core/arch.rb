@@ -191,6 +191,17 @@ class MemoryConfig < PMLObject
   attr_reader :write_transfer_time
 
   ##
+  # :attr_reader: alignment
+  #
+  # Minimal alignment of memory transfers.
+  # * YAML key: TODO
+  # * Type: <tt>int</tt>
+  def alignment
+    # For now, we default to min_burst_size as alignment
+    min_burst_size
+  end
+
+  ##
   # minimum number of bytes of one single (page-)burst request
   # * YAML key: +min-burst-size+
   # * Type: <tt>int</tt>
@@ -213,7 +224,6 @@ class MemoryConfig < PMLObject
     set_yaml_repr(data)
     @min_burst_size ||= @transfer_size
     @max_burst_size ||= @min_burst_size
-    @alignment = @transfer_size
   end
 
   def MemoryConfig.from_pml(ctx, data)
@@ -284,38 +294,36 @@ class MemoryConfig < PMLObject
 
   # delay for an (not necessarily aligned) read request
   def read_delay(start_address, size)
-    start_padding = start_address & (@alignment-1)
+    start_padding = start_address & (alignment-1)
     read_delay_aligned(start_padding + size)
   end
 
   # delay for an (not necessarily aligned) read request
   def max_read_delay(size)
-    read_delay_aligned(size + @alignment - 1)
+    read_delay(size + alignment - 1)
   end
 
   # delay for a read request aligned to the transfer (burst) size
   def read_delay_aligned(size)
-    # TODO this is not correct for page-mode bursts. In this case, we have
-    #      one request latency per request, but an additional page open latency
-    #      for bursts that cross a max_burst_size/max_page_size boundary.
-    bytes_to_bursts(size) * @read_latency + bytes_to_blocks(size) * @read_transfer_time
+    blocks = bytes_to_blocks(size)
+    bursts = bytes_to_bursts(size)
+    bursts * read_latency + blocks * read_transfer_time
   end
 
   # delay for an (not necessarily aligned write_request)
   def write_delay(start_address, size)
-    start_padding = start_address & (@alignment-1)
+    start_padding = start_address & (alignment-1)
     write_delay_aligned(start_padding + size)
   end
 
   def max_write_delay(size)
-    write_delay_aligned(size + @alignment - 1)
+    write_delay(size + alignment - 1)
   end
 
   def write_delay_aligned(size)
-    # TODO this is not correct for page-mode bursts. In this case, we have
-    #      one request latency per request, but an additional page open latency
-    #      for bursts that cross a max_burst_size/max_page_size boundary.
-    bytes_to_bursts(size) * @write_latency + bytes_to_blocks(size) * @write_transfer_time
+    blocks = bytes_to_blocks(size)
+    bursts = bytes_to_bursts(size)
+    bursts * write_latency + blocks * write_transfer_time
   end
 
 
@@ -325,6 +333,10 @@ class MemoryConfig < PMLObject
 
   def bytes_to_bursts(bytes)
     div_ceil( [bytes, @min_burst_size].max, @max_burst_size )
+  end
+
+  def bytes_to_bursts(bytes)
+    div_ceil(bytes + max_burst_size - alignment,max_burst_size)
   end
 
   def ideal?
