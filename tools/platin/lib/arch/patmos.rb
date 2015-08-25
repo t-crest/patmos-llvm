@@ -314,15 +314,31 @@ class Architecture < PML::Architecture
         opts.push("--gsize")
         opts.push(main_memory.size)
       end
-      if main_memory.transfer_size
+      if main_memory.transfer_size == main_memory.max_burst_size
         opts.push("--bsize")
         opts.push(main_memory.transfer_size)
-      end
-      if main_memory.read_latency && main_memory.read_transfer_time
+        if main_memory.read_latency && main_memory.read_transfer_time
+          opts.push("--tdelay")
+          opts.push(main_memory.read_latency)
+          opts.push("--gtime")
+          opts.push(main_memory.read_transfer_time)
+        end
+      else
+	opts.push("--portwidth")
+        opts.push(main_memory.transfer_size)
+        opts.push("--bsize")
+        opts.push(main_memory.min_burst_size)
+	opts.push("--psize")
+	opts.push(main_memory.max_burst_size)
+        # Latency per request
         opts.push("--tdelay")
-        opts.push(main_memory.read_latency)
+        opts.push("0")
+        # Latency per page open
         opts.push("--gtime")
-        opts.push(main_memory.read_transfer_time)
+        opts.push(main_memory.read_latency)
+	if main_memory.read_transfer_time != 1
+	  warn("Page burst memory setup requires transfer_time = 1.")
+	end
       end
     end
 
@@ -401,6 +417,15 @@ class Architecture < PML::Architecture
       opts.push(mc.associativity)
       opts.push("--mckind")
       opts.push((mc.policy || "fifo").downcase)
+      # Setup fill-mode
+      fillmode = mc.get_attribute("fill-mode") || "block"
+      requestsize = mc.get_attribute("request-size") || main_memory('code').min_burst_size
+      opts.push("--mcmode")
+      opts.push(fillmode)
+      if requestsize and fillmode != "block"
+        opts.push("--mtsize")
+        opts.push(requestsize)
+      end
     elsif ic = instruction_cache
       warn("Cache named 'instruction-cache' must not be of type 'method-cache'") if ic.type == "method-cache"
       opts.push("--icache")
