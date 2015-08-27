@@ -81,8 +81,7 @@ add_llvm_library(LLVMCodeGen
   OptimizePHIs.cpp
   PHIElimination.cpp
   PHIEliminationUtils.cpp
-  PMLImport.cpp
-  PMLExport.cpp
+  ParallelCG.cpp
   Passes.cpp
   PeepholeOptimizer.cpp
   PostRASchedulerList.cpp
