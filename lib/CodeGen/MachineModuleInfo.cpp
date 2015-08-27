@@ -221,6 +221,7 @@ bool MachineModuleInfo::doInitialization(Module &M) {
   CurCallSite = 0;
   CallsEHReturn = false;
   CallsUnwindInit = false;
+  HasEHFunclets = false;
   DbgInfoAvailable = UsesVAFloatArgument = UsesMorestackAddr = false;
   // Always emit some info, by default "no personality" info.
   Personalities.push_back(nullptr);
@@ -275,6 +276,7 @@ void MachineModuleInfo::EndFunction() {
   FilterEnds.clear();
   CallsEHReturn = false;
   CallsUnwindInit = false;
+  HasEHFunclets = false;
   VariableDbgInfos.clear();
 }
 
