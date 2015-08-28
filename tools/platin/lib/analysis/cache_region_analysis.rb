@@ -6,6 +6,7 @@
 # See Article [TODO]
 
 require 'core/pml'
+require 'analysis/dfa'
 require 'analysis/scopegraph'
 require 'analysis/cache_persistence_analysis'
 
@@ -664,6 +665,33 @@ class ConflictAnalysis
 
 end
 
+class MethodCacheCostModel
+  def initialize(cache, pml, options)
+    @cache, @pml, @options = cache, pml, options
+    @subfunction_miss_costs = {}
+  end
+
+  def min_hidden_cycles(sf)
+    dfa = DataFlowAnalysis.new(@pml, @options, sf.function, sf.entry, sf.blocks)
+    
+    op = DFAOperator.new
+
+    exitnodes = dfa.analyze(op)
+    
+    0
+  end
+
+  def load_cost(subfunction)
+    cost = @subfunction_miss_costs[subfunction]
+    return cost if cost
+    cost = @pml.arch.subfunction_miss_cost(subfunction)
+    if (@cache.get_attribute('fill-mode') || 'block') != 'block'
+      cost -= min_hidden_cycles(subfunction)
+    end
+    @subfunction_miss_costs[subfunction] = cost
+  end
+end
+
 class MethodCacheAnalysis
 
   def name
@@ -675,6 +703,7 @@ class MethodCacheAnalysis
     @cache, @pml, @options = cache, pml, options
     @block_subfunction_map = {}
     @entry_function = entry_function
+    @cost_model = MethodCacheCostModel.new(cache, pml, options)
   end
 
   def block_capacity
@@ -747,7 +776,7 @@ class MethodCacheAnalysis
   end
 
   def load_cost(subfunction)
-    @pml.arch.subfunction_miss_cost(subfunction)
+    @cost_model.load_cost(subfunction)
   end
 
   def blocks_for_tag(subfunction)
