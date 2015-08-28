@@ -14,6 +14,7 @@
 #ifndef _LLVM_TARGET_PATMOS_INSTRINFO_H_
 #define _LLVM_TARGET_PATMOS_INSTRINFO_H_
 
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/MC/MCInst.h"
@@ -282,6 +283,11 @@ public:
   /// getCallee - try to get the called function, or null if this is not a
   /// call, if the call target is unknown or if there is more than one callee.
   const Function *getCallee(const MachineInstr *MI) const;
+
+  /// getCallees - add all known call targets of an instruction or a bundle.
+  /// \return false if there might be additional call targets.
+  bool getCallees(const MachineInstr *MI,
+                  SmallSet<const Function*,2> &Callees) const;
 
   /// getIssueWidth - Get the number of slots required for this instruction.
   /// For instructions that must be scheduled on its own this returns the
