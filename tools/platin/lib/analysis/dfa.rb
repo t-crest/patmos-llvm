@@ -75,8 +75,7 @@ class DFASetOperator < LiftedDFAOperator
   def init ; Set.new ; end
   def entry ; Set.new([@operator.entry]) ; end
   def join(outs)
-    outs.reduce(Set.new) { |set,out| set.merge(out) }
-    merge(outs)
+    merge( outs.reduce(Set.new) { |set,out| set.merge(out) } )
   end
   def transfer(node, ins)
     outs = ins.map {|i| @operator.transfer(node, i) }.to_set
@@ -106,6 +105,9 @@ class DataFlowAnalysis
     def reachable? ; order >= 0; end
     def <=>(rhs)
       @order <=> rhs.order
+    end
+    def to_s
+      "##{order} #{exit? ? 'T' : ' '}#{@bundle}: #{@outs}"
     end
   end
   class EntryNode < Node
