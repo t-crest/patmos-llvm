@@ -289,6 +289,9 @@ module PML
     def last
       @blocks.last
     end
+    def address
+      entry.address
+    end
     def size
       assert("SubFunction#size: no addresses available") { entry.address }
 
@@ -422,6 +425,16 @@ module PML
     end
     def mapsto
       data['mapsto']
+    end
+
+    # Returns a list of instruction bundles (array of instructions per bundle)
+    def bundles
+      bundle = 0
+      instructions.chunk { |i|
+	idx = bundle
+	bundle += 1 unless i.bundled?
+	idx
+      }.map{|b| b[1]}
     end
 
     # loops (not ready at initialization time)

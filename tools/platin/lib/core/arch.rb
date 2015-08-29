@@ -182,7 +182,7 @@ class MemoryConfig < PMLObject
   def max_burst_size
     @max_burst_size || min_burst_size
   end
-  
+
   def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
                  write_transfer_time, min_burst_size=nil, max_burst_size=nil, data=nil)
     @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time, @min_burst_size, @max_burst_size =
@@ -254,6 +254,10 @@ class MemoryConfig < PMLObject
   def max_burst_size=(value)
     @max_burst_size = value
     data['max-burst-size'] = value
+  end
+
+  def fixed_bursts?
+    transfer_size == max_burst_size
   end
 
   # delay for an (not necessarily aligned) read request

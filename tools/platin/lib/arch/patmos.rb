@@ -113,6 +113,24 @@ class Architecture < PML::Architecture
     2
   end
 
+  # The number of bytes fetched per cycle
+  def fetch_size
+    8
+  end
+
+  # Number of bytes prependend to each subfunction
+  def subfunction_prefix_size
+    4
+  end
+
+  def main_memory(area_name)
+    if area = @config.memory_areas.by_name(area_name)
+      area.memory
+    else
+      @config.main_memory
+    end
+  end
+
   def method_cache
     mc = @config.caches.by_name('method-cache')
     return nil if mc.nil? or mc.type == 'none'
@@ -188,6 +206,17 @@ class Architecture < PML::Architecture
 
   def local_access?(instr)
     instr.memtype == "local" || instr.memtype == "stack"
+  end
+
+  def memory_access?(instr)
+    instr.memtype == "cache" || instr.memtype == "memory" || %w[SRESi SENSi].include?(instr.opcode)
+  end
+
+  def path_bcet(ilist)
+    cost = ilist.reduce(0) do |cycles, instr|
+      cycles + (instr.bundled? ? 0 : 1)
+    end
+    cost
   end
 
   def path_wcet(ilist)
