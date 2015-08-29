@@ -666,27 +666,148 @@ class ConflictAnalysis
 end
 
 class MethodCacheCostModel
+  # Helper class to calculate stall cycles and memory latencies for M$ fills
+  class MCStallModel
+    def initialize(pml, options, memory, subfunction)
+      @pml, @options, @memory, @subfunction = pml, options, memory, subfunction
+      @fetchsize = @pml.arch.fetch_size
+      @subfunction_size = subfunction.size
+      @subfunction_prefix = @pml.arch.subfunction_prefix_size
+    end
+    # Bytes required to load to be able to fetch the bundle
+    def reqbytes(bundle)
+      # 
+      [ bundle[0].address - @subfunction.address + @fetchsize, @subfunction_size ].min + @subfunction_prefix
+    end
+    def memory_access?(bundle)
+      # TODO check stack-cache / data-cache analysis if this instruction is always hit
+      bundle.any? { |i| @pml.arch.memory_access?(i) }
+    end
+  end
+  class MCFixedBurstStallModel < MCStallModel
+    def initialize(pml, options, memory, subfunction)
+      super(pml, options, memory, subfunction)
+      @totalbursts = (@subfunction_size + @subfunction_prefix - 1)/@memory.transfer_size + 1
+    end
+    def max_fill_cycles(maxrequests)
+      @totalbursts * @memory.read_transfer_time + maxrequests * @memory.read_latency
+    end
+    def max_transfer_cycles(bundle, maxtransfercycles, maxrequests)
+      # Bursts required to be filled
+      reqbursts = (reqbytes(bundle)-1)/@memory.transfer_size + 1 
+      # Min transfer cycles required to be able to fetch bundle
+      reqcycles = reqbursts * @memory.read_transfer_time + maxrequests * @memory.read_latency
+      maxtransfer = [ reqcycles, maxtransfercycles ].max
+      if memory_access?(bundle)
+        # TODO needs checking: Only round up to next transfer-time?? 
+	maxtransfer += @memory.read_transfer_time + @memory.read_latency - 1
+      end
+      maxtransfer
+    end
+  end
+  class MCPageBurstStallModel < MCStallModel
+    def max_fill_cycles(maxrequests)
+      # TODO implement
+      0
+    end
+    def max_transfer_cycles(bundle, maxtransfercycles, maxrequests)
+      # TODO implement
+      0 
+    end
+  end
+
+  # DFA operator for simple M$ stall analysis
+  # Domain: [ minHiddenCycles, maxTransferCycles, maxTransfers ]
+  class MCStallOperator < DFAOperator
+    def initialize(pml, options, stallmodel)
+      @pml, @options, @stallmodel = pml, options, stallmodel
+    end
+    def init
+      [ nil, 0, 0 ]
+    end
+    def entry
+      [ 0, 0, 1 ]
+    end
+    def join(outs)
+      [ outs.map{|s| s[0]}.compact.min , outs.map{|s| s[1]}.max, outs.map{|s| s[2]}.max ]
+    end
+    def transfer(node, ins)
+      min_cycles = @pml.arch.path_bcet(node.bundle)
+      max_cycles = @pml.arch.path_wcet(node.bundle)
+
+      # max number of transfer cycles until instruction can be fetched
+      maxtransfer = @stallmodel.max_transfer_cycles(node.bundle, ins[1], ins[2])
+
+      # max number of requests after this instruction
+      maxrequests = ins[2]
+      maxfillcycles = @stallmodel.max_fill_cycles(maxrequests)
+      # Check if this instruction might cause a restart of a transfer
+      if @stallmodel.memory_access?(node.bundle) and maxtransfer < maxfillcycles
+	maxrequests += 1
+        maxfillcycles = @stallmodel.max_fill_cycles(maxrequests)
+      end
+      # max fill cycles after this instruction
+      # cycles of instructions, but at most cycles left for transfer
+      minhidden = ins[0] + [ min_cycles, maxfillcycles - maxtransfer ].min
+      # transfer cycles performend in parallel, but at most up to maxfillcycles
+      maxtransfer = [ maxtransfer + max_cycles, maxfillcycles].min
+      [ minhidden, maxtransfer, maxrequests ]
+    end
+    def min_hidden_cycles(state)
+      state[0]
+    end
+    def max_stall_cycles(state)
+      @stallmodel.max_fill_cycles(state[2]) - state[0]
+    end
+  end
+
   def initialize(cache, pml, options)
     @cache, @pml, @options = cache, pml, options
     @subfunction_miss_costs = {}
   end
 
-  def min_hidden_cycles(sf)
+  def max_stall_cycles(sf)
     dfa = DataFlowAnalysis.new(@pml, @options, sf.function, sf.entry, sf.blocks)
     
-    op = DFAOperator.new
+    # Select the stall model depending on the memory config
+    memory = @pml.arch.main_memory('code')
+    if memory.fixed_bursts?
+      stallmodel = MCFixedBurstStallModel.new(@pml, @options, memory, sf)
+    else
+      stallmodel = MCPageBurstStallModel.new(@pml, @options, memory, sf)
+    end
 
+    # Select the transfer function and domain
+    op = MCStallOperator.new(@pml, @options, stallmodel)
+    
+    if @options.use_mcache_powerdfa
+      if @options.use_mcache_powerdfa == 'nomerge'
+        lessop = lambda { |l,r| false }
+      else
+	# TODO implement
+        lessop = lambda { |l,r| false   }
+      end
+      op = DFASetOperator.new(op, lessop)
+    end
+
+    # Run the analysis
     exitnodes = dfa.analyze(op)
     
-    0
+    # Collect the result from the exit nodes
+    if @options.use_mcache_powerdfa
+      exitnodes.map{|n| n.outs.map{|s| op.operator.max_stall_cycles(s) }.max }.max
+    else
+      exitnodes.map{|n| op.max_stall_cycles(n.outs) }.max
+    end
   end
 
   def load_cost(subfunction)
     cost = @subfunction_miss_costs[subfunction]
     return cost if cost
-    cost = @pml.arch.subfunction_miss_cost(subfunction)
-    if (@cache.get_attribute('fill-mode') || 'block') != 'block'
-      cost -= min_hidden_cycles(subfunction)
+    if (@cache.get_attribute('fill-mode') || 'block') == 'block'
+      cost = @pml.arch.subfunction_miss_cost(subfunction)
+    else
+      cost = max_stall_cycles(subfunction)
     end
     @subfunction_miss_costs[subfunction] = cost
   end
