@@ -57,7 +57,7 @@ class DFAOperator
   # Transfer in state to out state.
   def transfer(node, ins) ; ins ; end
   # Check if state has changed
-  def changed?(olds, news) ; olds == news ; end
+  def changed?(olds, news) ; olds != news ; end
 end
 
 class LiftedDFAOperator < DFAOperator
@@ -66,13 +66,14 @@ class LiftedDFAOperator < DFAOperator
 end
 
 class DFASetOperator < LiftedDFAOperator
+  attr_reader :operator, :less
   # Less must take two states A and B and return true if A <= B
   def initialize(operator, less)
     @operator = operator 
     @less = less
   end
   def init ; Set.new ; end
-  def entry ; Set.new([@operator.entry])) ; end
+  def entry ; Set.new([@operator.entry]) ; end
   def join(outs)
     outs.reduce(Set.new) { |set,out| set.merge(out) }
     merge(outs)
@@ -91,17 +92,18 @@ class DataFlowAnalysis
   class Node
     # Determines the order in the worklist
     attr_accessor :order
-    attr_reader :instruction
+    attr_reader :bundle
     attr_accessor :predecessors, :successors
     attr_accessor :outs
-    def initialize(instruction = nil)
-      @instruction = instruction
+    def initialize(bundle = nil)
+      @bundle = bundle
       @predecessors = []
       @successors = []
       @outs = nil
     end
     def entry? ; false ; end
     def exit?  ; false ; end
+    def reachable? ; order >= 0; end
     def <=>(rhs)
       @order <=> rhs.order
     end
@@ -133,7 +135,7 @@ class DataFlowAnalysis
     end
     def empty? ; @worklist.empty? ; end
     def length ; @worklist.length ; end
-    def includes?(node) ; @worklist.includes?(node) ; end
+    def include?(node) ; @worklist.include?(node) ; end
   end
 
   # @param blocks Subset of blocks to analyze, or nil to analyze whole function.
@@ -148,20 +150,20 @@ class DataFlowAnalysis
     init = operator.init
     # Initialize sets
     @nodes.each { |n|
-      n.ins = n.outs = init
+      n.outs = init
     }
     # Get out set of entry node
     @entry_node.outs = operator.entry
 
     # Ensure that all nodes are transformed at least once
-    worklist.push(@nodes.select { |n| not n.entry? } )
+    worklist.push(@nodes.select { |n| n.reachable? and not n.entry?} )
 
     # Run worklist algorithm
     step_count = 0
     while not worklist.empty?
       node = worklist.pop
       
-      ins  = operator.join( node.predecessors.map{:outs} )
+      ins  = operator.join( node.predecessors.map{|p|p.outs} )
       outs = operator.transfer( node, ins )
       changed = operator.changed?( node.outs, outs )
 
@@ -171,7 +173,7 @@ class DataFlowAnalysis
       # Debug
       step_count += 1
       debug(@options,:dfa) {
-        "DFA step #{step_count} @ #{node.instruction}: #{ins} -> #{outs} #{changed ? 'CHANGED' : ''}"
+        "DFA step #{step_count} @ #{node.bundle}: #{ins} -> #{outs} #{changed ? 'CHANGED' : ''}"
       }
     end
 
@@ -190,39 +192,43 @@ class DataFlowAnalysis
 
     # Build nodes
     @blocks.each { |b|
-      # add all instructions except the last one and link them
+      # add all instruction bundles except the last one and link them
       # TODO this code is not quite correct: We assume here that there is only
       #      one branch instruction in the block. We should identify the targets
       #      of the instruction (respecting delay slots!) and set the
       #      targets correctly per instruction
       targets = b.successors.select { |s| @blocks.include?(s) }
       last = nil
-      b.instructions[0..-2].each { |i|
+      bundles = b.bundles
+      bundles[0..-2].each { |i|
         node = Node.new(i)
-	add_node(node,last)
+	add_node(b, node, last, first_node)
+	last = node
       }
-      if node.instructions.empty?
+      if bundles.empty?
 	node = Node.new
       else
         # Is this a return block or does the block have a sucessor outside the region?
 	if b.successors.empty? or targets.length < b.successors.length
 	  # Then we have an exit node
-	  node = ExitNode.new(b.instructions.last)
+	  node = ExitNode.new(bundles.last)
 	  @exit_nodes.push(node)
 	else
-	  node = Node.new(b.instructions.last)
+	  node = Node.new(bundles.last)
 	end
       end
-      add_node(node, last, targets, pred_nodes)
+      add_node(b, node, last, first_node, targets, pred_nodes)
     }
     
     # Add edges between blocks
     pred_nodes.each { |b,preds| 
       first_node[b].predecessors = preds
     }
+    # Add entry edge
+    first_node[@entry_block].predecessors.push(@entry_node)
 
     # Add successor edges
-    nodes.each { |n|
+    @nodes.each { |n|
       n.predecessors.each { |pred| pred.successors.push(n) }
     }
     
@@ -241,8 +247,8 @@ class DataFlowAnalysis
   def topological_sort
     @nodes.each { |n| n.order = -1 }
     postorder = []
-    visit(@entry_node, postorder)
-    postorder.reverse_each.with_index { |n,idx| n.order = postorder.length - idx }
+    topo_visit(@entry_node, postorder)
+    postorder.reverse_each.with_index { |n,idx| n.order = idx }
     @entry_node.order = 0
   end
   def topo_visit(node, postorder)
@@ -256,7 +262,7 @@ class DataFlowAnalysis
     postorder.push(node)
   end
 
-  def add_node(node, last, targets = [], pred_nodes = nil)
+  def add_node(b, node, last, first_node, targets = [], pred_nodes = nil)
     node.predecessors.push(last) if last
     first_node[b] = node if not last
     @nodes.push(node)
@@ -268,8 +274,8 @@ class DataFlowAnalysis
 
   def dump(worklist, step)
     puts "DFA Step #{step}, Worklist size #{worklist.length}:"
-    @nodes.each { |n| 
-      puts "  #{worklist.includes?(n)?'*':' '} ##{node.order} #{node.instruction}: #{node.outs}"
+    @nodes.each { |node| 
+      puts "  #{worklist.include?(node)?'*':' '}#{node.exit? ? 'T':' '} ##{node.order} #{node.bundle}: #{node.outs}"
     }
     puts
   end
