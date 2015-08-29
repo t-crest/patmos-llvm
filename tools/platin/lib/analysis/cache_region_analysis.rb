@@ -781,13 +781,8 @@ class MethodCacheCostModel
     op = MCStallOperator.new(@pml, @options, stallmodel)
     
     if @options.use_mcache_powerdfa
-      if @options.use_mcache_powerdfa == 'nomerge'
-        lessop = lambda { |l,r| false }
-      else
-	# TODO implement
-        lessop = lambda { |l,r| false   }
-      end
-      op = DFASetOperator.new(op, lessop)
+      substateof = lambda { |ls,rs| ls[0] > rs[0] && ls[1] < rs[1] }
+      op = DFASetOperator.new(op, substateof)
     end
 
     # Run the analysis

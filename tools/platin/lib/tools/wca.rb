@@ -11,6 +11,9 @@ include PML
 class WcaTool
 
   def WcaTool.add_config_options(opts)
+    opts.on("--wca-mcache-power-dfa", "use powerset DFA for method-cache stall analysis") { |b|
+      opts.options.use_mcache_powerdfa = b
+    }
     opts.on("--[no-]wca-cache-regions","use single-entry cache regions (=true)") { |b|
       opts.options.wca_cache_regions = b
     }
