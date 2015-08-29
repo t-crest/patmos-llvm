@@ -699,8 +699,38 @@ class MethodCacheCostModel
       reqcycles = reqbursts * @memory.read_transfer_time + maxrequests * @memory.read_latency
       maxtransfer = [ reqcycles, maxtransfercycles ].max
       if memory_access?(bundle)
-        # TODO needs checking: Only round up to next transfer-time?? 
+        # TODO needs checking: Only round up to next transfer-time?? But this depends on the
+	#      actual numbers of requests..
 	maxtransfer += @memory.read_transfer_time + @memory.read_latency - 1
+      end
+      maxtransfer
+    end
+  end
+  class MCFixedRequestStallModel < MCStallModel
+    def initialize(pml, options, memory, subfunction, request_size)
+      super(pml, options, memory, subfunction)
+      @request_size = request_size
+      @transfers_per_request = request_size / @memory.transfer_size
+      @request_time = @memory.read_transfer_time * @transfers_per_request + @memory.read_latency
+      totalsize = @subfunction_size + @subfunction_prefix
+      @totalrequests = (totalsize - 1)/@request_size + 1
+      @max_fill_cycles = reqcycles(totalsize)
+    end
+    def max_fill_cycles(maxrequests)
+      @max_fill_cycles
+    end
+    def reqcycles(bytes)
+      requests = bytes / @request_size
+      lastsize = bytes % @request_size
+      requests * @request_time + (lastsize > 0 ?
+                                  ((lastsize-1)/@memory.transfer_size + 1) * @memory.read_transfer_time + @memory.read_latency :
+				  0)
+    end
+    def max_transfer_cycles(bundle, maxtransfercycles, maxrequests)
+      maxtransfer = [ reqcycles(reqbytes(bundle)), maxtransfercycles ].max
+      if memory_access?(bundle)
+        # round up to next full request time
+	maxtransfer = ((maxtransfer-1)/@request_time + 1) * @request_time
       end
       maxtransfer
     end
@@ -771,8 +801,11 @@ class MethodCacheCostModel
     
     # Select the stall model depending on the memory config
     memory = @pml.arch.main_memory('code')
-    if memory.fixed_bursts?
+    request_size = @cache.get_attribute('request-size') || memory.min_burst_size
+    if memory.fixed_bursts? and request_size == 0
       stallmodel = MCFixedBurstStallModel.new(@pml, @options, memory, sf)
+    elsif memory.fixed_bursts?
+      stallmodel = MCFixedRequestStallModel.new(@pml, @options, memory, sf, request_size)
     else
       stallmodel = MCPageBurstStallModel.new(@pml, @options, memory, sf)
     end
