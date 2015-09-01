@@ -607,8 +607,6 @@ private:
 
   MCObjectWriter &Writer;
 
-  raw_ostream &OS;
-
   SectionListType Sections;
 
   SymbolDataListType Symbols;
@@ -754,8 +752,7 @@ public:
   // option is to make this abstract, and have targets provide concrete
   // implementations as we do with AsmParser.
   MCAssembler(MCContext &Context_, MCAsmBackend &Backend_,
-              MCCodeEmitter &Emitter_, MCObjectWriter &Writer_,
-              raw_ostream &OS);
+              MCCodeEmitter &Emitter_, MCObjectWriter &Writer_);
   ~MCAssembler();
 
   /// Reuse an assembler instance
