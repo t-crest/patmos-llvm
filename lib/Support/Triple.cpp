@@ -144,6 +144,7 @@ const char *Triple::getVendorTypeName(VendorType Kind) {
   case MipsTechnologies: return "mti";
   case NVIDIA: return "nvidia";
   case CSR: return "csr";
+  case Myriad: return "myriad";
   }
 
   llvm_unreachable("Invalid VendorType!");
@@ -402,6 +403,7 @@ static Triple::VendorType parseVendor(StringRef VendorName) {
     .Case("mti", Triple::MipsTechnologies)
     .Case("nvidia", Triple::NVIDIA)
     .Case("csr", Triple::CSR)
+    .Case("myriad", Triple::Myriad)
     .Default(Triple::UnknownVendor);
 }
 
