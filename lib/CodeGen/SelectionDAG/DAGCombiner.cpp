@@ -11044,9 +11044,10 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
       // Find a legal type for the constant store.
       unsigned SizeInBits = (i+1) * ElementSizeBytes * 8;
       EVT StoreTy = EVT::getIntegerVT(Context, SizeInBits);
+      bool IsFast;
       if (TLI.isTypeLegal(StoreTy) &&
           TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstStoreAS,
-                                 FirstStoreAlign)) {
+                                 FirstStoreAlign, &IsFast) && IsFast) {
         LastLegalType = i+1;
       // Or check whether a truncstore is legal.
       } else if (TLI.getTypeAction(Context, StoreTy) ==
@@ -11055,7 +11056,8 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
           TLI.getTypeToTransformTo(Context, StoredVal.getValueType());
         if (TLI.isTruncStoreLegal(LegalizedStoredValueTy, StoreTy) &&
             TLI.allowsMemoryAccess(Context, DL, LegalizedStoredValueTy,
-                                   FirstStoreAS, FirstStoreAlign)) {
+                                   FirstStoreAS, FirstStoreAlign, &IsFast) &&
+            IsFast) {
           LastLegalType = i + 1;
         }
       }
@@ -11070,7 +11072,7 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
         EVT Ty = EVT::getVectorVT(Context, MemVT, i+1);
         if (TLI.isTypeLegal(Ty) &&
             TLI.allowsMemoryAccess(Context, DL, Ty, FirstStoreAS,
-                                   FirstStoreAlign))
+                                   FirstStoreAlign, &IsFast) && IsFast)
           LastLegalVectorType = i + 1;
       }
     }
@@ -11103,9 +11105,10 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
 
       // Find a legal type for the vector store.
       EVT Ty = EVT::getVectorVT(Context, MemVT, i+1);
+      bool IsFast;
       if (TLI.isTypeLegal(Ty) &&
           TLI.allowsMemoryAccess(Context, DL, Ty, FirstStoreAS,
-                                 FirstStoreAlign))
+                                 FirstStoreAlign, &IsFast) && IsFast)
         NumElem = i + 1;
     }
 
@@ -11191,14 +11194,14 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
     if (CurrAddress - StartAddress != (ElementSizeBytes * i))
       break;
     LastConsecutiveLoad = i;
-
     // Find a legal type for the vector store.
     EVT StoreTy = EVT::getVectorVT(Context, MemVT, i+1);
+    bool IsFastSt, IsFastLd;
     if (TLI.isTypeLegal(StoreTy) &&
         TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstStoreAS,
-                               FirstStoreAlign) &&
+                               FirstStoreAlign, &IsFastSt) && IsFastSt &&
         TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstLoadAS,
-                               FirstLoadAlign)) {
+                               FirstLoadAlign, &IsFastLd) && IsFastLd) {
       LastLegalVectorType = i + 1;
     }
 
@@ -11207,9 +11210,9 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
     StoreTy = EVT::getIntegerVT(Context, SizeInBits);
     if (TLI.isTypeLegal(StoreTy) &&
         TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstStoreAS,
-                               FirstStoreAlign) &&
+                               FirstStoreAlign, &IsFastSt) && IsFastSt &&
         TLI.allowsMemoryAccess(Context, DL, StoreTy, FirstLoadAS,
-                               FirstLoadAlign))
+                               FirstLoadAlign, &IsFastLd) && IsFastLd)
       LastLegalIntegerType = i + 1;
     // Or check whether a truncstore and extload is legal.
     else if (TLI.getTypeAction(Context, StoreTy) ==
@@ -11221,9 +11224,11 @@ bool DAGCombiner::MergeConsecutiveStores(StoreSDNode* St) {
           TLI.isLoadExtLegal(ISD::SEXTLOAD, LegalizedStoredValueTy, StoreTy) &&
           TLI.isLoadExtLegal(ISD::EXTLOAD, LegalizedStoredValueTy, StoreTy) &&
           TLI.allowsMemoryAccess(Context, DL, LegalizedStoredValueTy,
-                                 FirstStoreAS, FirstStoreAlign) &&
+                                 FirstStoreAS, FirstStoreAlign, &IsFastSt) &&
+          IsFastSt &&
           TLI.allowsMemoryAccess(Context, DL, LegalizedStoredValueTy,
-                                 FirstLoadAS, FirstLoadAlign))
+                                 FirstLoadAS, FirstLoadAlign, &IsFastLd) &&
+          IsFastLd)
         LastLegalIntegerType = i+1;
     }
   }
