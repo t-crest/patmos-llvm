@@ -85,7 +85,7 @@ namespace {
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
-      AU.addRequired<AliasAnalysis>();
+      AU.addRequired<AAResultsWrapperPass>();
       AU.addRequired<TargetPassConfig>();
       AU.addRequired<MachineDominatorTree>();
       AU.addPreserved<MachineDominatorTree>();
@@ -265,7 +265,7 @@ bool PostRAScheduler::runOnMachineFunction(MachineFunction &Fn) {
 
   TII = Fn.getSubtarget().getInstrInfo();
   MachineLoopInfo &MLI = getAnalysis<MachineLoopInfo>();
-  AliasAnalysis *AA = &getAnalysis<AliasAnalysis>();
+  AliasAnalysis *AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
   TargetPassConfig *PassConfig = &getAnalysis<TargetPassConfig>();
 
   RegClassInfo.runOnMachineFunction(Fn);
