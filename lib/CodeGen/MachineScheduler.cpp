@@ -49,6 +49,11 @@ DumpCriticalPathLength("misched-dcpl", cl::Hidden,
 static cl::opt<bool> ViewMISchedDAGs("view-misched-dags", cl::Hidden,
   cl::desc("Pop up a window to show MISched dags after they are processed"));
 
+/// In some situations a few uninteresting nodes depend on nearly all other
+/// nodes in the graph, provide a cutoff to hide them.
+static cl::opt<unsigned> ViewMISchedCutoff("view-misched-cutoff", cl::Hidden,
+  cl::desc("Hide nodes with more predecessor/successor than cutoff"));
+
 static cl::opt<unsigned> MISchedCutoff("misched-cutoff", cl::Hidden,
   cl::desc("Stop scheduling after N instructions"), cl::init(~0U));
 
@@ -3277,8 +3282,11 @@ struct DOTGraphTraits<ScheduleDAGMI*> : public DefaultDOTGraphTraits {
     return true;
   }
 
-  static bool isNodeHidden(const SUnit *Node, const ScheduleDAG *Graph) {
-    return (Node->Preds.size() > 10 || Node->Succs.size() > 10);
+  static bool isNodeHidden(const SUnit *Node) {
+    if (ViewMISchedCutoff == 0)
+      return false;
+    return (Node->Preds.size() > ViewMISchedCutoff
+         || Node->Succs.size() > ViewMISchedCutoff);
   }
 
   static bool hasNodeAddressLabel(const SUnit *Node,
