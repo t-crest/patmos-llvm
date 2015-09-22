@@ -450,7 +450,7 @@ public:
 
   /// doFinalization - Overrides ModulePass doFinalization for global
   /// finalization tasks
-  /// 
+  ///
   using ModulePass::doFinalization;
   
   /// doFinalization - Run all of the finalizers for the function passes.
