@@ -118,6 +118,7 @@ class PassManagerPrettyStackEntry : public PrettyStackTraceEntry {
   Pass *P;
   Value *V;
   Module *M;
+
 public:
   explicit PassManagerPrettyStackEntry(Pass *p)
     : P(p), V(nullptr), M(nullptr) {}  // When P is releaseMemory'd.
@@ -129,7 +130,6 @@ public:
   /// print - Emit information about this stack frame to OS.
   void print(raw_ostream &OS) const override;
 };
-
 
 //===----------------------------------------------------------------------===//
 // PMStack
@@ -157,7 +157,6 @@ public:
 private:
   std::vector<PMDataManager *> S;
 };
-
 
 //===----------------------------------------------------------------------===//
 // PMTopLevelManager
@@ -238,12 +237,10 @@ public:
   PMStack activeStack;
 
 protected:
-
   /// Collection of pass managers
   SmallVector<PMDataManager *, 8> PassManagers;
 
 private:
-
   /// Collection of pass managers that are not directly maintained
   /// by this pass manager
   SmallVector<PMDataManager *, 8> IndirectPassManagers;
@@ -272,8 +269,6 @@ private:
   mutable DenseMap<AnalysisID, const PassInfo *> AnalysisPassInfos;
 };
 
-
-
 //===----------------------------------------------------------------------===//
 // PMDataManager
 
@@ -281,7 +276,6 @@ private:
 /// used by pass managers.
 class PMDataManager {
 public:
-
   explicit PMDataManager() : TPM(nullptr), Depth(0) {
     initializeAnalysisInfo();
   }
@@ -328,7 +322,6 @@ public:
   // Return true if P preserves high level analysis used by other
   // passes that are managed by this manager.
   bool preserveHigherLevelAnalysis(Pass *P);
-
 
   /// Populate UsedPasses with analysis pass that are used or required by pass
   /// P and are available. Populate ReqPassNotAvailable with analysis pass that
@@ -385,7 +378,6 @@ public:
   }
 
 protected:
-
   // Top level manager.
   PMTopLevelManager *TPM;
 
@@ -452,7 +444,7 @@ public:
   /// finalization tasks
   ///
   using ModulePass::doFinalization;
-  
+
   /// doFinalization - Run all of the finalizers for the function passes.
   ///
   bool doFinalization(Module &M) override;
@@ -484,7 +476,6 @@ public:
 };
 
 Timer *getPassTimer(Pass *);
-
 }
 
 #endif
