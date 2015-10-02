@@ -193,6 +193,7 @@ namespace llvm {
             outedges[&n] = e;
             connect(n);
           }
+          unsigned long din()  { return preds.size(); }
           unsigned long dout() { return succs.size(); }
           Edge *edgeto(Node *n) {
             if (outedges.count(n)) {
@@ -326,6 +327,7 @@ namespace llvm {
           void toexit(Node &n, Edge &e) { n.connect(nexit, e); }
           void postdominators(void);
           raw_ostream& printNode(Node &n);
+          std::set<Node *> exiting; // source of an "exit edge"
         private:
           std::map<const MachineBasicBlock*, Node> nodes;
           void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
@@ -335,6 +337,7 @@ namespace llvm {
       void buildfcfg(void);
       /// toposort - sort blocks of this SPScope topologically
       void toposort(void);
+      void toposort_prio(void);
       void ctrldep(void);
       void decompose(void);
       void dumpfcfg(void);

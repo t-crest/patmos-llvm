@@ -296,7 +296,7 @@ const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
 void SPScope::computePredInfos(void) {
 
   buildfcfg();
-  toposort();
+  toposort_prio();
   FCFG.postdominators();
   DEBUG_TRACE(dumpfcfg()); // uses info about pdom
   ctrldep();
@@ -337,6 +337,8 @@ void SPScope::buildfcfg(void) {
         if (succ != getHeader()) {
           // record exit edges
           FCFG.toexit(n, outedges[i]);
+          // store exiting block
+          FCFG.exiting.insert(&n);
         } else {
           // we don't need back edges recorded
           FCFG.toexit(n);
@@ -369,6 +371,54 @@ void SPScope::toposort(void) {
   Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
 }
 
+void SPScope::toposort_prio(void) {
+  // Put the blocks in 'Blocks' in topological order, while prioritizing
+  // nodes that are the source of an exit edge out of this FCFG.
+  // The algorithm is based on that of Kahn 1962. For the worklist, a deque is
+  // used, where exiting nodes are inserted at the front, while all others are
+  // appended. Nodes are fetched from the front.
+
+  std::deque<Node *> S; // worklist
+  std::map<Node *, unsigned int> incoming_count;
+  std::vector<MachineBasicBlock *> L; // resulting topologically sorted list
+
+  // initialize the map 'incoming_count' with the number of incoming edges for
+  // every node.
+  for (df_iterator<SPScope *> I = df_begin(this), E = df_end(this);
+      I != E; ++I) {
+    Node *n = *I;
+    incoming_count.insert(std::make_pair(n, n->din()));
+  }
+
+  // initialize with start node, as it does not have any incoming edges
+  assert(FCFG.nentry.din() == 0);
+  S.push_back(&FCFG.nentry);
+
+  while (!S.empty()) {
+    // remove an item from the front
+    Node *n = S.front();
+    S.pop_front();
+    // append the contained basic block to the result list
+    MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>(n->MBB);
+    if (MBB) L.push_back(MBB);
+    // check the successors of n
+    for (Node::child_iterator I = n->succs_begin(), E = n->succs_end();
+        I != E; ++I) {
+      // "Remove the edge" to the successor by decrementing the incoming edges
+      // counter. If it reaches zero, we add the successor to the worklist.
+      if (--incoming_count[*I] == 0) {
+        if (FCFG.exiting.count(*I) > 0) {
+          S.push_front(*I);
+        } else {
+          S.push_back(*I);
+        }
+      }
+    }
+  }
+  // replace the order in 'Blocks' in one go.
+  Blocks.clear();
+  Blocks.insert(Blocks.end(), L.begin(), L.end());
+}
 ///////////////////////////////////////////////////////////////////////////////
 
 
