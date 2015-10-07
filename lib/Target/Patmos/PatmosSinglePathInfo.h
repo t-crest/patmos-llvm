@@ -376,6 +376,9 @@ namespace llvm {
       // sub-scopes
       std::vector<SPScope*> Subscopes;
 
+      // block exiting the scope in the single-path graph
+      MachineBasicBlock *SPExitingMBB;
+
       // nesting depth
       unsigned int Depth;
 

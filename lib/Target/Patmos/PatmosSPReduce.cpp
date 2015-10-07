@@ -316,6 +316,7 @@ namespace {
   class LinearizeWalker : public SPScopeWalker {
     private:
       virtual void nextMBB(MachineBasicBlock *);
+      virtual void nextMBB(MachineBasicBlock *, bool connect);
       virtual void enterSubscope(SPScope *);
       virtual void exitSubscope(SPScope *);
 
@@ -325,9 +326,10 @@ namespace {
       MachineFunction &MF;
 
       MachineBasicBlock *LastMBB; // state: last MBB re-inserted
+      SPScope *CurrentScope; // updated at 'enterSubscope'
     public:
       explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
-        : Pass(pass), MF(mf), LastMBB(NULL) {}
+        : Pass(pass), MF(mf), LastMBB(NULL), CurrentScope(NULL) {}
   };
 
 
@@ -981,7 +983,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
-  mergeMBBs(MF);
+  // XXX mergeMBBs(MF);
 
   // Perform the elimination of LD/ST on the large basic blocks
   ElimLdStCnt += GuardsLdStElim->process();
@@ -992,9 +994,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   eliminateFrameIndices(MF);
 
   // Finally, we assign numbers in ascending order to MBBs again.
-  MF.RenumberBlocks();
+  //XXX MF.RenumberBlocks();
 
-  //DEBUG(MF.viewCFGOnly());
+  DEBUG(MF.viewCFGOnly());
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
@@ -2022,6 +2024,10 @@ void RAInfo::dump() const {
 ///////////////////////////////////////////////////////////////////////////////
 
 void LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
+  nextMBB(MBB, true);
+}
+
+void LinearizeWalker::nextMBB(MachineBasicBlock *MBB, bool connect) {
   DEBUG_TRACE( dbgs() << "| MBB#" << MBB->getNumber() << "\n" );
 
   // remove all successors
@@ -2036,7 +2042,7 @@ void LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
 
   if (LastMBB) {
     // add to the last MBB as successor
-    LastMBB->addSuccessor(MBB);
+    if (connect) LastMBB->addSuccessor(MBB);
     // move in the code layout
     MBB->moveAfter(LastMBB);
   }
@@ -2046,6 +2052,7 @@ void LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
 
 
 void LinearizeWalker::enterSubscope(SPScope *S) {
+  CurrentScope = S;
 
   // We don't create a preheader for entry.
   if (S->isTopLevel()) return;
@@ -2252,7 +2259,6 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // no explicit loop bound: branch on header predicate
     branch_preg = header_preg;
   }
-  // insert branch to header
   assert(branch_preg != Patmos::NoRegister);
 
 #ifdef BOUND_UNDEREST_PROTECTION
@@ -2265,6 +2271,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   }
 #endif
 
+  // insert branch to header
   // branch condition: not(<= zero)
   BuildMI(*BranchMBB, BranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
     .addReg(branch_preg).addImm(0)

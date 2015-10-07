@@ -195,6 +195,7 @@ SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
                     : Parent(NULL), FCFG(header),
                       RootTopLevel(isRootTopLevel), LoopBound(-1) {
   Depth = 0;
+  SPExitingMBB = NULL;
   // add header also to this SPScope's block list
   Blocks.push_back(header);
 
@@ -282,7 +283,6 @@ bool SPScope::isMember(const MachineBasicBlock *MBB) const {
 bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
   return HeaderMap.count(MBB) > 0;
 }
-
 
 const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
   std::vector<const MachineBasicBlock *> SuccMBBs;
@@ -409,6 +409,9 @@ void SPScope::toposort_prio(void) {
       if (--incoming_count[*I] == 0) {
         if (FCFG.exiting.count(*I) > 0) {
           S.push_front(*I);
+          // Update the information about the exiting MBB in the single-path
+          // graph (always points to the last encountered exiting block)
+          this->SPExitingMBB = const_cast<MachineBasicBlock*>((*I)->MBB);
         } else {
           S.push_back(*I);
         }
@@ -724,8 +727,7 @@ void SPScope::dump(raw_ostream& os) const {
     }
   }
 }
-//
-//
+
 ///////////////////////////////////////////////////////////////////////////////
 
 int SPScope::getPredUse(const MachineBasicBlock *MBB) const {
