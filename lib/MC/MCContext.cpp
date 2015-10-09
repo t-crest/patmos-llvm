@@ -81,6 +81,7 @@ void MCContext::reset() {
 
   UsedNames.clear();
   Symbols.clear();
+  SectionSymbols.clear();
   Allocator.Reset();
   Instances.clear();
   CompilationDir.clear();
