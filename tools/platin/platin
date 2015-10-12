@@ -9,7 +9,7 @@ fi
 
 # Set library path for installation
 
-KNOWN_COMMANDS="wcet tool-config pml analyze-trace extract-symbols \
+KNOWN_COMMANDS="wcet tool-config pml analyze-trace extract-symbols pml-config\
       transform visualize ait2pml pml2ais pml2ffx sweet ff2pml wca late-bypass"
 usage() {
     cat <<EOF >&2
@@ -18,8 +18,9 @@ usage: platin <command> [<args>]
 The following platin tools are available and supported:
 
   wcet            ... Calculate WCET (main driver)
-  tool-config     ... configure tools, so the same HW config is used in
+  tool-config     ... Configure tools, so the same HW config is used in
                       compiler, WCA and simulator
+  pml-config      ... Create or modify PML machine configurations.
   pml             ... Validate/Inspect/Visualize/Merge PML files
   analyze-trace   ... Analyze simulator trace and generate flow facts
   extract-symbols ... Extract addresses of symbols from ELF file

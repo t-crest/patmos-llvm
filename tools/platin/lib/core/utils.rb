@@ -226,15 +226,15 @@ module PML
   #
   # output debug message(s)
   #  type               ... the debug type for the message(s) (e.g., 'ipet')
-  #  options.debug_type ... debug types to print; either :all or a specific debug type
+  #  options.debug_type ... array of debug types to print; either :all or a specific debug type
   #  block              ... either returns one message, or yields several ones
   # Usage 1:
   #  debug(@options,'ipet') { "number of constraint: #{constraints.length}" }
   # Usage 2:
   #  debug(@options,'ipet') { |&msgs| constraints.each { |c| msgs.call("Constraint: #{c}") } }
   #
-  def debug(options, type, &block)
-    return unless options.debug_type == :all || options.debug_type == type
+  def debug(options, *type, &block)
+    return unless (options.debug_type||[]).any?{ |t| t == :all || type.include?(t) }
     msgs = []
     r = block.call { |m| msgs.push(m) }
     msgs.push(r) if msgs.empty?

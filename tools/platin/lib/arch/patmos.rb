@@ -82,9 +82,16 @@ class Architecture < PML::Architecture
       options.pasim = "pasim" unless options.pasim || options.trace_file
     end
   end
+  def Architecture.default_instr_cache(type)
+    if type == 'method-cache'
+      PML::CacheConfig.new('method-cache','method-cache','fifo',16,8,4096)
+    else
+      PML::CacheConfig.new('instruction-cache','instruction-cache','dm',1,16,4096)
+    end
+  end
   def Architecture.default_config
     memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',2*1024*1024,16,0,21,0,21)])
-    caches = PML::CacheConfigList.new([PML::CacheConfig.new('method-cache','method-cache','fifo',16,8,4096),
+    caches = PML::CacheConfigList.new([Architecture.default_instr_cache('method-cache'),
                                   PML::CacheConfig.new('stack-cache','stack-cache','block',nil,4,2048),
                                   PML::CacheConfig.new('data-cache','set-associative','dm',nil,16,2048),
                                   PML::CacheConfig.new('branch-predictor','set-associative','lru',1,1,16) ])
@@ -107,8 +114,28 @@ class Architecture < PML::Architecture
     2
   end
 
+  # The number of bytes fetched per cycle
+  def fetch_size
+    8
+  end
+
+  # Number of bytes prependend to each subfunction
+  def subfunction_prefix_size
+    4
+  end
+
+  def main_memory(area_name)
+    if area = @config.memory_areas.by_name(area_name)
+      area.memory
+    else
+      @config.main_memory
+    end
+  end
+
   def method_cache
-    @config.caches.by_name('method-cache')
+    mc = @config.caches.by_name('method-cache')
+    return nil if mc.nil? or mc.type == 'none'
+    mc
   end
 
   #
@@ -131,18 +158,29 @@ class Architecture < PML::Architecture
     dm.memory if dm
   end
 
+  def local_memory
+    # used for local scratchpad and stack cache accesses
+    @config.memories.by_name("local")
+  end
+
   def stack_cache
-    @config.caches.by_name('stack-cache')
+    sc = @config.caches.by_name('stack-cache')
+    return nil if sc.nil? or sc.type == 'none'
+    sc
   end
 
   def data_cache
     # TODO check if this is consistent with what is configured in the 
     #      data memory-area (but check only once!)
-    @config.caches.by_name('data-cache')
+    dc = @config.caches.by_name('data-cache')
+    return nil if dc.nil? or dc.type == 'none'
+    dc
   end
 
   def instruction_cache
-    @config.caches.by_name('instruction-cache')
+    ic = @config.caches.by_name('instruction-cache')
+    return nil if ic.nil? or ic.type == 'none'
+    ic
   end
 
   def branch_predictor
@@ -156,6 +194,34 @@ class Architecture < PML::Architecture
   # Return the maximum size of a load or store in bytes.
   def max_data_transfer_bytes
     4
+  end
+
+  # Check if this instruction accesses the data cache.
+  # TODO This check is used to determine if the access should be handled
+  #      by the generic DataCache analysis. We use the DataCache analysis
+  #      to attach costs to cached and bypass loads/stores, but we skip
+  #      stack and local accesses. For now we assume that stack and local
+  #      accesses always have zero latency. 
+  #      We should instantiate a separate DataCacheAnalysis that uses the
+  #      memory named "local" and a different line-size (4) handles
+  #      all local memory accesses.
+  def data_cache_access?(instr)
+    instr.memtype == "cache" || instr.memtype == "memory"
+  end
+
+  def local_access?(instr)
+    instr.memtype == "local" || instr.memtype == "stack"
+  end
+
+  def memory_access?(instr)
+    instr.memtype == "cache" || instr.memtype == "memory" || %w[SRESi SENSi].include?(instr.opcode)
+  end
+
+  def path_bcet(ilist)
+    cost = ilist.reduce(0) do |cycles, instr|
+      cycles + (instr.bundled? ? 0 : 1)
+    end
+    cost
   end
 
   def path_wcet(ilist)
@@ -433,6 +499,94 @@ class Architecture < PML::Architecture
       end
     end
     opts
+  end
+
+  # Update the configuration using the given options
+  def update_cache_config(options)
+   
+   # Update data cache
+    if options.data_cache_size or options.data_cache_policy
+      dc_policy = options.data_cache_policy[:policy] if options.data_cache_policy
+      dc_assoc  = options.data_cache_policy[:assoc]  if options.data_cache_policy
+      # We are not using self.data_cache here because it would return
+      # null if the type is set to 'none', even if the entry exists.
+      dc = @config.caches.by_name('data-cache')
+      if dc.nil? and (dc_policy != "no")
+        dc = self.class.default_config.caches.by_name('data-cache')
+	@config.caches.add(dc)
+      end
+      if dc
+	dc.size = options.data_cache_size if options.data_cache_size
+	# We are not deleting the cache entry here, partly because it
+	# allows the user to easily edit the generated config manually, 
+	# partly because it is easier to implement.
+	dc.type = 'set-associative' if dc_policy
+	dc.type = 'none' if dc_policy == 'no'
+	dc.policy = dc_policy if dc_policy and dc_policy != 'no'
+	# Set the associativiy whenever we set a policy
+	dc.associativity = dc_assoc if dc_policy
+	
+	# Update the data memory area
+	dma = @config.memory_areas.by_name('data')
+	dma.cache = (dc.type != 'none' ? dc : nil) if dma
+      end
+    end
+   
+   # Update stack cache
+    if options.stack_cache_size or options.stack_cache_type
+      # We are not using self.stack_cache here because it would return
+      # null if the type is set to 'none', even if the entry exists.
+      sc = @config.caches.by_name('stack-cache')
+      if dc.nil? and options.stack_cache_type != 'no'
+	sc = self.class.default_config.caches.by_name('stack-cache')
+	@config.caches.add(sc)
+      end
+      if sc
+	sc.size = options.stack_cache_size if options.stack_cache_size
+	sc.type = 'stack-cache' if options.stack_cache_type
+	sc.type = 'none' if options.stack_cache_type == 'no'
+	sc.policy = options.stack_cache_type if options.stack_cache_type and options.stack_cache_type != 'no'
+      end
+    end
+   
+   # Update instruction cache / method cache
+    if options.instr_cache_kind or options.instr_cache_size or options.instr_cache_policy or options.instr_cache_line_size
+      ic_policy = options.instr_cache_policy[:policy] if options.instr_cache_policy
+      ic_assoc  = options.instr_cache_policy[:assoc]  if options.instr_cache_policy
+      if options.instr_cache_kind
+        ic_key = options.instr_cache_kind == 'icache' ? "instruction-cache" : "method-cache"
+      elsif instruction_cache
+	ic_key = "instruction-cache"
+      else
+	ic_key = "method-cache"
+      end
+      # Get or create the active cache
+      ic = @config.caches.by_name(ic_key)
+      if ic.nil? and ic_policy != 'no'
+	ic = self.class.default_instr_cache(ic_key)
+	@config.caches.add(ic)
+      end
+      # Deactivate the other instruction caches
+      @config.caches.each { |cache|
+        next if cache.name == ic_key
+	cache.type = 'none' if ['instruction-cache','method-cache'].include?(cache.name)
+      }
+      if ic
+	ic.size = options.instr_cache_size if options.instr_cache_size
+	# We are not deleting the cache entry here, partly because it
+	# allows the user to easily edit the generated config manually, 
+	# partly because it is easier to implement.
+	ic.type = (ic_key == 'method-cache' ? 'method-cache' : 'set-associative') if ic_policy
+	ic.type = 'none' if ic_policy == 'no'
+	ic.policy = ic_policy if ic_policy and ic_policy != 'no'
+	# Set the associativiy whenever we set a policy
+	ic.associativity = ic_assoc if ic_policy
+      
+	# Update the code memory area
+        cma = @config.memory_areas.by_name('code')
+        cma.cache = (ic.type != 'none' ? ic : nil) if cma
+      end
+    end
   end
 
 end

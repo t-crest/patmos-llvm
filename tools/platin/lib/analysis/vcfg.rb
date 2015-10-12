@@ -265,6 +265,7 @@ private
       end
       if block.successors.empty?
         # Either return or stuck node (should never be emitted by the compiler)
+	# SH: could be a tail call to a noreturn function; check if node has a call
         if ! has_return
           # warn("Block with empty successors but without return information - adding exit edge")
           current_node.add_successor(@exit)
@@ -351,6 +352,8 @@ class CfgNode
   def entry? ; false ; end
   def exit? ; false ; end
   def qname ; @qname ; end
+  def block ; nil ; end
+  def block_start? ; false ; end
 end
 
 class EntryNode < CfgNode
@@ -389,7 +392,10 @@ class BlockSliceNode < CfgNode
     end
   end
   def instructions
-    @block.instructions[@first..@last]
+    @block.instructions[@first_index..@last_index]
+  end
+  def block_start?
+    @first_index == 0
   end
   def to_s
     "#<BlockSliceNode #{block} #{first_index} #{last_index}>"
@@ -403,6 +409,14 @@ class CallNode < CfgNode
     @callsite = callsite
     @targets = ContextTree.new
     @qname = "#{@vcfg.qname}/#{@callsite}"
+  end
+
+  def block
+    @callsite.block
+  end
+  def block_start?
+    # SH: Call nodes are always preceded by a BlockSliceNode.. (I think)
+    false
   end
 
   def refine_calltargets(callstring, targetset)

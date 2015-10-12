@@ -26,7 +26,7 @@ class CacheAnalysis
     if mc = @pml.arch.method_cache and not @options.disable_ica
       @mca = CacheRegionAnalysis.new(MethodCacheAnalysis.new(mc, entry_function, @pml, @options), @pml, @options)
       @mca.extend_ipet(scope_graph(entry_function), ipet_builder)
-    elsif ic = @pml.arch.instruction_cache and not options.disable_ica
+    elsif ic = @pml.arch.instruction_cache and not @options.disable_ica
       @ica = CacheRegionAnalysis.new(InstructionCacheAnalysis.new(ic, @pml, @options), @pml, @options)
       @ica.extend_ipet(scope_graph(entry_function), ipet_builder)
     end
@@ -48,10 +48,19 @@ class CacheAnalysis
       # TODO This is a bit misleading; find a way to add costs for uncached memory accesses outside of
       #      this analysis, only handle the case 'if @pml.arch.data_cache' here?! Maybe rename option to
       #      'disable_dma' and move this whole code into a separate DataMemoryAnalysis class.
+      # TODO We should instantiate an additional cache analysis for local memory accesses (stack, d-spm, IO-devices).
+      #      Instantiating the cache analyses should be driven by @pml.arch, so that it can create the proper
+      #      set of analyses based on the architecture (M$, I$, D$, S$, SPM, ..) and matches the way @pml.arch
+      #      calculates basic block timings (with or without latencies for bypass memory accesses,..).
+      #      The DataCacheAnalysis classes should take a functor block that determines which instructions
+      #      should be handled by that instance of the cache analysis (instead of checking @pml.arch.data_cache_access?)
       dc = @pml.arch.data_cache
-      ideal_dc = @options.dca_analysis_type == 'always-hit' || (dc && dc.ideal?)
-      if not dc or ideal_dc or @options.dca_analysis_type == 'always-miss'
-        @dca = AlwaysMissCacheAnalysis.new(NoDataCacheAnalysis.new(dm, ideal_dc, @pml, @options), @pml, @options)
+      always_hit = false
+      always_hit = :cached if @options.dca_analysis_type == 'always-hit'
+      # An ideal D$ always hits on both loads *and* stores.
+      always_hit = :all    if (dc && dc.ideal?)
+      if not dc or always_hit or @options.dca_analysis_type == 'always-miss'
+        @dca = AlwaysMissCacheAnalysis.new(NoDataCacheAnalysis.new(dm, always_hit, @pml, @options), @pml, @options)
       else
         @dca = CacheRegionAnalysis.new(DataCacheAnalysis.new(dm, dc, @pml, @options), @pml, @options)
       end
@@ -86,11 +95,11 @@ class CacheAnalysis
     { "instr" => ica_results, "stack" => sca_results, "data" => dca_results }.each { |type,r|
       r.each { |k,v|
         report.attributes[k + "-" + type] = v
-	total_cycles += v if k == "cache-cycles"
-      }
+	total_cycles += v if k == "cache-max-cycles"
+      } if r
     }
     
-    report.attributes['cache-cycles'] = total_cycles
+    report.attributes['cache-max-cycles'] = total_cycles
   end
 end
 
@@ -151,29 +160,30 @@ end
 class CacheAnalysisBase
   def summarize(options, freqs, cost)
     cycles = 0
-    accesses = 0
     misses = 0
+    hits = 0
     stores = 0
     bypasses = 0
     known = 0
     unknown = 0
     @all_load_edges.each { |me|
       li = me.load_instruction
-      puts "  cache load edge #{me}: #{freqs[me] || '??'} (#{cost[me]} cyc)" if options.verbose
+      puts "  cache load edge #{me}: #{freqs[me] || '??'} / #{freqs[me.edgeref] || '??'} (#{cost[me]} cyc)" if options.verbose
       cycles += cost[me] || 0
-      accesses += freqs[me] || 0
       # count store and bypass separately
       misses += freqs[me] || 0 unless li.bypass? or li.store?
+      hits += (freqs[me.edgeref] || 0) - (freqs[me] || 0) unless li.bypass? or li.store?
+      # TODO depending on the cache, we might count stores as hits+misses too..
       stores += freqs[me] || 0 if li.store?
       bypasses += freqs[me] || 0 if li.bypass?
       # count known and unknown accesses indepenently
       known += freqs[me] || 0 if li.known?
       unknown += freqs[me] || 0 if li.unknown?
     }
-    { "cache-cycles" => cycles, "cache-accesses" => accesses, "cache-misses" => misses,
-      "cache-stores" => stores, "cache-bypasses" => bypasses,
+    { "cache-max-cycles" => cycles, "cache-min-hits" => hits, "cache-max-misses" => misses,
+      "cache-max-stores" => stores, "cache-max-bypass" => bypasses,
       "cache-known-address" => known, "cache-unknown-address" => unknown 
-    }.select { |k,v| v > 0 }.map { |k,v| [k,v.to_i] }
+    }.select { |k,v| v > 0 or %w[cache-max-cycles cache-max-misses cache-min-hits].include?(k) }.map { |k,v| [k,v.to_i] }
   end
 end
 
@@ -224,6 +234,7 @@ class AlwaysMissCacheAnalysis < CacheAnalysisBase
 	      me = MemoryEdge.new(edge, li)
 	      ipet_builder.ilp.add_variable(me)
 	      ipet_builder.ilp.add_cost(me, @cache_properties.load_cost(li.tag))
+              debug(@options, :cache, :costs) { "Costs for load edge #{me}: #{@cache_properties.load_cost(li.tag)}" }
 	      # memory edge frequency is less equal to edge frequency
 	      ipet_builder.mc_model.assert_less_equal({me=>1},{me.edgeref=>1},"load_edge_#{me}",:cache)
 	      load_edges.push(me)
@@ -282,7 +293,7 @@ class CacheRegionAnalysis < CacheAnalysisBase
       get_all_tags(scopegraph.root, set).each { |tag,load_instructions|
 
         load_instructions = load_instructions.to_a
-        debug(options,:cache) { "Load instructions for tag: #{tag}: #{load_instructions.join(",")}" }
+        debug(options,:cache) { "Load instructions for tag #{tag}: #{load_instructions.join(",")}" }
         debug(options,:cache) {
           "Scopes for tag #{tag}: #{conflict_free_scopes[tag]}"
         }
@@ -299,6 +310,7 @@ class CacheRegionAnalysis < CacheAnalysisBase
             me = MemoryEdge.new(edge, li)
             ipet_builder.ilp.add_variable(me)
             ipet_builder.ilp.add_cost(me, @cache_properties.load_cost(tag))
+            debug(@options, :cache, :costs) { "Costs for load edge #{me}: #{@cache_properties.load_cost(li.tag)}" }
             # memory edge frequency is less equal to edge frequency
             ipet_builder.mc_model.assert_less_equal({me=>1},{me.edgeref=>1},"load_edge_#{me}",:cache)
             load_edges.push(me)
@@ -806,7 +818,7 @@ class InstructionCacheAnalysis
     end
     if ! same_cache_line_as_prev || i.may_return_to?
       get_aligned_addresses(i.address, last_byte).map { |addr|
-        [LoadInstruction.new(i, CacheLine.new(addr, i.function))]
+        LoadInstruction.new(i, CacheLine.new(addr, i.function))
       }
     else
       []
@@ -906,12 +918,15 @@ class DataCacheAnalysisBase
       if cache_line.known?
         d = @memory.write_delay(cache_line.address, @line_size)
       else
+        # Note: We assume here that we do not have unaligned stores.
         d = @memory.write_delay_aligned(@line_size)
       end
     else
       if cache_line.known?
         d = @memory.read_delay(cache_line.address, @line_size)
       else
+        # Note: We assume here that we do not have
+        # unaligned accesses across multiple cache lines.
         d = @memory.read_delay_aligned(@line_size)
       end
     end
@@ -941,11 +956,21 @@ class NoDataCacheAnalysis < DataCacheAnalysisBase
     0
   end
 
+  def always_hit(line)
+    # Bypass always misses
+    return false if line.bypass?
+    # All other (including stores) hit in an ideal cache
+    return true  if @always_hit == :all 
+    # Otherwise all loads hit if we use an always-hit analysis
+    @always_hit == :cached and not line.uncached?
+  end
+
   def load_instructions(i)
     if i.memmode == 'load' or i.memmode == 'store'
+      return [] if not @pml.arch.data_cache_access?(i)
       line = DataCacheLine.new(nil, i.function, i.memmode, i.memtype)
       # Skip data-cache loads in case we are in always-hit mode..
-      return [] if @always_hit and not line.uncached?
+      return [] if always_hit(line)
       # .. but handle stores and bypass loads nevertheless.
       [LoadInstruction.new(i, line, line.store?, line.bypass?)]
     else
@@ -999,6 +1024,7 @@ class DataCacheAnalysis < DataCacheAnalysisBase
   def load_instructions(i)
     if i.memmode == 'load' or i.memmode == 'store'
       # TODO try to determine address (range) of access
+      return [] if not @pml.arch.data_cache_access?(i)
       line = DataCacheLine.new(nil, i.function, i.memmode, i.memtype)
       [LoadInstruction.new(i, line, line.store?, line.bypass?)]
     else
@@ -1068,7 +1094,7 @@ class StackCacheAnalysis
     @fill_blocks.each { |instruction,fill_blocks|
       begin
         delay = @pml.arch.config.main_memory.read_delay(0, fill_blocks*@cache.block_size)
-        debug(@options, :cache) { "Cost for stack cache fill: #{fill_blocks}*#{@cache.block_size}=#{delay}" }
+        debug(@options, :cache, :costs) { "Cost for stack cache fill: #{fill_blocks}*#{@cache.block_size}=#{delay}" }
         #ipet_builder.mc_model.add_block_cost(instruction.block, delay)
         ipet_builder.mc_model.add_instruction(instruction)
         ipet_builder.ilp.add_cost(instruction, delay)
@@ -1081,7 +1107,7 @@ class StackCacheAnalysis
     @spill_blocks.each { |instruction,spill_blocks|
       begin
         delay = @pml.arch.config.main_memory.write_delay(0, spill_blocks*@cache.block_size)
-        debug(@options, :cache) { "Cost for stack cache spill: #{spill_blocks}*#{@cache.block_size}=#{delay}" }
+        debug(@options, :cache, :costs) { "Cost for stack cache spill: #{spill_blocks}*#{@cache.block_size}=#{delay}" }
         #ipet_builder.mc_model.add_block_cost(instruction.block, delay)
         ipet_builder.mc_model.add_instruction(instruction)
         ipet_builder.ilp.add_cost(instruction, delay)
@@ -1103,7 +1129,7 @@ class StackCacheAnalysis
       cycles += cost[v] || 0
       misses += freqs[v] || 0
     }
-    { "cache-cycles" => cycles, "cache-misses" => misses }
+    { "cache-max-cycles" => cycles, "cache-max-misses" => misses }
   end
   def summarize_spills(options, freqs, cost)
     cycles = 0
@@ -1113,7 +1139,7 @@ class StackCacheAnalysis
       cycles += cost[v] || 0
       misses += freqs[v] || 0
     }
-    { "cache-cycles" => cycles, "cache-misses" => misses }
+    { "cache-max-cycles" => cycles, "cache-max-misses" => misses }
   end
 end
 
@@ -1162,7 +1188,11 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
     }
     @spills.values.flat_map { |i| i }.each { |e|
       ilp.add_variable(e)
-      ilp.add_cost(e, @pml.arch.config.main_memory.write_delay(0, e.target.size*@cache.block_size)) if e.target.size > 0
+      next if e.target.size == 0
+      # TODO we should get the memory for the 'data' area
+      delay = @pml.arch.config.main_memory.write_delay(0, e.target.size*@cache.block_size)
+      debug(@options, :cache, :costs) { "Cost for stack cache spill: #{e.target.size}*#{@cache.block_size}=#{delay}" }
+      ilp.add_cost(e, delay)
     }
     #puts ipet_builder.ilp.variables.select{ |v| v.kind_of? IPETEdge and v.call_edge? }
     ipet_builder.call_edges.each { |ce|
@@ -1182,7 +1212,7 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
       cycles += cost[v] || 0
       misses += freqs[v] || 0
     }
-    { "cache-cycles" => cycles, "cache-misses" => misses }
+    { "cache-max-cycles" => cycles, "cache-max-misses" => misses }
   end
 end
 

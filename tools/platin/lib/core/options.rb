@@ -50,6 +50,12 @@ module PML
       }
       needs(:input, "No input PML file specified")
     end
+    # tool can have input PML option
+    def reads_pml
+      self.on("-i", "--input FILE", "PML input files (can be specified multiple times)") { |f|
+        (options.input||=[]).push(f)
+      }
+    end
     # tool writes PML file (if output is specified)
     def writes_pml
       self.on("-o", "--output FILE", "PML output file (allowed to be equivalent to an input file)") { |f| options.output = f }
@@ -160,7 +166,9 @@ module PML
       opts.separator("")
       opts.on("--stats", "print statistics") { options.stats = true }
       opts.on("--verbose", "verbose output") { options.verbose = true }
-      opts.on("--debug [TYPE]", "debug output (trace,ilp,ipet,wca,ait,sweet,visualize,=all)") { |d| options.debug_type = d ? d.to_sym : :all }
+      opts.on("--debug [TYPE]", Array, "debug output (trace,ilp,ipet,costs,wca,ait,sweet,visualize,=all)") { |d| 
+        options.debug_type = d ? d.map{ |s| s.to_sym } : [:all]
+      }
       opts.on_tail("-h", "--help [TOPIC]", "Show help / help on topic (#{opts.help_topics.join(", ")})") { |topic|
         if topic.nil?
           $stderr.puts opts

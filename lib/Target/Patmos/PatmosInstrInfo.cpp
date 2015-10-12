@@ -852,6 +852,67 @@ const Function *PatmosInstrInfo::getCallee(const MachineInstr *MI) const
   return F;
 }
 
+bool PatmosInstrInfo::getCallees(const MachineInstr *MI,
+                                 SmallSet<const Function*,2> &Callees) const
+{
+  if (MI->isBundle()) {
+    MachineBasicBlock::const_instr_iterator it = MI;
+    bool safe = true;
+
+    while ((++it)->isBundledWithPred()) {
+      if (!it->isCall() && !it->isInlineAsm()) continue;
+      safe = getCallees(it, Callees) && safe;
+    }
+    return safe;
+  }
+
+  if (MI->isCall()) {
+    const Function *F = getCallee(MI);
+    if (F) {
+      Callees.insert(F);
+      return true;
+    } else {
+      // Could be an indirect call..
+      return false;
+    }
+  }
+  else if (MI->isInlineAsm()) {
+    // We can skip the first operand as this should be the asm string.
+    for (unsigned int i = 1; i < MI->getNumOperands(); i++) {
+      const MachineOperand &MO(MI->getOperand(i));
+      const Function *F = NULL;
+
+      // try to find the target of the call
+      if (MO.isGlobal()) {
+        // is the global value a function?
+        F = dyn_cast_or_null<Function>(MO.getGlobal());
+      }
+      else if (MO.isSymbol()) {
+        // find the function in the current module
+        const Module &M =
+                  *MI->getParent()->getParent()->getFunction()->getParent();
+
+        F = dyn_cast_or_null<Function>(M.getNamedValue(MO.getSymbolName()));
+      }
+      if (F) {
+        // We are assuming here that if inline-asm uses a function reference
+        // as operand, then it is probably used for a call.
+        Callees.insert(F);
+      }
+    }
+
+    // TODO for now we assume that inline asm does not contain CALLR and
+    //      that all callees are passed as asm operands. We should do a check
+    //      similar to hasCall() here.
+    return true;
+  }
+  else {
+    // No other instruction should do a call.
+    return true;
+  }
+}
+
+
 unsigned PatmosInstrInfo::getIssueWidth(const MachineInstr *MI) const
 {
   if (MI->isInlineAsm())

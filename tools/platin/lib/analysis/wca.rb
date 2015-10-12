@@ -98,8 +98,10 @@ class WCA
             src.instructions[0..slot_end]
           end
         end
-      @pml.arch.path_wcet(ilist) +
-        @pml.arch.edge_wcet(ilist,branch_index,edge,edge_match,@options.branch_prediction)
+      path_wcet = @pml.arch.path_wcet(ilist) 
+      edge_wcet = @pml.arch.edge_wcet(ilist,branch_index,edge,edge_match,@options.branch_prediction)
+      debug(@options,:costs) { "WCET edge costs for #{edge}: #{path_wcet} block, #{edge_wcet} edge" }
+      path_wcet + edge_wcet
     end
 
     # run cache analyses

@@ -178,7 +178,7 @@ module PML
 
       @source, @target = source, target
       @name = "#{source.name}->#{target ? target.name : '' }"
-      @qname = "#{source.qname}->#{target ? target.name : '' }"
+      @qname = "#{source.qname}->#{target ? target.qname : 'exit' }"
       set_yaml_repr(data)
     end
     def ref
@@ -289,6 +289,9 @@ module PML
     def last
       @blocks.last
     end
+    def address
+      entry.address
+    end
     def size
       assert("SubFunction#size: no addresses available") { entry.address }
 
@@ -306,10 +309,11 @@ module PML
 
   # PML function wrapper
   class Function < ProgramPoint
-    attr_reader :module, :blocks, :loops, :arguments, :subfunctions
+    attr_reader :module, :level, :blocks, :loops, :arguments, :subfunctions
     def initialize(mod, data, opts)
       set_yaml_repr(data)
       @name = data['name']
+      @level = data['level']
       @module = mod
       @qname = name
       @loops = []
@@ -421,6 +425,16 @@ module PML
     end
     def mapsto
       data['mapsto']
+    end
+
+    # Returns a list of instruction bundles (array of instructions per bundle)
+    def bundles
+      bundle = 0
+      instructions.chunk { |i|
+	idx = bundle
+	bundle += 1 unless i.bundled?
+	idx
+      }.map{|b| b[1]}
     end
 
     # loops (not ready at initialization time)
