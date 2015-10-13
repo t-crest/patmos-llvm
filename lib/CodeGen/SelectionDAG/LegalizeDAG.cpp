@@ -4351,7 +4351,7 @@ void SelectionDAG::Legalize() {
     for (auto NI = allnodes_end(); NI != allnodes_begin();) {
       --NI;
 
-      SDNode *N = NI;
+      SDNode *N = &*NI;
       if (N->use_empty() && N != getRoot().getNode()) {
         ++NI;
         DeleteNode(N);
