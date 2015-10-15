@@ -8,6 +8,7 @@
 require 'core/pml'
 require 'analysis/scopegraph'
 require 'analysis/cache_persistence_analysis'
+require 'analysis/setunion'
 
 module PML
 
@@ -1216,19 +1217,6 @@ class StackCacheAnalysisGraphBased < StackCacheAnalysis
   end
 end
 
-class PredictorEntry
-  include QNameObject
-  attr_reader :instruction, :set
-  def initialize(instruction, history, set)
-    @instruction = instruction
-    @set = set
-    @qname = "PredictorEntry: #{instruction}/#{history}->#{set}"
-  end
-  def to_s
-    qname
-  end
-end
-
 class BranchPredictorAnalysis
 
   attr_reader :cache
@@ -1241,154 +1229,281 @@ class BranchPredictorAnalysis
     @cache, @pml, @options = cache, pml, options
     @sets = @cache.size / (@cache.associativity * @cache.line_size)
 
-    bcffs,mcffs = ['bitcode','machinecode'].map { |level|
-      @pml.flowfacts.filter(@pml,@options.flow_fact_selection,@options.flow_fact_srcs,level)
-    }
-    ctxm = ContextManager.new(@options.callstring_length)
-    mc_model = ControlFlowModel.new(@pml.machine_functions, entry,
-                                    mcffs, ctxm, @pml.arch)
-    bhs = BranchHistorySemantics.new(Math.log2(@sets))
-    @dfa = Interpreter.new(bhs, mc_model)
+    @hist_chars = ""
+    0.upto(Math.log2(@sets)+1) { |i| @hist_chars << ('0'[0].ord+i) }
+    @hist_chars.reverse!
 
-    @dfa.interpret(mc_model.get_vcfg(entry).entry, bhs.top)
-  end
+    @trtab = {}
 
-  def sets
-    @sets
-  end
+    debug(@options,:cache) { "BRANCH PREDICTOR ANALYSIS" }
 
-  def set_of(predictor_entry)
-    predictor_entry.set
-  end  
-
-  def indexfun(pc, h)
-    index = pc # local
-    #index = h # GAg
-    #index = (pc << 5) | (h & 0x1f) # gselect, h=5
-    #index = pc ^ h # gshare
-    index & (@sets - 1)    
-  end
-
-  def entries(i)
-    # TODO: This should be defined by the architecture
-    if i.delay_slots == 0 &&
-        ((i.branch_type == "conditional") && !i.opcode.start_with?('BRCF'))
-
-      debug(@options,:cache) { "INSTR: #{i}" }
-      hists = Set.new
-
-      @dfa.inputs_by_node.each do |node,ctxs|
-        if node.kind_of?(BlockSliceNode) && node.block == i.block
-          ctxs.each do |ctx,hist|
-            hists.merge(hist)
-          end
-        end
-      end
-
-      if hists.empty?
-        die("No history values for branch instruction #{i}");
+    if !@options.branch_prediction_fast
+      # local predictors do not require a history
+      if @options.branch_prediction_idxfun == "local"
+        hist_bits = 1
       else
-        debug(@options,:cache) { "VALUES: |#{hists.size}| #{hists.to_a}" }
+        hist_bits = Math.log2(@sets)
       end
 
-      entries = hists.map do |h|
-        PredictorEntry.new(i, h, indexfun(i.address/4, h))
-      end
-      entries.uniq { |e| e.set }
-    else
-      []
+      # set up data-flow analysis
+      bcffs,mcffs = ['bitcode','machinecode'].map { |level|
+        @pml.flowfacts.filter(@pml,@options.flow_fact_selection,@options.flow_fact_srcs,level)
+      }
+      ctxm = ContextManager.new(@options.callstring_length)
+      @mc_model = ControlFlowModel.new(@pml.machine_functions, entry,
+                                     mcffs, ctxm, @pml.arch)
+      @bhs = BranchHistorySemantics.new(hist_bits)
+      @dfa = Interpreter.new(@bhs, @mc_model)
+
+      # compute global history patterns
+      debug(@options,:cache) { "Global branch history analysis" }
+      @dfa.interpret(@mc_model.get_vcfg(entry).entry, @bhs.top)
+      @dfa.stats()
+      @global_hist = merge_ctxs(@dfa.inputs_by_node)
     end
   end
 
-  def size_in_bytes(cache_lines)
-    @cache.line_size * cache_lines.length
+  def merge_ctxs(inputs)
+    result = {}
+    inputs.each { |n,ctxs|
+      result[n] = Set.new
+      ctxs.each { |ctx,hist|
+        if hist.kind_of?(Hash)
+          hist.each { |sub,h| result[n] += h }
+        else
+          result[n] += hist
+        end
+      }
+    }
+    result
   end
 
-  def conflict_free?(predictor_entries)
-    return false if @options.wca_minimal_cache
-    return true  if @options.wca_ideal_cache
+  def is_branch?(i)
+    # TODO: This should be defined by the architecture
+    i.delay_slots == 0 &&
+      ((i.branch_type == "conditional") && !i.opcode.start_with?('BRCF'))
+  end
 
-    predictor_entries.length <= cache.associativity
+  def indexfun(pc, h)
+    case @options.branch_prediction_idxfun
+    when "local"; index = pc # local
+    when "GAg"; index = h.to_i(2) # GAg
+    #when "gselect"; index = (pc << 5) | (h.to_i(2) & 0x1f) # gselect, h=5
+    when "gshare"; index = pc ^ h.to_i(2) # gshare
+    end
+    index & (@sets - 1)    
+  end
+
+  def concrete_index(b, h, trtab)
+    indexfun(b.address/4, @bhs.h_to_s(h).tr(@hist_chars, trtab))
+  end
+
+  def find_branches(scopegraph)
+    branches = {}
+    scopegraph.bottom_up.each { |scope|
+      scope_branches = Set.new
+      if scope.kind_of?(ScopeGraph::CallNode)
+        scope.successors.each { |s|
+          scope_branches.merge(branches[s])
+        }
+      elsif rg = scope.region
+        rg_branches = branches[rg]
+        if !rg_branches
+          rg_branches = Set.new
+          rg.nodes.each { |node|
+            if node.kind_of?(RegionGraph::BlockSliceNode)
+              node_branches = branches[node]
+              if !node_branches
+                node_branches = Set.new
+                node.first.index.upto(node.last.index) { |ix|
+                  instr = node.block.instructions[ix]
+                  if is_branch?(instr)
+                    node_branches.add(instr)
+                  end
+                }
+                branches[node] = node_branches
+              end
+              rg_branches.merge(node_branches)
+            elsif node.kind_of?(RegionGraph::SubScopeNode)
+              rg_branches.merge(branches[node.scope_node])
+            end
+          }
+          branches[rg] = rg_branches
+        end
+        scope_branches.merge(rg_branches)
+      end          
+      branches[scope] = scope_branches
+    }
+    branches
+  end
+
+  def analyze_histories(scope)
+    debug(@options,:cache) { "Analyze #{scope}" }
+
+    if scope.kind_of?(ScopeGraph::FunctionNode)
+      func_entry = @mc_model.get_vcfg(scope.function).entry
+
+      debug(@options,:cache) { "Branch history analysis for function #{scope.function}" }
+      @dfa.interpret(func_entry, @bhs.scopetop)
+      @dfa.stats()
+    
+      return [func_entry, merge_ctxs(@dfa.inputs_by_node)]
+    end
+    if scope.kind_of?(ScopeGraph::CallNode)
+      func_entry = @mc_model.get_vcfg(scope.callsite.function).entry
+
+      debug(@options,:cache) { "Branch history analysis for call site #{scope.callsite}" }
+      @dfa.interpret(func_entry, @bhs.scopetop)
+      @dfa.stats()
+
+      @mc_model.get_vcfg(scope.callsite.function).nodes.each { |node|
+        if node.kind_of?(CallNode) && scope.callsite == node.callsite
+          return [node, merge_ctxs(@dfa.inputs_by_node)]
+        end
+      }
+    end
+    if scope.kind_of?(ScopeGraph::LoopNode)
+      @mc_model.get_vcfg(scope.loop.function).nodes.each { |node|
+        if node.kind_of?(LoopStateNode) && scope.loop == node.loop && node.action == :enter
+          exits = @mc_model.get_vcfg(scope.loop.function).nodes.select { |n|
+            n.kind_of?(LoopStateNode) && n.loop == node.loop && n.action == :exit
+          }
+
+          debug(@options,:cache) { "Branch history analysis for loop #{node.loop}" }
+          @dfa.interpret(node, Hash[node.successors.map{|s| [s, @bhs.scopetop]}], exits)
+          @dfa.stats()
+          return [node, merge_ctxs(@dfa.inputs_by_node)]
+        end      
+      }
+    end    
+  end
+
+  def branch_hists(raw_hists, branches)
+    hists = {}
+    branches.each { |b|
+      raw_hists.each { |n,h|
+        if n.kind_of?(BlockSliceNode) && n.block == b.block &&
+            n.first_index <= b.index && b.index <= n.last_index
+          hists[b] = h
+        end
+      }
+    }
+    # puts "  ABSTRACT BRANCH HISTS"
+    # hists.each { |b,h|
+    #   puts "    #{b} => #{h.map{|h| @bhs.h_to_s(h)}}"
+    # }
+    hists
+  end
+
+  def trtab(i)
+    if @trtab[i]
+      @trtab[i]
+    else
+      @trtab[i] = @bhs.h_to_s(i)+"10"
+    end
+  end
+
+  def analyze_persistence(scope, branches)
+    entry, raw_hists = analyze_histories(scope)
+    entry_hists = @global_hist[entry]
+    local_hists = branch_hists(raw_hists, branches)
+
+    # puts "INITIAL HISTORIES: #{entry_hists.to_a}"
+    # puts "BRANCHES: #{branches.to_a}"
+    # puts "LOCAL HISTORIES: #{local_hists}"
+
+    persistent_sets = SetUnion::SetUnion.new()
+
+    branches.each { |b|
+      persistent_sets.make_set(b)
+    }
+
+    branches.each { |bx|
+      bx_set = persistent_sets.find(bx)
+      branches.each { |by|
+        next if bx_set == persistent_sets.find(by)
+
+        entry_hists.each { |i|
+          fx = local_hists[bx].map{|h| concrete_index(bx, h, trtab(i))}
+          fy = local_hists[by].map{|h| concrete_index(by, h, trtab(i))}
+          if !(fx & fy).empty?
+            persistent_sets.unite(bx, by)
+            break
+          end
+        }
+      }
+    }
+    persistent_sets = persistent_sets.to_set
+
+    f_max = {}
+    entry_hists.each { |i|
+      persistent_sets.each { |branches|
+        f_set = Set.new
+        branches.each { |b|
+          f = local_hists[b].map{|h| concrete_index(b, h, trtab(i))}
+          f.uniq!
+          f_max[b] = [f_max[b] || 0, f.length].max
+          f_set += f
+        }
+        f_max[branches] = [f_max[branches] || 0, f_set.length].max
+      }
+    }
+
+    # puts "PERSISTENT: #{persistent_sets.to_set.to_a}"
+    [persistent_sets, f_max]
+  end
+
+  def analyze_persistence_fast(scope, branches)
+    persistent_sets = Set.new
+    persistent_sets << branches
+
+    f_max = {}
+    branches.each { |b|
+      f_max[b] = @sets
+    }
+    f_max[branches] = @sets
+
+    [persistent_sets, f_max]
+  end
+
+  def drop_context(scope)
+    if scope.kind_of?(ScopeGraph::FunctionNode)
+      scope.function
+    elsif scope.kind_of?(ScopeGraph::CallNode)
+      scope.callsite
+    elsif scope.kind_of?(ScopeGraph::LoopNode)
+      scope.loop
+    elsif scope.kind_of?(ScopeGraph::BlockNode)
+      scope.block
+    end
   end
 
   def extend_ipet(scopegraph, ipet_builder)
-    entries = {}
+    branch_map = find_branches(scopegraph)
+    seen = []
 
     scopegraph.bottom_up.each { |scope|
-      scope_entries = Set.new
-      debug(@options,:cache) { "SCOPE: #{scope}" }
-      if scope.kind_of?(ScopeGraph::CallNode)
-        scope.successors.each { |s|
-          scope_entries += entries[s]
+      # only analyze the root and the leaves of the socpe graph
+      next unless scope.successors.empty? || scope.predecessors.empty?
+
+      # analyze scopes only once, without contexts
+      node = drop_context(scope)
+      next if seen.include?(node)
+      seen << node
+
+      # puts "SCOPE: #{scope}"
+
+      if @options.branch_prediction_fast
+        persistent_sets, f_max = analyze_persistence_fast(scope, branch_map[scope])
+      else
+        persistent_sets, f_max = analyze_persistence(scope, branch_map[scope])
+      end
+
+      persistent_sets.each { |branches|
+        ipet_builder.mc_model.add_misprediction_aliasset_constraint(branches, scope, f_max[branches])
+        branches.each { |b|
+          ipet_builder.mc_model.add_misprediction_alias_constraint(b, branches, scope, f_max[b])
         }
-      elsif rg = scope.region
-        rg_entries = entries[rg]
-        if !rg_entries
-          rg_entries = Set.new
-          rg.nodes.each { |node|
-            if node.kind_of?(RegionGraph::BlockSliceNode)
-              debug(@options,:cache) { "SLICE: #{node}" }
-              node_entries = entries[node]
-              if !node_entries
-                node_entries = Set.new
-                node.first.index.upto(node.last.index) { |ix|
-                  instr = node.block.instructions[ix]
-                  node_entries += entries(instr)
-                }
-                entries[node] = node_entries
-              end
-              rg_entries += node_entries
-            elsif node.kind_of?(RegionGraph::SubScopeNode)
-              debug(@options,:cache) { "SUBSCOPE: #{node}" }
-              rg_entries += entries[node.scope_node]
-            else
-              debug(@options,:cache) { "RG NODE: #{node}" }
-            end
-          }
-          entries[rg] = rg_entries
-        end
-        scope_entries += rg_entries
-      end          
-      entries[scope] = scope_entries
-    }
-
-    entries.each { |node,entries|
-      next if entries.empty?
-      next if node.is_a?(RegionGraph)
-
-      persistent_branches = entries.map { |e| e.instruction }
-      persistent_branches.uniq!
-      debug(@options,:cache) { "BRANCHES #{node} => #{persistent_branches}" }
-      
-      sets = []
-      entries.each { |e|
-        sets[e.set] ||= []
-        sets[e.set].push(e)
-      }
-
-      sets.each { |set_entries|
-        next unless set_entries
-        debug(@options,:cache) { "SET: #{set_entries}" }
-        if !conflict_free?(set_entries)
-          persistent_branches -= set_entries.map { |e| e.instruction }
-          break if persistent_branches == []
-        end
-      }
-      
-      debug(@options,:cache) { "PERSISTENT: #{node} => #{persistent_branches}" }
-
-      persistent_branches.each { |branch|
-        if node.kind_of?(ScopeGraph::Node)
-          scope = node
-        elsif node.kind_of?(RegionGraph::BlockSliceNode)
-          scope = ScopeGraph::BlockNode.new(node.block, Context.empty)
-        else
-          die("Unknown branch persistence node type: #{node}")
-        end
-
-        predictor_entries = entries(branch)
-
-        ipet_builder.mc_model.add_misprediction_block_constraint(branch.block, [scope], predictor_entries.length)
       }
     }
   end

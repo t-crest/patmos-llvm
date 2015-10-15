@@ -317,6 +317,34 @@ class IPETModel
     }
   end
 
+  def scope_entry_edges(scope,factor)
+    entry = scope.scope_entry
+    is_block = false
+    if (entry.is_a?(Function))
+      entry = entry.entry_block
+      edges = sum_outgoing(entry, -factor)
+      edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
+      debug(options, :cache) { "FUNCTIONSCOPE #{scope}" }
+    elsif (entry.is_a?(Loop))
+      edges = sum_loop_entry(entry, -factor)
+      debug(options, :cache) { "LOOPSCOPE #{scope}" }
+    elsif (entry.is_a?(Block))
+      edges = sum_outgoing(entry, -factor)
+      edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
+      is_block = true
+      debug(options, :cache) { "BLOCKSCOPE #{scope}" }        
+    elsif (entry.is_a?(Instruction))
+      entry = entry.block
+      edges = sum_outgoing(entry, -factor)
+      edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
+      is_block = true
+      debug(options, :cache) { "INSTRSCOPE #{scope}" }
+    else
+      die("Unknown scope entry type: #{scope}")
+    end
+    [edges,is_block]
+  end
+
   # misprediction bounds for dynamic predictors
   def add_misprediction_block_constraint(block, scopes, predictor_entries)
     # only insert constraints for dynamic prediction
@@ -327,40 +355,24 @@ class IPETModel
     end
 
     # get execution frequencies of scope entries
+    factor = predictor_entries * (options.branch_prediction == "1bit" ? 1 : 2)
     entry_edges = []
+    block_scope = false
+    
     scopes.each { |scope,f|
-      entry = scope.scope_entry
-      factor = predictor_entries * (options.branch_prediction == "1bit" ? 1 : 2)
-
-      if (entry.is_a?(Function))
-        entry = entry.entry_block
-        edges = sum_outgoing(entry, -factor)
-        edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
-        debug(options, :cache) { "FUNCTIONSCOPE #{scope}" }
-      elsif (entry.is_a?(Loop))
-        edges = sum_loop_entry(entry, -factor)
-        debug(options, :cache) { "LOOPSCOPE #{scope}" }
-      elsif (entry.is_a?(Block))
-        edges = sum_outgoing(entry, -factor)
-        edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
-        debug(options, :cache) { "BLOCKSCOPE #{scope}" }
-      elsif (entry.is_a?(Instruction))
-        entry = entry.block
-        edges = sum_outgoing(entry, -factor)
-        edges.push [IPETEdge.new(entry,:exit,level), -factor] if entry.may_return?
-        debug(options, :cache) { "INSTRSCOPE #{scope}" }
-      else
-        die("Unknown scope entry type: #{scope}")
-      end
+      edges, is_block = scope_entry_edges(scope,factor)
       entry_edges += edges
+      block_scope ||= is_block
     }
+
     debug(options, :cache) { "ENTRIES #{entry_edges}" }
 
     block.successors.each { |succ|
       if (block.may_mispredict?(succ, options.branch_prediction))
         block.successors.each { |other|
           if (succ != other)
-            if (can_leave_straight(block, other, Set.new([block])) &&
+            if (!block_scope &&
+                can_leave_straight(block, other, Set.new([block])) &&
                 !can_leave_straight(block, succ, Set.new([block])))
               debug(options, :cache) { "Block #{block} can leave only via #{other}, not #{succ}" }
               entry_edges = entry_edges.map { |e,f| [e,f+1] }
@@ -370,7 +382,7 @@ class IPETModel
                    [IPETEdge.new(block,other,level),-1],
                    [IPETEdge.new(block,other,level,:mispredict),-1]]
             lhs += entry_edges
-            ilp.add_constraint(lhs,"less-equal",0,"mispredict_#{block.qname}",:mispredict)
+            ilp.add_constraint(lhs,"less-equal",0,"persist_#{block.qname}",:mispredict)
 
             if (options.branch_prediction == "2bith")
               divedge = IPETEdge.new(block,other,level,:div)
@@ -395,10 +407,71 @@ class IPETModel
         if (block.successors.length == 1)
           lhs = [[IPETEdge.new(block,succ,level,:mispredict), 1]]
           lhs += entry_edges
-          ilp.add_constraint(lhs,"less-equal",0,"mispredict_#{block.qname}",:mispredict)
+          ilp.add_constraint(lhs,"less-equal",0,"persist_#{block.qname}",:mispredict)
         end
       end
     }
+  end
+
+  def taken_succ(branch)
+    branch.block.successors.each { |succ|
+      return succ if branch.branch_targets.include?(succ)
+    }
+  end
+  def fallthrough_succ(branch)
+    branch.block.successors.each { |succ|
+      return succ if !branch.branch_targets.include?(succ)
+    }
+  end
+
+  def add_misprediction_alias_constraint(branch,aliases,scope,predictor_entries)    
+    factor = predictor_entries * (options.branch_prediction == "1bit" ? 1 : 2)
+    entry_edges, is_block = scope_entry_edges(scope,factor)
+    
+    t = taken_succ(branch)
+    f = fallthrough_succ(branch)
+    lhs_t = [[IPETEdge.new(branch.block,t,level,:mispredict), 1]]
+    lhs_f = [[IPETEdge.new(branch.block,f,level,:mispredict), 1]]
+    aliases.each { |b|
+      block = b.block
+      t = taken_succ(b)
+      f = fallthrough_succ(b)
+      lhs_t += [[IPETEdge.new(block,f,level),-1],
+                [IPETEdge.new(block,f,level,:mispredict),-1]]
+      lhs_f += [[IPETEdge.new(block,t,level),-1],
+                [IPETEdge.new(block,t,level,:mispredict),-1]]
+    }
+    lhs_t += entry_edges
+    lhs_f += entry_edges
+
+    ilp.add_constraint(lhs_t,"less-equal",0,"alias_t_#{branch.block.qname}",:mispredict)
+    ilp.add_constraint(lhs_f,"less-equal",0,"alias_f_#{branch.block.qname}",:mispredict)
+  end
+
+  def add_misprediction_aliasset_constraint(branches,scope,predictor_entries)    
+    factor = predictor_entries * (options.branch_prediction == "1bit" ? 1 : 2)
+    entry_edges, is_block = scope_entry_edges(scope,factor)
+
+    lhs_t = []
+    lhs_f = []
+    name = ""
+    branches.each { |b|
+      block = b.block
+      t = taken_succ(b)
+      f = fallthrough_succ(b)
+      lhs_t += [[IPETEdge.new(block,t,level,:mispredict), 1],
+                [IPETEdge.new(block,f,level),-1],
+                [IPETEdge.new(block,f,level,:mispredict),-1]]
+      lhs_f += [[IPETEdge.new(block,f,level,:mispredict), 1],
+                [IPETEdge.new(block,t,level),-1],
+                [IPETEdge.new(block,t,level,:mispredict),-1]]
+      name += "_"+block.qname
+    }
+    lhs_t += entry_edges
+    lhs_f += entry_edges
+
+    ilp.add_constraint(lhs_t,"less-equal",0,"aliasset_t_#{name}",:mispredict)
+    ilp.add_constraint(lhs_f,"less-equal",0,"aliasset_f_#{name}",:mispredict)
   end
 
   # frequency of incoming edges is frequency of block

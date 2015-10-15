@@ -38,7 +38,7 @@ class LpSolveILP < ILP
     lp.set_add_rowmode(false)
     lp.print_lp if options.lp_debug
     lp.set_verbose(0)
-    lp.set_timeout(600)
+    lp.set_timeout(3600)
 
     debug(options, :ilp) { self.dump(DebugIO.new) }
     start = Time.now

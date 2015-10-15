@@ -435,9 +435,12 @@ class WcetTool
     opts.on("--[no-]enable-wca", "run platin WCA calculator") { |b| opts.options.enable_wca = b }
     opts.on("--combine-wca", "run both aiT and WCA and combine cache analysis results") { |d| opts.options.combine_wca = true }
     opts.on("--compute-criticalities", "calculate block criticalities") { opts.options.compute_criticalities = true }
-    opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
     opts.on("--branch-prediction PRED","branch prediction model (=not-taken)") { |d| opts.options.branch_prediction = d }
     opts.add_check { |options| options.branch_prediction = "not-taken" unless options.branch_prediction }
+    opts.on("--branch-prediction-fast","enable fast branch prediction analysis") { |d| opts.options.branch_prediction_fast = true }
+    opts.on("--branch-prediction-idxfun PRED","branch prediction indexing function (=gshare)") { |d| opts.options.branch_prediction_idxfun = d }
+    opts.add_check { |options| options.branch_prediction_idxfun = "gshare" unless options.branch_prediction_idxfun }
+    opts.on("--enable-sweet", "run SWEET bitcode analyzer") { |d| opts.options.enable_sweet = true }
     use_sweet = Proc.new { |options| options.enable_sweet }
     opts.bitcode_file(use_sweet)
     opts.alf_file(Proc.new { false })

@@ -203,9 +203,9 @@ class VCFG
         # if successor is a loop header, we insert loop enter/cont nodes
         if succblock.loopheader?
           if predblock.loops.include?(succblock.loop) # continue
-            prednode = insert_loop_node(prednode, succblock, :cont)
+            prednode = insert_loop_node(prednode, succblock.loop, :cont)
           else
-            prednode = insert_loop_node(prednode, succblock, :enter)
+            prednode = insert_loop_node(prednode, succblock.loop, :enter)
           end
         end
         prednode.add_successor(succnode)
@@ -607,15 +607,18 @@ class Interpreter
     @semantics, @cfmodel, @ctx_manager = semantics, cfmodel, cfmodel.ctx_manager
     @steps = 0
   end
-  def interpret(initial_node, start_value)
+  def interpret(initial_node, start_value, exit_nodes = [])
+    @steps = 0
     @in = {}
     @callcontexts, @returncontexts, @loopcontexts = {}, {}, {}
     initial_loc = Location.new(@cfmodel, initial_node, @ctx_manager.initial)
+
     @in[initial_loc] = start_value
     @queue = [initial_loc]
     while ! @queue.empty?
       @steps += 1
       loc = @queue.pop
+      next if exit_nodes.include?(loc.node)
       inval = @in[loc]
       loc.successors.each { |l|
         outval = @semantics.transfer_value(loc.node, inval, l.node)
@@ -671,28 +674,47 @@ end
 
 class BranchHistorySemantics
 
-  BH_1 = 1
   BH_0 = 0
+  BH_1 = 1
 
   def initialize(bits)
-    @bits = bits
-    @mask = (1 << bits) - 1
+    @bits = bits.to_i
+    @valbits = Math.log2(@bits+2).ceil
+    @valmask = (2**@valbits-1).to_i
+    @mask = (2**(@bits*@valbits)-1).to_i
   end
 
-  def null() ; [0].to_set ; end
+  def h_to_s(h)
+    s = ""
+    0.upto(@bits-1) {
+      s << ('0'[0].ord+(h & @valmask))
+      h >>= @valbits
+    }
+    s.reverse
+  end
 
-  def top() ; topbits(@bits).to_set ; end  
+  #def top() ; [0].to_set ; end
+  def top() ; topbits(@bits).to_set ; end
 
   def topbits(n)
     if (n > 0)
       bits = topbits(n-1)
-      bits.map{|b| (b << 1) | BH_0} + bits.map{|b| (b << 1) | BH_1}
+      bits.map{|b| (b << @valbits) | BH_0} + bits.map{|b| (b << @valbits) | BH_1}
     else
       [0]
     end
   end
 
-  def fmt_val(v) ; v.to_s(2).rjust(@bits, "0") ; end
+  def scopetop() ; scopetopbits(@bits).to_set ; end  
+
+  def scopetopbits(n)
+    if (n > 0)
+      bits = scopetopbits(n-1)
+      bits.map{|b| ((BH_1+n).to_i << ((n-1)*@valbits)) | b}
+    else
+      [0]
+    end
+  end
 
   def leq(x, y)
     if x == nil
@@ -712,13 +734,14 @@ class BranchHistorySemantics
     if newval == nil
       oldval
     elsif oldval == nil
-      newval.dup
+      newval
     else
       if oldval.kind_of?(Hash) && newval.kind_of?(Hash)
-        newval.each{|k,v| join(v, oldval[k])}
+        retval = {}
+        newval.each{|k,v| retval[k] = join(v, oldval[k])}
+        retval
       else
-        oldval.merge(newval)
-        oldval
+        oldval | newval
       end
     end
   end
@@ -726,10 +749,10 @@ class BranchHistorySemantics
   def transfer_value(node, inval, succ)
     retval = inval
     if node.kind_of?(BlockSliceNode) && succ.kind_of?(BlockSliceNode) && node.successors.length == 2
-      if succ.block == node.block.fallthrough_successor
-        retval = inval.map{|x| ((x << 1) | BH_0) & @mask}.to_set
+      if succ.block == node.block || succ.block == node.block.fallthrough_successor
+        retval = inval.map{|x| ((x << @valbits) & @mask) | BH_0}.to_set
       else
-        retval = inval.map{|x| ((x << 1) | BH_1) & @mask}.to_set
+        retval = inval.map{|x| ((x << @valbits) & @mask) | BH_1}.to_set
       end
     end
     if succ.kind_of?(LoopStateNode)
@@ -740,12 +763,8 @@ class BranchHistorySemantics
     end
 
     # puts "XFER: #{node} -> #{succ}"
-    # if !inval.kind_of?(Hash)
-    #   puts "INPUT:  #{inval.to_a.map{|v| fmt_val(v)}}"
-    # end
-    # if !retval.kind_of?(Hash)
-    #   puts "OUTPUT: #{retval.to_a.map{|v| fmt_val(v)}}"
-    # end
+    # puts "INPUT:  #{inval.to_a}"
+    # puts "OUTPUT:  #{retval.to_a}"
 
     retval
   end
