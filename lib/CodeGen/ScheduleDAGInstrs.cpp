@@ -51,15 +51,12 @@ static cl::opt<bool> UseTBAA("use-tbaa-in-sched-mi", cl::Hidden,
 
 ScheduleDAGInstrs::ScheduleDAGInstrs(MachineFunction &mf,
                                      const MachineLoopInfo *mli,
-                                     bool IsPostRAFlag, bool RemoveKillFlags,
+                                     bool RemoveKillFlags,
                                      LiveIntervals *lis)
     : ScheduleDAG(mf), MLI(mli), MFI(mf.getFrameInfo()), LIS(lis),
-      IsPostRA(IsPostRAFlag), RemoveKillFlags(RemoveKillFlags),
-      CanHandleTerminators(false), FirstDbgValue(nullptr) {
-  assert((IsPostRA || LIS) && "PreRA scheduling requires LiveIntervals");
+      RemoveKillFlags(RemoveKillFlags), CanHandleTerminators(false),
+      FirstDbgValue(nullptr) {
   DbgValues.clear();
-  assert(!(IsPostRA && MRI.getNumVirtRegs()) &&
-         "Virtual registers must be removed prior to PostRA scheduling");
 
   const TargetSubtargetInfo &ST = mf.getSubtarget();
   SchedModel.init(ST.getSchedModel(), &ST, TII);
@@ -230,11 +227,8 @@ void ScheduleDAGInstrs::addSchedBarrierDeps() {
 
       if (TRI->isPhysicalRegister(Reg))
         Uses.insert(PhysRegSUOper(&ExitSU, -1, Reg));
-      else {
-        assert(!IsPostRA && "Virtual register encountered after regalloc.");
-        if (MO.readsReg()) // ignore undef operands
-          addVRegUseDeps(&ExitSU, i);
-      }
+      else if (MO.readsReg()) // ignore undef operands
+        addVRegUseDeps(&ExitSU, i);
     }
   } else {
     // For others, e.g. fallthrough, conditional branch, assume the exit
@@ -854,6 +848,17 @@ void ScheduleDAGInstrs::buildSchedGraph(AliasAnalysis *AA,
     bool HasVRegDef = addRegDeps(SU, true);
     addRegDeps(SU, false);
 
+      if (TRI->isPhysicalRegister(Reg))
+        addPhysRegDeps(SU, j);
+      else {
+        if (MO.isDef()) {
+          HasVRegDef = true;
+          addVRegDefDeps(SU, j);
+        }
+        else if (MO.readsReg()) // ignore undef operands
+          addVRegUseDeps(SU, j);
+      }
+    }
     // If we haven't seen any uses in this scheduling region, create a
     // dependence edge to ExitSU to model the live-out latency. This is required
     // for vreg defs with no in-region use, and prefetches with no vreg def.
