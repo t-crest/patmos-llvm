@@ -1334,26 +1334,19 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
     // Treat '.' as a valid identifier in this context.
     Lex();
     IDVal = ".";
+  } else if (Lexer.is(AsmToken::LCurly)) {
+    // Treat '{' as a valid identifier in this context.
+    Lex();
+    IDVal = "{";
 
-  } else {
-    bool HasPrefix = false;
-
-    if (getTargetParser().ParsePrefix(IDLoc, Info.ParsedOperands, HasPrefix)) {
-      if (!TheCondState.Ignore)
-        return TokError("unexpected token in prefix of instruction");
-      IDVal = "";
-
-    } else if (parseIdentifier(IDVal)) {
-      if (!TheCondState.Ignore)
-        return TokError("unexpected token at start of statement");
-      IDVal = "";
-    }
-
-    // If an instruction prefix has been matched, the rest of the statement
-    // must be an instruction.
-    if (HasPrefix && !TheCondState.Ignore) {
-      return parseInstruction(IDVal, IDLoc, Info);
-    }
+  } else if (Lexer.is(AsmToken::RCurly)) {
+    // Treat '}' as a valid identifier in this context.
+    Lex();
+    IDVal = "}";
+  } else if (parseIdentifier(IDVal)) {
+    if (!TheCondState.Ignore)
+      return TokError("unexpected token at start of statement");
+    IDVal = "";
   }
 
   // Handle conditional assembly here before checking for skipping.  We
