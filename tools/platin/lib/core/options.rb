@@ -126,11 +126,11 @@ module PML
       add_check { |options| options.trace_entry = "main" unless options.trace_entry }
     end
     # Analysis entry
-    def analysis_entry
+    def analysis_entry(set_default = true)
       self.on("-e", "--analysis-entry FUNCTION", "name/label of function to analyse (=main)") { |f|
         options.analysis_entry = f
       }
-      add_check { |options| options.analysis_entry = "main" unless options.analysis_entry }
+      add_check { |options| options.analysis_entry = "main" unless options.analysis_entry or not set_default }
     end
     def stack_cache_analysis
       self.on("--use-sca-graph", "use SCA graph for stack-cache analysis") {
