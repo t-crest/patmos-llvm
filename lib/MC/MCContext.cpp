@@ -43,7 +43,7 @@ MCContext::MCContext(const MCAsmInfo *mai, const MCRegisterInfo *mri,
       CurrentDwarfLoc(0, 0, 0, DWARF2_FLAG_IS_STMT, 0, 0), DwarfLocSeen(false),
       GenDwarfForAssembly(false), GenDwarfFileNumber(0), DwarfVersion(4),
       AllowTemporaryLabels(true), DwarfCompileUnitID(0),
-      AutoReset(DoAutoReset) {
+      AutoReset(DoAutoReset), HadError(false) {
 
   std::error_code EC = llvm::sys::fs::current_path(CompilationDir);
   if (EC)
@@ -103,6 +103,8 @@ void MCContext::reset() {
   DwarfLocSeen = false;
   GenDwarfForAssembly = false;
   GenDwarfFileNumber = 0;
+
+  HadError = false;
 }
 
 //===----------------------------------------------------------------------===//
@@ -476,14 +478,24 @@ void MCContext::finalizeDwarfSections(MCStreamer &MCOS) {
       [&](MCSection *Sec) { return !MCOS.mayHaveInstructions(*Sec); });
 }
 
-void MCContext::reportFatalError(SMLoc Loc, const Twine &Msg) const {
-  // If we have a source manager and a location, use it. Otherwise just
-  // use the generic report_fatal_error().
-  if (!SrcMgr || Loc == SMLoc())
+//===----------------------------------------------------------------------===//
+// Error Reporting
+//===----------------------------------------------------------------------===//
+
+void MCContext::reportError(SMLoc Loc, const Twine &Msg) {
+  HadError = true;
+
+  // If we have a source manager use it. Otherwise just use the generic
+  // report_fatal_error().
+  if (!SrcMgr)
     report_fatal_error(Msg, false);
 
   // Use the source manager to print the message.
   SrcMgr->PrintMessage(Loc, SourceMgr::DK_Error, Msg);
+}
+
+void MCContext::reportFatalError(SMLoc Loc, const Twine &Msg) {
+  reportError(Loc, Msg);
 
   // If we reached here, we are failing ungracefully. Run the interrupt handlers
   // to make sure any special cleanups get done, in particular that we remove
