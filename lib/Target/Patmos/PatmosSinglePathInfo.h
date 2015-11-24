@@ -275,7 +275,7 @@ namespace llvm {
 
       /// getDefInfo - Returns a pointer to a predicate definition info for
       /// a given MBB, or NULL if no pred info exists for the MBB.
-      const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
+      const PredDefInfo *getDefInfo(const MachineBasicBlock *) const;
 
       /// getOrCreateDefInfo - Returns a predicate definition info
       /// for a given MBB.
@@ -291,6 +291,12 @@ namespace llvm {
       /// in topological order.
       const std::vector<MachineBasicBlock*> &getBlocks() const {
         return Blocks;
+      }
+
+      /// getSPExitingMBB - Returns the basic block that is the last with
+      /// an exit edge in the topologically ordered sequence of blocks.
+      MachineBasicBlock *getSPExitingMBB() const {
+        return SPExitingMBB;
       }
 
 

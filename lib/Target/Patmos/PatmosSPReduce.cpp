@@ -27,7 +27,6 @@
 
 #define USE_BCOPY
 #define NOSPILL_OPTIMIZATION
-//#define BOUND_UNDEREST_PROTECTION
 
 #include "Patmos.h"
 #include "PatmosInstrInfo.h"
@@ -326,7 +325,8 @@ namespace {
       MachineFunction &MF;
 
       MachineBasicBlock *LastMBB; // state: last MBB re-inserted
-      SPScope *CurrentScope; // updated at 'enterSubscope'
+      const SPScope *CurrentScope; // updated at 'enterSubscope'
+      std::vector<MachineBasicBlock *> ExitBranchMBBs;
     public:
       explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
         : Pass(pass), MF(mf), LastMBB(NULL), CurrentScope(NULL) {}
@@ -1838,7 +1838,7 @@ void RAInfo::createLiveRanges(void) {
       }
     }
   }
-  // add a use for header predicate
+  // add a use for header predicate at the loop latch
   if (!Scope->isTopLevel()) {
     LRs[0].addUse(MBBs.size());
   }
@@ -2049,6 +2049,17 @@ void LinearizeWalker::nextMBB(MachineBasicBlock *MBB, bool connect) {
   }
   // keep track of tail
   LastMBB = MBB;
+
+  // check and create a new ExitBranchMBB for the exit edge in the current
+  // scope. We have to manage the ExitBranchMBB as stack, because there
+  // might be subsequent inner scopes before the current scope is left.
+  if (LastMBB == CurrentScope->getSPExitingMBB()) {
+    MachineBasicBlock *ExitBranchMBB = MF.CreateMachineBasicBlock();
+    MF.push_back(ExitBranchMBB);
+    ExitBranchMBBs.push_back(ExitBranchMBB);
+    // self-recursive call that terminates at depth 1.
+    nextMBB(ExitBranchMBB);
+  }
 }
 
 
@@ -2061,6 +2072,8 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   // insert loop preheader to spill predicates / load loop bound
   MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
   MF.push_back(PrehdrMBB);
+  // append the preheader
+  nextMBB(PrehdrMBB);
 
   const SPScope *SParent = S->getParent();
 
@@ -2194,13 +2207,11 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     InsertedInstrs += 2; // STATISTIC
     LoopCounters++; // STATISTIC
   }
-
-  // append the preheader
-  nextMBB(PrehdrMBB);
 }
 
 
 void LinearizeWalker::exitSubscope(SPScope *S) {
+  CurrentScope = S->getParent();
 
   MachineBasicBlock *HeaderMBB = S->getHeader();
   DEBUG_TRACE( dbgs() << "ScopeRange [MBB#" <<  HeaderMBB->getNumber()
@@ -2210,26 +2221,52 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
 
   const RAInfo &RI = Pass.RAInfos.at(S);
   DebugLoc DL;
+  // When creating new basic blocks, LLVM wants them to be connected
+  // (ie, they have to be "weaved in" with nextMBB) before instructions can
+  // be inserted. That's why we first create these blocks.
 
-  // insert backwards branch to header at the last block
-  MachineBasicBlock *BranchMBB = MF.CreateMachineBasicBlock();
-  MF.push_back(BranchMBB);
-  // weave in before inserting the branch (otherwise it'll be removed again)
-  nextMBB(BranchMBB);
+  // Get and remove the ExitBranchMBB for this scope from the stack
+  MachineBasicBlock *ExitBranchMBB = ExitBranchMBBs.back();
+  ExitBranchMBBs.pop_back();
 
-  // now we can fill the MBB with instructions:
+  // We create a basic block to hold the backward branch to the header.
+  // A special case arises if the exit edge is at the end of the loop,
+  // then the inserted ExitBranchMBB is the one we also can use for the
+  // backward branch.
+  MachineBasicBlock *BackBranchMBB;
+  //if (ExitBranchMBB == LastMBB) {
+  //  BackBranchMBB = ExitBranchMBB;
+  //} else {
+    BackBranchMBB = MF.CreateMachineBasicBlock();
+    MF.push_back(BackBranchMBB);
+    nextMBB(BackBranchMBB);
+  //}
+  DEBUG_TRACE( dbgs() << "BackBranchMBB #" <<  BackBranchMBB->getNumber() <<
+      ", ExitBranchMBB #" << ExitBranchMBB->getNumber() << "\n");
+
+  // create a post-loop MBB to act as exit-branch target, and for code to
+  // restore the spill predicates (if necessary)
+  MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
+  MF.push_back(PostMBB);
+  // do not connect to the previous BackBranchMBB,
+  // but connect to ExitBranchMBB
+  nextMBB(PostMBB, false);
+  ExitBranchMBB->addSuccessor(PostMBB);
+
+
+  // now we can fill the MBBs with instructions:
   //
-  // load the header predicate, if necessary
+  // load the header predicate at the latch, if necessary
   unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
   int loadloc = RI.getLoadLoc(HeaderMBB);
   if (loadloc != -1) {
-    Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
+    Pass.insertPredicateLoad(BackBranchMBB, BackBranchMBB->end(),
         loadloc, header_preg);
   }
   // TODO copy between pregs?
 
 
-  // load the branch predicate
+  // load/compute the branch predicate
   unsigned branch_preg = Patmos::NoRegister;
   if (S->hasLoopBound()) {
     // load the loop counter, decrement it by one, and if it is not (yet)
@@ -2237,53 +2274,50 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // TODO is the loop counter in a register?!
     int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth() - 1);
     unsigned tmpReg = Pass.GuardsReg;
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::LWC), tmpReg))
       .addFrameIndex(fi).addImm(0); // address
 
     // decrement
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::SUBi), tmpReg))
       .addReg(tmpReg).addImm(1);
     // compare with 0, PRTmp as predicate register
     branch_preg = Pass.PRTmp;
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::CMPLT), branch_preg))
       .addReg(Patmos::R0).addReg(tmpReg);
     // store back
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg, RegState::Kill);
     InsertedInstrs += 4; // STATISTIC
   } else {
-    // no explicit loop bound: branch on header predicate
-    branch_preg = header_preg;
+    // no explicit loop bound: probe the header predicate
+    // TODO special case if ExitBranchMBB == BackBranchMBB -> then
+    // we can use the header_preg.
+    branch_preg = Pass.PRTmp;
+    if (loadloc != -1) {
+      Pass.insertPredicateLoad(ExitBranchMBB, ExitBranchMBB->end(),
+          loadloc, branch_preg);
+    }
   }
   assert(branch_preg != Patmos::NoRegister);
 
-#ifdef BOUND_UNDEREST_PROTECTION
-  if (branch_preg != header_preg) {
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
-          Pass.TII->get(Patmos::POR), branch_preg))
-      .addReg(branch_preg).addImm(0)
-      .addReg(header_preg).addImm(0);
-    InsertedInstrs++; // STATISTIC
-  }
-#endif
-
+  // insert exit branch
+  BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
+    .addReg(branch_preg).addImm(1)
+    .addMBB(PostMBB);
   // insert branch to header
-  // branch condition: not(<= zero)
-  BuildMI(*BranchMBB, BranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
-    .addReg(branch_preg).addImm(0)
+  AddDefaultPred(BuildMI(*BackBranchMBB, BackBranchMBB->end(), DL,
+        Pass.TII->get(Patmos::BRu)))
     .addMBB(HeaderMBB);
-  BranchMBB->addSuccessor(HeaderMBB);
+  BackBranchMBB->addSuccessor(HeaderMBB);
   InsertedInstrs++; // STATISTIC
 
-  // create a post-loop MBB to restore the spill predicates, if necessary
+  // Now we treat the post-loop basic block.
   if (RI.needsScopeSpill()) {
-    MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
-    MF.push_back(PostMBB);
     // we create a LBC instruction here; TRI->eliminateFrameIndex() will
     // convert it to a stack cache access, if the stack cache is enabled.
     int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth()-1);
@@ -2307,7 +2341,6 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // assign to S0
     Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
                           Patmos::S0, tmpReg, true);
-    nextMBB(PostMBB);
     InsertedInstrs += 2; // STATISTIC
   }
 }

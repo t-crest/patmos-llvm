@@ -418,6 +418,9 @@ void SPScope::toposort_prio(void) {
       }
     }
   }
+  // XXX REMOVE -- only do this if we do not want to do loop-rotation. TODO
+  //this->SPExitingMBB = L.back();
+  //
   // replace the order in 'Blocks' in one go.
   Blocks.clear();
   Blocks.insert(Blocks.end(), L.begin(), L.end());
