@@ -653,7 +653,8 @@ namespace {
         // Having redundant loads eliminated enables simpler removal
         // of redundant stores
         DEBUG(dbgs() << "Removing redundant stores:\n");
-        findRedundantStores();
+        // FIXME the analysis is erroneous.
+        //findRedundantStores();
         count += remove();
 
         return count;

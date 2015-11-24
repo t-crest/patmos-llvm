@@ -417,13 +417,27 @@ class WcetTool
 
   def WcetTool.run(pml,options)
     needs_options(:input)
+    
+    # Get analysis configurations from PML
+    # TODO Add option to optionally specify config section name
+    # TODO Support running multiple analysis configurations? Would be more efficient to let the actual analysis tool handle this
+    #      so analysis steps that are shared between configurations are run only once (like address extraction or trace analysis).
+    config = pml.analysis_configurations.by_name('default')
+    if config and not options.analysis_entry
+      options.analysis_entry = config.analysis_entry
+    end
+    if not options.analysis_entry
+      warn("Analysis entry not specified, falling back to 'main'.") if config
+      options.analysis_entry = "main"
+    end
+
     WcetTool.new(pml,options).run_in_outdir
   end
 
   def WcetTool.add_options(opts)
     opts.writes_pml
     opts.writes_report
-    opts.analysis_entry
+    opts.analysis_entry(false)
     opts.binary_file(true)
     opts.flow_fact_selection
     opts.calculates_wcet
