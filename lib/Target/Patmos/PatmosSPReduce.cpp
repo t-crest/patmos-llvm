@@ -2077,10 +2077,10 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
 
   const SPScope *SParent = S->getParent();
 
-  const MachineBasicBlock *HeaderMBB = S->getHeader();
-
   const RAInfo &RI = Pass.RAInfos.at(S),
                &RP = Pass.RAInfos.at(SParent);
+
+  MachineBasicBlock *HeaderMBB = S->getHeader();
 
   DebugLoc DL;
 
@@ -2207,6 +2207,13 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     InsertedInstrs += 2; // STATISTIC
     LoopCounters++; // STATISTIC
   }
+
+  // FIXME check when we can omit this (no loop rotation performed at exit)
+  // insert unconditional branch to header
+  AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+        Pass.TII->get(Patmos::BRu)))
+    .addMBB(HeaderMBB);
+  InsertedInstrs++; // STATISTIC
 }
 
 
@@ -2229,19 +2236,15 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   MachineBasicBlock *ExitBranchMBB = ExitBranchMBBs.back();
   ExitBranchMBBs.pop_back();
 
-  // We create a basic block to hold the backward branch to the header.
-  // A special case arises if the exit edge is at the end of the loop,
-  // then the inserted ExitBranchMBB is the one we also can use for the
-  // backward branch.
-  MachineBasicBlock *BackBranchMBB;
-  //if (ExitBranchMBB == LastMBB) {
-  //  BackBranchMBB = ExitBranchMBB;
-  //} else {
-    BackBranchMBB = MF.CreateMachineBasicBlock();
-    MF.push_back(BackBranchMBB);
-    nextMBB(BackBranchMBB);
-  //}
-  DEBUG_TRACE( dbgs() << "BackBranchMBB #" <<  BackBranchMBB->getNumber() <<
+  // We create a basic block as latch to the header.
+  // After loop rotation, it will not contain any branch, but merly serve
+  // as block for instructions that have to be executes before re-entering
+  // the header (load header predicate)
+  MachineBasicBlock *LatchMBB = MF.CreateMachineBasicBlock();
+  MF.push_back(LatchMBB);
+  nextMBB(LatchMBB);
+
+  DEBUG_TRACE( dbgs() << "LatchMBB #" <<  LatchMBB->getNumber() <<
       ", ExitBranchMBB #" << ExitBranchMBB->getNumber() << "\n");
 
   // create a post-loop MBB to act as exit-branch target, and for code to
@@ -2251,7 +2254,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   // do not connect to the previous BackBranchMBB,
   // but connect to ExitBranchMBB
   nextMBB(PostMBB, false);
-  ExitBranchMBB->addSuccessor(PostMBB);
+
 
 
   // now we can fill the MBBs with instructions:
@@ -2260,7 +2263,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
   int loadloc = RI.getLoadLoc(HeaderMBB);
   if (loadloc != -1) {
-    Pass.insertPredicateLoad(BackBranchMBB, BackBranchMBB->end(),
+    Pass.insertPredicateLoad(LatchMBB, LatchMBB->end(),
         loadloc, header_preg);
   }
   // TODO copy between pregs?
@@ -2306,15 +2309,20 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   assert(branch_preg != Patmos::NoRegister);
 
   // insert exit branch
+  MachineFunction::iterator RotatedBegin = *ExitBranchMBB->succ_begin();
   BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
-    .addReg(branch_preg).addImm(1)
-    .addMBB(PostMBB);
-  // insert branch to header
-  AddDefaultPred(BuildMI(*BackBranchMBB, BackBranchMBB->end(), DL,
-        Pass.TII->get(Patmos::BRu)))
-    .addMBB(HeaderMBB);
-  BackBranchMBB->addSuccessor(HeaderMBB);
-  InsertedInstrs++; // STATISTIC
+    .addReg(branch_preg).addImm(0)
+    .addMBB(RotatedBegin);
+  // at this point, ExitBranchMBB has exactly one successor, which we remember
+  // for performing loop rotation
+  ExitBranchMBB->addSuccessor(PostMBB);
+
+  // connect the latch to the header
+  LatchMBB->addSuccessor(HeaderMBB);
+
+  // Rotate the loop by pulling the Blocks starting after ExitBranchMBB up to
+  // (excluding) the PostMBB in front of the header.
+  MF.splice(HeaderMBB, RotatedBegin, PostMBB);
 
   // Now we treat the post-loop basic block.
   if (RI.needsScopeSpill()) {
