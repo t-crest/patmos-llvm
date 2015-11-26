@@ -314,10 +314,20 @@ namespace {
   /// tree.
   class LinearizeWalker : public SPScopeWalker {
     private:
+      struct WalkerBlocks {
+        MachineBasicBlock *PreheaderMBB, *ExitBranchMBB, *LatchMBB, *PostMBB;
+        WalkerBlocks() :
+          PreheaderMBB(NULL), ExitBranchMBB(NULL), LatchMBB(NULL),
+          PostMBB(NULL) {}
+      };
+
       virtual void nextMBB(MachineBasicBlock *);
       virtual void nextMBB(MachineBasicBlock *, bool connect);
       virtual void enterSubscope(SPScope *);
       virtual void exitSubscope(SPScope *);
+
+
+      WalkerBlocks &getScopeBlocks() { return ScopeBlocks.back(); }
 
       // reference to the pass, to get e.g. RAInfos
       PatmosSPReduce &Pass;
@@ -325,8 +335,8 @@ namespace {
       MachineFunction &MF;
 
       MachineBasicBlock *LastMBB; // state: last MBB re-inserted
-      const SPScope *CurrentScope; // updated at 'enterSubscope'
-      std::vector<MachineBasicBlock *> ExitBranchMBBs;
+      const SPScope *CurrentScope; // updated at 'enterSubscope'/'exitSubscope'
+      std::vector<WalkerBlocks> ScopeBlocks;
     public:
       explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
         : Pass(pass), MF(mf), LastMBB(NULL), CurrentScope(NULL) {}
@@ -2054,11 +2064,11 @@ void LinearizeWalker::nextMBB(MachineBasicBlock *MBB, bool connect) {
   // scope. We have to manage the ExitBranchMBB as stack, because there
   // might be subsequent inner scopes before the current scope is left.
   if (LastMBB == CurrentScope->getSPExitingMBB()) {
-    MachineBasicBlock *ExitBranchMBB = MF.CreateMachineBasicBlock();
-    MF.push_back(ExitBranchMBB);
-    ExitBranchMBBs.push_back(ExitBranchMBB);
+    WalkerBlocks &WB = getScopeBlocks();
+    WB.ExitBranchMBB = MF.CreateMachineBasicBlock();
+    MF.push_back(WB.ExitBranchMBB);
     // self-recursive call that terminates at depth 1.
-    nextMBB(ExitBranchMBB);
+    nextMBB(WB.ExitBranchMBB);
   }
 }
 
@@ -2069,11 +2079,14 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   // We don't create a preheader for entry.
   if (S->isTopLevel()) return;
 
+  ScopeBlocks.push_back(WalkerBlocks());
+  WalkerBlocks &WB = getScopeBlocks();
+
   // insert loop preheader to spill predicates / load loop bound
-  MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
-  MF.push_back(PrehdrMBB);
+  WB.PreheaderMBB = MF.CreateMachineBasicBlock();
+  MF.push_back(WB.PreheaderMBB);
   // append the preheader
-  nextMBB(PrehdrMBB);
+  nextMBB(WB.PreheaderMBB);
 
   const SPScope *SParent = S->getParent();
 
@@ -2088,14 +2101,14 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     // load the predicate registers to GuardsReg, and store them to the
     // allocated stack slot for this scope depth.
     int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
-    Pass.TII->copyPhysReg(*PrehdrMBB, PrehdrMBB->end(), DL,
+    Pass.TII->copyPhysReg(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
         Pass.GuardsReg, Patmos::S0, false);
     // we insert a dummy load for the RedundantLdStEliminator
-    MachineInstr *Dummy = AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(),
+    MachineInstr *Dummy = AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(),
           DL, Pass.TII->get(Patmos::LBC), Pass.GuardsReg))
           .addFrameIndex(fi).addImm(0); // address
     Pass.GuardsLdStElim->addRemovableInst(Dummy);
-    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
             Pass.TII->get(Patmos::SBC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(Pass.GuardsReg, RegState::Kill);
@@ -2106,14 +2119,14 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   int loadloc = RP.getLoadLoc(HeaderMBB);
   unsigned inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
   if (loadloc != -1) {
-    Pass.insertPredicateLoad(PrehdrMBB, PrehdrMBB->end(),
+    Pass.insertPredicateLoad(WB.PreheaderMBB, WB.PreheaderMBB->end(),
         loadloc, inner_preg);
     InsertedInstrs++; // STATISTIC
   } else {
     unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true);
     assert(inner_preg != Patmos::P0);
     if (outer_preg != inner_preg) {
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+      AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
             Pass.TII->get(Patmos::PMOV), inner_preg))
         .addReg( outer_preg ).addImm(0);
       InsertedInstrs++; // STATISTIC
@@ -2158,23 +2171,23 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
 
       int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
       // load from stack slot
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+      AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
             Pass.TII->get(Patmos::LBC), Pass.GuardsReg))
         .addFrameIndex(fi).addImm(0); // address
       // mask out the initialization bits
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+      AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
           Pass.TII->get(Patmos::ANDl), Pass.GuardsReg))
       .addReg(Pass.GuardsReg)
       .addImm(~mask);
       // store back to stack slot
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+      AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
             Pass.TII->get(Patmos::SBC)))
         .addFrameIndex(fi).addImm(0) // address
         .addReg(Pass.GuardsReg, RegState::Kill);
       InsertedInstrs += 3; // STATISTIC
     } else {
       for (unsigned i = 0; i < defregs.size(); i++) {
-        AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+        AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
               Pass.TII->get(Patmos::PCLR), defregs[i]));
         InsertedInstrs++; // STATISTIC
       }
@@ -2188,19 +2201,19 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     uint32_t loop = S->getLoopBound();
     // Create an instruction to load the loop bound
     // TODO try to find an unused register
-    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
           Pass.TII->get( (isUInt<12>(loop)) ? Patmos::LIi : Patmos::LIl),
           tmpReg))
       .addImm(loop); // the loop bound
 
     int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth()-1);
     // we insert a dummy load for the RedundantLdStEliminator
-    MachineInstr *Dummy = AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(),
+    MachineInstr *Dummy = AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(),
           DL, Pass.TII->get(Patmos::LWC), Pass.GuardsReg))
           .addFrameIndex(fi).addImm(0); // address
     Pass.GuardsLdStElim->addRemovableInst(Dummy);
     // store the initialized loop bound to its stack slot
-    AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg, RegState::Kill);
@@ -2208,12 +2221,6 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     LoopCounters++; // STATISTIC
   }
 
-  // FIXME check when we can omit this (no loop rotation performed at exit)
-  // insert unconditional branch to header
-  AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-        Pass.TII->get(Patmos::BRu)))
-    .addMBB(HeaderMBB);
-  InsertedInstrs++; // STATISTIC
 }
 
 
@@ -2232,28 +2239,31 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   // (ie, they have to be "weaved in" with nextMBB) before instructions can
   // be inserted. That's why we first create these blocks.
 
-  // Get and remove the ExitBranchMBB for this scope from the stack
-  MachineBasicBlock *ExitBranchMBB = ExitBranchMBBs.back();
-  ExitBranchMBBs.pop_back();
+  // Get and remove the supporting block information for this scope
+  // from the stack
+  WalkerBlocks &WB = getScopeBlocks();
+  ScopeBlocks.pop_back();
 
   // We create a basic block as latch to the header.
-  // After loop rotation, it will not contain any branch, but merly serve
-  // as block for instructions that have to be executes before re-entering
+  // After loop rotation, it will not contain any branch, but merely serve
+  // as block for instructions that have to be executed before re-entering
   // the header (load header predicate)
-  MachineBasicBlock *LatchMBB = MF.CreateMachineBasicBlock();
-  MF.push_back(LatchMBB);
-  nextMBB(LatchMBB);
-
-  DEBUG_TRACE( dbgs() << "LatchMBB #" <<  LatchMBB->getNumber() <<
-      ", ExitBranchMBB #" << ExitBranchMBB->getNumber() << "\n");
+  WB.LatchMBB = MF.CreateMachineBasicBlock();
+  MF.push_back(WB.LatchMBB);
+  nextMBB(WB.LatchMBB);
 
   // create a post-loop MBB to act as exit-branch target, and for code to
   // restore the spill predicates (if necessary)
-  MachineBasicBlock *PostMBB = MF.CreateMachineBasicBlock();
-  MF.push_back(PostMBB);
+  WB.PostMBB = MF.CreateMachineBasicBlock();
+  MF.push_back(WB.PostMBB);
   // do not connect to the previous BackBranchMBB,
   // but connect to ExitBranchMBB
-  nextMBB(PostMBB, false);
+  nextMBB(WB.PostMBB, false);
+
+  DEBUG_TRACE( dbgs() << "PreheaderMBB #" << WB.PreheaderMBB->getNumber() <<
+      ", ExitBranchMBB #" << WB.ExitBranchMBB->getNumber() <<
+      ", LatchMBB #" <<  WB.LatchMBB->getNumber() <<
+      ", PostMBB #" << WB.PostMBB->getNumber() << "\n");
 
 
 
@@ -2263,7 +2273,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
   int loadloc = RI.getLoadLoc(HeaderMBB);
   if (loadloc != -1) {
-    Pass.insertPredicateLoad(LatchMBB, LatchMBB->end(),
+    Pass.insertPredicateLoad(WB.LatchMBB, WB.LatchMBB->end(),
         loadloc, header_preg);
   }
   // TODO copy between pregs?
@@ -2277,52 +2287,71 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // TODO is the loop counter in a register?!
     int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth() - 1);
     unsigned tmpReg = Pass.GuardsReg;
-    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.ExitBranchMBB, WB.ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::LWC), tmpReg))
       .addFrameIndex(fi).addImm(0); // address
 
     // decrement
-    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.ExitBranchMBB, WB.ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::SUBi), tmpReg))
       .addReg(tmpReg).addImm(1);
     // compare with 0, PRTmp as predicate register
     branch_preg = Pass.PRTmp;
-    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.ExitBranchMBB, WB.ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::CMPLT), branch_preg))
       .addReg(Patmos::R0).addReg(tmpReg);
     // store back
-    AddDefaultPred(BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.ExitBranchMBB, WB.ExitBranchMBB->end(), DL,
             Pass.TII->get(Patmos::SWC)))
       .addFrameIndex(fi).addImm(0) // address
       .addReg(tmpReg, RegState::Kill);
     InsertedInstrs += 4; // STATISTIC
   } else {
     // no explicit loop bound: probe the header predicate
-    // TODO special case if ExitBranchMBB == BackBranchMBB -> then
+    // TODO special case if ExitBranchMBB == LatchMBB -> then
     // we can use the header_preg.
     branch_preg = Pass.PRTmp;
     if (loadloc != -1) {
-      Pass.insertPredicateLoad(ExitBranchMBB, ExitBranchMBB->end(),
+      Pass.insertPredicateLoad(WB.ExitBranchMBB, WB.ExitBranchMBB->end(),
           loadloc, branch_preg);
     }
   }
   assert(branch_preg != Patmos::NoRegister);
 
   // insert exit branch
-  MachineFunction::iterator RotatedBegin = *ExitBranchMBB->succ_begin();
-  BuildMI(*ExitBranchMBB, ExitBranchMBB->end(), DL, Pass.TII->get(Patmos::BR))
+  MachineFunction::iterator RotatedBegin = *WB.ExitBranchMBB->succ_begin();
+  BuildMI(*WB.ExitBranchMBB, WB.ExitBranchMBB->end(), DL,
+      Pass.TII->get(Patmos::BR))
     .addReg(branch_preg).addImm(0)
     .addMBB(RotatedBegin);
   // at this point, ExitBranchMBB has exactly one successor, which we remember
   // for performing loop rotation
-  ExitBranchMBB->addSuccessor(PostMBB);
+  WB.ExitBranchMBB->addSuccessor(WB.PostMBB);
 
   // connect the latch to the header
-  LatchMBB->addSuccessor(HeaderMBB);
+  WB.LatchMBB->addSuccessor(HeaderMBB);
 
   // Rotate the loop by pulling the Blocks starting after ExitBranchMBB up to
   // (excluding) the PostMBB in front of the header.
-  MF.splice(HeaderMBB, RotatedBegin, PostMBB);
+  MF.splice(HeaderMBB, RotatedBegin, WB.PostMBB);
+
+  // count instructions from the preheader to the header to decide whether
+  // a loop is required. This also handles empty basic blocks in between
+  // (e.g. an empty LatchMBB).
+  for (MachineFunction::iterator
+        I = ++MachineFunction::iterator(WB.PreheaderMBB),
+        E = MachineFunction::iterator(HeaderMBB); I != E; ++I) {
+    if ((*I).size() > 0) {
+      // insert unconditional branch to header
+      AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
+            Pass.TII->get(Patmos::BRu)))
+        .addMBB(HeaderMBB);
+      InsertedInstrs++; // STATISTIC
+      break;
+    }
+  }
+
+
 
   // Now we treat the post-loop basic block.
   if (RI.needsScopeSpill()) {
@@ -2330,7 +2359,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     // convert it to a stack cache access, if the stack cache is enabled.
     int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth()-1);
     unsigned tmpReg = Pass.GuardsReg;
-    AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
+    AddDefaultPred(BuildMI(*WB.PostMBB, WB.PostMBB->end(), DL,
             Pass.TII->get(Patmos::LBC), tmpReg))
       .addFrameIndex(fi).addImm(0); // address
 
@@ -2338,7 +2367,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     std::vector<unsigned> liveouts;
     Pass.getLoopLiveOutPRegs(S, liveouts);
     for(unsigned i = 0; i < liveouts.size(); i++) {
-      AddDefaultPred(BuildMI(*PostMBB, PostMBB->end(), DL,
+      AddDefaultPred(BuildMI(*WB.PostMBB, WB.PostMBB->end(), DL,
             Pass.TII->get(Patmos::BCOPY), tmpReg))
         .addReg(tmpReg)
         .addImm(Pass.TRI->getS0Index(liveouts[i]))
@@ -2347,7 +2376,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     }
 
     // assign to S0
-    Pass.TII->copyPhysReg(*PostMBB, PostMBB->end(), DL,
+    Pass.TII->copyPhysReg(*WB.PostMBB, WB.PostMBB->end(), DL,
                           Patmos::S0, tmpReg, true);
     InsertedInstrs += 2; // STATISTIC
   }
