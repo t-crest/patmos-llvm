@@ -1647,6 +1647,7 @@ if test "$llvm_cv_os_type" = "MingW" ; then
   AC_CHECK_LIB(ole32, main)
   AC_CHECK_LIB(psapi, main)
   AC_CHECK_LIB(shell32, main)
+  AC_CHECK_LIB(uuid,main)
 fi
 
 dnl dlopen() is required for plugin support.
@@ -2245,3 +2246,14 @@ AC_CONFIG_MAKEFILE(bindings/ocaml/Makefile.ocaml)
 
 dnl Finally, crank out the output
 AC_OUTPUT
+echo ""
+echo ""
+echo "################################################################################"
+echo "################################################################################"
+echo "The LLVM project has deprecated building with configure & make."
+echo "The autoconf-based makefile build system will be removed in the 3.9 release."
+echo ""
+echo "Please migrate to the CMake-based build system."
+echo "For more information see: http://llvm.org/docs/CMake.html"
+echo "################################################################################"
+echo "################################################################################"
