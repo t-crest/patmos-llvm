@@ -994,7 +994,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
-  // XXX mergeMBBs(MF);
+  mergeMBBs(MF);
 
   // Perform the elimination of LD/ST on the large basic blocks
   ElimLdStCnt += GuardsLdStElim->process();
@@ -1005,9 +1005,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   eliminateFrameIndices(MF);
 
   // Finally, we assign numbers in ascending order to MBBs again.
-  //XXX MF.RenumberBlocks();
+  MF.RenumberBlocks();
 
-  DEBUG(MF.viewCFGOnly());
+  //DEBUG(MF.viewCFGOnly());
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
@@ -1665,16 +1665,15 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
 void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
   DEBUG( dbgs() << "Merge MBBs\n" );
 
-  // first, obtain the sequence of MBBs in DF order (as copy!)
+  // first, obtain the sequence of MBBs from the layout
   // NB: have to use the version below, as some version of libcxx will not
   // compile it (similar to
   //    http://lists.cs.uiuc.edu/pipermail/cfe-commits/Week-of-Mon-20130325/076850.html)
   //std::vector<MachineBasicBlock*> order(df_begin(&MF.front()),
   //                                      df_end(  &MF.front()));
-  std::vector<MachineBasicBlock*> order;
-  for (df_iterator<MachineBasicBlock *> I = df_begin(&MF.front()),
-       E = df_end(&MF.front()); I != E; ++I) {
-      order.push_back(*I);
+  std::vector<MachineBasicBlock *> order;
+  for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
+      order.push_back(&(*I));
   }
 
 
@@ -1688,8 +1687,9 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
     // get MBB of iterator
     MachineBasicBlock *MBB = *I;
 
-    if (MBB->pred_size() == 1) {
-      DEBUG_TRACE( dbgs() << "  Merge MBB#" << MBB->getNumber() << "\n" );
+    if (MBB->pred_size() == 1 && BaseMBB->isSuccessor(MBB)) {
+      DEBUG_TRACE( dbgs() << "  Merge MBB #" << BaseMBB->getNumber()
+                          << " and #" << MBB->getNumber() << "\n" );
       // transfer the instructions
       BaseMBB->splice(BaseMBB->end(), MBB, MBB->begin(), MBB->end());
       // remove the edge between BaseMBB and MBB
@@ -1702,11 +1702,9 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
       if (BaseMBB->succ_size() > 1) {
         // we have encountered a backedge
         BaseMBB = *(++I);
-        DEBUG_TRACE( dbgs() << "Base MBB#" << BaseMBB->getNumber() << "\n" );
       }
     } else {
       BaseMBB = MBB;
-      DEBUG_TRACE( dbgs() << "Base MBB#" << BaseMBB->getNumber() << "\n" );
     }
   }
   // invalidate order
@@ -2337,7 +2335,8 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
 
   // count instructions from the preheader to the header to decide whether
   // a loop is required. This also handles empty basic blocks in between
-  // (e.g. an empty LatchMBB).
+  // (e.g. an empty LatchMBB), which might be missed by
+  // MachineBasicBlock's updateTerminator() and isLayoutSuccessor().
   for (MachineFunction::iterator
         I = ++MachineFunction::iterator(WB.PreheaderMBB),
         E = MachineFunction::iterator(HeaderMBB); I != E; ++I) {
