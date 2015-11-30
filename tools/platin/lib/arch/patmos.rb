@@ -531,6 +531,17 @@ class Architecture < PML::Architecture
     end
   end
 
+  def update_heap_symbols(stack_size, num_stacks)
+    dma = @config.memory_areas.by_name('data')
+    return unless dma
+
+    memsize = dma.memory.size
+
+    dma.set_attribute('stack-base', memsize)
+    dma.set_attribute('shadow-stack-base', memsize - stack_size)
+    dma.set_attribute('heap-end', memsize - stack_size * num_stacks * 2)
+  end
+
 end
 
 end # module patmos
