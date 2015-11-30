@@ -108,6 +108,14 @@ class PMLConfigTool
       die("Too many values for --set-area-attr #{a}") if a.length > 3
       (opts.options.set_area_attrs||=[]).push(a)
     }
+    
+    opts.on("--update-heap-syms [SIZE,NUM]", Array, "Recalculate heap-end and stack-top attribute values for the new memory size assuming NUM stacks of size SIZE (defaults to 32k,16.") { |a|
+      a=[] if a.nil?
+      die("Too many values for --update-heap-syms #{a}") if a.length > 2
+      a[0]||="32k"
+      a[1]||="16"
+      opts.options.update_heap_syms = { :stack_size => parse_size(a[0]), :num_stacks => a[1].to_i }
+    }
 
     # TODO Add options to remove attributes
     # TODO Add options to modify tool-configurations and analysis-configurations.
@@ -181,10 +189,15 @@ class PMLConfigTool
     update_memories(arch, options)
     
     # For caches and memory-areas, we need to ask pml.arch, this is too platform specific..
-    pml.arch.update_cache_config(options)
+    arch.update_cache_config(options)
 
     # We can handle the generic cache attributes ourselves, again.
     update_attributes(arch, options)
+
+    # Let the architecture recalculate the heap symbols
+    if options.update_heap_syms
+      arch.update_heap_symbols(options.update_heap_syms[:stack_size], options.update_heap_syms[:num_stacks])
+    end
 
     # TODO call pml.arch to check and unify the machine-configuration
 
