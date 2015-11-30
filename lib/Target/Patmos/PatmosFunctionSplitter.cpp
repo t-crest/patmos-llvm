@@ -134,7 +134,7 @@ static cl::opt<int> MaxSubfunctionSize(
 
 static cl::opt<bool> SplitCallBlocks(
     "mpatmos-split-call-blocks",
-    cl::init(true),
+    cl::init(false),
     cl::desc("Split basic blocks containing calls into separate subfunctions "
              "(deprecated)."));
 
