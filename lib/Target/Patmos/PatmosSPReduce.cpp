@@ -225,6 +225,9 @@ namespace {
     /// mergeMBBs - Merge the linear sequence of MBBs as possible
     void mergeMBBs(MachineFunction &MF);
 
+    /// cleanupCFG - Simplify the CFG
+    void cleanupCFG(MachineFunction &MF);
+
     /// collectReturnInfoInsts - Collect instructions that store/restore
     /// return information in ReturnInfoInsts
     void collectReturnInfoInsts(MachineFunction &MF);
@@ -992,6 +995,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   LinearizeWalker LW(*this, MF);
   PSPI->walkRoot(LW);
 
+  // TODO describe
+  //cleanupCFG(MF);
+
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
   mergeMBBs(MF);
@@ -1005,7 +1011,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   eliminateFrameIndices(MF);
 
   // Finally, we assign numbers in ascending order to MBBs again.
-  MF.RenumberBlocks();
+  //MF.RenumberBlocks();
 
   //DEBUG(MF.viewCFGOnly());
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
@@ -1711,6 +1717,75 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
   order.clear();
 }
 
+void PatmosSPReduce::cleanupCFG(MachineFunction &MF) {
+  // while the CFG keeps changing
+  bool changed;
+  do {
+    changed = false;
+    // compute postorder
+    std::vector<MachineBasicBlock*> order(po_begin(&MF.front()),
+                                          po_end(  &MF.front()));
+
+    // "OnePass"
+    for (std::vector<MachineBasicBlock*>::iterator I = order.begin(),
+        E = order.end(); I != E; ++I) {
+      MachineBasicBlock *MBB = *I;
+      // if MBB ends in a jump (to SuccMBB)
+      if (MBB->succ_size() == 1) {
+        MachineBasicBlock *SuccMBB = *MBB->succ_begin();
+        // if MBB is empty
+        if (MBB->size() == 0) {
+          DEBUG_TRACE( dbgs() << "  Remove MBB #"
+                              << MBB->getNumber() << "\n");
+          // replace transfers to MBB with transfers to SuccMBB
+          for (MachineBasicBlock::pred_iterator PI = MBB->pred_begin(),
+                PE = MBB->pred_end(); PI != PE; ++PI) {
+            MachineBasicBlock *PredMBB = *PI;
+
+            // get the branch condition
+            MachineBasicBlock *TBB = NULL, *FBB = NULL;
+            SmallVector<MachineOperand, 2> Cond;
+            if (!TII->AnalyzeBranch(*PredMBB, TBB, FBB, Cond)) {
+              DebugLoc DL;
+              if (TBB) {
+                if (TBB == MBB) TBB = SuccMBB;
+                if (FBB == MBB) FBB = SuccMBB;
+                TII->RemoveBranch(*PredMBB);
+                TII->InsertBranch(*PredMBB, TBB, FBB, Cond, DL);
+              }
+            }
+            PredMBB->removeSuccessor(MBB);
+            PredMBB->transferSuccessors(MBB);
+          }
+          MF.erase(MBB);
+          changed = true;
+        } else if (SuccMBB->pred_size() == 1) {
+          // if SuccMBB has only one predecessor then
+          // combine MBB and SuccMBB:
+          DEBUG_TRACE( dbgs() << "  Merge MBB #" << MBB->getNumber()
+                              << " and #" << SuccMBB->getNumber() << "\n" );
+          (void) TII->RemoveBranch(*MBB);
+          // transfer the instructions
+          MBB->splice(MBB->end(), SuccMBB, SuccMBB->begin(), SuccMBB->end());
+          // remove the edge between MBB and SuccMBB
+          MBB->removeSuccessor(SuccMBB);
+          // MBB gets the successors of SuccMBB instead
+          MBB->transferSuccessors(SuccMBB);
+          // remove SuccMBB from MachineFunction
+          MF.erase(SuccMBB);
+          // set the flag
+          changed = true;
+        }
+      }
+    }
+  } while (changed);
+
+  // go throuch the blocks in layout and check the terminators
+  for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
+      I->updateTerminator();
+  }
+
+}
 
 void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
   DEBUG( dbgs() << "Collect return info insts\n" );
@@ -2316,41 +2391,45 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   }
   assert(branch_preg != Patmos::NoRegister);
 
-  // insert exit branch
-  MachineFunction::iterator RotatedBegin = *WB.ExitBranchMBB->succ_begin();
-  BuildMI(*WB.ExitBranchMBB, WB.ExitBranchMBB->end(), DL,
-      Pass.TII->get(Patmos::BR))
-    .addReg(branch_preg).addImm(0)
-    .addMBB(RotatedBegin);
   // at this point, ExitBranchMBB has exactly one successor, which we remember
   // for performing loop rotation
+  MachineFunction::iterator RotatedBegin = *WB.ExitBranchMBB->succ_begin();
+  // insert exit branch
+  BuildMI(*WB.ExitBranchMBB, WB.ExitBranchMBB->end(), DL,
+      Pass.TII->get(Patmos::BR))
+    .addReg(branch_preg).addImm(1)
+    .addMBB(WB.PostMBB);
   WB.ExitBranchMBB->addSuccessor(WB.PostMBB);
 
   // connect the latch to the header
   WB.LatchMBB->addSuccessor(HeaderMBB);
+  AddDefaultPred(BuildMI(*WB.LatchMBB, WB.LatchMBB->end(), DL,
+        Pass.TII->get(Patmos::BRu)))
+    .addMBB(HeaderMBB);
+  InsertedInstrs++; // STATISTIC
 
   // Rotate the loop by pulling the Blocks starting after ExitBranchMBB up to
   // (excluding) the PostMBB in front of the header.
   MF.splice(HeaderMBB, RotatedBegin, WB.PostMBB);
+  WB.PreheaderMBB->updateTerminator();
+  WB.ExitBranchMBB->updateTerminator();
+  WB.LatchMBB->updateTerminator();
 
-  // count instructions from the preheader to the header to decide whether
-  // a loop is required. This also handles empty basic blocks in between
-  // (e.g. an empty LatchMBB), which might be missed by
-  // MachineBasicBlock's updateTerminator() and isLayoutSuccessor().
-  for (MachineFunction::iterator
-        I = ++MachineFunction::iterator(WB.PreheaderMBB),
-        E = MachineFunction::iterator(HeaderMBB); I != E; ++I) {
-    if ((*I).size() > 0) {
-      // insert unconditional branch to header
-      AddDefaultPred(BuildMI(*WB.PreheaderMBB, WB.PreheaderMBB->end(), DL,
-            Pass.TII->get(Patmos::BRu)))
-        .addMBB(HeaderMBB);
-      InsertedInstrs++; // STATISTIC
-      break;
+  // count instructions from the preheader to the header to check if the branch
+  // can be removed. This handles a potentially empty LatchMBB, which is missed
+  // by MachineBasicBlock's updateTerminator() and isLayoutSuccessor().
+  {
+    unsigned count_phdr_to_hdr = 0;
+    for (MachineFunction::iterator
+          I = ++MachineFunction::iterator(WB.PreheaderMBB),
+          E = MachineFunction::iterator(HeaderMBB); I != E; ++I) {
+      count_phdr_to_hdr += (*I).size();
+    }
+    if (count_phdr_to_hdr == 0) {
+      Pass.TII->RemoveBranch(*WB.PreheaderMBB);
+      InsertedInstrs--; // STATISTIC
     }
   }
-
-
 
   // Now we treat the post-loop basic block.
   if (RI.needsScopeSpill()) {
