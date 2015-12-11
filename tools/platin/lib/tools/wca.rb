@@ -26,6 +26,14 @@ class WcaTool
     opts.on("--wca-data-cache-analysis","data cache analysis type (scope,always-hit,=always-miss)") { |v|
       opts.options.wca_data_cache_analysis = v
     }
+    opts.on("--wca-write-lp-file FILE", "write the ILP problem to an .lp file") { |f|
+      # TODO Set wca_write_lp, and set options.write_lp only when invoking the ILP solver.
+      #      Or only set a dir and prefix here and create unique filenames per ILP invocation.
+      opts.options.write_lp = f
+    }
+    opts.on("--wca-use-gurobi", "use Gurobi solver instead of lp_solve") { |v|
+      opts.options.use_gurobi = v
+    }
     opts.add_check { |options|
       options.wca_cache_regions = true if options.wca_cache_regions.nil?
       # TODO change this default to 'scope' once the scope analysis works properly

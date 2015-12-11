@@ -9,6 +9,7 @@ require 'analysis/ipet'
 require 'analysis/cache_region_analysis'
 require 'analysis/vcfg'
 require 'ext/lpsolve'
+require 'ext/gurobi'
 
 module PML
 
@@ -21,7 +22,8 @@ class WCA
   def analyze(entry_label)
 
     # Builder and Analysis Entry
-    ilp = LpSolveILP.new(@options)
+    ilp = GurobiILP.new(@options) if @options.use_gurobi
+    ilp = LpSolveILP.new(@options) unless ilp
 
     machine_entry = @pml.machine_functions.by_label(entry_label)
     bitcode_entry = @pml.bitcode_functions.by_name(entry_label)
