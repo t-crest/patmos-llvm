@@ -42,6 +42,7 @@ class SimulatorTrace
       begin
         needs_options(@options, :pasim)
         pasim_options="--debug=0 --debug-fmt=trace -b #{@elf}"
+	pasim_options+=" -I #{@options.sim_input}" if @options.sim_input
         cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} #{pasim_options} 2>&1 1>/dev/null"
         debug(@options, :patmos) { "Running pasim: #{cmd}" }
         IO.popen("#{cmd}") do |io|

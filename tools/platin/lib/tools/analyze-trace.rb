@@ -150,6 +150,7 @@ class AnalyzeTraceTool
             "maximum number of target function executions to trace (unlimited if not set)") { |num|
       opts.options.max_target_traces = num
     }
+    opts.on("--sim-input FILE", "Pass file as input to program under test.") { |f| opts.options.sim_input = f }
     opts.register_help_topic('recorders') { |io|
       RecorderSpecification.help(io)
     }
