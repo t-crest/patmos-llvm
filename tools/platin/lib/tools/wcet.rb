@@ -339,12 +339,14 @@ class WcetTool
 
   def summarize_results(additional_info = {})
     trace_cycles = nil
+    wcet_cycles = nil
     combined_cycles = 0
 
     results = pml.timing.sort_by { |te|
       [ te.scope.qname, te.cycles, te.origin ]
     }.map { |te|
       trace_cycles = te.cycles if te.origin == "trace"
+      wcet_cycles = [wcet_cycles,te.cycles].compact.min if te.origin != "trace"
       combined_cycles += case te.origin
 	  when "aiT"    then te.cycles
 	  when "platin" then te.attributes['cache-cycles-instr'] || 0
@@ -359,13 +361,15 @@ class WcetTool
       dict
     }
     if options.combine_wca
+      wcet_cycles = combined_cycles
       results.push( { 'analysis-entry' => options.analysis_entry, 
                       'source' => 'combined', 
 		      'cycles' => combined_cycles 
 		    } )
     end
     if options.runcheck
-      die("wcet check: No timing for simulator trace") unless trace_cycles
+      die("wcet check: No timing for simulator trace") unless trace_cycles and trace_cycles > 0
+      die("wcet check: No WCET results") unless wcet_cycles and wcet_cycles > 0
       pml.timing.each { |te|
         next if te.origin == "trace"
 	next if te.origin != "combined" and options.combine_wca
@@ -385,13 +389,14 @@ class WcetTool
         end
       }
     end
+    info "#{"Trace analysis: #{trace_cycles} cycles; " if trace_cycles}WCET bound: #{wcet_cycles} cycles"
     results
   end
 
   def run_in_outdir
     begin
       outdir, tmpdir = options.outdir, nil
-      tmpdir = outdir = Dir.mktmpdir() unless options.outdir
+      tmpdir = outdir = options.outdir = Dir.mktmpdir() unless options.outdir
       mod = File.basename(options.binary_file, ".elf")
 
       configure_ait_files(options, outdir, mod, false) unless options.disable_ait
