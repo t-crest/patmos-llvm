@@ -80,6 +80,7 @@ class WcetTool
     unless analysis_entry
       die("Analysis entry '#{options.analysis_entry}' not found (check for typos, inlined functions or code not reachable from program entry)")
     end
+    options.use_trace_facts = true if options.compare_trace_facts
     options.trace_analysis = true if options.use_trace_facts
     trace_analysis if options.trace_analysis
     sweet_analysis if options.enable_sweet
@@ -87,11 +88,16 @@ class WcetTool
     transform_down(["user.bc"],"user")
 
     flow_srcs = ["llvm", "user"]
+    wcet_analysis(flow_srcs) if options.compare_trace_facts
+
     flow_srcs.push("trace") if options.use_trace_facts
     flow_srcs.push("sweet") if options.enable_sweet
 
     # FIXME: check if this is necessary (CFRG testsuite)
     flow_srcs.push("trace.support") if options.enable_sweet && options.trace_analysis
+    
+    # TODO we should (also?) add a 'configuration' name to the TimingEntry that refers to an analysis-configuration name
+    options.timing_output = [options.timing_output,'trace'].compact.join('/') if options.use_trace_facts
 
     wcet_analysis(flow_srcs)
     report(additional_report_info)
@@ -381,15 +387,15 @@ class WcetTool
         if options.runcheck_factor
           tolerated_overestimation = (trace_cycles * options.runcheck_factor) + CHECK_OVERESTIMATION_TOLERANCE
           if te.cycles > tolerated_overestimation
-            die <<-EOF.strip_heredoc
-              WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) larger than
-              measurement (#{trace_cycles}) times #{options.runcheck_factor})
+            die <<-EOF.strip_heredoc.delete("\n")
+              WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) #{te.cycles.fdiv(trace_cycles).round(2)} 
+	      times larger than measurement (#{trace_cycles})
             EOF
           end
         end
       }
     end
-    info "#{"Trace analysis: #{trace_cycles} cycles; " if trace_cycles}WCET bound: #{wcet_cycles} cycles"
+    info "#{"Trace analysis: #{trace_cycles} cycles; " if trace_cycles}best WCET bound: #{wcet_cycles} cycles"
     results
   end
 
@@ -450,6 +456,7 @@ class WcetTool
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d }
     opts.on("--enable-trace-analysis", "run trace analysis") { |d| opts.options.trace_analysis = true }
     opts.on("--use-trace-facts", "use flow facts from trace") { |d| opts.options.use_trace_facts = true }
+    opts.on("--compare-trace-facts", "run WCET analysis with and without trace facts") { |d| opts.options.compare_trace_facts = true }
     opts.on("--disable-ait", "do not run aiT analysis") { |d| opts.options.disable_ait = true }
     opts.on("--[no-]enable-wca", "run platin WCA calculator") { |b| opts.options.enable_wca = b }
     opts.on("--combine-wca", "run both aiT and WCA and combine cache analysis results") { |d| opts.options.combine_wca = true }
