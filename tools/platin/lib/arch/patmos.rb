@@ -10,14 +10,16 @@
 
 module Patmos
 
+require "tempfile"
+
 #
 # Class to (lazily) read pasim simulator trace
 # yields [program_counter, cycles] pairs
 #
 class SimulatorTrace
   attr_reader :elf, :arch, :stats_num_items
-  def initialize(elf, arch, options)
-    @elf, @arch, @options = elf, arch, options
+  def initialize(elf, arch, options, watchpoints)
+    @elf, @arch, @options, @watchpoints = elf, arch, options, watchpoints
     @stats_num_items = 0
   end
   def each
@@ -40,8 +42,9 @@ class SimulatorTrace
       end
     else
       begin
+	wpfile = build_wp_file
         needs_options(@options, :pasim)
-        pasim_options="--debug=0 --debug-fmt=trace -b #{@elf}"
+        pasim_options="--debug=0 --debug-fmt=trace -b #{@elf} --wpfile=#{wpfile.path}"
 	pasim_options+=" -I #{@options.sim_input}" if @options.sim_input
         cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} #{pasim_options} 2>&1 1>/dev/null"
         debug(@options, :patmos) { "Running pasim: #{cmd}" }
@@ -53,6 +56,7 @@ class SimulatorTrace
         end
       ensure
         status = $?.exitstatus
+	wpfile.unlink unless @options.outdir
         if status == 127
           die("Running the simulator '#{@options.pasim}' failed: Program not found (exit status 127)")
         end
@@ -60,11 +64,23 @@ class SimulatorTrace
     end
   end
   private
+  def build_wp_file
+    if @options.outdir
+      file = File.open(File.join(@options.outdir, 'watchpoints.txt'), 'w')
+    else
+      file = Tempfile.new('wp')
+    end
+    @watchpoints.each { |wp,_|
+      file.puts(wp.to_s)
+    }
+    file.close
+    file
+  end
   def parse(line)
     return nil unless line and not line.chomp.empty?
-    pc, cyc = line.split(' ',2)
+    pc, cyc, instr = line.split(' ',3)
     begin
-      [ Integer("0x#{pc}"), Integer(cyc) ]
+      [ Integer("0x#{pc}"), Integer(cyc), Integer(instr) ]
     rescue Exception => e
       raise Exception.new("Patmos::SimulatorTrace: bad line (\"#{line.chomp}\")")
     end
@@ -102,8 +118,8 @@ class Architecture < PML::Architecture
     PML::MachineConfig.new(memories,caches,memory_areas)
   end
 
-  def simulator_trace(options)
-    SimulatorTrace.new(options.binary_file, self, options)
+  def simulator_trace(options, watchpoints)
+    SimulatorTrace.new(options.binary_file, self, options, watchpoints)
   end
 
   def return_stall_cycles(ret_instruction, ret_latency)

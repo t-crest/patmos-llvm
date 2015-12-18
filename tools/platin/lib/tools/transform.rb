@@ -84,17 +84,17 @@ class RelationGraphValidationTool
   end
 
   def RelationGraphValidationTool.run(pml, options)
-    mtrace = pml.arch.simulator_trace(options)
-    tm1 = MachineTraceMonitor.new(pml, options, mtrace)
+    tm1 = MachineTraceMonitor.new(pml, options)
     entry = pml.machine_functions.by_label(options.analysis_entry)
     pt1 = ProgressTraceRecorder.new(pml, entry, true, options)
     tm1.subscribe(pt1)
-    tm1.run
+    mtrace = pml.arch.simulator_trace(options, tm1.watchpoints)
+    tm1.run(mtrace)
 
-    tm2 = SWEET::TraceMonitor.new(options.sweet_trace_file, pml)
+    tm2 = SWEET::TraceMonitor.new(pml)
     pt2 = ProgressTraceRecorder.new(pml, options.analysis_entry, false, options)
     tm2.subscribe(pt2)
-    tm2.run
+    tm2.run(options.sweet_trace_file)
     RelationGraphValidation.new(pml,options).validate(pt2, pt1)
   end
 end

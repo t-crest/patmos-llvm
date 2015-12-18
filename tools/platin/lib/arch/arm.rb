@@ -32,7 +32,7 @@ class M5SimulatorTrace
     return nil unless line
     time,event,pc,rest = line.split(/\s*:\s*/,4)
     return nil unless event =~ /system\.cpu/
-    [ Integer(pc), time.to_i/TIME_PER_TICK ]
+    [ Integer(pc), time.to_i/TIME_PER_TICK, @stats_num_items ]
   end
 end
 
@@ -104,7 +104,7 @@ class Architecture < PML::Architecture
   end
   def config_for_simulator
   end
-  def simulator_trace(options)
+  def simulator_trace(options, watchpoints)
     M5SimulatorTrace.new(options.binary_file, self, options)
   end
   def extract_symbols(extractor, pml, options)
