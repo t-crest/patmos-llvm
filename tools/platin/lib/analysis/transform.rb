@@ -372,7 +372,14 @@ class FlowFactTransformation
   end
 
   def transform(target_analysis_entry, flowfacts, target_level)
-    debug(options, :transform) { "Transforming #{flowfacts.length} flow facts to #{target_level}" }
+
+    target_functions = if target_level == "machinecode"
+                         @pml.machine_functions
+		       else
+		         @pml.bitcode_functions
+		       end
+    rs, unresolved = target_functions.reachable_from(target_analysis_entry.name)
+
     # partition local flow-facts by entry (if possible), rest is transformed in global scope
     flowfacts_by_entry = { }
     flowfacts.each { |ff|
@@ -385,10 +392,14 @@ class FlowFactTransformation
         elsif ff.level == 'bitcode' &&  target_level == "machinecode"
           transform_entry = pml.machine_functions.by_label(transform_entry.name)
         end
+	next unless rs.include?(transform_entry)
       end
       transform_entry = target_analysis_entry unless transform_entry
       (flowfacts_by_entry[transform_entry] ||= []).push(ff)
     }
+    selected_flowfacts = flowfacts_by_entry.values.flatten(1)
+
+    debug(options, :transform) { "Transforming #{selected_flowfacts.length} flow facts to #{target_level}" }
 
     info "Running transformer to level #{target_level}" if options.verbose
     stats_num_constraints_before, stats_num_constraints_after, stats_elim_steps = 0,0,0
@@ -442,7 +453,7 @@ class FlowFactTransformation
 
     # direct translation of loop bounds and symbolic bounds (FM difficult and not implemented)
     sbt = SymbolicBoundTransformation.new(pml,options)
-    directly_transformed_facts = sbt.transform(flowfacts, target_level)
+    directly_transformed_facts = sbt.transform(selected_flowfacts, target_level)
     directly_transformed_facts.each { |ff| pml.flowfacts.add(ff) }
 
     statistics("TRANSFORM",
