@@ -451,6 +451,7 @@ class WcetTool
     opts.analysis_entry(false)
     opts.binary_file(true)
     opts.flow_fact_selection
+    opts.accept_corrected_rgs
     opts.calculates_wcet
     opts.on("--batch", "run in batch processing mode, reading analysis targets and configuration from PML file") { opts.options.batch = true }
     opts.on("--outdir DIR", "directory for generated files") { |d| opts.options.outdir = d }

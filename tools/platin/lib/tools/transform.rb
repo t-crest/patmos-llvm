@@ -106,6 +106,7 @@ class TransformTool
     opts.analysis_entry
     opts.flow_fact_selection
     opts.generates_flowfacts
+    opts.accept_corrected_rgs
     opts.on("--validate", "Validate relation graph") { opts.options.validate = true }
     opts.on("--transform-action ACTION", "action to perform (=down,up,copy,simplify)") { |action|
       opts.options.transform_action = action

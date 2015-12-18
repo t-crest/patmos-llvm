@@ -646,7 +646,7 @@ class SymbolicBoundTransformation
       return nil
     end
     rg = @pml.relation_graphs.by_name(function.name, rg_src_level)
-    return nil if rg.status != 'valid'
+    return nil unless rg.accept?(@options)
 
     # Simple Strategy:
     # for all referenced blocks B (including the loop block and loops

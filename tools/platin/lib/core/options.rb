@@ -115,6 +115,11 @@ module PML
         options.flow_fact_srcs  = "all" unless options.flow_fact_srcs
       }
     end
+    def accept_corrected_rgs
+      self.on("--accept-corrected-rgs", "Accect corrected relation graphs for flow fact transformation") {
+        options.accept_corrected_rgs = true
+      }
+    end
     # ELF binaries
     def binary_file(mandatory = false)
       self.on("-b", "--binary FILE", "binary file to analyze") { |f| options.binary_file = f }
