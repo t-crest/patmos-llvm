@@ -855,6 +855,9 @@ private
     def status
       data['status']
     end
+    def accept?(options)
+      status == 'valid' or (options.accept_corrected_rgs and status == 'corrected')
+    end
     def get_function(level)
       level == :src ? @src : @dst
     end

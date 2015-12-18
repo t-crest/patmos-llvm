@@ -32,10 +32,9 @@ end
 # Generated events: block, function, ret, loop{enter,exit,cont}, eof
 #
 class MachineTraceMonitor < TraceMonitor
-  def initialize(pml, options, trace)
+  def initialize(pml, options)
     super()
     @pml, @options = pml, options
-    @trace = trace
     @program_entry = @pml.machine_functions.by_label(options.trace_entry)
     if not @program_entry
       die("Trace Analysis: Could not find trace entry function '#{options.trace_entry}' in PML file. Make sure it is serialized by patmos-clang.")
@@ -55,8 +54,13 @@ class MachineTraceMonitor < TraceMonitor
     # @wp_instr = {}
     build_watchpoints
   end
+  def watchpoints
+    wps = @wp.dup
+    wps[@start] = true
+    wps
+  end
   # run monitor
-  def run
+  def run(trace)
     @finished = false # set to true on (observed) program exit
     @cycles = 0
     @executed_instructions = 0
@@ -72,19 +76,19 @@ class MachineTraceMonitor < TraceMonitor
     pending_return, pending_call = nil, nil
     # keep track of how many times we executed the target
     trace_count = 0
-    @trace.each do |pc,cycles|
+    trace.each do |pc,cycles,instructions|
       break if @options.max_cycles       && @cycles >= @options.max_cycles
       break if @options.max_instructions &&
                   @executed_instructions >= @options.max_instructions
 
-      @started = true if pc == @start
+      @started = instructions if pc == @start
       next unless @started
-      @executed_instructions += 1
+      @executed_instructions = instructions - @started + 1
 
       # Playground: learn about instruction costs
       # @inscost[@last_ins.first] = merge_ranges(cycles - @last_ins[1],@inscost[@last_ins.first]) if @last_ins.first
       # @last_ins = [@wp_instr[pc],cycles]
-      # debug(@options, :trace) { "pc: #{pc} [t=#{cycles}]" }
+      # debug(@options, :trace) { "pc: #{pc} [t=#{cycles}, i=#{@executed_instructions}]" }
 
       next unless @wp[pc] || pending_return
 

@@ -218,13 +218,13 @@ module SWEET
   # Read sweet single-path trace and generate bitcode events
   # yields
   class TraceMonitor < ::TraceMonitor
-    def initialize(tracefile, pml)
+    def initialize(pml)
       super()
-      @tracefile, @pml = tracefile, pml
+      @pml = pml
     end
-    def run
+    def run(tracefile)
       @executed_instructions = 0
-      lines = File.readlines(@tracefile)
+      lines = File.readlines(tracefile)
       lines[1..-1].each do |l|
         raise Exception.new("Bad trace file: more than one trace line: #{l}") if l.strip != ""
       end
