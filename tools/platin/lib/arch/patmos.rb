@@ -367,7 +367,7 @@ class Architecture < PML::Architecture
       if cache.policy && [ "dm", "ideal", "no" ].include?(cache.policy.downcase)
         # Ignore associativity here
 	cache.policy.downcase
-      elsif cache.associativity && cache.associativity.to_i >= 1
+      elsif not cache.fully_assoc?
         if cache.policy && cache.policy.downcase == 'lru'
           "lru#{cache.associativity}"
         elsif cache.policy && cache.policy.downcase == 'fifo'

@@ -419,6 +419,12 @@ class CacheConfig < PMLObject
     @attributes = data ? (data['attributes'] || []) : []
   end
 
+  def fully_assoc?
+    return true if @associativity.nil? or @associativity.to_i == 0
+    return false if @block_size.nil? or @block_size == 0
+    @associativity == @size / @block_size
+  end
+
   def type=(value)
     @type = value
     data['type'] = value
