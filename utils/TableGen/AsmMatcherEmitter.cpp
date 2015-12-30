@@ -296,9 +296,11 @@ public:
 
 class AsmVariantInfo {
 public:
+  std::string RegisterPrefix;
   std::string TokenizingCharacters;
   std::string SeparatorCharacters;
   std::string BreakCharacters;
+  int AsmVariantNo;
 };
 
 /// MatchableInfo - Helper class for storing the necessary information for an
@@ -494,7 +496,6 @@ struct MatchableInfo {
 
   void initialize(const AsmMatcherInfo &Info,
                   SmallPtrSetImpl<Record*> &SingletonRegisters,
-                  int AsmVariantNo, StringRef RegisterPrefix,
                   AsmVariantInfo const &Variant);
 
   /// validate - Return true if this matchable is a valid thing to match against
@@ -839,11 +840,11 @@ extractSingletonRegisterForAsmOperand(MatchableInfo::AsmOperand &Op,
 
 void MatchableInfo::initialize(const AsmMatcherInfo &Info,
                                SmallPtrSetImpl<Record*> &SingletonRegisters,
-                               int AsmVariantNo, StringRef RegisterPrefix,
                                AsmVariantInfo const &Variant) {
-  AsmVariantID = AsmVariantNo;
+  AsmVariantID = Variant.AsmVariantNo;
   AsmString =
-    CodeGenInstruction::FlattenAsmStringVariants(AsmString, AsmVariantNo);
+    CodeGenInstruction::FlattenAsmStringVariants(AsmString,
+                                                 Variant.AsmVariantNo);
 
   tokenizeAsmString(Info, Variant);
 
@@ -855,7 +856,7 @@ void MatchableInfo::initialize(const AsmMatcherInfo &Info,
 
   // Collect singleton registers, if used.
   for (MatchableInfo::AsmOperand &Op : AsmOperands) {
-    extractSingletonRegisterForAsmOperand(Op, Info, RegisterPrefix);
+    extractSingletonRegisterForAsmOperand(Op, Info, Variant.RegisterPrefix);
     if (Record *Reg = Op.SingletonReg)
       SingletonRegisters.insert(Reg);
   }
@@ -1380,15 +1381,15 @@ void AsmMatcherInfo::buildInfo() {
     Record *AsmVariant = Target.getAsmParserVariant(VC);
     std::string CommentDelimiter =
       AsmVariant->getValueAsString("CommentDelimiter");
-    std::string RegisterPrefix = AsmVariant->getValueAsString("RegisterPrefix");
     AsmVariantInfo Variant;
+    Variant.RegisterPrefix = AsmVariant->getValueAsString("RegisterPrefix");
     Variant.TokenizingCharacters =
         AsmVariant->getValueAsString("TokenizingCharacters");
     Variant.SeparatorCharacters =
         AsmVariant->getValueAsString("SeparatorCharacters");
     Variant.BreakCharacters =
         AsmVariant->getValueAsString("BreakCharacters");
-    int AsmVariantNo = AsmVariant->getValueAsInt("Variant");
+    Variant.AsmVariantNo = AsmVariant->getValueAsInt("Variant");
 
     for (const CodeGenInstruction *CGI : Target.instructions()) {
 
@@ -1403,8 +1404,7 @@ void AsmMatcherInfo::buildInfo() {
 
       auto II = llvm::make_unique<MatchableInfo>(*CGI);
 
-      II->initialize(*this, SingletonRegisters, AsmVariantNo, RegisterPrefix,
-                     Variant);
+      II->initialize(*this, SingletonRegisters, Variant);
 
       // Ignore instructions which shouldn't be matched and diagnose invalid
       // instruction definitions with an error.
@@ -1420,7 +1420,8 @@ void AsmMatcherInfo::buildInfo() {
       Records.getAllDerivedDefinitions("InstAlias");
     for (unsigned i = 0, e = AllInstAliases.size(); i != e; ++i) {
       auto Alias = llvm::make_unique<CodeGenInstAlias>(AllInstAliases[i],
-                                                       AsmVariantNo, Target);
+                                                       Variant.AsmVariantNo,
+                                                       Target);
 
       // If the tblgen -match-prefix option is specified (for tblgen hackers),
       // filter the set of instruction aliases we consider, based on the target
@@ -1431,8 +1432,7 @@ void AsmMatcherInfo::buildInfo() {
 
       auto II = llvm::make_unique<MatchableInfo>(std::move(Alias));
 
-      II->initialize(*this, SingletonRegisters, AsmVariantNo, RegisterPrefix,
-                     Variant);
+      II->initialize(*this, SingletonRegisters, Variant);
 
       // Validate the alias definitions.
       II->validate(CommentDelimiter, false);
