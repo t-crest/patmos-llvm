@@ -992,12 +992,9 @@ bool MatchableInfo::validate(StringRef CommentDelimiter, bool Hack) const {
   // Also, check for instructions which reference the operand multiple times;
   // this implies a constraint we would not honor.
   std::set<std::string> OperandNames;
-  for (unsigned i = 0, e = AsmOperands.size(); i != e; ++i) {
-    StringRef Tok = AsmOperands[i].Token;
-
-    // Check for special format ('$:..' or '${:..}'), this is not supported yet
-    if (Tok[0] == '$' && ((Tok.size() > 1 && Tok[1] == ':') ||
-                          (Tok.size() > 2 && Tok[1] == '{' && Tok[2] == ':'))) {
+  for (const AsmOperand &Op : AsmOperands) {
+    StringRef Tok = Op.Token;
+    if (Tok[0] == '$' && Tok.find(':') != StringRef::npos)
       PrintFatalError(TheDef->getLoc(),
                       "matchable with operand modifier '" + Tok +
                       "' not supported by asm matcher.  Mark isCodeGenOnly!");
@@ -2152,8 +2149,8 @@ static void emitIsSubclass(CodeGenTarget &Target,
     if (!SuperClasses.empty()) {
       SS << "    switch (B) {\n";
       SS << "    default: return false;\n";
-      for (unsigned i = 0, e = SuperClasses.size(); i != e; ++i)
-        SS << "    case " << SuperClasses[i].str() << ": return true;\n";
+      for (StringRef SC : SuperClasses)
+        SS << "    case " << SC << ": return true;\n";
       SS << "    }\n";
     } else {
       // No case statement to emit
