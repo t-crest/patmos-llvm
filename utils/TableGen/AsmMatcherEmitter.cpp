@@ -2477,10 +2477,8 @@ static void emitCustomOperandParsing(raw_ostream &OS, CodeGenTarget &Target,
                               StringToOffsetTable &StringTable,
                               unsigned MaxMnemonicIndex) {
   unsigned MaxMask = 0;
-  for (std::vector<OperandMatchEntry>::const_iterator it =
-       Info.OperandMatchInfo.begin(), ie = Info.OperandMatchInfo.end();
-       it != ie; ++it) {
-    MaxMask |= it->OperandMask;
+  for (const OperandMatchEntry &OMI : Info.OperandMatchInfo) {
+    MaxMask |= OMI.OperandMask;
   }
 
   // Emit the static custom operand parsing table;
@@ -2520,10 +2518,7 @@ static void emitCustomOperandParsing(raw_ostream &OS, CodeGenTarget &Target,
      << Info.OperandMatchInfo.size() << "] = {\n";
 
   OS << "  /* Operand List Mask, Mnemonic, Operand Class, Features */\n";
-  for (std::vector<OperandMatchEntry>::const_iterator it =
-       Info.OperandMatchInfo.begin(), ie = Info.OperandMatchInfo.end();
-       it != ie; ++it) {
-    const OperandMatchEntry &OMI = *it;
+  for (const OperandMatchEntry &OMI : Info.OperandMatchInfo) {
     const MatchableInfo &II = *OMI.MI;
 
     OS << "  { ";
