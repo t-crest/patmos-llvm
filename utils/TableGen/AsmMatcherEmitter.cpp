@@ -2173,11 +2173,12 @@ static void emitIsSubclass(CodeGenTarget &Target,
       OS << "    return false;\n";
     }
   }
-  OS << "  }\n";
 
   // If there were case statements emitted into the string stream write the
   // default.
-  if (!EmittedSwitch)
+  if (EmittedSwitch)
+    OS << "  }\n";
+  else
     OS << "  return false;\n";
 
   OS << "}\n\n";
