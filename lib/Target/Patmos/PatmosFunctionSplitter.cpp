@@ -1418,18 +1418,28 @@ namespace llvm {
       // fix-up needed?
       if (target->MBB != layout_successor) {
 
-        // Check if we jump to a different region
-        unsigned Opc = block->Region == target->Region ? Patmos::BRu
-                                                       : Patmos::BRCFu;
-
         const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
-        AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
-                               DebugLoc(), TII.get(Opc))).addMBB(target->MBB);
+
+        if (PTM.getCodeModel() != CodeModel::Large || block->Region == target->Region) {
+          // Encode branch in a single instruction
+          unsigned Opc = block->Region == target->Region ? Patmos::BRu : Patmos::BRCFu;
+          AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
+                                 DebugLoc(), TII.get(Opc))).addMBB(target->MBB);
+        } else {
+          // Load branch target into temporary register
+          AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
+                                 DebugLoc(), TII.get(Patmos::LIl), Patmos::RTR))
+            .addMBB(target->MBB);
+          AddDefaultPred(BuildMI(*fallthrough, fallthrough->instr_end(),
+                                 DebugLoc(), TII.get(Patmos::BRCFRu)))
+            .addReg(Patmos::RTR, RegState::Kill);
+        }
 
         MachineBasicBlock::iterator II = fallthrough->end();
         --II;
         unsigned cycles = PTM.getSubtargetImpl()->getDelaySlotCycles(&*II);
-        if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_NON_DELAYED) {
+        if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_NON_DELAYED
+            && !PII.hasRegUse(&*II)) {
           cycles = PII.moveUp(*fallthrough, II);
         }
 
@@ -1554,12 +1564,24 @@ namespace llvm {
                      << " branching to " << target->getName()
                      << "[" << target->getNumber() << "]\n");
 
-        // Replace br with brcf, fix delay slot size
-        BR->setDesc(PII.get(opcode));
-
         MachineBasicBlock::instr_iterator II = BR;
         // move to the beginning of the BR bundle
         while (II->isBundledWithPred()) II--;
+
+        if (PTM.getCodeModel() == CodeModel::Large) {
+          // Load target into register when rewriting to BRCF with immediate
+          if (opcode == Patmos::BRCF || opcode == Patmos::BRCFu) {
+            AddDefaultPred(BuildMI(MBB, II, DebugLoc(), PII.get(Patmos::LIl), Patmos::RTR))
+              .addOperand(BR->getOperand(BR->getNumExplicitOperands()-1));
+            BR->RemoveOperand(BR->getNumExplicitOperands()-1);
+            BR->addOperand(*MF, MachineOperand::CreateReg(Patmos::RTR, false, false, true));
+         
+            opcode = opcode == Patmos::BRCF ? Patmos::BRCFR : Patmos::BRCFRu;
+          }
+        }
+
+        // Replace br with brcf, fix delay slot size
+        BR->setDesc(PII.get(opcode));
 
         int delaySlots = PTM.getSubtargetImpl()->getCFLDelaySlotCycles(false);
         int cycles =     delaySlots -
@@ -1839,14 +1861,21 @@ namespace llvm {
       // we already have a BR, we only need to add a NOP if we change to BRCF
       unsigned branch_fixups = numBranchesToFix * (exitDelay - localDelay) * 4;
 
+      // we have to load the address into a register when not using the small code model
+      if (PTM.getCodeModel() == CodeModel::Large) {
+        branch_fixups += numBranchesToFix * 8;
+      }
+
       if (mightFallthrough) {
         // we might need to add a BR/BRCF to replace the fallthrough, and NOPs
         // to fill the delay slots
 
+        // BRCFs are cheaper in the small code model
+        unsigned brcfCost = PTM.getCodeModel() == CodeModel::Large ? 12 : 4;
+
         // TODO this might be too conservative, as we might be able to move
         // branches up and do not need that many NOPs
-        branch_fixups += 4 +
-             (mightExitRegion ? exitDelay : localDelay) * 4;
+        branch_fixups += brcfCost + (mightExitRegion ? exitDelay : localDelay) * 4;
       }
 
       return alignSize + branch_fixups;
@@ -1917,6 +1946,23 @@ namespace llvm {
                              " is larger than the method cache size!");
         }
 
+        // we must not split live ranges of the RTR register
+        // luckily, they are short and do not cross basic blocks
+        unsigned int tmp_live_margin = 0;
+        if (PTM.getCodeModel() == CodeModel::Large &&
+            i->definesRegister(Patmos::RTR) && !i->isBranch()) {
+          MachineBasicBlock::instr_iterator k;
+          for (k = next(i); k != ie; ++k) {
+            tmp_live_margin += agraph::getInstrSize(k, PTM);
+            if (k->killsRegister(Patmos::RTR)) {
+              break;
+            }
+          }
+          if (k == ie) {
+            report_fatal_error("Temporary register defined but not killed in basic block");
+          }
+        }
+
         // ensure that we do not split inside delay slots
         unsigned int delay_slot_margin = i->hasDelaySlot()
                       ? getDelaySlotSize(MBB, i, PTM) : 0;
@@ -1928,7 +1974,7 @@ namespace llvm {
 #endif
 
         // check block + instruction size + max delay slot size of this instr.
-        if (curr_size + i_size + delay_slot_margin < MaxSize)
+        if (curr_size + i_size + tmp_live_margin + delay_slot_margin < MaxSize)
         {
           curr_size += i_size;
         }
