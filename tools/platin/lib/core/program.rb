@@ -640,6 +640,10 @@ module PML
       data['branch-type']
     end
 
+    def branch?
+      not branch_type.nil? and branch_type != ""
+    end
+
     # whether this instruction includes a call
     def calls?
       ! callees.empty?

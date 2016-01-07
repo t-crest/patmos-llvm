@@ -204,8 +204,14 @@ class Architecture < PML::Architecture
     ic
   end
 
-  def instruction_fetch_bytes
-    num_slots * 4
+  def instruction_fetch_bytes(instr)
+    if instr.delay_slots == 0 and instr.branch?
+      # non-delayed branches will fetch up to 3 additional NOP instructions
+      delay = (%w[BRND BRNDu BRNDr].include?(instr.opcode) ? 2 : 3)
+      num_slots * 4 + (delay - 1) * 4 + num_slots * 2
+    else
+      num_slots * 4
+    end
   end
 
   # Return the maximum size of a load or store in bytes.
@@ -314,8 +320,7 @@ class Architecture < PML::Architecture
         opts.push("-mpatmos-max-subfunction-size=#{max_sf_size}")
       end
     else
-      opts.push("-mpatmos-disable-function-splitter")
-      # opts.push("-mpatmos-basicblock-align=8")
+      # opts.push("-mpatmos-disable-function-splitter")
     end
     if sc = stack_cache
       if options.sca

@@ -985,7 +985,7 @@ class InstructionCacheAnalysis
   # words have to be fetched
   def load_instructions(i)
     prev = i.index == 0 ? nil : i.block.instructions[i.index-1]
-    last_byte = i.address + @pml.arch.instruction_fetch_bytes - 1
+    last_byte = i.address + @pml.arch.instruction_fetch_bytes(i) - 1
     if prev.nil?
       same_cache_line_as_prev = false
     elsif aligned_addr(prev.address) != aligned_addr(i.address)
