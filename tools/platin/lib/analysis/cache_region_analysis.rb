@@ -885,7 +885,8 @@ class MethodCacheAnalysis
     #      This requires us to detect if we are in a region node for the root function of the scope graph.
     #      At the moment, recursive functions are not supported anyway though.
     if i.index == 0 && sf.entry == i.block && 
-       (i.block != @entry_function.entry_block || @options.target_callret_costs)
+       (i.block != @entry_function.entry_block || @options.target_callret_costs || 
+        (@cache.get_attribute('fill-mode') || 'block') != 'block')
        [LoadInstruction.new(i, sf)]
     # Load subfunction when returning into the subfunction after a call site.
     elsif i.may_return_to?
