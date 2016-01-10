@@ -43,7 +43,6 @@ class WcaTool
       options.wca_data_cache_analysis = 'always-miss' if options.wca_data_cache_analysis.nil?
     }
     opts.stack_cache_analysis
-    opts.target_callret_costs
   end
 
   def WcaTool.add_options(opts)

@@ -880,13 +880,8 @@ class MethodCacheAnalysis
   def load_instructions(i)
     function = i.function
     sf = subfunction_of_block(i.block)
-    # Load subfunction on entry (but skip the initial load when entering the target function)
-    # TODO Do not skip the load instruction for recursive target function calls.
-    #      This requires us to detect if we are in a region node for the root function of the scope graph.
-    #      At the moment, recursive functions are not supported anyway though.
-    if i.index == 0 && sf.entry == i.block && 
-       (i.block != @entry_function.entry_block || @options.target_callret_costs || 
-        (@cache.get_attribute('fill-mode') || 'block') != 'block')
+    # Load subfunction on entry
+    if i.index == 0 && sf.entry == i.block 
        [LoadInstruction.new(i, sf)]
     # Load subfunction when returning into the subfunction after a call site.
     elsif i.may_return_to?

@@ -78,9 +78,10 @@ class SimulatorTrace
   end
   def parse(line)
     return nil unless line and not line.chomp.empty?
-    pc, cyc, instr = line.split(' ',3)
+    pc, cyc, instr, stalls, type, latency = line.split(' ',6)
     begin
-      [ Integer("0x#{pc}"), Integer(cyc), Integer(instr) ]
+      call_latency = (type == 'c' ? Integer(latency) : false)
+      [ Integer("0x#{pc}"), Integer(cyc), Integer(instr), Integer(stalls), call_latency ]
     rescue Exception => e
       raise Exception.new("Patmos::SimulatorTrace: bad line (\"#{line.chomp}\")")
     end
@@ -124,8 +125,36 @@ class Architecture < PML::Architecture
     SimulatorTrace.new(options.binary_file, self, options, watchpoints)
   end
 
-  def return_stall_cycles(ret_instruction, ret_latency)
-    ret_latency - 1
+  def call_stall_cycles(call, call_instructions, call_cycles, instructions, cycles, fetch_stalls, call_delay)
+    blocking = blocking_calls?
+    # Call costs are the latency to the next instruction, corrected for nondelayed call bubbles
+    if blocking and call_instructions + 1 == instructions
+      latency = cycles - call_cycles
+      # Not taken or delayed with hit
+      return 0 if latency == 1
+      bubbles = 3 - call_delay
+      return latency - 1 - bubbles
+    # Call costs are Fetch stalls after the call has been executed in MW stage
+    elsif !blocking and call_instructions + 1 >= instructions
+      return fetch_stalls
+    end
+    0
+  end
+
+  def return_stall_cycles(ret, ret_instructions, ret_cycles, instructions, cycles, fetch_stalls)
+    blocking = blocking_calls?
+    # Return costs are the latency to the next instruction, corrected for nondelayed bubbles
+    if blocking and ret_instructions + 1 == instructions
+      latency = cycles - ret_cycles
+      # Not taken or delayed with hit
+      return 0 if latency == 1
+      bubbles = 3 - ret.delay_slots
+      return latency - 1 - bubbles
+    # return costs are Fetch stalls after the return has been executed in MW stage
+    elsif !blocking and ret_instructions + 1 >= instructions
+      return fetch_stalls
+    end
+    0
   end
 
   def num_slots
@@ -154,6 +183,13 @@ class Architecture < PML::Architecture
     mc = @config.caches.by_name('method-cache')
     return nil if mc.nil? or mc.type == 'none'
     mc
+  end
+
+  # True if the callee fetch costs appear (at least partially) at the call itself
+  def blocking_calls?
+    mc = method_cache
+    return false if mc.nil?
+    (mc.get_attribute("fill-mode") || "block") == "block"
   end
 
   #

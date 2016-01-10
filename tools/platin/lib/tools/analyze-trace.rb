@@ -134,7 +134,6 @@ class AnalyzeTraceTool
     Architecture.simulator_options(opts)
     opts.trace_entry
     opts.callstring_length
-    opts.target_callret_costs
     opts.on("--recorders LIST", "recorder specification (=#{DEFAULT_RECORDER_SPEC}; see --help=recorders)") { |recorder_spec|
       opts.options.recorder_spec = recorder_spec
     }

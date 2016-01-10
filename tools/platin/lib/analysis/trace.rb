@@ -76,14 +76,26 @@ class MachineTraceMonitor < TraceMonitor
     pending_return, pending_call = nil, nil
     # keep track of how many times we executed the target
     trace_count = 0
-    trace.each do |pc,cycles,instructions|
-      break if @options.max_cycles       && @cycles >= @options.max_cycles
-      break if @options.max_instructions &&
-                  @executed_instructions >= @options.max_instructions
+    trace.each do |pc,cycles,instructions,fetch_stalls,call_latency|
+      break if @options.max_cycles       && cycles >= @options.max_cycles
+      break if @options.max_instructions && instructions >= @options.max_instructions
+      
+      # Always keep track of last call costs, we need it for the first call to start at least
+      if not @started and call_latency
+        pending_call = [nil, instructions, cycles, 0, call_latency]
+      end
+
+      # Detect call stall costs
+      if pending_call
+	pending_call[3] += @pml.arch.call_stall_cycles(pending_call[0], pending_call[1], pending_call[2], instructions, cycles, fetch_stalls, pending_call[4])
+      end
+      # Detect return stall costs
+      if pending_return 
+	pending_return[3] += @pml.arch.return_stall_cycles(pending_return[0], pending_return[1], pending_return[2], instructions, cycles, fetch_stalls)
+      end
 
       @started = instructions if pc == @start
       next unless @started
-      @executed_instructions = instructions - @started + 1
 
       # Playground: learn about instruction costs
       # @inscost[@last_ins.first] = merge_ranges(cycles - @last_ins[1],@inscost[@last_ins.first]) if @last_ins.first
@@ -92,13 +104,10 @@ class MachineTraceMonitor < TraceMonitor
 
       next unless @wp[pc] || pending_return
 
+      @executed_instructions = instructions
       @cycles = cycles
-      # Detect return stalls
-      if pending_return && pending_return[1] + 1 == @executed_instructions
-	# TODO maybe move this detection entirely into @pml.arch
-	pending_return[3] = @pml.arch.return_stall_cycles(pending_return[0], @cycles - pending_return[2])
-      end
-      # Handle Return (TODO)
+
+      # Handle Return
       if pending_return && pending_return[1] + pending_return[0].delay_slots + 1 == @executed_instructions
         # debug(@options, :trace) { "Return from #{pending_return.first} -> #{@callstack[-1]}" }
         # If we there was no change of control-flow since the return instruction,  the pending return
@@ -123,8 +132,8 @@ class MachineTraceMonitor < TraceMonitor
               @started = false
 	    end
           end
-          pending_return = nil
         end
+        pending_return = nil
       end
 
       # Handle Basic Block
@@ -134,9 +143,8 @@ class MachineTraceMonitor < TraceMonitor
         if b.address == b.function.address
           # call
           if pending_call
-            handle_call(*pending_call) if pending_call
+            handle_call(*pending_call) if pending_call and pending_call[0]
             #puts "Call: #{pending_call.first} -> #{b.function}"
-            pending_call = nil
           else
             assert("Empty call history at function entry, but not main function (#{b.function},#{@program_entry})") {
               b.function == @program_entry
@@ -147,7 +155,10 @@ class MachineTraceMonitor < TraceMonitor
           @current_function = b.function
           # debug(@options, :trace) { "change function to #{b.function}" }
           @loopstack = []
-          publish(:function, b.function, @callstack[-1], @cycles)
+          # Start tje function after the previous instruction to include stalls of the first
+	  # instruction
+          publish(:function, b.function, @callstack[-1], @cycles, pending_call[3])
+          pending_call = nil
         end
 
         # loop exit
@@ -174,6 +185,7 @@ class MachineTraceMonitor < TraceMonitor
             break
           end
         } if @empty_blocks[b.address]
+
         publish(:block, b, @cycles)
         @last_block = b
       end
@@ -183,7 +195,8 @@ class MachineTraceMonitor < TraceMonitor
         assert("Call instruction #{c} does not match current function #{@current_function}") {
           c.function == @current_function
         }
-        pending_call = [c, @executed_instructions]
+	# Format is: <instruction, instruction counter at instruction, cycle counter at instruction, call stalls, call latency>
+        pending_call = [c, @executed_instructions, @cycles, call_latency, 0]
 	@finished = false
         # debug(@options, :trace) { "#{pc}: Call: #{c} in #{@current_function}" }
       end
@@ -191,8 +204,8 @@ class MachineTraceMonitor < TraceMonitor
       # Handle Return Block
       # TODO: in order to handle predicated returns, we need to know where return instructions ar
       if r = @wp_return_instr[pc]
-	# Format is: <instruction, instruction counter at instruction, cycle counter at instruction, return latency>
-        pending_return = [r,@executed_instructions,@cycles,0]
+	# Format is: <instruction, instruction counter at instruction, cycle counter at instruction, return stalls>
+        pending_return = [r, @executed_instructions, @cycles, 0]
         # debug(@options, :trace) { "Scheduling return at #{r}" }
       end
     end
@@ -225,7 +238,7 @@ class MachineTraceMonitor < TraceMonitor
     end
   end
 
-  def handle_call(c, call_pc)
+  def handle_call(c, call_pc, call_cycles, stall_cost, call_delay)
     assert("No call instruction before function entry #{call_pc + 1 + c.delay_slots} != #{@executed_instructions}") {
       call_pc + 1 + c.delay_slots == @executed_instructions
     }
@@ -404,12 +417,12 @@ class RecorderScheduler
   def global_recorders
     recorders.select { |r| r.global? }
   end
-  def function(callee,callsite,cycles)
+  def function(callee, callsite, cycles, stall_cycles)
     if @running
       # adjust callstack
       @callstack.push(callsite)
       # trigger active recorders
-      @active.values.each { |recorder| recorder.function(callee,callsite,cycles) }
+      @active.values.each { |recorder| recorder.function(callee, callsite, cycles, stall_cycles) }
     end
 
     # start recording at analysis entry
@@ -420,7 +433,7 @@ class RecorderScheduler
       @callstack = []
       # activate global recorders
       @global_specs.each_with_index do |gspec, tix|
-        activate(:global, tix, callee, nil, gspec, cycles)
+        activate(:global, tix, callee, nil, gspec, cycles, stall_cycles)
       end
     end
 
@@ -429,12 +442,12 @@ class RecorderScheduler
       # create/activate function recorders
       @function_specs.each_with_index do |fspec, tix|
         scopectx, recorder_spec = fspec
-        activate(:function, tix, callee, Context.callstack_suffix(@callstack,scopectx), recorder_spec, cycles)
+        activate(:function, tix, callee, Context.callstack_suffix(@callstack,scopectx), recorder_spec, cycles, stall_cycles)
       end
     end
   end
 
-  def activate(type, spec_id, scope_entity, scope_context, spec, cycles)
+  def activate(type, spec_id, scope_entity, scope_context, spec, cycles, stall_cycles)
     key = [type, spec_id, scope_entity, scope_context]
     recorder = @recorder_map[key]
     if ! recorder
@@ -446,7 +459,7 @@ class RecorderScheduler
                                    end
     end
     @active[recorder.rid] = recorder
-    recorder.start(scope_entity, cycles)
+    recorder.start(scope_entity, cycles, stall_cycles)
   end
   # NB: deactivate is called by the recorder
   def deactivate(recorder)
@@ -521,9 +534,9 @@ class FunctionRecorder
     return true unless @calllimit
     @callstack.length <= @calllimit
   end
-  def start(function, cycles)
+  def start(function, cycles, stall_cycles)
     # puts "#{self}: starting at #{cycles}"
-    results.start(cycles)
+    results.start(cycles - stall_cycles)
     @callstack = []
     function.blocks.each { |bb| results.init_block(in_context(bb)) } if @record_block_frequencies
   end
@@ -531,7 +544,7 @@ class FunctionRecorder
     results.stop(cycles)
     @scheduler.deactivate(self)
   end
-  def function(callee, callsite, cycles)
+  def function(callee, callsite, cycles, stall_cycles)
     results.call(in_context(callsite),callee) if active? && @record_calltargets
     @callstack.push(callsite)
     callee.blocks.each { |bb| results.init_block(in_context(bb)) } if active? && @record_block_frequencies
@@ -559,10 +572,7 @@ class FunctionRecorder
   def ret(rsite, csite, cycles, stall_cycles)
     if @callstack.length == 0
       # puts "#{self}: stopping at #{rsite}->#{csite}"
-      if global? and not @options.target_callret_costs
-	cycles -= stall_cycles
-      end
-      results.stop(cycles)
+      results.stop(cycles - stall_cycles)
       @scheduler.deactivate(self)
     else
       @callstack.pop
