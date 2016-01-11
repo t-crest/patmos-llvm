@@ -135,7 +135,7 @@ class Architecture < PML::Architecture
       bubbles = 3 - call_delay
       return latency - 1 - bubbles
     # Call costs are Fetch stalls after the call has been executed in MW stage
-    elsif !blocking and call_instructions + 1 >= instructions
+    elsif !blocking and call_instructions + 1 < instructions
       return fetch_stalls
     end
     0
@@ -151,7 +151,7 @@ class Architecture < PML::Architecture
       bubbles = 3 - ret.delay_slots
       return latency - 1 - bubbles
     # return costs are Fetch stalls after the return has been executed in MW stage
-    elsif !blocking and ret_instructions + 1 >= instructions
+    elsif !blocking and ret_instructions + 1 < instructions and ret_instructions + ret.delay_slots >= instructions
       return fetch_stalls
     end
     0

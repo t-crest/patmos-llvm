@@ -92,6 +92,7 @@ class MachineTraceMonitor < TraceMonitor
       # Detect return stall costs
       if pending_return 
 	pending_return[3] += @pml.arch.return_stall_cycles(pending_return[0], pending_return[1], pending_return[2], instructions, cycles, fetch_stalls)
+	pending_return[4] = cycles + 1 if pending_return[1] + pending_return[0].delay_slots == instructions
       end
 
       @started = instructions if pc == @start
@@ -196,7 +197,7 @@ class MachineTraceMonitor < TraceMonitor
           c.function == @current_function
         }
 	# Format is: <instruction, instruction counter at instruction, cycle counter at instruction, call stalls, call latency>
-        pending_call = [c, @executed_instructions, @cycles, call_latency, 0]
+        pending_call = [c, @executed_instructions, @cycles, 0, call_latency]
 	@finished = false
         # debug(@options, :trace) { "#{pc}: Call: #{c} in #{@current_function}" }
       end
@@ -204,8 +205,8 @@ class MachineTraceMonitor < TraceMonitor
       # Handle Return Block
       # TODO: in order to handle predicated returns, we need to know where return instructions ar
       if r = @wp_return_instr[pc]
-	# Format is: <instruction, instruction counter at instruction, cycle counter at instruction, return stalls>
-        pending_return = [r, @executed_instructions, @cycles, 0]
+	# Format is: <instruction, instruction counter at instruction, cycle counter at instruction, return stalls, return start cycle>
+        pending_return = [r, @executed_instructions, @cycles, 0, @cycles + 1]
         # debug(@options, :trace) { "Scheduling return at #{r}" }
       end
     end
@@ -247,12 +248,12 @@ class MachineTraceMonitor < TraceMonitor
     # debug(@options, :trace) { "Call from #{@callstack.inspect}" }
   end
 
-  def handle_return(r, ret_exec_counter, ret_cycles, stall_cycles)
+  def handle_return(r, ret_exec_counter, ret_cycles, stall_cycles, end_cycles)
     exit_loops_downto(0)
     if @callstack.empty?
-      publish(:ret, r, nil, @cycles, stall_cycles)
+      publish(:ret, r, nil, end_cycles, stall_cycles)
     else
-      publish(:ret, r, @callstack[-1], @cycles, stall_cycles)
+      publish(:ret, r, @callstack[-1], end_cycles, stall_cycles)
     end
     return nil if(r.function == @program_entry) # intended program exit
     assert("Callstack empty at return (inconsistent callstack)") { ! @callstack.empty? }
