@@ -684,7 +684,57 @@ class MethodCacheCostModel
       bundle.any? { |i| @pml.arch.memory_access?(i) }
     end
   end
-  class MCFixedBurstStallModel < MCStallModel
+  # A single non-interruptable request
+  class MCBlockingRequestStallModel < MCStallModel
+    def initialize(pml, options, memory, subfunction)
+      super(pml, options, memory, subfunction)
+      total_size = @subfunction_size + @subfunction_prefix
+      @start_address = subfunction.address - @subfunction_prefix
+      @max_fill_cycles = @memory.read_delay(@start_address, total_size)
+    end
+    def max_fill_cycles(maxrequests)
+      @max_fill_cycles
+    end
+    def max_transfer_cycles(bundle, maxtransfercycles, maxrequests)
+      if memory_access?(bundle)
+	# Block on any memory access
+	@max_fill_cycles
+      else
+	[ @memory.read_delay(@start_address, reqbytes(bundle)), maxtransfercycles ].max
+      end
+    end
+  end
+  # Multiple non-interruptable requests of fixed size
+  class MCFixedRequestStallModel < MCStallModel
+    def initialize(pml, options, memory, subfunction, request_size)
+      super(pml, options, memory, subfunction)
+      @request_size = request_size
+      # TODO We assume only aligned requests here. Check if subfunction-start is aligned!
+      @request_time = @memory.read_delay_aligned(@request_size)
+      totalsize = @subfunction_size + @subfunction_prefix
+      @totalrequests = (totalsize - 1)/@request_size + 1
+      @max_fill_cycles = reqcycles(totalsize)
+    end
+    def max_fill_cycles(maxrequests)
+      @max_fill_cycles
+    end
+    def reqcycles(bytes)
+      requests = bytes / @request_size
+      lastsize = bytes % @request_size
+      requests * @request_time + (lastsize > 0 ? @memory.read_delay_aligned(lastsize) : 0 )
+    end
+    def max_transfer_cycles(bundle, maxtransfercycles, maxrequests)
+      maxtransfer = [ reqcycles(reqbytes(bundle)), maxtransfercycles ].max
+      if memory_access?(bundle)
+        # round up to next full request time
+	maxtransfer = ((maxtransfer-1)/@request_time + 1) * @request_time
+      end
+      [ maxtransfer, @max_fill_cycles ].min
+    end
+  end
+  # A single burst request with low priproty (interruptable by data transfers)
+  # TODO needs fixing
+  class MCInterruptableRequestStallModel < MCStallModel
     def initialize(pml, options, memory, subfunction)
       super(pml, options, memory, subfunction)
       @totalbursts = (@subfunction_size + @subfunction_prefix - 1)/@memory.transfer_size + 1
@@ -704,45 +754,6 @@ class MethodCacheCostModel
 	maxtransfer += @memory.read_transfer_time + @memory.read_latency - 1
       end
       maxtransfer
-    end
-  end
-  class MCFixedRequestStallModel < MCStallModel
-    def initialize(pml, options, memory, subfunction, request_size)
-      super(pml, options, memory, subfunction)
-      @request_size = request_size
-      @transfers_per_request = request_size / @memory.transfer_size
-      @request_time = @memory.read_transfer_time * @transfers_per_request + @memory.read_latency
-      totalsize = @subfunction_size + @subfunction_prefix
-      @totalrequests = (totalsize - 1)/@request_size + 1
-      @max_fill_cycles = reqcycles(totalsize)
-    end
-    def max_fill_cycles(maxrequests)
-      @max_fill_cycles
-    end
-    def reqcycles(bytes)
-      requests = bytes / @request_size
-      lastsize = bytes % @request_size
-      requests * @request_time + (lastsize > 0 ?
-                                  ((lastsize-1)/@memory.transfer_size + 1) * @memory.read_transfer_time + @memory.read_latency :
-				  0)
-    end
-    def max_transfer_cycles(bundle, maxtransfercycles, maxrequests)
-      maxtransfer = [ reqcycles(reqbytes(bundle)), maxtransfercycles ].max
-      if memory_access?(bundle)
-        # round up to next full request time
-	maxtransfer = ((maxtransfer-1)/@request_time + 1) * @request_time
-      end
-      maxtransfer
-    end
-  end
-  class MCPageBurstStallModel < MCStallModel
-    def max_fill_cycles(maxrequests)
-      # TODO implement
-      0
-    end
-    def max_transfer_cycles(bundle, maxtransfercycles, maxrequests)
-      # TODO implement
-      0 
     end
   end
 
@@ -805,12 +816,12 @@ class MethodCacheCostModel
     # Select the stall model depending on the memory config
     memory = @pml.arch.main_memory('code')
     request_size = @cache.get_attribute('request-size') || memory.min_burst_size
-    if memory.fixed_bursts? and request_size == 0
-      stallmodel = MCFixedBurstStallModel.new(@pml, @options, memory, sf)
-    elsif memory.fixed_bursts?
+    if @cache.get_attribute('fill-mode') == 'noblock-low'
+      stallmodel = MCInterruptableRequestStallModel.new(@pml, @options, memory, sf)
+    elsif request_size > 0
       stallmodel = MCFixedRequestStallModel.new(@pml, @options, memory, sf, request_size)
     else
-      stallmodel = MCPageBurstStallModel.new(@pml, @options, memory, sf)
+      stallmodel = MCBlockingRequestStallModel.new(@pml, @options, memory, sf)
     end
 
     # Select the transfer function and domain
