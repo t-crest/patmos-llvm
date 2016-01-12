@@ -765,7 +765,7 @@ class MethodCacheCostModel
       min_cycles = @pml.arch.path_bcet(node.bundle)
       max_cycles = @pml.arch.path_wcet(node.bundle)
 
-      # max number of transfer cycles until instruction can be fetched
+      # least number of transfer cycles until instruction is guaranteed to be fetchable
       maxtransfer = @stallmodel.max_transfer_cycles(node.bundle, ins[1], ins[2])
 
       # max number of requests after this instruction
@@ -778,7 +778,10 @@ class MethodCacheCostModel
       end
       # max fill cycles after this instruction
       # cycles of instructions, but at most cycles left for transfer
-      minhidden = ins[0] + [ min_cycles, maxfillcycles - maxtransfer ].min
+      # Note: force min-hidden-cycles to 0 at return. We could also set the IN set
+      #       to 0 (instead of nil) but the DFA init sets the OUT set.
+      minhidden_in = (node.bundle and node.bundle[0].may_return_to?) ? 0 : ins[0]
+      minhidden = minhidden_in + [ min_cycles, maxfillcycles - maxtransfer ].min
       # transfer cycles performend in parallel, but at most up to maxfillcycles
       maxtransfer = [ maxtransfer + max_cycles, maxfillcycles].min
       [ minhidden, maxtransfer, maxrequests ]

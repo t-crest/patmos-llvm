@@ -201,17 +201,32 @@ class DataFlowAnalysis
       #      targets correctly per instruction
       targets = b.successors.select { |s| @blocks.include?(s) }
       last = nil
+      # We assume here that delay slots do not span basic blocks
+      call_delay = nil
       bundles = b.bundles
       bundles[0..-2].each { |i|
-        node = Node.new(i)
+        # TODO add an option to skip making calls exit nodes?
+        if i[0].calls?
+	  assert("Call within call delay not supported.") { call_delay.nil? }
+	  call_delay = i[0].delay_slots
+	end
+	if call_delay == 0
+          node = ExitNode.new(i)
+	  @exit_nodes.push(node)
+	  call_delay = nil
+	else
+          node = Node.new(i)
+	end
 	add_node(b, node, last, first_node)
+	call_delay -= 1 if call_delay
 	last = node
       }
       if bundles.empty?
 	node = Node.new
       else
         # Is this a return block or does the block have a sucessor outside the region?
-	if b.successors.empty? or targets.length < b.successors.length
+	if b.successors.empty? or targets.length < b.successors.length or call_delay
+	  assert("Call delay spans over basic block border") { call_delay.nil? or call_delay == 0 }
 	  # Then we have an exit node
 	  node = ExitNode.new(bundles.last)
 	  @exit_nodes.push(node)
