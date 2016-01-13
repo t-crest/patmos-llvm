@@ -165,6 +165,11 @@ cl::opt<bool>
 llvm::PrivateHeaders("private-headers",
                      cl::desc("Display format specific file headers"));
 
+cl::opt<bool>
+llvm::FirstPrivateHeader("private-header",
+                         cl::desc("Display only the first format specific file "
+                                  "header"));
+
 static cl::alias
 PrivateHeadersShort("p", cl::desc("Alias for --private-headers"),
                     cl::aliasopt(PrivateHeaders));
@@ -1499,7 +1504,19 @@ static void printFaultMaps(const ObjectFile *Obj) {
   outs() << FMP;
 }
 
-static void printPrivateFileHeader(const ObjectFile *o) {
+static void printPrivateFileHeaders(const ObjectFile *o) {
+  if (o->isELF())
+    printELFFileHeader(o);
+  else if (o->isCOFF())
+    printCOFFFileHeader(o);
+  else if (o->isMachO()) {
+    printMachOFileHeader(o);
+    printMachOLoadCommands(o);
+  } else
+    report_fatal_error("Invalid/Unsupported object file format");
+}
+
+static void printFirstPrivateFileHeader(const ObjectFile *o) {
   if (o->isELF())
     printELFFileHeader(o);
   else if (o->isCOFF())
@@ -1531,7 +1548,9 @@ static void DumpObject(const ObjectFile *o) {
   if (UnwindInfo)
     PrintUnwindInfo(o);
   if (PrivateHeaders)
-    printPrivateFileHeader(o);
+    printPrivateFileHeaders(o);
+  if (FirstPrivateHeader)
+    printFirstPrivateFileHeader(o);
   if (ExportsTrie)
     printExportsTrie(o);
   if (Rebase)
@@ -1622,6 +1641,7 @@ int main(int argc, char **argv) {
       && !SymbolTable
       && !UnwindInfo
       && !PrivateHeaders
+      && !FirstPrivateHeader
       && !ExportsTrie
       && !Rebase
       && !Bind
