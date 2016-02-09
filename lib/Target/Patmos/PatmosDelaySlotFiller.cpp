@@ -442,6 +442,9 @@ void DelayHazardInfo::insertDefsUses(MachineInstr *MI) {
   unsigned e = (MI->isCall() || MI->isReturn(MachineInstr::AllInBundle))
                       ? MCID.getNumOperands() : MI->getNumOperands();
 
+  if (MI->isCall())   RegDefs.insert(Patmos::SRB);
+  if (MI->isReturn()) RegUses.insert(Patmos::SRB);
+
   DEBUG_TRACE(dbgs() << " ---- regs: [");
   for (unsigned i = 0; i != e; ++i) {
     const MachineOperand &MO = MI->getOperand(i);

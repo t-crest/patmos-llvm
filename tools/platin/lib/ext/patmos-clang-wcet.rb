@@ -120,15 +120,16 @@ llvmoutput = outfile.call(options.outfile,".llvm-output.pml")
 linked_bitcode = outfile.call(options.outfile,".elf.bc")
 
 platin_inputs = ""
-platin_inputs += "-i #{options.target_config}" if options.target_config
-platin_inputs += "-i #{options.flow_facts}" if options.flow_facts
+platin_inputs += " -i #{options.target_config}" if options.target_config
+platin_inputs += " -i #{options.flow_facts}" if options.flow_facts
 
 # compile, serializing pml, elf, bc
 clang_config = if options.target_config
-                 `platin tool-config -t clang -o #{options.target_config} -o #{llvmoutput}`.chomp
+                 `platin tool-config -t clang -i #{options.target_config}`.chomp
                else
-                 "-mserialize=#{llvmoutput}"
+                 ""
                end
+clang_config += " -mserialize=#{llvmoutput}"
 clang_config.sub!(/-mpatmos-method-cache-size=\S+/,'') if options.override[:mc_cache_size]
 clang_config.sub!(/-mpatmos-max-subfunction-size=\S+/,'') if options.override[:mc_max_sf_size]
 
@@ -153,3 +154,4 @@ unless options.save_temps
   File.unlink(llvminput)
   File.unlink(llvmoutput)
 end
+

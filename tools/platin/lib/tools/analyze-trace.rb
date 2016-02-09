@@ -22,15 +22,15 @@ class AnalyzeTraceTool
     @pml, @options, @entry = pml, options, entry
   end
   def analyze_trace
-    trace = @pml.arch.simulator_trace(@options)
-    tm = MachineTraceMonitor.new(@pml, @options, trace)
+    tm = MachineTraceMonitor.new(@pml, @options)
     debug(@options, :trace) {
       tm.subscribe(VerboseRecorder.new(DebugIO.new))
       "Starting trace analysis"
     }
     @main_recorder = RecorderScheduler.new(@options.recorders, @entry, @options)
     tm.subscribe(@main_recorder)
-    tm.run
+    trace = @pml.arch.simulator_trace(@options, tm.watchpoints)
+    tm.run(trace)
 
     if(@main_recorder.runs == 0)
       die "Analysis entry '#{@options.analysis_entry}' (pc: #{@entry.address}) never executed"
@@ -150,6 +150,7 @@ class AnalyzeTraceTool
             "maximum number of target function executions to trace (unlimited if not set)") { |num|
       opts.options.max_target_traces = num
     }
+    opts.on("--sim-input FILE", "Pass file as input to program under test.") { |f| opts.options.sim_input = f }
     opts.register_help_topic('recorders') { |io|
       RecorderSpecification.help(io)
     }
