@@ -299,7 +299,19 @@ class Architecture < PML::Architecture
             cost = branch_cost(instr)
           end
         else # prediction == "worst"
-          cost = branch_cost(instr)
+          # even worst predicts unconditional branches perfectly, but
+          # preceding conditional branches must be taken into account
+          if instr.branch_type == 'unconditional'
+            while index > 0
+              if ilist[index].branch_type == 'conditional'
+                cost = edge_wcet(ilist,index,edge,!edge_match,prediction)
+                break
+              end
+              index = index - 1
+            end
+          else
+            cost = branch_cost(instr)
+          end
         end
       end
     end
