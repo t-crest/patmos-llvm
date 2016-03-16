@@ -293,7 +293,7 @@ def : Pat<(notcc predsel:$ps1), (PNOT predsel:$ps1)>;
 
 
 // inst_C: instruction to use for data load
-multiclass LoadTypedPatterns<PatmosInst inst, PatFrag immFg, PatFrag pfg>
+multiclass LoadTypedPatterns<PatmosInst inst, PatFrag immFg, PatFrag immBaseFg, PatFrag pfg>
 {
   // load register indirect from cache
   def ra : Pat<(pfg RRegs:$ra), (inst RRegs:$ra, 0)>;
@@ -312,6 +312,15 @@ multiclass LoadTypedPatterns<PatmosInst inst, PatFrag immFg, PatFrag pfg>
   def fior : Pat<(pfg (or fipat:$fi, immFg:$imm)),
                   (inst fipat:$fi, immFg:$imm)>;
 
+  // load with short immediate address from cache
+  def imm : Pat<(pfg immFg:$imm), (inst R0, immFg:$imm)>;
+
+  // load with medium immediate address from cache
+  def mimm : Pat<(pfg uimm12:$imm), (inst (LIi immBaseFg:$imm), immFg:$imm)>;
+
+  // load with long immediate address from cache
+  def limm : Pat<(pfg imm:$imm), (inst (LIl immBaseFg:$imm), immFg:$imm)>;
+
   // TODO: more patterns here
 }
 
@@ -329,52 +338,64 @@ class spmLoad<PatFrag patLoad> : PatFrag<(ops node:$ptr), (patLoad node:$ptr), [
 	    }]>;
 
 // feel free to use multiclass if you find out how to make them work ..
-defm LW   : LoadTypedPatterns<LWC , uimm7s2, cachedLoad<load>>;
-defm LH   : LoadTypedPatterns<LHC , uimm7s1, cachedLoad<sextloadi16>>;
-defm LB   : LoadTypedPatterns<LBC , uimm7  , cachedLoad<sextloadi8>>;
-defm LHU  : LoadTypedPatterns<LHUC, uimm7s1, cachedLoad<zextloadi16>>;
-defm LBU  : LoadTypedPatterns<LBUC, uimm7  , cachedLoad<zextloadi8>>;
-defm LHE  : LoadTypedPatterns<LHUC, uimm7s1, cachedLoad<extloadi16>>;
-defm LBE  : LoadTypedPatterns<LBUC, uimm7  , cachedLoad<extloadi8>>;
-defm LWM  : LoadTypedPatterns<LWM , uimm7s2, uncachedLoad<load>>;
-defm LHM  : LoadTypedPatterns<LHM , uimm7s1, uncachedLoad<sextloadi16>>;
-defm LBM  : LoadTypedPatterns<LBM , uimm7  , uncachedLoad<sextloadi8>>;
-defm LHUM : LoadTypedPatterns<LHUM, uimm7s1, uncachedLoad<zextloadi16>>;
-defm LBUM : LoadTypedPatterns<LBUM, uimm7  , uncachedLoad<zextloadi8>>;
-defm LHEM : LoadTypedPatterns<LHUM, uimm7s1, uncachedLoad<extloadi16>>;
-defm LBEM : LoadTypedPatterns<LBUM, uimm7  , uncachedLoad<extloadi8>>;
+defm LW   : LoadTypedPatterns<LWC , uimm7s2, immBase7s2, cachedLoad<load>>;
+defm LH   : LoadTypedPatterns<LHC , uimm7s1, immBase7s1, cachedLoad<sextloadi16>>;
+defm LB   : LoadTypedPatterns<LBC , uimm7  , immBase7  , cachedLoad<sextloadi8>>;
+defm LHU  : LoadTypedPatterns<LHUC, uimm7s1, immBase7s1, cachedLoad<zextloadi16>>;
+defm LBU  : LoadTypedPatterns<LBUC, uimm7  , immBase7  , cachedLoad<zextloadi8>>;
+defm LHE  : LoadTypedPatterns<LHUC, uimm7s1, immBase7s1, cachedLoad<extloadi16>>;
+defm LBE  : LoadTypedPatterns<LBUC, uimm7  , immBase7  , cachedLoad<extloadi8>>;
+defm LWM  : LoadTypedPatterns<LWM , uimm7s2, immBase7s2, uncachedLoad<load>>;
+defm LHM  : LoadTypedPatterns<LHM , uimm7s1, immBase7s1, uncachedLoad<sextloadi16>>;
+defm LBM  : LoadTypedPatterns<LBM , uimm7  , immBase7  , uncachedLoad<sextloadi8>>;
+defm LHUM : LoadTypedPatterns<LHUM, uimm7s1, immBase7s1, uncachedLoad<zextloadi16>>;
+defm LBUM : LoadTypedPatterns<LBUM, uimm7  , immBase7  , uncachedLoad<zextloadi8>>;
+defm LHEM : LoadTypedPatterns<LHUM, uimm7s1, immBase7s1, uncachedLoad<extloadi16>>;
+defm LBEM : LoadTypedPatterns<LBUM, uimm7  , immBase7  , uncachedLoad<extloadi8>>;
 
-defm LWL  : LoadTypedPatterns<LWL , uimm7s2, spmLoad<load>>;
-defm LHL  : LoadTypedPatterns<LHL , uimm7s1, spmLoad<sextloadi16>>;
-defm LBL  : LoadTypedPatterns<LBL , uimm7  , spmLoad<sextloadi8>>;
-defm LHUL : LoadTypedPatterns<LHUL, uimm7s1, spmLoad<zextloadi16>>;
-defm LBUL : LoadTypedPatterns<LBUL, uimm7  , spmLoad<zextloadi8>>;
-defm LHEL : LoadTypedPatterns<LHUL, uimm7s1, spmLoad<extloadi16>>;
-defm LBEL : LoadTypedPatterns<LBUL, uimm7  , spmLoad<extloadi8>>;
+defm LWL  : LoadTypedPatterns<LWL , uimm7s2, immBase7s2, spmLoad<load>>;
+defm LHL  : LoadTypedPatterns<LHL , uimm7s1, immBase7s1, spmLoad<sextloadi16>>;
+defm LBL  : LoadTypedPatterns<LBL , uimm7  , immBase7  , spmLoad<sextloadi8>>;
+defm LHUL : LoadTypedPatterns<LHUL, uimm7s1, immBase7s1, spmLoad<zextloadi16>>;
+defm LBUL : LoadTypedPatterns<LBUL, uimm7  , immBase7  , spmLoad<zextloadi8>>;
+defm LHEL : LoadTypedPatterns<LHUL, uimm7s1, immBase7s1, spmLoad<extloadi16>>;
+defm LBEL : LoadTypedPatterns<LBUL, uimm7  , immBase7  , spmLoad<extloadi8>>;
 
 // store patterns
 
 
-multiclass StoreTypedPatterns<PatmosInst inst_C, PatFrag immFg, PatFrag pfg>
+multiclass StoreTypedPatterns<PatmosInst inst, PatFrag immFg, PatFrag immBaseFg, PatFrag pfg>
 {
-  // load register indirect from cache
+  // store register indirect to cache
   def ra : Pat<(pfg RRegs:$rs, RRegs:$ra),
-               (inst_C RRegs:$ra, 0, RRegs:$rs)>;
+               (inst RRegs:$ra, 0, RRegs:$rs)>;
 
-  // load register indirect + immediate from cache
+  // store register indirect + immediate to cache
   def raimm : Pat<(pfg RRegs:$rs, (add RRegs:$ra, immFg:$imm)),
-                  (inst_C RRegs:$ra, immFg:$imm, RRegs:$rs)>;
+                  (inst RRegs:$ra, immFg:$imm, RRegs:$rs)>;
 
-  // load register indirect from cache
+  // store register indirect to cache
   def fi : Pat<(pfg RRegs:$rs, fipat:$fi),
-               (inst_C fipat:$fi, 0, RRegs:$rs)>;
+               (inst fipat:$fi, 0, RRegs:$rs)>;
 
-  // load register indirect from cache
+  // store register indirect to cache
   def fiimm : Pat<(pfg RRegs:$rs, (add fipat:$fi, immFg:$imm)),
-                  (inst_C fipat:$fi, immFg:$imm, RRegs:$rs)>;
+                  (inst fipat:$fi, immFg:$imm, RRegs:$rs)>;
 
   def fior  : Pat<(pfg RRegs:$rs, (or fipat:$fi, immFg:$imm)),
-                  (inst_C fipat:$fi, immFg:$imm, RRegs:$rs)>;
+                  (inst fipat:$fi, immFg:$imm, RRegs:$rs)>;
+
+  // store with short immediate address to cache
+  def imm : Pat<(pfg RRegs:$rs, immFg:$imm),
+                (inst R0, immFg:$imm, RRegs:$rs)>;
+
+  // store with medium immediate address to cache
+  def mimm : Pat<(pfg RRegs:$rs, uimm12:$imm),
+                 (inst (LIi immBaseFg:$imm), immFg:$imm, RRegs:$rs)>;
+
+  // store with long immediate address to cache
+  def limm : Pat<(pfg RRegs:$rs, imm:$imm),
+                 (inst (LIl immBaseFg:$imm), immFg:$imm, RRegs:$rs)>;
 
   // TODO: more patterns here
 }
@@ -393,15 +414,15 @@ class spmStore<PatFrag patStore> : PatFrag<(ops node:$val, node:$ptr), (patStore
 	    }]>;
 
 
-defm SW  : StoreTypedPatterns<SWC, uimm7s2, cachedStore<store>>;
-defm SH  : StoreTypedPatterns<SHC, uimm7s1, cachedStore<truncstorei16>>;
-defm SB  : StoreTypedPatterns<SBC, uimm7  , cachedStore<truncstorei8>>;
-defm SWM : StoreTypedPatterns<SWM, uimm7s2, uncachedStore<store>>;
-defm SHM : StoreTypedPatterns<SHM, uimm7s1, uncachedStore<truncstorei16>>;
-defm SBM : StoreTypedPatterns<SBM, uimm7  , uncachedStore<truncstorei8>>;
-defm SWL : StoreTypedPatterns<SWL, uimm7s2, spmStore<store>>;
-defm SHL : StoreTypedPatterns<SHL, uimm7s1, spmStore<truncstorei16>>;
-defm SBL : StoreTypedPatterns<SBL, uimm7  , spmStore<truncstorei8>>;
+defm SW  : StoreTypedPatterns<SWC, uimm7s2, immBase7s2, cachedStore<store>>;
+defm SH  : StoreTypedPatterns<SHC, uimm7s1, immBase7s1, cachedStore<truncstorei16>>;
+defm SB  : StoreTypedPatterns<SBC, uimm7  , immBase7  , cachedStore<truncstorei8>>;
+defm SWM : StoreTypedPatterns<SWM, uimm7s2, immBase7s2, uncachedStore<store>>;
+defm SHM : StoreTypedPatterns<SHM, uimm7s1, immBase7s1, uncachedStore<truncstorei16>>;
+defm SBM : StoreTypedPatterns<SBM, uimm7  , immBase7  , uncachedStore<truncstorei8>>;
+defm SWL : StoreTypedPatterns<SWL, uimm7s2, immBase7s2, spmStore<store>>;
+defm SHL : StoreTypedPatterns<SHL, uimm7s1, immBase7s1, spmStore<truncstorei16>>;
+defm SBL : StoreTypedPatterns<SBL, uimm7  , immBase7  , spmStore<truncstorei8>>;
 
 
 // Branch via JumpTable

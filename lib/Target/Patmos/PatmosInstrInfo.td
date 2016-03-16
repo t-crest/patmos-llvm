@@ -117,6 +117,23 @@ def shrTwo : SDNodeXForm<imm, [{
               MVT::i32 );
 }]>;
 
+// Transformation Function - mask low 7/8/9 bits
+def maskSeven : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getSExtValue() & (-1 << 7),
+              MVT::i32 );
+}]>;
+def maskEight : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getSExtValue() & (-1 << 8),
+              MVT::i32 );
+}]>;
+def maskNine : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getSExtValue() & (-1 << 9),
+              MVT::i32 );
+}]>;
+
 
 // Transformation Function - count trailing zeros.
 def trailingZeros : SDNodeXForm<imm, [{
@@ -184,8 +201,6 @@ def uimm5imask : Operand<i32>, PatLeaf<(imm), [{
 }], trailingOnes>;
 
 
-
-
 // 7 bit value, shifted by one bit (for 16-bit stores)
 def imm7s1 : Operand<i32>, PatLeaf<(imm), [{
  return isInt<7>(N->getSExtValue() >> 1) && ((N->getSExtValue() & 0x01) == 0);
@@ -211,6 +226,13 @@ def uimm22s2 : Operand<i32>, PatLeaf<(imm), [{
 def imm22s2  : Operand<i32>, PatLeaf<(imm), [{
  return isInt<22>(N->getSExtValue() >> 2) && ((N->getSExtValue() & 0x03) == 0);
 }], shrTwo>;
+
+
+// Transformation for baseImm+shortImm addressing
+def immBase7   : Operand<i32>, PatLeaf<(imm), [{}], maskSeven>;
+def immBase7s1 : Operand<i32>, PatLeaf<(imm), [{}], maskEight>;
+def immBase7s2 : Operand<i32>, PatLeaf<(imm), [{}], maskNine>;
+
 
 // Transform all FrameIndex objects into TargetFrameIndex objects and define a
 // pattern that allows us to match against FrameIndex patterns
