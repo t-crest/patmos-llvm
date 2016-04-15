@@ -5385,7 +5385,8 @@ SelectionDAGBuilder::lowerInvokable(TargetLowering::CallLoweringInfo &CLI,
 void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
                                       bool isTailCall,
                                       const BasicBlock *EHPadBB) {
-  PointerType *PT = cast<PointerType>(CS.getCalledValue()->getType());
+  const Value *CalledValue = CS.getCalledValue();
+  PointerType *PT = cast<PointerType>(CalledValue->getType());
   FunctionType *FTy = cast<FunctionType>(PT->getElementType());
   Type *RetTy = FTy->getReturnType();
 
@@ -5423,6 +5424,8 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
   CLI.setDebugLoc(getCurSDLoc()).setChain(getRoot())
     .setCallee(RetTy, FTy, Callee, std::move(Args), CS)
     .setTailCall(isTailCall);
+  MachinePointerInfo MPI(CalledValue);
+  CLI.MPI = MPI;
   std::pair<SDValue, SDValue> Result = lowerInvokable(CLI, EHPadBB);
 
   if (Result.first.getNode())

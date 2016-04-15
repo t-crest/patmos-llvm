@@ -835,6 +835,8 @@ StringRef ELFObjectFile<ELFT>::getFileFormatName() const {
       return "ELF32-avr";
     case ELF::EM_HEXAGON:
       return "ELF32-hexagon";
+    case ELF::EM_PATMOS:
+      return "ELF32-patmos";
     case ELF::EM_MIPS:
       return "ELF32-mips";
     case ELF::EM_PPC:
@@ -893,6 +895,8 @@ unsigned ELFObjectFile<ELFT>::getArch() const {
     return Triple::avr;
   case ELF::EM_HEXAGON:
     return Triple::hexagon;
+  case ELF::EM_PATMOS:
+    return Triple::patmos;
   case ELF::EM_MIPS:
     switch (EF.getHeader()->e_ident[ELF::EI_CLASS]) {
     case ELF::ELFCLASS32:

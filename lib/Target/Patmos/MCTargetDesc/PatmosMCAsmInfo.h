@@ -18,14 +18,15 @@
 #include "llvm/MC/MCAsmInfo.h"
 
 namespace llvm {
+  class Triple;
+
   enum PrintBytesLevel {
     PrintAsEncoded = 0, PrintCallAsBytes, PrintAllAsBytes
   };
 
   class PatmosMCAsmInfo : public MCAsmInfo {
     public:
-      explicit PatmosMCAsmInfo(StringRef TT);
-
+      explicit PatmosMCAsmInfo(const Triple &TT);
       virtual ~PatmosMCAsmInfo() {}
   };
 

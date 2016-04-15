@@ -15,62 +15,34 @@
 #ifndef _LLVM_TARGET_PATMOS_TARGETMACHINE_H_
 #define _LLVM_TARGET_PATMOS_TARGETMACHINE_H_
 
-#include "PatmosInstrInfo.h"
-#include "PatmosISelLowering.h"
-#include "PatmosFrameLowering.h"
-#include "PatmosSelectionDAGInfo.h"
-#include "PatmosRegisterInfo.h"
 #include "PatmosSubtarget.h"
-#include "llvm/IR/DataLayout.h"
-#include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
+class Triple;
 
 /// PatmosTargetMachine
 ///
 class PatmosTargetMachine : public LLVMTargetMachine {
-  PatmosSubtarget        Subtarget;
-  const DataLayout       DL;       // Calculates type size & alignment
-  PatmosInstrInfo        InstrInfo;
-  PatmosTargetLowering   TLInfo;
-  PatmosSelectionDAGInfo TSInfo;
-  PatmosFrameLowering    FrameLowering;
-  InstrItineraryData     InstrItins;
+  std::unique_ptr<TargetLoweringObjectFile> TLOF;
+  mutable StringMap<std::unique_ptr<PatmosSubtarget>> SubtargetMap;
 
 public:
-  PatmosTargetMachine(const Target &T, StringRef TT,
+  PatmosTargetMachine(const Target &T, Triple TT,
                       StringRef CPU, StringRef FS,
-		      TargetOptions O,
+                      TargetOptions O,
                       Reloc::Model RM, CodeModel::Model CM,
-		      CodeGenOpt::Level L);
+                      CodeGenOpt::Level L);
 
-  virtual const TargetFrameLowering *getFrameLowering() const {
-    return &FrameLowering;
-  }
-
-  virtual const PatmosInstrInfo *getInstrInfo() const  { return &InstrInfo; }
-  virtual const DataLayout *getDataLayout() const     { return &DL;}
-  virtual const PatmosSubtarget *getSubtargetImpl() const { return &Subtarget; }
-
-  virtual const TargetRegisterInfo *getRegisterInfo() const {
-    return &InstrInfo.getRegisterInfo();
-  }
-
-  virtual const PatmosTargetLowering *getTargetLowering() const {
-    return &TLInfo;
-  }
-
-  virtual const PatmosSelectionDAGInfo* getSelectionDAGInfo() const {
-    return &TSInfo;
-  }
-
-  virtual const InstrItineraryData *getInstrItineraryData() const {  return &InstrItins; }
+  const PatmosSubtarget *getSubtargetImpl(const Function &F) const override;
 
   /// createPassConfig - Create a pass configuration object to be used by
   /// addPassToEmitX methods for generating a pipeline of CodeGen passes.
-  virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);
+  TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 
+  PatmosTargetObjectFile *getObjFileLowering() const override {
+    return static_cast<PatmosTargetObjectFile*>(TLOF.get());
+  }
 }; // PatmosTargetMachine.
 
 } // end namespace llvm

@@ -13,6 +13,7 @@
 
 #define DEBUG_TYPE "pml-import"
 
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
@@ -21,7 +22,6 @@
 #include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
@@ -65,13 +65,14 @@ void PMLImport::initializePass()
   for (cl::list<std::string>::iterator filename = ImportFiles.begin(),
        ie = ImportFiles.end(); filename != ie; filename++)
   {
-    OwningPtr<MemoryBuffer> Buf;
-    if (MemoryBuffer::getFileOrSTDIN(*filename, Buf)) {
-      // TODO print error code
-      report_fatal_error("PMLImport: error reading PML file.");
+    ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
+      MemoryBuffer::getFileOrSTDIN(*filename);
+
+    if (std::error_code EC = FileOrErr.getError()) {
+      report_fatal_error("PMLImport: error reading PML file: " + EC.message());
     }
 
-    yaml::Input Input(Buf->getBuffer(), NULL, printErrorMessages);
+    yaml::Input Input(FileOrErr.get()->getBuffer(), NULL, printErrorMessages);
 
     yaml::PMLDocList Docs;
 
@@ -230,10 +231,10 @@ void PMLFunctionInfoT<BlockT,bitcode>::reloadBlockInfos()
   {
     BlockT *BB = *i;
     if (!BB->MapsTo.empty()) {
-      BlockLabels.GetOrCreateValue(BB->MapsTo.getName(),
-                                   BB->BlockName.getName());
+      BlockLabels.insert(std::make_pair(BB->MapsTo.getName(),
+                                        BB->BlockName.getName()));
     }
-    Blocks.GetOrCreateValue(BB->BlockName.getName(), BB);
+    Blocks.insert(std::make_pair(BB->BlockName.getName(), BB));
 
     int meminstr_cnt = 0;
     for (typename BlockT::InstrList::iterator i = BB->Instructions.begin(),
@@ -296,11 +297,11 @@ void PMLLevelInfo::addFunctionInfo(yaml::BitcodeFunction &F)
          "Adding bitcode functions to machine level is not supported");
 
   if (!F.MapsTo.empty()) {
-    FunctionLabels.GetOrCreateValue(F.MapsTo.getName(),
-                                    F.FunctionName.getName());
+    FunctionLabels.insert(std::make_pair(F.MapsTo.getName(),
+                                         F.FunctionName.getName()));
   }
   PMLFunctionInfo *FI = new PMLBitcodeFunctionInfo(F);
-  FunctionInfos.GetOrCreateValue(F.FunctionName.getName(), FI);
+  FunctionInfos.insert(std::make_pair(F.FunctionName.getName(), FI));
 }
 
 void PMLLevelInfo::addFunctionInfo(yaml::MachineFunction &F)
@@ -309,11 +310,11 @@ void PMLLevelInfo::addFunctionInfo(yaml::MachineFunction &F)
          "Adding machine functions to bitcode level is not supported");
 
   if (!F.MapsTo.empty()) {
-    FunctionLabels.GetOrCreateValue(F.MapsTo.getName(),
-                                    F.FunctionName.getName());
+    FunctionLabels.insert(std::make_pair(F.MapsTo.getName(),
+                                         F.FunctionName.getName()));
   }
   PMLFunctionInfo *FI = new PMLMachineFunctionInfo(F);
-  FunctionInfos.GetOrCreateValue(F.FunctionName.getName(), FI);
+  FunctionInfos.insert(std::make_pair(F.FunctionName.getName(), FI));
 }
 
 yaml::Name PMLLevelInfo::getFunctionName(const Function &F) const
@@ -595,10 +596,12 @@ double PMLMCQuery::getCriticality(BlockDoubleMap &Criticalities,
 
 
 INITIALIZE_PASS_BEGIN(PMLMachineFunctionImport, "pml-mf-import",
-                                    "PML Machine Function Import", false, true)
+                      "PML Machine Function Import", false, true)
 INITIALIZE_PASS_DEPENDENCY(PMLImport)
+INITIALIZE_PASS_DEPENDENCY(MachineDominatorTree)
+INITIALIZE_PASS_DEPENDENCY(MachinePostDominatorTree)
 INITIALIZE_PASS_END(PMLMachineFunctionImport, "pml-mf-import",
-                                    "PML Machine Function Import", false, true)
+                    "PML Machine Function Import", false, true)
 
 char PMLMachineFunctionImport::ID = 0;
 

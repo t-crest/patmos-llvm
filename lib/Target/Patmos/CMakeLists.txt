@@ -2,7 +2,7 @@ set(LLVM_TARGET_DEFINITIONS Patmos.td)
 
 tablegen(LLVM PatmosGenRegisterInfo.inc -gen-register-info)
 tablegen(LLVM PatmosGenInstrInfo.inc -gen-instr-info)
-tablegen(LLVM PatmosGenMCCodeEmitter.inc -gen-emitter -mc-emitter)
+tablegen(LLVM PatmosGenMCCodeEmitter.inc -gen-emitter)
 #tablegen(LLVM PatmosGenMCPseudoLowering.inc -gen-pseudo-lowering)
 tablegen(LLVM PatmosGenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM PatmosGenAsmMatcher.inc -gen-asm-matcher)

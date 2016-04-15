@@ -24,7 +24,6 @@
 #include "llvm/MC/MCValue.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCAsmLayout.h"
-#include "llvm/MC/MCELFSymbolFlags.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ELF.h"
@@ -60,7 +59,7 @@ public:
   PatmosAsmBackend(const Target &T,  Triple::OSType _OSType)
     :MCAsmBackend(), OSType(_OSType) {}
 
-  MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
+  MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const {
     return createPatmosELFObjectWriter(OS, OSType);
   }
 
@@ -91,7 +90,7 @@ public:
   /// data fragment, at the offset specified by the fixup and following the
   /// fixup kind as appropriate.
   virtual void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
-                  uint64_t Value) const {
+                          uint64_t Value, bool isPCRel) const {
     MCFixupKind Kind = Fixup.getKind();
 
     // Adjust the immediate value according to the format here
@@ -216,7 +215,7 @@ public:
 
     for (uint64_t i = 0; i < Count; i += 4)
         // "(p0) sub r0 = r0, 0"
-        OW->Write32(0x00400000);
+        OW->write32(0x00400000);
 
     return true;
   }
@@ -226,8 +225,8 @@ public:
 
 // MCAsmBackend
 MCAsmBackend *llvm::createPatmosAsmBackend(const Target &T,
-                         const MCRegisterInfo &MRI, StringRef TT, StringRef CPU)
+                         const MCRegisterInfo &MRI, const Triple &TT, StringRef CPU)
 {
-  return new PatmosAsmBackend(T, Triple(TT).getOS());
+  return new PatmosAsmBackend(T, TT.getOS());
 }
 

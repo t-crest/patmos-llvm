@@ -75,7 +75,6 @@ class SubtargetEmitter {
   void FormItineraryBypassString(const std::string &Names,
                                  Record *ItinData,
                                  std::string &ItinString, unsigned NOperandCycles);
-  void EmitFunctionalUnits(raw_ostream &OS);
   void EmitStageAndOperandCycleData(raw_ostream &OS,
                                     std::vector<std::vector<InstrItinerary> >
                                       &ProcItinLists);
@@ -344,9 +343,15 @@ void SubtargetEmitter::FormItineraryBypassString(const std::string &Name,
   }
 }
 
-void SubtargetEmitter::EmitFunctionalUnits(raw_ostream &OS) {
-
-  if (!SchedModels.hasItineraries()) return;
+//
+// EmitStageAndOperandCycleData - Generate unique itinerary stages and operand
+// cycle tables. Create a list of InstrItinerary objects (ProcItinLists) indexed
+// by CodeGenSchedClass::Index.
+//
+void SubtargetEmitter::
+EmitStageAndOperandCycleData(raw_ostream &OS,
+                             std::vector<std::vector<InstrItinerary> >
+                               &ProcItinLists) {
 
   // Multiple processor models may share an itinerary record. Emit it once.
   SmallPtrSet<Record*, 8> ItinsDefSet;
@@ -385,18 +390,6 @@ void SubtargetEmitter::EmitFunctionalUnits(raw_ostream &OS) {
       OS << "}\n";
     }
   }
-
-}
-
-//
-// EmitStageAndOperandCycleData - Generate unique itinerary stages and operand
-// cycle tables. Create a list of InstrItinerary objects (ProcItinLists) indexed
-// by CodeGenSchedClass::Index.
-//
-void SubtargetEmitter::
-EmitStageAndOperandCycleData(raw_ostream &OS,
-                             std::vector<std::vector<InstrItinerary> >
-                               &ProcItinLists) {
 
   // Begin stages table
   std::string StageTable = "\nextern const llvm::InstrStage " + Target +

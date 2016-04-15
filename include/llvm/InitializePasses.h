@@ -146,6 +146,7 @@ void initializeInductiveRangeCheckEliminationPass(PassRegistry&);
 void initializeIndVarSimplifyPass(PassRegistry&);
 void initializeInferFunctionAttrsLegacyPassPass(PassRegistry&);
 void initializeInlineCostAnalysisPass(PassRegistry&);
+void initializeInputDependenceAnalysisPass(PassRegistry&);
 void initializeInstructionCombiningPassPass(PassRegistry&);
 void initializeInstCountPass(PassRegistry&);
 void initializeInstNamerPass(PassRegistry&);
@@ -190,6 +191,7 @@ void initializeMachineCSEPass(PassRegistry&);
 void initializeImplicitNullChecksPass(PassRegistry&);
 void initializeMachineDominatorTreePass(PassRegistry&);
 void initializeMachineDominanceFrontierPass(PassRegistry&);
+void initializeMachineFunctionAnalysisPass(PassRegistry&); 
 void initializeMachinePostDominatorTreePass(PassRegistry&);
 void initializeMachineLICMPass(PassRegistry&);
 void initializeMachineLoopInfoPass(PassRegistry&);
@@ -310,6 +312,8 @@ void initializeDemandedBitsPass(PassRegistry&);
 void initializeFuncletLayoutPass(PassRegistry &);
 void initializeLoopLoadEliminationPass(PassRegistry&);
 void initializeFunctionImportPassPass(PassRegistry &);
+void initializePMLImportPass(PassRegistry&);
+void initializePMLMachineFunctionImportPass(PassRegistry&);
 }
 
 #endif

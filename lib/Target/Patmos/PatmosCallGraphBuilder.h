@@ -360,15 +360,16 @@ namespace llvm {
     static char ID;
 
     PatmosCallGraphBuilder() : MachineModulePass(ID) {
+      initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
     }
 
     /// getAnalysisUsage - Inform the pass manager that nothing is modified
     /// here.
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesAll();
       AU.addRequired<MachineModuleInfo>();
 
-      ModulePass::getAnalysisUsage(AU);
+      MachineModulePass::getAnalysisUsage(AU);
     }
 
     MCallGraph *getCallGraph() {

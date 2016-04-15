@@ -24,13 +24,13 @@
 #include "llvm/ADT/SmallSet.h"
 //#include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/InstIterator.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
@@ -132,8 +132,8 @@ bool PatmosSPClone::runOnModule(Module &M) {
   //AttrBuilder AB;
   //AB.addAttribute("singlepath", "root");
 
-  for (Module::iterator I = M.begin(), E = M.end(); I != E; ) {
-    Function *F = I++;
+  for (Module::iterator I = M.begin(), E = M.end(); I != E; ++I) {
+    Function *F = &*I;
 
     if (F->isDeclaration()) continue;
 

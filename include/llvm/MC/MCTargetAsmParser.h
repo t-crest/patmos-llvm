@@ -170,8 +170,7 @@ public:
   /// \param Operands [out] - The operands in the prefix, will be passed to ParseInstruction.
   /// \param HasPrefix [out] - True if a valid instruction prefix has been parsed.
   /// \return True on failure.
-  virtual bool ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                           bool &HasPrefix) {
+  virtual bool ParsePrefix(SMLoc &PrefixLoc, OperandVector &Operands, bool &HasPrefix) {
     return false;
   }
 

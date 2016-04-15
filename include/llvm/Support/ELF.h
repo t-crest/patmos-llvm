@@ -315,6 +315,8 @@ enum {
   // such numbers for an official value for WebAssembly. As soon as one is
   // allocated, this enum will be updated to use it.
   EM_WEBASSEMBLY   = 0x4157, // WebAssembly architecture
+
+  EM_PATMOS        = 48875, // T-CREST Patmos processor
 };
 
 // Object file classes.
@@ -587,6 +589,20 @@ enum {
 // ELF Relocation types for Hexagon
 enum {
 #include "ELFRelocs/Hexagon.def"
+};
+
+// ELF Relocation types for Patmos
+enum {
+#include "ELFRelocs/Patmos.def"
+};
+
+// Patmos symbol types.
+enum {
+  // processor-specific symbol type: 13-15
+
+  // Code region cache-able by the method cache. this is similar to STT_FUNC, 
+  // but is intended for sub-sets of functions and not entire functions.
+  STT_CODE = 13
 };
 
 // ELF Relocation types for S390/zSeries

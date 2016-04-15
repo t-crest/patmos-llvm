@@ -15,8 +15,8 @@
 #include "PatmosTargetMachine.h"
 using namespace llvm;
 
-PatmosSelectionDAGInfo::PatmosSelectionDAGInfo(const PatmosTargetMachine &TM)
-  : TargetSelectionDAGInfo(TM) {
+PatmosSelectionDAGInfo::PatmosSelectionDAGInfo(const TargetMachine &TM)
+  : TargetSelectionDAGInfo() {
 }
 
 PatmosSelectionDAGInfo::~PatmosSelectionDAGInfo() {

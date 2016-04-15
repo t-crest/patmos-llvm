@@ -11,9 +11,9 @@
 #define LLVM_CODEGEN_PML_EXPORT_H_
 
 #include "llvm/IR/Module.h"
+#include "llvm/IR/ValueMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/ValueMap.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/PML.h"
@@ -28,6 +28,8 @@
 
 namespace llvm {
 
+  class LoopInfo;
+  class MachineLoopInfo;
   class MachineLoop;
 
   /// Provides information about machine instructions, can be overloaded for
@@ -104,7 +106,7 @@ namespace llvm {
 
   public:
     PMLBitcodeExport(TargetMachine &TM, ModulePass &mp)
-    : YDoc(TM.getTargetTriple()), P(mp) {}
+      : YDoc(TM.getTargetTriple().getTriple()), P(mp) {}
 
     virtual ~PMLBitcodeExport() { }
 
@@ -133,7 +135,8 @@ namespace llvm {
     virtual void printDesc(raw_ostream &os, const Instruction *Instr);
 
     virtual void exportInstruction(yaml::Instruction* I,
-                                   const Instruction* II);
+                                   const Instruction* II,
+                                   LoopInfo &LI);
   };
 
 
@@ -151,12 +154,12 @@ namespace llvm {
     Pass &P;
     TargetMachine &TM;
 
-    const TargetInstrInfo *TII;
+    const MCInstrInfo *MII;
 
   public:
     PMLMachineExport(TargetMachine &tm, ModulePass &mp,
                      PMLInstrInfo *pii = 0)
-      : YDoc(tm.getTargetTriple()), P(mp), TM(tm), TII(TM.getInstrInfo())
+      : YDoc(tm.getTargetTriple().getTriple()), P(mp), TM(tm), MII(TM.getMCInstrInfo())
     {
       // TODO needs to be deleted properly!
       PII = pii ? pii : new PMLInstrInfo();
@@ -213,7 +216,7 @@ namespace llvm {
 
   public:
     PMLRelationGraphExport(TargetMachine &TM, ModulePass &mp)
-      : YDoc(TM.getTargetTriple()), P(mp) {}
+      : YDoc(TM.getTargetTriple().getTriple()), P(mp) {}
 
     virtual ~PMLRelationGraphExport() {}
 
@@ -315,7 +318,7 @@ namespace llvm {
       return "YAML/PML Module Export";
     }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+    void getAnalysisUsage(AnalysisUsage &AU) const override;
 
     virtual bool runOnMachineModule(const Module &M);
 

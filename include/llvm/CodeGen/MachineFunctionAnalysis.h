@@ -18,7 +18,6 @@
 
 namespace llvm {
 
-class TargetMachine;
 class MachineFunction;
 class MachineFunctionInitializer;
 class TargetMachine;
@@ -44,7 +43,8 @@ private:
 
 public:
   static char ID;
-  explicit MachineFunctionAnalysis(const TargetMachine &tm,
+  explicit MachineFunctionAnalysis();
+  explicit MachineFunctionAnalysis(const TargetMachine *tm,
                                    MachineFunctionInitializer *MFInitializer);
   ~MachineFunctionAnalysis() override;
 

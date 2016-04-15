@@ -54,10 +54,6 @@ namespace llvm {
   /// PatmosSinglePathInfo - Single-Path analysis pass
   class PatmosSinglePathInfo : public MachineFunctionPass {
     private:
-      const PatmosTargetMachine &TM;
-      const PatmosSubtarget &STC;
-      const PatmosInstrInfo *TII;
-
       /// Set of functions yet to be analyzed
       std::set<std::string> FuncsRemain;
 
@@ -101,7 +97,7 @@ namespace llvm {
       static void getRootNames(std::set<std::string> &S);
 
       /// PatmosSinglePathInfo - Constructor
-      PatmosSinglePathInfo(const PatmosTargetMachine &tm);
+      PatmosSinglePathInfo();
 
       /// doInitialization - Initialize SinglePathInfo pass
       virtual bool doInitialization(Module &M);

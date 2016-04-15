@@ -28,14 +28,9 @@ class PatmosStackCacheAnalysisInfo : public ImmutablePass {
   bool Valid;
 
 public:
-  PatmosStackCacheAnalysisInfo(const TargetMachine &TM) : ImmutablePass(ID),
-    Valid(false) {
-      initializePatmosStackCacheAnalysisInfoPass(*PassRegistry::getPassRegistry());
-    }
-
-  PatmosStackCacheAnalysisInfo()
+  explicit PatmosStackCacheAnalysisInfo()
     : ImmutablePass(ID), Valid(false) {
-    llvm_unreachable("should not be implicitly constructed");
+    initializePatmosStackCacheAnalysisInfoPass(*PassRegistry::getPassRegistry());
   }
 
   // the analysis info (pass) will always be available, with isValid() we can

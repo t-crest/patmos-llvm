@@ -22,7 +22,7 @@ class PatmosTargetMachine;
 
 class PatmosSelectionDAGInfo : public TargetSelectionDAGInfo {
 public:
-  explicit PatmosSelectionDAGInfo(const PatmosTargetMachine &TM);
+  explicit PatmosSelectionDAGInfo(const TargetMachine &TM);
   ~PatmosSelectionDAGInfo();
 };
 

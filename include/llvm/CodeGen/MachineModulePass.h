@@ -31,7 +31,7 @@ class MachineModulePass : public ModulePass {
 protected:
   explicit MachineModulePass(char &ID) : ModulePass(ID) {}
 
-  virtual void preparePassManager(PMStack &);
+  void preparePassManager(PMStack &) override;
 
 public:
   /// runOnMachineModule - This method must be overloaded to perform the
@@ -42,7 +42,7 @@ public:
   /// getAnalysisUsage - Subclasses that override getAnalysisUsage
   /// must call this.
   ///
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
 
 private:
   virtual bool runOnModule(Module &F);

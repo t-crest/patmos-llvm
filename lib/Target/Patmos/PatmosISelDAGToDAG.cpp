@@ -37,14 +37,10 @@ using namespace llvm;
 ///
 namespace {
   class PatmosDAGToDAGISel : public SelectionDAGISel {
-    const PatmosTargetLowering &Lowering;
-    const PatmosSubtarget &Subtarget;
 
   public:
     PatmosDAGToDAGISel(PatmosTargetMachine &TM)
-      : SelectionDAGISel(TM, TM.getOptLevel()),
-        Lowering(*TM.getTargetLowering()),
-        Subtarget(*TM.getSubtargetImpl()) { }
+      : SelectionDAGISel(TM, TM.getOptLevel()) { }
 
     virtual const char *getPassName() const {
       return "Patmos DAG->DAG Pattern Instruction Selection";
@@ -133,7 +129,7 @@ SDNode *PatmosDAGToDAGISel::SelectABSPattern(SDNode *N){
       XType.isInteger() && SRAConstant != NULL &&
       Size == SRAConstant->getZExtValue()) {
 
-    SDValue PredFlag = CurDAG->getTargetConstant(0, MVT::i1);
+    SDValue PredFlag = CurDAG->getTargetConstant(0, dl, MVT::i1);
     SmallVector<SDValue, 4> Ops;
     Ops.push_back(CurDAG->getRegister(Patmos::NoRegister, MVT::i1));
     Ops.push_back(PredFlag);
@@ -158,11 +154,11 @@ SDNode *PatmosDAGToDAGISel::SelectABSPattern(SDNode *N){
 SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
   assert(N->getNumOperands() >= 3);
 
+  SDLoc dl(N);
   SDValue Chain  = N->getOperand(0);
   SDValue Pred   = N->getOperand(1);
   SDValue Target = N->getOperand(2); // branch target
-  SDValue PredInvFlag = CurDAG->getTargetConstant(0, MVT::i1);
-  SDLoc dl(N);
+  SDValue PredInvFlag = CurDAG->getTargetConstant(0, dl, MVT::i1);
 
   assert(Target.getOpcode()  == ISD::BasicBlock);
   assert(Pred.getValueType() == MVT::i1);
@@ -178,27 +174,29 @@ SDNode *PatmosDAGToDAGISel::SelectBRCOND(SDNode *N) {
 
 
 bool PatmosDAGToDAGISel::SelectPred(SDValue N, SDValue &Reg, SDValue &Inv) {
+  SDLoc dl(N);
   if (ConstantSDNode *Imm = dyn_cast<ConstantSDNode>(N.getNode())) {
     // immediate value
     Reg = CurDAG->getRegister(Patmos::NoRegister, MVT::i1);
-    Inv = CurDAG->getTargetConstant((Imm->getConstantIntValue()->isZero())?1:0, MVT::i1);
+    Inv = CurDAG->getTargetConstant((Imm->getConstantIntValue()->isZero())?1:0, dl, MVT::i1);
   } else {
     // we have a register
     Reg = N;
-    Inv = CurDAG->getTargetConstant(0, MVT::i1);
+    Inv = CurDAG->getTargetConstant(0, dl, MVT::i1);
   }
   return true;
 }
 
 bool PatmosDAGToDAGISel::SelectPredInv(SDValue N, SDValue &Reg, SDValue &Inv) {
+  SDLoc dl(N);
   if (ConstantSDNode *Imm = dyn_cast<ConstantSDNode>(N.getNode())) {
     // immediate value
     Reg = CurDAG->getRegister(Patmos::NoRegister, MVT::i1);
-    Inv = CurDAG->getTargetConstant((Imm->getConstantIntValue()->isZero())?0:1, MVT::i1);
+    Inv = CurDAG->getTargetConstant((Imm->getConstantIntValue()->isZero())?0:1, dl, MVT::i1);
   } else {
     // we have a register
     Reg = N;
-    Inv = CurDAG->getTargetConstant(1, MVT::i1);
+    Inv = CurDAG->getTargetConstant(1, dl, MVT::i1);
   }
   return true;
 }

@@ -511,6 +511,10 @@ public:
   virtual void emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
                                 const MCSubtargetInfo *EndInfo) const;
 
+  /// This method formats and emits the specified machine instruction that is an
+  /// inline asm.
+  void EmitInlineAsm(const MachineInstr *MI) const;
+
 private:
   /// Private state for PrintSpecial()
   // Assign a unique ID to this machine instruction.
@@ -527,10 +531,6 @@ private:
                 const MCTargetOptions &MCOptions,
                 const MDNode *LocMDNode = nullptr,
                 InlineAsm::AsmDialect AsmDialect = InlineAsm::AD_ATT) const;
-
-  /// This method formats and emits the specified machine instruction that is an
-  /// inline asm.
-  void EmitInlineAsm(const MachineInstr *MI) const;
 
   //===------------------------------------------------------------------===//
   // Internal Implementation Details

@@ -27,12 +27,12 @@
 #include "llvm/CodeGen/MachineModulePass.h"
 //#include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/InstIterator.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
@@ -51,8 +51,6 @@ class PatmosSPMark : public MachineModulePass {
 private:
   typedef std::deque<MachineFunction*> Worklist;
 
-  PatmosTargetMachine &TM;
-
   MachineModuleInfo *MMI; // contains map Function -> MachineFunction
 
 
@@ -67,11 +65,7 @@ private:
 public:
   static char ID; // Pass identification, replacement for typeid
 
-  PatmosSPMark(PatmosTargetMachine &tm)
-    : MachineModulePass(ID), TM(tm)
-  {
-    (void) TM;
-  }
+  PatmosSPMark() : MachineModulePass(ID) { }
 
   /// getPassName - Return the pass' name.
   virtual const char *getPassName() const {
@@ -100,8 +94,8 @@ public:
 
 char PatmosSPMark::ID = 0;
 
-ModulePass *llvm::createPatmosSPMarkPass(PatmosTargetMachine &tm) {
-  return new PatmosSPMark(tm);
+ModulePass *llvm::createPatmosSPMarkPass() {
+  return new PatmosSPMark();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -122,7 +116,7 @@ bool PatmosSPMark::runOnMachineModule(const Module &M) {
   for(Module::const_iterator F(M.begin()), FE(M.end()); F != FE; ++F) {
     if (F->hasFnAttribute("sp-root") || F->hasFnAttribute("sp-reachable")) {
       // get the machine-level function
-      MachineFunction *MF = MMI->getMachineFunction(F);
+      MachineFunction *MF = MMI->getMachineFunction(&*F);
       assert( MF );
       PatmosMachineFunctionInfo *PMFI =
         MF->getInfo<PatmosMachineFunctionInfo>();
@@ -144,7 +138,7 @@ bool PatmosSPMark::runOnMachineModule(const Module &M) {
   for(Module::const_iterator F(M.begin()), FE(M.end()); F != FE; ++F) {
     if (F->hasFnAttribute("sp-maybe")) {
       // get the machine-level function
-      MachineFunction *MF = MMI->getMachineFunction(F);
+      MachineFunction *MF = MMI->getMachineFunction(&*F);
       assert( MF );
       PatmosMachineFunctionInfo *PMFI =
         MF->getInfo<PatmosMachineFunctionInfo>();
@@ -158,9 +152,11 @@ bool PatmosSPMark::runOnMachineModule(const Module &M) {
         MachineBasicBlock *EmptyMBB = MF->CreateMachineBasicBlock();
         MF->push_back(EmptyMBB);
 
+        const PatmosInstrInfo *PII =
+          static_cast<const PatmosInstrInfo*>(MF->getSubtarget().getInstrInfo());
         DebugLoc DL;
         AddDefaultPred(BuildMI(*EmptyMBB, EmptyMBB->end(), DL,
-            TM.getInstrInfo()->get(Patmos::RET)));
+            PII->get(Patmos::RET)));
 
         NumSPCleared++; // bump STATISTIC
       };

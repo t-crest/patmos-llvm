@@ -103,6 +103,7 @@ void AsmPrinter::EmitInlineAsm(StringRef Str, const MCSubtargetInfo &STI,
   SrcMgrDiagInfo DiagInfo;
 
   // If the current LLVMContext has an inline asm handler, set it in SourceMgr.
+  LLVMContext &LLVMCtx = MMI->getModule()->getContext();
   bool HasDiagHandler = false;
   if (LLVMCtx.getInlineAsmDiagnosticHandler() != nullptr) {
     // If the source manager has an issue, we arrange for srcMgrDiagHandler

@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PatmosTargetStreamer.h"
-#include "llvm/MC/MCELF.h"
+#include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormattedStream.h"
@@ -22,8 +22,12 @@ using namespace llvm;
 // pin vtable to this file
 void PatmosTargetStreamer::anchor() {}
 
-PatmosTargetAsmStreamer::PatmosTargetAsmStreamer(formatted_raw_ostream &OS)
-    : OS(OS) {}
+PatmosTargetStreamer::PatmosTargetStreamer(MCStreamer &S)
+  : MCTargetStreamer(S) {}
+
+PatmosTargetAsmStreamer::PatmosTargetAsmStreamer(MCStreamer &S,
+                                                 formatted_raw_ostream &OS)
+  : PatmosTargetStreamer(S), OS(OS) {}
 
 void PatmosTargetAsmStreamer::EmitFStart(const MCSymbol *Start, 
                                const MCExpr* Size, unsigned Alignment)
@@ -31,9 +35,8 @@ void PatmosTargetAsmStreamer::EmitFStart(const MCSymbol *Start,
   OS << "\t.fstart\t" << *Start << ", " << *Size << ", " << Alignment << "\n";
 }
 
-MCELFStreamer &PatmosTargetELFStreamer::getStreamer() {
-  return static_cast<MCELFStreamer &>(*Streamer);
-}
+PatmosTargetELFStreamer::PatmosTargetELFStreamer(MCStreamer &S)
+  : PatmosTargetStreamer(S) {}
 
 void PatmosTargetELFStreamer::EmitFStart(const MCSymbol *Start, 
 	      const MCExpr* Size, unsigned Alignment) 

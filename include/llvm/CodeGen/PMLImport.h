@@ -18,7 +18,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/PML.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/ValueMap.h"
+#include "llvm/IR/ValueMap.h"
 
 namespace llvm {
 
@@ -228,7 +228,7 @@ namespace llvm {
       deletePMLIndex();
     }
 
-    void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesAll();
     }
 
@@ -420,7 +420,7 @@ namespace llvm {
 
 
 
-    void getAnalysisUsage(AnalysisUsage &AU) const;
+    void getAnalysisUsage(AnalysisUsage &AU) const override;
 
     void reset();
 

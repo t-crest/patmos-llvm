@@ -165,7 +165,8 @@ unsigned TargetSchedModel::computeOperandLatency(
                                            UseMI, UseOperIdx);
     }
     else {
-      OperLatency = TII->getDefOperandLatency(&InstrItins, DefMI, DefOperIdx);
+      unsigned DefClass = DefMI->getDesc().getSchedClass();
+      OperLatency = InstrItins.getOperandCycle(DefClass, DefOperIdx);
     }
     if (OperLatency >= 0)
       return OperLatency;

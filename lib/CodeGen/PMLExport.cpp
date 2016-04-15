@@ -13,6 +13,7 @@
 
 #define DEBUG_TYPE "pml-export"
 
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -25,14 +26,15 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineFunctionAnalysis.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/PMLExport.h"
 #include "llvm/CodeGen/PseudoSourceValue.h"
-#include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -160,7 +162,7 @@ PMLInstrInfo::MFList PMLInstrInfo::getCalledFunctions(const Module &M,
     {
       if (!II->getDesc().isCall()) continue;
 
-      MFList Callees = getCallees(M, MMI, MF, II);
+      MFList Callees = getCallees(M, MMI, MF, &*II);
       for (MFList::iterator CI = Callees.begin(), CE = Callees.end();
            CI != CE; ++CI)
       {
@@ -227,9 +229,9 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
   const Function *Fn = MF.getFunction();
 
   if (!Fn) return;
-  LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(Fn));
+  LoopInfo &LI = P.getAnalysis<LoopInfoWrapperPass>(*const_cast<Function*>(Fn)).getLoopInfo();
   ScalarEvolution &SE =
-    P.getAnalysis<ScalarEvolution>(*const_cast<Function*>(Fn));
+    P.getAnalysis<ScalarEvolutionWrapperPass>(*const_cast<Function*>(Fn)).getSE();
 
   // create PML bitcode function
   yaml::BitcodeFunction *F = new yaml::BitcodeFunction(Fn->getName());
@@ -243,7 +245,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     B = F->addBlock(new yaml::BitcodeBlock(BI->getName()));
 
     // export loop information
-    Loop *Loop = LI.getLoopFor(BI);
+    Loop *Loop = LI.getLoopFor(&*BI);
     if (Loop && Loop->getHeader() == &*BI) {
       if(SE.hasLoopInvariantBackedgeTakenCount(Loop)) {
 
@@ -252,7 +254,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
                 dyn_cast<SCEVConstant>(SE.getMaxBackedgeTakenCount(Loop))) {
           uint64_t ConstHeaderBound = BEBound->getValue()->getZExtValue() + 1;
           if(ConstHeaderBound < 0xFFFFFFFFu) {
-            YDoc.addFlowFact(createLoopFact(BI, ConstHeaderBound));
+            YDoc.addFlowFact(createLoopFact(&*BI, ConstHeaderBound));
             // bump statistic counter
             NumConstantBounds++;
           }
@@ -274,7 +276,7 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
             raw_string_ostream os(s);
             os << *SymbolicHeaderBound;
 
-            YDoc.addFlowFact(createLoopFact(BI, StringRef(os.str())));
+            YDoc.addFlowFact(createLoopFact(&*BI, StringRef(os.str())));
             // bump statistic counter
             NumSymbolicBounds++;
           } else {
@@ -304,14 +306,14 @@ void PMLBitcodeExport::serialize(MachineFunction &MF)
     for (BasicBlock::const_iterator II = BI->begin(), IE = BI->end(); II != IE;
         ++II)
     {
-      if (!doExportInstruction(II)) {
+      if (!doExportInstruction(&*II)) {
         Index++;
         continue;
       }
 
       yaml::Instruction *I = B->addInstruction(
           new yaml::Instruction(Index++));
-      exportInstruction(I, II);
+      exportInstruction(I, &*II, LI);
     }
 
   }
@@ -334,7 +336,8 @@ void PMLBitcodeExport::printDesc(raw_ostream &os, const Instruction *Instr)
 
 
 void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
-                                          const Instruction *II)
+                                         const Instruction *II,
+                                         LoopInfo &LI)
 {
   std::string s;
   raw_string_ostream ss(s);
@@ -362,8 +365,7 @@ void PMLBitcodeExport::exportInstruction(yaml::Instruction* I,
       case Intrinsic::loopbound:
         {
           const BasicBlock *BB = II->getParent();
-          LoopInfo &LI = P.getAnalysis<LoopInfo>(*const_cast<Function*>(BB->getParent()));
-          Loop *Loop = LI.getLoopFor(BB);
+          Loop *Loop = LI.getLoopFor(&*BB);
 
           if (Loop) {
             if (ConstantInt *MaxBoundInt = dyn_cast<ConstantInt>(CI->getArgOperand(1))) {
@@ -439,8 +441,8 @@ void PMLMachineExport::serialize(MachineFunction &MF)
     B->MapsTo = yaml::Name(BB->getName());
 
     // export loop information
-    MachineLoop *Loop = MLI.getLoopFor(BB);
-    if (Loop && Loop->getHeader() == BB) {
+    MachineLoop *Loop = MLI.getLoopFor(&*BB);
+    if (Loop && Loop->getHeader() == &*BB) {
       exportLoopInfo(MF, YDoc, Loop);
     }
     while (Loop) {
@@ -463,15 +465,16 @@ void PMLMachineExport::serialize(MachineFunction &MF)
       if (Ins->isPseudo() && !Ins->isInlineAsm())
         continue;
 
-      if (!doExportInstruction(Ins)) { Index++; continue; }
+      if (!doExportInstruction(&*Ins)) { Index++; continue; }
 
       yaml::MachineInstruction *I = B->addInstruction(
           new yaml::MachineInstruction(Index++));
-      exportInstruction(MF, I, Ins, IsBundled);
+      exportInstruction(MF, I, &*Ins, IsBundled);
 
-      const LLVMContext &Ctx = MF.getFunction()->getContext();
       DebugLoc dl = Ins->getDebugLoc();
-      B->setSrcLocOnce(dl, dl.getScope(Ctx));
+      if (dl.get()) {
+        B->setSrcLocOnce(dl, dl.getScope());
+      }
 
       IsBundled = true;
     }
@@ -486,11 +489,11 @@ void PMLMachineExport::serialize(MachineFunction &MF)
 
 yaml::Name PMLMachineExport::getOpcode(const MachineInstr *Instr)
 {
-  if (!TII) {
+  if (!MII) {
     return yaml::Name(Instr->getOpcode());
   }
 
-  return yaml::Name(TII->getName(Instr->getOpcode()));
+  return yaml::Name(MII->getName(Instr->getOpcode()));
 }
 
 void PMLMachineExport::printDesc(raw_ostream &os, const MachineInstr *Instr)
@@ -675,7 +678,7 @@ static void isIndexingGVComp(const Value *V,
 
 void PMLMachineExport::
 exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
-                      const MachineInstr *Ins)
+                     const MachineInstr *Ins)
 {
   // FIXME maybe there should be only one memoperand here anyway? bundles?
   for(MachineInstr::mmo_iterator I=Ins->memoperands_begin(),
@@ -700,11 +703,6 @@ exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
 	       dbgs() << "A: "; A->dump() );
         // a pointer passed as function argument
 
-      } else if (isa<PseudoSourceValue>(V)) {
-        DEBUG(const PseudoSourceValue *P = dyn_cast<PseudoSourceValue>(V);
-	      dbgs() << "P: "; P->dump() );
-        // this is a location on the stack frame
-
       } else {
         DEBUG( dbgs() << "V: "; V->dump() );
 
@@ -723,6 +721,10 @@ exportMemInstruction(MachineFunction &MF, yaml::MachineInstruction *YI,
           NumMemExp++; // STATISTICS
         }
       }
+    }
+    if (const PseudoSourceValue *PSV = MO->getPseudoValue()) {
+      DEBUG( dbgs() << "P: "; V->dump() );
+      // this is a location on the stack frame
     }
   }
 
@@ -1111,7 +1113,7 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
     for (MachineBasicBlock::const_pred_iterator PredI = BlockI->pred_begin(),
         PredE = BlockI->pred_end(); PredI != PredE; ++PredI)
     {
-      if (BI.isBackEdge(*PredI, BlockI))
+      if (BI.isBackEdge(*PredI, &*BlockI))
           continue;
       if ((*PredI)->getBasicBlock() == BB) {
         IsSubNode = true;
@@ -1125,7 +1127,7 @@ void PMLRelationGraphExport::buildEventMaps(MachineFunction &MF,
     }
     DEBUG(dbgs() << "MachineEvent " << BlockI->getNumber() << " -> "
         << Event << "\n");
-    MachineEventMap.insert(std::make_pair(BlockI, Event));
+    MachineEventMap.insert(std::make_pair(&*BlockI, Event));
     BitcodeEventMap.insert(std::make_pair(BB, Event));
   }
   // errs() << "EventMaps Bitcode\n";
@@ -1163,7 +1165,6 @@ isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
                               StringRef filename,
                               ArrayRef<std::string> roots)
@@ -1183,8 +1184,8 @@ void PMLModuleExportPass::getAnalysisUsage(AnalysisUsage &AU) const
   AU.setPreservesAll();
   AU.addRequired<MachineModuleInfo>();
   AU.addRequired<MachineLoopInfo>();
-  AU.addRequired<LoopInfo>();
-  AU.addRequired<ScalarEvolution>();
+  AU.addRequired<LoopInfoWrapperPass>();
+  AU.addRequired<ScalarEvolutionWrapperPass>();
   MachineModulePass::getAnalysisUsage(AU);
 }
 
@@ -1239,13 +1240,13 @@ bool PMLModuleExportPass::doInitialization(Module &M) {
 bool PMLModuleExportPass::doFinalization(Module &M) {
   tool_output_file *OutFile;
   yaml::Output *Output;
-  std::string ErrorInfo;
+  std::error_code ErrorInfo;
 
-  OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo);
-  if (!ErrorInfo.empty()) {
+  OutFile = new tool_output_file(OutFileName, ErrorInfo, sys::fs::F_Text);
+  if (ErrorInfo) {
     delete OutFile;
     errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
-    errs() << "[mc2yml] Reason: " << ErrorInfo;
+    errs() << "[mc2yml] Reason: " << ErrorInfo.message();
     return false;
   }
   else {
@@ -1266,12 +1267,12 @@ bool PMLModuleExportPass::doFinalization(Module &M) {
   }
 
   if (!BitcodeFile.empty()) {
-    std::string ErrorInfo;
-    tool_output_file BitcodeStream(BitcodeFile.c_str(), ErrorInfo);
+    std::error_code ErrorInfo;
+    tool_output_file BitcodeStream(BitcodeFile, ErrorInfo, sys::fs::F_None);
     WriteBitcodeToFile(&M, BitcodeStream.os());
-    if(! ErrorInfo.empty()) {
+    if(ErrorInfo) {
       errs() << "[mc2yml] Writing Bitcode File " << BitcodeFile << " failed: "
-        << ErrorInfo <<" \n";
+             << ErrorInfo.message() <<" \n";
     } else {
       BitcodeStream.keep();
     }

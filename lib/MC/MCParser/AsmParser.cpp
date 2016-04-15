@@ -251,6 +251,8 @@ private:
 
   bool parseStatement(ParseStatementInfo &Info,
                       MCAsmParserSemaCallback *SI);
+  bool parseInstruction(AsmToken ID, StringRef IDVal, SMLoc IDLoc,
+                        ParseStatementInfo &Info);
   void eatToEndOfLine();
   bool parseCppHashLineFilenameComment(SMLoc L);
 
@@ -1300,7 +1302,7 @@ bool AsmParser::parseBinOpRHS(unsigned Precedence, const MCExpr *&Res,
 /// ParseStatement:
 ///   ::= EndOfStatement
 ///   ::= Label* Directive ...Operands... EndOfStatement
-///   ::= Label* Identifier OperandList* EndOfStatement
+///   ::= Label* Prefix* Identifier OperandList* EndOfStatement
 bool AsmParser::parseStatement(ParseStatementInfo &Info,
                                MCAsmParserSemaCallback *SI) {
   if (Lexer.is(AsmToken::EndOfStatement)) {
@@ -1346,10 +1348,25 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
     // Treat '}' as a valid identifier in this context.
     Lex();
     IDVal = "}";
-  } else if (parseIdentifier(IDVal)) {
-    if (!TheCondState.Ignore)
-      return TokError("unexpected token at start of statement");
-    IDVal = "";
+  } else {
+    bool HasPrefix = false;
+
+    if (getTargetParser().ParsePrefix(IDLoc, Info.ParsedOperands, HasPrefix)) {
+      if (!TheCondState.Ignore)
+        return TokError("unexpected token in prefix of instruction");
+      IDVal = "";
+
+    } else if (parseIdentifier(IDVal)) {
+      if (!TheCondState.Ignore)
+        return TokError("unexpected token at start of statement");
+      IDVal = "";
+    }
+
+    // If an instruction prefix has been matched, the rest of the statement
+    // must be an instruction.
+    if (HasPrefix && !TheCondState.Ignore) {
+      return parseInstruction(ID, IDVal, IDLoc, Info);
+    }
   }
 
   // Handle conditional assembly here before checking for skipping.  We
@@ -1716,6 +1733,13 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
 
   if (ParsingInlineAsm && (IDVal == "even"))
     Info.AsmRewrites->emplace_back(AOK_EVEN, IDLoc, 4);
+
+  return parseInstruction(ID, IDVal, IDLoc, Info);
+}
+
+bool AsmParser::parseInstruction(AsmToken ID, StringRef IDVal, SMLoc IDLoc,
+                                 ParseStatementInfo &Info) {
+
   checkForValidSection();
 
   // Canonicalize the opcode to lower case.

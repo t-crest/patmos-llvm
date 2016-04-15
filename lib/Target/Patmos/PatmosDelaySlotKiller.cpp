@@ -21,8 +21,6 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -42,15 +40,8 @@ namespace {
   private:
     static char ID;
   public:
-    /// Target machine description which we query for reg. names, data
-    /// layout, etc.
-    ///
-    PatmosTargetMachine &TM;
-    const PatmosInstrInfo *TII;
-
-    PatmosDelaySlotKiller(PatmosTargetMachine &tm)
-      : MachineFunctionPass(ID), TM(tm),
-        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())) { }
+    PatmosDelaySlotKiller()
+      : MachineFunctionPass(ID) { }
 
     virtual const char *getPassName() const {
       return "Patmos Delay Slot Killer";
@@ -58,13 +49,17 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &F) {
       bool Changed = false;
-      if (TM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_DELAYED) {
+
+      const PatmosSubtarget &PST =
+        static_cast<const PatmosSubtarget &>(F.getSubtarget());
+
+      if (PST.getCFLType() != PatmosSubtarget::CFL_DELAYED) {
         DEBUG( dbgs() << "\n[DelaySlotKiller] "
                << F.getFunction()->getName() << "\n" );
 
         for (MachineFunction::iterator FI = F.begin(), FE = F.end();
              FI != FE; ++FI)
-          Changed |= killDelaySlots(*FI);
+          Changed |= killDelaySlots(*FI, PST);
       }
       return Changed;
     }
@@ -72,7 +67,8 @@ namespace {
   protected:
     /// killDelaySlots - Kill delay slots for the given basic block.
     ///
-    bool killDelaySlots(MachineBasicBlock &MBB);
+    bool killDelaySlots(MachineBasicBlock &MBB,
+                        const PatmosSubtarget &PST);
 
   };
 
@@ -82,13 +78,16 @@ namespace {
 /// createPatmosDelaySlotKillerPass - Returns a pass that kills delay
 /// slots in Patmos MachineFunctions
 ///
-FunctionPass *llvm::createPatmosDelaySlotKillerPass(PatmosTargetMachine &tm) {
-  return new PatmosDelaySlotKiller(tm);
+FunctionPass *llvm::createPatmosDelaySlotKillerPass() {
+  return new PatmosDelaySlotKiller();
 }
 
 
-bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
+bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB,
+                                           const PatmosSubtarget &PST) {
   bool Changed = false;
+
+  const PatmosInstrInfo *PII = PST.getInstrInfo();
 
   DEBUG( dbgs() << "Killing slots in BB#" << MBB.getNumber()
                 << " (" << MBB.getFullName() << ")\n" );
@@ -100,7 +99,7 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
       assert( ( I->isCall() || I->isReturn() || I->isBranch() )
               && "Unexpected instruction with delay slot.");
 
-      MachineBasicBlock::instr_iterator MI = *I;
+      MachineBasicBlock::instr_iterator MI(*I);
       if (I->isBundle()) { ++MI; }
 
       unsigned Opcode = MI->getOpcode();
@@ -123,11 +122,11 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
           Opcode == Patmos::XRET) {
 
         bool onlyNops = true;
-        unsigned maxCount = TM.getSubtargetImpl()->getDelaySlotCycles(&*I);
+        unsigned maxCount = PST.getDelaySlotCycles(&*I);
         unsigned count = 0;
-        for (MachineBasicBlock::iterator K = llvm::next(I), E = MBB.end();
+        for (MachineBasicBlock::iterator K = next(I), E = MBB.end();
              K != E && count < maxCount; ++K, ++count) {
-          TII->skipPseudos(MBB, K);
+          PII->skipPseudos(MBB, K);
           if (K->getOpcode() != Patmos::NOP) {
             onlyNops = false;
           }
@@ -152,17 +151,17 @@ bool PatmosDelaySlotKiller::killDelaySlots(MachineBasicBlock &MBB) {
           case Patmos::RET:    NewOpcode = Patmos::RETND; break;
           case Patmos::XRET:   NewOpcode = Patmos::XRETND; break;
           }
-          const MCInstrDesc &nonDelayed = TII->get(NewOpcode);
+          const MCInstrDesc &nonDelayed = PII->get(NewOpcode);
           MI->setDesc(nonDelayed);
 
           unsigned killCount = 0;
-          MachineBasicBlock::iterator K = llvm::next(I);
+          MachineBasicBlock::iterator K = next(I);
           for (MachineBasicBlock::iterator E = MBB.end();
                K != E && killCount < count; ++K, ++killCount) {
-            TII->skipPseudos(MBB, K);
+            PII->skipPseudos(MBB, K);
             KilledSlots++;
           }
-          MBB.erase(llvm::next(I), K);
+          MBB.erase(next(I), K);
         }
       }
       Changed = true; // pass result

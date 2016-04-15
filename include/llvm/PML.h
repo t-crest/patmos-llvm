@@ -10,6 +10,8 @@
 #ifndef LLVM_CODEGEN_PML_H_
 #define LLVM_CODEGEN_PML_H_
 
+#include "llvm/IR/CFG.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Module.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
@@ -20,8 +22,6 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/DebugInfo.h"
-#include "llvm/Support/CFG.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
@@ -179,6 +179,9 @@ struct ScalarTraits<Name> {
     value.NameStr = scalar.str();
     return StringRef();
   }
+  static bool mustQuote(StringRef Scalar) {
+    return ScalarTraits<StringRef>::mustQuote(Scalar);
+  }
 };
 template <> struct SequenceTraits< std::vector<Name> > {
   static size_t size(IO &io, std::vector<Name> &seq) {
@@ -333,13 +336,13 @@ struct Block {
   /// Does not update the location once a valid source location has been set
   /// (ie. after first instruction that mapped to a debug location).
   void setSrcLocOnce(const DebugLoc &dl, MDNode *ScopeMD) {
-    if (Loc.empty() && !dl.isUnknown()) {
-      DIScope Scope(ScopeMD);
-      assert((!Scope || Scope.isScope()) &&
+    if (Loc.empty() && dl) {
+      DIScope *Scope = cast<DIScope>(ScopeMD);
+      assert((!Scope) &&
         "Scope of a DebugLoc should be null or a DIScope.");
       std::stringstream ss;
       if (Scope)
-        ss << Scope.getFilename().str() << ":";
+        ss << Scope->getFilename().str() << ":";
       ss << dl.getLine();
       Loc = ss.str();
     }

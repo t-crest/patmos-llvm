@@ -184,5 +184,6 @@ def PatmosGenericModel : SchedMachineModel {
     let IssueWidth = 2;
     let Itineraries = PatmosGenericItineraries;
     let LoadLatency = 1;
+    let PostRAScheduler = 1;
 }
 

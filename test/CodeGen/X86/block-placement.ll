@@ -309,7 +309,7 @@ define void @unnatural_cfg1() {
 ; CHECK: unnatural_cfg1
 ; CHECK: %entry
 ; CHECK: %loop.body1
-; CHECK: in Loop: Header=
+; CHECK: %loop.body2
 ; CHECK: %loop.body3
 
 entry:
@@ -348,7 +348,7 @@ define void @unnatural_cfg2() {
 ; CHECK: %entry
 ; CHECK: %loop.body1
 ; CHECK: %loop.body2
-; CHECK: in Loop: Header=
+; CHECK: %loop.body3
 ; CHECK: %loop.inner1.begin
 ; The end block is folded with %loop.body3...
 ; CHECK-NOT: %loop.inner1.end

@@ -102,7 +102,7 @@ namespace llvm {
   /// allows to pick the best instruction or bundle currently available.
   class PatmosLatencyQueue {
   private:
-    const PatmosInstrInfo &PII;
+    const PatmosInstrInfo *PII;
 
     /// Max number of slots to fill when selecting a bundle.
     unsigned IssueWidth;
@@ -119,13 +119,7 @@ namespace llvm {
     std::vector<SUnit*> AvailableQueue;
 
   public:
-    PatmosLatencyQueue(const PatmosTargetMachine &PTM)
-    : PII(*PTM.getInstrInfo()), Cmp(false)
-    {
-      const PatmosSubtarget &PST = *PTM.getSubtargetImpl();
-
-      IssueWidth = PST.enableBundling(PTM.getOptLevel()) ?
-                   PST.getSchedModel()->IssueWidth : 1;
+    PatmosLatencyQueue() : Cmp(false) {
     }
 
     unsigned getIssueWidth() const { return IssueWidth; }
@@ -133,6 +127,8 @@ namespace llvm {
     void setIssueWidth(unsigned width) { IssueWidth = width; }
 
     void setDFSResult(ScheduleDAGPostRA *DAG);
+
+    void setSubtarget(const PatmosSubtarget &PST);
 
     void clear();
 
@@ -202,9 +198,7 @@ namespace llvm {
     /// Copied from the ILPSchedStrategy from MachineScheduler
     static const unsigned SubtreeLimit = 16;
 
-    const PatmosTargetMachine &PTM;
-    const PatmosInstrInfo &PII;
-    const PatmosRegisterInfo &PRI;
+    const PatmosTargetMachine &TM;
 
     /// The current DAG that we are scheduling
     ScheduleDAGPostRA *DAG;

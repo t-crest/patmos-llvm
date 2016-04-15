@@ -126,6 +126,19 @@ void InternalizePass::LoadFile(const char *Filename) {
   }
 }
 
+void InternalizePass::LoadFromGlobalVariable(const GlobalVariable *GV) {
+  if (!GV || !GV->hasInitializer()) return;
+
+  // Should be an array of 'i8*'.
+  const ConstantArray *InitList = dyn_cast<ConstantArray>(GV->getInitializer());
+  if (InitList == 0) return;
+
+  for (unsigned i = 0, e = InitList->getNumOperands(); i != e; ++i)
+    if (const Function *F =
+          dyn_cast<Function>(InitList->getOperand(i)->stripPointerCasts()))
+      ExternalNames.insert(F->getName());
+}
+
 static bool isExternallyVisible(const GlobalValue &GV,
                                 const std::set<std::string> &ExternalNames) {
   // Function must be defined here

@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/MC/MCNullStreamer.h"
+#include "llvm/MC/MCStreamer.h"
 
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCInst.h"

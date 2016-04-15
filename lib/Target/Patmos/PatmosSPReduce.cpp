@@ -67,7 +67,6 @@
 #include <queue>
 #include <algorithm>
 #include <sstream>
-#include <iostream>
 
 
 using namespace llvm;
@@ -96,15 +95,13 @@ namespace {
 
     friend class LinearizeWalker;
 
-    const PatmosTargetMachine &TM;
-    const PatmosSubtarget &STC;
-    const PatmosInstrInfo *TII;
-    const PatmosRegisterInfo *TRI;
-
     // The pointer to the PatmosMachinFunctionInfo is set upon running on a
     // particular function. It contains information about stack slots for
     // predicate spilling and loop bounds.
     const PatmosMachineFunctionInfo *PMFI;
+
+    const PatmosInstrInfo *TII;
+    const PatmosRegisterInfo *TRI;
 
     PatmosSinglePathInfo *PSPI;
 
@@ -272,14 +269,7 @@ namespace {
 
   public:
     /// PatmosSPReduce - Initialize with PatmosTargetMachine
-    PatmosSPReduce(const PatmosTargetMachine &tm) :
-      MachineFunctionPass(ID), TM(tm),
-      STC(tm.getSubtarget<PatmosSubtarget>()),
-      TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
-      TRI(static_cast<const PatmosRegisterInfo*>(tm.getRegisterInfo()))
-    {
-      (void) TM; // silence "unused"-warning
-    }
+    PatmosSPReduce() : MachineFunctionPass(ID) { }
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {
@@ -297,9 +287,15 @@ namespace {
     virtual bool runOnMachineFunction(MachineFunction &MF) {
       PSPI = &getAnalysis<PatmosSinglePathInfo>();
       PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
+
+      const PatmosSubtarget &PST =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+      TII = PST.getInstrInfo();
+      TRI = PST.getRegisterInfo();
+
       bool changed = false;
       // only convert function if marked
-      if ( PSPI->isConverting(MF) ) {
+      if (PSPI->isConverting(MF) ) {
         DEBUG( dbgs() << "[Single-Path] Reducing "
                       << MF.getFunction()->getName() << "\n" );
         doReduceFunction(MF);
@@ -641,7 +637,7 @@ namespace {
         // for the data-flow analyses
         for (MachineFunction::iterator MBB = MF.begin(), MBBe = MF.end();
             MBB != MBBe; ++MBB) {
-          BlockInfos.insert(std::make_pair(MBB, Blockinfo(NumFIs)));
+          BlockInfos.insert(std::make_pair(&*MBB, Blockinfo(NumFIs)));
         }
 
         DEBUG(dbgs() << "Removing redundant loads:\n");
@@ -902,8 +898,8 @@ namespace {
 
 /// createPatmosSPReducePass - Returns a new PatmosSPReduce
 /// \see PatmosSPReduce
-FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
-  return new PatmosSPReduce(tm);
+FunctionPass *llvm::createPatmosSPReducePass() {
+  return new PatmosSPReduce();
 }
 
 
@@ -1381,7 +1377,7 @@ void PatmosSPReduce::moveDefUseGuardInstsToEnd(void) {
     // the first branch at the end of MBB
     MachineBasicBlock::iterator MI = MBB->getFirstTerminator();
     // if it is not the last instruction, make it the last
-    if (static_cast<MachineInstr*>(prior(MI)) != DefUseMI) {
+    if (static_cast<MachineInstr*>(prev(MI)) != DefUseMI) {
       MBB->splice(MI, MBB, DefUseMI);
 
       DEBUG( dbgs() << "   in MBB#" << MBB->getNumber() << ": ";
@@ -1405,7 +1401,7 @@ void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
 
     // restore kill flag at the last use
     // To this end, we search the instruction in which it was last used.
-    for (MachineBasicBlock::iterator lastMI = prior(firstTI),
+    for (MachineBasicBlock::iterator lastMI = prev(firstTI),
         firstMI = MBB->begin();
         lastMI != firstMI; --lastMI) {
       MachineOperand *MO;
@@ -1488,7 +1484,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
             .addFrameIndex(fi).addImm(0) // address
             .addReg(Patmos::R9, RegState::Kill);
           // restore from stack slot (after the call MI)
-          AddDefaultPred(BuildMI(*MBB, llvm::next(MI), DL,
+          AddDefaultPred(BuildMI(*MBB, next(MI), DL,
                 TII->get(Patmos::LWC), Patmos::R9))
             .addFrameIndex(fi).addImm(0); // address
           ++MI; // skip the load operation
@@ -1754,7 +1750,7 @@ void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
         // get reg it uses
         unsigned reg = MI->getOperand(3).getReg();
         // search up for def of reg (load from stack slot)
-        MachineBasicBlock::iterator DMI = prior(MI);
+        MachineBasicBlock::iterator DMI = prev(MI);
         bool found = false;
         while (!found) {
           // if DMI defines reg

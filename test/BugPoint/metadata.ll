@@ -1,4 +1,4 @@
-; RUN: bugpoint -load %llvmshlibdir/BugpointPasses%shlibext %s -output-prefix %t -bugpoint-crashcalls -silence-passes -mlimit=0 > /dev/null
+; RUN: bugpoint -load %llvmshlibdir/BugpointPasses%shlibext %s -output-prefix %t -bugpoint-crashcalls -silence-passes > /dev/null
 ; RUN: llvm-dis %t-reduced-simplified.bc -o - | FileCheck %s
 ; REQUIRES: loadable_module
 

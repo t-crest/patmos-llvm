@@ -17,8 +17,9 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCInst.h"
-#include "llvm/MC/MCNullStreamer.h"
+#include "llvm/MC/MCStreamer.h"
 #include "PatmosRegisterInfo.h"
 #include "MCTargetDesc/PatmosMCTargetDesc.h"
 #include "MCTargetDesc/PatmosBaseInfo.h"
@@ -29,19 +30,18 @@
 
 namespace llvm {
 
-class PatmosTargetMachine;
 class PatmosSubtarget;
 
 // TODO move this class into a separate header, track call sites and stack
 // cache control instructions, use in CallGraphBuilder, ...
-class PatmosInstrAnalyzer : public MCNullStreamer {
+class PatmosInstrAnalyzer : public MCStreamer {
   const MCInstrInfo &MII;
   unsigned count;
   unsigned size;
   bool call;
 public:
   PatmosInstrAnalyzer(MCContext &ctx)
-    : MCNullStreamer(ctx), MII(*ctx.getInstrInfo()), count(0), size(0),
+    : MCStreamer(ctx), MII(*ctx.getInstrInfo()), count(0), size(0),
       call(false)
     {
     }
@@ -64,30 +64,37 @@ public:
     size += MID.getSize();
     call |= MID.isCall();
   }
+
+  virtual bool EmitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attr) {
+    return true;
+  }
+
+  virtual void EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
+                                unsigned ByteAlignment) {
+    size += Size;
+  }
+
+  virtual void EmitZerofill(MCSection *Section, MCSymbol *Symbol = nullptr,
+                            uint64_t Size = 0, unsigned ByteAlignment = 0) {
+    size += Size;
+  }
 };
 
 class PatmosInstrInfo : public PatmosGenInstrInfo {
-  PatmosTargetMachine &PTM;
   const PatmosRegisterInfo RI;
   const PatmosSubtarget &PST;
 public:
-  explicit PatmosInstrInfo(PatmosTargetMachine &TM);
+  explicit PatmosInstrInfo(PatmosSubtarget &pst);
 
   virtual ~PatmosInstrInfo() {}
 
-  /// getRegisterInfo - TargetInstrInfo is a superset of MRegister info.  As
-  /// such, whenever a client has an instance of instruction info, it should
-  /// always be able to get register info as well (through this method).
-  ///
-  virtual const TargetRegisterInfo &getRegisterInfo() const { return RI; }
-
-  const PatmosRegisterInfo &getPatmosRegisterInfo() const { return RI; }
+  const PatmosRegisterInfo &getRegisterInfo() const { return RI; }
 
   /// findCommutedOpIndices - If specified MI is commutable, return the two
   /// operand indices that would swap value. Return false if the instruction
   /// is not in a form which this routine understands.
-  virtual bool findCommutedOpIndices(MachineInstr *MI, unsigned &SrcOpIdx1,
-                                     unsigned &SrcOpIdx2) const;
+  bool findCommutedOpIndices(MachineInstr *MI, unsigned &SrcOpIdx1,
+                             unsigned &SrcOpIdx2) const override;
 
   void copyPhysReg(MachineBasicBlock &MBB,
                    MachineBasicBlock::iterator I, DebugLoc DL,
@@ -124,8 +131,8 @@ public:
 
   /// insertNoop - Insert a noop into the instruction stream at the specified
   /// point.
-  virtual void insertNoop(MachineBasicBlock &MBB,
-                          MachineBasicBlock::iterator MI) const;
+  void insertNoop(MachineBasicBlock &MBB,
+                  MachineBasicBlock::iterator MI) const override;
 
 
   /// expandPostRAPseudo - This function is called for all pseudo instructions
@@ -134,13 +141,13 @@ public:
   /// into real instructions. The target can edit MI in place, or it can insert
   /// new instructions and erase MI. The function should return true if
   /// anything was changed.
-  virtual bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const;
+  bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const override;
 
   /// isSchedulingBoundary - Test if the given instruction should be
   /// considered a scheduling boundary.
-  virtual bool isSchedulingBoundary(const MachineInstr *MI,
-                                              const MachineBasicBlock *MBB,
-                                              const MachineFunction &MF) const;
+  bool isSchedulingBoundary(const MachineInstr *MI,
+                            const MachineBasicBlock *MBB,
+                            const MachineFunction &MF) const override;
 
   virtual DFAPacketizer*
   CreateTargetScheduleState(const TargetMachine *TM,
@@ -249,7 +256,7 @@ public:
   /// the bundle contains an instruction with the opcode if this is a bundle.
   /// Returns either the first instruction in the bundle matching the opcode,
   /// the instruction itself, or 0 if no instruction matches the opcode.
-  const MachineInstr *hasOpcode(const MachineInstr *MI, int Opcode) const;
+  const MachineInstr *hasOpcode(const MachineInstr *MI, unsigned Opcode) const;
 
   /// hasRegUse - Check if the given instruction uses any register.
   bool hasRegUse(const MachineInstr *MI) const;
@@ -299,14 +306,14 @@ public:
 
   bool canIssueInSlot(const MachineInstr *MI, unsigned Slot) const;
 
-  virtual int getOperandLatency(const InstrItineraryData *ItinData,
-                                const MachineInstr *DefMI, unsigned DefIdx,
-                                const MachineInstr *UseMI,
-                                unsigned UseIdx) const;
+  int getOperandLatency(const InstrItineraryData *ItinData,
+                        const MachineInstr *DefMI, unsigned DefIdx,
+                        const MachineInstr *UseMI,
+                        unsigned UseIdx) const override;
 
-  virtual int getDefOperandLatency(const InstrItineraryData *ItinData,
-                                   const MachineInstr *DefMI,
-                                   unsigned DefIdx) const;
+  int getDefOperandLatency(const InstrItineraryData *ItinData,
+                           const MachineInstr *DefMI,
+                           unsigned DefIdx) const;
 
   /////////////////////////////////////////////////////////////////////////////
   // Branch handling
@@ -323,15 +330,15 @@ public:
   /// true if it cannot be understood (e.g. it's a switch dispatch or isn't
   /// implemented for a target).
   /// \see TargetInstrInfo::AnalyzeBranch
-  virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
-                             MachineBasicBlock *&FBB,
-                             SmallVectorImpl<MachineOperand> &Cond,
-                             bool AllowModify = false) const;
+  bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                     MachineBasicBlock *&FBB,
+                     SmallVectorImpl<MachineOperand> &Cond,
+                     bool AllowModify = false) const override;
 
   /// RemoveBranch - Remove the branching code at the end of the specific MBB.
   /// This is only invoked in cases where AnalyzeBranch returns success. It
   /// returns the number of instructions that were removed.
-  virtual unsigned RemoveBranch(MachineBasicBlock &MBB) const;
+  unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
 
   /// InsertBranch - Insert branch code into the end of the specified
   /// MachineBasicBlock.  The operands to this method are the same as those
@@ -339,16 +346,15 @@ public:
   /// AnalyzeBranch returns success. It returns the number of instructions
   /// inserted.
   /// \see TargetInstrInfo::InsertBranch
-  virtual unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
-                                MachineBasicBlock *FBB,
-                                const SmallVectorImpl<MachineOperand> &Cond,
-                                DebugLoc DL) const;
+  unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                        MachineBasicBlock *FBB,
+                        ArrayRef<MachineOperand> Cond,
+                        DebugLoc DL) const override;
 
   /// ReverseBranchCondition - Reverses the branch condition of the specified
   /// condition list, returning false on success and true if it cannot be
   /// reversed.
-  virtual bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond)
-                                      const;
+  bool ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
 
 
 
@@ -360,13 +366,13 @@ public:
   /// isPredicated - If the instruction has other than default predicate
   /// operands (p0), return true.
   /// Return false if the branch instruction has default predicate operands.
-  virtual bool isPredicated(const MachineInstr *MI) const;
+  bool isPredicated(const MachineInstr *MI) const override;
 
   /// isUnpredicatedTerminator - Returns true if the instruction is a
   /// terminator instruction that has not been predicated.
   /// IMPORTANT: returns also true for conditional branches,
   ///            they are an exception
-  virtual bool isUnpredicatedTerminator(const MachineInstr *MI) const;
+  bool isUnpredicatedTerminator(const MachineInstr *MI) const override;
 
   /// haveDisjointPredicates - check if the predicates of the two instructions
   /// can never be true at the same time (but they might be false at the same
@@ -387,36 +393,33 @@ public:
 
   /// PredicateInstruction - Convert the instruction into a predicated
   /// instruction. It returns true if the operation was successful.
-  virtual
   bool PredicateInstruction(MachineInstr *MI,
-                            const SmallVectorImpl<MachineOperand> &Pred) const;
+                            ArrayRef<MachineOperand> Pred) const override;
 
   /// SubsumesPredicate - Returns true if the first specified predicate
   /// subsumes the second.
   /// For Patmos, the default predicate subsumes all others.
   /// For all other cases, predicate equality is checked.
-  virtual
-  bool SubsumesPredicate(const SmallVectorImpl<MachineOperand> &Pred1,
-                         const SmallVectorImpl<MachineOperand> &Pred2) const;
+  bool SubsumesPredicate(ArrayRef<MachineOperand> Pred1,
+                         ArrayRef<MachineOperand> Pred2) const override;
 
   /// DefinesPredicate - If the specified instruction defines any predicate
   /// register, it returns true as well as the defined predicate register.
   /// NOTE: currently this is the only place where only one operand is put
   ///       into the Pred vector.
-  virtual bool DefinesPredicate(MachineInstr *MI,
-                                std::vector<MachineOperand> &Pred) const;
+  bool DefinesPredicate(MachineInstr *MI,
+                        std::vector<MachineOperand> &Pred) const override;
 
   /// isProfitableToIfCvt - Return true if it's profitable to predicate
   /// instructions with accumulated instruction latency of "NumCycles"
   /// of the specified basic block, where the probability of the instructions
   /// being executed is given by Probability, and Confidence is a measure
   /// of our confidence that it will be properly predicted.
-  virtual
   bool isProfitableToIfCvt(MachineBasicBlock &MBB, unsigned NumCycles,
                            unsigned ExtraPredCycles,
-                           const BranchProbability &Probability) const {
+                           BranchProbability Probability) const override {
 
-    const MCInstrDesc &MCID = prior(MBB.end())->getDesc();
+    const MCInstrDesc &MCID = prev(MBB.end())->getDesc();
     if (MCID.isReturn() || MCID.isCall())
       return false;
     if (NumCycles > 8)
@@ -433,16 +436,16 @@ public:
   /// predicates, where the probability of the true path being taken is given
   /// by Probability, and Confidence is a measure of our confidence that it
   /// will be properly predicted.
-  virtual bool
+  bool
   isProfitableToIfCvt(MachineBasicBlock &TMBB,
                       unsigned NumTCycles, unsigned ExtraTCycles,
                       MachineBasicBlock &FMBB,
                       unsigned NumFCycles, unsigned ExtraFCycles,
-                      const BranchProbability &Probability) const {
-    const MCInstrDesc &TMCID = prior(TMBB.end())->getDesc();
+                      BranchProbability Probability) const override {
+    const MCInstrDesc &TMCID = prev(TMBB.end())->getDesc();
     if (TMCID.isReturn() || TMCID.isCall())
       return false;
-    const MCInstrDesc &FMCID = prior(FMBB.end())->getDesc();
+    const MCInstrDesc &FMCID = prev(FMBB.end())->getDesc();
     if (FMCID.isReturn() || FMCID.isCall())
       return false;
     if ((NumTCycles + NumFCycles) > 16)
@@ -459,10 +462,10 @@ public:
   /// The probability of the instructions being executed is given by
   /// Probability, and Confidence is a measure of our confidence that it
   /// will be properly predicted.
-  virtual bool
+  bool
   isProfitableToDupForIfCvt(MachineBasicBlock &MBB, unsigned NumCycles,
-                            const BranchProbability &Probability) const {
-    const MCInstrDesc &MCID = prior(MBB.end())->getDesc();
+                            BranchProbability Probability) const override {
+    const MCInstrDesc &MCID = prev(MBB.end())->getDesc();
     if (MCID.isReturn() || MCID.isCall())
       return false;
     return NumCycles <= 4;

@@ -1008,10 +1008,14 @@ bool MatchableInfo::validate(StringRef CommentDelimiter, bool Hack) const {
   std::set<std::string> OperandNames;
   for (const AsmOperand &Op : AsmOperands) {
     StringRef Tok = Op.Token;
-    if (Tok[0] == '$' && Tok.find(':') != StringRef::npos)
+
+    // Check for special format ('$:..' or '${:..}'), this is not supported yet
+    if (Tok[0] == '$' && ((Tok.size() > 1 && Tok[1] == ':') ||
+                          (Tok.size() > 2 && Tok[1] == '{' && Tok[2] == ':'))) {
       PrintFatalError(TheDef->getLoc(),
-                      "matchable with operand modifier '" + Tok +
+                      "matchable with special modifier '" + Tok +
                       "' not supported by asm matcher.  Mark isCodeGenOnly!");
+    }
 
     // Verify that any operand is only mentioned once.
     // We reject aliases and ignore instructions for now.
@@ -1495,6 +1499,11 @@ void AsmMatcherInfo::buildInfo() {
         OperandName = Token.substr(2, Token.size() - 3);
       else
         OperandName = Token.substr(1);
+
+      // check for modifiers (we ruled out special modifiers ($:.. / ${:..}) in Verify
+      std::pair<StringRef,StringRef> mod = OperandName.split(':');
+      OperandName = mod.first;
+      Op.Modifier = mod.second;
 
       if (II->DefRec.is<const CodeGenInstruction*>())
         buildInstructionOperandReference(II.get(), OperandName, i);

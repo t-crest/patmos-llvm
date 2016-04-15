@@ -37,15 +37,13 @@
 using namespace llvm;
 
 // FIXME: Provide proper call frame setup / destroy opcodes.
-PatmosRegisterInfo::PatmosRegisterInfo(PatmosTargetMachine &tm,
-                                       const TargetInstrInfo &tii)
-  : PatmosGenRegisterInfo(Patmos::R1), TM(tm), TII(tii) {
-  StackAlign = TM.getFrameLowering()->getStackAlignment();
+PatmosRegisterInfo::PatmosRegisterInfo(const TargetInstrInfo &tii)
+  : PatmosGenRegisterInfo(Patmos::R1), TII(tii) {
 }
 
 const uint16_t*
 PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
-  const TargetFrameLowering *TFI = TM.getFrameLowering();
+  const TargetFrameLowering *TFI = MF->getSubtarget().getFrameLowering();
   //const Function* F = MF->getFunction();
   static const uint16_t CalleeSavedRegs[] = {
     // Special regs
@@ -76,7 +74,7 @@ PatmosRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
 
 BitVector PatmosRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
-  const TargetFrameLowering *TFI = TM.getFrameLowering();
+  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
 
   Reserved.set(Patmos::R0);
   Reserved.set(Patmos::P0);
@@ -169,8 +167,8 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         //   we implement it as a predicated store of a non-zero value
         //   followed by a predicated (inverted) store of 0
         BuildMI(MBB, II, DL, TII.get(st_opc))
-          .addOperand(SrcRegOpnd).addImm(0) // predicate
-          .addReg(basePtr, false).addImm(offset) // adress
+          .addReg(SrcRegOpnd.getReg()).addImm(0) // predicate
+          .addReg(basePtr).addImm(offset) // adress
           .addReg(Patmos::RSP); // a non-zero value, i.e. RSP
 
         // if we are writing $p0 to a stack slot (e.g. to overwrite a prev.
@@ -178,7 +176,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         if (SrcRegOpnd.getReg() != Patmos::P0) {
           BuildMI(MBB, II, DL, TII.get(st_opc))
             .addOperand(SrcRegOpnd).addImm(1) // predicate, inverted
-            .addReg(basePtr, false).addImm(offset) // address
+            .addReg(basePtr).addImm(offset) // address
             .addReg(Patmos::R0); // zero
         }
       }
@@ -191,7 +189,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
         unsigned DestReg = PseudoMI.getOperand(0).getReg();
 
         AddDefaultPred(BuildMI(MBB, II, DL, TII.get(ld_opc), Patmos::RTR))
-          .addReg(basePtr, false).addImm(offset); // address
+          .addReg(basePtr).addImm(offset); // address
         AddDefaultPred(BuildMI(MBB, II, DL, TII.get(Patmos::MOVrp), DestReg))
           .addReg(Patmos::RTR, RegState::Kill); // mov p <- r
       }
@@ -212,7 +210,7 @@ PatmosRegisterInfo::expandPseudoPregInstr(MachineBasicBlock::iterator II,
 void
 PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                         int SPAdj, unsigned FIOperandNum,
-					RegScavenger *RS) const 
+                                        RegScavenger *RS) const
 {
   assert(SPAdj == 0 && "Unexpected");
 
@@ -220,7 +218,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineInstr &MI                = *II;
   MachineBasicBlock &MBB          = *MI.getParent();
   MachineFunction &MF             = *MBB.getParent();
-  const TargetFrameLowering &TFI  = *TM.getFrameLowering();
+  const TargetFrameLowering &TFI  = *MF.getSubtarget().getFrameLowering();
   const MachineFrameInfo &MFI     = *MF.getFrameInfo();
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
   MachineRegisterInfo &MRI        = MF.getRegInfo();
@@ -362,7 +360,7 @@ PatmosRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 }
 
 unsigned PatmosRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  const TargetFrameLowering *TFI = TM.getFrameLowering();
+  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
 
   return TFI->hasFP(MF) ? Patmos::RFP : Patmos::RSP;
 }

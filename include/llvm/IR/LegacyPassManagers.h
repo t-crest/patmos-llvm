@@ -215,11 +215,6 @@ public:
     return ImmutablePasses;
   }
 
-  /// Find the immutable pass that implements Analysis AID.
-  /// If desired pass is not found in this manager, then return NULL.
-  /// Inherited pass managers are not searched.
-  Pass *getImmutablePass(AnalysisID AID);
-
   void addPassManager(PMDataManager *Manager) {
     PassManagers.push_back(Manager);
   }
@@ -231,7 +226,7 @@ public:
   }
 
   // Print passes managed by this top level manager.
-  void dumpPasses(unsigned Offset = 0) const;
+  void dumpPasses() const;
   void dumpArguments() const;
 
   // Active Pass Managers
@@ -261,6 +256,8 @@ private:
   /// Map from ID to immutable passes.
   SmallDenseMap<AnalysisID, ImmutablePass *, 8> ImmutablePassMap;
 
+  /// TopLevelManagers from which ImmutablePasses are inherited
+  SmallVector<PMTopLevelManager *, 4> InheritedPassManagers;
 
   /// A wrapper around AnalysisUsage for the purpose of uniqueing.  The wrapper
   /// is used to avoid needing to make AnalysisUsage itself a folding set node.

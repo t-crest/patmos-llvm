@@ -47,7 +47,6 @@
 
 #include <map>
 #include <sstream>
-#include <iostream>
 
 
 using namespace llvm;
@@ -61,10 +60,6 @@ namespace {
     /// Pass ID
     static char ID;
 
-    const PatmosTargetMachine &TM;
-    const PatmosSubtarget &STC;
-    const PatmosInstrInfo *TII;
-
     /// doPrepareFunction - Reduce a given MachineFunction
     void doPrepareFunction(MachineFunction &MF);
 
@@ -72,12 +67,7 @@ namespace {
 
   public:
     /// PatmosSPPrepare - Initialize with PatmosTargetMachine
-    PatmosSPPrepare(const PatmosTargetMachine &tm) :
-      MachineFunctionPass(ID), TM(tm),
-      STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())) {
-      (void) TM;
-    }
+    PatmosSPPrepare() : MachineFunctionPass(ID) { }
 
     /// getPassName - Return the pass' name.
     virtual const char *getPassName() const {
@@ -113,8 +103,8 @@ namespace {
 
 /// createPatmosSPPreparePass - Returns a new PatmosSPPrepare
 /// \see PatmosSPPrepare
-FunctionPass *llvm::createPatmosSPPreparePass(const PatmosTargetMachine &tm) {
-  return new PatmosSPPrepare(tm);
+FunctionPass *llvm::createPatmosSPPreparePass() {
+  return new PatmosSPPrepare();
 }
 
 ///////////////////////////////////////////////////////////////////////////////

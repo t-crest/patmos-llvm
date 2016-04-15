@@ -32,7 +32,6 @@
 #include "llvm/CodeGen/AntiDepBreaker.h"
 #include "llvm/CodeGen/CriticalAntiDepBreaker.h"
 #include "llvm/CodeGen/LatencyPriorityQueue.h"
-#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -88,12 +87,10 @@ namespace {
       initializePatmosPostRASchedulerPass(*PassRegistry::getPassRegistry());
     }
 
-    void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
-      AU.addRequired<AliasAnalysis>();
+      AU.addRequired<AAResultsWrapperPass>();
       AU.addRequired<TargetPassConfig>();
-      AU.addRequired<MachineDominatorTree>();
-      AU.addPreserved<MachineDominatorTree>();
       AU.addRequired<MachineLoopInfo>();
       AU.addPreserved<MachineLoopInfo>();
       MachineFunctionPass::getAnalysisUsage(AU);
@@ -107,8 +104,13 @@ namespace {
 
 char &llvm::PatmosPostRASchedulerID = PatmosPostRAScheduler::ID;
 
-INITIALIZE_PASS(PatmosPostRAScheduler, "patmos-post-RA-sched",
-                "Patmos Post RA scheduler", false, false)
+INITIALIZE_PASS_BEGIN(PatmosPostRAScheduler, "patmos-post-RA-sched",
+                      "Patmos Post RA scheduler", false, false)
+INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(TargetPassConfig)
+INITIALIZE_PASS_DEPENDENCY(MachineLoopInfo)
+INITIALIZE_PASS_END(PatmosPostRAScheduler, "patmos-post-RA-sched",
+                    "Patmos Post RA scheduler", false, false)
 
 /// Decrement this iterator until reaching the top or a non-debug instr.
 static MachineBasicBlock::iterator
@@ -137,9 +139,8 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
   // Initialize the context of the pass.
   MF = &mf;
   MLI = &getAnalysis<MachineLoopInfo>();
-  MDT = &getAnalysis<MachineDominatorTree>();
   PassConfig = &getAnalysis<TargetPassConfig>();
-  AA = &getAnalysis<AliasAnalysis>();
+  AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
 
   RegClassInfo->runOnMachineFunction(*MF);
 
@@ -148,10 +149,8 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
 
   // Check that post-RA scheduling is enabled for this target.
   // This may upgrade the AntiDepMode.
-  const TargetSubtargetInfo &ST =
-                             mf.getTarget().getSubtarget<TargetSubtargetInfo>();
-  if (!ST.enablePostRAScheduler(PassConfig->getOptLevel(), AntiDepMode,
-                                CriticalPathRCs))
+  const TargetSubtargetInfo &ST = mf.getSubtarget();
+  if (!ST.enablePostRAScheduler())
     return false;
 
   // Check for antidep breaking override...
@@ -168,13 +167,13 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
                       static_cast<const PatmosTargetMachine*>(&mf.getTarget());
   PostRASchedStrategy *S = new PatmosPostRASchedStrategy(*PTM);
 
-  OwningPtr<ScheduleDAGPostRA> Scheduler(new ScheduleDAGPostRA(this, S));
+  std::unique_ptr<ScheduleDAGPostRA> Scheduler(new ScheduleDAGPostRA(this, S));
 
   // Visit all machine basic blocks.
   for (MachineFunction::iterator MBB = MF->begin(), MBBEnd = MF->end();
        MBB != MBBEnd; ++MBB) {
 
-    Scheduler->startBlock(MBB);
+    Scheduler->startBlock(&*MBB);
 
     // Break the block into scheduling regions [I, RegionEnd), and schedule each
     // region as soon as it is discovered. RegionEnd points the scheduling
@@ -197,9 +196,9 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
       // them.
       if (!Scheduler->canHandleTerminators()) {
         if (RegionEnd != MBB->end() ||
-            Scheduler->isSchedulingBoundary(RegionEnd, MBB, *MF))
+            Scheduler->isSchedulingBoundary(&*RegionEnd, &*MBB, *MF))
         {
-          RegionEnd = llvm::prior(RegionEnd);
+          RegionEnd = std::prev(RegionEnd);
           --EndIndex;
 
           Scheduler->observe(RegionEnd, EndIndex);
@@ -208,10 +207,10 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
 
       // The next region starts above the previous region. Look backward in the
       // instruction stream until we find the nearest boundary.
-      MachineBasicBlock::iterator I = llvm::prior(RegionEnd);
+      MachineBasicBlock::iterator I = std::prev(RegionEnd);
       unsigned StartIndex = EndIndex - 1;
       for(;I != MBB->begin(); --I, --StartIndex) {
-        if (Scheduler->isSchedulingBoundary(llvm::prior(I), MBB, *MF))
+        if (Scheduler->isSchedulingBoundary(&*std::prev(I), &*MBB, *MF))
           break;
         assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
       }
@@ -219,7 +218,7 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
 
       // Notify the scheduler of the region, even if we may skip scheduling
       // it. Perhaps it still needs to be bundled.
-      Scheduler->enterRegion(MBB, I, RegionEnd, EndIndex);
+      Scheduler->enterRegion(&*MBB, I, RegionEnd, EndIndex);
 
       // Skip empty scheduling regions.
       if (I == RegionEnd) {
@@ -258,7 +257,7 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
 
 
 PostRASchedContext::PostRASchedContext():
-    MF(0), MLI(0), MDT(0), PassConfig(0), AA(0),
+    MF(0), MLI(0), PassConfig(0), AA(0),
     AntiDepMode(TargetSubtargetInfo::ANTIDEP_NONE) {
   RegClassInfo = new RegisterClassInfo();
 }
@@ -271,7 +270,7 @@ PostRASchedContext::~PostRASchedContext() {
 
 ScheduleDAGPostRA::ScheduleDAGPostRA(PostRASchedContext *C,
                                      PostRASchedStrategy *S)
-  : ScheduleDAGInstrs(*C->MF, *C->MLI, *C->MDT, /*IsPostRA=*/true),
+  : ScheduleDAGInstrs(*C->MF, C->MLI, /*IsPostRA=*/true),
     SchedImpl(S), DFSResult(0), Topo(SUnits, &ExitSU), EndIndex(0), AA(C->AA),
     LiveRegs(TRI->getNumRegs())
 {
@@ -595,7 +594,7 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
       TII->insertNoop(*BB, CurrentTop);
       // set ReginBegin to the NOP if we inserted a NOP at the region start
       if (CurrentTop == RegionBegin) {
-	RegionBegin = llvm::prior(CurrentTop);
+        RegionBegin = std::prev(CurrentTop);
       }
     }
   }
@@ -620,13 +619,13 @@ void ScheduleDAGPostRA::scheduleMI(SUnit *SU, bool IsTopNode, bool IsBundled) {
       TII->insertNoop(*BB, CurrentBottom);
       // recede Top as well if we insert a NOP at the top
       if (CurrentBottom == CurrentTop) {
-	CurrentTop = llvm::prior(CurrentTop);
+        CurrentTop = std::prev(CurrentTop);
       }
       // set ReginBegin to the NOP if we inserted a NOP at the region start
       if (CurrentBottom == RegionBegin) {
-	RegionBegin = llvm::prior(CurrentBottom);
+        RegionBegin = std::prev(CurrentBottom);
       }
-      CurrentBottom = llvm::prior(CurrentBottom);
+      CurrentBottom = std::prev(CurrentBottom);
     }
   }
 }
@@ -650,8 +649,8 @@ void ScheduleDAGPostRA::finishTopBundle()
 
   // Bundle instructions, including all debug instructions
   if (TopBundleMIs.size() > 1) {
-    MachineBasicBlock::instr_iterator MI = llvm::next(TopBundleMIs[0]);
-    for (;MI != CurrentTop; MI++) {
+    MachineBasicBlock::instr_iterator MI(std::next(TopBundleMIs[0]));
+    for (;&*MI != &*CurrentTop; MI++) {
       MI->bundleWithPred();
     }
     NumBundled++;
@@ -687,8 +686,8 @@ void ScheduleDAGPostRA::finishBottomBundle()
 
   // Bundle instructions, including all debug instructions
   if (BottomBundleMIs.size() > 1) {
-    MachineBasicBlock::instr_iterator MI = *CurrentBottom;
-    for (;MI != *BottomBundleMIs.back(); MI++) {
+    MachineBasicBlock::instr_iterator MI(*CurrentBottom);
+    for (;&*MI != &*BottomBundleMIs.back(); MI++) {
       MI->bundleWithSucc();
     }
     NumBundled++;
@@ -730,9 +729,9 @@ void ScheduleDAGPostRA::placeDebugValues() {
 
   for (std::vector<std::pair<MachineInstr *, MachineInstr *> >::iterator
          DI = DbgValues.end(), DE = DbgValues.begin(); DI != DE; --DI) {
-    std::pair<MachineInstr *, MachineInstr *> P = *prior(DI);
+    std::pair<MachineInstr *, MachineInstr *> P = *prev(DI);
     MachineInstr *DbgValue = P.first;
-    MachineBasicBlock::instr_iterator OrigPrevMI = P.second;
+    MachineBasicBlock::instr_iterator OrigPrevMI(P.second);
 
     while (OrigPrevMI->isBundledWithSucc()) {
       // Move the pointer to the end of the bundle so that the debug value is
@@ -790,7 +789,7 @@ void ScheduleDAGPostRA::startBlockForKills(MachineBasicBlock *BB) {
        SE = BB->succ_end(); SI != SE; ++SI) {
     for (MachineBasicBlock::livein_iterator I = (*SI)->livein_begin(),
          E = (*SI)->livein_end(); I != E; ++I) {
-      unsigned Reg = *I;
+      unsigned Reg = I->PhysReg;
       LiveRegs.set(Reg);
       // Repeat, for all subregs.
       for (MCSubRegIterator SubRegs(Reg, TRI); SubRegs.isValid(); ++SubRegs)

@@ -162,7 +162,7 @@ public:
   /// populateFPMBaseline - add baseline optimizations (during a -O0 build),
   /// performing mem2reg and redundancy elimination, but preserving the CFG.
   /// Used by the Clang frontend during Patmos builds
-  void populateFPMBaseline(FunctionPassManager &FPM);
+  void populateFPMBaseline(legacy::FunctionPassManager &FPM);
 
   /// populateModulePassManager - This sets up the primary pass manager.
   void populateModulePassManager(legacy::PassManagerBase &MPM);

@@ -30,16 +30,11 @@ namespace {
 
     virtual ~PatmosELFObjectWriter();
 
-    virtual const MCSymbol *ExplicitRelSym(const MCAssembler &Asm,
-                                           const MCValue &Target,
-                                           const MCFragment &F,
-                                           const MCFixup &Fixup,
-                                           bool IsPCRel) const;
+    bool needsRelocateWithSymbol(const MCSymbol &Sym,
+                                 unsigned Type) const override;
 
-    virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                                  bool IsPCRel, bool IsRelocWithSymbol,
-                                  int64_t Addend) const;
-    virtual unsigned getEFlags() const;
+    unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
+                          bool IsPCRel) const override;
   };
 }
 
@@ -49,34 +44,14 @@ PatmosELFObjectWriter::PatmosELFObjectWriter(uint8_t OSABI)
 
 PatmosELFObjectWriter::~PatmosELFObjectWriter() {}
 
-const MCSymbol *PatmosELFObjectWriter::ExplicitRelSym(const MCAssembler &Asm,
-                                                      const MCValue &Target,
-                                                      const MCFragment &F,
-                                                      const MCFixup &Fixup,
-                                                      bool IsPCRel) const {
-
-  const MCSymbol &Symbol = Target.getSymA()->getSymbol().AliasedSymbol();
-
-  // TODO do not emit symbols for strings or temporary symbols? (return NULL,
-  // emits as section symbol + offset)
-
-  // Note: also see PatmosAsmBackend::processFixupValue for Fixup->Relocation
-  // resolution. Also decides which Fixups become Symbols.
-
-  return &Symbol;
+bool PatmosELFObjectWriter::needsRelocateWithSymbol(const MCSymbol &Sym,
+                                                    unsigned Type) const {
+  return true;
 }
-
-unsigned PatmosELFObjectWriter::getEFlags() const {
-
-  return 0;
-}
-
 
 unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
-                                           const MCFixup &Fixup,
-                                           bool IsPCRel,
-                                           bool IsRelocWithSymbol,
-                                           int64_t Addend) const {
+                                             const MCFixup &Fixup,
+                                             bool IsPCRel) const {
   // TODO determine the type of the relocation, use Patmos types
 
   unsigned Kind = (unsigned)Fixup.getKind();
@@ -108,8 +83,8 @@ unsigned PatmosELFObjectWriter::GetRelocType(const MCValue &Target,
 
 
 
-MCObjectWriter *llvm::createPatmosELFObjectWriter(raw_ostream &OS,
-                                                uint8_t OSABI) {
+MCObjectWriter *llvm::createPatmosELFObjectWriter(raw_pwrite_stream &OS,
+                                                  uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new PatmosELFObjectWriter(OSABI);
   return createELFObjectWriter(MOTW, OS, false);
 }

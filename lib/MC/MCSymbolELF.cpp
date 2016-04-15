@@ -16,7 +16,7 @@ namespace llvm {
 
 namespace {
 enum {
-  // Shift value for STT_* flags. 7 possible values. 3 bits.
+  // Shift value for STT_* flags. 8 possible values. 3 bits.
   ELF_STT_Shift = 0,
 
   // Shift value for STB_* flags. 4 possible values, 2 bits.
@@ -117,6 +117,9 @@ void MCSymbolELF::setType(unsigned Type) const {
   case ELF::STT_GNU_IFUNC:
     Val = 6;
     break;
+  case ELF::STT_CODE:
+    Val = 7;
+    break;
   }
   uint32_t OtherFlags = getFlags() & ~(0x7 << ELF_STT_Shift);
   setFlags(OtherFlags | (Val << ELF_STT_Shift));
@@ -141,6 +144,8 @@ unsigned MCSymbolELF::getType() const {
     return ELF::STT_TLS;
   case 6:
     return ELF::STT_GNU_IFUNC;
+  case 7:
+    return ELF::STT_CODE;
   }
 }
 

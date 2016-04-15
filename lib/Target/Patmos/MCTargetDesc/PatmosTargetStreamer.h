@@ -18,6 +18,7 @@ class PatmosTargetStreamer : public MCTargetStreamer {
   virtual void anchor();
 
 public:
+  PatmosTargetStreamer(MCStreamer &S);
 
   /// EmitFStart - Emit a function block start block, including the
   ///              function size and alignment
@@ -34,7 +35,7 @@ class PatmosTargetAsmStreamer : public PatmosTargetStreamer {
   formatted_raw_ostream &OS;
 
 public:
-  PatmosTargetAsmStreamer(formatted_raw_ostream &OS);
+  PatmosTargetAsmStreamer(MCStreamer &S, formatted_raw_ostream &OS);
 
   virtual void EmitFStart(const MCSymbol *Start, const MCExpr* Size,
                           unsigned Alignment);
@@ -43,7 +44,7 @@ public:
 // This part is for ELF object output
 class PatmosTargetELFStreamer : public PatmosTargetStreamer {
 public:
-  MCELFStreamer &getStreamer();
+  PatmosTargetELFStreamer(MCStreamer &S);
 
   virtual void EmitFStart(const MCSymbol *Start, const MCExpr* Size,
                           unsigned Alignment);

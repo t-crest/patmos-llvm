@@ -16,7 +16,6 @@
 #include "Patmos.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/CodeGen/MachineBranchProbabilityInfo.h"
 #include "llvm/PML.h"
 #include "llvm/CodeGen/PMLImport.h"
 #include "llvm/ADT/Statistic.h"
@@ -39,20 +38,16 @@ static cl::opt<bool> UseCritEdgeWeight(
   cl::desc("Use criticalities for edge weights instead of frequencies."),
   cl::Hidden);
 
-namespace llvm {
+namespace {
 
   class PatmosPMLProfileImport : public MachineFunctionPass {
   private:
 
-    /// Target machine info
-    //const PatmosTargetMachine &TM;
-
   public:
     static char ID; // Pass identification, replacement for typeid
 
-    PatmosPMLProfileImport(const PatmosTargetMachine &TM)
-    : MachineFunctionPass(ID)
-    {
+    PatmosPMLProfileImport() : MachineFunctionPass(ID) {
+      initializePatmosPMLProfileImportPass(*PassRegistry::getPassRegistry());
     }
 
     virtual const char *getPassName() const {
@@ -62,7 +57,6 @@ namespace llvm {
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesAll();
       AU.addRequired<PMLMachineFunctionImport>();
-      AU.addRequired<MachineBranchProbabilityInfo>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -73,11 +67,14 @@ namespace llvm {
   char PatmosPMLProfileImport::ID = 0;
 }
 
+INITIALIZE_PASS_BEGIN(PatmosPMLProfileImport, "patmos-pml-import",
+                      "Patmos PML Profile Import", false, false)
+INITIALIZE_PASS_DEPENDENCY(PMLMachineFunctionImport)
+INITIALIZE_PASS_END(PatmosPMLProfileImport, "patmos-pml-import",
+                    "Patmos PML Profile Import", false, false)
 
-/// createPatmosStackCacheAnalysis - Returns a new PatmosStackCacheAnalysis.
-FunctionPass *llvm::createPatmosPMLProfileImport(const PatmosTargetMachine &tm)
-{
-  return new PatmosPMLProfileImport(tm);
+FunctionPass *llvm::createPatmosPMLProfileImport() {
+  return new PatmosPMLProfileImport();
 }
 
 bool PatmosPMLProfileImport::runOnMachineFunction(MachineFunction &MF)
@@ -90,9 +87,6 @@ bool PatmosPMLProfileImport::runOnMachineFunction(MachineFunction &MF)
 
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
   PatmosAnalysisInfo &PAI = PMFI.getAnalysisInfo();
-
-  MachineBranchProbabilityInfo &MBPI =
-                                getAnalysis<MachineBranchProbabilityInfo>();
 
   for (MachineFunction::iterator it = MF.begin(), ie = MF.end(); it != ie; it++)
   {
@@ -110,15 +104,18 @@ bool PatmosPMLProfileImport::runOnMachineFunction(MachineFunction &MF)
     {
       MachineBasicBlock *ToMBB = *succ;
 
-      uint32_t Weight;
+      BranchProbability Prob;
       if (UseCritEdgeWeight) {
-        Weight = round(PI.getCriticalty(MBB, ToMBB, 1.0) * 10000.0);
+        uint32_t num = round(PI.getCriticalty(MBB, ToMBB, 1.0) * 10000);
+        Prob = BranchProbability::getBranchProbability(num, 10000);
       } else {
-        Weight = PI.getWCETFrequency(MBB, ToMBB, 0);
+        Prob = BranchProbability::getRaw(PI.getWCETFrequency(MBB, ToMBB, 0));
       }
 
-      MBPI.setEdgeWeight(MBB, succ, Weight);
+      MBB->setSuccProbability(succ, Prob);
     }
+
+    MBB->normalizeSuccProbs();
   }
 
   return false;

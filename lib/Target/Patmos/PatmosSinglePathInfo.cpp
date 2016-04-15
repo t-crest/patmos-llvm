@@ -20,6 +20,7 @@
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -54,8 +55,8 @@ char PatmosSinglePathInfo::ID = 0;
 /// createPatmosSinglePathInfoPass - Returns a new PatmosSinglePathInfo pass
 /// \see PatmosSinglePathInfo
 FunctionPass *
-llvm::createPatmosSinglePathInfoPass(const PatmosTargetMachine &tm) {
-  return new PatmosSinglePathInfo(tm);
+llvm::createPatmosSinglePathInfoPass() {
+  return new PatmosSinglePathInfo();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -94,10 +95,10 @@ void PatmosSinglePathInfo::getRootNames(std::set<std::string> &S) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-PatmosSinglePathInfo::PatmosSinglePathInfo(const PatmosTargetMachine &tm)
-  : MachineFunctionPass(ID), TM(tm),
-    STC(tm.getSubtarget<PatmosSubtarget>()),
-    TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())), Root(0) {}
+PatmosSinglePathInfo::PatmosSinglePathInfo()
+  : MachineFunctionPass(ID), Root(0) {
+  initializeMachineLoopInfoPass(*PassRegistry::getPassRegistry());
+}
 
 
 bool PatmosSinglePathInfo::doInitialization(Module &M) {
@@ -749,7 +750,7 @@ PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) {
   // Then, add MBBs to the corresponding SPScopes
   for (MachineFunction::iterator FI=MF.begin(), FE=MF.end();
           FI!=FE; ++FI) {
-    MachineBasicBlock *MBB = FI;
+    MachineBasicBlock *MBB = &*FI;
     const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
     M[Loop]->addMBB(MBB);
 

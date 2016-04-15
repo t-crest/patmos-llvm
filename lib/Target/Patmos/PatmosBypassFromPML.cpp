@@ -84,13 +84,9 @@ namespace {
     /// layout, etc.
     ///
     PatmosTargetMachine &TM;
-    const PatmosInstrInfo *TII;
-    const TargetRegisterInfo *TRI;
 
     PatmosBypassFromPML(PatmosTargetMachine &tm)
-      : MachineFunctionPass(ID), TM(tm),
-        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
-        TRI(tm.getRegisterInfo()) {
+      : MachineFunctionPass(ID), TM(tm) {
       // we have to initialize the PMLImport Pass
       initializePMLImportPass(*PassRegistry::getPassRegistry());
     }
@@ -149,7 +145,12 @@ bool PatmosBypassFromPML::rewriteInstruction(MachineInstr &MI) {
 
   if (opc) {
     DEBUG( dbgs() << "  - rewrite: " << MI );
-    MI.setDesc(TII->get(opc));
+
+    const MachineFunction *MF = MI.getParent()->getParent();
+    const PatmosInstrInfo *PII =
+      static_cast<const PatmosInstrInfo*>(MF->getSubtarget().getInstrInfo());
+
+    MI.setDesc(PII->get(opc));
     Rewritten++; // bump stats
     return true;
   }

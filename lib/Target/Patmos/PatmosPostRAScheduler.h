@@ -32,7 +32,6 @@ namespace llvm {
   class MachineLoopInfo;
   class MachineDominatorTree;
   class TargetPassConfig;
-  class AliasAnalysis;
   class RegisterClassInfo;
   class TargetRegisterClass;
   class SUnit;
@@ -44,7 +43,6 @@ namespace llvm {
   struct PostRASchedContext {
     MachineFunction *MF;
     const MachineLoopInfo *MLI;
-    const MachineDominatorTree *MDT;
     const TargetPassConfig *PassConfig;
     AliasAnalysis *AA;
 
@@ -243,8 +241,8 @@ namespace llvm {
 
     BitVector &getScheduledTrees() { return ScheduledTrees; }
 
-    void viewGraph(const Twine &Name, const Twine &Title) LLVM_OVERRIDE;
-    void viewGraph() LLVM_OVERRIDE;
+    void viewGraph(const Twine &Name, const Twine &Title) override;
+    void viewGraph() override;
 
   protected:
 

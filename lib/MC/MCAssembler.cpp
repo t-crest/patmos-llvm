@@ -274,17 +274,6 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
     return Size;
   }
 
-  case MCFragment::FT_ExprAlign: {
-    const MCExprAlignFragment &AF = cast<MCExprAlignFragment>(F);
-    unsigned Offset = Layout.getFragmentOffset(&AF);
-    unsigned Size = OffsetToAlignment(Offset, AF.getAlignment());
-    if (Size < AF.getExpressionSize())
-      Size += AF.getAlignment();
-    if (Size > AF.getMaxBytesToEmit())
-      return AF.getExpressionSize();
-    return Size;
-  }
-
   case MCFragment::FT_Org: {
     const MCOrgFragment &OF = cast<MCOrgFragment>(F);
     MCValue Value;
@@ -582,7 +571,6 @@ void MCAssembler::writeSectionData(const MCSection *Sec,
         break;
       }
       case MCFragment::FT_Align:
-      case MCFragment::FT_ExprAlign:
         // Check that we aren't trying to write a non-zero value into a virtual
         // section.
         assert((cast<MCAlignFragment>(F).getValueSize() == 0 ||

@@ -247,12 +247,12 @@ bool MCELFStreamer::EmitSymbolAttribute(MCSymbol *S, MCSymbolAttr Attribute) {
     Symbol->setExternal(false);
     break;
 
-  case MCSA_ELF_TypeFunction:
-    Symbol->setType(CombineSymbolTypes(Symbol->getType(), ELF::STT_FUNC));
+  case MCSA_ELF_TypeCode:
+    Symbol->setType(CombineSymbolTypes(Symbol->getType(), ELF::STT_CODE));
     break;
 
-  case MCSA_ELF_TypeCode:
-    MCELF::SetType(SD, ELF::STT_CODE);
+  case MCSA_ELF_TypeFunction:
+    Symbol->setType(CombineSymbolTypes(Symbol->getType(), ELF::STT_FUNC));
     break;
 
   case MCSA_ELF_TypeIndFunction:

@@ -26,12 +26,7 @@ class PatmosTargetMachine;
 
 struct PatmosRegisterInfo : public PatmosGenRegisterInfo {
 private:
-  PatmosTargetMachine &TM;
   const TargetInstrInfo &TII;
-
-  /// StackAlign - Default stack alignment.
-  ///
-  unsigned StackAlign;
 
   /// computeLargeFIOffset - Emit an ADDi or ADDl instruction to compute a large
   /// FI offset.
@@ -47,10 +42,7 @@ private:
                              int offset, unsigned basePtr,
                              bool isOnStackCache) const;
 public:
-  PatmosRegisterInfo(PatmosTargetMachine &tm, const TargetInstrInfo &tii);
-
-  /// get the associate patmos target machine
-  PatmosTargetMachine& getTargetMachine() const { return TM; }
+  PatmosRegisterInfo(const TargetInstrInfo &tii);
 
   /// Code Generation virtual methods...
   const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;

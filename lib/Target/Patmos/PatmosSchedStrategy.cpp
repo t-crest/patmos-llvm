@@ -74,6 +74,13 @@ void PatmosLatencyQueue::setDFSResult(ScheduleDAGPostRA *DAG)
   Cmp.ScheduledTrees = &DAG->getScheduledTrees();
 }
 
+void PatmosLatencyQueue::setSubtarget(const PatmosSubtarget &PST)
+{
+  PII = PST.getInstrInfo();
+  IssueWidth = PST.enableBundling(PST.getTargetMachine()->getOptLevel()) ?
+    PST.getSchedModel().IssueWidth : 1;
+}
+
 void PatmosLatencyQueue::initialize()
 {
   std::sort(AvailableQueue.begin(), AvailableQueue.end(), Cmp);
@@ -144,7 +151,7 @@ bool PatmosLatencyQueue::selectBundle(std::vector<SUnit*> &Bundle)
 
     // check the width. ignore the width for the first instruction to allow
     // ALUl even when bundling is disabled.
-    unsigned width = PII.getIssueWidth(SU->getInstr());
+    unsigned width = PII->getIssueWidth(SU->getInstr());
     if (!Bundle.empty() && CurrWidth + width > IssueWidth) continue;
 
     addToBundle(Bundle, SU, CurrWidth);
@@ -204,7 +211,7 @@ bool PatmosLatencyQueue::canIssueInSlot(SUnit *SU, unsigned Slot)
   if (!SU->getInstr()) return true;
   MachineInstr *MI = SU->getInstr();
 
-  return PII.canIssueInSlot(MI, Slot);
+  return PII->canIssueInSlot(MI, Slot);
 }
 
 bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
@@ -212,7 +219,7 @@ bool PatmosLatencyQueue::addToBundle(std::vector<SUnit *> &Bundle, SUnit *SU,
 {
   // check the width. ignore the width for the first instruction to allow
   // ALUl even when bundling is disabled.
-  unsigned Width = PII.getIssueWidth(SU->getInstr());
+  unsigned Width = PII->getIssueWidth(SU->getInstr());
   if (!Bundle.empty() && CurrWidth + Width > IssueWidth) {
     return false;
   }
@@ -283,8 +290,7 @@ void PatmosLatencyQueue::dump()
 
 PatmosPostRASchedStrategy::PatmosPostRASchedStrategy(
                                             const PatmosTargetMachine &PTM)
-: PTM(PTM), PII(*PTM.getInstrInfo()), PRI(PII.getPatmosRegisterInfo()),
-  DAG(0), ReadyQ(PTM), CurrCycle(0)
+: TM(TM), DAG(0), ReadyQ(), CurrCycle(0)
 {
 }
 
@@ -313,6 +319,9 @@ bool PatmosPostRASchedStrategy::isSchedulingBoundary(const MachineInstr *MI,
 void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 {
   DAG = dag;
+
+  const PatmosSubtarget &PST = static_cast<const PatmosSubtarget&>(DAG->MF.getSubtarget());
+  const PatmosInstrInfo &PII = *PST.getInstrInfo();
 
   SUnit *CFL = NULL;
   // Find the inline asm statement, if any. Note that asm is a barrier,
@@ -350,9 +359,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
     }
   }
 
-  const PatmosSubtarget *PST = PTM.getSubtargetImpl();
-
-  unsigned DelaySlot = CFL ? PST->getDelaySlotCycles(CFL->getInstr()) : 0;
+  unsigned DelaySlot = CFL ? PST.getDelaySlotCycles(CFL->getInstr()) : 0;
 
   if (CFL) {
     // RET and CALL have implicit deps on the return values and call
@@ -368,7 +375,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
 
     CFL->isScheduleLow = true;
 
-    if (PTM.getSubtargetImpl()->getCFLType() != PatmosSubtarget::CFL_DELAYED) {
+    if (PST.getCFLType() != PatmosSubtarget::CFL_DELAYED) {
       // Push up single instructions that can be scheduled in the same
       // cycle as the branch
       unsigned LowCount = 0;
@@ -395,7 +402,7 @@ void PatmosPostRASchedStrategy::postprocessDAG(ScheduleDAGPostRA *dag)
       }
     }
 
-    if (PTM.getSubtargetImpl()->getCFLType() == PatmosSubtarget::CFL_NON_DELAYED) {
+    if (PST.getCFLType() == PatmosSubtarget::CFL_NON_DELAYED) {
       // Add dependencies from all other instructions to exit
       for (std::vector<SUnit>::reverse_iterator it = DAG->SUnits.rbegin(),
              ie = DAG->SUnits.rend(); it != ie; it++) {
@@ -459,6 +466,8 @@ void PatmosPostRASchedStrategy::initialize(ScheduleDAGPostRA *dag)
 
   DAG->computeDFSResult();
   ReadyQ.setDFSResult(DAG);
+
+  ReadyQ.setSubtarget(static_cast<const PatmosSubtarget&>(DAG->MF.getSubtarget()));
 }
 
 void PatmosPostRASchedStrategy::registerRoots()
@@ -577,6 +586,9 @@ void PatmosPostRASchedStrategy::removeImplicitCFLDeps(SUnit &SU)
 
   SmallVector<SDep*,2> RemoveDeps;
 
+  const PatmosSubtarget &PST = static_cast<const PatmosSubtarget&>(DAG->MF.getSubtarget());
+  const PatmosInstrInfo &PII = *PST.getInstrInfo();
+
   MachineInstr *MI = SU.getInstr();
 
   for (SUnit::pred_iterator it = SU.Preds.begin(), ie = SU.Preds.end();
@@ -674,6 +686,9 @@ void PatmosPostRASchedStrategy::removeTypedMemBarriers()
 /// predicates.
 void PatmosPostRASchedStrategy::removeExclusivePredDeps()
 {
+  const PatmosSubtarget &PST = static_cast<const PatmosSubtarget&>(DAG->MF.getSubtarget());
+  const PatmosInstrInfo &PII = *PST.getInstrInfo();
+
   for (std::vector<SUnit>::iterator it = DAG->SUnits.begin(),
        ie = DAG->SUnits.end(); it != ie; it++)
   {

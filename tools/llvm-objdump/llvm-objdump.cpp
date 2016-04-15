@@ -370,12 +370,32 @@ public:
   }
 };
 HexagonPrettyPrinter HexagonPrettyPrinterInst;
+class PatmosPrettyPrinter : public PrettyPrinter {
+public:
+  void printInst(MCInstPrinter &IP, const MCInst *MI,
+                 ArrayRef<uint8_t> Bytes, uint64_t Address,
+                 raw_ostream &OS, StringRef Annot,
+                 MCSubtargetInfo const &STI) override {
+    outs() << format("%8" PRIx64 ":", Address);
+    if (!NoShowRawInsn) {
+      outs() << "\t";
+      dumpBytes(Bytes, outs());
+      for (int i = Bytes.size(); i < 8; i++) {
+        outs() << "   ";
+      }
+    }
+    IP.printInst(MI, outs(), "", STI);
+  }
+};
+PatmosPrettyPrinter PatmosPrettyPrinterInst;
 PrettyPrinter &selectPrettyPrinter(Triple const &Triple) {
   switch(Triple.getArch()) {
   default:
     return PrettyPrinterInst;
   case Triple::hexagon:
     return HexagonPrettyPrinterInst;
+  case Triple::patmos:
+    return PatmosPrettyPrinterInst;
   }
 }
 }
@@ -1017,7 +1037,6 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
     std::vector<RelocationRef>::const_iterator rel_cur = Rels.begin();
     std::vector<RelocationRef>::const_iterator rel_end = Rels.end();
     // Disassemble symbol by symbol.
-    bool FirstSymbol = true;
     for (unsigned si = 0, se = Symbols.size(); si != se; ++si) {
 
       uint64_t Start = Symbols[si].first - SectionAddr;
@@ -1031,11 +1050,8 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
       // If this symbol has the same address as the next symbol, then skip it.
       if (Start >= End)
         continue;
-      }
 
-      if (FirstSymbol) outs() << '\n';
-      FirstSymbol = true;
-      outs() << Symbols[si].second << ":\n";
+      outs() << '\n' << Symbols[si].second << ":\n";
 
 #ifndef NDEBUG
       raw_ostream &DebugOut = DebugFlag ? dbgs() : nulls();

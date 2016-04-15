@@ -283,15 +283,6 @@ public:
     FPPassManager *FP = static_cast<FPPassManager *>(PassManagers[N]);
     return FP;
   }
-
-  virtual void dumpPassStructure(unsigned Offset) {
-    dbgs().indent(Offset*2) << "FunctionPass Manager Impl\n";
-    for (SmallVector<PMDataManager *, 8>::const_iterator
-           I = PassManagers.begin(),
-           E = PassManagers.end(); I != E; ++I) {
-      (*I)->getAsPass()->dumpPassStructure(Offset + 1);
-    }
-  }
 };
 
 void FunctionPassManagerImpl::anchor() {}
@@ -369,12 +360,11 @@ public:
     dbgs().indent(Offset*2) << "ModulePass Manager\n";
     for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index) {
       ModulePass *MP = getContainedPass(Index);
+      MP->dumpPassStructure(Offset + 1);
       std::map<Pass *, FunctionPassManagerImpl *>::const_iterator I =
         OnTheFlyManagers.find(MP);
-      if (I != OnTheFlyManagers.end()) {
-        I->second->dumpPassStructure(Offset + 1);
-      }
-      MP->dumpPassStructure(Offset + 1);
+      if (I != OnTheFlyManagers.end())
+        I->second->dumpPassStructure(Offset + 2);
       dumpLastUses(MP, Offset+1);
     }
   }
@@ -734,6 +724,11 @@ Pass *PMTopLevelManager::findAnalysisPass(AnalysisID AID) {
   if (Pass *P = ImmutablePassMap.lookup(AID))
     return P;
 
+  // Check inherited pass managers for immutable passes
+  for (PMTopLevelManager *PassManager : InheritedPassManagers)
+    if (Pass *P = PassManager->ImmutablePassMap.lookup(AID))
+      return P;
+
   // Check pass managers
   for (PMDataManager *PassManager : PassManagers)
     if (Pass *P = PassManager->findAnalysisPass(AID, false))
@@ -777,14 +772,14 @@ void PMTopLevelManager::addImmutablePass(ImmutablePass *P) {
 }
 
 // Print passes managed by this top level manager.
-void PMTopLevelManager::dumpPasses(unsigned Offset) const {
+void PMTopLevelManager::dumpPasses() const {
 
   if (PassDebugging < Structure)
     return;
 
   // Print out the immutable passes
   for (unsigned i = 0, e = ImmutablePasses.size(); i != e; ++i) {
-    ImmutablePasses[i]->dumpPassStructure(Offset);
+    ImmutablePasses[i]->dumpPassStructure(0);
   }
 
   // Every class that derives from PMDataManager also derives from Pass
@@ -801,15 +796,15 @@ void PMTopLevelManager::dumpArguments() const {
     return;
 
   dbgs() << "Pass Arguments: ";
-  for (SmallVector<ImmutablePass *, 8>::const_iterator I =
+  for (SmallVectorImpl<ImmutablePass *>::const_iterator I =
        ImmutablePasses.begin(), E = ImmutablePasses.end(); I != E; ++I)
     if (const PassInfo *PI = findAnalysisPassInfo((*I)->getPassID())) {
       assert(PI && "Expected all immutable passes to be initialized");
       if (!PI->isAnalysisGroup())
         dbgs() << " -" << PI->getPassArgument();
     }
-  for (SmallVector<PMDataManager *, 8>::const_iterator I = PassManagers.begin(),
-         E = PassManagers.end(); I != E; ++I)
+  for (SmallVectorImpl<PMDataManager *>::const_iterator I =
+       PassManagers.begin(), E = PassManagers.end(); I != E; ++I)
     (*I)->dumpPassArguments();
   dbgs() << "\n";
 }
@@ -1091,11 +1086,13 @@ void PMDataManager::collectRequiredAndUsedAnalyses(
     if (Pass *AnalysisPass = findAnalysisPass(UsedID, true))
       UP.push_back(AnalysisPass);
 
-  for (const auto &RequiredID : AnUsage->getRequiredSet())
-    if (Pass *AnalysisPass = findAnalysisPass(RequiredID, true))
+  for (const auto &RequiredID : AnUsage->getRequiredSet()) {
+    if (Pass *AnalysisPass = findAnalysisPass(RequiredID, true)) {
       UP.push_back(AnalysisPass);
-    else
+    } else {
       RP_NotAvail.push_back(RequiredID);
+    }
+  }
 
   for (const auto &RequiredID : AnUsage->getRequiredTransitiveSet())
     if (Pass *AnalysisPass = findAnalysisPass(RequiredID, true))
@@ -1588,7 +1585,7 @@ bool FPPassManager::doInitialization(Module &M) {
 
   for (unsigned Index = 0; Index < getNumContainedPasses(); ++Index)
     Changed |= getContainedPass(Index)->doInitialization(M);
-  
+
   return Changed;
 }
 
@@ -1597,7 +1594,7 @@ bool FPPassManager::doFinalization(Module &M) {
 
   for (int Index = getNumContainedPasses() - 1; Index >= 0; --Index)
     Changed |= getContainedPass(Index)->doFinalization(M);
-  
+
   return Changed;
 }
 
@@ -1662,7 +1659,7 @@ MPPassManager::runOnModule(Module &M) {
     FPP->releaseMemoryOnTheFly();
     Changed |= FPP->doFinalization(M);
   }
-  
+
   return Changed;
 }
 

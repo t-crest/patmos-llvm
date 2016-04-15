@@ -122,7 +122,7 @@ addPassesToGenerateCode(LLVMTargetMachine *TM, PassManagerBase &PM,
   PM.add(MMI);
 
   // Set up a MachineFunction for the rest of CodeGen to work on.
-  PM.add(new MachineFunctionAnalysis(*TM, MFInitializer));
+  PM.add(new MachineFunctionAnalysis(TM, MFInitializer));
 
   // Enable FastISel with -fast, but allow that to be overridden.
   TM->setO0WantsFastISel(EnableFastISelOption != cl::BOU_FALSE);

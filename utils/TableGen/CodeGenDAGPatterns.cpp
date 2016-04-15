@@ -27,7 +27,11 @@
 #include <set>
 using namespace llvm;
 
+
 #define DEBUG_TYPE "dag-patterns"
+
+static cl::opt<bool> RecursiveXForm("recursive-xform", cl::init(false),
+       cl::desc("Make -gen-dag-isel resolve XForm patterns recursively"));
 
 //===----------------------------------------------------------------------===//
 //  EEVT::TypeSet Implementation
@@ -3542,13 +3546,7 @@ void CodeGenDAGPatterns::ParsePatterns() {
     std::vector<TreePatternNode*> ResultNodeOperands;
     for (unsigned ii = 0, ee = DstPattern->getNumChildren(); ii != ee; ++ii) {
       TreePatternNode *OpNode = DstPattern->getChild(ii);
-      if (Record *Xform = OpNode->getTransformFn()) {
-        OpNode->setTransformFn(nullptr);
-        std::vector<TreePatternNode*> Children;
-        Children.push_back(OpNode);
-        OpNode = new TreePatternNode(Xform, Children, OpNode->getNumTypes());
-      }
-      ResultNodeOperands.push_back(OpNode);
+      ResultNodeOperands.push_back(PromoteXForms(OpNode));
     }
     DstPattern = Result.getOnlyTree();
     if (!DstPattern->isLeaf())

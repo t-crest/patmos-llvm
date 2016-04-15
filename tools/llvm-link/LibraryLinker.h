@@ -14,7 +14,8 @@
 #ifndef LLVM_ARCHIVELINKER_H
 #define LLVM_ARCHIVELINKER_H
 
-#include "llvm/Linker.h"
+#include "llvm/Linker/Linker.h"
+#include "llvm/Object/Archive.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -51,7 +52,7 @@ class LibraryLinker : public Linker {
       QuietWarnings = 2, ///< Don't print warnings to stderr.
       QuietErrors   = 4  ///< Don't print errors to stderr.
     };
-  
+
   /// @}
   /// @name Constructors
   /// @{
@@ -93,6 +94,8 @@ class LibraryLinker : public Linker {
     /// @brief Get the text of the last error that occurred.
     const std::string &getLastError() const { return Error; }
 
+    Module *getModule() const { return M; }
+
   /// @}
   /// @name Mutators
   /// @{
@@ -131,7 +134,8 @@ class LibraryLinker : public Linker {
     /// @brief Link in a single file.
     bool linkInFile(
       const std::string& File, ///< File to link in.
-      bool &is_native        ///< Indicates if the file is native object file
+      bool &is_native,         ///< Indicates if the file is native object file
+      unsigned Flags = Linker::Flags::None ///< Provides additional flags
     );
 
     /// This function provides a way to selectively link in a set of modules,
@@ -180,7 +184,7 @@ class LibraryLinker : public Linker {
   private:
     /// Read in and parse the bitcode file named by FN and return the
     /// Module it contains (wrapped in an auto_ptr), or 0 if an error occurs.
-    std::auto_ptr<Module> LoadObject(const std::string& FN);
+    std::unique_ptr<Module> LoadObject(const std::string& FN);
 
     bool warning(StringRef message);
     bool error(StringRef message);
@@ -190,6 +194,7 @@ class LibraryLinker : public Linker {
   /// @name Data
   /// @{
   private:
+    Module *M; ///< The module
     LLVMContext& Context; ///< The context for global information
     std::vector<std::string> LibPaths; ///< The library search paths
     unsigned Flags;    ///< Flags to control optional behavior.

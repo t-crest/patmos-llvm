@@ -26,22 +26,16 @@ static cl::opt<PrintBytesLevel> PrintBytes("fpatmos-print-bytes",
     ));
 
 
-PatmosMCAsmInfo::PatmosMCAsmInfo(StringRef TT)
+PatmosMCAsmInfo::PatmosMCAsmInfo( const Triple &TT)
 {
   PointerSize = 4;
   IsLittleEndian = false;
   StackGrowsUp = false;
   SeparatorString = ";";
   CommentString = "#";
-  CommentColumn = 45;
   LabelSuffix = ":";
   PrivateGlobalPrefix = ".L";
   AlignmentIsInBytes = true;
-  // We align functions using .align
-  EmitFunctionAlignment = true;
-  // We align basic blocks with .align, but we do this manually in
-  // PatmosAsmPrinter, as we need to handle .fstart properly there.
-  EmitBasicBlockAlignment = false;
   MaxInstLength = 8; // for long immediates
   SupportsDebugInformation = true;
 
@@ -57,4 +51,5 @@ PatmosMCAsmInfo::PatmosMCAsmInfo(StringRef TT)
   // We either need a register prefix or a global prefix
   //GlobalPrefix = ".";
 
+  UseIntegratedAssembler = true;
 }

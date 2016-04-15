@@ -62,6 +62,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
+#include "llvm/Support/CommandLine.h" 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -70,6 +71,11 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "loop-simplify"
+
+static cl::opt<bool>
+DisableSeparateNestedLoops("disable-separate-nested-loops",
+    cl::init(false), cl::Hidden,
+    cl::desc("Never create nested loops for loops with multiple backedges."));
 
 STATISTIC(NumInserted, "Number of pre-header or exit blocks inserted");
 STATISTIC(NumNested  , "Number of nested loops split out");
@@ -568,9 +574,10 @@ ReprocessLoop:
     // If this is really a nested loop, rip it out into a child loop.  Don't do
     // this for loops with a giant number of backedges, just factor them into a
     // common backedge instead.
-    if (L->getNumBackEdges() < 8) {
+    if (!DisableSeparateNestedLoops &&
+        L->getNumBackEdges() < 8) {
       if (Loop *OuterL =
-              separateNestedLoop(L, Preheader, DT, LI, SE, PreserveLCSSA, AC)) {
+          separateNestedLoop(L, Preheader, DT, LI, SE, PreserveLCSSA, AC)) {
         ++NumNested;
         // Enqueue the outer loop as it should be processed next in our
         // depth-first nest walk.

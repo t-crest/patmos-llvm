@@ -25,6 +25,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -49,53 +50,83 @@ static cl::opt<bool> EnableBasicBlockSymbols(
 void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   // Create a temp label that will be emitted at the end of the first cache block (at the end of the function
   // if the function has only one cache block)
-  CurrCodeEnd = OutContext.CreateTempSymbol();
+  CurrCodeEnd = OutContext.createTempSymbol(false);
 
   // emit a function/subfunction start directive
-  EmitFStart(CurrentFnSymForSize, CurrCodeEnd, FStartAlignment);
+  const PatmosSubtarget &PST =
+    static_cast<const PatmosSubtarget &>(MF->getSubtarget());
+  EmitFStart(CurrentFnSymForSize, CurrCodeEnd,  PST.getMinSubfunctionAlignment());
 
   // Now emit the normal function label
   AsmPrinter::EmitFunctionEntryLabel();
 }
 
 
-void PatmosAsmPrinter::EmitBasicBlockBegin(const MachineBasicBlock *MBB) {
+void PatmosAsmPrinter::EmitBasicBlockStart(const MachineBasicBlock &MBB) const {
   // If special generation of BB symbols is enabled,
   // do so for every MBB.
   if (EnableBasicBlockSymbols) {
     // create a symbol with the BBs name
     SmallString<128> bbname;
-    getMBBIRName(MBB, bbname);
-    MCSymbol *bbsym = OutContext.GetOrCreateSymbol(bbname.str());
-    OutStreamer.EmitLabel(bbsym);
+    getMBBIRName(&MBB, bbname);
+    MCSymbol *bbsym = OutContext.getOrCreateSymbol(bbname.str());
+    OutStreamer->EmitLabel(bbsym);
 
     // set basic block size
     unsigned int bbsize = 0;
-    for(MachineBasicBlock::const_instr_iterator i(MBB->instr_begin()),
-        ie(MBB->instr_end()); i!=ie; ++i)
+    for(MachineBasicBlock::const_instr_iterator i(MBB.instr_begin()),
+        ie(MBB.instr_end()); i!=ie; ++i)
     {
       bbsize += i->getDesc().Size;
     }
-    OutStreamer.EmitELFSize(bbsym, MCConstantExpr::Create(bbsize, OutContext));
+    OutStreamer->emitELFSize(cast<MCSymbolELF>(bbsym),
+                             MCConstantExpr::create(bbsize, OutContext));
+  }
+
+  // If the block has its address taken, emit any labels that were used to
+  // reference the block.  It is possible that there is more than one label
+  // here, because multiple LLVM BB's may have been RAUW'd to this block after
+  // the references were generated.
+  if (MBB.hasAddressTaken()) {
+    const BasicBlock *BB = MBB.getBasicBlock();
+    if (isVerbose())
+      OutStreamer->AddComment("Block address taken");
+
+    // MBBs can have their address taken as part of CodeGen without having
+    // their corresponding BB's address taken in IR
+    if (BB->hasAddressTaken())
+      for (MCSymbol *Sym : MMI->getAddrLabelSymbolToEmit(BB))
+        OutStreamer->EmitLabel(Sym);
+  }
+
+  // Print the main label for the block.
+  if (MBB.pred_empty() ||
+      (isBlockOnlyReachableByFallthrough(&MBB) && !MBB.isEHFuncletEntry())) {
+    if (isVerbose()) {
+      // NOTE: Want this comment at start of line, don't emit with AddComment.
+      OutStreamer->emitRawComment(" BB#" + Twine(MBB.getNumber()) + ":", false);
+    }
+  } else {
+    OutStreamer->EmitLabel(MBB.getSymbol());
   }
 }
 
 
-void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
-  // EmitBasicBlockBegin emits after the label, too late for emitting .fstart,
+void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock &MBB) {
+  // emitBasicBlockBegin emits after the label, too late for emitting .fstart,
   // so we do it at the end of the previous block of a cache block start MBB.
-  if (&MBB->getParent()->back() == MBB) return;
-  const MachineBasicBlock *Next = MBB->getNextNode();
+  if (&MBB.getParent()->back() == &MBB) return;
+  const MachineBasicBlock *Next = MBB.getNextNode();
 
   bool followedByFStart = isFStart(Next);
 
   if (followedByFStart) {
     // Next is the start of a new cache block, close the old one before the
     // alignment of the next block
-    OutStreamer.EmitLabel(CurrCodeEnd);
+    OutStreamer->EmitLabel(CurrCodeEnd);
   }
 
-  // Align the next basic block. Emitting the alignment in EmitBasicBlockStart
+  // Align the next basic block. Emitting the alignment in emitBasicBlockStart
   // would be too late as we emit .fstart here already.
   if (Next->getAlignment()) {
     EmitAlignment(Next->getAlignment());
@@ -109,55 +140,58 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
     MCSymbol *SymStart = Next->getSymbol();
 
     // create new end symbol
-    CurrCodeEnd = OutContext.CreateTempSymbol();
+    CurrCodeEnd = OutContext.createTempSymbol(false);
 
     // mark the symbol as method-cache-cacheable code
-    OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
+    OutStreamer->EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
 
     // emit a .size directive
     EmitDotSize(SymStart, CurrCodeEnd);
 
+    const PatmosSubtarget &PST =
+      static_cast<const PatmosSubtarget &>(MF->getSubtarget());
+
     // emit a function/subfunction start directive
-    EmitFStart(SymStart, CurrCodeEnd, FStartAlignment);
+    EmitFStart(SymStart, CurrCodeEnd, PST.getMinSubfunctionAlignment());
   }
 }
 
 void PatmosAsmPrinter::EmitFunctionBodyEnd() {
   // Emit the end symbol of the last cache block
-  OutStreamer.EmitLabel(CurrCodeEnd);
+  OutStreamer->EmitLabel(CurrCodeEnd);
 }
 
 void PatmosAsmPrinter::EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd) {
   const MCExpr *SizeExpr =
-    MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
-                            MCSymbolRefExpr::Create(SymStart, OutContext),
+    MCBinaryExpr::createSub(MCSymbolRefExpr::create(SymEnd,   OutContext),
+                            MCSymbolRefExpr::create(SymStart, OutContext),
                             OutContext);
 
-  OutStreamer.EmitELFSize(SymStart, SizeExpr);
+  OutStreamer->emitELFSize(cast<MCSymbolELF>(SymStart), SizeExpr);
 }
 
 void PatmosAsmPrinter::EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
-                                     unsigned Alignment) {
+                                  unsigned Alignment) {
   // convert LLVM's log2-block alignment to bytes
   unsigned AlignBytes = std::max(4u, 1u << Alignment);
 
   // emit .fstart SymStart, SymEnd-SymStart
   const MCExpr *SizeExpr =
-    MCBinaryExpr::CreateSub(MCSymbolRefExpr::Create(SymEnd,   OutContext),
-                            MCSymbolRefExpr::Create(SymStart, OutContext),
+    MCBinaryExpr::createSub(MCSymbolRefExpr::create(SymEnd,   OutContext),
+                            MCSymbolRefExpr::create(SymStart, OutContext),
                             OutContext);
 
-  PatmosTargetStreamer &PTS =
-            static_cast<PatmosTargetStreamer&>(OutStreamer.getTargetStreamer());
+  PatmosTargetELFStreamer *PTS =
+    static_cast<PatmosTargetELFStreamer*>(OutStreamer->getTargetStreamer());
 
-  PTS.EmitFStart(SymStart, SizeExpr, AlignBytes);
+  PTS->EmitFStart(SymStart, SizeExpr, AlignBytes);
 }
 
 bool PatmosAsmPrinter::isFStart(const MachineBasicBlock *MBB) const {
   // query the machineinfo object - the PatmosFunctionSplitter, or some other
   // pass, has marked all entry blocks already.
   const PatmosMachineFunctionInfo *PMFI =
-                                       MF->getInfo<PatmosMachineFunctionInfo>();
+    MF->getInfo<PatmosMachineFunctionInfo>();
   return PMFI->isMethodCacheRegionEntry(MBB);
 }
 
@@ -171,13 +205,13 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   if (MI->isBundle()) {
 
     const MachineBasicBlock *MBB = MI->getParent();
-    MachineBasicBlock::const_instr_iterator MII = MI;
+    MachineBasicBlock::const_instr_iterator MII(MI);
     ++MII;
-    while (MII != MBB->end() && MII->isInsideBundle()) {
-      const MachineInstr *MInst = MII;
+    while (&*MII != MBB->end() && MII->isInsideBundle()) {
+      const MachineInstr *MInst(MII);
       if (MInst->isPseudo()) {
         // DBG_VALUE and IMPLICIT_DEFs outside of bundles are handled in
-        // AsmPrinter::EmitFunctionBody()
+        // AsmPrinter::emitFunctionBody()
         MInst->dump();
         report_fatal_error("Pseudo instructions must not be bundled!");
       }
@@ -192,7 +226,7 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
       int LoopBoundMin = MI->getOperand(0).getImm();
       int LoopBoundMax = MI->getOperand(1).getImm();
-      OutStreamer.GetCommentOS() << "Loop bound: ["
+      OutStreamer->GetCommentOS() << "Loop bound: ["
         << LoopBoundMin << ", " << LoopBoundMax << "]\n";
       return;
     }
@@ -206,9 +240,9 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
     // Set bundle marker
     bool isBundled = (Index < Size - 1);
-    MCI.addOperand(MCOperand::CreateImm(isBundled));
+    MCI.addOperand(MCOperand::createImm(isBundled));
 
-    OutStreamer.EmitInstruction(MCI);
+    OutStreamer->EmitInstruction(MCI, getSubtargetInfo());
   }
 }
 
@@ -217,7 +251,7 @@ bool PatmosAsmPrinter::
 isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB) const {
   // If this is a landing pad, it isn't a fall through.  If it has no preds,
   // then nothing falls through to it.
-  if (MBB->isLandingPad() || MBB->pred_empty() || MBB->hasAddressTaken())
+  if (MBB->isEHPad() || MBB->pred_empty() || MBB->hasAddressTaken())
     return false;
 
   // If there isn't exactly one predecessor, it can't be a fall through.
@@ -269,11 +303,20 @@ bool PatmosAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
 
   // TODO any special handling of predicates (flags) or anything?
 
+  // Make sure to be in a function and module
+  MF = MI->getParent()->getParent();
+  MMI = &MF->getMMI();
+
   MCInst MCI;
   MCInstLowering.Lower(MI, MCI);
 
-  PatmosInstPrinter PIP(*OutContext.getAsmInfo(), *TM.getInstrInfo(),
-                        *TM.getRegisterInfo());
+  const MachineFunction *MF = MI->getParent()->getParent();
+  const PatmosSubtarget &PST =
+    static_cast<const PatmosSubtarget &>(MF->getSubtarget());
+
+  PatmosInstPrinter PIP(*OutContext.getAsmInfo(),
+                        *PST.getInstrInfo(),
+                        *PST.getRegisterInfo());
 
   PIP.printOperand(&MCI, OpNo, O, ExtraCode);
 

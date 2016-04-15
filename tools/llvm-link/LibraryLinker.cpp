@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LibraryLinker.h"
-#include "llvm/Linker.h"
+#include "llvm/Linker/Linker.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/Config/config.h"
@@ -20,11 +20,12 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
 #include "llvm/ADT/SetOperations.h"
-#include "llvm/Bitcode/Archive.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/Object/Archive.h"
 #include <memory>
 #include <set>
+#include <iostream>
 using namespace llvm;
 
 // The new path "interface" is truly ugly crap.. so just going with it and
@@ -32,7 +33,7 @@ using namespace llvm;
 static sys::fs::file_magic getFileType(const std::string &FileName)
 {
   sys::fs::file_magic result;
-  if (sys::fs::identify_magic(FileName, result) != error_code::success()) {
+  if (sys::fs::identify_magic(FileName, result)) {
     return sys::fs::file_magic::unknown;
   }
   return result;
@@ -41,7 +42,7 @@ static sys::fs::file_magic getFileType(const std::string &FileName)
 static bool isFileType(const std::string &FileName, sys::fs::file_magic type)
 {
   sys::fs::file_magic result;
-  if (sys::fs::identify_magic(FileName, result) != error_code::success()) {
+  if (sys::fs::identify_magic(FileName, result)) {
     return false;
   }
   return result == type;
@@ -55,6 +56,39 @@ static bool isBitcodeFile(const std::string &FileName) {
   return isFileType(FileName, sys::fs::file_magic::bitcode);
 }
 
+static bool isBitcodeArchive(const std::string &FileName) {
+
+  if (!isArchive(FileName)) {
+    return false;
+  }
+
+  // check first file in archive if it is a bitcode file
+  auto File = llvm::object::createBinary(FileName);
+  if (File.getError()) {
+    return false;
+  }
+
+  if (llvm::object::Archive *a = dyn_cast<llvm::object::Archive>(File.get().getBinary())) {
+    for (llvm::object::Archive::child_iterator i = a->child_begin(), e = a->child_end();
+         i != e; ++i) {
+      // Try opening it as a bitcode file.
+      auto buff = i->get().getMemoryBufferRef();
+      if (buff.getError()) continue;
+
+      std::string magic(buff.get().getBufferStart(), 4);
+      llvm::sys::fs::file_magic FileType = llvm::sys::fs::identify_magic(magic);
+      if (FileType == llvm::sys::fs::file_magic::bitcode) {
+        return true;
+      }
+      if (FileType != llvm::sys::fs::file_magic::unknown) {
+        return false;
+      }
+    }
+  }
+
+  return false;
+}
+
 static bool isDynamicLibrary(const std::string &FileName) {
   return isFileType(FileName, sys::fs::file_magic::elf_shared_object) ||
          isFileType(FileName, sys::fs::file_magic::macho_dynamic_linker) ||
@@ -64,16 +98,12 @@ static bool isDynamicLibrary(const std::string &FileName) {
 
 LibraryLinker::LibraryLinker(StringRef progname, StringRef modname,
                LLVMContext& C, unsigned flags):
-  Linker(new Module(modname, C)),
-  Context(C),
-  LibPaths(),
-  Flags(flags),
-  Error(),
-  ProgramName(progname) { }
+  LibraryLinker(progname, new Module(modname, C), flags) { }
 
 LibraryLinker::LibraryLinker(StringRef progname, Module* aModule,
     unsigned flags) :
-  Linker(aModule),
+  Linker(*aModule),
+  M(aModule),
   Context(aModule->getContext()),
   LibPaths(),
   Flags(flags),
@@ -87,7 +117,7 @@ bool
 LibraryLinker::error(StringRef message) {
   Error = message;
   if (!(Flags&QuietErrors))
-    errs() << ProgramName << ": error: " << message << "\n";
+    errs() << ProgramName << ": ERROR: " << message << "\n";
   return true;
 }
 
@@ -95,7 +125,7 @@ bool
 LibraryLinker::warning(StringRef message) {
   Error = message;
   if (!(Flags&QuietWarnings))
-    errs() << ProgramName << ": warning: " << message << "\n";
+    errs() << ProgramName << ": WARNING: " << message << "\n";
   return false;
 }
 
@@ -124,24 +154,28 @@ LibraryLinker::addSystemPaths() {
 // LoadObject - Read in and parse the bitcode file named by FN and return the
 // module it contains (wrapped in an auto_ptr), or auto_ptr<Module>() and set
 // Error if an error occurs.
-std::auto_ptr<Module>
+std::unique_ptr<Module>
 LibraryLinker::LoadObject(const std::string &FN) {
   std::string ParseErrorMessage;
-  Module *Result = 0;
 
-  OwningPtr<MemoryBuffer> Buffer;
-  if (error_code ec = MemoryBuffer::getFileOrSTDIN(FN.c_str(), Buffer))
+  ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
+    MemoryBuffer::getFileOrSTDIN(FN.c_str());
+  if (std::error_code ec = FileOrErr.getError())
     ParseErrorMessage = "Error reading file '" + FN + "'" + ": "
                       + ec.message();
-  else
-    Result = ParseBitcodeFile(Buffer.get(), Context, &ParseErrorMessage);
+  else {
+    auto ResultOrErr = parseBitcodeFile(FileOrErr.get()->getMemBufferRef(), Context);
+    if (auto ec = ResultOrErr.getError()) {
+      ParseErrorMessage = ec.message();
+    } else {
+      return std::move(ResultOrErr.get());
+    }
+  }
 
-  if (Result)
-    return std::auto_ptr<Module>(Result);
   Error = "Bitcode file '" + FN + "' could not be loaded";
   if (ParseErrorMessage.size())
     Error += ": " + ParseErrorMessage;
-  return std::auto_ptr<Module>();
+  return std::unique_ptr<Module>();
 }
 
 // IsLibrary - Determine if "Name" is a library in "Directory". Return
@@ -241,10 +275,10 @@ GetAllUndefinedSymbols(Module *M, std::set<std::string> &UndefinedSymbols) {
       if (I->isDeclaration())
         UndefinedSymbols.insert(I->getName());
       else if (!I->hasLocalLinkage()) {
-        assert(!I->hasDLLImportLinkage()
+        assert(!I->hasDLLImportStorageClass()
                && "Found dllimported non-external symbol!");
         DefinedSymbols.insert(I->getName());
-      }      
+      }
     }
 
   for (Module::global_iterator I = M->global_begin(), E = M->global_end();
@@ -253,10 +287,10 @@ GetAllUndefinedSymbols(Module *M, std::set<std::string> &UndefinedSymbols) {
       if (I->isDeclaration())
         UndefinedSymbols.insert(I->getName());
       else if (!I->hasLocalLinkage()) {
-        assert(!I->hasDLLImportLinkage()
+        assert(!I->hasDLLImportStorageClass()
                && "Found dllimported non-external symbol!");
         DefinedSymbols.insert(I->getName());
-      }      
+      }
     }
 
   for (Module::alias_iterator I = M->alias_begin(), E = M->alias_end();
@@ -302,16 +336,15 @@ LibraryLinker::linkInArchive(const std::string &Filename, bool &is_native) {
     return false;  // No need to link anything in!
   }
 
-  std::string ErrMsg;
-  std::auto_ptr<Archive> AutoArch (
-    Archive::OpenAndLoadSymbols(Filename, Context, &ErrMsg));
-
-  Archive* arch = AutoArch.get();
+  auto File = llvm::object::createBinary(Filename);
+  if (File.getError()) {
+    return error("Cannot read archive file '" + Filename);
+  }
+  llvm::object::Archive *arch = dyn_cast<llvm::object::Archive>(File.get().getBinary());
 
   if (!arch)
-    return error("Cannot read archive '" + Filename +
-                 "': " + ErrMsg);
-  if (!arch->isBitcodeArchive()) {
+    return error("Cannot read archive '" + Filename);
+  if (!isBitcodeArchive(Filename)) {
     is_native = true;
     return false;
   }
@@ -333,9 +366,31 @@ LibraryLinker::linkInArchive(const std::string &Filename, bool &is_native) {
     // keeps ownership of these modules and may return the same Module* from a
     // subsequent call.
     SmallVector<Module*, 16> Modules;
-    if (!arch->findModulesDefiningSymbols(UndefinedSymbols, Modules, &ErrMsg))
-      return error("Cannot find symbols in '" + Filename +
-                   "': " + ErrMsg);
+
+    // Find the modules that define yet undefined symbols
+    SmallSet<const llvm::object::Archive::Child*, 16> defs;
+    for (std::set<std::string>::iterator i = CurrentlyUndefinedSymbols.begin(),
+           e = CurrentlyUndefinedSymbols.end(); i != e; ++i) {
+
+      const llvm::object::Archive::child_iterator &def = arch->findSym(*i);
+
+      if (def != arch->child_end()) {
+        if (defs.count(&def->get()) == 0) {
+
+          auto BufOrErr = def->get().getMemoryBufferRef();
+          auto ResultOrErr = parseBitcodeFile(BufOrErr.get(), Context);
+
+          std::error_code ec;
+          if (!(ec = ResultOrErr.getError())) {
+            Modules.push_back(ResultOrErr.get().release());
+            UndefinedSymbols.erase(*i);
+            defs.insert(&def->get());
+          }
+        } else {
+          UndefinedSymbols.erase(*i);
+        }
+      }
+    }
 
     // If we didn't find any more modules to link this time, we are done
     // searching this archive.
@@ -345,29 +400,26 @@ LibraryLinker::linkInArchive(const std::string &Filename, bool &is_native) {
     // Any symbols remaining in UndefinedSymbols after
     // findModulesDefiningSymbols are ones that the archive does not define. So
     // we add them to the NotDefinedByArchive variable now.
-    NotDefinedByArchive.insert(UndefinedSymbols.begin(),
-        UndefinedSymbols.end());
+    NotDefinedByArchive.insert(UndefinedSymbols.begin(), UndefinedSymbols.end());
 
     // Loop over all the Modules that we got back from the archive
     for (SmallVectorImpl<Module*>::iterator I=Modules.begin(), E=Modules.end();
          I != E; ++I) {
 
       // Get the module we must link in.
-      std::string moduleErrorMsg;
       Module* aModule = *I;
       if (aModule != NULL) {
-        if (aModule->MaterializeAll(&moduleErrorMsg))
-          return error("Could not load a module: " + moduleErrorMsg);
+        if (std::error_code ec = aModule->materializeAll())
+          return error("Could not load a module: " + ec.message());
 
         verbose("  Linking in module: " + aModule->getModuleIdentifier());
 
         // Link it in
-        if (linkInModule(aModule, &moduleErrorMsg))
-          return error("Cannot link in module '" +
-                       aModule->getModuleIdentifier() + "': " + moduleErrorMsg);
-      } 
+        if (linkInModule(std::unique_ptr<Module>(aModule)))
+          return error("Cannot link in module '" + aModule->getModuleIdentifier());
+      }
     }
-    
+
     // Get the undefined symbols from the aggregate module. This recomputes the
     // symbols we still need after the new modules have been linked in.
     GetAllUndefinedSymbols(getModule(), UndefinedSymbols);
@@ -441,22 +493,25 @@ bool LibraryLinker::linkInLibrary(StringRef Lib, bool& is_native) {
 ///  TRUE  - An error occurred.
 ///  FALSE - No errors.
 ///
-bool LibraryLinker::linkInFile(const std::string &File, bool &is_native) {
+bool LibraryLinker::linkInFile(const std::string &File, bool &is_native, unsigned Flags) {
   is_native = false;
-  
+
   // Check for a file of name "-", which means "read standard input"
   if (File == "-") {
-    std::auto_ptr<Module> M;
-    OwningPtr<MemoryBuffer> Buffer;
-    error_code ec;
-    if (!(ec = MemoryBuffer::getSTDIN(Buffer))) {
+    std::unique_ptr<Module> M;
+    std::unique_ptr<MemoryBuffer> Buffer;
+    std::error_code ec;
+    ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr = MemoryBuffer::getSTDIN();
+    if (!(ec = FileOrErr.getError())) {
       if (!Buffer->getBufferSize()) {
         Error = "standard input is empty";
       } else {
-        M.reset(ParseBitcodeFile(Buffer.get(), Context, &Error));
-        if (M.get())
-          if (!linkInModule(M.get(), &Error))
+        auto ResultOrErr = parseBitcodeFile(Buffer.get()->getMemBufferRef(), Context);
+        if (!(ec = ResultOrErr.getError())) {
+          M.reset(ResultOrErr.get().get());
+          if (!linkInModule(std::move(M), Flags))
             return false;
+        }
       }
     }
     return error("Cannot link stdin: " + ec.message());
@@ -481,10 +536,10 @@ bool LibraryLinker::linkInFile(const std::string &File, bool &is_native) {
 
     case sys::fs::file_magic::bitcode: {
       verbose("Linking bitcode file '" + File + "'");
-      std::auto_ptr<Module> M(LoadObject(File));
+      std::unique_ptr<Module> M(LoadObject(File));
       if (M.get() == 0)
         return error("Cannot load file '" + File + "': " + Error);
-      if (linkInModule(M.get(), &Error))
+      if (linkInModule(std::move(M), Flags))
         return error("Cannot link file '" + File + "': " + Error);
 
       verbose("Linked in file '" + File + "'");

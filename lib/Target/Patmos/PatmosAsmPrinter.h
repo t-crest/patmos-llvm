@@ -21,45 +21,41 @@
 #include "llvm/MC/MCContext.h"
 
 namespace llvm {
-  class PatmosAsmPrinter : public AsmPrinter {
+  class LLVM_LIBRARY_VISIBILITY PatmosAsmPrinter : public AsmPrinter {
   private:
     PatmosTargetMachine *PTM;
 
     PatmosMCInstLower MCInstLowering;
 
-    /// Alignment to use for FStart directives, in log2(bytes).
-    unsigned FStartAlignment;
-
     // symbol to use for the end of the currently emitted subfunction
     MCSymbol *CurrCodeEnd;
 
   public:
-    PatmosAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer), MCInstLowering(OutContext, *this), CurrCodeEnd(0)
+    PatmosAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer)
+      : AsmPrinter(TM, std::move(Streamer)),
+        MCInstLowering(OutContext, *this), CurrCodeEnd(0)
     {
       if (!(PTM = static_cast<PatmosTargetMachine*>(&TM))) {
         llvm_unreachable("PatmosAsmPrinter must be initialized with a Patmos target configuration.");
       }
-      PTM->setMCSaveTempLabels(true);
-
-      FStartAlignment = PTM->getSubtargetImpl()->getMinSubfunctionAlignment();
+      PTM->Options.MCOptions.MCSaveTempLabels = true;
     }
 
     virtual const char *getPassName() const {
       return "Patmos Assembly Printer";
     }
 
-    virtual void EmitFunctionEntryLabel();
+    void EmitFunctionEntryLabel() override;
 
-    virtual void EmitBasicBlockBegin(const MachineBasicBlock *MBB);
-    virtual void EmitBasicBlockEnd(const MachineBasicBlock *);
+    void EmitBasicBlockStart(const MachineBasicBlock &MBB) const override;
+    void EmitBasicBlockEnd(const MachineBasicBlock &MBB) override;
 
-    virtual void EmitFunctionBodyEnd();
+    void EmitFunctionBodyEnd() override;
 
     // called in the framework for instruction printing
-    virtual void EmitInstruction(const MachineInstr *MI);
+    void EmitInstruction(const MachineInstr *MI) override;
 
-    /// EmitDotSize - Emit a .size directive using SymEnd - SymStart.
+    /// emitDotSize - Emit a .size directive using SymEnd - SymStart.
     void EmitDotSize(MCSymbol *SymStart, MCSymbol *SymEnd);
 
     /// isBlockOnlyReachableByFallthough - Return true if the basic block has
@@ -85,7 +81,7 @@ namespace llvm {
     /// mark the start of an subfunction relocation area.
     /// Alignment is in log2(bytes).
     void EmitFStart(MCSymbol *SymStart, MCSymbol *SymEnd,
-                       unsigned Alignment = 0);
+                    unsigned Alignment = 0);
 
     bool isFStart(const MachineBasicBlock *MBB) const;
   };

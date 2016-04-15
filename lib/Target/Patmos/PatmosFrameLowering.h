@@ -24,8 +24,7 @@ namespace llvm {
 
 class PatmosFrameLowering : public TargetFrameLowering {
 protected:
-  const PatmosTargetMachine &TM;
-  const PatmosSubtarget &STC;
+  const PatmosSubtarget &PST;
 
   /// getEffectiveStackCacheSize - Return the size of the stack cache that can
   /// be used by the compiler.
@@ -71,20 +70,18 @@ protected:
   /// \see PatmosMachineFunctionInfo
   void patchCallSites(MachineFunction &MF) const;
 public:
-  explicit PatmosFrameLowering(const PatmosTargetMachine &tm);
+  explicit PatmosFrameLowering(const PatmosSubtarget &pst);
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
-  void emitPrologue(MachineFunction &MF) const;
+  void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const;
   void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
 
   bool hasFP(const MachineFunction &MF) const;
 
-  /// processFunctionBeforeCalleeSavedScan - This method is called immediately
-  /// before PrologEpilogInserter scans the physical registers used to determine
-  /// what callee saved registers should be spilled. This method is optional.
-  virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                                 RegScavenger *RS = NULL) const;
+  virtual void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
+                                    RegScavenger *RS = nullptr) const;
+
   bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MI,
                                  const std::vector<CalleeSavedInfo> &CSI,
@@ -96,10 +93,6 @@ public:
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
-
-#if 0
-  bool hasReservedCallFrame(const MachineFunction &MF) const;
-#endif
 
 };
 

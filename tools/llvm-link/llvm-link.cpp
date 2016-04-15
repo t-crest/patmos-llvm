@@ -12,20 +12,17 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "LibraryLinker.h"
 #include "llvm/Linker/Linker.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Bitcode/ReaderWriter.h"
-#include "llvm/IR/AutoUpgrade.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
-#include "llvm/IR/FunctionInfo.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IRReader/IRReader.h"
-#include "llvm/Object/FunctionIndexObjectFile.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/PrettyStackTrace.h"
@@ -72,6 +69,23 @@ static cl::opt<std::string> FunctionIndex("functionindex",
                                           cl::init(""),
                                           cl::value_desc("filename"));
 
+static cl::list<std::string>
+LibrarySearchPaths("L", cl::Prefix, cl::ZeroOrMore,
+                   cl::desc("Library search paths"),
+                   cl::value_desc("dir"));
+
+static cl::alias
+LibrarySearchPathsA("-library-path", cl::desc("Alias for -L"),
+                    cl::value_desc("dir"), cl::aliasopt(LibrarySearchPaths));
+
+static cl::list<std::string>
+Libraries("l", cl::Prefix, cl::ZeroOrMore,
+          cl::desc("Libraries"), cl::value_desc("library"));
+
+static cl::alias
+LibrariesA("-library", cl::desc("Alias for -l"), cl::value_desc("library"),
+           cl::aliasopt(Libraries));
+
 static cl::opt<std::string>
 OutputFilename("o", cl::desc("Override output filename"), cl::init("-"),
                cl::value_desc("filename"));
@@ -113,26 +127,17 @@ static cl::opt<bool> PreserveAssemblyUseListOrder(
     cl::desc("Preserve use-list order when writing LLVM assembly."),
     cl::init(false), cl::Hidden);
 
-// Read the specified bitcode file in and return it. This routine searches the
-// link path for the specified file to try to find it...
-//
-static std::unique_ptr<Module> loadFile(const char *argv0,
-                                        const std::string &FN,
-                                        LLVMContext &Context,
-                                        bool MaterializeMetadata = true) {
-  SMDiagnostic Err;
-  if (Verbose) errs() << "Loading '" << FN << "'\n";
-  std::unique_ptr<Module> Result =
-      getLazyIRFileModule(FN, Err, Context, !MaterializeMetadata);
-  if (!Result)
-    Err.print(argv0, errs());
+static cl::opt<bool>
+NoStdLib("nostdlib",
+         cl::desc("Only search directories specified on the command line."));
 
-  if (MaterializeMetadata) {
-    Result->materializeMetadata();
-    UpgradeDebugInfo(*Result);
+static bool isFileType(const std::string &FileName, sys::fs::file_magic type)
+{
+  sys::fs::file_magic result;
+  if (sys::fs::identify_magic(FileName, result)) {
+    return false;
   }
-
-  return Result;
+  return result == type;
 }
 
 static void diagnosticHandler(const DiagnosticInfo &DI) {
@@ -160,154 +165,6 @@ static void diagnosticHandlerWithContext(const DiagnosticInfo &DI, void *C) {
   diagnosticHandler(DI);
 }
 
-/// Import any functions requested via the -import option.
-static bool importFunctions(const char *argv0, LLVMContext &Context,
-                            Linker &L) {
-  StringMap<std::unique_ptr<DenseMap<unsigned, MDNode *>>>
-      ModuleToTempMDValsMap;
-  for (const auto &Import : Imports) {
-    // Identify the requested function and its bitcode source file.
-    size_t Idx = Import.find(':');
-    if (Idx == std::string::npos) {
-      errs() << "Import parameter bad format: " << Import << "\n";
-      return false;
-    }
-    std::string FunctionName = Import.substr(0, Idx);
-    std::string FileName = Import.substr(Idx + 1, std::string::npos);
-
-    // Load the specified source module.
-    std::unique_ptr<Module> M = loadFile(argv0, FileName, Context, false);
-    if (!M.get()) {
-      errs() << argv0 << ": error loading file '" << FileName << "'\n";
-      return false;
-    }
-
-    if (verifyModule(*M, &errs())) {
-      errs() << argv0 << ": " << FileName
-             << ": error: input module is broken!\n";
-      return false;
-    }
-
-    Function *F = M->getFunction(FunctionName);
-    if (!F) {
-      errs() << "Ignoring import request for non-existent function "
-             << FunctionName << " from " << FileName << "\n";
-      continue;
-    }
-    // We cannot import weak_any functions without possibly affecting the
-    // order they are seen and selected by the linker, changing program
-    // semantics.
-    if (F->hasWeakAnyLinkage()) {
-      errs() << "Ignoring import request for weak-any function " << FunctionName
-             << " from " << FileName << "\n";
-      continue;
-    }
-
-    if (Verbose)
-      errs() << "Importing " << FunctionName << " from " << FileName << "\n";
-
-    std::unique_ptr<FunctionInfoIndex> Index;
-    if (!FunctionIndex.empty()) {
-      ErrorOr<std::unique_ptr<FunctionInfoIndex>> IndexOrErr =
-          llvm::getFunctionIndexForFile(FunctionIndex, diagnosticHandler);
-      std::error_code EC = IndexOrErr.getError();
-      if (EC) {
-        errs() << EC.message() << '\n';
-        return false;
-      }
-      Index = std::move(IndexOrErr.get());
-    }
-
-    // Save the mapping of value ids to temporary metadata created when
-    // importing this function. If we have already imported from this module,
-    // add new temporary metadata to the existing mapping.
-    auto &TempMDVals = ModuleToTempMDValsMap[FileName];
-    if (!TempMDVals)
-      TempMDVals = llvm::make_unique<DenseMap<unsigned, MDNode *>>();
-
-    // Link in the specified function.
-    DenseSet<const GlobalValue *> FunctionsToImport;
-    FunctionsToImport.insert(F);
-    if (L.linkInModule(std::move(M), Linker::Flags::None, Index.get(),
-                       &FunctionsToImport, TempMDVals.get()))
-      return false;
-  }
-
-  // Now link in metadata for all modules from which we imported functions.
-  for (StringMapEntry<std::unique_ptr<DenseMap<unsigned, MDNode *>>> &SME :
-       ModuleToTempMDValsMap) {
-    // Load the specified source module.
-    std::unique_ptr<Module> M = loadFile(argv0, SME.getKey(), Context, true);
-    if (!M.get()) {
-      errs() << argv0 << ": error loading file '" << SME.getKey() << "'\n";
-      return false;
-    }
-
-    if (verifyModule(*M, &errs())) {
-      errs() << argv0 << ": " << SME.getKey()
-             << ": error: input module is broken!\n";
-      return false;
-    }
-
-    // Link in all necessary metadata from this module.
-    if (L.linkInMetadata(*M, SME.getValue().get()))
-      return false;
-  }
-  return true;
-}
-
-static bool linkFiles(const char *argv0, LLVMContext &Context, Linker &L,
-                      const cl::list<std::string> &Files,
-                      unsigned Flags) {
-  // Filter out flags that don't apply to the first file we load.
-  unsigned ApplicableFlags = Flags & Linker::Flags::OverrideFromSrc;
-  for (const auto &File : Files) {
-    std::unique_ptr<Module> M = loadFile(argv0, File, Context);
-    if (!M.get()) {
-      errs() << argv0 << ": error loading file '" << File << "'\n";
-      return false;
-    }
-
-    if (verifyModule(*M, &errs())) {
-      errs() << argv0 << ": " << File << ": error: input module is broken!\n";
-      return false;
-    }
-
-    // If a function index is supplied, load it so linkInModule can treat
-    // local functions/variables as exported and promote if necessary.
-    std::unique_ptr<FunctionInfoIndex> Index;
-    if (!FunctionIndex.empty()) {
-      ErrorOr<std::unique_ptr<FunctionInfoIndex>> IndexOrErr =
-          llvm::getFunctionIndexForFile(FunctionIndex, diagnosticHandler);
-      std::error_code EC = IndexOrErr.getError();
-      if (EC) {
-        errs() << EC.message() << '\n';
-        return false;
-      }
-      Index = std::move(IndexOrErr.get());
-    }
-
-    if (Verbose)
-      errs() << "Linking in '" << File << "'\n";
-
-    if (L.linkInModule(std::move(M), ApplicableFlags, Index.get()))
-      return false;
-    // All linker flags apply to linking of subsequent files.
-    ApplicableFlags = Flags;
-
-    // If requested for testing, preserve modules by releasing them from
-    // the unique_ptr before the are freed. This can help catch any
-    // cross-module references from e.g. unneeded metadata references
-    // that aren't properly set to null but instead mapped to the source
-    // module version. The bitcode writer will assert if it finds any such
-    // cross-module references.
-    if (PreserveModules)
-      M.release();
-  }
-
-  return true;
-}
-
 int main(int argc, char **argv) {
   // Print a stack trace if we signal out.
   sys::PrintStackTraceOnErrorSignal();
@@ -319,8 +176,23 @@ int main(int argc, char **argv) {
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
   cl::ParseCommandLineOptions(argc, argv, "llvm linker\n");
 
-  auto Composite = make_unique<Module>("llvm-link", Context);
-  Linker L(*Composite);
+  std::string Modname;
+  if (OutputFilename == "-")
+    Modname = "<stdout>";
+  else {
+    Modname = llvm::sys::path::stem(OutputFilename);
+  }
+
+  // Craft a new linker and add in search paths
+  LibraryLinker L(argv[0], Modname, Context);
+  L.addPaths(LibrarySearchPaths);
+  if (!NoStdLib) {
+    L.addSystemPaths();
+  }
+
+  if (Verbose) {
+    L.setFlags(LibraryLinker::Verbose);
+  }
 
   unsigned Flags = Linker::Flags::None;
   if (Internalize)
@@ -328,20 +200,135 @@ int main(int argc, char **argv) {
   if (OnlyNeeded)
     Flags |= Linker::Flags::LinkOnlyNeeded;
 
-  // First add all the regular input files
-  if (!linkFiles(argv[0], Context, L, InputFilenames, Flags))
-    return 1;
+  // Link in modules, archives, and libraries
+  std::vector<std::string>::const_iterator FileIt = InputFilenames.begin();
+  std::vector<std::string>::const_iterator LibIt = Libraries.begin();
+  std::vector<LibraryLinkage>::const_iterator LDLIt = LinkDynamicLibraries.begin();
+  bool OnlyStatic = false;
 
-  // Next the -override ones.
-  if (!linkFiles(argv[0], Context, L, OverridingInputs,
-                 Flags | Linker::Flags::OverrideFromSrc))
-    return 1;
+  while (true) {
+    unsigned int LibPos = -1, FilePos = -1, LDLPos = -1;
+    if (LibIt != Libraries.end())
+      LibPos = Libraries.getPosition(LibIt - Libraries.begin());
+    if (FileIt != InputFilenames.end())
+      FilePos = InputFilenames.getPosition(FileIt - InputFilenames.begin());
+    if (LDLIt != LinkDynamicLibraries.end())
+      LDLPos = LinkDynamicLibraries.getPosition(LDLIt - LinkDynamicLibraries.begin());
 
-  // Import any functions requested via -import
-  if (!importFunctions(argv[0], Context, L))
-    return 1;
+    // If LDLPos is less than both FilePos and LibPos, update
+    // OnlyStatic.
+    if (LDLPos < FilePos && LDLPos < LibPos)
+    {
+      OnlyStatic = *LDLIt++ == Static;
+      continue;
+    }
 
-  if (DumpAsm) errs() << "Here's the assembly:\n" << *Composite;
+    // Otherwise, FilePos or LibPos is smaller (or all are -1).
+    if (FilePos < LibPos) {
+      // Link in a module or archive
+      const std::string &FileName = *FileIt++;
+      if (!sys::fs::exists(FileName)) {
+        errs() << argv[0] << ": invalid file name: '" << FileName << "'\n";
+        return 1;
+      }
+
+      bool IsNative;
+      if (isFileType(FileName, sys::fs::file_magic::archive)) {
+        // Link the archive in if it will resolve symbols
+        if (L.linkInArchive(FileName, IsNative))
+        {
+          errs() << argv[0] << ": error linking archive: '" << FileName << "'\n";
+          return 1;
+        }
+      }
+      else if (isFileType(FileName, sys::fs::file_magic::bitcode)) {
+        // Link the bitcode file in
+        if (L.linkInFile(FileName, IsNative, Flags)) {
+          errs() << argv[0] << ": error linking bitcode file: '" << FileName << "'\n";
+          return 1;
+        }
+      }
+      else {
+        // Not an archive nor bitcode so attempt to parse it as LLVM
+        // assembly.
+        SMDiagnostic Err;
+        std::unique_ptr<Module> M(parseIRFile(FileName, Err, Context));
+        if (M.get() == 0) {
+          errs() << argv[0] << ": error parsing LLVM assembly file: '" << FileName << "'\n";
+          return 1;
+        }
+        if (L.linkInModule(std::move(M), Flags)) {
+          errs() << argv[0] << ": link error in '" << FileName << "\n";
+          return 1;
+        }
+      }
+      continue;
+    }
+
+    if (LibPos < FilePos) {
+      // Link in library or archive
+      const std::string &LibName = *LibIt++;
+      std::string FileName = L.FindLibrary(LibName, OnlyStatic);
+      if (FileName.empty()) {
+        errs() << argv[0] << ": library not found for: '-l" << LibName << "'\n";
+        return 1;
+      }
+
+      bool IsNative;
+      if (isFileType(FileName, sys::fs::file_magic::archive)) {
+        if (L.linkInArchive(FileName, IsNative))
+        {
+          errs() << argv[0] << ": error linking archive: '" << FileName << "'\n";
+          return 1;
+        }
+      }
+      else {
+        // If this is not an archive, then it is a dynamic library and
+        // the linker is responsible for linking it in. Ignore it.
+        if (Verbose)
+          errs() << "Not linking in dynamic library '" << FileName << "'\n";
+      }
+      continue;
+    }
+    // All done
+    assert(LDLPos == (unsigned)-1 && FilePos == (unsigned)-1 && LibPos == (unsigned)-1);
+    break;
+  }
+
+  std::vector<std::string>::const_iterator OverrideIt = OverridingInputs.begin();
+  while (OverrideIt != OverridingInputs.end()) {
+    const std::string &FileName = *OverrideIt++;
+    if (!sys::fs::exists(FileName)) {
+      errs() << argv[0] << ": invalid file name: '" << FileName << "'\n";
+      return 1;
+    }
+
+    bool IsNative;
+    if (isFileType(FileName, sys::fs::file_magic::bitcode)) {
+      // Link the bitcode file in
+      if (L.linkInFile(FileName, IsNative, Flags | Linker::Flags::OverrideFromSrc)) {
+        errs() << argv[0] << ": error linking bitcode file: '" << FileName << "'\n";
+        return 1;
+      }
+    }
+    else {
+      // Not an archive nor bitcode so attempt to parse it as LLVM
+      // assembly.
+      SMDiagnostic Err;
+      std::unique_ptr<Module> M(parseIRFile(FileName, Err, Context));
+      if (M.get() == 0) {
+        errs() << argv[0] << ": error parsing LLVM assembly file: '" << FileName << "'\n";
+        return 1;
+      }
+      if (L.linkInModule(std::move(M), Flags | Linker::Flags::OverrideFromSrc)) {
+        errs() << argv[0] << ": link error in '" << FileName << "\n";
+        return 1;
+      }
+    }
+  }
+
+  Module &Composite = *L.getModule();
+  if (DumpAsm) errs() << "Here's the assembly:\n" << Composite;
 
   std::error_code EC;
   tool_output_file Out(OutputFilename, EC, sys::fs::F_None);
@@ -350,16 +337,16 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (verifyModule(*Composite, &errs())) {
-    errs() << argv[0] << ": error: linked module is broken!\n";
+  if (verifyModule(Composite, &errs())) {
+    errs() << argv[0] << ": linked module is broken!\n";
     return 1;
   }
 
   if (Verbose) errs() << "Writing bitcode...\n";
   if (OutputAssembly) {
-    Composite->print(Out.os(), nullptr, PreserveAssemblyUseListOrder);
+    Composite.print(Out.os(), nullptr, PreserveAssemblyUseListOrder);
   } else if (Force || !CheckBitcodeOutputToConsole(Out.os(), true))
-    WriteBitcodeToFile(Composite.get(), Out.os(), PreserveBitcodeUseListOrder);
+    WriteBitcodeToFile(&Composite, Out.os(), PreserveBitcodeUseListOrder);
 
   // Declare success.
   Out.keep();

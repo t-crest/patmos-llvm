@@ -16,7 +16,7 @@
 #include "PatmosSinglePathInfo.h"
 #include "PatmosSchedStrategy.h"
 #include "PatmosStackCacheAnalysis.h"
-#include "llvm/PassManager.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -24,6 +24,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/UnifyFunctionExitNodes.h"
 
@@ -41,7 +42,7 @@ static ScheduleDAGInstrs *createPatmosVLIWMachineSched(MachineSchedContext *C) {
   // scheduler that allows for VLIW bundling or something, similar to the
   // PatmosPostRAScheduler. Should still be split into a generic ScheduleDAG
   // scheduler and a specialised PatmosSchedStrategy.
-  ScheduleDAGMI *PS = new ScheduleDAGMI(C, new PatmosVLIWSchedStrategy());
+  ScheduleDAGMI *PS = new ScheduleDAGMI(C, std::unique_ptr<PatmosVLIWSchedStrategy>(new PatmosVLIWSchedStrategy()), false);
   return PS;
 }
 
@@ -59,10 +60,27 @@ namespace {
     cl::desc("Enable the Patmos stack cache analysis."),
     cl::Hidden);
   static cl::opt<bool> DisableIfConverter(
-      "mpatmos-disable-ifcvt",
-      cl::init(false),
-      cl::desc("Disable if-converter for Patmos."),
-      cl::Hidden);
+    "mpatmos-disable-ifcvt",
+    cl::init(false),
+    cl::desc("Disable if-converter for Patmos."),
+    cl::Hidden);
+
+  static cl::opt<bool> DisableMIPreRA(
+    "mpatmos-disable-pre-ra-misched",
+    cl::init(true),
+    cl::Hidden,
+    cl::desc("Disable any pre-RA MI scheduler."));
+  static cl::opt<bool> DisablePostRA(
+    "mpatmos-disable-post-ra",
+    cl::init(false),
+    cl::Hidden,
+    cl::desc("Disable any post-RA scheduling."));
+  static cl::opt<bool> DisablePatmosPostRA(
+    "mpatmos-disable-post-ra-patmos",
+    cl::init(false),
+    cl::Hidden,
+    cl::desc("Use the standard LLVM post-RA scheduler instead "
+             "of the Patmos post-RA scheduler."));
 
   /// Patmos Code Generator Pass Configuration Options.
   class PatmosPassConfig : public TargetPassConfig {
@@ -74,10 +92,10 @@ namespace {
      : TargetPassConfig(TM, PM), DefaultRoot("main")
     {
       // Enable preRA MI scheduler.
-      if (TM->getSubtargetImpl()->usePreRAMIScheduler(getOptLevel())) {
+      if (usePreRAMIScheduler(getOptLevel())) {
         enablePass(&MachineSchedulerID);
       }
-      if (TM->getSubtargetImpl()->usePatmosPostRAScheduler(getOptLevel())) {
+      if (usePatmosPostRAScheduler(getOptLevel())) {
         initializePatmosPostRASchedulerPass(*PassRegistry::getPassRegistry());
         substitutePass(&PostRASchedulerID, &PatmosPostRASchedulerID);
       }
@@ -87,8 +105,39 @@ namespace {
       return getTM<PatmosTargetMachine>();
     }
 
-    const PatmosSubtarget &getPatmosSubtarget() const {
-      return *getPatmosTargetMachine().getSubtargetImpl();
+    bool enablePostRAScheduler(CodeGenOpt::Level OptLevel,
+                               TargetSubtargetInfo::AntiDepBreakMode& Mode,
+                               TargetSubtargetInfo::RegClassVector& CriticalPathRCs) const {
+      // TODO disabled until call delay slots are properly handled by anti-dep
+      // breaker. Moving a use of a caller-defined register (r1,..) into the delay
+      // slot of a call causes the anti-dep breaker not to detect the use if the def
+      // is in a preceding scheduling region.
+      // Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
+      Mode = TargetSubtargetInfo::ANTIDEP_NONE;
+
+      return hasPostRAScheduler(OptLevel);
+    }
+
+    bool hasPostRAScheduler(CodeGenOpt::Level OptLevel) const {
+
+      // TargetPassConfig does not add the PostRA pass for -O0!
+      if (OptLevel == CodeGenOpt::None) return false;
+
+      // TODO there are also -disable-post-ra and -post-RA-scheduler flags,
+      // which override the default postRA scheduler behavior, be basically ignore
+      // them for now.
+      return !DisablePostRA;
+    }
+
+    bool usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
+
+      if (OptLevel == CodeGenOpt::None) return false;
+
+      return !DisableMIPreRA;
+    }
+
+    bool usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const {
+      return hasPostRAScheduler(OptLevel) && !DisablePatmosPostRA;
     }
 
     virtual ScheduleDAGInstrs *
@@ -120,27 +169,25 @@ namespace {
     /// addPreRegAlloc - This method may be implemented by targets that want to
     /// run passes immediately before register allocation. This should return
     /// true if -print-machineinstrs should print after these passes.
-    virtual bool addPreRegAlloc() {
+    virtual void addPreRegAlloc() {
       // For -O0, add a pass that removes dead instructions to avoid issues
       // with spill code in naked functions containing function calls with
       // unused return values.
       if (getOptLevel() == CodeGenOpt::None) {
         addPass(&DeadMachineInstructionElimID);
       }
-      return true;
     }
 
     /// addPostRegAlloc - This method may be implemented by targets that want to
     /// run passes after register allocation pass pipeline but before
     /// prolog-epilog insertion.  This should return true if -print-machineinstrs
     /// should print after these passes.
-    virtual bool addPostRegAlloc() {
+    virtual void addPostRegAlloc() {
       if (PatmosSinglePathInfo::isEnabled()) {
-        addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
-        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
-        addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
+        addPass(createPatmosSPMarkPass());
+        addPass(createPatmosSinglePathInfoPass());
+        addPass(createPatmosSPPreparePass());
       }
-      return false;
     }
 
 
@@ -148,12 +195,12 @@ namespace {
     /// run passes after prolog-epilog insertion and before the second instruction
     /// scheduling pass.  This should return true if -print-machineinstrs should
     /// print after these passes.
-    virtual bool addPreSched2() {
-      addPass(createPatmosPMLProfileImport(getPatmosTargetMachine()));
+    virtual void addPreSched2() {
+      addPass(createPatmosPMLProfileImport());
 
       if (PatmosSinglePathInfo::isEnabled()) {
-        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
-        addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
+        addPass(createPatmosSinglePathInfoPass());
+        addPass(createPatmosSPReducePass());
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
           addPass(&IfConverterID);
@@ -170,12 +217,11 @@ namespace {
 
       // this is pseudo pass that may hold results from SC analysis
       // (currently for PML export)
-      addPass(createPatmosStackCacheAnalysisInfo(getPatmosTargetMachine()));
+      addPass(createPatmosStackCacheAnalysisInfo());
 
       if (EnableStackCacheAnalysis) {
-        addPass(createPatmosStackCacheAnalysis(getPatmosTargetMachine()));
+        addPass(createPatmosStackCacheAnalysis());
       }
-      return true;
     }
 
 
@@ -191,75 +237,81 @@ namespace {
     /// addPreEmitPass - This pass may be implemented by targets that want to run
     /// passes immediately before machine code is emitted.  This should return
     /// true if -print-machineinstrs should print out the code after the passes.
-    virtual bool addPreEmitPass(){
+    virtual void addPreEmitPass(){
 
       // Post-RA MI Scheduler does bundling and delay slots itself. Otherwise,
       // add passes to handle them.
-      if (!getPatmosSubtarget().usePatmosPostRAScheduler(getOptLevel())) {
-        addPass(createPatmosDelaySlotFillerPass(getPatmosTargetMachine(),
-                                            getOptLevel() == CodeGenOpt::None));
+      if (!usePatmosPostRAScheduler(getOptLevel())) {
+        addPass(createPatmosDelaySlotFillerPass(getOptLevel() == CodeGenOpt::None));
       }
 
       // All passes below this line must handle delay slots and bundles
       // correctly.
 
-      if (getPatmosSubtarget().hasMethodCache()) {
-        addPass(createPatmosFunctionSplitterPass(getPatmosTargetMachine()));
-      }
+      addPass(createPatmosFunctionSplitterPass());
 
-      addPass(createPatmosDelaySlotKillerPass(getPatmosTargetMachine()));
+      addPass(createPatmosDelaySlotKillerPass());
 
-      addPass(createPatmosEnsureAlignmentPass(getPatmosTargetMachine()));
+      addPass(createPatmosEnsureAlignmentPass());
 
       // following pass is a peephole pass that does neither modify
       // the control structure nor the size of basic blocks.
       addPass(createPatmosBypassFromPMLPass(getPatmosTargetMachine()));
-
-      return true;
     }
 
     /// addSerializePass - Install a pass that serializes the internal representation
     /// of the compiler to PML format
-    virtual bool addSerializePass(std::string& OutFile,
+    virtual void addSerializePass(std::string& OutFile,
                                   ArrayRef<std::string> Roots,
                                   std::string &BitcodeFile) {
-      if (OutFile.empty())
-        return false;
-
 
       addPass(createPatmosModuleExportPass(
           getPatmosTargetMachine(),
           OutFile, BitcodeFile,
           Roots.empty() ? ArrayRef<std::string>(DefaultRoot) : Roots
           ));
-
-      return true;
     }
 
   };
 } // namespace
 
 PatmosTargetMachine::PatmosTargetMachine(const Target &T,
-                                         StringRef TT,
+                                         Triple TT,
                                          StringRef CPU,
                                          StringRef FS,
                                          TargetOptions O, 
                                          Reloc::Model RM, CodeModel::Model CM,
-                                         CodeGenOpt::Level L)
-  : LLVMTargetMachine(T, TT, CPU, FS, O, RM, CM, L),
-    Subtarget(TT, CPU, FS),
-
+                                         CodeGenOpt::Level L) :
     // Keep this in sync with clang/lib/Basic/Targets.cpp and
     // compiler-rt/lib/patmos/*.ll
     // Note: Both ABI and Preferred Alignment must be 32bit for all supported
     // types, backend does not support different stack alignment.
-    DL("E-S32-p:32:32:32-i8:8:8-i16:16:16-i32:32:32-i64:32:32-f64:32:32-a0:0:32-s0:32:32-v64:32:32-v128:32:32-n32"),
-
-    InstrInfo(*this), TLInfo(*this), TSInfo(*this),
-    FrameLowering(*this),
-    InstrItins(Subtarget.getInstrItineraryData())
-{
+    LLVMTargetMachine(T, "E-S32-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:32-f32:32:32-f64:32:32-a0:0:32-v64:32:32-v128:32:32-n32", TT, CPU, FS, O, RM, CM, L),
+    TLOF(make_unique<PatmosTargetObjectFile>()) {
   initAsmInfo();
+}
+
+const PatmosSubtarget *
+PatmosTargetMachine::getSubtargetImpl(const Function &F) const {
+  Attribute CPUAttr = F.getFnAttribute("target-cpu");
+  Attribute FSAttr = F.getFnAttribute("target-features");
+
+  std::string CPU = !CPUAttr.hasAttribute(Attribute::None)
+                        ? CPUAttr.getValueAsString().str()
+                        : TargetCPU;
+  std::string FS = !FSAttr.hasAttribute(Attribute::None)
+                       ? FSAttr.getValueAsString().str()
+                       : TargetFS;
+
+  auto &I = SubtargetMap[CPU + FS];
+  if (!I) {
+    // This needs to be done before we create a new subtarget since any
+    // creation will depend on the TM and the code generation flags on the
+    // function that reside in TargetOptions.
+    resetTargetOptions(F);
+    I = llvm::make_unique<PatmosSubtarget>(TargetTriple, CPU, FS, *this);
+  }
+  return I.get();
 }
 
 TargetPassConfig *PatmosTargetMachine::createPassConfig(PassManagerBase &PM) {

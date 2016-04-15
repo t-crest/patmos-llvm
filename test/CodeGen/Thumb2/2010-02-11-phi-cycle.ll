@@ -4,7 +4,7 @@ target datalayout = "e-p:32:32:32-i1:8:32-i8:8:32-i16:16:32-i32:32:32-i64:32:32-
 define i32 @test(i32 %n) nounwind {
 ; CHECK-LABEL: test:
 ; CHECK-NOT: mov
-; CHECK: pop {{.*}}, pc
+; CHECK: return
 entry:
   %0 = icmp eq i32 %n, 1                          ; <i1> [#uses=1]
   br i1 %0, label %return, label %bb.nph

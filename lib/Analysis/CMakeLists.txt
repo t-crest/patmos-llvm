@@ -29,6 +29,7 @@ add_llvm_library(LLVMAnalysis
   GlobalsModRef.cpp
   IVUsers.cpp
   InlineCost.cpp
+  InputDependenceAnalysis.cpp
   InstCount.cpp
   InstructionSimplify.cpp
   Interval.cpp

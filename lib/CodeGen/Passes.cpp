@@ -88,6 +88,15 @@ static cl::opt<bool> VerifyMachineCode("verify-machineinstrs", cl::Hidden,
     cl::desc("Verify generated machine code"),
     cl::init(false),
     cl::ZeroOrMore);
+static cl::opt<std::string> SerializeMachineCode("mserialize",
+   cl::desc("Export PML specification of generated machine code to FILE"),
+   cl::init(""));
+static cl::list<std::string>SerializeRoots("mserialize-roots",
+   cl::desc("Export only methods reachable from given functions"),
+   cl::CommaSeparated, cl::Hidden);
+static cl::opt<std::string> SerializePreemitBitcode("mpreemit-bitcode",
+  cl::desc("Write the final bitcode representation (before emit) to FILE"),
+  cl::init(""));
 
 static cl::opt<std::string>
 PrintMachineInstrs("print-machineinstrs", cl::ValueOptional,
@@ -602,7 +611,19 @@ void TargetPassConfig::addMachinePasses() {
   addPass(&StackMapLivenessID, false);
   addPass(&LiveDebugValuesID, false);
 
+  // Serialize machine code
+  if (! SerializeMachineCode.empty())
+    addSerializePass(SerializeMachineCode, SerializeRoots, SerializePreemitBitcode);
+
   AddingMachinePasses = false;
+}
+
+/// Add standard serialization to PML format
+void TargetPassConfig::addSerializePass(std::string& OutFile,
+                                        ArrayRef<std::string> Roots,
+                                        std::string &BitcodeFile)
+{
+  addPass(createPMLExportPass(*TM, OutFile, BitcodeFile, Roots));
 }
 
 /// Add passes that optimize machine instructions in SSA form.

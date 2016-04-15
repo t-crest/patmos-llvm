@@ -30,32 +30,31 @@ namespace llvm {
   void initializePatmosCallGraphBuilderPass(PassRegistry&);
   void initializePatmosStackCacheAnalysisInfoPass(PassRegistry&);
   void initializePatmosPostRASchedulerPass(PassRegistry&);
-  void initializePatmosPMLProfileImportPasS(PassRegistry&);
+  void initializePatmosPMLProfileImportPass(PassRegistry&);
 
   FunctionPass *createPatmosISelDag(PatmosTargetMachine &TM);
   ModulePass   *createPatmosSPClonePass();
-  ModulePass   *createPatmosSPMarkPass(PatmosTargetMachine &tm);
-  FunctionPass *createPatmosSinglePathInfoPass(const PatmosTargetMachine &tm);
-  FunctionPass *createPatmosSPPreparePass(const PatmosTargetMachine &tm);
-  FunctionPass *createPatmosSPReducePass(const PatmosTargetMachine &tm);
-  FunctionPass *createPatmosDelaySlotFillerPass(const PatmosTargetMachine &tm,
-                                                bool ForceDisable);
-  FunctionPass *createPatmosFunctionSplitterPass(PatmosTargetMachine &tm);
-  FunctionPass *createPatmosDelaySlotKillerPass(PatmosTargetMachine &tm);
+  ModulePass   *createPatmosSPMarkPass();
+  FunctionPass *createPatmosSinglePathInfoPass();
+  FunctionPass *createPatmosSPPreparePass();
+  FunctionPass *createPatmosSPReducePass();
+  FunctionPass *createPatmosDelaySlotFillerPass(bool ForceDisable);
+  FunctionPass *createPatmosFunctionSplitterPass();
+  FunctionPass *createPatmosDelaySlotKillerPass();
   FunctionPass *createPatmosExportPass(PatmosTargetMachine &TM,
                                        std::string& Filename,
                                        std::string& BitcodeFilename);
   FunctionPass *createPatmosBypassFromPMLPass(PatmosTargetMachine &tm);
-  FunctionPass *createPatmosPMLProfileImport(const PatmosTargetMachine &tm);
-  FunctionPass *createPatmosEnsureAlignmentPass(PatmosTargetMachine &tm);
+  FunctionPass *createPatmosPMLProfileImport();
+  FunctionPass *createPatmosEnsureAlignmentPass();
 
   ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
                                            std::string& Filename,
                                            std::string& BitcodeFilename,
                                            ArrayRef<std::string> Roots);
   ModulePass *createPatmosCallGraphBuilder();
-  ModulePass *createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm);
-  ModulePass *createPatmosStackCacheAnalysisInfo(const PatmosTargetMachine &tm);
+  ModulePass *createPatmosStackCacheAnalysis();
+  ModulePass *createPatmosStackCacheAnalysisInfo();
 
   extern char &PatmosPostRASchedulerID;
 } // end namespace llvm;

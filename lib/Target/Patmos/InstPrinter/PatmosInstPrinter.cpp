@@ -34,7 +34,7 @@ bool PatmosInstPrinter::isBundled(const MCInst *MI) const {
 }
 
 void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                                  StringRef Annot)
+                                  StringRef Annot, const MCSubtargetInfo& STI)
 {
   // This prints the bundle start marker and the guard using printInstPrefix.
   printInstruction(MI, O);

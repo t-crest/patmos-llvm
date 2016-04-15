@@ -11,19 +11,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PatmosSubtarget.h"
+#define DEBUG_TYPE "patmos-subtarget"
+
 #include "Patmos.h"
+#include "PatmosISelLowering.h"
+#include "PatmosSubtarget.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/ADT/StringExtras.h"
 
-
 #define GET_SUBTARGETINFO_TARGET_DESC
+#define GET_SUBTARGETINFO_MC_DESC
 #define GET_SUBTARGETINFO_CTOR
 #include "PatmosGenSubtargetInfo.inc"
 
 using namespace llvm;
-
 
 /// StackCacheBlockSize - Block size of the stack cache in bytes (default: 4,
 /// i.e., word-sized).
@@ -60,23 +62,7 @@ static cl::opt<bool> BranchInsideCFLDelaySlots("mpatmos-nested-branches",
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
 	             cl::init(true),
-		     cl::desc("Schedule instructions only in first slot."));
-
-static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
-                     cl::init(true),
-                     cl::Hidden,
-                     cl::desc("Disable any pre-RA MI scheduler."));
-
-static cl::opt<bool> DisablePostRA("mpatmos-disable-post-ra",
-                     cl::init(false),
-                     cl::Hidden,
-                     cl::desc("Disable any post-RA scheduling."));
-
-static cl::opt<bool> DisablePatmosPostRA("mpatmos-disable-post-ra-patmos",
-                     cl::init(false),
-                     cl::Hidden,
-                     cl::desc("Use the standard LLVM post-RA scheduler instead "
-                              "of the Patmos post-RA scheduler."));
+		         cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<PatmosSubtarget::CFLType> PatmosCFLType("mpatmos-cfl",
                             cl::init(PatmosSubtarget::CFL_MIXED),
@@ -93,10 +79,14 @@ static cl::opt<PatmosSubtarget::CFLType> PatmosCFLType("mpatmos-cfl",
                                            "Emit only non-delayed branches and calls"),
                                 clEnumValEnd));
 
-PatmosSubtarget::PatmosSubtarget(const std::string &TT,
-                                 const std::string &CPU,
-                                 const std::string &FS) :
-  PatmosGenSubtargetInfo(TT, CPU, FS)
+PatmosSubtarget::PatmosSubtarget(const Triple &TT, StringRef CPU,
+                                 StringRef FS, const TargetMachine &TM) :
+  PatmosGenSubtargetInfo(TT, CPU, FS),
+  TM(TM),
+  InstrInfo(*this),
+  TLInfo(TM, *this),
+  TSInfo(TM),
+  FrameLowering(*this)
 {
   std::string CPUName = CPU;
   if (CPUName.empty()) CPUName = "generic";
@@ -107,43 +97,8 @@ PatmosSubtarget::PatmosSubtarget(const std::string &TT,
   InstrItins = getInstrItineraryForCPU(CPUName);
 }
 
-bool PatmosSubtarget::enablePostRAScheduler(CodeGenOpt::Level OptLevel,
-                                   TargetSubtargetInfo::AntiDepBreakMode& Mode,
-                                   RegClassVector& CriticalPathRCs) const {
-  // TODO disabled until call delay slots are properly handled by anti-dep
-  // breaker. Moving a use of a caller-defined register (r1,..) into the delay
-  // slot of a call causes the anti-dep breaker not to detect the use if the def
-  // is in a preceding scheduling region.
-  // Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
-  Mode = ANTIDEP_NONE;
-
-  return hasPostRAScheduler(OptLevel);
-}
-
 bool PatmosSubtarget::enableBundling(CodeGenOpt::Level OptLevel) const {
   return !DisableVLIW;
-}
-
-bool PatmosSubtarget::hasPostRAScheduler(CodeGenOpt::Level OptLevel) const {
-
-  // TargetPassConfig does not add the PostRA pass for -O0!
-  if (OptLevel == CodeGenOpt::None) return false;
-
-  // TODO there are also -disable-post-ra and -post-RA-scheduler flags,
-  // which override the default postRA scheduler behavior, be basically ignore
-  // them for now.
-  return !DisablePostRA;
-}
-
-bool PatmosSubtarget::usePreRAMIScheduler(CodeGenOpt::Level OptLevel) const {
-
-  if (OptLevel == CodeGenOpt::None) return false;
-
-  return !DisableMIPreRA;
-}
-
-bool PatmosSubtarget::usePatmosPostRAScheduler(CodeGenOpt::Level OptLevel) const {
-  return hasPostRAScheduler(OptLevel) && !DisablePatmosPostRA;
 }
 
 PatmosSubtarget::CFLType PatmosSubtarget::getCFLType() const {
@@ -153,10 +108,10 @@ PatmosSubtarget::CFLType PatmosSubtarget::getCFLType() const {
 unsigned PatmosSubtarget::getDelaySlotCycles(const MachineInstr *MI) const {
   if (MI->isBundle()) {
     const MachineBasicBlock *MBB = MI->getParent();
-    MachineBasicBlock::const_instr_iterator I = MI, E = MBB->instr_end();
+    MachineBasicBlock::const_instr_iterator I(MI), E = MBB->instr_end();
     unsigned delay = 0;
     while ((++I != E) && I->isInsideBundle()) {
-      delay = std::max(delay, getDelaySlotCycles(I));
+      delay = std::max(delay, getDelaySlotCycles(&*I));
     }
     return delay;
   }
@@ -176,7 +131,6 @@ unsigned PatmosSubtarget::getDelaySlotCycles(const MachineInstr *MI) const {
     return 0;
   }
 }
-
 
 bool PatmosSubtarget::allowBranchInsideCFLDelaySots() const
 {

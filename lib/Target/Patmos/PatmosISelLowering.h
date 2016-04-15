@@ -51,7 +51,8 @@ namespace llvm {
 
   class PatmosTargetLowering : public TargetLowering {
   public:
-    explicit PatmosTargetLowering(PatmosTargetMachine &TM);
+    explicit PatmosTargetLowering(const TargetMachine &tm,
+                                  PatmosSubtarget &pst);
 
     /// LowerOperation - Provide custom lowering hooks for some operations.
     virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
@@ -60,9 +61,10 @@ namespace llvm {
     /// DAG node.
     virtual const char *getTargetNodeName(unsigned Opcode) const;
 
-    virtual EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
+    virtual EVT getSetCCResultType(const DataLayout &DL,
+                                   LLVMContext &Context, EVT VT) const;
 
-    virtual unsigned getByValTypeAlignment(Type *Ty) const LLVM_OVERRIDE {
+    virtual unsigned getByValTypeAlignment(Type *Ty, const DataLayout &DL) const override {
       // Align any type passed by value on the stack to words
       return 4;
     }
@@ -121,12 +123,12 @@ namespace llvm {
     ConstraintType getConstraintType(const std::string &Constraint) const;
 
     virtual std::pair<unsigned, const TargetRegisterClass*>
-      getRegForInlineAsmConstraint(const std::string &Constraint,
+      getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                   StringRef Constraint,
                                    MVT VT) const;
 
   private:
     const PatmosSubtarget &Subtarget;
-    const DataLayout *TD;
 
     SDValue LowerCCCCallTo(CallLoweringInfo &CLI,
                            SmallVectorImpl<SDValue> &InVals) const;
@@ -170,14 +172,15 @@ namespace llvm {
     /// LowerFRAMEADDR - Lower the llvm.frameaddress intrinsic.
     SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
 
-    /// LowerMUL_LOHI - Lower Lo/Hi multiplications.
-    SDValue LowerMUL_LOHI(SDValue Op, SelectionDAG &DAG) const;
-
     /// LowerSTORE - Promote i1 store operations to i8.
     SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
 
     /// LowerLOAD - Promote i1 load operations to i8.
     SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
+
+    /// LowerMul - Lower Lo/Hi multiplications.
+    SDValue LowerMul(SDValue Op, unsigned NewOpc, bool hasLo, SelectionDAG &DAG) const;
+
   };
 
 

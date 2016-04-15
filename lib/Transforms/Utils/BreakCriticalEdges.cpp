@@ -81,7 +81,7 @@ FunctionPass *llvm::createBreakCriticalEdgesPass() {
 /// new PHIs, as needed. Preds is a list of preds inside the loop, SplitBB
 /// is the new loop exit block, and DestBB is the old loop exit, now the
 /// successor of SplitBB.
-static void createPHIsForSplitLoopExit(SmallVectorImpl<BasicBlock *> &Preds,
+static void createPHIsForSplitLoopExit(ArrayRef<BasicBlock *> Preds,
                                        BasicBlock *SplitBB,
                                        BasicBlock *DestBB) {
   // SplitBB shouldn't have anything non-trivial in it yet.

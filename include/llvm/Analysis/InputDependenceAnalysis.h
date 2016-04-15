@@ -50,6 +50,7 @@
 #include <vector>
 
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Value.h"
 
@@ -59,7 +60,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 
-#include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/LoopInfo.h"
 
@@ -240,10 +240,10 @@ public:
     /// loop preheaders be inserted into the CFG.  It maintains both of these,
     /// as well as the CFG.  It also requires dominator information.
     /// (taken from LCSSA)
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
 
-        AU.addRequired<DominatorTree>();
-        AU.addRequired<LoopInfo>();
+        AU.addRequired<DominatorTreeWrapperPass>();
+        AU.addRequired<LoopInfoWrapperPass>();
         // We need those passes, but they are loop passes, so we cannot directly depend on them?
         // AU.addRequiredID(LoopSimplifyID);
         // AU.addRequiredID(LCSSAID);
@@ -262,8 +262,8 @@ public:
       Selectors.clear();
       
       // Get analysis data
-      LI = &getAnalysis<LoopInfo>();
-      DT = &getAnalysis<DominatorTree>();
+      LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+      DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
       bool WellFormed = true;
 
@@ -275,7 +275,7 @@ public:
       assert(WellFormed && "Not all loops are in canonical form. Aborting");
 
       for(Function::iterator BBI = F.begin(), BBE = F.end(); BBI != BBE; ++BBI) {
-	BasicBlock* BB = BBI;
+	BasicBlock* BB = &*BBI;
 	// We already processed loop headers
 	if(LI->isLoopHeader(BB)) continue;
 

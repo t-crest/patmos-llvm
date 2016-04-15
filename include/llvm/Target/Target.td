@@ -1085,6 +1085,10 @@ class AsmWriter {
   // will specify which alternative to use.  For example "{x|y|z}" with Variant
   // == 1, will expand to "y".
   int Variant = 0;
+
+  // PrintPrefixMethod - The name of a method that will be called before the 
+  // opcode of an instruction is printed.
+  string PrintPrefixMethod = "";
 }
 def DefaultAsmWriter : AsmWriter;
 

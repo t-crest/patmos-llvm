@@ -160,10 +160,6 @@ public:
     Started = (StartAfter == nullptr) && (StartBefore == nullptr);
   }
 
-  bool isStarted() const { return Started; }
-
-  bool isStopped() const { return Stopped; }
-
   void setDisableVerify(bool Disable) { setOpt(DisableVerify, Disable); }
 
   bool getEnableTailMerge() const { return EnableTailMerge; }
@@ -223,7 +219,9 @@ public:
 
   /// addSerializePass - Install a pass that serializes the internal representation
   /// of the compiler to PML format
-  virtual bool addSerializePass(std::string& OutFile, ArrayRef<std::string> Roots, std::string &BitcodeFile);
+  virtual void addSerializePass(std::string& OutFile,
+                                ArrayRef<std::string> Roots,
+                                std::string &BitcodeFile);
 
   /// Add the complete, standard set of LLVM CodeGen passes.
   /// Fully developed targets will not generally override this.
@@ -396,6 +394,11 @@ namespace llvm {
   /// createCodeGenPreparePass - Transform the code to expose more pattern
   /// matching during instruction selection.
   FunctionPass *createCodeGenPreparePass(const TargetMachine *TM = nullptr);
+
+  /// PMLExport pass - this pass exports the internal LLVM information (machinecode)
+  /// to the given stream in PML format
+  MachineModulePass *
+  createPMLExportPass(TargetMachine &TM, std::string& FileName, std::string& BitcodeFile, ArrayRef<std::string> Roots);
 
   /// AtomicExpandID -- Lowers atomic operations in terms of either cmpxchg
   /// load-linked/store-conditional loops.

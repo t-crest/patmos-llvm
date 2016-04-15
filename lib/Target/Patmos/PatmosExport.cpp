@@ -37,7 +37,6 @@
 
 #include <map>
 #include <sstream>
-#include <iostream>
 
 using namespace llvm;
 
@@ -160,7 +159,6 @@ namespace llvm {
       default:
 		return 0;
       }
-      // return TM.getSubtargetImpl()->getDelaySlotCycles(Instr);
     }
 
     virtual const std::vector<MachineBasicBlock*> getBranchTargets(
@@ -235,7 +233,10 @@ namespace llvm {
 
     virtual int getSize(const MachineInstr *Instr)
     {
-      return TM.getInstrInfo()->getInstrSize(Instr);
+      const MachineFunction *MF = Instr->getParent()->getParent();
+      const PatmosInstrInfo *PII =
+        static_cast<const PatmosInstrInfo*>(MF->getSubtarget().getInstrInfo());
+      return PII->getInstrSize(Instr);
     }
   };
 
@@ -333,7 +334,7 @@ namespace llvm {
       return "Patmos YAML/PML Module Export";
     }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesAll();
       AU.addRequired<PatmosCallGraphBuilder>();
       AU.addRequired<PatmosStackCacheAnalysisInfo>();
@@ -379,7 +380,7 @@ namespace llvm {
                                 const MachineFunction &MF)
   {
       const PatmosTargetLowering *TLI =
-        static_cast<const PatmosTargetLowering *>(TM.getTargetLowering());
+        static_cast<const PatmosTargetLowering *>(MF.getSubtarget().getTargetLowering());
       const Function *F = MF.getFunction();
       LLVMContext &Ctx = F->getParent()->getContext();
 
@@ -395,7 +396,7 @@ namespace llvm {
       /////////////////
 
       SmallVector<ISD::InputArg, 16> Ins;
-      const DataLayout *TD = TLI->getDataLayout();
+      const DataLayout &TD = MF.getDataLayout();
       ISD::ArgFlagsTy Flags;
 
       // For Patmos, PatmosISelLowering does not overload CanLowerReturn(),
@@ -403,7 +404,7 @@ namespace llvm {
       // Check whether the function can return without sret-demotion.
       SmallVector<ISD::OutputArg, 4> Outs;
       GetReturnInfo(F->getReturnType(), F->getAttributes().getRetAttributes(),
-          Outs, *TLI);
+                    Outs, *TLI, TD);
       assert(TLI->CanLowerReturn(F->getCallingConv(),
             const_cast<MachineFunction&>(MF), F->isVarArg(), Outs, Ctx));
 
@@ -412,7 +413,7 @@ namespace llvm {
       for (Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end();
           I != E; ++I, ++Idx) {
         SmallVector<EVT, 4> ValueVTs;
-        ComputeValueVTs(*TLI, I->getType(), ValueVTs);
+        ComputeValueVTs(*TLI, TD, I->getType(), ValueVTs);
         bool isArgValueUsed = !I->use_empty();
         for (unsigned Value = 0, NumValues = ValueVTs.size();
             Value != NumValues; ++Value) {
@@ -420,7 +421,7 @@ namespace llvm {
           Type *ArgTy = VT.getTypeForEVT(Ctx);
           ISD::ArgFlagsTy Flags;
           unsigned OriginalAlignment =
-            TD->getABITypeAlignment(ArgTy);
+            TD.getABITypeAlignment(ArgTy);
 
           if (F->getAttributes().hasAttribute(Idx, Attribute::ZExt))
             Flags.setZExt();
@@ -434,14 +435,14 @@ namespace llvm {
             Flags.setByVal();
             PointerType *Ty = cast<PointerType>(I->getType());
             Type *ElementTy = Ty->getElementType();
-            Flags.setByValSize(TD->getTypeAllocSize(ElementTy));
+            Flags.setByValSize(TD.getTypeAllocSize(ElementTy));
             // For ByVal, alignment should be passed from FE.  BE will guess if
             // this info is not there but there are cases it cannot get right.
             unsigned FrameAlign;
             if (F->getParamAlignment(Idx))
               FrameAlign = F->getParamAlignment(Idx);
             else
-              FrameAlign = TLI->getByValTypeAlignment(ElementTy);
+              FrameAlign = TLI->getByValTypeAlignment(ElementTy, TD);
             Flags.setByValAlign(FrameAlign);
           }
           if (F->getAttributes().hasAttribute(Idx, Attribute::Nest))
@@ -471,7 +472,7 @@ namespace llvm {
       // Assign locations to all of the incoming arguments.
       SmallVector<CCValAssign, 16> ArgLocs;
       CCState CCInfo(F->getCallingConv(), false/*isVarArg*/,
-                     const_cast<MachineFunction&>(MF), TM, ArgLocs, Ctx);
+                     const_cast<MachineFunction&>(MF), ArgLocs, Ctx);
       CCInfo.AnalyzeFormalArguments(Ins, CC_Patmos);
       /////////////////
 
@@ -496,7 +497,7 @@ namespace llvm {
           // TODO Do we need to test special flags (zero-/sign-extend)
           //      and output more information?
           // Note that we start with the low-part registers first
-          assert(TLI->getValueType(I->getType()).isSimple());
+          assert(TLI->getValueType(TD, I->getType()).isSimple());
 
           DEBUG( dbgs() << FAIdx << " " << *I << ": [" );
 
@@ -521,7 +522,7 @@ namespace llvm {
             // we prefer the name of the register as is printed in assembly
             Arg->addReg(PatmosInstPrinter::getRegisterName(VA.getLocReg()));
 
-            DEBUG( dbgs() <<  TM.getRegisterInfo()->getName(VA.getLocReg()) 
+            DEBUG( dbgs() <<  PatmosInstPrinter::getRegisterName(VA.getLocReg())
 		          << " " );
           }
 
@@ -568,7 +569,7 @@ namespace llvm {
 
       if (!Instr->isInlineAsm() && (Instr->mayLoad() || Instr->mayStore())) {
         const PatmosInstrInfo *PII =
-          static_cast<const PatmosInstrInfo*>(TM.getInstrInfo());
+          static_cast<const PatmosInstrInfo*>(MF.getSubtarget().getInstrInfo());
         switch (PII->getMemType(Instr)) {
           case PatmosII::MEM_S: I->MemType = yaml::Name("stack");  break;
           case PatmosII::MEM_L: I->MemType = yaml::Name("local");  break;
@@ -591,7 +592,7 @@ namespace llvm {
       for (MachineFunction::iterator bb = MF.begin(), be = MF.end(); bb != be;
            bb++)
       {
-        if (bb != MF.begin() && PMFI->isMethodCacheRegionEntry(bb)) {
+        if (bb != MF.begin() && PMFI->isMethodCacheRegionEntry(&*bb)) {
           PMF->addSubfunction(S);
           S = new yaml::Subfunction(bb->getNumber());
         }

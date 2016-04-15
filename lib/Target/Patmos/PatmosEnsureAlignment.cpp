@@ -26,21 +26,12 @@ namespace {
 
   class PatmosEnsureAlignment : public MachineFunctionPass {
   private:
-    unsigned MinSubfunctionAlignment;
-
-    unsigned MinBasicBlockAlignment;
 
     static char ID;
   public:
 
-    PatmosEnsureAlignment(PatmosTargetMachine &tm)
-      : MachineFunctionPass(ID)
-    {
-      const PatmosSubtarget *PST = tm.getSubtargetImpl();
-
-      MinSubfunctionAlignment = PST->getMinSubfunctionAlignment();
-      MinBasicBlockAlignment = PST->getMinBasicBlockAlignment();
-    }
+    PatmosEnsureAlignment()
+      : MachineFunctionPass(ID) { }
 
     virtual const char *getPassName() const {
       return "Patmos Ensure Alignment";
@@ -48,7 +39,12 @@ namespace {
 
     bool runOnMachineFunction(MachineFunction &MF) {
       const PatmosMachineFunctionInfo *PMFI =
-                                       MF.getInfo<PatmosMachineFunctionInfo>();
+        MF.getInfo<PatmosMachineFunctionInfo>();
+
+      const PatmosSubtarget &PST =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+      unsigned MinSubfunctionAlignment = PST.getMinSubfunctionAlignment();
+      unsigned MinBasicBlockAlignment = PST.getMinBasicBlockAlignment();
 
       bool Changed = false;
 
@@ -62,7 +58,7 @@ namespace {
            i != ie; ++i)
       {
         unsigned align;
-        if (PMFI->isMethodCacheRegionEntry(i)) {
+        if (PMFI->isMethodCacheRegionEntry(&*i)) {
           align = MinSubfunctionAlignment;
         } else {
           align = MinBasicBlockAlignment;
@@ -81,7 +77,7 @@ namespace {
   char PatmosEnsureAlignment::ID = 0;
 } // end of anonymous namespace
 
-FunctionPass *llvm::createPatmosEnsureAlignmentPass(PatmosTargetMachine &tm) {
-  return new PatmosEnsureAlignment(tm);
+FunctionPass *llvm::createPatmosEnsureAlignmentPass() {
+  return new PatmosEnsureAlignment();
 }
 

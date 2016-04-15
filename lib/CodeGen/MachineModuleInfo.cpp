@@ -13,6 +13,7 @@
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineFunctionAnalysis.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Constants.h"
@@ -23,12 +24,6 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetLowering.h"
-#include "llvm/Target/TargetLoweringObjectFile.h"
-#include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/TargetInstrInfo.h"
-
 using namespace llvm;
 using namespace llvm::dwarf;
 
@@ -199,10 +194,6 @@ MachineModuleInfo::MachineModuleInfo(const MCAsmInfo &MAI,
   initializeMachineModuleInfoPass(*PassRegistry::getPassRegistry());
   // from now on, we can use MachineFunctions
   initializeMachineFunctionAnalysisPass(*PassRegistry::getPassRegistry());
-  // Always emit some info, by default "no personality" info.
-  Personalities.push_back(NULL);
-  AddrLabelSymbols = 0;
-  TheModule = 0;
 }
 
 MachineModuleInfo::MachineModuleInfo()
@@ -227,13 +218,6 @@ bool MachineModuleInfo::doInitialization(Module &M) {
   AddrLabelSymbols = nullptr;
   TheModule = nullptr;
 
-  for (DenseMap<const Function*, MachineFunction*>::iterator
-     it = MachineFunctions.begin(), ie = MachineFunctions.end(); it != ie; it++)
-  {
-    delete it->second;
-  }
-  MachineFunctions.clear();
-
   return false;
 }
 
@@ -243,13 +227,6 @@ bool MachineModuleInfo::doFinalization(Module &M) {
 
   delete AddrLabelSymbols;
   AddrLabelSymbols = nullptr;
-
-  for (DenseMap<const Function*, MachineFunction*>::iterator
-     it = MachineFunctions.begin(), ie = MachineFunctions.end(); it != ie; it++)
-  {
-    delete it->second;
-  }
-  MachineFunctions.clear();
 
   Context.reset();
 

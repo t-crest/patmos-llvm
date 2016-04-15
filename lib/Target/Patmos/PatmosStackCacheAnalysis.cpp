@@ -39,7 +39,9 @@
 #include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -59,13 +61,17 @@
 
 using namespace llvm;
 
-INITIALIZE_PASS(PatmosStackCacheAnalysisInfo, "scainfo",
-                "Stack Cache Analysis Info", false, true)
+INITIALIZE_PASS_BEGIN(PatmosStackCacheAnalysisInfo, "scainfo",
+                      "Stack Cache Analysis Info", false, true)
+INITIALIZE_PASS_DEPENDENCY(PatmosCallGraphBuilder)
+INITIALIZE_PASS_END(PatmosStackCacheAnalysisInfo, "scainfo",
+                    "Stack Cache Analysis Info", false, true)
+
 namespace llvm {
 char PatmosStackCacheAnalysisInfo::ID = 0;
 
-ModulePass *createPatmosStackCacheAnalysisInfo(const PatmosTargetMachine &tm) {
-  return new PatmosStackCacheAnalysisInfo(tm);
+ModulePass *createPatmosStackCacheAnalysisInfo() {
+  return new PatmosStackCacheAnalysisInfo();
 }
 }
 
@@ -329,7 +335,7 @@ namespace llvm {
         HasCallFreePath(hascallfreepath), IsVisible(false), IsValid(false)
     {}
 
-    void initYAML(const PatmosSubtarget &STC)
+    void initYAML()
     {
       if (Node->getMF())
         yFunction = Node->getMF()->getName();
@@ -407,7 +413,7 @@ namespace llvm {
 
         /// propagate to parents
         for(SCAEdgeSet::const_iterator i(Parents.begin()), ie(Parents.end());
-            i != ie; i++) {
+            i != ie; ++i) {
           i->getCaller()->setVisible();
         }
       }
@@ -483,18 +489,20 @@ namespace llvm {
     /// The root node of the spill cost graph.
     SCANode *Root;
 
-    /// Subtarget information (stack cache sizes)
-    const PatmosSubtarget &STC;
-
     unsigned yamlId;
   public:
-    SpillCostAnalysisGraph(const PatmosSubtarget &s) : STC(s), yamlId(100) {}
+    SpillCostAnalysisGraph() : yamlId(100) {}
 
     /// makeRoot - Construct the root node of the SCA graph.
     SCANode *makeRoot(MCGNode *node, unsigned int maxdisplacment,
                       bool hascallfreepath)
     {
       assert(Nodes.empty());
+
+      const MachineFunction &MF = *node->getMF();
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+
       unsigned rootoccupancy = RootOccupied ? STC.getStackCacheSize() : 0;
       CostPair occupancyCosts(rootoccupancy, rootoccupancy);
       CostPair spillCosts(0, 0);
@@ -558,14 +566,14 @@ namespace llvm {
 
       // remove all edges leading to the node in its parent's children lists
       for(SCAEdgeSet::const_iterator i(N->getParents().begin()),
-          ie(N->getParents().end()); i != ie; i++) {
+          ie(N->getParents().end()); i != ie; ++i) {
         i->getCaller()->getChildren().erase(*i);
       }
 
       // remove all edges originating from the node in its children's parents
       // lists
       for(SCAEdgeSet::const_iterator i(N->getChildren().begin()),
-          ie(N->getChildren().end()); i != ie; i++) {
+          ie(N->getChildren().end()); i != ie; ++i) {
         i->getCallee()->getParents().erase(*i);
       }
 
@@ -589,7 +597,7 @@ namespace llvm {
     ~SpillCostAnalysisGraph()
     {
       for(MCGSCANodeMap::iterator i(Nodes.begin()), ie(Nodes.end()); i != ie;
-          i++) {
+          ++i) {
         delete i->second;
       }
     }
@@ -716,7 +724,7 @@ namespace llvm {
     /// getInfo - Retrieve information for a specific SCC.
     const SCCInfo &getInfo(const MCGNodes &SCC) const {
       for(MCGNodes::const_iterator i(SCC.begin()), ie(SCC.end()); i != ie;
-          i++) {
+          ++i) {
         // TODO: maybe add support for unknown functions.
         if (!(*i)->isUnknown() &&
             hasInfo((*i)->getMF()->getFunction()->getName()))
@@ -725,12 +733,12 @@ namespace llvm {
 
       dbgs() << "Error: Missing bounds for SCC: (";
       for (MCGNodes::const_iterator i(SCC.begin()), ie(SCC.end()); i != ie;
-           i++) {
+           ++i) {
         dbgs() << "'" << **i << "' ";
       }
       dbgs() << ")\nbounds available: ";
       for (SCCInfos::const_iterator i(Infos.begin()), ie(Infos.end()); i != ie;
-           i++) {
+           ++i) {
         dbgs() << "'" << i->first << "' ";
       }
       dbgs() << "\n";
@@ -953,12 +961,6 @@ namespace llvm {
 
     ////////////////////////////////////////////////////////////////////////////
 
-    /// Subtarget information (stack cache block size)
-    const PatmosSubtarget &STC;
-
-    /// Instruction information
-    const TargetInstrInfo &TII;
-
     /// Summarize the stack cache analysis results for reserve instructions as
     /// a spill cost graph.
     SpillCostAnalysisGraph SCAGraph;
@@ -971,21 +973,20 @@ namespace llvm {
     /// Pass ID
     static char ID;
 
-    PatmosStackCacheAnalysis(const PatmosTargetMachine &tm) :
-        MachineModulePass(ID), STC(tm.getSubtarget<PatmosSubtarget>()),
-        TII(*tm.getInstrInfo()), SCAGraph(STC), BI(BoundsFile)
+    PatmosStackCacheAnalysis() :
+        MachineModulePass(ID), SCAGraph(), BI(BoundsFile)
     {
-      initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
+      initializePatmosStackCacheAnalysisInfoPass(*PassRegistry::getPassRegistry());
     }
 
     /// getAnalysisUsage - Inform the pass manager that nothing is modified.
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const
+    void getAnalysisUsage(AnalysisUsage &AU) const override
     {
       AU.setPreservesAll();
       AU.addRequired<PatmosCallGraphBuilder>();
       AU.addRequired<PatmosStackCacheAnalysisInfo>();
 
-      ModulePass::getAnalysisUsage(AU);
+      MachineModulePass::getAnalysisUsage(AU);
     }
 
     /// safeUIntDiff - Compute the difference between two unsigned integers. If
@@ -1070,6 +1071,10 @@ namespace llvm {
     /// call graph node, including all its children in the call graph.
     unsigned int getMinDisplacement(MCGNode *Node) const
     {
+      const MachineFunction &MF = *Node->getMF();
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+
       return std::min(STC.getStackCacheSize(), 
                       getMinMaxDisplacement(Node, false));
     }
@@ -1078,6 +1083,10 @@ namespace llvm {
     /// call graph node, including all its children in the call graph.
     unsigned int getMaxDisplacement(MCGNode *Node) const
     {
+      const MachineFunction &MF = *Node->getMF();
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+
       return std::min(STC.getStackCacheSize(),
                       getMinMaxDisplacement(Node, true));
     }
@@ -1089,9 +1098,11 @@ namespace llvm {
       if (Node->isUnknown())
         return 0;
       else {
-        MachineFunction *MF = Node->getMF();
-        PatmosMachineFunctionInfo *PMFI =
+        const MachineFunction *MF = Node->getMF();
+        const PatmosMachineFunctionInfo *PMFI =
                                        MF->getInfo<PatmosMachineFunctionInfo>();
+        const PatmosSubtarget &STC =
+          static_cast<const PatmosSubtarget &>(MF->getSubtarget());
 
         // TODO a function might contain inline asm code that might use 
         // SRES/SFREE, we should check for that.
@@ -1174,7 +1185,7 @@ namespace llvm {
 
         // check all called functions
         for(MCGSites::const_iterator i(callSites.begin()), ie(callSites.end());
-            i != ie; i++) {
+            i != ie; ++i) {
           // get the child's displacement
           if (Maximize) {
             childDisplacement = std::max(childDisplacement,
@@ -1202,7 +1213,7 @@ namespace llvm {
       MCGNodeSet preds;
       const MCGSites &callingSites(Node->getCallingSites());
       for(MCGSites::const_iterator i(callingSites.begin()),
-          ie(callingSites.end()); i != ie; i++) {
+          ie(callingSites.end()); i != ie; ++i) {
         MCGNode *caller = (*i)->getCaller();
         assert(caller->isDead() || SCCMap.count(caller));
         // do not consider dead functions and functions in the same SCC here
@@ -1214,7 +1225,7 @@ namespace llvm {
 
       // update the work list by checking the predecessor list
       for(MCGNodeSet::const_iterator i(preds.begin()), ie(preds.end()); i != ie;
-          i++) {
+          ++i) {
         assert(succCount[*i] > 0);
         if (--succCount[*i] == 0)
           WL.push_back(*i);
@@ -1248,17 +1259,17 @@ namespace llvm {
 
       // get SCCs
       typedef scc_iterator<MCallGraph> PCGSCC_iterator;
-      for(PCGSCC_iterator s(scc_begin(G)); !s.isAtEnd(); s++) {
+      for(PCGSCC_iterator s(scc_begin(G)); !s.isAtEnd(); ++s) {
 
         // keep track of call graph nodes and their SCCs.
         SCCs.push_back(std::make_pair(*s, s.hasLoop()));
-        for(MCGNodes::iterator n((*s).begin()), ne((*s).end()); n != ne; n++) {
+        for(MCGNodes::const_iterator n(s->begin()), ne(s->end()); n != ne; ++n) {
           SCCMap[*n] = &SCCs.back();
         }
 
       }
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-            i++) {
+            ++i) {
         if (!(*i)->isDead() && !SCCMap.count(*i))
           dbgs() << "missing: " << **i << "\n";
       }
@@ -1267,16 +1278,16 @@ namespace llvm {
       MCGNodeUInt succCount;
       MCGNodes WL;
       for(MCGNSCCs::const_iterator i(SCCs.begin()), ie(SCCs.end()); i != ie;
-          i++) {
+          ++i) {
         // get info of the current SCC
         const MCGNodes *SCC = &i->first;
 
         // get the number of successors of the SCC that are not in that SCC.
         MCGNodeSet succs;
         for(MCGNodes::const_iterator j(SCC->begin()), je(SCC->end()); j != je;
-            j++) {
+            ++j) {
           for(MCGSites::const_iterator k((*j)->getSites().begin()),
-              ke((*j)->getSites().end()); k != ke; k++) {
+              ke((*j)->getSites().end()); k != ke; ++k) {
             // check if the two are in the same SCC
             if (&SCCMap[(*k)->getCallee()]->first != SCC) {
               succs.insert((*k)->getCallee());
@@ -1286,7 +1297,7 @@ namespace llvm {
 
         // be sure to keep all nodes within an SCC off the WL for now
         for(MCGNodes::const_iterator j(SCC->begin()), je(SCC->end()); j != je;
-            j++) {
+            ++j) {
           if (succs.size() == 0)
             WL.push_back(*j);
           else
@@ -1309,7 +1320,7 @@ namespace llvm {
                                   "<<<<<<<<<<<<<<< MIN <<<<<<<<<<<<<<<<\n"););
       DEBUG(
         for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-            i++) {
+            ++i) {
           if (!(*i)->isDead()) {
             dbgs() << **i <<  ": " << getMinMaxDisplacement(*i, Maximize)
                    << " (" << getBytesReserved(*i) << ")\n";
@@ -1324,6 +1335,10 @@ namespace llvm {
     /// that contains live data.
     unsigned int getLiveAreaSize(MachineInstr *MI)
     {
+      const MachineFunction &MF = *MI->getParent()->getParent();
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+
       unsigned int scale = 1;
       switch(MI->getOpcode())
       {
@@ -1369,9 +1384,12 @@ namespace llvm {
       // get the size of the live stack area from the CFG successors
       unsigned int liveAreaSize = INs[MBB];
 
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MBB->getParent()->getSubtarget());
+
       // propagate within the basic block
       for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
-          ie(MBB->instr_rend()); i != ie; i++) {
+          ie(MBB->instr_rend()); i != ie; ++i) {
 
         // check for ensures
         if (i->getOpcode() == Patmos::SENSi) {
@@ -1402,7 +1420,7 @@ namespace llvm {
 
       // propagate to CFG predecessors
       for(MachineBasicBlock::pred_iterator i(MBB->pred_begin()),
-          ie(MBB->pred_end()); i != ie; i++) {
+          ie(MBB->pred_end()); i != ie; ++i) {
         // check if the new live area size is larger than what was known 
         // previously for this predecessor
         if (INs[*i] < liveAreaSize) {
@@ -1424,7 +1442,7 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           SIZEs ENSs;
@@ -1436,8 +1454,8 @@ namespace llvm {
           // initialize work list (yeah, reverse-reverse post order would be
           // optimal, but this works too).
           for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
-              i++) {
-            WL.insert(i);
+              ++i) {
+            WL.insert(&*i);
           }
 
           // process until the work list becomes empty
@@ -1455,7 +1473,7 @@ namespace llvm {
           // actually update the sizes of the ensure instructions.
           if (EnableEnsureDwn) {
             for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
-                i++) {
+                ++i) {
               i->first->getOperand(2).setImm(i->second);
             }
           }
@@ -1465,7 +1483,7 @@ namespace llvm {
             dbgs() << "*************************** "
                    << MF->getFunction()->getName() << "\n";
             for(MBBUInt::const_iterator i(INs.begin()), ie(INs.end()); i != ie;
-                i++) {
+                ++i) {
               dbgs() << "  " << i->first->getName()
                     << "(" << i->first->getNumber() << ")"
                     << ": " << i->second << "\n";
@@ -1486,9 +1504,12 @@ namespace llvm {
       unsigned int siteGain = INs[MBB];
       unsigned int k = getBytesReserved(Node);
 
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MBB->getParent()->getSubtarget());
+
       // propagate within the basic block
       for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
-          ie(MBB->instr_rend()); i != ie; i++) {
+          ie(MBB->instr_rend()); i != ie; ++i) {
 
        // check for ensures
         if (i->isCall()) {
@@ -1515,7 +1536,7 @@ namespace llvm {
 
       // propagate to CFG predecessors
       for(MachineBasicBlock::pred_iterator i(MBB->pred_begin()),
-          ie(MBB->pred_end()); i != ie; i++) {
+          ie(MBB->pred_end()); i != ie; ++i) {
         /// check if the new gain is less than what was known previously for
         /// this predecessor. Also, insert predecessors that have not been
         /// already visited.
@@ -1536,7 +1557,7 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           MBBUInt INs;
@@ -1545,8 +1566,8 @@ namespace llvm {
           // initialize work list (yeah, reverse-reverse post order would be
           // optimal, but this works too).
           for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je;
-              j++) {
-            WL.insert(j);
+              ++j) {
+            WL.insert(&*j);
           }
 
           // process until the work list becomes empty
@@ -1575,7 +1596,7 @@ namespace llvm {
 
       // propagate within the basic block
       for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
-          ie(MBB->instr_rend()); i != ie; i++) {
+          ie(MBB->instr_rend()); i != ie; ++i) {
 
         // check for ensures
         if (i->getOpcode() == Patmos::SENSi) {
@@ -1599,7 +1620,7 @@ namespace llvm {
 
       // propagate to CFG predecessors
       for(MachineBasicBlock::pred_iterator i(MBB->pred_begin()),
-          ie(MBB->pred_end()); i != ie; i++) {
+          ie(MBB->pred_end()); i != ie; ++i) {
         // check if the new filling size is less than what was known
         // previously for this predecessor
         if ((INs.find(*i) == INs.end()) || (INs[*i] > ensureBound)) {
@@ -1620,7 +1641,7 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           MBBUInt INs;
@@ -1629,9 +1650,9 @@ namespace llvm {
           // initialize work list (yeah, reverse-reverse post order would be
           // optimal, but this works too).
           for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je;
-              j++) {
-            WL.insert(j);
-            INs[j] = getBytesReserved(*i);
+              ++j) {
+            WL.insert(&*j);
+            INs[&*j] = getBytesReserved(*i);
           }
 
           // process until the work list becomes empty
@@ -1662,6 +1683,10 @@ namespace llvm {
         return;
       }
 
+      const MachineFunction &MF = *Node->getMF();
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+
       GlobalEnsureFillingTotal++;
 
       if (SCCMap[Node]->second) {
@@ -1687,7 +1712,7 @@ namespace llvm {
         // check all calling functions
         const MCGSites &callingSites(Node->getCallingSites());
         for(MCGSites::const_iterator i(callingSites.begin()),
-            ie(callingSites.end()); i != ie; i++) {
+            ie(callingSites.end()); i != ie; ++i) {
 
           // get the parent's ensure cost
           parentCost = std::max(parentCost,
@@ -1713,7 +1738,7 @@ namespace llvm {
       const MCGSites &sites(Node->getSites());
 
       for(MCGSites::const_iterator i(sites.begin()),
-          ie(sites.end()); i != ie; i++) {
+          ie(sites.end()); i != ie; ++i) {
         MCGNode *callee = (*i)->getCallee();
         assert(callee->isDead() || SCCMap.count(callee));
         // do not consider dead functions and functions in the same SCC here
@@ -1725,7 +1750,7 @@ namespace llvm {
 
       // update the work list by checking the successor list
       for(MCGNodeSet::const_iterator i(succs.begin()), ie(succs.end()); i != ie;
-          i++) {
+          ++i) {
           if (--succCount[*i] == 0)
             WL.push_back(*i);
       }
@@ -1744,7 +1769,7 @@ namespace llvm {
 
       // open LP file.
       SmallString<1024> LPname;
-      error_code err = sys::fs::createUniqueDirectory("stack", LPname);
+      std::error_code err = sys::fs::createUniqueDirectory("stack", LPname);
       if (err) {
         errs() << "Error creating temp .lp file: " << err.message() << "\n";
         return std::numeric_limits<unsigned int>::max();
@@ -1752,9 +1777,9 @@ namespace llvm {
 
       sys::path::append(LPname, "scc.lp");
 
-      std::string ErrMsg;
-      raw_fd_ostream OS(LPname.c_str(), ErrMsg);
-      if (!ErrMsg.empty()) {
+      std::error_code ErrMsg;
+      raw_fd_ostream OS(LPname.c_str(), ErrMsg, sys::fs::F_Text);
+      if (ErrMsg) {
         errs() << "Error: Failed to open file '" << LPname.str()
                << "' for writing!\n";
         return std::numeric_limits<unsigned int>::max();
@@ -1764,10 +1789,10 @@ namespace llvm {
       typedef std::set<MCGSite*> MCGSiteSet;
       MCGSiteSet entries, exits;
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         // look for call sites exiting the SCC
         for(MCGSites::const_iterator cs((*n)->getSites().begin()),
-          cse((*n)->getSites().end()); cs != cse; cs++) {
+          cse((*n)->getSites().end()); cs != cse; ++cs) {
           MCGNode *d = (*cs)->getCallee();
 
           if (std::find(SCC.begin(), SCC.end(), d) == SCC.end())
@@ -1776,7 +1801,7 @@ namespace llvm {
 
         // look for call sites entering the SCC
         for(MCGSites::const_iterator cs((*n)->getCallingSites().begin()),
-          cse((*n)->getCallingSites().end()); cs != cse; cs++) {
+          cse((*n)->getCallingSites().end()); cs != cse; ++cs) {
           MCGNode *s = (*cs)->getCaller();
 
           if (std::find(SCC.begin(), SCC.end(), s) == SCC.end())
@@ -1791,14 +1816,14 @@ namespace llvm {
 
       // for all nodes in the SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         const MCGSites &CS((*n)->getCallingSites());
 
         // weighted call graph edges leading to some node within the SCC
         // (including entry edges from outside the SCC as well as edges between
         // nodes of the SCC).
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
+            ++cs) {
           // get weight of the edge
           unsigned int weight = getSiteEnsureFilling(*cs);
 
@@ -1823,13 +1848,13 @@ namespace llvm {
 
       // constraints on in-flow of nodes in SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         for(ilp_prefix p = Z; p <= W; p = (ilp_prefix)(p + 1)) {
           OS << "if" << p << cnt << ":\t";
 
           const MCGSites &CS((*n)->getCallingSites());
           for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-              cs++) {
+              ++cs) {
             OS << " + " << ilp_name(p, *cs);
 
             // account for transition edges from W to Z version of node N
@@ -1845,13 +1870,13 @@ namespace llvm {
       // constraints on out-flow of nodes in SCC
       cnt = 0;
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         for(ilp_prefix p = Z; p <= W; p = (ilp_prefix)(p + 1)) {
           OS << "of" << p << cnt << ":\t";
 
           const MCGSites &CS((*n)->getSites());
           for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-              cs++) {
+              ++cs) {
             OS << " + " << ilp_name(p, *cs);
 
             // account for transition edges from W to Z version of node N
@@ -1879,7 +1904,7 @@ namespace llvm {
       // SCC
       cnt = 0;
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         OS << "veq" << cnt << ":\t + "
            << ilp_name(Z, *n) << " + " << ilp_name(W, *n)
            << " - " << ilp_name(X, *n) << " = 0\n";
@@ -1892,7 +1917,7 @@ namespace llvm {
         const MCGSites &CS(N->getSites());
         OS << "tran:\t";
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
+            ++cs) {
           OS << " + " << ilp_name(T, *cs);
         }
 
@@ -1907,7 +1932,7 @@ namespace llvm {
       // constraint on out-flow of entry nodes
       OS << "entries:\t";
       for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << " + " << ilp_name(W, *cs);
       }
       OS << " = 1\n";
@@ -1917,14 +1942,14 @@ namespace llvm {
       // only used for assertion
       bool LLVM_ATTRIBUTE_UNUSED ex_printed = false;
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end());
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << " + " << ilp_name(Z, *cs);
         ex_printed = true;
       }
 
       // handle exits through functions containing at least one call-free path
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         if (IsCallFree[*n]) {
           OS << " + " << ilp_name(OF, *n);
           ex_printed = true;
@@ -1948,7 +1973,7 @@ namespace llvm {
 
       // nodes and call sites in SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         OS << ilp_name(Z, *n) << "\n";
         OS << ilp_name(W, *n) << "\n";
 
@@ -1959,7 +1984,7 @@ namespace llvm {
 
         const MCGSites &CS((*n)->getSites());
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
+            ++cs) {
           // skip exits sites
           if(exits.find(*cs) == exits.end()) {
             OS << ilp_name(Z, *cs) << "\n";
@@ -1972,7 +1997,7 @@ namespace llvm {
       {
         const MCGSites &CS(N->getSites());
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
+            ++cs) {
           OS << ilp_name(T, *cs) << "\n";
         }
 
@@ -1983,13 +2008,13 @@ namespace llvm {
 
       // entries
       for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << ilp_name(W, *cs) << "\n";
       }
 
       // exits
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end());
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << ilp_name(Z, *cs) << "\n";
       }
 
@@ -2031,11 +2056,11 @@ namespace llvm {
 
       // get SCCs
       typedef scc_iterator<MCallGraph> PCGSCC_iterator;
-      for(PCGSCC_iterator s(scc_begin(G)); !s.isAtEnd(); s++) {
+      for(PCGSCC_iterator s(scc_begin(G)); !s.isAtEnd(); ++s) {
 
         // keep track of call graph nodes and their SCCs.
         SCCs.push_back(std::make_pair(*s, s.hasLoop()));
-        for(MCGNodes::iterator n((*s).begin()), ne((*s).end()); n != ne; n++) {
+        for(MCGNodes::const_iterator n(s->begin()), ne(s->end()); n != ne; ++n) {
           SCCMap[*n] = &SCCs.back();
         }
       }
@@ -2044,16 +2069,16 @@ namespace llvm {
       MCGNodeUInt predCount;
       MCGNodes WL;
       for(MCGNSCCs::const_iterator i(SCCs.begin()), ie(SCCs.end()); i != ie;
-          i++) {
+          ++i) {
         // get info of the current SCC
         const MCGNodes *SCC = &i->first;
 
         // get the number of predecessors of the SCC that are not in that SCC.
         MCGNodeSet preds;
         for(MCGNodes::const_iterator j(SCC->begin()), je(SCC->end()); j != je;
-            j++) {
+            ++j) {
           for(MCGSites::const_iterator k((*j)->getCallingSites().begin()),
-              ke((*j)->getCallingSites().end()); k != ke; k++) {
+              ke((*j)->getCallingSites().end()); k != ke; ++k) {
             // check if the two are in the same SCC
             if (&SCCMap[(*k)->getCaller()]->first != SCC) {
               preds.insert((*k)->getCaller());
@@ -2063,7 +2088,7 @@ namespace llvm {
 
         // be sure to keep all nodes within an SCC off the WL for now
         for(MCGNodes::const_iterator j(SCC->begin()), je(SCC->end()); j != je;
-            j++) {
+            ++j) {
           if (preds.size() == 0)
             WL.push_back(*j);
           else
@@ -2090,7 +2115,7 @@ namespace llvm {
 
       // propagate within the basic block
       for(MachineBasicBlock::reverse_instr_iterator i(MBB->instr_rbegin()),
-          ie(MBB->instr_rend()); i != ie; i++) {
+          ie(MBB->instr_rend()); i != ie; ++i) {
 
         unsigned int scale = 1;
         switch(i->getOpcode())
@@ -2150,7 +2175,7 @@ namespace llvm {
 
       // propagate to CFG predecessors
       for(MachineBasicBlock::pred_iterator i(MBB->pred_begin()),
-          ie(MBB->pred_end()); i != ie; i++) {
+          ie(MBB->pred_end()); i != ie; ++i) {
         // check if the new dead area size is less than what was known
         // previously for this predecessor
         if (INs[*i] > deadAreaSize) {
@@ -2170,7 +2195,7 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           MBBUInt INs;
@@ -2179,9 +2204,9 @@ namespace llvm {
           // initialize work list (yeah, reverse-reverse post order would be
           // optimal, but this works too).
           for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je;
-              j++) {
-            WL.insert(j);
-            INs[j] = getBytesReserved(*i);
+              ++j) {
+            WL.insert(&*j);
+            INs[&*j] = getBytesReserved(*i);
           }
 
           // process until the work list becomes empty
@@ -2201,7 +2226,7 @@ namespace llvm {
 #endif // PATMOS_TRACE_BB_DEADAREA
 
           for(MBBUInt::const_iterator j(INs.begin()), je(INs.end()); j != je;
-              j++) {
+              ++j) {
 #ifdef PATMOS_TRACE_BB_DEADAREA
             DEBUG(
               dbgs() << "  " << j->first->getName()
@@ -2233,12 +2258,16 @@ namespace llvm {
       // from predecessors in the CFG.
       unsigned int childDisplacement = INs[MBB];
 
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MBB->getParent()->getSubtarget());
+      const TargetInstrInfo &TII = *STC.getInstrInfo();
+
       // propagate maximum displacement through the basic block
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
-          ie(MBB->instr_end()); i != ie; i++) {
+          ie(MBB->instr_end()); i != ie; ++i) {
         if (i->isCall()) {
           // find call site
-          MCGSite *site = Node->findSite(i);
+          MCGSite *site = Node->findSite(&*i);
           assert(site);
 
           childDisplacement = std::max(childDisplacement,
@@ -2256,14 +2285,14 @@ namespace llvm {
           // if all fits, the SENS can be removed.
           unsigned int filling = remove ? 0u : ensure + childDisplacement -
                                                STC.getStackCacheSize();
-          ENSs[i] = filling;
+          ENSs[&*i] = filling;
 
           // store worst-case filling at call sites and basic block entry
-          WorstCaseEnsureBound[i] = filling;
+          WorstCaseEnsureBound[&*i] = filling;
 
           assert(filling != 0 || remove);
 
-          if (!remove && !TII.isPredicated(i)) {
+          if (!remove && !TII.isPredicated(&*i)) {
             childDisplacement = std::min(childDisplacement,
                                          STC.getStackCacheSize() - ensure);
           }
@@ -2272,7 +2301,7 @@ namespace llvm {
 
       // propagate to CFG successors
       for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
-          ie(MBB->succ_end()); i != ie; i++) {
+          ie(MBB->succ_end()); i != ie; ++i) {
         // check if the new displacement is larger than what was known
         // previously for this successor
         if (INs[*i] < childDisplacement) {
@@ -2298,18 +2327,21 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if (!(*i)->isUnknown() && !(*i)->isDead()) {
           MBBs WL;
           SIZEs ENSs;
           MBBUInt INs;
           MachineFunction *MF = (*i)->getMF();
 
+          const PatmosSubtarget &STC =
+            static_cast<const PatmosSubtarget &>(MF->getSubtarget());
+
           // initialize work list (yeah, reverse post order would be optimal,
           // but this works too).
           for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je;
-              j++) {
-            WL.insert(j);
+              ++j) {
+            WL.insert(&*j);
           }
 
           // process until the work list becomes empty
@@ -2325,7 +2357,7 @@ namespace llvm {
 
           // actually remove ensure instructions (if requested)
           for(SIZEs::const_iterator i(ENSs.begin()), ie(ENSs.end()); i != ie;
-              i++) {
+              ++i) {
             unsigned int ensure = i->first->getOperand(2).getImm() * 4;
 #ifdef PATMOS_TRACE_DETAILED_RESULTS
             MachineBasicBlock *MBB = i->first->getParent();
@@ -2362,7 +2394,7 @@ namespace llvm {
             dbgs() << "########################### "
                    << MF->getFunction()->getName() << "\n";
             for(MBBUInt::const_iterator i(INs.begin()), ie(INs.end()); i != ie;
-                i++) {
+                ++i) {
               dbgs() << "  " << i->first->getName()
                     << "(" << i->first->getNumber() << ")"
                     << ": " << i->second << "\n";
@@ -2380,7 +2412,7 @@ namespace llvm {
       raw_string_ostream tmp(tmps);
       tmp << Prefix;
       if (N->isUnknown()) {
-        tmp << "U" << (void*)N;
+        tmp << "U" << (const void*)N;
       }
       else
         tmp << "X" << N->getMF()->getFunction()->getName();
@@ -2392,7 +2424,7 @@ namespace llvm {
     {
       std::string tmps;
       raw_string_ostream tmp(tmps);
-      tmp << Prefix << "S" << (void*)S;
+      tmp << Prefix << "S" << (const void*)S;
       return tmp.str();
     }
 
@@ -2408,8 +2440,8 @@ namespace llvm {
       args.push_back(0);
 
       std::string ErrMsg;
-      if (sys::ExecuteAndWait(sys::FindProgramByName(Solve_ilp),
-                                       &args[0],0,0,0,0,&ErrMsg)) {
+      auto program = sys::findProgramByName(Solve_ilp);
+      if (sys::ExecuteAndWait(program.get(), &args[0],0,0,0,0,&ErrMsg)) {
         report_fatal_error("calling ILP solver (" + Solve_ilp + "): " + ErrMsg);
       }
       else {
@@ -2457,7 +2489,7 @@ namespace llvm {
 
       // open LP file.
       SmallString<1024> LPname;
-      error_code err = sys::fs::createUniqueDirectory("stack", LPname);
+      std::error_code err = sys::fs::createUniqueDirectory("stack", LPname);
       if (err) {
         errs() << "Error creating temp .lp file: " << err.message() << "\n";
         return std::numeric_limits<unsigned int>::max();
@@ -2465,9 +2497,9 @@ namespace llvm {
 
       sys::path::append(LPname, "scc.lp");
 
-      std::string ErrMsg;
-      raw_fd_ostream OS(LPname.c_str(), ErrMsg);
-      if (!ErrMsg.empty()) {
+      std::error_code ErrMsg;
+      raw_fd_ostream OS(LPname.c_str(), ErrMsg, sys::fs::F_Text);
+      if (ErrMsg) {
         errs() << "Error: Failed to open file '" << LPname.str()
                << "' for writing!\n";
         return std::numeric_limits<unsigned int>::max();
@@ -2477,10 +2509,10 @@ namespace llvm {
       typedef std::set<MCGSite*> MCGSiteSet;
       MCGSiteSet entries, exits;
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         // look for call sites exiting the SCC
         for(MCGSites::const_iterator cs((*n)->getSites().begin()),
-          cse((*n)->getSites().end()); cs != cse; cs++) {
+          cse((*n)->getSites().end()); cs != cse; ++cs) {
           MCGNode *d = (*cs)->getCallee();
 
           if (std::find(SCC.begin(), SCC.end(), d) == SCC.end())
@@ -2489,7 +2521,7 @@ namespace llvm {
 
         // look for call sites entering the SCC
         for(MCGSites::const_iterator cs((*n)->getCallingSites().begin()),
-          cse((*n)->getCallingSites().end()); cs != cse; cs++) {
+          cse((*n)->getCallingSites().end()); cs != cse; ++cs) {
           MCGNode *s = (*cs)->getCaller();
 
           if (std::find(SCC.begin(), SCC.end(), s) == SCC.end())
@@ -2504,13 +2536,13 @@ namespace llvm {
 
       // nodes in the SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         OS << "\n + " << getBytesReserved(*n) << " " << ilp_name(W, *n);
       }
 
       // exit sites
       for(MCGSiteSet::iterator n(exits.begin()), ne(exits.end()); n != ne;
-          n++) {
+          ++n) {
         OS << "\n + " << getMinMaxDisplacement((*n)->getCallee(), Maximize)
            << "\t" << ilp_name(W, *n);
 
@@ -2533,13 +2565,13 @@ namespace llvm {
 
       // constraints on in-flow of nodes in SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         for(ilp_prefix p = Z; p <= W; p = (ilp_prefix)(p + 1)) {
           OS << "if" << p << cnt << ":\t";
 
           const MCGSites &CS((*n)->getCallingSites());
           for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-              cs++) {
+              ++cs) {
             OS << " + " << ilp_name(p, *cs);
 
             // account for transition edges from Z to W version of node N
@@ -2555,13 +2587,13 @@ namespace llvm {
       // constraints on out-flow of nodes in SCC
       cnt = 0;
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         for(ilp_prefix p = Z; p <= W; p = (ilp_prefix)(p + 1)) {
           OS << "of" << p << cnt << ":\t";
 
           const MCGSites &CS((*n)->getSites());
           for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-              cs++) {
+              ++cs) {
             OS << " + " << ilp_name(p, *cs);
 
             // account for transition edges from Z to W version of node N
@@ -2582,7 +2614,7 @@ namespace llvm {
       // constraints on out-flow of nodes in SCC
       cnt = 0;
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         OS << "veq" << cnt << ":\t + "
            << ilp_name(Z, *n) << " + " << ilp_name(W, *n)
            << " - " << ilp_name(X, *n) << " = 0\n";
@@ -2595,7 +2627,7 @@ namespace llvm {
         const MCGSites &CS(N->getCallingSites());
         OS << "tran:\t";
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
+            ++cs) {
           OS << " + " << ilp_name(T, *cs);
         }
         OS << " = 1\n";
@@ -2604,7 +2636,7 @@ namespace llvm {
       // constraint on out-flow of entry nodes
       OS << "enx:\t";
       for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << " + " << ilp_name(Z, *cs);;
 
         // account for transition edges from an entry to the W version of node N
@@ -2618,14 +2650,14 @@ namespace llvm {
       // only used for assertion
       bool LLVM_ATTRIBUTE_UNUSED ex_printed = false;
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end());
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << " + " << ilp_name(W, *cs);
         ex_printed = true;
       }
 
       // handle exits through functions containing at least one call-free path
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         if (IsCallFree[*n]) {
           OS << " + " << ilp_name(OF, *n);
           ex_printed = true;
@@ -2644,7 +2676,7 @@ namespace llvm {
 
       // nodes and call sites in SCC
       for(MCGNodes::const_iterator n(SCC.begin()), ne(SCC.end()); n != ne;
-          n++) {
+          ++n) {
         OS << ilp_name(Z, *n) << "\n";
         OS << ilp_name(W, *n) << "\n";
 
@@ -2655,7 +2687,7 @@ namespace llvm {
 
         const MCGSites &CS((*n)->getCallingSites());
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
+            ++cs) {
           // skip entry sites
           if(entries.find(*cs) == entries.end()) {
             OS << ilp_name(Z, *cs) << "\n";
@@ -2668,20 +2700,20 @@ namespace llvm {
       {
         const MCGSites &CS(N->getCallingSites());
         for(MCGSites::const_iterator cs(CS.begin()), cse(CS.end()); cs != cse;
-            cs++) {
+            ++cs) {
           OS << ilp_name(T, *cs) << "\n";
         }
       }
 
       // entries
       for(MCGSiteSet::const_iterator cs(entries.begin()), cse(entries.end());
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << ilp_name(Z, *cs) << "\n";
       }
 
       // exits
       for(MCGSiteSet::const_iterator cs(exits.begin()), cse(exits.end()); 
-          cs != cse; cs++) {
+          cs != cse; ++cs) {
         OS << ilp_name(W, *cs) << "\n";
       }
 
@@ -2713,15 +2745,19 @@ namespace llvm {
       // see if a successor contains a call-free path to a sink
       bool is_call_free = OUTs[MBB];
 
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MBB->getParent()->getSubtarget());
+      const TargetInstrInfo &TII = *STC.getInstrInfo();
+
       for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
-          ie(MBB->succ_end()); i != ie && is_call_free; i++) {
+          ie(MBB->succ_end()); i != ie && is_call_free; ++i) {
         is_call_free |= OUTs[*i];
       }
 
       // see if the block contains a call
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
-          ie(MBB->instr_end()); i != ie && is_call_free; i++) {
-        if (i->isCall() && !TII.isPredicated(i))
+          ie(MBB->instr_end()); i != ie && is_call_free; ++i) {
+        if (i->isCall() && !TII.isPredicated(&*i))
           is_call_free = false;
       }
 
@@ -2743,7 +2779,7 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
 
         bool is_call_free = false;
 
@@ -2755,12 +2791,12 @@ namespace llvm {
 
           // initialize work list -- initially we assume
           for(MachineFunction::iterator i(MF->begin()), ie(MF->end()); i != ie;
-              i++) {
-            WL.insert(i);
+              ++i) {
+            WL.insert(&*i);
 
             // initially assume the basic block does not contain a call and a
             // path to a sink exists without any calls.
-            OUTs[i] = true;
+            OUTs[&*i] = true;
           }
 
           // process until the work list becomes empty
@@ -2775,7 +2811,7 @@ namespace llvm {
           }
 
           // see if the entry node contains a call-free path
-          is_call_free = OUTs[MF->begin()];
+          is_call_free = OUTs[&*MF->begin()];
         }
 
         IsCallFree[*i] = is_call_free;
@@ -2799,21 +2835,25 @@ namespace llvm {
       // CFG.
       unsigned int worstOccupancy = INs[MBB];
 
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MBB->getParent()->getSubtarget());
+      const TargetInstrInfo &TII = *STC.getInstrInfo();
+
       WorstCaseBlockOccupancy[MBB] = worstOccupancy;
 
       // propagate the worst-case stack occupancy through the basic block
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
-          ie(MBB->instr_end()); i != ie; i++) {
+          ie(MBB->instr_end()); i != ie; ++i) {
         if (i->isCall()) {
           // find call site
-          MCGSite *site = Node->findSite(i);
+          MCGSite *site = Node->findSite(&*i);
           assert(site);
 
           // store the worst-case occupancy before the call site, i.e., for the
           // functions potentially entered through calls from this site
           WorstCaseSiteOccupancy[site] = worstOccupancy;
 
-          if (!TII.isPredicated(i)) {
+          if (!TII.isPredicated(&*i)) {
             // get the worst-case occupancy after the call
             unsigned int worstCallOccupancy =
                 STC.getStackCacheSize() - getMinDisplacement(site->getCallee());
@@ -2822,7 +2862,7 @@ namespace llvm {
             worstOccupancy = std::min(worstOccupancy, worstCallOccupancy);
           }
         }
-        else if (i->getOpcode() == Patmos::SENSi && !TII.isPredicated(i)) {
+        else if (i->getOpcode() == Patmos::SENSi && !TII.isPredicated(&*i)) {
           unsigned int ensure = i->getOperand(2).getImm() * 4;
           worstOccupancy = std::max(ensure, worstOccupancy);
         }
@@ -2830,7 +2870,7 @@ namespace llvm {
 
       // propagate to CFG successors
       for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
-          ie(MBB->succ_end()); i != ie; i++) {
+          ie(MBB->succ_end()); i != ie; ++i) {
         // propagate the worst-case occupancy to the successors and put them on
         // the work list
         if (INs[*i] < worstOccupancy) {
@@ -2845,6 +2885,8 @@ namespace llvm {
                            MachineBasicBlock *MBB)
     {
       unsigned int worstSpillDirty = INs[MBB];
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MBB->getParent()->getSubtarget());
       unsigned int SCSize = STC.getStackCacheSize();
       unsigned int Reserved = getBytesReserved(Node);
 
@@ -2854,19 +2896,21 @@ namespace llvm {
       /// the analyzed basic block.
       WorstCaseBlockLP[MBB] = worstSpillDirty;
 
+      const TargetInstrInfo &TII = *STC.getInstrInfo();
+
       // propagate the lowest position of the LP through the basic block
       for(MachineBasicBlock::instr_iterator i(MBB->instr_begin()),
-          ie(MBB->instr_end()); i != ie; i++) {
+          ie(MBB->instr_end()); i != ie; ++i) {
         if (i->isCall()) {
           // find call site
-          MCGSite *site = Node->findSite(i);
+          MCGSite *site = Node->findSite(&*i);
           assert(site);
 
           // store the worst-case occupancy before the call site, i.e., for the
           // functions potentially entered through calls from this site
           WorstCaseSpillDirty[site] = worstSpillDirty;
 
-          if (!TII.isPredicated(i)) {
+          if (!TII.isPredicated(&*i)) {
             unsigned int minDisplacement= getMinDisplacement(site->getCallee());
 
             // update the LP's position
@@ -2915,7 +2959,7 @@ namespace llvm {
 
       // propagate to CFG successors
       for(MachineBasicBlock::succ_iterator i(MBB->succ_begin()),
-          ie(MBB->succ_end()); i != ie; i++) {
+          ie(MBB->succ_end()); i != ie; ++i) {
         // propagate worst-case value and put successors on the work list
         if (INs.find(*i) == INs.end()) {
           INs[*i] = worstSpillDirty;
@@ -2976,14 +3020,14 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if (!(*i)->isDead() && !(*i)->isUnknown()) {
           MachineFunction *MF = (*i)->getMF();
 
           // visit all basic blocks
           for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je; 
-              j++) {
-            computeWorstCaseSavingOccupancy(*i, j);
+              ++j) {
+            computeWorstCaseSavingOccupancy(*i, &*j);
           }
         }
       }
@@ -3051,14 +3095,14 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if (!(*i)->isDead() && !(*i)->isUnknown()) {
           MachineFunction *MF = (*i)->getMF();
 
           // visit all basic blocks
           for(MachineFunction::iterator j(MF->begin()), je(MF->end()); j != je; 
-              j++) {
-            computeWorstCaseRestoringOccupancy(*i, j);
+              ++j) {
+            computeWorstCaseRestoringOccupancy(*i, &*j);
           }
         }
       }
@@ -3087,12 +3131,17 @@ namespace llvm {
 
       // visit all functions
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
+
+        MachineFunction *MF = (*i)->getMF();
+        const PatmosSubtarget &STC =
+          static_cast<const PatmosSubtarget &>(MF->getSubtarget());
+
         if ((*i)->isUnknown()) {
           // ensure that incoming values later, when the call graph is processed
           // globally, are simply propagated onward through UNKNOWN nodes
           for(MCGSites::const_iterator j((*i)->getSites().begin()),
-              je((*i)->getSites().end()); j != je; j++) {
+              je((*i)->getSites().end()); j != je; ++j) {
             WorstCaseSiteOccupancy[*j] = STC.getStackCacheSize();
             WorstCaseSpillDirty[*j] = STC.getStackCacheSize();
           }
@@ -3100,11 +3149,10 @@ namespace llvm {
         else if (!(*i)->isDead()) {
           MBBs WL;
           MBBUInt INs;
-          MachineFunction *MF = (*i)->getMF();
 
           // initialize work list.
-          INs[MF->begin()] = STC.getStackCacheSize();
-          WL.insert(MF->begin());
+          INs[&*MF->begin()] = STC.getStackCacheSize();
+          WL.insert(&*MF->begin());
 
           // process until the work list becomes empty
           while (!WL.empty()) {
@@ -3123,7 +3171,7 @@ namespace llvm {
                    << MF->getFunction()->getName()
                    << " (" << getBytesReserved(*i) << ")\n";
             for(MCGSiteUInt::const_iterator j(WorstCaseSiteOccupancy.begin()),
-                je(WorstCaseSiteOccupancy.end()); j != je; j++) {
+                je(WorstCaseSiteOccupancy.end()); j != je; ++j) {
               dbgs() << "  " << *j->first << ": " << j->second
                      << " (" << getMinDisplacement(j->first->getCallee()) << ")\n";
             }
@@ -3134,17 +3182,19 @@ namespace llvm {
 
       // lazy pointer analysis: visit all functions again
       for(MCGNodes::const_iterator i(nodes.begin()), ie(nodes.end()); i != ie;
-          i++) {
+          ++i) {
         if ((*i)->isDead() || (*i)->isUnknown())
           continue;
 
         MBBs WL;
         MBBUInt INs;
         MachineFunction *MF = (*i)->getMF();
+        const PatmosSubtarget &STC =
+          static_cast<const PatmosSubtarget &>(MF->getSubtarget());
 
         // initialize work list.
-        INs[MF->begin()] = STC.getStackCacheSize();
-        WL.insert(MF->begin());
+        INs[&*MF->begin()] = STC.getStackCacheSize();
+        WL.insert(&*MF->begin());
 
 #ifdef PATMOS_TRACE_WORST_SITE_OCCUPANCY
         dbgs() << "\\\\\\\\\\\\\\\\\\\\\\\\\\\\ "
@@ -3177,7 +3227,7 @@ namespace llvm {
     void dumpOccupancy() const {
       MCGSiteUIntSort Sorted(WorstCaseSiteOccupancy.begin(), WorstCaseSiteOccupancy.end());
       for(MCGSiteUInt::const_iterator j(Sorted.begin()),
-          je(Sorted.end()); j != je; j++) {
+          je(Sorted.end()); j != je; ++j) {
         unsigned int Displacement = getMinDisplacement(j->first->getCallee());
         std::stringstream SpillDirty; // worst-case lazy-pointer saving
         MCGSiteUInt::const_iterator it = WorstCaseSpillDirty.find(j->first);
@@ -3228,7 +3278,7 @@ namespace llvm {
 
           // visit the children in the graph
           for(SCAEdgeSet::iterator i(N->getChildren().begin()),
-              ie(N->getChildren().end()); i != ie; i++) {
+              ie(N->getChildren().end()); i != ie; ++i) {
             pruneNodes(i->getCallee(), remainingOccupancy);
           }
         }
@@ -3248,18 +3298,18 @@ namespace llvm {
       // eliminate UNKNOWN nodes from the graph
       SCANodeSet cleanup;
       for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
-          i != ie; i++) {
+          i != ie; ++i) {
         MCGNode *mcgNode = i->second->getMCGNode();
         if (mcgNode->isUnknown()) {
           cleanup.insert(i->second);
           // remove the node and redirect its parent/child relations
           for(SCAEdgeSet::iterator j(i->second->getChildren().begin()),
-              je(i->second->getChildren().end()); j != je; j++) {
+              je(i->second->getChildren().end()); j != je; ++j) {
 
             SCANode *calleeNode = j->getCallee();
 
             for(SCAEdgeSet::const_iterator k(i->second->getParents().begin()),
-                ke(i->second->getParents().end()); k != ke; k++) {
+                ke(i->second->getParents().end()); k != ke; ++k) {
 
               SCANode *callerNode = k->getCaller();
 
@@ -3287,7 +3337,7 @@ namespace llvm {
       // mark only those nodes visible that have non-zero spill costs or have a
       // descendent with non-zero spill costs.
       for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
-          i != ie; i++) {
+          i != ie; ++i) {
         if (i->second->getSpillCost()) {
           i->second->setVisible();
         }
@@ -3316,6 +3366,10 @@ namespace llvm {
       // get the call graph node and occupancy
       MCGNode *mcgNode = Node->getMCGNode();
 
+      const MachineFunction &MF = *mcgNode->getMF();
+      const PatmosSubtarget &STC =
+        static_cast<const PatmosSubtarget &>(MF.getSubtarget());
+
       // get the stack occupancy of the current calling context and add the
       // space allocated by the current function to it.
       unsigned int nodeOccupancy = std::min(STC.getStackCacheSize(),
@@ -3330,7 +3384,7 @@ namespace llvm {
 
       // propagate to call sites
       for(MCGSites::const_iterator j(mcgNode->getSites().begin()),
-          je(mcgNode->getSites().end()); j != je; j++) {
+          je(mcgNode->getSites().end()); j != je; ++j) {
         // get the site's stack worst-case occupancy
         MCGSite *site = *j;
         MCGNode *callee = site->getCallee();
@@ -3433,7 +3487,7 @@ namespace llvm {
       const MCGSCANodeMap &nodes(SCAGraph.getNodes());
 #ifdef PATMOS_TRACE_DETAILED_RESULTS
       for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
-          i != ie; i++) {
+          i != ie; ++i) {
         if (i->second->isVisible()) {
           MCGNode *N = i->first.first;
           dbgs() << "CTXT: " << N->getMF()->getFunction()->getName()
@@ -3446,7 +3500,7 @@ namespace llvm {
             << i->second->getSpillCost();
           SCAEdgeSet P = i->second->getParents();
           for(SCAEdgeSet::const_iterator j(P.begin()), je(P.end());
-              j != je; j++) {
+              j != je; ++j) {
             dbgs() << "," <<
               j->getCaller()->getMCGNode()->getMF()->getFunction()->getName();
           }
@@ -3458,7 +3512,7 @@ namespace llvm {
       // keep statistics of the pruned SCA graph size.
       MCGNodeUInt Spilling;
       for(MCGSCANodeMap::const_iterator i(nodes.begin()), ie(nodes.end());
-          i != ie; i++) {
+          i != ie; ++i) {
         if (i->second->isVisible()) {
           PrunedSCAGraphSize++;
           Spilling[i->first.first] = std::max(Spilling[i->first.first],
@@ -3471,7 +3525,7 @@ namespace llvm {
 
       // statistics of SRES instructions (functions for now)
       for(MCGNodes::const_iterator i(G.getNodes().begin()),
-          ie(G.getNodes().end()); i != ie; i++) {
+          ie(G.getNodes().end()); i != ie; ++i) {
         unsigned int reserved = getBytesReserved(*i);
         if (!(*i)->isDead()) {
           Functions++;
@@ -3493,10 +3547,10 @@ namespace llvm {
               if (I->getOpcode() == Patmos::SRESi)
                 break;
             assert(I != MBB.instr_end());
-            assert(tmp % STC.getStackCacheBlockSize() == 0);
+            // assert(tmp % STC.getStackCacheBlockSize() == 0);
 
             // convert bytes back to blocks
-            info->Reserves[I] = tmp; // export in bytes
+            info->Reserves[&*I] = tmp; // export in bytes
           }
         }
       }
@@ -3575,8 +3629,8 @@ namespace llvm {
              E = BB->instr_end(); Ins != E; ++Ins)
         {
           if (Ins->isCall()) {
-            info->CallIDs[Ins] = Index;
-            MiMap[Ins] = std::make_pair(BB, Index++);
+            info->CallIDs[&*Ins] = Index;
+            MiMap[&*Ins] = std::make_pair(&*BB, Index++);
           }
         }
       }
@@ -3589,7 +3643,7 @@ namespace llvm {
       for (MCGSCANodeMap::const_iterator I = scag.getNodes().begin(),
           E = scag.getNodes().end(); I != E; ++I) {
         SCANode *n = I->second;
-        n->initYAML(STC);
+        n->initYAML();
         YDoc.SCAG.N.push_back(n);
 
         MachineFunction *mf = n->getMCGNode()->getMF();
@@ -3614,12 +3668,12 @@ namespace llvm {
       assert(!SCAPMLExport.empty());
       StringRef OutFileName(SCAPMLExport);
       tool_output_file *OutFile;
-      std::string ErrorInfo;
-      OutFile = new tool_output_file(OutFileName.str().c_str(), ErrorInfo);
-      if (!ErrorInfo.empty()) {
+      std::error_code ErrorInfo;
+      OutFile = new tool_output_file(OutFileName, ErrorInfo, sys::fs::F_Text);
+      if (ErrorInfo) {
         delete OutFile;
         errs() << "[mc2yml] Opening Export File failed: " << OutFileName << "\n";
-        errs() << "[mc2yml] Reason: " << ErrorInfo;
+        errs() << "[mc2yml] Reason: " << ErrorInfo.message();
         report_fatal_error("Exporting stack analysis results to PML failed!");
       }
       else {
@@ -3638,8 +3692,8 @@ namespace llvm {
 }
 
 /// createPatmosStackCacheAnalysis - Returns a new PatmosStackCacheAnalysis.
-ModulePass *llvm::createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm){
-  return new PatmosStackCacheAnalysis(tm);
+ModulePass *llvm::createPatmosStackCacheAnalysis(){
+  return new PatmosStackCacheAnalysis();
 }
 
 namespace llvm {
@@ -3698,7 +3752,7 @@ namespace llvm {
       ChildIteratorType operator++() 
       {
         ChildIteratorType tmp(I);
-        I++;
+        ++I;
         return tmp;
       }
 
@@ -3750,7 +3804,7 @@ namespace llvm {
       nodes_iterator operator++() 
       {
         nodes_iterator tmp(I);
-        I++;
+        ++I;
         return tmp;
       }
 

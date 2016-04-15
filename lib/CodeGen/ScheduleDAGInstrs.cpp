@@ -257,7 +257,6 @@ bool ScheduleDAGInstrs::addRegDeps(SUnit *SU, bool Defs) {
     if (TRI->isPhysicalRegister(Reg))
       addPhysRegDeps(SU, j);
     else {
-      assert(!IsPostRA && "Virtual register encountered!");
       if (MO.isDef()) {
         HasVRegDef = true;
         addVRegDefDeps(SU, j);
@@ -946,17 +945,6 @@ void ScheduleDAGInstrs::buildSchedGraph(AliasAnalysis *AA,
     bool HasVRegDef = addRegDeps(SU, true);
     addRegDeps(SU, false);
 
-      if (TRI->isPhysicalRegister(Reg))
-        addPhysRegDeps(SU, j);
-      else {
-        if (MO.isDef()) {
-          HasVRegDef = true;
-          addVRegDefDeps(SU, j);
-        }
-        else if (MO.readsReg()) // ignore undef operands
-          addVRegUseDeps(SU, j);
-      }
-    }
     // If we haven't seen any uses in this scheduling region, create a
     // dependence edge to ExitSU to model the live-out latency. This is required
     // for vreg defs with no in-region use, and prefetches with no vreg def.

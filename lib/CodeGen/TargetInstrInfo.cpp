@@ -1077,14 +1077,6 @@ getOperandLatency(const InstrItineraryData *ItinData,
   return ItinData->getOperandLatency(DefClass, DefIdx, UseClass, UseIdx);
 }
 
-int TargetInstrInfo::
-getDefOperandLatency(const InstrItineraryData *ItinData,
-                     const MachineInstr *DefMI, unsigned DefIdx) const {
-  unsigned DefClass = DefMI->getDesc().getSchedClass();
-  return ItinData->getOperandCycle(DefClass, DefIdx);
-}
-
-
 /// If we can determine the operand latency from the def only, without itinerary
 /// lookup, do so. Otherwise return -1.
 int TargetInstrInfo::computeDefOperandLatency(

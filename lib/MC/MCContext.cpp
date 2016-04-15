@@ -35,7 +35,6 @@
 using namespace llvm;
 
 MCContext::MCContext(const MCAsmInfo *mai, const MCRegisterInfo *mri,
-                     const MCInstrInfo *mii,
                      const MCObjectFileInfo *mofi, const SourceMgr *mgr,
                      bool DoAutoReset)
     : SrcMgr(mgr), MAI(mai), MRI(mri), MOFI(mofi), Allocator(),

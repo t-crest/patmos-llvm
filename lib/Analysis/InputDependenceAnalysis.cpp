@@ -26,9 +26,9 @@ char InputDependenceAnalysis::ID = 0;
 
 INITIALIZE_PASS_BEGIN(InputDependenceAnalysis, "pidda",
                       "Input Data Dependence Analysis Pass", true, true)
-INITIALIZE_PASS_DEPENDENCY(LoopInfo)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
-INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_END(InputDependenceAnalysis, "pidda",
                       "Input Data Dependence Analysis Pass", true, true)
 
@@ -68,11 +68,11 @@ bool InputDependenceAnalysis::processLoop(Loop *L) {
   else if(! L->getLoopLatch()) return loopError(Header,"No latch block");
   else if(! L->hasDedicatedExits()) return loopError(Header, "No dedicated exit blocks");
 
-  ExitBlocks.insert(LoopBlocksMap::value_type(L, BlockList()));
+  ExitBlocks.insert(std::make_pair(L, BlockList()));
   L->getUniqueExitBlocks(ExitBlocks[L]);
   array_pod_sort(ExitBlocks[L].begin(), ExitBlocks[L].end());
 
-  LoopDecisionBlocks.insert(LoopBlocksMap::value_type(L, BlockList()));
+  LoopDecisionBlocks.insert(std::make_pair(L, BlockList()));
   getLoopDecisionBlocks(L, LoopDecisionBlocks[L]);
   array_pod_sort(LoopDecisionBlocks[L].begin(), LoopDecisionBlocks[L].end());
 
@@ -107,7 +107,7 @@ bool InputDependenceAnalysis::processPHINode(PHINode* PN, BasicBlock* BB)  {
 
   assert(!LI->isLoopHeader(BB) && "processPHINode called on a loop header block");
 
-  EtaDeps.insert(PHIBlocksMap::value_type(PN, BlockList()));
+  EtaDeps.insert(std::make_pair(PN, BlockList()));
   // Eta deps
   bool HasEtaDep = false;
   DenseSet<Loop*> Visited;
@@ -159,7 +159,7 @@ void InputDependenceAnalysis::computePHIDecision(PHINode *PN, BasicBlock *IDOM, 
     Worklist.push_back(BB);
 
     PHIDecisionNode::Ptr NewNode(new PHIDecisionNode(BB));
-    SelectorMap.insert(PHIDecisionMap::value_type(BB, NewNode));
+    SelectorMap.insert(std::make_pair(BB, NewNode));
 
     PHIDecisionNode::Ptr InitialReachingDef(new PHIDecisionNode(PN->getIncomingValue(i), true));
     SelectorMap[BB]->setChildSelector(getSuccessorIndex(BB,PN->getParent()),InitialReachingDef);
@@ -195,7 +195,7 @@ void InputDependenceAnalysis::computeLoopDecision(Loop *L, PHIDecisionMap& Selec
     Worklist.push_back(BB);
 
     PHIDecisionNode::Ptr NewNode(new PHIDecisionNode(BB));
-    SelectorMap.insert(PHIDecisionMap::value_type(BB, NewNode));
+    SelectorMap.insert(std::make_pair(BB, NewNode));
 
     ConstantInt *TrueValue = ConstantInt::getTrue(BB->getContext());
     PHIDecisionNode::Ptr ExitLeaf(new PHIDecisionNode(TrueValue,true));
@@ -209,7 +209,7 @@ void InputDependenceAnalysis::computeLoopDecision(Loop *L, PHIDecisionMap& Selec
   BasicBlock *Latch = L->getLoopLatch();
   Worklist.push_back(Latch);
   PHIDecisionNode::Ptr NewNode(new PHIDecisionNode(Latch));
-  SelectorMap.insert(PHIDecisionMap::value_type(Latch, NewNode));
+  SelectorMap.insert(std::make_pair(Latch, NewNode));
   ConstantInt *FalseValue = ConstantInt::getFalse(Latch->getContext());
   PHIDecisionNode::Ptr LatchLeaf(new PHIDecisionNode(FalseValue,true));
   SelectorMap[Latch]->setChildSelector(0,LatchLeaf);
@@ -260,7 +260,7 @@ void InputDependenceAnalysis::buildDecisionDAG(BlockList& Worklist, BasicBlock *
       if (Finished.count(BB) == 0) { // Second visit: Push on topological list
 	Finished.insert(BB);
 	PHIDecisionNode::Ptr NewNode(new PHIDecisionNode(BB));
-	SelectorMap.insert(PHIDecisionMap::value_type(BB, NewNode));
+	SelectorMap.insert(std::make_pair(BB, NewNode));
 	Topolist.push_back(BB);
       }
     }
@@ -315,7 +315,7 @@ void InputDependenceAnalysis::buildDecisionDAG(BlockList& Worklist, BasicBlock *
 
 void InputDependenceAnalysis::dump(const Function& F, raw_ostream& O) {
   for(Function::const_iterator BBI = F.begin(); BBI != F.end(); ++BBI) {
-    const BasicBlock* _BB = BBI;
+    const BasicBlock* _BB = &*BBI;
     BasicBlock* BB = const_cast<BasicBlock*>(_BB);
     for (BasicBlock::iterator I = BB->begin(), E = BB->end(); I != E; ++I) {
       if (PHINode *PN = dyn_cast<PHINode>(I)) {
@@ -364,9 +364,9 @@ namespace {
     PIDDA() : ModulePass(ID) {}
 
      virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-       AU.addRequired<DominatorTree>();
-       AU.addRequired<LoopInfo>();
-       AU.addRequired<ScalarEvolution>();
+       AU.addRequired<DominatorTreeWrapperPass>();
+       AU.addRequired<LoopInfoWrapperPass>();
+       AU.addRequired<ScalarEvolutionWrapperPass>();
        AU.addRequired<InputDependenceAnalysis>();
      }
 
@@ -392,8 +392,8 @@ namespace {
         dbgs() <<   "=================================\n\n";
 
         InputDependenceAnalysis* IdDeps = &getAnalysis<InputDependenceAnalysis>(*F);
-        LoopInfo* LI = &getAnalysis<LoopInfo>(*F);
-        ScalarEvolution* SE = &getAnalysis<ScalarEvolution>(*F);
+        LoopInfo* LI = &getAnalysis<LoopInfoWrapperPass>(*F).getLoopInfo();
+        ScalarEvolution* SE = &getAnalysis<ScalarEvolutionWrapperPass>(*F).getSE();
 
         IdDeps->dump(*F, dbgs());
 
@@ -435,7 +435,7 @@ namespace {
             }
         }
 	
-	dependencyClosure(F, DepClosure);
+        dependencyClosure(&*F, DepClosure);
         dbgs () << "------------------------------------\n";
         dbgs () << "- Intraprocedural dependency closure\n";
         dbgs () << "------------------------------------\n";

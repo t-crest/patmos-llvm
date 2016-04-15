@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <set>
@@ -221,7 +222,7 @@ namespace llvm {
     MachineFunction *MF = MBB->getParent();
 
     for(scc_iterator<MachineFunction*> i(scc_begin(MF)), ie(scc_end(MF));
-        i != ie; i++)
+        i != ie; ++i)
     {
       if (i.hasLoop())
       {
@@ -311,7 +312,7 @@ namespace llvm {
     typedef std::set<MCGNode*> MCGNodeSet;
     MCGNodeSet WL;
     for(scc_iterator<MCallGraph> i(scc_begin(*this)), ie(scc_end(*this));
-        i != ie; i++)
+        i != ie; ++i)
     {
       // See if the node is in an SCC of the call graph --> mark it directly ...
       if (i.hasLoop())
@@ -441,8 +442,8 @@ namespace llvm {
           MachineFunction *MF = F ? MMI.getMachineFunction(F) : NULL;
 
           // construct a new call site
-          MCG.makeMCGSite(MCGN, j,
-                          MF ? MCG.makeMCGNode(MF) : MCG.getUnknownNode(T));
+          MCG.makeMCGSite(MCGN, &*j,
+                          MF ? MCG.makeMCGNode(&*MF) : MCG.getUnknownNode(T));
         }
       }
     }
@@ -500,7 +501,7 @@ namespace llvm {
     // visit all functions in the module
     for(Module::const_iterator i(M.begin()), ie(M.end()); i != ie; i++) {
       // get the machine-level function
-      MachineFunction *MF = MMI.getMachineFunction(i);
+      MachineFunction *MF = MMI.getMachineFunction(&*i);
 
       // find all call-sites in the MachineFunction
       if (MF) {
@@ -527,8 +528,8 @@ namespace llvm {
     MCG.markNodesInSCC();
 
     DEBUG(
-      std::string tmp;
-      raw_fd_ostream of("mcg.dot", tmp);
+      std::error_code err;
+      raw_fd_ostream of("mcg.dot", err, sys::fs::F_Text);
       WriteGraph(of, MCG);
     );
 

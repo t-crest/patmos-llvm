@@ -37,7 +37,8 @@ namespace llvm {
       }
     }
 
-    void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot);
+    void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot,
+                   const MCSubtargetInfo& STI);
 
     void printInstPrefix(const MCInst *MI, raw_ostream &O);
 

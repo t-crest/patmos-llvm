@@ -29,6 +29,7 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case bpfel:       return "bpfel";
   case bpfeb:       return "bpfeb";
   case hexagon:     return "hexagon";
+  case patmos:      return "patmos";
   case mips:        return "mips";
   case mipsel:      return "mipsel";
   case mips64:      return "mips64";
@@ -93,6 +94,8 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   case mips64el:    return "mips";
 
   case hexagon:     return "hexagon";
+
+  case patmos:      return "patmos";
 
   case amdgcn:
   case r600:        return "amdgpu";
@@ -240,7 +243,6 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("mips64", mips64)
     .Case("mips64el", mips64el)
     .Case("msp430", msp430)
-    .Case("patmos", patmos)
     .Case("ppc64", ppc64)
     .Case("ppc32", ppc)
     .Case("ppc", ppc)
@@ -354,7 +356,6 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("thumbeb", Triple::thumbeb)
     .Case("avr", Triple::avr)
     .Case("msp430", Triple::msp430)
-    .Case("patmos", Triple::patmos)
     .Cases("mips", "mipseb", "mipsallegrex", Triple::mips)
     .Cases("mipsel", "mipsallegrexel", Triple::mipsel)
     .Cases("mips64", "mips64eb", Triple::mips64)
@@ -362,6 +363,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("r600", Triple::r600)
     .Case("amdgcn", Triple::amdgcn)
     .Case("hexagon", Triple::hexagon)
+    .Case("patmos", Triple::patmos)
     .Cases("s390x", "systemz", Triple::systemz)
     .Case("sparc", Triple::sparc)
     .Case("sparcel", Triple::sparcel)
@@ -562,6 +564,7 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::bpfeb:
   case Triple::bpfel:
   case Triple::hexagon:
+  case Triple::patmos:
   case Triple::hsail:
   case Triple::hsail64:
   case Triple::kalimba:
@@ -1097,6 +1100,7 @@ static unsigned getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::arm:
   case llvm::Triple::armeb:
   case llvm::Triple::hexagon:
+  case llvm::Triple::patmos:
   case llvm::Triple::le32:
   case llvm::Triple::mips:
   case llvm::Triple::mipsel:
@@ -1167,13 +1171,13 @@ Triple Triple::get32BitArchVariant() const {
     T.setArch(UnknownArch);
     break;
 
-  case Triple::patmos:
   case Triple::amdil:
   case Triple::hsail:
   case Triple::spir:
   case Triple::arm:
   case Triple::armeb:
   case Triple::hexagon:
+  case Triple::patmos:
   case Triple::kalimba:
   case Triple::le32:
   case Triple::mips:
@@ -1216,9 +1220,9 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::UnknownArch:
   case Triple::avr:
   case Triple::hexagon:
+  case Triple::patmos:
   case Triple::kalimba:
   case Triple::msp430:
-  case Triple::patmos:
   case Triple::r600:
   case Triple::tce:
   case Triple::xcore:
@@ -1304,6 +1308,7 @@ Triple Triple::getBigEndianArchVariant() const {
   case Triple::aarch64_be:
   case Triple::armeb:
   case Triple::bpfeb:
+  case Triple::patmos:
   case Triple::mips64:
   case Triple::mips:
   case Triple::ppc64:
@@ -1330,6 +1335,7 @@ Triple Triple::getLittleEndianArchVariant() const {
   Triple T(*this);
   switch (getArch()) {
   case Triple::UnknownArch:
+  case Triple::patmos:
   case Triple::ppc:
   case Triple::sparcv9:
   case Triple::systemz:
