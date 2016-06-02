@@ -52,7 +52,8 @@ namespace llvm {
   ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
                                            std::string& Filename,
                                            std::string& BitcodeFilename,
-                                           ArrayRef<std::string> Roots);
+                                           ArrayRef<std::string> Roots,
+					   bool SerializeAll);
   ModulePass *createPatmosCallGraphBuilder();
   ModulePass *createPatmosStackCacheAnalysis(const PatmosTargetMachine &tm);
   ModulePass *createPatmosStackCacheAnalysisInfo(const PatmosTargetMachine &tm);
