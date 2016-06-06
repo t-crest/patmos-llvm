@@ -222,7 +222,8 @@ namespace {
     /// of the compiler to PML format
     virtual bool addSerializePass(std::string& OutFile,
                                   ArrayRef<std::string> Roots,
-                                  std::string &BitcodeFile) {
+                                  std::string &BitcodeFile,
+				  bool SerializeAll) {
       if (OutFile.empty())
         return false;
 
@@ -230,7 +231,8 @@ namespace {
       addPass(createPatmosModuleExportPass(
           getPatmosTargetMachine(),
           OutFile, BitcodeFile,
-          Roots.empty() ? ArrayRef<std::string>(DefaultRoot) : Roots
+          Roots.empty() ? ArrayRef<std::string>(DefaultRoot) : Roots,
+	  SerializeAll
           ));
 
       return true;
@@ -243,7 +245,7 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
                                          StringRef TT,
                                          StringRef CPU,
                                          StringRef FS,
-                                         TargetOptions O, 
+                                         TargetOptions O,
                                          Reloc::Model RM, CodeModel::Model CM,
                                          CodeGenOpt::Level L)
   : LLVMTargetMachine(T, TT, CPU, FS, O, RM, CM, L),
@@ -265,4 +267,3 @@ PatmosTargetMachine::PatmosTargetMachine(const Target &T,
 TargetPassConfig *PatmosTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new PatmosPassConfig(this, PM);
 }
-

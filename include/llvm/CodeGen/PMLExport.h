@@ -274,6 +274,7 @@ namespace llvm {
     StringRef   OutFileName;
     std::string BitcodeFile;
     StringList  Roots;
+    bool        SerializeAll;
 
     MFSet   FoundFunctions;
     MFQueue Queue;
@@ -283,7 +284,7 @@ namespace llvm {
     /// class. You need to setup a PMLInstrInfo using setPMLInstrInfo before
     /// using the exporter.
     PMLModuleExportPass(char &ID, TargetMachine &TM, StringRef filename,
-                        ArrayRef<std::string> roots);
+                        ArrayRef<std::string> roots, bool SerializeAll);
 
     /// Set the PMLInstrInfo to be used. Takes ownership over the
     /// InstrInfo object.
@@ -293,9 +294,10 @@ namespace llvm {
     /// Construct a new PML export pass. The pass will take ownership of the
     /// given PMLInstrInfo.
     PMLModuleExportPass(TargetMachine &TM, StringRef filename,
-                        ArrayRef<std::string> roots, PMLInstrInfo *pii);
+                        ArrayRef<std::string> roots, PMLInstrInfo *pii,
+                        bool SerializeAll);
 
-    virtual~PMLModuleExportPass() {
+    virtual ~PMLModuleExportPass() {
       while(!Exporters.empty()) {
         delete Exporters.back();
         Exporters.pop_back();

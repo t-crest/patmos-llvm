@@ -317,8 +317,8 @@ namespace llvm {
 
   public:
     PatmosModuleExportPass(PatmosTargetMachine &tm, StringRef filename,
-                           ArrayRef<std::string> roots)
-      : PMLModuleExportPass(ID, tm, filename, roots)
+                           ArrayRef<std::string> roots, bool SerializeAll)
+      : PMLModuleExportPass(ID, tm, filename, roots, SerializeAll)
     {
       initializePatmosCallGraphBuilderPass(*PassRegistry::getPassRegistry());
 
@@ -355,10 +355,11 @@ namespace llvm {
   ModulePass *createPatmosModuleExportPass(PatmosTargetMachine &TM,
                                            std::string& Filename,
                                            std::string& BitcodeFilename,
-                                           ArrayRef<std::string> Roots)
+                                           ArrayRef<std::string> Roots,
+					   bool SerializeAll)
   {
     PatmosModuleExportPass *PEP =
-                      new PatmosModuleExportPass(TM, Filename, Roots);
+                      new PatmosModuleExportPass(TM, Filename, Roots, SerializeAll);
 
     // Add our own export passes
     PEP->addExporter( new PatmosMachineExport(TM, *PEP, PEP->getPatmosInstrInfo()));
