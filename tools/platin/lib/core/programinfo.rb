@@ -125,6 +125,9 @@ module PML
           false
         elsif exclude_symbolic && ! ff.rhs.constant?
           false
+	# always filter unknown bounds since we cannot handle them in the analyses
+	elsif ff.rhs.kind_of?(SEUnknown)
+	  false
         else
           true
         end

@@ -37,6 +37,7 @@ class LpSolveILP < ILP
     # solve
     lp.set_add_rowmode(false)
     lp.print_lp if options.lp_debug
+    lp.write_lp(options.write_lp) if options.write_lp
     lp.set_verbose(0)
 
     debug(options, :ilp) { self.dump(DebugIO.new) }
@@ -62,6 +63,10 @@ class LpSolveILP < ILP
   end
 
   private
+  # Remove characters from constraint names that are not allowed in an .lp file
+  def cleanup_name(name)
+    name.gsub(/[@: \/()->]/, "_")
+  end
   # create an LP with variables
   def create_lp
     lp = LPSolve.new(0, variables.size)
@@ -79,7 +84,7 @@ class LpSolveILP < ILP
   # add LP constraints
   def add_linear_constraints(lp)
     @constraints.each do |constr|
-      v =  lp.add_constraintex(constr.name,constr.lhs.to_a,lpsolve_op(constr.op),constr.rhs)
+      v =  lp.add_constraintex(cleanup_name(constr.name), constr.lhs.to_a, lpsolve_op(constr.op), constr.rhs)
       if ! v
         dump($stderr)
         die("constraintex #{constr} failed with return value #{v.inspect}")

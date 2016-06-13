@@ -113,8 +113,8 @@ class FlowGraphVisualizer < Visualizer
   def find_vedge_timing(profile, node, succ)
     start = Set.new( get_vblocks(node, :predecessors) )
     targets = Set.new( get_vblocks(succ, :successors) )
-    if start == targets and not (succ.kind_of?(CfgNode) and succ.block_start?)
-      find_vnode_timing(profile, node)
+    if start == targets and not [*succ].any? { |s| s.kind_of?(CfgNode) and s.block_start? }
+      [*node].map { |n| find_vnode_timing(profile, n) }.flatten
     elsif succ.kind_of?(ExitNode)
       start.map{ |b| profile[b]||[] }.flatten.select { |t|
         t.reference.programpoint.exitedge?
@@ -409,7 +409,7 @@ class VisualizeTool
       begin
         mf = pml.machine_functions.by_label(target)
 	t = pml.timing.select { |t| 
-	  t.level == mf.level && 
+	  t.level == mf.level && options.show_timings &&
 	  (options.show_timings.include?(t.origin) || options.show_timings.include?("all"))
 	}
         graph = fgv.visualize_vcfg(mf, pml.arch, t)

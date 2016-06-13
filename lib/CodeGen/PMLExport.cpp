@@ -1165,15 +1165,16 @@ isBackEdge(MachineBasicBlock *Source, MachineBasicBlock *Target)
 
 
 PMLModuleExportPass::PMLModuleExportPass(char &id, TargetMachine &TM,
-                              StringRef filename,
-                              ArrayRef<std::string> roots)
-  : MachineModulePass(id), PII(0), OutFileName(filename), Roots(roots)
+                                         StringRef filename,
+                                         ArrayRef<std::string> roots,
+                                         bool SerializeAll)
+  : MachineModulePass(id), PII(0), OutFileName(filename), Roots(roots), SerializeAll(SerializeAll)
 {
 }
 
 PMLModuleExportPass::PMLModuleExportPass(TargetMachine &TM, StringRef filename,
-                              ArrayRef<std::string> roots, PMLInstrInfo *pii)
-  : MachineModulePass(ID), PII(pii), OutFileName(filename), Roots(roots)
+                              ArrayRef<std::string> roots, PMLInstrInfo *pii, bool SerializeAll)
+  : MachineModulePass(ID), PII(pii), OutFileName(filename), Roots(roots), SerializeAll(SerializeAll)
 {
 }
 
@@ -1193,12 +1194,20 @@ bool PMLModuleExportPass::runOnMachineModule(const Module &M)
   // get the machine-level module information.
   MachineModuleInfo &MMI(getAnalysis<MachineModuleInfo>());
 
-  // Queue roots
   FoundFunctions.clear();
   Queue.clear();
-  for (size_t i=0; i < Roots.size(); i++) {
-    addToQueue(M, MMI, Roots[i]);
-  }
+  if (SerializeAll) {
+    // Queue all functions
+    for (Module::const_iterator it = M.begin(); it != M.end(); ++it) {
+      const Function &F = *it;
+      addToQueue(MMI.getMachineFunction(&F));
+    }
+  } else {
+    // Queue roots
+    for (size_t i=0; i < Roots.size(); i++) {
+      addToQueue(M, MMI, Roots[i]);
+    }
+}
 
   // follow roots until no new methods are found
   while (!Queue.empty()) {
@@ -1311,11 +1320,12 @@ char PMLModuleExportPass::ID = 0;
 /// Returns a newly-created PML export pass.
 MachineModulePass *
 createPMLExportPass(TargetMachine &TM, std::string& FileName,
-                    std::string& BitcodeFileName, ArrayRef<std::string> Roots)
+                    std::string& BitcodeFileName, ArrayRef<std::string> Roots,
+                    bool SerializeAll)
 {
   PMLInstrInfo *pii = new PMLInstrInfo();
 
-  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, pii);
+  PMLModuleExportPass *PEP = new PMLModuleExportPass(TM, FileName, Roots, pii, SerializeAll);
 
   PEP->addExporter( new PMLBitcodeExport(TM, *PEP) );
   PEP->addExporter( new PMLMachineExport(TM, *PEP) );

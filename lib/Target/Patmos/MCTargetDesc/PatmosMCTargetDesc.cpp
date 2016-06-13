@@ -67,6 +67,8 @@ static MCCodeGenInfo *createPatmosMCCodeGenInfo(StringRef TT, Reloc::Model RM,
                                                 CodeModel::Model CM,
                                                 CodeGenOpt::Level L) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
+  if (CM == CodeModel::Default)
+    CM = CodeModel::Small;
   X->InitMCCodeGenInfo(RM, CM, L);
   return X;
 }

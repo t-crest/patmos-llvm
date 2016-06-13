@@ -402,7 +402,7 @@ class SEUnknown < SymbolicExpression
     @str = str
   end
   def to_s; "#{@str}"; end
-  def map_names(&block); end
+  def map_names(&block); self; end
 end
 
 class SymbolicExpressionParser

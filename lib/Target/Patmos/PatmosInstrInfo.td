@@ -36,6 +36,11 @@ def SDTBrjt                : SDTypeProfile<0, 2, [SDTCisPtrTy<0>,
                                                   SDTCisSameAs<0, 1> ]>;
 
 //===----------------------------------------------------------------------===//
+// Patmos Specific Predicates
+//===----------------------------------------------------------------------===//
+def NotLargeCode : Predicate<"TM.getCodeModel() != CodeModel::Large">;
+
+//===----------------------------------------------------------------------===//
 // Patmos Specific Node Definitions.
 //===----------------------------------------------------------------------===//
 
@@ -112,6 +117,23 @@ def shrTwo : SDNodeXForm<imm, [{
               MVT::i32 );
 }]>;
 
+// Transformation Function - mask low 7/8/9 bits
+def maskSeven : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getSExtValue() & (-1 << 7),
+              MVT::i32 );
+}]>;
+def maskEight : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getSExtValue() & (-1 << 8),
+              MVT::i32 );
+}]>;
+def maskNine : SDNodeXForm<imm, [{
+ return CurDAG->getTargetConstant(
+              N->getSExtValue() & (-1 << 9),
+              MVT::i32 );
+}]>;
+
 
 // Transformation Function - count trailing zeros.
 def trailingZeros : SDNodeXForm<imm, [{
@@ -179,8 +201,6 @@ def uimm5imask : Operand<i32>, PatLeaf<(imm), [{
 }], trailingOnes>;
 
 
-
-
 // 7 bit value, shifted by one bit (for 16-bit stores)
 def imm7s1 : Operand<i32>, PatLeaf<(imm), [{
  return isInt<7>(N->getSExtValue() >> 1) && ((N->getSExtValue() & 0x01) == 0);
@@ -206,6 +226,13 @@ def uimm22s2 : Operand<i32>, PatLeaf<(imm), [{
 def imm22s2  : Operand<i32>, PatLeaf<(imm), [{
  return isInt<22>(N->getSExtValue() >> 2) && ((N->getSExtValue() & 0x03) == 0);
 }], shrTwo>;
+
+
+// Transformation for baseImm+shortImm addressing
+def immBase7   : Operand<i32>, PatLeaf<(imm), [{}], maskSeven>;
+def immBase7s1 : Operand<i32>, PatLeaf<(imm), [{}], maskEight>;
+def immBase7s2 : Operand<i32>, PatLeaf<(imm), [{}], maskNine>;
+
 
 // Transform all FrameIndex objects into TargetFrameIndex objects and define a
 // pattern that allows us to match against FrameIndex patterns
@@ -292,12 +319,12 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
   // local branches
 
   // unconditional
-  let isBarrier=1, isCodeGenOnly=1 in
+  let isBarrier=1, isCodeGenOnly=1, Defs=[RTR] in
   def BRu : CFLi<0b01, 0b1, (outs), (ins pred:$p, pcreltarget:$target),
                  "br", "$target", [(br bb:$target)]>;
 
   // conditional
-  let isBarrier=0 in
+  let isBarrier=0, Defs=[RTR] in
   def BR  : CFLi<0b01, 0b1, (outs), (ins predset:$p, pcreltarget:$target),
                  "br", "$target", [(brcond predsel:$p, bb:$target)]>;
 
@@ -338,22 +365,22 @@ let isTerminator=1, isBranch=1, hasDelaySlot=1, ImmSigned=1 in {
                      "brcf", "$target", []>;
 
     // indirect-unconditional
-    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1, rs2 = 0 in
     def BRCFRu: CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1),
                       "brcf", "$rs1", []>;
 
     // indirect-conditional
-    let isIndirectBranch=1, isBarrier=0 in
+    let isIndirectBranch=1, isBarrier=0, rs2 = 0 in
     def BRCFR : CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1),
                       "brcf", "$rs1", []>;
 
     // jumptable-unconditional
-    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1, rs2 = 0 in
     def BRCFTu: CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
                       "brcf", "$rs1", []>;
 
     // jumptable-conditional
-    let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1 in
+    let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1, rs2 = 0 in
     def BRCFT : CFLrt<0b10, 0b1, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
                       "brcf", "$rs1", []>;
   }
@@ -367,12 +394,12 @@ let isTerminator=1, isBranch=1, hasDelaySlot=0, ImmSigned=1 in {
   // local branches
 
   // unconditional
-  let isBarrier=1, isCodeGenOnly=1 in
+  let isBarrier=1, isCodeGenOnly=1, Defs=[RTR] in
   def BRNDu : CFLi<0b01, 0b0, (outs), (ins pred:$p, pcreltarget:$target),
                  "brnd", "$target", [(br bb:$target)]>;
 
   // conditional
-  let isBarrier=0 in
+  let isBarrier=0, Defs=[RTR] in
   def BRND  : CFLi<0b01, 0b0, (outs), (ins predset:$p, pcreltarget:$target),
                  "brnd", "$target", [(brcond predsel:$p, bb:$target)]>;
 
@@ -410,22 +437,22 @@ let isTerminator=1, isBranch=1, hasDelaySlot=0, ImmSigned=1 in {
                        "brcfnd", "$target", []>;
 
     // indirect-unconditional
-    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1, rs2 = 0 in
     def BRCFRNDu: CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1),
                          "brcfnd", "$rs1", []>;
 
     // indirect-conditional
-    let isIndirectBranch=1, isBarrier=0 in
+    let isIndirectBranch=1, isBarrier=0, rs2 = 0 in
     def BRCFRND : CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1),
                        "brcfnd", "$rs1", []>;
 
     // jumptable-unconditional
-    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1 in
+    let isIndirectBranch=1, isBarrier=1, isCodeGenOnly=1, rs2 = 0 in
     def BRCFTNDu: CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
                          "brcfnd", "$rs1", []>;
 
     // jumptable-conditional
-    let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1 in
+    let isIndirectBranch=1, isBarrier=0, isCodeGenOnly=1, rs2 = 0 in
     def BRCFTND : CFLrt<0b10, 0b0, (outs), (ins pred:$p, RRegs:$rs1, jtpat:$jtidx),
                        "brcfnd", "$rs1", []>;
   }

@@ -43,6 +43,20 @@ class IndexedConstraint
     normalize! if @inconsistent.nil?
     @inconsistent
   end
+  # Check if this constraint has the form 'x <= c' or 'x >= c'
+  def bound?
+    normalize! if @inconsistent.nil?
+    return false if @op != 'less-equal' or @lhs.length != 1
+    v,c = @lhs.first
+    c == -1 || c == 1
+  end
+  # Check if this constraint has the form '-x <= 0'
+  def non_negative_bound?
+    normalize! if @inconsistent.nil?
+    return false if @op != 'less-equal' or @lhs.length != 1 or @rhs != 0
+    v,c = @lhs.first
+    c == -1 
+  end
   def get_coeff(v)
     @lhs[v]
   end
@@ -204,7 +218,7 @@ class ILP
     @indexmap[v] = index
     @vartype[v] = vartype
     @eliminated.delete(v)
-    add_indexed_constraint({index => -1},"less-equal",0,"__lower_bound_v#{index}",Set.new([:positive]))
+    add_indexed_constraint({index => -1},"less-equal",0,"non_negative_v_#{index}",Set.new([:positive]))
     index
   end
   # add constraint:
