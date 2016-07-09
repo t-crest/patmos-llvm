@@ -164,6 +164,7 @@ namespace {
     const MachineBlockFrequencyInfo *MBFI;
     const MachineBranchProbabilityInfo *MBPI;
     MachineRegisterInfo *MRI;
+    bool SupportSerializing;
 
     LivePhysRegs Redefs;
     LivePhysRegs DontKill;
@@ -183,6 +184,7 @@ namespace {
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<MachineBlockFrequencyInfo>();
       AU.addRequired<MachineBranchProbabilityInfo>();
+      AU.addRequired<TargetPassConfig>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
@@ -284,6 +286,8 @@ bool IfConverter::runOnMachineFunction(MachineFunction &MF) {
   MBPI = &getAnalysis<MachineBranchProbabilityInfo>();
   MRI = &MF.getRegInfo();
   SchedModel.init(ST.getSchedModel(), &ST, TII);
+  TargetPassConfig *PassConfig = &getAnalysis<TargetPassConfig>();
+  SupportSerializing = PassConfig->isSerializing();
 
   if (!TII) return false;
 
@@ -292,7 +296,7 @@ bool IfConverter::runOnMachineFunction(MachineFunction &MF) {
   bool BFChange = false;
   if (!PreRegAlloc) {
     // Tail merge tend to expose more if-conversion opportunities.
-    BranchFolder BF(true, false, *MBFI, *MBPI);
+    BranchFolder BF(true, false, SupportSerializing, *MBFI, *MBPI);
     BFChange = BF.OptimizeFunction(MF, TII, ST.getRegisterInfo(),
                                    getAnalysisIfAvailable<MachineModuleInfo>());
   }
@@ -425,7 +429,7 @@ bool IfConverter::runOnMachineFunction(MachineFunction &MF) {
   BBAnalysis.clear();
 
   if (MadeChange && IfCvtBranchFold) {
-    BranchFolder BF(false, false, *MBFI, *MBPI);
+    BranchFolder BF(false, false, SupportSerializing, *MBFI, *MBPI);
     BF.OptimizeFunction(MF, TII, MF.getSubtarget().getRegisterInfo(),
                         getAnalysisIfAvailable<MachineModuleInfo>());
   }
@@ -482,9 +486,6 @@ bool IfConverter::ValidSimple(BBInfo &TrueBBI, unsigned &Dups,
 
   if (TrueBBI.IsBrAnalyzable)
     return false;
-
-  // if (!TrueBBI.BB->succ_empty())
-  //   return false;
 
   if (TrueBBI.BB->pred_size() > 1) {
     if (TrueBBI.CannotBeCopied ||
@@ -1649,8 +1650,10 @@ void IfConverter::CopyAndPredicateBlock(BBInfo &ToBBI, BBInfo &FromBBI,
 
   ToBBI.ClobbersPred |= FromBBI.ClobbersPred;
   ToBBI.IsAnalyzed = false;
-  // remove mapping from dupped block (no longer unique)
-  FromBBI.BB->setBasicBlock(0);
+  if (SupportSerializing) {
+    // remove mapping from dupped block (no longer unique)  
+    FromBBI.BB->setBasicBlock(0);
+  }
   ++NumDupBBs;
 }
 
@@ -1768,8 +1771,10 @@ void IfConverter::MergeBlocks(BBInfo &ToBBI, BBInfo &FromBBI, bool AddEdges) {
   ToBBI.HasFallThrough = FromBBI.HasFallThrough;
   ToBBI.IsAnalyzed = false;
   FromBBI.IsAnalyzed = false;
-  // remove mapping from merged block
-  FromBBI.BB->setBasicBlock(0);
+  if (SupportSerializing) {
+    // remove mapping from merged block
+    FromBBI.BB->setBasicBlock(0);
+  }
 }
 
 FunctionPass *

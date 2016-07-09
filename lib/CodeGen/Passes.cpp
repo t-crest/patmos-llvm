@@ -250,7 +250,7 @@ TargetPassConfig::TargetPassConfig(TargetMachine *tm, PassManagerBase &pm)
     : ImmutablePass(ID), PM(&pm), StartBefore(nullptr), StartAfter(nullptr),
       StopAfter(nullptr), Started(true), Stopped(false),
       AddingMachinePasses(false), TM(tm), Impl(nullptr), Initialized(false),
-      DisableVerify(false), EnableTailMerge(true) { 
+      DisableVerify(false), EnableTailMerge(true) {
 
   Impl = new PassConfigImpl();
 
@@ -612,10 +612,15 @@ void TargetPassConfig::addMachinePasses() {
   addPass(&LiveDebugValuesID, false);
 
   // Serialize machine code
-  if (! SerializeMachineCode.empty())
+  if (isSerializing()) {
     addSerializePass(SerializeMachineCode, SerializeRoots, SerializePreemitBitcode);
+  }
 
   AddingMachinePasses = false;
+}
+
+bool TargetPassConfig::isSerializing() const {
+  return !SerializeMachineCode.empty();
 }
 
 /// Add standard serialization to PML format

@@ -99,6 +99,7 @@ bool BranchFolderPass::runOnMachineFunction(MachineFunction &MF) {
   bool EnableTailMerge = !MF.getTarget().requiresStructuredCFG() &&
                          PassConfig->getEnableTailMerge();
   BranchFolder Folder(EnableTailMerge, /*CommonHoist=*/true,
+                      PassConfig->isSerializing(),
                       getAnalysis<MachineBlockFrequencyInfo>(),
                       getAnalysis<MachineBranchProbabilityInfo>());
   return Folder.OptimizeFunction(MF, MF.getSubtarget().getInstrInfo(),
@@ -107,10 +108,11 @@ bool BranchFolderPass::runOnMachineFunction(MachineFunction &MF) {
 }
 
 BranchFolder::BranchFolder(bool defaultEnableTailMerge, bool CommonHoist,
+                           bool supportSerializing,
                            const MachineBlockFrequencyInfo &FreqInfo,
                            const MachineBranchProbabilityInfo &ProbInfo)
-    : EnableHoistCommonCode(CommonHoist), MBBFreqInfo(FreqInfo),
-      MBPI(ProbInfo) {
+    : EnableHoistCommonCode(CommonHoist), SupportSerializing(supportSerializing),
+      MBBFreqInfo(FreqInfo), MBPI(ProbInfo) {
   switch (FlagEnableTailMerge) {
   case cl::BOU_UNSET: EnableTailMerge = defaultEnableTailMerge; break;
   case cl::BOU_TRUE: EnableTailMerge = true; break;
@@ -909,7 +911,9 @@ bool BranchFolder::TryTailMergeBlocks(MachineBasicBlock *SuccBB,
     }
     DEBUG(dbgs() << "\n");
     // Common tails do not have a sensible mapping to basic blocks
-    MBB->setBasicBlock(0);
+    if (SupportSerializing) {
+      MBB->setBasicBlock(0);
+    }
     // We leave commonTailIndex in the worklist in case there are other blocks
     // that match it with a smaller number of instructions.
     MadeChange = true;
@@ -1288,9 +1292,9 @@ ReoptimizeBlock:
       PrevBB.removeSuccessor(PrevBB.succ_begin());
       assert(PrevBB.succ_empty());
       PrevBB.transferSuccessors(MBB);
-      // If previous block is not associated with MBB (e.g., because it was tail merged),
-      // set it to the MBB of this block
-      if(PrevBB.getBasicBlock() == 0) {
+      if (PrevBB.getBasicBlock() == 0) {
+        // If previous block is not associated with MBB (e.g., because it was tail merged),
+        // set it to the MBB of this block
         PrevBB.setBasicBlock(MBB->getBasicBlock());
       }
       MadeChange = true;

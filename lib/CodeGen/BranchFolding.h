@@ -27,6 +27,7 @@ namespace llvm {
   class LLVM_LIBRARY_VISIBILITY BranchFolder {
   public:
     explicit BranchFolder(bool defaultEnableTailMerge, bool CommonHoist,
+                          bool supportSerializing,
                           const MachineBlockFrequencyInfo &MBFI,
                           const MachineBranchProbabilityInfo &MBPI);
 
@@ -93,6 +94,7 @@ namespace llvm {
 
     bool EnableTailMerge;
     bool EnableHoistCommonCode;
+    bool SupportSerializing;
     const TargetInstrInfo *TII;
     const TargetRegisterInfo *TRI;
     MachineModuleInfo *MMI;
