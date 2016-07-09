@@ -681,10 +681,10 @@ def NOT : ALUr<0b1011, (outs RRegs:$rd), (ins pred:$p, RRegs:$rs1),
                [(set RRegs:$rd, (not RRegs:$rs1))]>;
 
 // clr Rd ... add Rd = R0 + 0
-let rs1 = 0, imm = 0, ImmOpNo = 0,
-    hasSideEffects = 0 in
+let rs1 = 0, imm = 0, ImmOpNo = 0 in
 def CLR : ALUi<0b0000, (outs RRegs:$rd), (ins pred:$p),
-                 "clr", "$rd", []>;
+                 "clr", "$rd",
+                 [(set RRegs:$rd, (i32 0))]>;
 
 
 
