@@ -448,7 +448,7 @@ public:
     const MCInstrDesc &FMCID = prev(FMBB.end())->getDesc();
     if (FMCID.isReturn() || FMCID.isCall())
       return false;
-    if ((NumTCycles + NumFCycles) > 16)
+    if (NumTCycles > 8 && NumFCycles > 8)
       return false;
 
     // We do not handle predicated instructions that may stall the pipeline
@@ -468,7 +468,12 @@ public:
     const MCInstrDesc &MCID = prev(MBB.end())->getDesc();
     if (MCID.isReturn() || MCID.isCall())
       return false;
-    return NumCycles <= 4;
+    if (NumCycles > 4)
+      return false;
+
+    // We do not handle predicated instructions that may stall the pipeline
+    // properly in the cache analyses, so we do not convert them for now.
+    return !mayStall(MBB);
   }
 
 }; // PatmosInstrInfo
