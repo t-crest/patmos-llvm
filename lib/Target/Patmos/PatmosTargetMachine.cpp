@@ -105,19 +105,6 @@ namespace {
       return getTM<PatmosTargetMachine>();
     }
 
-    bool enablePostRAScheduler(CodeGenOpt::Level OptLevel,
-                               TargetSubtargetInfo::AntiDepBreakMode& Mode,
-                               TargetSubtargetInfo::RegClassVector& CriticalPathRCs) const {
-      // TODO disabled until call delay slots are properly handled by anti-dep
-      // breaker. Moving a use of a caller-defined register (r1,..) into the delay
-      // slot of a call causes the anti-dep breaker not to detect the use if the def
-      // is in a preceding scheduling region.
-      // Mode = (OptLevel == CodeGenOpt::None) ? ANTIDEP_NONE : ANTIDEP_ALL;
-      Mode = TargetSubtargetInfo::ANTIDEP_NONE;
-
-      return hasPostRAScheduler(OptLevel);
-    }
-
     bool hasPostRAScheduler(CodeGenOpt::Level OptLevel) const {
 
       // TargetPassConfig does not add the PostRA pass for -O0!
