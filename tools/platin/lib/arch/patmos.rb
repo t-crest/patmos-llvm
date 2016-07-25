@@ -343,6 +343,14 @@ class Architecture < PML::Architecture
     opts = []
 
     if main_memory = @config.main_memory
+      if main_memory.kind
+        opts.push("--gkind")
+        opts.push(main_memory.kind)
+      end
+      if main_memory.ramul_config
+        opts.push("--ramul-config")
+        opts.push(main_memory.ramul_config)
+      end
       if main_memory.size
         opts.push("--gsize")
         opts.push(main_memory.size)
