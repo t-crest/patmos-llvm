@@ -221,9 +221,6 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
           // sp-reachable functions were already marked as single-path.
           // Hence, we have _potential_ sp-maybe functions left; the call
           // needs to be rewritten to point to the sp-maybe clone.
-          assert(!Target->hasFnAttribute("sp-reachable"));
-          assert(!Target->hasFnAttribute("sp-maybe"));
-          // rewrite call to _sp variant
           rewriteCall(MI);
           // set _sp MF to single path in PMFI (MF has changed!)
           MachineFunction *MF = getCallTargetMF(MI);
