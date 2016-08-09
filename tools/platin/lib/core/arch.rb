@@ -103,6 +103,22 @@ class MemoryConfig < PMLObject
   attr_reader :name
 
   ##
+  # :attr_reader: kind
+  #
+  # Memory kind (simple, ddr3, ddr4, lpddr3, lpddr4)
+  # * YAML key: +kind+
+  # * Type: <tt>str</tt>
+  attr_reader :kind
+
+  ##
+  # :attr_reader: ramul_config
+  #
+  # Name of ramulator configuration file (requires non-simple gkind)
+  # * YAML key: +ramul-config+
+  # * Type: <tt>str</tt>
+  attr_reader :ramul_config
+
+  ##
   # :attr_reader: size
   #
   # size in bytes
@@ -183,16 +199,18 @@ class MemoryConfig < PMLObject
     @max_burst_size || min_burst_size
   end
 
-  def initialize(name, size, transfer_size, read_latency, read_transfer_time, write_latency,
+  def initialize(name, kind, ramul_config, size, transfer_size, read_latency, read_transfer_time, write_latency,
                  write_transfer_time, min_burst_size=nil, max_burst_size=nil, data=nil)
-    @name, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time, @min_burst_size, @max_burst_size =
-      name, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time, min_burst_size, max_burst_size
+    @name, @kind, @ramul_config, @size, @transfer_size, @read_latency, @read_transfer_time, @write_latency, @write_transfer_time, @min_burst_size, @max_burst_size =
+      name, kind, ramul_config, size, transfer_size, read_latency, read_transfer_time, write_latency, write_transfer_time, min_burst_size, max_burst_size
     set_yaml_repr(data)
   end
 
   def MemoryConfig.from_pml(ctx, data)
     MemoryConfig.new(
       data['name'],
+      data['kind'],
+      data['ramul-config'],
       data['size'],
       data['transfer-size'],
       data['read-latency'],
@@ -205,6 +223,8 @@ class MemoryConfig < PMLObject
   end
   def to_pml
     { "name" => @name,
+      "kind" => @kind,
+      "ramul-config" => @ramul_config,
       "size" => @size,
       "transfer-size" => @transfer_size,
       "read-latency" => @read_latency,
@@ -220,7 +240,17 @@ class MemoryConfig < PMLObject
     @size = value
     data['size'] = value
   end
-  
+
+  def kind=(value)
+    @kind = value
+    data['kind'] = value
+  end
+
+  def ramul_config=(value)
+    @ramul_config = value
+    data['ramul-config'] = value
+  end
+
   def transfer_size=(value)
     @transfer_size = value
     data['transfer-size'] = value

@@ -489,6 +489,15 @@ mapping:
                   'main' should be used for (conventional) main memory
                 required: yes
                 unique: yes
+              "kind":
+                type: str
+                desc: Memory kind (simple, ddr3, ddr4, lpddr3, lpddr4)
+                unique: yes
+                enum: [ simple,ddr3,ddr4,lpddr3,lpddr4 ]
+              "ramul-config":
+                type: str
+                desc: Name of ramulator configuration file (requires non-simple gkind)
+                unique: yes
               "size":
                 type: int
                 desc: size in bytes

@@ -33,6 +33,14 @@ class PMLConfigTool
       die("Unknown policy: #{policy}")
     end
   end
+  def PMLConfigTool.parse_memoy_kind(kind)
+    case kind
+    when "simple", "ddr3", "ddr4", "lpddr3", "lpddr4"
+      { kind }
+    else
+      die("Unknown memory kind: #{kind}")
+    end
+  end
 
   def PMLConfigTool.add_options(opts)
     opts.on("--target TRIPLE", "Target architecture triple (required if no PML input is given)") { |a|
@@ -51,6 +59,12 @@ class PMLConfigTool
     #        user, which options are actually used for a given architecture.
     #      - Make the options more generic to avoid architecture-specific options altogether.
 
+    opts.on("--gkind KIND", "Kind of main memory (simple, ddr3, ddr4, lpddr3. lpddr4)") { |p|
+      opts.options.memory_kind = parse_memoy_kind(p)
+    }
+    opts.on("--ramul-config FILENAME", "Name of ramulator configuration file (requires non-simple gkind)") { |p|
+      opts.options.ramul_config = p
+    }
     opts.on("-g", "--gsize SIZE", "Global memory size") { |s|
       opts.options.memory_size = parse_size(s)
     }
@@ -142,6 +156,8 @@ class PMLConfigTool
     #      it is implemented)
 
     # Update config
+    main.kind =          options.memory_kind if options.memory_kind
+    main.ramul_config =  options.ramul_config if options.ramul_config
     main.size =          options.memory_size if options.memory_size
     main.transfer_size = options.memory_transfer_size if options.memory_transfer_size
 

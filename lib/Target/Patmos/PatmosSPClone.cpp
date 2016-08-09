@@ -9,10 +9,15 @@
 //
 // This pass clones functions on bitcode level that might be converted to
 // single-path code in the Patmos backend.
-// The reason for this is that you need to maintain a correspondence
-// between a MachineFunction and "its" bitcode function.
-// As function calls might be inserted in the lowering phase,
-// all functions marked as "used" are cloned as well.
+// The reason for this is that a correspondence between a MachineFunction
+// and "its" bitcode function needs to be maintained.
+//
+// As new function calls might be inserted in the lowering phase,
+// all functions marked as "used" and reachable from them are cloned as well,
+// and marked with the attribute "sp-maybe".
+//
+// The calls inserted by lowering and unnecessarily cloned functions are
+// rewritten and removed, respectively, in the PatmosSPMark pass.
 //
 //===----------------------------------------------------------------------===//
 
@@ -44,8 +49,12 @@ STATISTIC(NumSPReachable, "Number of functions marked as single-path "
 STATISTIC(NumSPUsed,      "Number of functions marked as single-path "
                           "because of <used> attribute");
 
-
 namespace {
+
+// Functions contained in the used array but not supported for single-path
+// conversion. We do neither clone nor mark them.
+const char *Blacklist[] = {"_start", "abort", "fputc", "fwrite", "setjmp"};
+
 
 class PatmosSPClone : public ModulePass {
 private:
@@ -56,22 +65,28 @@ private:
   /// Set of function names as roots
   std::set<std::string> SPRoots;
 
-  FunctionSPMap FuncsReachable;
+  /// Maintain a mapping from Function func to cloned Function func_sp_
+  FunctionSPMap ClonedFunctions;
 
 
-  void loadFromGlobalVariable(SmallSet<std::string, 32> &Result,
+  void loadFromGlobalVariable(SmallSet<std::string, 128> &Result,
                               const GlobalVariable *GV) const;
-
 
   void handleRoot(Function *F);
 
-  // clones function F to <funcname>_sp_ and
-  // adds the "sp-reachable" attribute if reachable==true
-  // (otherwise "sp-maybe")
-  Function *cloneAndMark(Function *F, bool reachable=true);
+  /**
+   * Clones function F to <funcname>_sp_.
+   * Adds the "sp-reachable" attribute if only_maybe==false,
+   * otherwise "sp-maybe".
+   */
+  Function *cloneAndMark(Function *F, bool onlyMaybe=false);
 
-  // add callees of F to worklist W and rewrite the calls
-  void explore(Function *F, Worklist &W);
+  void descend(Function *F, bool fromUsed);
+
+  /**
+   * Add callees of F to worklist W and rewrite the calls.
+   */
+  void explore(Function *F, Worklist &W, bool fromUsed=false);
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -119,13 +134,15 @@ bool PatmosSPClone::doFinalization(Module &M) {
 
 
 bool PatmosSPClone::runOnModule(Module &M) {
-
   DEBUG( dbgs() <<
          "[Single-Path] Clone functions reachable from single-path roots\n");
 
-
-  SmallSet<std::string, 32> used;
+  SmallSet<std::string, 128> used;
   loadFromGlobalVariable(used, M.getGlobalVariable("llvm.used"));
+
+  SmallSet<std::string, 16> blacklst;
+  blacklst.insert(Blacklist,
+      Blacklist + (sizeof Blacklist / sizeof Blacklist[0]));
 
   //TODO in a future version of LLVM the attribute handling
   //     is likely to be different
@@ -154,25 +171,17 @@ bool PatmosSPClone::runOnModule(Module &M) {
     }
 
     // Check if used; if yes, duplicate and mark as "sp-maybe".
-    // The assumption is that functions called from "used" functions are
-    // used themselves
-    if (used.count(F->getName())) {
-      //DEBUG( dbgs() << "  used: " << F->getName() << "\n" );
-      (void) cloneAndMark(F, false);
-      NumSPUsed++; // bump STATISTIC
+    if (used.count(F->getName()) && !blacklst.count(F->getName())) {
+      DEBUG( dbgs() << "Used: " << F->getName() << "\n" );
+      descend(cloneAndMark(F, true), true);
       continue;
     }
   }
-
-  // Only assign statistics if there are functions contained,
-  // to adhere to the conventions.
-  if (!FuncsReachable.empty()) NumSPReachable = FuncsReachable.size();
-
   return (NumSPRoots + NumSPReachable + NumSPUsed) > 0;
 }
 
 
-void PatmosSPClone::loadFromGlobalVariable(SmallSet<std::string, 32> &Result,
+void PatmosSPClone::loadFromGlobalVariable(SmallSet<std::string, 128> &Result,
                                           const GlobalVariable *GV) const {
   if (!GV || !GV->hasInitializer()) return;
 
@@ -195,58 +204,76 @@ void PatmosSPClone::handleRoot(Function *F) {
   }
   NumSPRoots++;
 
-  // explore from root
-  Worklist W;
-  explore(F, W);
-  while (!W.empty()) {
-    Function *Child = W.front();
-    W.pop_front();
-    explore(Child, W);
-  }
-
+  descend(F, false);
 }
 
 
-Function *PatmosSPClone::cloneAndMark(Function *F, bool reachable) {
+void PatmosSPClone::descend(Function *F, bool fromUsed) {
+  // explore from root
+  Worklist W;
+  explore(F, W, fromUsed);
+  while (!W.empty()) {
+    Function *Child = W.front();
+    W.pop_front();
+    explore(Child, W, fromUsed);
+  }
+}
+
+
+Function *PatmosSPClone::cloneAndMark(Function *F, bool onlyMaybe) {
   ValueToValueMapTy VMap;
   Function *SPF = CloneFunction(F, VMap, false, NULL);
   SPF->setName(F->getName() + Twine("_sp_"));
 
-  SPF->addFnAttr( reachable ? "sp-reachable" : "sp-maybe");
+  SPF->addFnAttr(!onlyMaybe ? "sp-reachable" : "sp-maybe");
+  DEBUG( dbgs() << "  Clone function: " << F->getName()
+                << " -> " << SPF->getName() << "\n");
+  // STATISTICS
+  if (onlyMaybe) {
+    NumSPUsed++;
+  } else {
+    NumSPReachable++;
+  }
   // if the root attribute got cloned, remove it
   if (SPF->hasFnAttribute("sp-root")) {
     SPF->removeFnAttr("sp-root");
   }
   F->getParent()->getFunctionList().push_back(SPF);
+
+  ClonedFunctions.insert(std::make_pair(F, SPF));
+
   return SPF;
 }
 
-void PatmosSPClone::explore(Function *F, Worklist &W) {
-  for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
-      if (CallInst *Call = dyn_cast<CallInst>(&*I)) {
+void PatmosSPClone::explore(Function *F, Worklist &W, bool fromUsed) {
+  for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+      CallInst *Call = dyn_cast<CallInst>(&*I);
+      if (Call && !Call->isInlineAsm()) {
         Function *Callee = Call->getCalledFunction();
+
+        if (!Callee) {
+          // null if it is an indirect function invocation
+          DEBUG( dbgs() << "  Warning: indirect function call in "
+                        << F->getName() << "\n");
+          continue;
+        }
 
         // skip LLVM intrinsics
         if (Callee->isIntrinsic()) continue;
 
         Function *SPCallee;
-        if (!FuncsReachable.count(Callee)) {
+        if (!ClonedFunctions.count(Callee)) {
           // clone function
-          SPCallee = cloneAndMark(Callee);
-          DEBUG( dbgs() << "  Clone function: " << Callee->getName()
-                        << " -> " << SPCallee->getName() << "\n");
-          FuncsReachable.insert(std::make_pair(Callee, SPCallee));
+          SPCallee = cloneAndMark(Callee, fromUsed);
           // add callee to worklist
           W.push_back(SPCallee);
         } else {
           // lookup
-          SPCallee = FuncsReachable.at(Callee);
+          SPCallee = ClonedFunctions.at(Callee);
         }
 
-        // rewrite call
+        // Rewrite the call to point to the cloned function
         Call->setCalledFunction(SPCallee);
-
-        DEBUG( dbgs() << "  Rewrite call: " << Callee->getName()
-                      << " -> " << SPCallee->getName() << "\n");
       }
+  }
 }

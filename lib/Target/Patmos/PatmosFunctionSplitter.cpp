@@ -1952,7 +1952,7 @@ namespace llvm {
         if (PTM.getCodeModel() == CodeModel::Large &&
             i->definesRegister(Patmos::RTR) && !i->isBranch()) {
           MachineBasicBlock::instr_iterator k;
-          for (k = next(i); k != ie; ++k) {
+          for (k = llvm::next(i); k != ie; ++k) {
             tmp_live_margin += agraph::getInstrSize(k, PTM);
             if (k->killsRegister(Patmos::RTR)) {
               break;
