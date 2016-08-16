@@ -107,7 +107,7 @@ class Architecture < PML::Architecture
     end
   end
   def Architecture.default_config
-    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',2*1024*1024,16,0,21,0,21)])
+    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main','simple',nil,2*1024*1024,16,0,21,0,21)])
     caches = PML::CacheConfigList.new([Architecture.default_instr_cache('method-cache'),
                                   PML::CacheConfig.new('stack-cache','stack-cache','block',nil,4,2048),
                                   PML::CacheConfig.new('data-cache','set-associative','dm',nil,16,2048) ])

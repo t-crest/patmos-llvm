@@ -33,10 +33,10 @@ class PMLConfigTool
       die("Unknown policy: #{policy}")
     end
   end
-  def PMLConfigTool.parse_memoy_kind(kind)
+  def PMLConfigTool.parse_memory_kind(kind)
     case kind
     when "simple", "ddr3", "ddr4", "lpddr3", "lpddr4"
-      { kind }
+      kind
     else
       die("Unknown memory kind: #{kind}")
     end
@@ -60,7 +60,7 @@ class PMLConfigTool
     #      - Make the options more generic to avoid architecture-specific options altogether.
 
     opts.on("--gkind KIND", "Kind of main memory (simple, ddr3, ddr4, lpddr3. lpddr4)") { |p|
-      opts.options.memory_kind = parse_memoy_kind(p)
+      opts.options.memory_kind = parse_memory_kind(p)
     }
     opts.on("--ramul-config FILENAME", "Name of ramulator configuration file (requires non-simple gkind)") { |p|
       opts.options.ramul_config = p
