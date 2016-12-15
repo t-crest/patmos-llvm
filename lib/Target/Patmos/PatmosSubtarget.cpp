@@ -59,7 +59,7 @@ static cl::opt<bool> BranchInsideCFLDelaySlots("mpatmos-nested-branches",
                               "inside CFL delay slots."));
 
 static cl::opt<bool> DisableVLIW("mpatmos-disable-vliw",
-	             cl::init(true),
+	             cl::init(false),
 		     cl::desc("Schedule instructions only in first slot."));
 
 static cl::opt<bool> DisableMIPreRA("mpatmos-disable-pre-ra-misched",
