@@ -7,7 +7,7 @@ require 'platin'
 require 'ext/ait'
 include PML
 
-$available_tools = ["clang", "pasim", "ait"]
+$available_tools = %w(clang pasim ait)
 
 class ToolConfigTool
   def ToolConfigTool.add_options(opts)
@@ -78,6 +78,7 @@ if __FILE__ == $0
   EOF
   options, args = PML::optparse([], "", synopsis) do |opts|
     opts.needs_pml
+    opts.writes_pml
     ToolConfigTool.add_options(opts)
   end
   ToolConfigTool.run(PMLDoc.from_files(options.input), options)
