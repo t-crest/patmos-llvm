@@ -92,7 +92,10 @@ class AnalyzeTraceTool
     global_recorders = @main_recorder.global_recorders
     if ! global_recorders.empty?
       global = global_recorders.first
-      outpml.timing.add(TimingEntry.new(global.scope,global.results.cycles.max,nil,fact_context))
+      outpml.timing.add(TimingEntry.new(
+        global.scope, global.results.cycles.max, nil,
+        fact_context.merge('cycles-min' => global.results.cycles.min)
+      ))
     end
 
     flowfacts_before = @pml.flowfacts.length

@@ -730,7 +730,8 @@ namespace {
             && MI->getOperand(0).getReg() == TgtReg
             && (MI->getOperand(1).getReg() == Patmos::NoRegister ||
               MI->getOperand(1).getReg() == Patmos::P0)
-            && MI->getOperand(2).getImm() == 0) {
+            && MI->getOperand(2).getImm() == 0
+            && MI->getOperand(3).isFI()) {
           fi = MI->getOperand(3).getIndex();
           return true;
         }
@@ -742,7 +743,8 @@ namespace {
             && MI->getOperand(4).getReg() == TgtReg
             && (MI->getOperand(0).getReg() == Patmos::NoRegister ||
               MI->getOperand(0).getReg() == Patmos::P0)
-            && MI->getOperand(1).getImm() == 0) {
+            && MI->getOperand(1).getImm() == 0
+            && MI->getOperand(2).isFI()) {
           fi = MI->getOperand(2).getIndex();
           return true;
         }

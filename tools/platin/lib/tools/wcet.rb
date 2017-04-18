@@ -95,7 +95,7 @@ class WcetTool
 
     # FIXME: check if this is necessary (CFRG testsuite)
     flow_srcs.push("trace.support") if options.enable_sweet && options.trace_analysis
-    
+
     # TODO we should (also?) add a 'configuration' name to the TimingEntry that refers to an analysis-configuration name
     options.timing_output = [options.timing_output,'trace'].compact.join('/') if options.use_trace_facts
 
@@ -363,6 +363,7 @@ class WcetTool
         'cycles' => te.cycles }
       te.attributes.select { |k,v| k.start_with? 'memory-' }.each { |k,v| dict[k] = v }
       te.attributes.select { |k,v| k.start_with? 'cache-' }.each { |k,v| dict[k] = v }
+      te.attributes.select { |k,v| k.start_with? 'cycles-' }.each { |k,v| dict[k] = v }
       (additional_info[te.origin] || []).each { |k,v| dict[k] = v }
       dict
     }
@@ -384,8 +385,8 @@ class WcetTool
         if te.cycles < trace_cycles
           die("wcet check: cycles for #{te.origin} (#{te.cycles}) less than measurement (#{trace_cycles})")
         end
-        if options.runcheck_factor
-          tolerated_overestimation = (trace_cycles * options.runcheck_factor) + CHECK_OVERESTIMATION_TOLERANCE
+        if options.runcheck_factor.to_f > 0.0
+          tolerated_overestimation = (trace_cycles * options.runcheck_factor.to_f) + CHECK_OVERESTIMATION_TOLERANCE
           if te.cycles > tolerated_overestimation
             die <<-EOF.strip_heredoc.delete("\n")
               WCET analysis check: Cycles for #{te.origin} (#{te.cycles}) #{te.cycles.fdiv(trace_cycles).round(2)} 
@@ -470,7 +471,7 @@ class WcetTool
     opts.sweet_flowfact_file(Proc.new { false })
     opts.on("--check [FACTOR]", "check that analyzed WCET is higher than MOET [and less than MOET * FACTOR]") { |factor|
       opts.options.runcheck = true
-      opts.options.runcheck_factor = factor.to_f
+      opts.options.runcheck_factor = factor.to_f # defaults to nil.to_f (=0.0)
     }
     TOOLS.each { |toolclass| toolclass.add_config_options(opts) }
   end

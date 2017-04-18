@@ -46,6 +46,7 @@ class SimulatorTrace
         needs_options(@options, :pasim)
         pasim_options="--debug=0 --debug-fmt=trace -b #{@elf} --wpfile=#{wpfile.path}"
 	pasim_options+=" -I #{@options.sim_input}" if @options.sim_input
+	pasim_options+=" --flush-caches #{@options.sim_flush_caches}" if @options.sim_flush_caches
         cmd = "#{@options.pasim} #{arch.config_for_simulator.join(" ")} #{pasim_options} 2>&1 1>/dev/null"
         debug(@options, :patmos) { "Running pasim: #{cmd}" }
         IO.popen("#{cmd}") do |io|
@@ -107,7 +108,7 @@ class Architecture < PML::Architecture
     end
   end
   def Architecture.default_config
-    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main',2*1024*1024,16,0,21,0,21)])
+    memories = PML::MemoryConfigList.new([PML::MemoryConfig.new('main','simple',nil,2*1024*1024,16,0,21,0,21)])
     caches = PML::CacheConfigList.new([Architecture.default_instr_cache('method-cache'),
                                   PML::CacheConfig.new('stack-cache','stack-cache','block',nil,4,2048),
                                   PML::CacheConfig.new('data-cache','set-associative','dm',nil,16,2048) ])

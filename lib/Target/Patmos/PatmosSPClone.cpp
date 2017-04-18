@@ -68,6 +68,9 @@ private:
   /// Maintain a mapping from Function func to cloned Function func_sp_
   FunctionSPMap ClonedFunctions;
 
+  /// Keep track of finished functions during explore.
+  /// Used to detect cycles in the call graph.
+  std::set<Function*> ExploreFinished;
 
   void loadFromGlobalVariable(SmallSet<std::string, 128> &Result,
                               const GlobalVariable *GV) const;
@@ -78,15 +81,22 @@ private:
    * Clones function F to <funcname>_sp_.
    * Adds the "sp-reachable" attribute if only_maybe==false,
    * otherwise "sp-maybe".
+   * @return The function clone.
    */
   Function *cloneAndMark(Function *F, bool onlyMaybe=false);
 
-  void descend(Function *F, bool fromUsed);
+  /**
+   * Iterate through all instructions of F.
+   * Explore callees of F and rewrite the calls.
+   */
+  void explore(Function *F, bool fromUsed=false);
 
   /**
-   * Add callees of F to worklist W and rewrite the calls.
+   * Find the source (e.g. 'foo') for target F (e.g. 'foo_sp_') in
+   * ClonedFunctions map (i.e. reverse mapping).
+   * @return The source function.
    */
-  void explore(Function *F, Worklist &W, bool fromUsed=false);
+  Function *findSourceFunc(Function *F);
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -121,13 +131,15 @@ bool PatmosSPClone::doInitialization(Module &M) {
 
 bool PatmosSPClone::doFinalization(Module &M) {
   if (!SPRoots.empty()) {
-    DEBUG( dbgs() << "Following single-path roots not found:\n" );
+    errs() << "Following single-path roots were not found:\n";
     for (std::set<std::string>::iterator it=SPRoots.begin();
             it!=SPRoots.end(); ++it) {
-      DEBUG( dbgs() << "'" << *it << "' ");
+      errs() << "'" << *it << "' ";
     }
-    DEBUG( dbgs() << '\n');
+    errs() << '\n';
     SPRoots.clear();
+    report_fatal_error("Single-path code generation failed due to "
+        "missing single-path entry functions!");
   }
   return false;
 }
@@ -173,7 +185,7 @@ bool PatmosSPClone::runOnModule(Module &M) {
     // Check if used; if yes, duplicate and mark as "sp-maybe".
     if (used.count(F->getName()) && !blacklst.count(F->getName())) {
       DEBUG( dbgs() << "Used: " << F->getName() << "\n" );
-      descend(cloneAndMark(F, true), true);
+      explore(cloneAndMark(F, true), true);
       continue;
     }
   }
@@ -195,6 +207,15 @@ void PatmosSPClone::loadFromGlobalVariable(SmallSet<std::string, 128> &Result,
       Result.insert(F->getName());
 }
 
+Function *PatmosSPClone::findSourceFunc(Function *F) {
+  for (FunctionSPMap::iterator I = ClonedFunctions.begin(),
+      E = ClonedFunctions.end(); I != E ; ++I) {
+    if (I->second == F) {
+      return I->first;
+    }
+  }
+  return NULL;
+}
 
 void PatmosSPClone::handleRoot(Function *F) {
 
@@ -204,19 +225,7 @@ void PatmosSPClone::handleRoot(Function *F) {
   }
   NumSPRoots++;
 
-  descend(F, false);
-}
-
-
-void PatmosSPClone::descend(Function *F, bool fromUsed) {
-  // explore from root
-  Worklist W;
-  explore(F, W, fromUsed);
-  while (!W.empty()) {
-    Function *Child = W.front();
-    W.pop_front();
-    explore(Child, W, fromUsed);
-  }
+  explore(F, false);
 }
 
 
@@ -245,7 +254,8 @@ Function *PatmosSPClone::cloneAndMark(Function *F, bool onlyMaybe) {
   return SPF;
 }
 
-void PatmosSPClone::explore(Function *F, Worklist &W, bool fromUsed) {
+
+void PatmosSPClone::explore(Function *F, bool fromUsed) {
   for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
       CallInst *Call = dyn_cast<CallInst>(&*I);
       if (Call && !Call->isInlineAsm()) {
@@ -253,9 +263,8 @@ void PatmosSPClone::explore(Function *F, Worklist &W, bool fromUsed) {
 
         if (!Callee) {
           // null if it is an indirect function invocation
-          DEBUG( dbgs() << "  Warning: indirect function call in "
-                        << F->getName() << "\n");
-          continue;
+          report_fatal_error("Single-path code generation failed due to "
+              "indirect function call in '" + F->getName() + "'!");
         }
 
         // skip LLVM intrinsics
@@ -265,15 +274,22 @@ void PatmosSPClone::explore(Function *F, Worklist &W, bool fromUsed) {
         if (!ClonedFunctions.count(Callee)) {
           // clone function
           SPCallee = cloneAndMark(Callee, fromUsed);
-          // add callee to worklist
-          W.push_back(SPCallee);
+          // recurse into callee
+          explore(SPCallee, fromUsed);
         } else {
           // lookup
           SPCallee = ClonedFunctions.at(Callee);
+          // check for cycle in call graph
+          if (!ExploreFinished.count(SPCallee)) {
+            report_fatal_error("Single-path code generation failed due to "
+              "recursive call to '" + findSourceFunc(SPCallee)->getName()
+              + "' in '" + findSourceFunc(F)->getName() + "'!");
+          }
         }
 
         // Rewrite the call to point to the cloned function
         Call->setCalledFunction(SPCallee);
       }
   }
+  ExploreFinished.insert(F);
 }
