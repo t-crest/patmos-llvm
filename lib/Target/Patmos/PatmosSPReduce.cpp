@@ -1075,11 +1075,17 @@ void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,
 
   // get the branch condition
   MachineBasicBlock *TBB = NULL, *FBB = NULL;
-  if (TII->AnalyzeBranch(*SrcMBB, TBB, FBB, Cond) || Cond.empty()) {
+  if (TII->AnalyzeBranch(*SrcMBB, TBB, FBB, Cond)) {
+    DEBUG(dbgs() << *SrcMBB);
     report_fatal_error("AnalyzeBranch for SP-Transformation failed; "
         "could not determine branch condition");
   }
-
+  // following is a fix: if it appears to be an unconditional branch though
+  // (disabled/missed optimization), we set the condition to P0 (true)
+  if (Cond.empty()) {
+      Cond.push_back(MachineOperand::CreateReg(Patmos::P0, false)); // reg
+      Cond.push_back(MachineOperand::CreateImm(0)); // flag
+  }
   if (TBB != DstMBB) {
     TII->ReverseBranchCondition(Cond);
   }
