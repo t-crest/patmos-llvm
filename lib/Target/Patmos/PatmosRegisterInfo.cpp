@@ -140,8 +140,11 @@ PatmosRegisterInfo::computeLargeFIOffset(MachineRegisterInfo &MRI,
   // emit instruction
   //unsigned scratchReg = MRI.createVirtualRegister(&Patmos::RRegsRegClass);
   unsigned scratchReg = Patmos::RTR;
-  AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode), scratchReg))
-    .addReg(basePtr).addImm(offsetLarge << shl);
+  MachineInstr *MI = AddDefaultPred(BuildMI(MBB, II, DL, TII.get(opcode),
+        scratchReg)).addReg(basePtr).addImm(offsetLarge << shl);
+  if (II->getFlag(MachineInstr::FrameSetup)) {
+      MI->setFlag(MachineInstr::FrameSetup);
+  }
 
   // return value
   basePtr = scratchReg;
