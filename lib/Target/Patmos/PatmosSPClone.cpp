@@ -234,9 +234,10 @@ Function *PatmosSPClone::cloneAndMark(Function *F, bool onlyMaybe) {
   Function *SPF = CloneFunction(F, VMap, false, NULL);
   SPF->setName(F->getName() + Twine("_sp_"));
 
-  SPF->addFnAttr(!onlyMaybe ? "sp-reachable" : "sp-maybe");
+  const char *attr = !onlyMaybe ? "sp-reachable" : "sp-maybe";
+  SPF->addFnAttr(attr);
   DEBUG( dbgs() << "  Clone function: " << F->getName()
-                << " -> " << SPF->getName() << "\n");
+                << " -> " << SPF->getName() << " (" << attr << ")\n");
   // STATISTICS
   if (onlyMaybe) {
     NumSPUsed++;

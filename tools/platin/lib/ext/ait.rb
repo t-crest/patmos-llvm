@@ -213,6 +213,15 @@ class Edge
   end
 end
 
+class ProgramPoint
+  # generic helper that returns the address in hex
+  def ais_addr
+    # make sure we have an address (throw exception if not)
+    assert("no ais_ref") { ais_ref }
+    "0x#{address.to_s(16)}"
+  end
+end
+
 # class to export PML information to AIS
 class AISExporter
 

@@ -207,10 +207,10 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
       if (MI->isCall()) {
         MachineFunction *MF = getCallTargetMF(MI);
         if (!MF) {
-          dbgs() << "[Single-Path] WARNING: Cannot rewrite call in "
+          errs() << "[Single-path] Cannot rewrite call in "
                  << MBB->getParent()->getFunction()->getName()
                  << " (indirect call?)\n";
-          continue;
+          abort();
         };
 
         const Function *Target = getCallTarget(MI);
@@ -218,11 +218,12 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
         PatmosMachineFunctionInfo *PMFI =
           MF->getInfo<PatmosMachineFunctionInfo>();
         if (!PMFI->isSinglePath()) {
-          // sp-reachable functions were already marked as single-path.
-          // Hence, we have _potential_ sp-maybe functions left; the call
-          // needs to be rewritten to point to the sp-maybe clone.
-          rewriteCall(MI);
-          // set _sp MF to single path in PMFI (MF has changed!)
+          if (!Target->hasFnAttribute("sp-reachable") &&
+              !Target->hasFnAttribute("sp-maybe")) {
+            // The call target is not a .._sp_ clone
+            rewriteCall(MI);
+          }
+          // set _sp MF to single path in PMFI (MF might have changed)
           MachineFunction *MF = getCallTargetMF(MI);
           PatmosMachineFunctionInfo *PMFI =
             MF->getInfo<PatmosMachineFunctionInfo>();
@@ -255,13 +256,10 @@ void PatmosSPMark::rewriteCall(MachineInstr *MI) {
 
   const Function *SPTarget = Target->getParent()->getFunction(SPFuncName);
   if (!SPTarget) {
-    DEBUG(dbgs() << "  SP-used function '" << SPFuncName
-                 << "' not found!\n");
-    return;
+    errs() <<  "[Single-path] function '" << SPFuncName << "' missing!\n";
+    abort();
   }
 
-  assert(!SPTarget->hasFnAttribute("sp-reachable"));
-  assert(SPTarget->hasFnAttribute("sp-maybe"));
   // Remove the call target operand and add a new target operand
   // with an MachineInstrBuilder. In this case, it is inserted at
   // the right place, before the implicit defs of the call.

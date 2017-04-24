@@ -759,4 +759,70 @@ class SymbolicBoundTransformation
   end
 end
 
+#
+# Lookup (by implicitly transforming down) PC markers from bitcode down to
+# machine code (best effort based)
+#
+class MarkerLookup
+  attr_reader :pml, :options
+  def initialize(pml, options)
+    @pml, @options = pml, options
+  end
+
+  # Return machine code block for bitcode marker or nil if marker cannot be transformed
+  # XXX only simple transformations (to a single mc block succeed) work
+  def transform(marker)
+    markers = {}
+    @pml.bitcode_functions.each { |f|
+        f.blocks.each { |bb|
+            bb.instructions.each { |i|
+              if i.marker
+                (markers[i.marker]||=[]) << bb
+              end
+            }
+        }
+    }
+
+    unless markers.include? marker
+      debug(options, :transform) { "Marker #{marker} not found" }
+      return nil
+    end
+
+    # XXX we can only handle a unique marker
+    if markers[marker].size > 1
+      debug(options, :transform) { "Cannot transform duplicated marker" }
+      return nil
+    else
+      bb = markers[marker].first
+    end
+
+    # get relation graph
+    function = bb.function
+    rg_src_level    = :src
+    rg_target_level = :dst
+    if ! @pml.relation_graphs.has_named?(function.name, rg_src_level)
+      debug(options, :transform) { "Cannot transform marker without relation graph" }
+      return nil
+    end
+    rg = @pml.relation_graphs.by_name(function.name, rg_src_level)
+
+    blockmap = {}
+    blocks = [ bb ]
+    #loopblock = marker.loopheader if marker.kind_of?(Loop)
+    #blocks = ff.lhs.map { |t| t.programpoint }
+    #blocks.push(loopblock) if loopblock
+    #blocks.concat(ff.rhs.referenced_loops.map { |lref| lref.loopheader })
+    blocks.each { |b|
+      ns = rg.nodes.by_basic_block(b, rg_src_level)
+      return nil if ns.length != 1
+      n = ns.first
+      return nil if n.unmapped?
+      # find (unique) progress node for B
+      nb = n.get_block(rg_target_level)
+      blockmap[b] = nb
+    }
+    return blockmap[bb]
+  end
+end
+
 end # module PML
