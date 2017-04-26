@@ -1013,7 +1013,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   eliminateFrameIndices(MF);
 
   // Finally, we assign numbers in ascending order to MBBs again.
-  //MF.RenumberBlocks();
+  MF.RenumberBlocks();
 
   //DEBUG(MF.viewCFGOnly());
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
@@ -1792,8 +1792,8 @@ void PatmosSPReduce::cleanupCFG(MachineFunction &MF) {
   for (MachineFunction::iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
       I->updateTerminator();
   }
-
 }
+
 
 void PatmosSPReduce::collectReturnInfoInsts(MachineFunction &MF) {
   DEBUG( dbgs() << "Collect return info insts\n" );
@@ -2389,12 +2389,20 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     InsertedInstrs += 4; // STATISTIC
   } else {
     // no explicit loop bound: probe the header predicate
-    // TODO special case if ExitBranchMBB == LatchMBB -> then
-    // we can use the header_preg.
-    branch_preg = Pass.PRTmp;
+    //
+    // There is no use of the header predicate between exit edge and latch
+    // (by properties of the FCFG and CD). If it is reused, then a loadloc
+    // is set (at the latch) and we have to load it.
+    // Otherwise we can use the header_preg directly.
+    // FIXME probably a reg-use for ExitBranchMBB during reg_alloc instead of
+    //       Latch would improve (but the block does not exist in the current
+    //       implementation)
     if (loadloc != -1) {
+      branch_preg = Pass.PRTmp;
       Pass.insertPredicateLoad(WB.ExitBranchMBB, WB.ExitBranchMBB->end(),
           loadloc, branch_preg);
+    } else {
+      branch_preg = header_preg;
     }
   }
   assert(branch_preg != Patmos::NoRegister);
@@ -2416,6 +2424,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
     .addMBB(HeaderMBB);
   InsertedInstrs++; // STATISTIC
 
+  // ROTATE
   // Rotate the loop by pulling the Blocks starting after ExitBranchMBB up to
   // (excluding) the PostMBB in front of the header.
   MF.splice(HeaderMBB, RotatedBegin, WB.PostMBB);
