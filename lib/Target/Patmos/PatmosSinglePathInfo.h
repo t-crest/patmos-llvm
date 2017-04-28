@@ -75,6 +75,8 @@ namespace llvm {
       /// by deleting the root scope.
       SPScope *createSPScopeTree(MachineFunction &MF);
 
+      /// Fail with an error if MF is irreducible.
+      void checkIrreducibility(MachineFunction &MF) const;
 
     public:
       /// Pass ID

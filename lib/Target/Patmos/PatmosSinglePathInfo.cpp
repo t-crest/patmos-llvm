@@ -23,6 +23,7 @@
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -115,6 +116,7 @@ bool PatmosSinglePathInfo::doFinalization(Module &M) {
 
 void PatmosSinglePathInfo::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<MachineLoopInfo>();
+  AU.addRequired<MachineDominatorTree>();
   AU.setPreservesAll();
   MachineFunctionPass::getAnalysisUsage(AU);
 }
@@ -139,7 +141,12 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
 
 
 void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
+  // we cannot handle irreducibility yet
+  checkIrreducibility(MF);
 
+  // FIXME Instead of using MachineLoopInfo for creating the Scope-tree,
+  // we could use a custom algorithm (e.g. Havlak's algorithm)
+  // that also checks irreducibility.
   // build the SPScope tree
   Root = createSPScopeTree(MF);
 
@@ -156,6 +163,41 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
 
   // XXX for extensive debugging
   //MF.viewCFGOnly();
+}
+
+
+void PatmosSinglePathInfo::checkIrreducibility(MachineFunction &MF) const {
+  // Get dominator information
+  MachineDominatorTree &DT = getAnalysis<MachineDominatorTree>();
+
+  struct BackedgeChecker {
+    MachineDominatorTree &DT;
+    std::set<MachineBasicBlock *> visited, finished;
+    BackedgeChecker(MachineDominatorTree &dt) : DT(dt) {}
+    void dfs(MachineBasicBlock *MBB) {
+      visited.insert(MBB);
+      for (MachineBasicBlock::const_succ_iterator si = MBB->succ_begin(),
+          se = MBB->succ_end(); si != se; ++si) {
+        if (!visited.count(*si)) {
+          dfs(*si);
+        } else if (!finished.count(*si)) {
+          // visited but not finished -> this is a backedge
+          // we only support natural loops, check domination
+          if (!DT.dominates(*si, MBB)) {
+            report_fatal_error("Single-path code generation failed due to "
+                               "irreducible CFG in '" +
+                               MBB->getParent()->getFunction()->getName() +
+                               "'!");
+
+          }
+        }
+      }
+      finished.insert(MBB);
+    }
+  };
+
+  BackedgeChecker c(DT);
+  c.dfs(&MF.front());
 }
 
 
@@ -726,7 +768,6 @@ void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
 }
 
 
-
 SPScope *
 PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) {
   // Get loop information
@@ -758,6 +799,4 @@ PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) {
 
   return Root;
 }
-
-
 
