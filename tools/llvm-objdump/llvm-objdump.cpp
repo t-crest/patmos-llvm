@@ -101,6 +101,14 @@ llvm::ArchName("arch", cl::desc("Target arch to disassemble for, "
 static cl::opt<bool>
 SectionHeaders("section-headers", cl::desc("Display summaries of the headers "
                                            "for each section."));
+
+cl::list<std::string>
+llvm::FilterSections("section", cl::desc("Operate on the specified sections only. "
+                                         "With -macho dump segment,section"));
+cl::alias
+static FilterSectionsj("j", cl::desc("Alias for --section"),
+                 cl::aliasopt(llvm::FilterSections));
+
 static cl::alias
 SectionHeadersShort("headers", cl::desc("Alias for --section-headers"),
                     cl::aliasopt(SectionHeaders));
@@ -148,6 +156,84 @@ YAMLCFG("yaml-cfg",
         cl::value_desc("yaml output file"));
 
 static StringRef ToolName;
+
+namespace {
+typedef std::function<bool(llvm::object::SectionRef const &)> FilterPredicate;
+
+class SectionFilterIterator {
+public:
+  SectionFilterIterator(FilterPredicate P,
+                        llvm::object::section_iterator const &I,
+                        llvm::object::section_iterator const &E)
+      : Predicate(P), Iterator(I), End(E) {
+    ScanPredicate();
+  }
+  const llvm::object::SectionRef &operator*() const { return *Iterator; }
+  SectionFilterIterator &operator++() {
+    error_code err;
+    Iterator.increment(err);
+    //++Iterator;
+    ScanPredicate();
+    return *this;
+  }
+  bool operator!=(SectionFilterIterator const &Other) const {
+    return Iterator != Other.Iterator;
+  }
+  
+  void goEnd() { 
+    while (Iterator != End) {
+      error_code err;
+      Iterator.increment(err);
+    }
+  }
+
+private:
+  void ScanPredicate() {
+    while (Iterator != End && !Predicate(*Iterator)) {
+      error_code err;
+      Iterator.increment(err);
+      //++Iterator;
+    }
+  }
+  FilterPredicate Predicate;
+  llvm::object::section_iterator Iterator;
+  llvm::object::section_iterator End;
+};
+
+class SectionFilter {
+public:
+  SectionFilter(FilterPredicate P, llvm::object::ObjectFile const &O)
+      : Predicate(P), Object(O) {}
+  SectionFilterIterator begin() {
+    return SectionFilterIterator(Predicate, Object.begin_sections(),
+                                 Object.end_sections());
+  }
+  SectionFilterIterator end() {
+    SectionFilterIterator it(Predicate, Object.begin_sections(),
+                                 Object.end_sections());
+    it.goEnd();
+    return it;
+  }
+
+private:
+  FilterPredicate Predicate;
+  llvm::object::ObjectFile const &Object;
+};
+SectionFilter ToolSectionFilter(llvm::object::ObjectFile const &O) {
+  return SectionFilter([](llvm::object::SectionRef const &S) {
+                         if(FilterSections.empty())
+                           return true;
+                         llvm::StringRef String;
+                         llvm::error_code error = S.getName(String);
+                         if (error)
+                           return false;
+                         return std::find(FilterSections.begin(),
+                                          FilterSections.end(),
+                                          String) != FilterSections.end();
+                       },
+                       O);
+}
+}
 
 bool llvm::error(error_code ec) {
   if (!ec) return false;
@@ -611,18 +697,20 @@ static void PrintSectionHeaders(const ObjectFile *o) {
 
 static void PrintSectionContents(const ObjectFile *o) {
   error_code ec;
-  for (section_iterator si = o->begin_sections(),
-                        se = o->end_sections();
-                        si != se; si.increment(ec)) {
-    if (error(ec)) return;
+  
+  for (const SectionRef &Section : ToolSectionFilter(*o)) {
+  //for (section_iterator si = o->begin_sections(),
+  //                      se = o->end_sections();
+  //                      si != se; si.increment(ec)) {
+    if (error(ec)) { outs() << "Error\n"; return;}
     StringRef Name;
     StringRef Contents;
     uint64_t BaseAddr;
     bool BSS;
-    if (error(si->getName(Name))) continue;
-    if (error(si->getContents(Contents))) continue;
-    if (error(si->getAddress(BaseAddr))) continue;
-    if (error(si->isBSS(BSS))) continue;
+    if (error(Section.getName(Name))) continue;
+    if (error(Section.getContents(Contents))) continue;
+    if (error(Section.getAddress(BaseAddr))) continue;
+    if (error(Section.isBSS(BSS))) continue;
 
     outs() << "Contents of section " << Name << ":\n";
     if (BSS) {

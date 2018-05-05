@@ -26,6 +26,7 @@ class error_code;
 
 extern cl::opt<std::string> TripleName;
 extern cl::opt<std::string> ArchName;
+extern cl::list<std::string> FilterSections;
 
 // Various helper functions.
 bool error(error_code ec);

@@ -286,8 +286,8 @@ yaml::Name PMLFunctionInfoT<BlockT,bitcode>::getMemInstrLabel(
 
 
 // Ensure all template classes are instantiated.
-template class PMLFunctionInfoT<yaml::BitcodeBlock,true>;
-template class PMLFunctionInfoT<yaml::MachineBlock,false>;
+template class llvm::PMLFunctionInfoT<yaml::BitcodeBlock,true>;
+template class llvm::PMLFunctionInfoT<yaml::MachineBlock,false>;
 
 
 void PMLLevelInfo::addFunctionInfo(yaml::BitcodeFunction &F)
