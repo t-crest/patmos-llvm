@@ -76,6 +76,13 @@ private:
   MachineFunction *getCallTargetMF(const MachineInstr *MI) const;
 
   /**
+   * Get the machine function called by a given MachineInstr, but if
+   * no function can be found, abort with a relevant message.
+   */
+  MachineFunction *
+  getCallTargetMFOrAbort(MachineBasicBlock::iterator MI, MachineFunction::iterator MBB);
+
+  /**
    * Rewrite the call target of the given MachineInstr to the
    * _sp variant of the callee.
    * @pre MI is a call instruction and not already the _sp variant
@@ -196,6 +203,33 @@ MachineFunction *PatmosSPMark::getCallTargetMF(const MachineInstr *MI) const {
   return NULL;
 }
 
+MachineFunction *
+PatmosSPMark::getCallTargetMFOrAbort(MachineBasicBlock::iterator MI, MachineFunction::iterator MBB){
+  MachineFunction *MF =  getCallTargetMF(MI);
+  if (!MF) {
+    errs() << "[Single-path] Cannot find ";
+    bool foundSymbol = false;
+    for(
+      MachineInstr::mop_iterator op = MI->operands_begin();
+      op != MI->operands_end();
+      ++op
+    ){
+      if(op->isSymbol()){
+        errs() << "function '" << op->getSymbolName() << "'";
+        foundSymbol = true;
+        break;
+      }
+    }
+    if(!foundSymbol){
+        errs() << "unknown function";
+    }
+    errs() << " to rewrite. Was called by '"
+           << MBB->getParent()->getFunction()->getName()
+           << "' (indirect call?)\n";
+    abort();
+  }
+  return MF;
+}
 
 void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
   DEBUG(dbgs() << "In function '" << MF->getName() << "':\n");
@@ -205,13 +239,7 @@ void PatmosSPMark::scanAndRewriteCalls(MachineFunction *MF, Worklist &W) {
                                      ME = MBB->getFirstTerminator();
                                      MI != ME; ++MI) {
       if (MI->isCall()) {
-        MachineFunction *MF = getCallTargetMF(MI);
-        if (!MF) {
-          errs() << "[Single-path] Cannot rewrite call in "
-                 << MBB->getParent()->getFunction()->getName()
-                 << " (indirect call?)\n";
-          abort();
-        };
+        MachineFunction *MF = getCallTargetMFOrAbort(MI,MBB);
 
         const Function *Target = getCallTarget(MI);
 

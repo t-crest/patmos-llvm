@@ -373,12 +373,15 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       MCOperand &MCO = Inst.getOperand( ImmOpNo );
 
       if (MCO.isExpr()) {
-        // If we have an expression, use ALUl, but only if this is
-        // not a bundled op
-        if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode) && !InBundle) {
-          Inst.setOpcode(ALUlOpcode);
-          // ALUl counts as two operations
-          BundleCounter++;
+        if (HasALUlVariant(Inst.getOpcode(), ALUlOpcode)){
+          if (InBundle) {
+            return Error(IDLoc, "long immediate instruction cannot be in the second slot of a bundle");
+          } else {
+            // If we have an expression and can use ALUl, do so
+            Inst.setOpcode(ALUlOpcode);
+            // ALUl counts as two operations
+            BundleCounter++;
+          }
         }
       } else {
         assert(MCO.isImm() && "expected immediate operand for ALUi format");
