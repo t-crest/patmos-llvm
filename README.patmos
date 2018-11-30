@@ -93,9 +93,20 @@ To install libraries for LTO support:
       the lib/bfd-plugins directory
     - Specify -plugin /path/to/LLVMgold.so when you use gold
 
+--------------------------------------------------------------------------------
+3. Run Tests
+
+Currently, there are only code generation tests that are specific to Patmos.
+To run these test, navigate to the folder `tests/CodeGen/Patmos` and run:
+```patmos-llvm-lit .```
+
+This will run the tests using the currently installed LLVM, therefore you 
+might need to rebuild/install llvm before running this command, to have your
+changes take effect. This is most easily done using the command `./misc/build.sh llvm`
+in the workspace root.
 
 --------------------------------------------------------------------------------
-3. Use it
+4. Use it
 
 To build an application, the following command can be used to compile and link
 the application:
