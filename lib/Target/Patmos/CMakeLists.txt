@@ -35,6 +35,7 @@ add_llvm_target(PatmosCodeGen
   PatmosSPClone.cpp
   PatmosSPMark.cpp
   PatmosSPPrepare.cpp
+  PatmosSPBundling.cpp
   PatmosSPReduce.cpp
   PatmosBypassFromPML.cpp
   PatmosPostRAScheduler.cpp

@@ -139,6 +139,8 @@ namespace {
         addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
         addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
         addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
+        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+        addPass(createPatmosSPBundlingPass(getPatmosTargetMachine()));
       }
       return false;
     }

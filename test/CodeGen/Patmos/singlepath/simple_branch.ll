@@ -37,11 +37,10 @@ if.end:                                           ; preds = %if.else, %if.then
 ; CHECK: 						nop	
 ; CHECK: 						cmpeq	$p1 = $r2, 0
 ; CHECK: 						pand	$p2 =  $p0, !$p1
-; CHECK: 			( $p2)		li		$r2 = _2
-; CHECK: 			( $p2)		lwc		$r2 = [$r2]
 ; CHECK: 						pand	$p3 =  $p0,  $p1
-; CHECK: 			( $p2)		add		$r1 = $r1, $r2
+; CHECK: 			( $p2)		li		$r2 = _2
 ; CHECK: 			( $p3)		li		$r2 = _3
+; CHECK: 			( $p2)		lwc		$r2 = [$r2]
 ; CHECK: 			( $p3) 		lwc		$r2 = [$r2]
-; CHECK: 						nop	
+; CHECK: 			( $p2)		add		$r1 = $r1, $r2
 ; CHECK: 			( $p3)		sub		$r1 = $r1, $r2
