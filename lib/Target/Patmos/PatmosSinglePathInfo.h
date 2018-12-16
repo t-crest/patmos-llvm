@@ -308,7 +308,10 @@ namespace llvm {
       typedef std::set<std::pair<Node*, Edge> > CD_map_entry_t;
       typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
       typedef std::vector<CD_map_entry_t>                  K_t;
-      typedef std::map<const MachineBasicBlock*, unsigned> R_t;
+      /**
+       * A map over which predicate is the guard for each basic block.
+       */
+      typedef std::map<const MachineBasicBlock*, unsigned> MBBPredicates_t;
 
       class FCFG {
         public:
@@ -382,7 +385,7 @@ namespace llvm {
       unsigned PredCount;
 
       /// Map MBBs to predicate they use
-      std::map<const MachineBasicBlock*, unsigned> PredUse;
+      MBBPredicates_t PredUse;
 
       /// PredDefs - Stores predicate define information for each basic block
       std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;

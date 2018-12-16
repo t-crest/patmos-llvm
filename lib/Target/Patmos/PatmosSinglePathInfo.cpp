@@ -535,7 +535,7 @@ void SPScope::ctrldep(void) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void SPScope::decompose(void) {
-  R_t R;
+  MBBPredicates_t R;
   K_t K;
   int p = 0;
   for (unsigned i=0; i<Blocks.size(); i++) {
@@ -563,7 +563,7 @@ void SPScope::decompose(void) {
     // dump R, K
     dbgs() << "Decomposed CD:\n";
     dbgs().indent(2) << "map R: MBB -> pN\n";
-    for (R_t::iterator RI = R.begin(), RE = R.end(); RI != RE; ++RI) {
+    for (MBBPredicates_t::iterator RI = R.begin(), RE = R.end(); RI != RE; ++RI) {
       dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p"
                        << RI->second << "\n";
     }
