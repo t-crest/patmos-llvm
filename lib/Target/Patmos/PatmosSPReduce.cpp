@@ -1834,7 +1834,10 @@ void RAInfo::createLiveRanges(void) {
   for (unsigned i=0, e=MBBs.size(); i<e; i++) {
     MachineBasicBlock *MBB = MBBs[i];
     // insert use
-    LRs[Scope->getPredUse(MBB)].addUse(i);
+    const std::vector<unsigned> *predUses = Scope->getPredUse(MBB);
+    std::for_each(predUses->begin(), predUses->end(), [&](unsigned p){
+      LRs[p].addUse(i);
+    });
     // insert defs
     const SPScope::PredDefInfo *DI = Scope->getDefInfo(MBB);
     if (DI) {
@@ -1866,7 +1869,9 @@ void RAInfo::assignLocations(void) {
     DEBUG( dbgs() << "  MBB#" << MBB->getNumber() << ": " );
 
     // (1) handle use
-    unsigned usePred = Scope->getPredUse(MBB);
+    unsigned usePred = (*Scope->getPredUse(MBB))[0];
+    // TODO:(Emad) handle multiple predicates.
+
     // for the top-level entry of a single-path root,
     // we don't need to assign a location, as we will use p0
     if (!(usePred==0 && Scope->isRootTopLevel())) {

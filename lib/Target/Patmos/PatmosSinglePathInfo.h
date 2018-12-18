@@ -272,7 +272,7 @@ namespace llvm {
       unsigned getNumPredicates() const { return PredCount; }
 
       /// getPredUse - Returns the guarding predicate for an MBB
-      int getPredUse(const MachineBasicBlock *) const;
+      const std::vector<unsigned> * getPredUse(const MachineBasicBlock *) const;
 
       /// getDefInfo - Returns a pointer to a predicate definition info for
       /// a given MBB, or NULL if no pred info exists for the MBB.
@@ -307,11 +307,10 @@ namespace llvm {
       /// Typedefs for CD, R and K
       typedef std::set<std::pair<Node*, Edge> > CD_map_entry_t;
       typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
-      typedef std::vector<CD_map_entry_t>                  K_t;
       /**
        * A map over which predicate is the guard for each basic block.
        */
-      typedef std::map<const MachineBasicBlock*, unsigned> MBBPredicates_t;
+      typedef std::map<const MachineBasicBlock*, std::vector<unsigned>> MBBPredicates_t;
 
       class FCFG {
         public:

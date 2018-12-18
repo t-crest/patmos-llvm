@@ -535,8 +535,8 @@ void SPScope::ctrldep(void) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void SPScope::decompose(void) {
-  MBBPredicates_t R;
-  K_t K;
+  MBBPredicates_t mbbPreds;
+  std::vector<CD_map_entry_t> K;
   int p = 0;
   for (unsigned i=0; i<Blocks.size(); i++) {
     const MachineBasicBlock *MBB = Blocks[i];
@@ -549,13 +549,15 @@ void SPScope::decompose(void) {
           break;
         }
     }
+    assert(mbbPreds[MBB] == NULL && "MBB predicates vector has already been initialized.");
+    mbbPreds[MBB] = std::vector<unsigned>();
     if (q != -1) {
       // we already have handled this dependence
-      R[MBB] = q;
+      mbbPreds[MBB].push_back(q);
     } else {
       // new dependence set:
       K.push_back(t);
-      R[MBB] = p++;
+      mbbPreds[MBB].push_back(p++);
     }
   } // end for each MBB
 
@@ -563,7 +565,7 @@ void SPScope::decompose(void) {
     // dump R, K
     dbgs() << "Decomposed CD:\n";
     dbgs().indent(2) << "map R: MBB -> pN\n";
-    for (MBBPredicates_t::iterator RI = R.begin(), RE = R.end(); RI != RE; ++RI) {
+    for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
       dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p"
                        << RI->second << "\n";
     }
@@ -585,7 +587,7 @@ void SPScope::decompose(void) {
 
   // Properly assign the Uses/Defs
   PredCount = K.size();
-  PredUse = R;
+  PredUse = mbbPreds;
   // initialize number of defining edges to 0 for all predicates
   NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
 
@@ -669,7 +671,10 @@ void SPScope::walk(SPScopeWalker &walker) {
 
 static void printUDInfo(const SPScope &S, raw_ostream& os,
                         const MachineBasicBlock *MBB) {
-  os << "  u=" << S.getPredUse(MBB);
+  os << "  u={";
+  const std::vector<unsigned> *preds = S.getPredUse(MBB);
+  std::for_each(preds->begin(), preds->end(), [&](unsigned p){os << p << ", ";});
+  os << "}";
   const SPScope::PredDefInfo *DI = S.getDefInfo(MBB);
   if (DI) {
     os << " d=";
@@ -720,11 +725,11 @@ void SPScope::dump(raw_ostream& os) const {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-int SPScope::getPredUse(const MachineBasicBlock *MBB) const {
+const std::vector<unsigned> *SPScope::getPredUse(const MachineBasicBlock *MBB) const {
   if (PredUse.count(MBB)) {
-    return PredUse.at(MBB);
+    return &PredUse.at(MBB);
   }
-  return -1;
+  return NULL;
 }
 
 const SPScope::PredDefInfo *
