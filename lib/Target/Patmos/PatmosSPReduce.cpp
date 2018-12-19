@@ -342,8 +342,13 @@ namespace {
     void addUse(long pos) { uses.set(pos); }
     void addDef(long pos) { defs.set(pos); }
   public:
-    LiveRange(unsigned long length)
-      : uses(length), defs(length) {}
+    /// Constructs a new live range for a scope.
+    /// the number of points in the range is 1 more than the number of blocks.
+    LiveRange(SPScope *S){
+      int range = S->getBlocks().size()+1;
+      uses = BitVector(range);
+      defs = BitVector(range);
+    }
     bool isUse(long pos) const { return uses.test(pos); }
     bool isDef(long pos) const { return defs.test(pos); }
     bool lastUse(long pos) const {
@@ -406,16 +411,42 @@ namespace {
       // the SPScope this RAInfo belongs to
       const SPScope *Scope;
     private:
-      // The number of colors (physically available registers)
-      const unsigned NumColors;
-      // the sequence of MBBs in topological order (ref to Scope->Blocks)
-      const std::vector<MachineBasicBlock*> &MBBs;
-      // the live ranges of predicates (index = predicate number)
+
+
+
+      // Number of physically available registers for use by the Scope.
+      const unsigned AvailRegs;
+
+      // The live ranges of predicates.
+      // Given a predicate x, then its live range is LRs[x]
       std::vector<LiveRange> LRs;
-      // each predicate has one definition location (index = predicate number)
-      std::vector<int> DefLocs; // Pred -> loc
-      // set of unused locations, managed during the
+
+      // The definition location of each predicate.
+      // Given the predicate x, its definition is DefLocs[x].
+      // TODO:(Emad) what does the int mean? block index in scope? what about when its -1?
+      std::vector<int> DefLocs;
+
+      // A class defining a predicate location in memory.
+      // A location's type is whether it points to a register
+      // or it points to a stack spill location.
+      // Depending on the type 'loc' is the location of the predicate
+      // either as a register number of stack slot.
+      class Location {
+        public:
+          enum Type{Register, Stack};
+
+          const Type type;
+          const unsigned loc;
+
+          Location(Type type, unsigned loc): type(type), loc(loc){}
+      };
+
+      // set of currently unused locations.
+      // A location is a register if its value is less than the number of available registers.
+      // If NumLocs is less than AvailRegs, then all locations are physical registers
+      // TODO:(Emad) what is a location? a physical register?
       std::set<unsigned> FreeLocs;
+
       // various attributes regarding locations
       unsigned NumLocs, // Total number of locations in this SPScope
                CumLocs, // Cumulative number of locations synthesized up the
@@ -472,16 +503,23 @@ namespace {
         assert(!FreeLocs.count(loc));
         FreeLocs.insert(loc);
       }
-      // returns true if there is a register (color) available atm.
+
+      // returns true if there is a register currently available.
       bool hasFreePhys(void) {
-        return (!FreeLocs.empty() && (*FreeLocs.begin() < NumColors) )
-          || (NumLocs < NumColors);
+        return (!FreeLocs.empty() && (*FreeLocs.begin() < AvailRegs) )
+          || (NumLocs < AvailRegs);
+      }
+
+      // Returns whether the given register location is a physical
+      // register location.
+      bool isPhysRegLoc(int loc) const {
+        return loc < (int)AvailRegs;
       }
 
     public:
-      explicit RAInfo(SPScope *S, unsigned numcolors) :
-        Scope(S), NumColors(numcolors), MBBs(S->getBlocks()),
-        LRs(S->getNumPredicates(), LiveRange(S->getBlocks().size()+1)),
+      explicit RAInfo(SPScope *S, unsigned availRegs) :
+        Scope(S), AvailRegs(availRegs),
+        LRs(S->getNumPredicates(), LiveRange(S)),
         DefLocs(S->getNumPredicates(),-1),
         NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0),
         NeedsScopeSpill(true) {
@@ -504,7 +542,7 @@ namespace {
       void computePhysOffset(const RAInfo &ParentRI) {
         // check if we must spill the PRegs
         // Parent.num + S.cum <= size  --> no spill!
-        if ( ParentRI.NumLocs + CumLocs <= NumColors ) {
+        if ( ParentRI.NumLocs + CumLocs <= AvailRegs ) {
           // compute offset
           Offset = ParentRI.NumLocs + ParentRI.Offset;
           NeedsScopeSpill = false;
@@ -516,9 +554,9 @@ namespace {
       // Traversal order is not important for this function.
       void assignSpillOffset(unsigned &spillOffset) {
         // assign the spill offset, increment
-        if (NumLocs > NumColors) {
+        if (NumLocs > AvailRegs) {
           this->SpillOffset = spillOffset;
-          spillOffset += NumLocs - NumColors;
+          spillOffset += NumLocs - AvailRegs;
         }
       }
 
@@ -536,8 +574,8 @@ namespace {
         // header predicate
         if (pred == 0) return false;
 
-        for(unsigned i=0; i<MBBs.size(); i++) {
-          if (MBBs[i] == MBB) {
+        for(unsigned i=0; i< Scope->getBlocks().size(); i++) {
+          if (Scope->getBlocks()[i] == MBB) {
             return !LRs[pred].hasDefBefore(i);
           }
         }
@@ -560,7 +598,7 @@ namespace {
       int getUseLoc(const MachineBasicBlock *MBB) const {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).loc + Offset;
-          assert( loc < (int)NumColors );
+          assert( loc < (int)AvailRegs );
           return loc;
         }
         return -1;
@@ -573,8 +611,8 @@ namespace {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).load;
           if (loc != -1) {
-            assert( loc >= (int)NumColors );
-            return (loc - NumColors) + SpillOffset;
+            assert( loc >= (int)AvailRegs );
+            return (loc - AvailRegs) + SpillOffset;
           }
         }
         return -1;
@@ -587,26 +625,27 @@ namespace {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).spill;
           if (loc != -1) {
-            assert( loc >= (int)NumColors );
-            return (loc - NumColors) + SpillOffset;
+            assert( loc >= (int)AvailRegs );
+            return (loc - AvailRegs) + SpillOffset;
           }
         }
         return -1;
       }
 
-      /// getDefLoc - get the definition location for a given predicate.
-      /// The location is stored in loc, the function returns true if the
-      /// location is a physical register.
-      bool getDefLoc(unsigned &loc, unsigned pred) const {
+      /// Returns the definition location for the given predicate (as the first element)
+      /// and whether that location is a physical register (in the second element).
+      ///
+      std::tuple<unsigned, bool> getDefLoc(unsigned pred) const {
         int dloc = DefLocs[pred];
         assert(dloc != -1);
-        bool isreg = dloc < (int)NumColors;
+        bool isreg = isPhysRegLoc(dloc);
+        unsigned loc;
         if (isreg) {
           loc = dloc + Offset;
         } else {
-          loc = (dloc - NumColors) + SpillOffset;
+          loc = (dloc - AvailRegs) + SpillOffset;
         }
-        return isreg;
+        return std::make_tuple(loc, isreg);
       }
 
       // Dump this RAInfo to dbgs().
@@ -1111,8 +1150,9 @@ void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
   DEBUG(dbgs() << "  - Stack Loc: " );
   // 0 is the header predicate, which we never need to clear
   for (unsigned pred = 1; pred < S->getNumPredicates(); pred++) {
-    unsigned stloc;
-    if (!R.getDefLoc(stloc, pred)) {
+    unsigned stloc; bool isPhysReg;
+    std::tie(stloc, isPhysReg) = R.getDefLoc(pred);
+    if (!isPhysReg) {
       // pred is defined in a stack location
       int fi; unsigned bitpos;
       getStackLocPair(fi, bitpos, stloc);
@@ -1210,12 +1250,11 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
   // get the guard register for the source block
   unsigned use_preg = getUsePReg(RI, SrcMBB, true);
 
-  unsigned loc;
+  // Get the location for predicate r.
+  unsigned loc; bool isPhysReg;
+  std::tie(loc, isPhysReg) = R.getDefLoc(pred);
 
-  // Get the location for predicate r. The function returns true
-  // if it is a register, otherwise false. The resulting location is
-  // stored in loc.
-  if (R.getDefLoc(loc, pred)) {
+  if (isPhysReg) {
     if (!S->isSubHeader(&Node) || (!RI.needsScopeSpill())) {
       // TODO proper condition to avoid writing to the stack slot
       // -> the chain of scopes from outer to inner should not contain any
@@ -1831,8 +1870,8 @@ void RAInfo::createLiveRanges(void) {
                << Scope->getHeader()->getNumber() << "]\n");
 
 
-  for (unsigned i=0, e=MBBs.size(); i<e; i++) {
-    MachineBasicBlock *MBB = MBBs[i];
+  for (unsigned i=0, e=Scope->getBlocks().size(); i<e; i++) {
+    MachineBasicBlock *MBB = Scope->getBlocks()[i];
     // insert use
     const std::vector<unsigned> *predUses = Scope->getPredUse(MBB);
     std::for_each(predUses->begin(), predUses->end(), [&](unsigned p){
@@ -1849,7 +1888,7 @@ void RAInfo::createLiveRanges(void) {
   }
   // add a use for header predicate
   if (!Scope->isTopLevel()) {
-    LRs[0].addUse(MBBs.size());
+    LRs[0].addUse(Scope->getBlocks().size());
   }
 }
 
@@ -1863,8 +1902,8 @@ void RAInfo::assignLocations(void) {
   // vector to keep track of locations during the scan
   std::vector<int> curLocs(Scope->getNumPredicates(),-1);
 
-  for (unsigned i=0, e=MBBs.size(); i<e; i++) {
-    MachineBasicBlock *MBB = MBBs[i];
+  for (unsigned i=0, e=Scope->getBlocks().size(); i<e; i++) {
+    MachineBasicBlock *MBB = Scope->getBlocks()[i];
 
     DEBUG( dbgs() << "  MBB#" << MBB->getNumber() << ": " );
 
@@ -1887,7 +1926,7 @@ void RAInfo::assignLocations(void) {
         assert(curUseLoc >= 0);
         // if previous location was not a register, we have to allocate
         // a register and/or possibly spill
-        if ( curUseLoc >= (int)NumColors ) {
+        if ( curUseLoc >= (int)AvailRegs ) {
           if (hasFreePhys()) {
             UL.load = curUseLoc;
             UL.loc = getLoc(); // gets a register
@@ -1900,7 +1939,7 @@ void RAInfo::assignLocations(void) {
             std::vector<unsigned> order;
             for(unsigned j=0; j<LRs.size(); j++) {
               // consider all physical registers (< NumColors) in use (!= -1)
-              if (curLocs[j] != -1 && curLocs[j] < (int)NumColors) {
+              if (curLocs[j] != -1 && curLocs[j] < (int)AvailRegs) {
                 order.push_back(j);
               }
             }
@@ -1908,7 +1947,7 @@ void RAInfo::assignLocations(void) {
                 FurthestNextUseComparator(*this,i));
             unsigned furthestPred = order.back();
             int stackLoc = getLoc(); // new stack loc
-            assert( stackLoc >= (int)NumColors );
+            assert( stackLoc >= (int)AvailRegs );
             // Do not free the stack location, as it would require
             // re-initialization with 0. I assume, batch initialization with
             // masks in the header are cheaper than an additional instruction
@@ -2004,8 +2043,8 @@ void RAInfo::dump() const {
     dbgs() << "  LR(p" << i << ") = [" << LR.str() << "]\n";
   }
 
-  for (unsigned i=0, e=MBBs.size(); i<e; i++) {
-    MachineBasicBlock *MBB = MBBs[i];
+  for (unsigned i=0, e=Scope->getBlocks().size(); i<e; i++) {
+    MachineBasicBlock *MBB = Scope->getBlocks()[i];
 
     dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
     if (UseLocs.count(MBB)) {
@@ -2129,7 +2168,10 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     for (SPScope::PredDefInfo::iterator di = DI->begin(), de = DI->end();
         di != de; ++di) {
       unsigned loc, pred = di->first;
-      if (RP.getDefLoc(loc, pred)) {
+      bool isPhysReg;
+      std::tie(loc, isPhysReg) = RP .getDefLoc(pred);
+
+      if (isPhysReg) {
         // pred is defined in a register; we only need initialisation code if
         // it is defined in the subscope as first definition
         if (RP.isFirstDef(HeaderMBB, pred)) {
