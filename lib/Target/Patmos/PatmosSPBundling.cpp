@@ -19,6 +19,7 @@
 #include "PatmosSinglePathInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/CodeGen/MachineModulePass.h"
+#include "llvm/IR/Metadata.h"
 
 #include "PatmosSinglePathInfo.h"
 
@@ -93,35 +94,27 @@ FunctionPass *llvm::createPatmosSPBundlingPass(const PatmosTargetMachine &tm) {
   return new PatmosSPBundling(tm);
 }
 
-void checkSPPredicateConsistency(MachineOperand &op){
-  MachineFunction *MF = op.getParent()->getParent()->getParent();
-  if(!op.isImm()){
-    errs() << "[Single-path Bundling] SPPredicate operand is not immediate.";
-  }else if(op.getImm() != 123399){
-    errs() << "[Single-path Bundling] SPPredicate operand is not 123399.";
-  }else{
-    return; //success
-  }
-  errs() << "\nInstruction: ";
-  op.getParent()->print(errs(), &MF->getTarget(), false);
-  errs() << "Operand: ";
-  op.print(errs(), &MF->getTarget());
-  errs() << "\n";
-  abort();
-}
-
 void checkSPPredicateConsistency(MachineFunction &MF){
   for (MachineFunction::iterator MBB = MF.begin(), MBBE = MF.end();
                                      MBB != MBBE; ++MBB) {
     for( MachineBasicBlock::iterator MI = MBB->begin(),
-                                         ME = MBB->getFirstTerminator();
+                                         ME = MBB->end();
                                          MI != ME; ++MI) {
-      checkSPPredicateConsistency(MI->getOperand(MI->getNumOperands()-1));
-    }
-    for( MachineBasicBlock::iterator MI = MBB->getFirstTerminator(),
-                                             ME = MBB->end();
-                                             MI != ME; ++MI) {
-      checkSPPredicateConsistency(MI->getOperand(MI->getNumExplicitOperands()));
+      for(int i = 0; i< MI->getNumOperands(); i++){
+        MachineOperand &p = MI->getOperand(i);
+        if ( p.isMetadata()){
+          const MDNode *n = p.getMetadata();
+          if( MDString *t = cast<MDString>(n->getOperand(0))){
+            if(t->getString().startswith("SPPred:")){
+              //OK
+              return;
+            }
+          }
+        }
+      }
+      errs() << "Instruction does not have SPPred metadata:" ;
+      MI->print(errs(), &(MI->getParent()->getParent()->getTarget()));
+      abort();
     }
   }
 }
@@ -130,6 +123,19 @@ void PatmosSPBundling::doBundlingFunction(MachineFunction &MF) {
   //outs() << "------------ At bundling -----------------\n";
   //printFunction(MF);
   checkSPPredicateConsistency(MF);
+}
+
+void printMetaData(MachineBasicBlock::iterator & MI){
+
+  for(int i = 0; i< MI->getNumOperands(); i++){
+    MachineOperand &p = MI->getOperand(i);
+    if ( p.isMetadata()){
+      const MDNode *n = p.getMetadata();
+      outs() << "\t^MetaData: ";
+      n->print(outs());
+      outs() << "\n";
+    }
+  }
 }
 
 void PatmosSPBundling::printFunction(MachineFunction &MF) {
@@ -144,21 +150,7 @@ void PatmosSPBundling::printFunction(MachineFunction &MF) {
                                          MI != ME; ++MI) {
       outs() << "\t";
       MI->print(outs(), &(MF.getTarget()), false);
-      if(TII->isPredicated(MI)){
-        outs()<<"\t^Predicated!!\n";
-      }
-      MachineOperand op = MI->getOperand(MI->getNumOperands()-1);
-              if(!op.isImm()){
-                errs() << "SPPredicate operand is not immediate: ";
-                op.print(errs(), &MF.getTarget());
-                errs() << "\n";
-                abort();
-              }else if(op.getImm() != 123399){
-                errs() << "SPPredicate operand is not 123399: ";
-                op.print(errs(), &MF.getTarget());
-                errs() << "\n";
-                abort();
-              }
+      printMetaData(MI);
     }
     outs() << "Terminators:\n";
     for( MachineBasicBlock::iterator MI = MBB->getFirstTerminator(),
@@ -166,22 +158,7 @@ void PatmosSPBundling::printFunction(MachineFunction &MF) {
                                              MI != ME; ++MI) {
       outs() << "\t";
       MI->print(outs(), &(MF.getTarget()), false);
-      if(TII->isPredicated(MI)){
-        outs()<<"\t^Predicated!!\n";
-      }
-      MachineOperand op = MI->getOperand(MI->getNumExplicitOperands());
-
-                    if(!op.isImm()){
-                      errs() << "SPPredicate operand is not immediate: ";
-                      op.print(errs(), &MF.getTarget());
-                      errs() << "\n";
-                      abort();
-                    }else if(op.getImm() != 123399){
-                      errs() << "SPPredicate operand is not 123399: ";
-                      op.print(errs(), &MF.getTarget());
-                      errs() << "\n";
-                      abort();
-                    }
+      printMetaData(MI);
     }
     outs() << "\n";
   }

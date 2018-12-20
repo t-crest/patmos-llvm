@@ -380,7 +380,9 @@ void PatmosSPMark::addSPPredicateToInstruction(MachineFunction &MF) {
     for( MachineBasicBlock::iterator MI = MBB->begin(),
                                          ME = MBB->end();
                                          MI != ME; ++MI) {
-      MachineOperand op = MachineOperand::CreateImm(123399);
+      LLVMContext& C = MF.getFunction()->getContext();
+      MDNode* N = MDNode::get(C, MDString::get(C, "SPPred:-1"));
+      MachineOperand op = MachineOperand::CreateMetadata(N);
       MachineOperand *newOp = new MachineOperand(op);
       MI->addOperand(*newOp);
     }

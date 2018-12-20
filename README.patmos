@@ -71,14 +71,20 @@ enable building of the gold plugin:
     --with-binutils-include=`readlink -f ../../patmos-gold/include/` \
     --prefix=$INSTALL_DIR
 
+	Emad: Can't make above work.
+	
 With cmake:
     
     mkdir build
     cd build
     cmake .. -DCMAKE_BUILD_DIR=Debug 
 	     -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR
-	     -DLLVM_BINUTILS_INCDIR=`readlink -f ../patmos-gold/include`
+	     -DLLVM_BINUTILS_INCDIR=`readlink -f $GOLD_INCLUDE_DIR`
 	     -DLLVM_TARGETS_TO_BUILD=Patmos
+		 -DLLVM_ENABLE_ASSERTIONS=true
+
+$INSTALL_DIR: the local installation folder. typicalling '../local'
+$GOLD_INCLUDE_DIR: the include directory of the patmos-gold repo. typically '../gold/include'
 
 In both cases, LLVM is build using make
 

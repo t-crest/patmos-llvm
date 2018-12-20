@@ -549,8 +549,8 @@ void SPScope::decompose(void) {
           break;
         }
     }
-    assert(mbbPreds[MBB] == NULL && "MBB predicates vector has already been initialized.");
-    mbbPreds[MBB] = std::vector<unsigned>();
+    assert(mbbPreds.find(MBB) ==  mbbPreds.end());
+    mbbPreds.insert(std::make_pair(MBB, std::vector<unsigned>()));
     if (q != -1) {
       // we already have handled this dependence
       mbbPreds[MBB].push_back(q);
@@ -566,8 +566,9 @@ void SPScope::decompose(void) {
     dbgs() << "Decomposed CD:\n";
     dbgs().indent(2) << "map R: MBB -> pN\n";
     for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
-      dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p"
-                       << RI->second << "\n";
+      dbgs().indent(4) << "R(" << RI->first->getNumber() << ") ={";
+      std::for_each(RI->second.begin(), RI->second.end(), [](unsigned n){ dbgs() << n << ", ";});
+      dbgs() << "}\n";
     }
     dbgs().indent(2) << "map K: pN -> t \\in CD\n";
     for (unsigned long i = 0; i < K.size(); i++) {

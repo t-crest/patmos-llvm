@@ -1,4 +1,4 @@
-; RUN: patmos-llc  < %s -mpatmos-singlepath=init_func  | FileCheck %s 
+; RUN: llc  < %s -mpatmos-singlepath=init_func  | FileCheck %s 
 
 target triple = "patmos-unknown-unknown-elf"
 
