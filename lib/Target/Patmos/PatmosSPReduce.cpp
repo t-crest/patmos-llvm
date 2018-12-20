@@ -335,11 +335,33 @@ namespace {
 
   /// LiveRange - Class to hold live range information for a predicate in
   /// an RAInfo object.
+  /// A live range is a set of position, each of which is associated with a
+  /// basic block in the scope being described. The first position in the
+  /// range matches the first block in the scope. There is one more position
+  /// that there are blocks, so the last position is not associated with any block.
+  /// At any location, the predicate can be used and/or defined.
+  /// TODO:(Emad) what does it mean that a predicate is 'defined' at a position?
+  /// TODO:(Emad) can it be 'defined' in more than one position ? i think so, see PatmosSinglePathInfo.h::PredDefInfo
   class LiveRange {
   friend class RAInfo;
   private:
-    BitVector uses, defs;
+
+    // Where each predicate is used.
+    // The position is the index of the block in the scope
+    // except for the last one which doesn't have an associated block
+    BitVector uses;
+
+    // Where each predicate is defined.
+    // The position is the index of the block in the scope
+    // except for the last one which doesn't have an associated block
+    BitVector defs;
+
+    // Add a use of the predicate associated with this range
+    // at the position given.
     void addUse(long pos) { uses.set(pos); }
+
+    // Add a use of the predicate associated with this range
+    // at the position given.
     void addDef(long pos) { defs.set(pos); }
   public:
     /// Constructs a new live range for a scope.
@@ -371,8 +393,9 @@ namespace {
       }
       return false;
     }
-    bool pastFirstUse(long pos) const {
-      // check if there is any use before (and including) pos
+
+    // check if there is any use before (and including) pos
+    bool anyUseBefore(long pos) const {
       //return (uses & ((1LL << (pos+1LL))-1LL)) != 0;
       for (unsigned i = 0; i <= pos; i++) {
         if (uses.test(i)) return true;
@@ -410,6 +433,28 @@ namespace {
     public:
       // the SPScope this RAInfo belongs to
       const SPScope *Scope;
+
+      // A class defining a predicate location in memory.
+      // A location's type is whether it points to a register
+      // or it points to a stack spill location.
+      // Depending on the type 'loc' is the location of the predicate
+      // either as a register number of stack slot.
+      class Location {
+
+        public:
+          enum Type{Register, Stack};
+
+          Location(const Location &o): type(o.type), loc(o.loc){}
+          Location(Type type, unsigned loc): type(type), loc(loc){}
+
+          const Type &getType() const { return type;}
+          const unsigned &getLoc() const { return loc;}
+
+        private:
+          Location::Type type;
+          unsigned loc;
+
+      };
     private:
 
 
@@ -426,26 +471,11 @@ namespace {
       // TODO:(Emad) what does the int mean? block index in scope? what about when its -1?
       std::vector<int> DefLocs;
 
-      // A class defining a predicate location in memory.
-      // A location's type is whether it points to a register
-      // or it points to a stack spill location.
-      // Depending on the type 'loc' is the location of the predicate
-      // either as a register number of stack slot.
-      class Location {
-        public:
-          enum Type{Register, Stack};
-
-          const Type type;
-          const unsigned loc;
-
-          Location(Type type, unsigned loc): type(type), loc(loc){}
-      };
-
       // set of currently unused locations.
       // A location is a register if its value is less than the number of available registers.
       // If NumLocs is less than AvailRegs, then all locations are physical registers
       // TODO:(Emad) what is a location? a physical register?
-      std::set<unsigned> FreeLocs;
+      std::set<Location> FreeLocs;
 
       // various attributes regarding locations
       unsigned NumLocs, // Total number of locations in this SPScope
@@ -487,27 +517,31 @@ namespace {
       // of the SPScope to assign locations
       void assignLocations(void);
 
-      // get an available location
-      int getLoc(void) {
+      // get an available location. If non are currently available, a new one is created.
+      Location getAvailLoc(void) {
         if (!FreeLocs.empty()) {
-          std::set<unsigned>::iterator it = FreeLocs.begin();
+          std::set<Location>::iterator it = FreeLocs.begin();
           FreeLocs.erase(it);
           return *it;
         }
+
         // create a new location
-        return NumLocs++;
+        return Location(
+            NumLocs < AvailRegs ? Location::Register : Location::Stack,
+            NumLocs++
+          );
       }
 
       // make a location available again
-      void freeLoc(unsigned loc) {
+      void freeLoc(Location loc) {
         assert(!FreeLocs.count(loc));
         FreeLocs.insert(loc);
       }
 
       // returns true if there is a register currently available.
       bool hasFreePhys(void) {
-        return (!FreeLocs.empty() && (*FreeLocs.begin() < AvailRegs) )
-          || (NumLocs < AvailRegs);
+        return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Location::Register))
+            || (NumLocs < AvailRegs);
       }
 
       // Returns whether the given register location is a physical
@@ -652,6 +686,13 @@ namespace {
       void dump(void) const;
   };
 
+  bool operator<(const RAInfo::Location &l,const RAInfo::Location &r){
+    if( l.getType() == r.getType()){
+      return l.getLoc() < r.getLoc();
+    } else {
+      return false;
+    }
+  }
 ///////////////////////////////////////////////////////////////////////////////
 
   /// RedundantLdStEliminator - Class that implements the removal
@@ -1882,11 +1923,14 @@ void RAInfo::createLiveRanges(void) {
     if (DI) {
       for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
           pi != pe; ++pi) {
-        LRs[pi->first].addDef(i);
+        LRs[pi->first].addDef(i); // TODO:(Emad) why don't we check that the edge hits the block?
       }
     }
   }
   // add a use for header predicate
+  // TODO:(Emad) is that because its a loop and P0 is used when we jump back to the start
+  // TODO:(Emad) of the loop, therefore we say that the last block also uses P0? i.e. connecting
+  // TODO:(Emad) the loop end with the start?
   if (!Scope->isTopLevel()) {
     LRs[0].addUse(Scope->getBlocks().size());
   }
@@ -1896,11 +1940,10 @@ void RAInfo::createLiveRanges(void) {
 void RAInfo::assignLocations(void) {
   DEBUG(dbgs() << " Assign locations for [MBB#"
                << Scope->getHeader()->getNumber() << "]\n");
-
   SPNumPredicates += Scope->getNumPredicates(); // STATISTIC
 
-  // vector to keep track of locations during the scan
-  std::vector<int> curLocs(Scope->getNumPredicates(),-1);
+  // map to keep track of locations of predicates during the scan
+  std::map<unsigned, Location> curLocs;
 
   for (unsigned i=0, e=Scope->getBlocks().size(); i<e; i++) {
     MachineBasicBlock *MBB = Scope->getBlocks()[i];
@@ -1916,75 +1959,102 @@ void RAInfo::assignLocations(void) {
     if (!(usePred==0 && Scope->isRootTopLevel())) {
       UseLoc UL;
 
-      int &curUseLoc = curLocs[usePred];
-      DEBUG( dbgs() << "use " << usePred << " in loc " << curUseLoc << ", ");
+      std::map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
 
       assert(MBB == Scope->getHeader() || i>0);
 
       if (MBB != Scope->getHeader()) {
         // each use must be preceded by a location assignment
-        assert(curUseLoc >= 0);
+        if (findCurUseLoc == curLocs.end()){
+          errs() << __FILE__ <<":" << __LINE__ << "curLocs does not map predicate: " << usePred;
+          abort();
+        }
+        Location &curUseLoc = findCurUseLoc->second;
         // if previous location was not a register, we have to allocate
         // a register and/or possibly spill
-        if ( curUseLoc >= (int)AvailRegs ) {
+        if ( curUseLoc.getType() != Location::Register ) {
           if (hasFreePhys()) {
-            UL.load = curUseLoc;
-            UL.loc = getLoc(); // gets a register
+            UL.load = curUseLoc.getLoc();
+
             // reassign, but
             // DO NOT free stack locations again, i.e. not freeLoc(curUseLoc);
-            curUseLoc = UL.loc;
+            curUseLoc = getAvailLoc();
+            UL.loc = curUseLoc.getLoc(); // gets a register
+            if((UL.load < (int)AvailRegs) || (UL.loc > (int)AvailRegs)){
+              errs() << __FILE__ <<":" << __LINE__ << " UL has wrong values: load(" << UL.load << "), loc(" << UL.loc << "), AvailRegs(" << AvailRegs << ")\n";
+              abort();
+            }
           } else {
             // spill and reassign
             // order predicates wrt furthest next use
             std::vector<unsigned> order;
             for(unsigned j=0; j<LRs.size(); j++) {
-              // consider all physical registers (< NumColors) in use (!= -1)
-              if (curLocs[j] != -1 && curLocs[j] < (int)AvailRegs) {
+              // consider all physical registers in use
+              std::map<unsigned, Location>::iterator cj = curLocs.find(j);
+              if (cj != curLocs.end() && cj->second.getType() == Location::Register) {
                 order.push_back(j);
               }
             }
             std::sort(order.begin(), order.end(),
                 FurthestNextUseComparator(*this,i));
             unsigned furthestPred = order.back();
-            int stackLoc = getLoc(); // new stack loc
-            assert( stackLoc >= (int)AvailRegs );
-            // Do not free the stack location, as it would require
-            // re-initialization with 0. I assume, batch initialization with
-            // masks in the header are cheaper than an additional instruction
-            // before the first definition (provided there are more than one
-            // stack locations for predicates).
-            //freeLoc(curUseLoc); // <-- we don't do this!
-            UL.load  = curUseLoc;
-            UL.loc   = curLocs[furthestPred];
+            Location stackLoc = getAvailLoc(); // guaranteed to be a stack location, since there are no physicals free
+            assert( stackLoc.getType() == Location::Stack );
+            if(stackLoc.getLoc() < AvailRegs){
+              errs() << __FILE__ << ":" << __LINE__ << ": stack location is not smaller than AvailRegs: " << stackLoc.getLoc();
+              abort();
+            }
+
+            UL.load  = curUseLoc.getLoc();
+
+            std::map<unsigned, Location>::iterator findFurthest = curLocs.find(furthestPred);
+            if(findFurthest == curLocs.end()){
+              errs() << __FILE__ << ":" << __LINE__ << " Furthest predicate not mapped: " << furthestPred;
+              abort();
+            }
+            UL.loc   = findFurthest->second.getLoc();
+
             // differentiate between already used and not yet used
-            if (LRs[furthestPred].pastFirstUse(i)) {
-              UL.spill = stackLoc;
+            if (LRs[furthestPred].anyUseBefore(i)) {
+              UL.spill = stackLoc.getLoc();
             } else {
               // if it has not been used, we change the initial
               // definition location
-              DefLocs[furthestPred] = stackLoc;
+              DefLocs[furthestPred] = stackLoc.getLoc();
             }
-            curUseLoc = curLocs[furthestPred];
-            curLocs[furthestPred] = stackLoc;
+            findCurUseLoc = findFurthest;
+            findFurthest->second = stackLoc;
           }
         } else {
           // everything stays as is
-          UL.loc = curUseLoc;
+          UL.loc = curUseLoc.getLoc();
         }
       } else {
         assert(usePred == 0);
         // we get a loc for the header predicate
-        curLocs[0] = DefLocs[0] = UL.loc = getLoc();
+        Location loc = getAvailLoc();
+        DefLocs[0] = UL.loc = loc.getLoc();
+        std::map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
+        if(curLoc0 == curLocs.begin()){
+          curLocs.insert(std::make_pair(0, loc));
+        }else{
+          curLoc0->second = loc;
+        }
         assert(UL.loc == 0);
       }
 
-      DEBUG( dbgs() << "new " << curUseLoc << ". ");
+      //DEBUG( dbgs() << "new " << curUseLoc << ". ");
 
       // (2) retire locations
       if (LRs[usePred].lastUse(i)) {
         DEBUG(dbgs() << "retire. ");
+        if (findCurUseLoc == curLocs.end()){
+          errs() << __FILE__ <<":" << __LINE__ << "curLocs does not map predicate: " << usePred << "\n";
+          abort();
+        }
+        Location &curUseLoc = findCurUseLoc->second;
         freeLoc( curUseLoc );
-        curUseLoc = -1;
+        curLocs.erase(findCurUseLoc);
       }
 
       // store info
@@ -2000,7 +2070,7 @@ void RAInfo::assignLocations(void) {
       for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
           pi != pe; ++pi) {
         int r = pi->first;
-        if (curLocs[r] == -1) {
+        if (curLocs.find(r) == curLocs.end()) {
           // need to get a new loc for predicate r
           order.push_back(r);
         }
@@ -2010,8 +2080,20 @@ void RAInfo::assignLocations(void) {
       // nearest use is in front
       for (unsigned j=0; j<order.size(); j++) {
         unsigned pred = order[j];
-        curLocs[pred] = DefLocs[pred] = getLoc();
-        assert(curLocs[pred] == DefLocs[pred]);
+        Location l = getAvailLoc();
+        std::map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(pred);
+        if(findCurUseLoc == curLocs.end()){
+          curLocs.insert(std::make_pair(pred, l));
+        }else{
+          findCurUseLoc->second = l;
+        }
+        DefLocs[pred] = l.getLoc();
+
+        if(curLocs.find(pred)->second.getLoc() != DefLocs[pred]){
+          errs() << __FILE__ <<":" << __LINE__ << "\nLocation not equal to definition: " << curLocs.find(pred)->second.getLoc() << " != "<< DefLocs[pred] << "\n";
+          abort();
+        }
+
         DEBUG( dbgs() << "def " << pred << " in loc "
                       << DefLocs[pred] << ", ");
       }
@@ -2027,8 +2109,13 @@ void RAInfo::assignLocations(void) {
   // generated in LinearizeWalker::exitSubscope().
   if (!Scope->isTopLevel()) {
     UseLoc &ul = UseLocs[Scope->getHeader()];
-    if (ul.loc != curLocs[0]) {
-      ul.load = curLocs[0];
+    std::map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(0);
+    if(findCurUseLoc == curLocs.end()){
+      errs() << __FILE__ <<":" << __LINE__ << "curLocs does not map predicate: 0";
+      abort();
+    }
+    if (ul.loc != (int)(findCurUseLoc->second.getLoc())) {
+      ul.load = findCurUseLoc->second.getLoc();
     }
   }
 }
