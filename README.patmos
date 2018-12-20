@@ -103,13 +103,10 @@ To install libraries for LTO support:
 3. Run Tests
 
 Currently, there are only code generation tests that are specific to Patmos.
-To run these test, navigate to the folder `test/CodeGen/Patmos` and run:
-```patmos-llvm-lit .```
+To run these test, navigate to the folder `llvm/build` and run:
+```make && ./bin/llvm-lit ../test --filter=Patmos```
 
-This will run the tests using the currently installed LLVM, therefore you 
-might need to rebuild/install llvm before running this command, to have your
-changes take effect. This is most easily done using the command `./misc/build.sh llvm`
-in the workspace root.
+This command will first build LLVM, and if successfull then run all Patmos tests
 
 --------------------------------------------------------------------------------
 4. Use it
