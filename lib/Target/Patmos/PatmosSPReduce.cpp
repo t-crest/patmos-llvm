@@ -62,6 +62,8 @@
 
 #include "PatmosSinglePathInfo.h"
 
+#include "boost/optional.hpp"
+
 #include <map>
 #include <set>
 #include <queue>
@@ -71,6 +73,7 @@
 
 
 using namespace llvm;
+using namespace boost;
 
 STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
@@ -435,10 +438,12 @@ namespace {
       const SPScope *Scope;
 
       // A class defining a predicate location in memory.
-      // A location's type is whether it points to a register
-      // or it points to a stack spill location.
-      // Depending on the type 'loc' is the location of the predicate
-      // either as a register number of stack slot.
+      // A location is either a register or a stack spill slot, i.e. the 'type'.
+      // The 'idx' field specifie the index of the register or stack spill slot
+      // used by this location.
+      // E.g. Location{Register, 1} specifies that this location is the second
+      // register, while Location{Stack, 3} specifies this location is the
+      // fourth stack spill slot.
       class Location {
 
         public:
@@ -457,8 +462,6 @@ namespace {
       };
     private:
 
-
-
       // Number of physically available registers for use by the Scope.
       const unsigned AvailRegs;
 
@@ -474,13 +477,13 @@ namespace {
       // set of currently unused locations.
       // A location is a register if its value is less than the number of available registers.
       // If NumLocs is less than AvailRegs, then all locations are physical registers
-      // TODO:(Emad) what is a location? a physical register?
       std::set<Location> FreeLocs;
 
-      // various attributes regarding locations
-      unsigned NumLocs, // Total number of locations in this SPScope
-               CumLocs, // Cumulative number of locations synthesized up the
-                        //   tree: NumLocs + max. CumLocs over the children
+      // The total number of predicate locations used by this instance.
+      unsigned NumLocs;
+
+      // The maximum number of location used by any child
+      unsigned ChildrenMaxCumLocs,
                Offset,  // If S0 does not need to be spilled around this scope,
                         //   this is the offset to the available registers
                SpillOffset; // Starting offset for this scope's spill locations
@@ -550,49 +553,28 @@ namespace {
         return loc < (int)AvailRegs;
       }
 
+      // getCumLocs - Get the maximum number of locations
+      // used by this scope and any of its children
+      unsigned getCumLocs(void) const { return NumLocs + ChildrenMaxCumLocs; }
+
+      // assignSpillOffset
+      void assignSpillOffset(unsigned spillOffset) {
+        // assign the spill offset, increment
+        if (NumLocs > AvailRegs) {
+          this->SpillOffset = spillOffset;
+        }
+      }
+
     public:
       explicit RAInfo(SPScope *S, unsigned availRegs) :
         Scope(S), AvailRegs(availRegs),
         LRs(S->getNumPredicates(), LiveRange(S)),
         DefLocs(S->getNumPredicates(),-1),
-        NumLocs(0), CumLocs(0), Offset(0), SpillOffset(0),
+        NumLocs(0), ChildrenMaxCumLocs(0), Offset(0), SpillOffset(0),
         NeedsScopeSpill(true) {
           createLiveRanges();
           assignLocations();
         }
-
-      // getCumLocs - Get the number of cumulative locations
-      unsigned getCumLocs(void) const { return CumLocs; }
-
-      // setCumLocs - Set the number of cumulative locations, given the
-      // maximum CumLocs of the children.
-      // Naturally called in a post-order traversal.
-      void setCumLocs(unsigned maxFromChildren) {
-        CumLocs = NumLocs + maxFromChildren;
-      }
-
-      // computePhysOffset - Compute the offset into the available colors,
-      // given the parent RAInfo. Naturally called in a pre-order traversal.
-      void computePhysOffset(const RAInfo &ParentRI) {
-        // check if we must spill the PRegs
-        // Parent.num + S.cum <= size  --> no spill!
-        if ( ParentRI.NumLocs + CumLocs <= AvailRegs ) {
-          // compute offset
-          Offset = ParentRI.NumLocs + ParentRI.Offset;
-          NeedsScopeSpill = false;
-        }
-      }
-
-      // assignSpillOffset - Stores the offset provided as spill offset,
-      // and updates the offset by adding the number of spilled predicates.
-      // Traversal order is not important for this function.
-      void assignSpillOffset(unsigned &spillOffset) {
-        // assign the spill offset, increment
-        if (NumLocs > AvailRegs) {
-          this->SpillOffset = spillOffset;
-          spillOffset += NumLocs - AvailRegs;
-        }
-      }
 
       // needsScopeSpill - Returns true if S0 must be spilled/restored
       // upon entry/exit of this SPScope.
@@ -628,28 +610,29 @@ namespace {
       }
 
       /// getUseLoc - Get the use location, which is a register location,
-      /// for the given MBB, if any. Returns -1 otherwise.
-      int getUseLoc(const MachineBasicBlock *MBB) const {
+      /// for the given MBB. If the MBB is not mapped to a location the empty
+      /// option is returned.
+      optional<Location> getUseLoc(const MachineBasicBlock *MBB) const {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).loc + Offset;
           assert( loc < (int)AvailRegs );
-          return loc;
+          return optional<Location>{Location(Location::Register, loc)};
         }
-        return -1;
+        return optional<Location>{};
       }
 
       /// getLoadLoc - Get the load location, which is a spill location,
-      /// for the given MBB. Returns -1 if the predicate does not need to be
+      /// for the given MBB. Returns the empty option if the predicate does not need to be
       /// loaded from a spill slot.
-      int getLoadLoc(const MachineBasicBlock *MBB) const {
+      optional<unsigned> getLoadLoc(const MachineBasicBlock *MBB) const {
         if (UseLocs.count(MBB)) {
           int loc = UseLocs.at(MBB).load;
           if (loc != -1) {
             assert( loc >= (int)AvailRegs );
-            return (loc - AvailRegs) + SpillOffset;
+            return optional<unsigned>{(loc - AvailRegs) + SpillOffset};
           }
         }
-        return -1;
+        return optional<unsigned>{};
       }
 
       /// getSpillLoc - Get the spill location, i.e. the location where the use
@@ -684,6 +667,41 @@ namespace {
 
       // Dump this RAInfo to dbgs().
       void dump(void) const;
+
+      // Unifies with parent, such that this RAInfo knows which registers it can use
+      // and where is spill slots are
+      void unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel){
+
+        // If we want to try to minimize the number of spills
+        #ifdef NOSPILL_OPTIMIZATION
+          // check if we must spill the PRegs
+          // Parent.num + S.cum <= size  --> no spill!
+          if ( !topLevel && parent.NumLocs + getCumLocs() <= AvailRegs ) {
+
+            // compute offset, i.e. the first register not used by the parent.
+            Offset = parent.NumLocs + parent.Offset;
+
+            // If the total number of locations the parent, myself, and my children need
+            // are less than/equal to the number of available registers
+            // we do not have to spill any predicates.
+            NeedsScopeSpill = false;
+          }
+        #endif
+        assignSpillOffset(parentSpillLocCnt);
+      }
+
+      void unifyWithChild(const RAInfo &child){
+        ChildrenMaxCumLocs = std::max(child.getCumLocs(), ChildrenMaxCumLocs);
+      }
+
+      // How many spill slots this RAInfo needs.
+      unsigned neededSpillLocs(){
+        if(NumLocs > AvailRegs) {
+          return 0;
+        }else{
+          return NumLocs - AvailRegs;
+        }
+      }
   };
 
   bool operator<(const RAInfo::Location &l,const RAInfo::Location &r){
@@ -1096,15 +1114,12 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
     RAInfo &RI = createRAInfo(S);
 
     // Because this is a post-order traversal, we have already visited
-    // all children. Synthesize the cumulative number of locations
-    unsigned maxChildPreds = 0;
+    // all children of the current scope (S). Synthesize the cumulative number of locations
     for(SPScope::child_iterator CI = S->child_begin(), CE = S->child_end();
         CI != CE; ++CI) {
       SPScope *CN = *CI;
-      maxChildPreds = std::max(RAInfos.at(CN).getCumLocs(), maxChildPreds);
+      RI.unifyWithChild(RAInfos.at(CN));
     }
-    RI.setCumLocs(maxChildPreds);
-
   } // end of PO traversal for RegAlloc
 
 
@@ -1115,19 +1130,13 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
         I!=E; ++I) {
     SPScope *S = *I;
-
     RAInfo &RI = RAInfos.at(S);
 
-    // compute offset for physically available registers
     if (!S->isTopLevel()) {
-#ifdef NOSPILL_OPTIMIZATION
-      RI.computePhysOffset( RAInfos.at(S->getParent()) );
-#endif
+       RI.unifyWithParent(RAInfos.at(S->getParent()), spillLocCnt, S->isTopLevel());
       if (!RI.needsScopeSpill()) NoSpillScopes++; // STATISTIC
     }
-    // assign and update spillLocCnt
-    RI.assignSpillOffset(spillLocCnt);
-
+    spillLocCnt += RI.neededSpillLocs();
     DEBUG( RI.dump() );
   } // end df
 
@@ -1641,10 +1650,11 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
 unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
                                     const MachineBasicBlock *MBB,
                                     bool getP0) {
-  int loc = R.getUseLoc(MBB);
-  if (loc != -1) {
-    assert(loc < (int)AvailPredRegs.size());
-    return AvailPredRegs[loc];
+  optional<RAInfo::Location> opLoc = R.getUseLoc(MBB);
+  if (opLoc.is_initialized()) {
+    RAInfo::Location loc = get(opLoc);
+    assert(loc.getLoc() < AvailPredRegs.size());
+    return AvailPredRegs[loc.getLoc()];
   }
   return (getP0) ? Patmos::P0 : Patmos::NoRegister;
 }
@@ -1660,13 +1670,15 @@ void PatmosSPReduce::getStackLocPair(int &fi, unsigned &bitpos,
 void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
                                         MachineBasicBlock *MBB) {
 
-    int load  = R.getLoadLoc(MBB);
+    optional<unsigned> loadOpt = R.getLoadLoc(MBB);
+
     int spill = R.getSpillLoc(MBB);
 
-    assert( spill!=-1  || load!=-1 );
+    // At one of spill or load must be set.
+    assert( spill!=-1  || loadOpt.is_initialized() );
 
     // if spill is set, also load must be set
-    assert( spill==-1 || load!=-1 );
+    assert( spill==-1 || loadOpt.is_initialized() );
 
     unsigned use_preg = getUsePReg(R, MBB);
     assert(use_preg != Patmos::NoRegister);
@@ -1714,8 +1726,8 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
     }
 
     // insert load code
-    if (load != -1) {
-      insertPredicateLoad(MBB, firstMI, load, use_preg);
+    if (loadOpt.is_initialized() ) {
+      insertPredicateLoad(MBB, firstMI, get(loadOpt), use_preg);
     }
 }
 
@@ -2149,7 +2161,7 @@ void RAInfo::dump() const {
   dbgs() << "\n";
 
   dbgs() << "  NumLocs:      " << NumLocs << "\n"
-            "  CumLocs:      " << CumLocs << "\n"
+            "  CumLocs:      " << getCumLocs() << "\n"
             "  Offset:       " << Offset  << "\n"
             "  SpillOffset:  " << SpillOffset  << "\n";
 }
@@ -2222,11 +2234,11 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   }
 
   // copy/load the header predicate for the subloop
-  int loadloc = RP.getLoadLoc(HeaderMBB);
+  optional<unsigned> loadLocOpt = RP.getLoadLoc(HeaderMBB);
   unsigned inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
-  if (loadloc != -1) {
+  if (loadLocOpt.is_initialized()) {
     Pass.insertPredicateLoad(PrehdrMBB, PrehdrMBB->end(),
-        loadloc, inner_preg);
+        get(loadLocOpt), inner_preg);
     InsertedInstrs++; // STATISTIC
   } else {
     unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true);
@@ -2356,10 +2368,10 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   //
   // load the header predicate, if necessary
   unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
-  int loadloc = RI.getLoadLoc(HeaderMBB);
-  if (loadloc != -1) {
+  optional<unsigned> loadloc = RI.getLoadLoc(HeaderMBB);
+  if (loadloc.is_initialized()) {
     Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
-        loadloc, header_preg);
+        get(loadloc), header_preg);
   }
   // TODO copy between pregs?
 
