@@ -474,11 +474,6 @@ namespace {
       // TODO:(Emad) what does the int mean? block index in scope? what about when its -1?
       std::vector<int> DefLocs;
 
-      // set of currently unused locations.
-      // A location is a register if its value is less than the number of available registers.
-      // If NumLocs is less than AvailRegs, then all locations are physical registers
-      std::set<Location> FreeLocs;
-
       // The total number of predicate locations used by this instance.
       unsigned NumLocs;
 
@@ -520,8 +515,9 @@ namespace {
       // of the SPScope to assign locations
       void assignLocations(void);
 
-      // get an available location. If non are currently available, a new one is created.
-      Location getAvailLoc(void) {
+      // Returns the first available location in the given set, removing it from the set.
+      // If the set is empty, a new Location is created and returned.
+      Location getAvailLoc(std::set<Location> &FreeLocs) {
         if (!FreeLocs.empty()) {
           std::set<Location>::iterator it = FreeLocs.begin();
           FreeLocs.erase(it);
@@ -535,14 +531,11 @@ namespace {
           );
       }
 
-      // make a location available again
-      void freeLoc(Location loc) {
-        assert(!FreeLocs.count(loc));
-        FreeLocs.insert(loc);
-      }
-
-      // returns true if there is a register currently available.
-      bool hasFreePhys(void) {
+      // Returns whether either there is a free register location available
+      // in the given set, or one can be created.
+      // if true, the next call to getAvailLoc is guaranteed to produce a Register
+      // location (assuming the given set or the fields don't change).
+      bool hasFreePhys(std::set<Location> &FreeLocs) {
         return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Location::Register))
             || (NumLocs < AvailRegs);
       }
@@ -1954,6 +1947,8 @@ void RAInfo::assignLocations(void) {
                << Scope->getHeader()->getNumber() << "]\n");
   SPNumPredicates += Scope->getNumPredicates(); // STATISTIC
 
+  std::set<Location> FreeLocs;
+
   // map to keep track of locations of predicates during the scan
   std::map<unsigned, Location> curLocs;
 
@@ -1985,12 +1980,12 @@ void RAInfo::assignLocations(void) {
         // if previous location was not a register, we have to allocate
         // a register and/or possibly spill
         if ( curUseLoc.getType() != Location::Register ) {
-          if (hasFreePhys()) {
+          if (hasFreePhys(FreeLocs)) {
             UL.load = curUseLoc.getLoc();
 
             // reassign, but
             // DO NOT free stack locations again, i.e. not freeLoc(curUseLoc);
-            curUseLoc = getAvailLoc();
+            curUseLoc = getAvailLoc(FreeLocs);
             UL.loc = curUseLoc.getLoc(); // gets a register
             if((UL.load < (int)AvailRegs) || (UL.loc > (int)AvailRegs)){
               errs() << __FILE__ <<":" << __LINE__ << " UL has wrong values: load(" << UL.load << "), loc(" << UL.loc << "), AvailRegs(" << AvailRegs << ")\n";
@@ -2010,7 +2005,7 @@ void RAInfo::assignLocations(void) {
             std::sort(order.begin(), order.end(),
                 FurthestNextUseComparator(*this,i));
             unsigned furthestPred = order.back();
-            Location stackLoc = getAvailLoc(); // guaranteed to be a stack location, since there are no physicals free
+            Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
             assert( stackLoc.getType() == Location::Stack );
             if(stackLoc.getLoc() < AvailRegs){
               errs() << __FILE__ << ":" << __LINE__ << ": stack location is not smaller than AvailRegs: " << stackLoc.getLoc();
@@ -2044,7 +2039,7 @@ void RAInfo::assignLocations(void) {
       } else {
         assert(usePred == 0);
         // we get a loc for the header predicate
-        Location loc = getAvailLoc();
+        Location loc = getAvailLoc(FreeLocs);
         DefLocs[0] = UL.loc = loc.getLoc();
         std::map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
         if(curLoc0 == curLocs.begin()){
@@ -2065,7 +2060,10 @@ void RAInfo::assignLocations(void) {
           abort();
         }
         Location &curUseLoc = findCurUseLoc->second;
-        freeLoc( curUseLoc );
+
+        // free location, also removing it from the current one is use
+        assert(!FreeLocs.count(curUseLoc));
+        FreeLocs.insert(curUseLoc);
         curLocs.erase(findCurUseLoc);
       }
 
@@ -2092,7 +2090,7 @@ void RAInfo::assignLocations(void) {
       // nearest use is in front
       for (unsigned j=0; j<order.size(); j++) {
         unsigned pred = order[j];
-        Location l = getAvailLoc();
+        Location l = getAvailLoc(FreeLocs);
         std::map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(pred);
         if(findCurUseLoc == curLocs.end()){
           curLocs.insert(std::make_pair(pred, l));
