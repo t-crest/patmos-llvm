@@ -84,7 +84,6 @@ STATISTIC( ElimLdStCnt,         "Number of eliminated redundant loads/stores");
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
 STATISTIC( NoSpillScopes,
                   "Number of SPScopes (loops) where S0 spill can be omitted");
-STATISTIC( SPNumPredicates, "Number of predicates for single-path code");
 
 // anonymous namespace
 namespace {
@@ -617,9 +616,6 @@ namespace {
 
 } // end of anonymous namespace
 
-
-
-
 ///////////////////////////////////////////////////////////////////////////////
 
 /// createPatmosSPReducePass - Returns a new PatmosSPReduce
@@ -628,11 +624,9 @@ FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
   return new PatmosSPReduce(tm);
 }
 
-
 ///////////////////////////////////////////////////////////////////////////////
 //  PatmosSPReduce methods
 ///////////////////////////////////////////////////////////////////////////////
-
 
 void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
@@ -721,7 +715,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
-
 void PatmosSPReduce::computeRegAlloc(SPScope *root) {
   DEBUG( dbgs() << "RegAlloc\n" );
 
@@ -766,8 +759,6 @@ void PatmosSPReduce::computeRegAlloc(SPScope *root) {
 
 }
 
-
-
 RAInfo& PatmosSPReduce::createRAInfo(SPScope *S) {
   assert(!RAInfos.count(S) && "Already having RAInfo for Scope!");
   // The number of colors for allocation is AvailPredRegs.size()
@@ -776,7 +767,6 @@ RAInfo& PatmosSPReduce::createRAInfo(SPScope *S) {
                                            )) );
   return RAInfos.at(S);
 }
-
 
 void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,
     SmallVectorImpl<MachineOperand> &Cond) {
@@ -869,8 +859,6 @@ void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
   }
 }
 
-
-
 void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
   DEBUG( dbgs() << " Insert Predicate Definitions in [MBB#"
                 << S->getHeader()->getNumber() << "]\n");
@@ -896,10 +884,6 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 
   } // end for each MBB
 }
-
-
-
-
 
 void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
                                    unsigned pred, const SPScope::Edge e) {

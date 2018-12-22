@@ -21,13 +21,11 @@
 #define USE_BCOPY
 #define NOSPILL_OPTIMIZATION
 
-#include "llvm/CodeGen/MachineFunction.h"
-
 #include "boost/optional.hpp"
-
+#include "PatmosSinglePathInfo.h"
+#include "spimpl.h"
 #include <sstream>
 
-using namespace llvm;
 using namespace boost;
 
 namespace llvm {
@@ -160,84 +158,7 @@ namespace llvm {
       // the SPScope this RAInfo belongs to
       const SPScope *Scope;
 
-    private:
-
-      // Number of physically available registers for use by the Scope.
-      const unsigned AvailRegs;
-
-      // The live ranges of predicates.
-      // Given a predicate x, then its live range is LRs[x]
-      std::vector<LiveRange> LRs;
-
-      // The definition location of each predicate.
-      // Given the predicate x, its definition is DefLocs[x].
-      // TODO:(Emad) what does the int mean? block index in scope? what about when its -1?
-      std::vector<int> DefLocs;
-
-      // The total number of predicate locations used by this instance.
-      unsigned NumLocs;
-
-      // The maximum number of location used by any child
-      unsigned ChildrenMaxCumLocs,
-               Offset,  // If S0 does not need to be spilled around this scope,
-                        //   this is the offset to the available registers
-               SpillOffset; // Starting offset for this scope's spill locations
-
-      bool NeedsScopeSpill;
-
-      // UseLoc - Record to hold predicate use information for a MBB
-      // - loc:   which location to use (a register)
-      // - spill: where to spill loc first (spill location)
-      // - load:  where to load loc before using it (spill location)
-      struct UseLoc {
-        int loc, load, spill;
-        UseLoc(void) : loc(-1), load(-1), spill(-1) {}
-      };
-      // Map of MBB -> UseLoc, for an SPScope
-      std::map<const MachineBasicBlock*, UseLoc> UseLocs;
-
-      // Comparator for predicates, furthest next use;
-      // used in assignLocations()
-      struct FurthestNextUseComparator {
-        RAInfo &RI;
-        int pos;
-        bool operator()(int a, int b) {
-          return RI.LRs[a].hasNextUseBefore(pos, RI.LRs[b]);
-        }
-        FurthestNextUseComparator(RAInfo &ri, int p) : RI(ri), pos(p) {}
-      };
-
-      // createLiveRanges - Helper function to initially create the live ranges
-      // for all predicates used in this SPScope
-      void createLiveRanges(void);
-
-      // assignLocations - Performs a linear scan allocation over the MBBs
-      // of the SPScope to assign locations
-      void assignLocations(void);
-
-      // Returns the first available location in the given set, removing it from the set.
-      // If the set is empty, a new Location is created and returned.
-      Location getAvailLoc(std::set<Location> &FreeLocs);
-
-      // Returns whether either there is a free register location available
-      // in the given set, or one can be created.
-      // if true, the next call to getAvailLoc is guaranteed to produce a Register
-      // location (assuming the given set or the fields don't change).
-      bool hasFreePhys(std::set<Location> &FreeLocs);
-
-      // Returns whether the given register location is a physical
-      // register location.
-      bool isPhysRegLoc(int loc) const;
-
-      // getCumLocs - Get the maximum number of locations
-      // used by this scope and any of its children
-      unsigned getCumLocs(void) const;
-
-      // assignSpillOffset
-      void assignSpillOffset(unsigned spillOffset);
-
-    public:
-      explicit RAInfo(SPScope *S, unsigned availRegs);
+      RAInfo(SPScope *S, unsigned availRegs);
 
       // needsScopeSpill - Returns true if S0 must be spilled/restored
       // upon entry/exit of this SPScope.
@@ -280,14 +201,20 @@ namespace llvm {
       // and where is spill slots are
       void unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel);
 
+      // Unifies with the child, such that this RAInfo knows which registers it can use
+      // and where is spill slots are
       void unifyWithChild(const RAInfo &child);
+
       // How many spill slots this RAInfo needs.
       unsigned neededSpillLocs();
 
+    private:
+      class Impl;
+      // We use the PIMPL pattern to implement the private
+      // members of this instance.
+      spimpl::unique_impl_ptr<Impl> priv;
 
   };
-
-///////////////////////////////////////////////////////////////////////////////
 }
 
 #endif /* TARGET_PATMOS_SINGLEPATH_RAINFO_H_ */
