@@ -1256,11 +1256,12 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
 unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
                                     const MachineBasicBlock *MBB,
                                     bool getP0) {
-  optional<Location> opLoc = R.getUseLoc(MBB);
+  optional<std::tuple<RAInfo::LocType, unsigned>> opLoc = R.getUseLoc(MBB);
   if (opLoc.is_initialized()) {
-    Location loc = get(opLoc);
-    assert(loc.getLoc() < AvailPredRegs.size());
-    return AvailPredRegs[loc.getLoc()];
+    unsigned loc;
+    std::tie(std::ignore, loc) = get(opLoc);
+    assert(loc < AvailPredRegs.size());
+    return AvailPredRegs[loc];
   }
   return (getP0) ? Patmos::P0 : Patmos::NoRegister;
 }

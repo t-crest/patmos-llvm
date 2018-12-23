@@ -24,43 +24,20 @@
 #include "boost/optional.hpp"
 #include "PatmosSinglePathInfo.h"
 #include "spimpl.h"
-#include <sstream>
 
+using namespace std;
 using namespace boost;
 
 namespace llvm {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  // A class defining a predicate location in memory.
-  // A location is either a register or a stack spill slot, i.e. the 'type'.
-  // The 'idx' field specifie the index of the register or stack spill slot
-  // used by this location.
-  // E.g. Location{Register, 1} specifies that this location is the second
-  // register, while Location{Stack, 3} specifies this location is the
-  // fourth stack spill slot.
-  class Location {
-
-    public:
-      enum Type{Register, Stack};
-      friend bool operator<(const Location &, const Location &);
-
-      Location(const Location &o): type(o.type), loc(o.loc){}
-      Location(Type type, unsigned loc): type(type), loc(loc){}
-
-      const Type &getType() const { return type;}
-      const unsigned &getLoc() const { return loc;}
-
-    private:
-      Location::Type type;
-      unsigned loc;
-
-
-  };
-
   /// RAInfo - Class to hold register allocation information for a SPScope
   class RAInfo {
     public:
+
+      enum LocType{Register, Stack};
+
       // the SPScope this RAInfo belongs to
       const SPScope *Scope;
 
@@ -83,7 +60,7 @@ namespace llvm {
       /// getUseLoc - Get the use location, which is a register location,
       /// for the given MBB. If the MBB is not mapped to a location the empty
       /// option is returned.
-      optional<Location> getUseLoc(const MachineBasicBlock *MBB) const;
+      optional<tuple<LocType, unsigned>> getUseLoc(const MachineBasicBlock *MBB) const;
 
       /// getLoadLoc - Get the load location, which is a spill location,
       /// for the given MBB. Returns the empty option if the predicate does not need to be
@@ -121,6 +98,8 @@ namespace llvm {
       spimpl::unique_impl_ptr<Impl> priv;
 
   };
+
+
 }
 
 #endif /* TARGET_PATMOS_SINGLEPATH_RAINFO_H_ */

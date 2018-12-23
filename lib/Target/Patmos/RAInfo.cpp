@@ -15,6 +15,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
 
+#include <sstream>
+
 using namespace llvm;
 using namespace boost;
 
@@ -22,102 +24,127 @@ STATISTIC( SPNumPredicates, "Number of predicates for single-path code");
 
 ///////////////////////////////////////////////////////////////////////////////
 
-  /// LiveRange - Class to hold live range information for a predicate in
-  /// an RAInfo object.
-  /// A live range is a set of position, each of which is associated with a
-  /// basic block in the scope being described. The first position in the
-  /// range matches the first block in the scope. There is one more position
-  /// that there are blocks, so the last position is not associated with any block.
-  /// At any location, the predicate can be used and/or defined.
-  /// TODO:(Emad) what does it mean that a predicate is 'defined' at a position?
-  /// TODO:(Emad) can it be 'defined' in more than one position ? i think so, see PatmosSinglePathInfo.h::PredDefInfo
-  class LiveRange {
-  friend class RAInfo;
-  private:
+/// LiveRange - Class to hold live range information for a predicate in
+/// an RAInfo object.
+/// A live range is a set of position, each of which is associated with a
+/// basic block in the scope being described. The first position in the
+/// range matches the first block in the scope. There is one more position
+/// that there are blocks, so the last position is not associated with any block.
+/// At any location, the predicate can be used and/or defined.
+/// TODO:(Emad) what does it mean that a predicate is 'defined' at a position?
+/// TODO:(Emad) can it be 'defined' in more than one position ? i think so, see PatmosSinglePathInfo.h::PredDefInfo
+class LiveRange {
+friend class RAInfo;
+private:
 
-    // Where each predicate is used.
-    // The position is the index of the block in the scope
-    // except for the last one which doesn't have an associated block
-    BitVector uses;
+  // Where each predicate is used.
+  // The position is the index of the block in the scope
+  // except for the last one which doesn't have an associated block
+  BitVector uses;
 
-    // Where each predicate is defined.
-    // The position is the index of the block in the scope
-    // except for the last one which doesn't have an associated block
-    BitVector defs;
-  public:
-    // Add a use of the predicate associated with this range
-    // at the position given.
-    void addUse(long pos) { uses.set(pos); }
+  // Where each predicate is defined.
+  // The position is the index of the block in the scope
+  // except for the last one which doesn't have an associated block
+  BitVector defs;
+public:
+  // Add a use of the predicate associated with this range
+  // at the position given.
+  void addUse(long pos) { uses.set(pos); }
 
-    // Add a use of the predicate associated with this range
-    // at the position given.
-    void addDef(long pos) { defs.set(pos); }
+  // Add a use of the predicate associated with this range
+  // at the position given.
+  void addDef(long pos) { defs.set(pos); }
 
-    /// Constructs a new live range for a scope.
-    /// the number of points in the range is 1 more than the number of blocks.
-    LiveRange(SPScope *S){
-      int range = S->getBlocks().size()+1;
-      uses = BitVector(range);
-      defs = BitVector(range);
+  /// Constructs a new live range for a scope.
+  /// the number of points in the range is 1 more than the number of blocks.
+  LiveRange(SPScope *S){
+    int range = S->getBlocks().size()+1;
+    uses = BitVector(range);
+    defs = BitVector(range);
+  }
+  bool isUse(long pos) const { return uses.test(pos); }
+  bool isDef(long pos) const { return defs.test(pos); }
+  bool lastUse(long pos) const {
+    // test whether shifting out up to this use will result in an empty
+    // bitvector
+    // return (uses >> (pos+1LL)) == 0;
+    for (unsigned i = pos+1; i < uses.size(); i++) {
+      if (uses.test(i)) return false;
     }
-    bool isUse(long pos) const { return uses.test(pos); }
-    bool isDef(long pos) const { return defs.test(pos); }
-    bool lastUse(long pos) const {
-      // test whether shifting out up to this use will result in an empty
-      // bitvector
-      // return (uses >> (pos+1LL)) == 0;
-      for (unsigned i = pos+1; i < uses.size(); i++) {
-        if (uses.test(i)) return false;
-      }
-      return true;
+    return true;
+  }
+  bool hasDefBefore(long pos) const {
+    // 00000100000 pos
+    // 00000011111 before
+    // -> any common?
+    //return (defs & ((1LL << pos)-1LL)) != 0;
+    unsigned i = pos;
+    while (i-- > 0) {
+      if (defs.test(i)) return true;
     }
-    bool hasDefBefore(long pos) const {
-      // 00000100000 pos
-      // 00000011111 before
-      // -> any common?
-      //return (defs & ((1LL << pos)-1LL)) != 0;
-      unsigned i = pos;
-      while (i-- > 0) {
-        if (defs.test(i)) return true;
-      }
-      return false;
-    }
+    return false;
+  }
 
-    // check if there is any use before (and including) pos
-    bool anyUseBefore(long pos) const {
-      //return (uses & ((1LL << (pos+1LL))-1LL)) != 0;
-      for (unsigned i = 0; i <= pos; i++) {
-        if (uses.test(i)) return true;
-      }
-      return false;
+  // check if there is any use before (and including) pos
+  bool anyUseBefore(long pos) const {
+    //return (uses & ((1LL << (pos+1LL))-1LL)) != 0;
+    for (unsigned i = 0; i <= pos; i++) {
+      if (uses.test(i)) return true;
     }
-    bool hasNextUseBefore(long pos, const LiveRange &other) const {
-      assert(uses.size() == other.uses.size());
-      // this   ....10000|...
-      // other ......1000|...   -> no
-      //                ^pos
-      for (unsigned i = pos; i < uses.size(); i++) {
-        if (other.uses.test(i)) break;
-        if (uses.test(i)) return true;
-      }
-      return false;
+    return false;
+  }
+  bool hasNextUseBefore(long pos, const LiveRange &other) const {
+    assert(uses.size() == other.uses.size());
+    // this   ....10000|...
+    // other ......1000|...   -> no
+    //                ^pos
+    for (unsigned i = pos; i < uses.size(); i++) {
+      if (other.uses.test(i)) break;
+      if (uses.test(i)) return true;
     }
-    std::string str(void) const {
-      std::stringbuf buf;
-      char kind[] = { '-', 'u', 'd', 'x' };
-      for (unsigned long i = 0; i < uses.size(); i++) {
-        int x = 0;
-        if (uses.test(i)) x += 1;
-        if (defs.test(i)) x += 2;
-        buf.sputc(kind[x]);
-      }
-      return buf.str();
+    return false;
+  }
+  std::string str(void) const {
+    std::stringbuf buf;
+    char kind[] = { '-', 'u', 'd', 'x' };
+    for (unsigned long i = 0; i < uses.size(); i++) {
+      int x = 0;
+      if (uses.test(i)) x += 1;
+      if (defs.test(i)) x += 2;
+      buf.sputc(kind[x]);
     }
-  };
+    return buf.str();
+  }
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool llvm::operator<(const Location&l, const Location &r){
+// A class defining a predicate location in memory.
+// A location is either a register or a stack spill slot, i.e. the 'type'.
+// The 'idx' field specifie the index of the register or stack spill slot
+// used by this location.
+// E.g. Location{Register, 1} specifies that this location is the second
+// register, while Location{Stack, 3} specifies this location is the
+// fourth stack spill slot.
+class Location {
+
+  public:
+    friend bool operator<(const Location &, const Location &);
+
+    Location(const Location &o): type(o.type), loc(o.loc){}
+    Location(RAInfo::LocType type, unsigned loc): type(type), loc(loc){}
+
+    const RAInfo::LocType &getType() const { return type;}
+    const unsigned &getLoc() const { return loc;}
+
+  private:
+    RAInfo::LocType type;
+    unsigned loc;
+
+
+};
+
+bool operator<(const Location&l, const Location &r){
   if( l.getType() == r.getType()){
     return l.getLoc() < r.getLoc();
   } else {
@@ -199,7 +226,7 @@ public:
 
     // create a new location
     return Location(
-        NumLocs < (AvailRegs) ? Location::Register : Location::Stack,
+        NumLocs < (AvailRegs) ? Register : Stack,
         NumLocs++
       );
   }
@@ -209,7 +236,7 @@ public:
   // if true, the next call to getAvailLoc is guaranteed to produce a Register
   // location (assuming the given set or the fields don't change).
   bool hasFreePhys(std::set<Location> &FreeLocs) {
-    return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Location::Register))
+    return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Register))
         || (NumLocs < (AvailRegs));
   }
 
@@ -299,7 +326,7 @@ public:
           Location &curUseLoc = findCurUseLoc->second;
           // if previous location was not a register, we have to allocate
           // a register and/or possibly spill
-          if ( curUseLoc.getType() != Location::Register ) {
+          if ( curUseLoc.getType() != Register ) {
             if (hasFreePhys(FreeLocs)) {
               UL.load = curUseLoc.getLoc();
 
@@ -318,7 +345,7 @@ public:
               for(unsigned j=0; j<LRs.size(); j++) {
                 // consider all physical registers in use
                 std::map<unsigned, Location>::iterator cj = curLocs.find(j);
-                if (cj != curLocs.end() && cj->second.getType() == Location::Register) {
+                if (cj != curLocs.end() && cj->second.getType() == Register) {
                   order.push_back(j);
                 }
               }
@@ -326,7 +353,7 @@ public:
                   FurthestNextUseComparator(*this,i));
               unsigned furthestPred = order.back();
               Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
-              assert( stackLoc.getType() == Location::Stack );
+              assert( stackLoc.getType() == Stack );
               if(stackLoc.getLoc() < (AvailRegs)){
                 errs() << __FILE__ << ":" << __LINE__ << ": stack location is not smaller than AvailRegs: " << stackLoc.getLoc();
                 abort();
@@ -484,13 +511,13 @@ bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
   return false;
 }
 
-optional<Location> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
+optional<std::tuple<RAInfo::LocType, unsigned>> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
   if (priv->UseLocs.count(MBB)) {
-    int loc = priv->UseLocs.at(MBB).loc + priv->Offset;
+    unsigned loc = priv->UseLocs.at(MBB).loc + priv->Offset;
     assert( loc < (int)(priv->AvailRegs) );
-    return optional<Location>{Location(Location::Register, loc)};
+    return make_optional(std::make_tuple(Register, loc));
   }
-  return optional<Location>{};
+  return none;
 }
 
 optional<unsigned> RAInfo::getLoadLoc(const MachineBasicBlock *MBB) const {
