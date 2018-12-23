@@ -79,7 +79,7 @@ public:
   void dump(void) const;
 
   /// Unifies with parent, such that this RAInfo knows which registers it can use
-  /// and where its spill slots are
+  /// and where its spill slots are.
   void unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel);
 
   /// Unifies with child, such that this RAInfo knows how many locations will
@@ -99,7 +99,7 @@ private:
   class Impl;
   /// We use the PIMPL pattern to implement the private
   /// members of this instance.
-  spimpl::unique_impl_ptr<Impl> priv;
+  spimpl::unique_impl_ptr<Impl> Priv;
 
 };
 }

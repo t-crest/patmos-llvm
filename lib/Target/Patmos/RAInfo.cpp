@@ -199,7 +199,7 @@ public:
 
   /// The index of the first stack spill slot this instance can use.
   /// The slots below the index are used by a parent scope.
-  unsigned FirstUsableStackSlot; // Starting offset for this scope's spill locations
+  unsigned FirstUsableStackSlot;
 
   // Comparator for predicates, furthest next use;
   // used in assignLocations()
@@ -212,14 +212,20 @@ public:
     FurthestNextUseComparator(RAInfo::Impl &ri, int p) : RI(ri), pos(p) {}
   };
 
-  // UseLoc - Record to hold predicate use information for a MBB
-  // - loc:   which location to use (a register)
-  // - spill: where to spill loc first (spill location)
-  // - load:  where to load loc before using it (spill location)
+  /// Record to hold predicate use information for a MBB
+  /// TODO:(Emad) is this about the predicate the block uses?
   struct UseLoc {
-    int loc, load, spill;
+    /// Which location to use (a register)
+    int loc;
+
+    /// Where to load loc from before using it (a stack location)
+    int load;
+
+    /// Where to spill loc to (a stack location)
+    int spill;
     UseLoc(void) : loc(-1), load(-1), spill(-1) {}
   };
+
   // Map of MBB -> UseLoc, for an SPScope
   map<const MachineBasicBlock*, UseLoc> UseLocs;
 
@@ -254,7 +260,7 @@ public:
   // in the given set, or one can be created.
   // if true, the next call to getAvailLoc is guaranteed to produce a Register
   // location (assuming the given set or the fields don't change).
-  bool hasFreePhys(set<Location> &FreeLocs) {
+  bool hasFreeRegister(set<Location> &FreeLocs) {
     return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Register))
         || (NumLocs < (MaxRegs));
   }
@@ -316,82 +322,18 @@ public:
       // for the top-level entry of a single-path root,
       // we don't need to assign a location, as we will use p0
       if (!(usePred==0 && Pub.Scope->isRootTopLevel())) {
-        UseLoc UL;
+
 
         map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
 
         assert(MBB == Pub.Scope->getHeader() || i>0);
 
-        if (MBB != Pub.Scope->getHeader()) {
-          assert(findCurUseLoc != curLocs.end());
-
-          // each use must be preceded by a location assignment
-          Location &curUseLoc = findCurUseLoc->second;
-          // if previous location was not a register, we have to allocate
-          // a register and/or possibly spill
-          if ( curUseLoc.getType() != Register ) {
-            if (hasFreePhys(FreeLocs)) {
-              UL.load = curUseLoc.getLoc();
-
-              // reassign, but
-              // DO NOT free stack locations again, i.e. not freeLoc(curUseLoc);
-              curUseLoc = getAvailLoc(FreeLocs);
-              UL.loc = curUseLoc.getLoc(); // gets a register
-              assert(UL.load > (int)MaxRegs);
-              assert(UL.loc > (int)MaxRegs);
-            } else {
-              // spill and reassign
-              // order predicates wrt furthest next use
-              vector<unsigned> order;
-              for(unsigned j=0; j<LRs.size(); j++) {
-                // consider all physical registers in use
-                map<unsigned, Location>::iterator cj = curLocs.find(j);
-                if (cj != curLocs.end() && cj->second.getType() == Register) {
-                  order.push_back(j);
-                }
-              }
-              sort(order.begin(), order.end(),
-                  FurthestNextUseComparator(*this,i));
-              unsigned furthestPred = order.back();
-              Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
-              assert( stackLoc.getType() == Stack );
-              assert( stackLoc.getLoc() >= MaxRegs );
-
-              UL.load  = curUseLoc.getLoc();
-
-              map<unsigned, Location>::iterator findFurthest = curLocs.find(furthestPred);
-              assert(findFurthest != curLocs.end());
-              UL.loc   = findFurthest->second.getLoc();
-
-              // differentiate between already used and not yet used
-              if (LRs[furthestPred].anyUseBefore(i)) {
-                UL.spill = stackLoc.getLoc();
-              } else {
-                // if it has not been used, we change the initial
-                // definition location
-                DefLocs[furthestPred] = make_optional(stackLoc);
-              }
-              findCurUseLoc = findFurthest;
-              findFurthest->second = stackLoc;
-            }
-          } else {
-            // everything stays as is
-            UL.loc = curUseLoc.getLoc();
-          }
+        if (!Pub.Scope->isHeader(MBB)) {
+          UseLocs[MBB] = calculateNotHeaderUseLoc(i, findCurUseLoc, curLocs, FreeLocs);
         } else {
-          assert(usePred == 0);
           // we get a loc for the header predicate
-          Location loc = getAvailLoc(FreeLocs);
-          UL.loc = loc.getLoc();
-          DefLocs[0] = make_optional(loc);
-          map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
-          if(curLoc0 == curLocs.begin()){
-            curLocs.insert(make_pair(0, loc));
-          }else{
-            curLoc0->second = loc;
-          }
-          assert(UL.loc == 0);
-        }
+          UseLocs[MBB] = calculateHeaderUseLoc(FreeLocs, curLocs);
+        };
 
         //DEBUG( dbgs() << "new " << curUseLoc << ". ");
 
@@ -407,8 +349,7 @@ public:
           curLocs.erase(findCurUseLoc);
         }
 
-        // store info
-        UseLocs[MBB] = UL;
+
       }
 
       // (3) handle definitions in this basic block.
@@ -464,12 +405,91 @@ public:
     }
   }
 
+  /// Converts a register index into a global index that takes parent
+  /// into account.
   unsigned unifyRegister(unsigned idx){
     return idx + FirstUsableReg;
   }
 
+  /// Converts a Stack spill slot index into a global index that takes parent
+  /// into account.
   unsigned unifyStack(unsigned idx){
     return (idx - MaxRegs) + FirstUsableStackSlot;
+  }
+
+private:
+  UseLoc calculateNotHeaderUseLoc(unsigned blockIndex,
+      map<unsigned, Location>::iterator& findCurUseLoc,
+      map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
+    UseLoc UL;
+    assert(findCurUseLoc != curLocs.end());
+    // each use must be preceded by a location assignment
+    Location& curUseLoc = findCurUseLoc->second;
+    // if previous location was not a register, we have to allocate
+    // a register and/or possibly spill
+    if (curUseLoc.getType() != Register) {
+      if (hasFreeRegister(FreeLocs)) {
+        UL.load = curUseLoc.getLoc();
+        // reassign, but
+        // DO NOT free stack locations again, i.e. not freeLoc(curUseLoc);
+        curUseLoc = getAvailLoc(FreeLocs);
+        UL.loc = curUseLoc.getLoc(); // gets a register
+        assert(UL.load > (int )MaxRegs);
+        assert(UL.loc > (int )MaxRegs);
+      } else {
+        // spill and reassign
+        // order predicates wrt furthest next use
+        vector<unsigned> order;
+        for (unsigned j = 0; j < LRs.size(); j++) {
+          // consider all physical registers in use
+          map<unsigned, Location>::iterator cj = curLocs.find(j);
+          if (cj != curLocs.end() && cj->second.getType() == Register) {
+            order.push_back(j);
+          }
+        }
+        sort(order.begin(), order.end(),
+            FurthestNextUseComparator(*this, blockIndex));
+        unsigned furthestPred = order.back();
+        Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
+        assert(stackLoc.getType() == Stack);
+        assert(stackLoc.getLoc() >= MaxRegs);
+        UL.load = curUseLoc.getLoc();
+        map<unsigned, Location>::iterator findFurthest = curLocs.find(
+            furthestPred);
+        assert(findFurthest != curLocs.end());
+        UL.loc = findFurthest->second.getLoc();
+        // differentiate between already used and not yet used
+        if (LRs[furthestPred].anyUseBefore(blockIndex)) {
+          UL.spill = stackLoc.getLoc();
+        } else {
+          // if it has not been used, we change the initial
+          // definition location
+          DefLocs[furthestPred] = make_optional(stackLoc);
+        }
+        findFurthest->second = stackLoc;
+        findCurUseLoc = findFurthest;
+      }
+    } else {
+      // everything stays as is
+      UL.loc = curUseLoc.getLoc();
+    }
+    return UL;
+  }
+
+  UseLoc calculateHeaderUseLoc(set<Location>& FreeLocs, map<unsigned, Location>& curLocs) {
+    UseLoc UL;
+    // we get a loc for the header predicate
+    Location loc = getAvailLoc(FreeLocs);
+    UL.loc = loc.getLoc();
+    DefLocs[0] = make_optional(loc);
+    map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
+    if(curLoc0 == curLocs.begin()){
+      curLocs.insert(make_pair(0, loc));
+    }else{
+      curLoc0->second = loc;
+    }
+    assert(UL.loc == 0);
+    return UL;
   }
 };
 
@@ -478,11 +498,11 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 
 RAInfo::RAInfo(SPScope *S, unsigned availRegs) :
-  Scope(S), priv(spimpl::make_unique_impl<Impl>(this, S, availRegs))
+  Scope(S), Priv(spimpl::make_unique_impl<Impl>(this, S, availRegs))
   {}
 
 bool RAInfo::needsScopeSpill(void) const {
-  return priv->NeedsScopeSpill;
+  return Priv->NeedsScopeSpill;
 }
 
 bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
@@ -491,59 +511,59 @@ bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
 
   for(unsigned i=0; i< Scope->getBlocks().size(); i++) {
     if (Scope->getBlocks()[i] == MBB) {
-      return !priv->LRs[pred].hasDefBefore(i);
+      return !Priv->LRs[pred].hasDefBefore(i);
     }
   }
   return false;
 }
 
 bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
-  if (priv->UseLocs.count(MBB)) {
-    const Impl::UseLoc &ul = priv->UseLocs.at(MBB);
+  if (Priv->UseLocs.count(MBB)) {
+    const Impl::UseLoc &ul = Priv->UseLocs.at(MBB);
     return (ul.spill!=-1) || (ul.load!=-1);
   }
   return false;
 }
 
 optional<unsigned> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
-  if (priv->UseLocs.count(MBB)) {
-    unsigned loc = priv->unifyRegister(priv->UseLocs.at(MBB).loc);
-    assert( loc < priv->MaxRegs );
+  if (Priv->UseLocs.count(MBB)) {
+    unsigned loc = Priv->unifyRegister(Priv->UseLocs.at(MBB).loc);
+    assert( loc < Priv->MaxRegs );
     return make_optional(loc);
   }
   return none;
 }
 
 optional<unsigned> RAInfo::getLoadLoc(const MachineBasicBlock *MBB) const {
-  if (priv->UseLocs.count(MBB)) {
-    int loc = priv->UseLocs.at(MBB).load;
+  if (Priv->UseLocs.count(MBB)) {
+    int loc = Priv->UseLocs.at(MBB).load;
     if (loc != -1) {
-      assert( loc >= (int)(priv->MaxRegs) );
-      return make_optional(priv->unifyStack(loc));
+      assert( loc >= (int)(Priv->MaxRegs) );
+      return make_optional(Priv->unifyStack(loc));
     }
   }
   return none;
 }
 
 optional<unsigned> RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
-  if (priv->UseLocs.count(MBB)) {
-    int loc = priv->UseLocs.at(MBB).spill;
+  if (Priv->UseLocs.count(MBB)) {
+    int loc = Priv->UseLocs.at(MBB).spill;
     if (loc != -1) {
-      assert( loc >= (int)(priv->MaxRegs) );
-      return make_optional(priv->unifyStack(loc));
+      assert( loc >= (int)(Priv->MaxRegs) );
+      return make_optional(Priv->unifyStack(loc));
     }
   }
   return none;
 }
 
 tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
-  optional<Location> locOpt = priv->DefLocs[pred];
+  optional<Location> locOpt = Priv->DefLocs[pred];
   assert(locOpt.is_initialized());
   Location loc = get(locOpt);
   if( loc.getType() == RAInfo::Register){
-    return make_tuple(loc.getType(), priv->unifyRegister(loc.getLoc()));
+    return make_tuple(loc.getType(), Priv->unifyRegister(loc.getLoc()));
   }else{
-    return make_tuple(loc.getType(), priv->unifyStack(loc.getLoc()));
+    return make_tuple(loc.getType(), Priv->unifyStack(loc.getLoc()));
   }
 }
 
@@ -554,32 +574,32 @@ void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool t
     // We can avoid a spill if the total number of locations
     // used by the parent, this instance, and any child is less
     // than/equal to the number of registers available to the function.
-    if ( !topLevel && parent.priv->NumLocs + priv->getCumLocs() <= (priv->MaxRegs) ) {
+    if ( !topLevel && parent.Priv->NumLocs + Priv->getCumLocs() <= (Priv->MaxRegs) ) {
 
       // Compute the first register not used by an ancestor.
-      priv->FirstUsableReg = parent.priv->FirstUsableReg + parent.priv->NumLocs;
+      Priv->FirstUsableReg = parent.Priv->FirstUsableReg + parent.Priv->NumLocs;
 
       // If the total number of locations the parent, myself, and my children need
       // are less than/equal to the number of available registers
       // we do not have to spill any predicates.
-      priv->NeedsScopeSpill = false;
+      Priv->NeedsScopeSpill = false;
     }
   #endif
 
-  if (priv->NumLocs > priv->MaxRegs) {
-    priv->FirstUsableStackSlot = parentSpillLocCnt;
+  if (Priv->NumLocs > Priv->MaxRegs) {
+    Priv->FirstUsableStackSlot = parentSpillLocCnt;
   }
 }
 
 void RAInfo::unifyWithChild(const RAInfo &child){
-  priv->ChildrenMaxCumLocs = max(child.priv->getCumLocs(), priv->ChildrenMaxCumLocs);
+  Priv->ChildrenMaxCumLocs = max(child.Priv->getCumLocs(), Priv->ChildrenMaxCumLocs);
 }
 
 unsigned RAInfo::neededSpillLocs(){
-  if(priv->NumLocs > (priv->MaxRegs)) {
+  if(Priv->NumLocs > (Priv->MaxRegs)) {
     return 0;
   }else{
-    return priv->NumLocs - (priv->MaxRegs);
+    return Priv->NumLocs - (Priv->MaxRegs);
   }
 }
 
@@ -587,8 +607,8 @@ void RAInfo::dump() const {
   dbgs() << "[MBB#"     << Scope->getHeader()->getNumber()
          <<  "] depth=" << Scope->getDepth() << "\n";
 
-  for(unsigned i=0; i<priv->LRs.size(); i++) {
-    const LiveRange &LR = priv->LRs[i];
+  for(unsigned i=0; i<Priv->LRs.size(); i++) {
+    const LiveRange &LR = Priv->LRs[i];
     dbgs() << "  LR(p" << i << ") = [" << LR.str() << "]\n";
   }
 
@@ -596,8 +616,8 @@ void RAInfo::dump() const {
     MachineBasicBlock *MBB = Scope->getBlocks()[i];
 
     dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
-    if (priv->UseLocs.count(MBB)) {
-      const Impl::UseLoc &UL = priv->UseLocs.at(MBB);
+    if (Priv->UseLocs.count(MBB)) {
+      const Impl::UseLoc &UL = Priv->UseLocs.at(MBB);
       dbgs() << "  loc=" << UL.loc << " load=" << UL.load
           << " spill=" << UL.spill;
     }
@@ -605,20 +625,20 @@ void RAInfo::dump() const {
   }
 
   dbgs() << "  DefLocs:     ";
-  for (unsigned j=0; j<priv->DefLocs.size(); j++) {
+  for (unsigned j=0; j<Priv->DefLocs.size(); j++) {
     dbgs() << " p" << j << "=";
-    if( priv->DefLocs[j].is_initialized() ) {
-      dbgs() << "optional(" << get(priv->DefLocs[j]) << ")";
+    if( Priv->DefLocs[j].is_initialized() ) {
+      dbgs() << "optional(" << get(Priv->DefLocs[j]) << ")";
     }else{
       dbgs() << "none";
     }
   }
   dbgs() << "\n";
 
-  dbgs() << "  NumLocs:      " << priv->NumLocs << "\n"
-            "  CumLocs:      " << priv->getCumLocs() << "\n"
-            "  Offset:       " << priv->FirstUsableReg  << "\n"
-            "  SpillOffset:  " << priv->FirstUsableStackSlot  << "\n";
+  dbgs() << "  NumLocs:      " << Priv->NumLocs << "\n"
+            "  CumLocs:      " << Priv->getCumLocs() << "\n"
+            "  Offset:       " << Priv->FirstUsableReg  << "\n"
+            "  SpillOffset:  " << Priv->FirstUsableStackSlot  << "\n";
 }
 
 std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *PSPI, unsigned AvailPredRegs){
