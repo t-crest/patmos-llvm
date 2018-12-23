@@ -104,8 +104,8 @@ public:
     }
     return false;
   }
-  std::string str(void) const {
-    std::stringbuf buf;
+  string str(void) const {
+    stringbuf buf;
     char kind[] = { '-', 'u', 'd', 'x' };
     for (unsigned long i = 0; i < uses.size(); i++) {
       int x = 0;
@@ -161,10 +161,9 @@ public:
   RAInfo &Pub;
 
   Impl(RAInfo *pub, SPScope *S, unsigned availRegs):
-    Pub(*pub), AvailRegs(availRegs), NeedsScopeSpill(true),
-    LRs(S->getNumPredicates(), LiveRange(S)),
-    DefLocs(S->getNumPredicates(),-1), NumLocs(0),
-    ChildrenMaxCumLocs(0), Offset(0), SpillOffset(0)
+    Pub(*pub), AvailRegs(availRegs), LRs(S->getNumPredicates(), LiveRange(S)),
+    DefLocs(S->getNumPredicates(),-1), NumLocs(0), ChildrenMaxCumLocs(0),
+    Offset(0), SpillOffset(0),NeedsScopeSpill(true)
   {
     createLiveRanges();
     assignLocations();
@@ -175,12 +174,12 @@ public:
 
   // The live ranges of predicates.
   // Given a predicate x, then its live range is LRs[x]
-  std::vector<LiveRange> LRs;
+  vector<LiveRange> LRs;
 
   // The definition location of each predicate.
   // Given the predicate x, its definition is pimpl->DefLocs[x].
   // TODO:(Emad) what does the int mean? block index in scope? what about when its -1?
-  std::vector<int> DefLocs;
+  vector<int> DefLocs;
 
   // The total number of predicate locations used by this instance.
   unsigned NumLocs;
@@ -211,15 +210,15 @@ public:
     UseLoc(void) : loc(-1), load(-1), spill(-1) {}
   };
   // Map of MBB -> UseLoc, for an SPScope
-  std::map<const MachineBasicBlock*, UseLoc> UseLocs;
+  map<const MachineBasicBlock*, UseLoc> UseLocs;
 
   bool NeedsScopeSpill;
 
   // Returns the first available location in the given set, removing it from the set.
   // If the set is empty, a new Location is created and returned.
-  Location getAvailLoc(std::set<Location> &FreeLocs) {
+  Location getAvailLoc(set<Location> &FreeLocs) {
     if (!FreeLocs.empty()) {
-      std::set<Location>::iterator it = FreeLocs.begin();
+      set<Location>::iterator it = FreeLocs.begin();
       FreeLocs.erase(it);
       return *it;
     }
@@ -235,7 +234,7 @@ public:
   // in the given set, or one can be created.
   // if true, the next call to getAvailLoc is guaranteed to produce a Register
   // location (assuming the given set or the fields don't change).
-  bool hasFreePhys(std::set<Location> &FreeLocs) {
+  bool hasFreePhys(set<Location> &FreeLocs) {
     return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Register))
         || (NumLocs < (AvailRegs));
   }
@@ -267,8 +266,8 @@ public:
     for (unsigned i=0, e=Pub.Scope->getBlocks().size(); i<e; i++) {
       MachineBasicBlock *MBB = Pub.Scope->getBlocks()[i];
       // insert use
-      const std::vector<unsigned> *predUses = Pub.Scope->getPredUse(MBB);
-      std::for_each(predUses->begin(), predUses->end(), [&](unsigned p){
+      const vector<unsigned> *predUses = Pub.Scope->getPredUse(MBB);
+      for_each(predUses->begin(), predUses->end(), [&](unsigned p){
         LRs[p].addUse(i);
       });
       // insert defs
@@ -294,10 +293,10 @@ public:
                  << Pub.Scope->getHeader()->getNumber() << "]\n");
     SPNumPredicates += Pub.Scope->getNumPredicates(); // STATISTIC
 
-    std::set<Location> FreeLocs;
+    set<Location> FreeLocs;
 
     // map to keep track of locations of predicates during the scan
-    std::map<unsigned, Location> curLocs;
+    map<unsigned, Location> curLocs;
 
     for (unsigned i=0, e=Pub.Scope->getBlocks().size(); i<e; i++) {
       MachineBasicBlock *MBB = Pub.Scope->getBlocks()[i];
@@ -313,16 +312,14 @@ public:
       if (!(usePred==0 && Pub.Scope->isRootTopLevel())) {
         UseLoc UL;
 
-        std::map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
+        map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
 
         assert(MBB == Pub.Scope->getHeader() || i>0);
 
         if (MBB != Pub.Scope->getHeader()) {
+          assert(findCurUseLoc != curLocs.end());
+
           // each use must be preceded by a location assignment
-          if (findCurUseLoc == curLocs.end()){
-            errs() << __FILE__ <<":" << __LINE__ << "curLocs does not map predicate: " << usePred;
-            abort();
-          }
           Location &curUseLoc = findCurUseLoc->second;
           // if previous location was not a register, we have to allocate
           // a register and/or possibly spill
@@ -334,38 +331,30 @@ public:
               // DO NOT free stack locations again, i.e. not freeLoc(curUseLoc);
               curUseLoc = getAvailLoc(FreeLocs);
               UL.loc = curUseLoc.getLoc(); // gets a register
-              if((UL.load < (int)(AvailRegs)) || (UL.loc > (int)(AvailRegs))){
-                errs() << __FILE__ <<":" << __LINE__ << " UL has wrong values: load(" << UL.load << "), loc(" << UL.loc << "), AvailRegs(" << (AvailRegs) << ")\n";
-                abort();
-              }
+              assert(UL.load > (int)AvailRegs);
+              assert(UL.loc > (int)AvailRegs);
             } else {
               // spill and reassign
               // order predicates wrt furthest next use
-              std::vector<unsigned> order;
+              vector<unsigned> order;
               for(unsigned j=0; j<LRs.size(); j++) {
                 // consider all physical registers in use
-                std::map<unsigned, Location>::iterator cj = curLocs.find(j);
+                map<unsigned, Location>::iterator cj = curLocs.find(j);
                 if (cj != curLocs.end() && cj->second.getType() == Register) {
                   order.push_back(j);
                 }
               }
-              std::sort(order.begin(), order.end(),
+              sort(order.begin(), order.end(),
                   FurthestNextUseComparator(*this,i));
               unsigned furthestPred = order.back();
               Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
               assert( stackLoc.getType() == Stack );
-              if(stackLoc.getLoc() < (AvailRegs)){
-                errs() << __FILE__ << ":" << __LINE__ << ": stack location is not smaller than AvailRegs: " << stackLoc.getLoc();
-                abort();
-              }
+              assert( stackLoc.getLoc() >= (int)AvailRegs );
 
               UL.load  = curUseLoc.getLoc();
 
-              std::map<unsigned, Location>::iterator findFurthest = curLocs.find(furthestPred);
-              if(findFurthest == curLocs.end()){
-                errs() << __FILE__ << ":" << __LINE__ << " Furthest predicate not mapped: " << furthestPred;
-                abort();
-              }
+              map<unsigned, Location>::iterator findFurthest = curLocs.find(furthestPred);
+              assert(findFurthest != curLocs.end());
               UL.loc   = findFurthest->second.getLoc();
 
               // differentiate between already used and not yet used
@@ -388,9 +377,9 @@ public:
           // we get a loc for the header predicate
           Location loc = getAvailLoc(FreeLocs);
           DefLocs[0] = UL.loc = loc.getLoc();
-          std::map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
+          map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
           if(curLoc0 == curLocs.begin()){
-            curLocs.insert(std::make_pair(0, loc));
+            curLocs.insert(make_pair(0, loc));
           }else{
             curLoc0->second = loc;
           }
@@ -402,10 +391,7 @@ public:
         // (2) retire locations
         if (LRs[usePred].lastUse(i)) {
           DEBUG(dbgs() << "retire. ");
-          if (findCurUseLoc == curLocs.end()){
-            errs() << __FILE__ <<":" << __LINE__ << "curLocs does not map predicate: " << usePred << "\n";
-            abort();
-          }
+          assert(findCurUseLoc != curLocs.end());
           Location &curUseLoc = findCurUseLoc->second;
 
           // free location, also removing it from the current one is use
@@ -423,7 +409,7 @@ public:
       //     assign new ones in nearest-next-use order
       const SPScope::PredDefInfo *DI = Pub.Scope->getDefInfo(MBB);
       if (DI) {
-        std::vector<unsigned> order;
+        vector<unsigned> order;
         for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
             pi != pe; ++pi) {
           int r = pi->first;
@@ -432,24 +418,21 @@ public:
             order.push_back(r);
           }
         }
-        std::sort(order.begin(), order.end(),
+        sort(order.begin(), order.end(),
             FurthestNextUseComparator(*this,i));
         // nearest use is in front
         for (unsigned j=0; j<order.size(); j++) {
           unsigned pred = order[j];
           Location l = getAvailLoc(FreeLocs);
-          std::map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(pred);
+          map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(pred);
           if(findCurUseLoc == curLocs.end()){
-            curLocs.insert(std::make_pair(pred, l));
+            curLocs.insert(make_pair(pred, l));
           }else{
             findCurUseLoc->second = l;
           }
           DefLocs[pred] = l.getLoc();
 
-          if(curLocs.find(pred)->second.getLoc() != DefLocs[pred]){
-            errs() << __FILE__ <<":" << __LINE__ << "\nLocation not equal to definition: " << curLocs.find(pred)->second.getLoc() << " != "<< DefLocs[pred] << "\n";
-            abort();
-          }
+          assert(curLocs.find(pred)->second.getLoc() == DefLocs[pred]);
 
           DEBUG( dbgs() << "def " << pred << " in loc "
                         << DefLocs[pred] << ", ");
@@ -466,11 +449,8 @@ public:
     // generated in LinearizeWalker::exitSubscope().
     if (!Pub.Scope->isTopLevel()) {
       UseLoc &ul = UseLocs[Pub.Scope->getHeader()];
-      std::map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(0);
-      if(findCurUseLoc == curLocs.end()){
-        errs() << __FILE__ <<":" << __LINE__ << "curLocs does not map predicate: 0";
-        abort();
-      }
+      map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(0);
+      assert(findCurUseLoc != curLocs.end());
       if (ul.loc != (int)(findCurUseLoc->second.getLoc())) {
         ul.load = findCurUseLoc->second.getLoc();
       }
@@ -511,11 +491,11 @@ bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
   return false;
 }
 
-optional<std::tuple<RAInfo::LocType, unsigned>> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
+optional<tuple<RAInfo::LocType, unsigned>> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
   if (priv->UseLocs.count(MBB)) {
     unsigned loc = priv->UseLocs.at(MBB).loc + priv->Offset;
     assert( loc < (int)(priv->AvailRegs) );
-    return make_optional(std::make_tuple(Register, loc));
+    return make_optional(make_tuple(Register, loc));
   }
   return none;
 }
@@ -542,7 +522,7 @@ int RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
   return -1;
 }
 
-std::tuple<unsigned, bool> RAInfo::getDefLoc(unsigned pred) const {
+tuple<unsigned, bool> RAInfo::getDefLoc(unsigned pred) const {
   int dloc = priv->DefLocs[pred];
   assert(dloc != -1);
   bool isreg = priv->isPhysRegLoc(dloc);
@@ -552,7 +532,7 @@ std::tuple<unsigned, bool> RAInfo::getDefLoc(unsigned pred) const {
   } else {
     loc = (dloc - (priv->AvailRegs)) + priv->SpillOffset;
   }
-  return std::make_tuple(loc, isreg);
+  return make_tuple(loc, isreg);
 }
 
 void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel){
@@ -576,7 +556,7 @@ void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool t
 }
 
 void RAInfo::unifyWithChild(const RAInfo &child){
-  priv->ChildrenMaxCumLocs = std::max(child.priv->getCumLocs(), priv->ChildrenMaxCumLocs);
+  priv->ChildrenMaxCumLocs = max(child.priv->getCumLocs(), priv->ChildrenMaxCumLocs);
 }
 
 unsigned RAInfo::neededSpillLocs(){

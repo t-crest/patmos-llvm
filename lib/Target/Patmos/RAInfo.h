@@ -75,7 +75,7 @@ namespace llvm {
       /// Returns the definition location for the given predicate (as the first element)
       /// and whether that location is a physical register (in the second element).
       ///
-      std::tuple<unsigned, bool> getDefLoc(unsigned pred) const;
+      tuple<unsigned, bool> getDefLoc(unsigned pred) const;
 
       // Dump this RAInfo to dbgs().
       void dump(void) const;
