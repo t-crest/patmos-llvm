@@ -21,6 +21,7 @@
 
 using namespace llvm;
 using namespace boost;
+using namespace std;
 
 STATISTIC( SPNumPredicates, "Number of predicates for single-path code");
 STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
@@ -135,6 +136,7 @@ class Location {
 
   public:
     friend bool operator<(const Location &, const Location &);
+    friend llvm::raw_ostream &operator<<(llvm::raw_ostream&, const Location &);
 
     Location(const Location &o): type(o.type), loc(o.loc){}
     Location(RAInfo::LocType type, unsigned loc): type(type), loc(loc){}
@@ -157,6 +159,11 @@ bool operator<(const Location&l, const Location &r){
   }
 }
 
+llvm::raw_ostream &operator<<(llvm::raw_ostream& os, const Location &m) {
+    os << "Location{" << (m.getType() == RAInfo::Register? "Register":"Stack") << m.getLoc() <<"}";
+    return os;
+}
+
 // The private implementation of RAInfo using the PIMPL pattern.
 class RAInfo::Impl {
 public:
@@ -165,35 +172,34 @@ public:
   // of the implementation)
   RAInfo &Pub;
 
-  Impl(RAInfo *pub, SPScope *S, unsigned availRegs):
-    Pub(*pub), AvailRegs(availRegs), LRs(S->getNumPredicates(), LiveRange(S)),
-    DefLocs(S->getNumPredicates(),-1), NumLocs(0), ChildrenMaxCumLocs(0),
-    Offset(0), SpillOffset(0),NeedsScopeSpill(true)
-  {
-    createLiveRanges();
-    assignLocations();
-  }
-
-  // Number of physically available registers for use by the Scope.
-  const unsigned AvailRegs;
+  /// Number of available registers for use by the function.
+  /// Not necessarily all of these registers are usable by the
+  /// scope associated with this instance, since the parent scope
+  /// may be using some of them.
+  /// See 'firstUsableReg'.
+  const unsigned MaxRegs;
 
   // The live ranges of predicates.
   // Given a predicate x, then its live range is LRs[x]
   vector<LiveRange> LRs;
 
   // The definition location of each predicate.
-  // Given the predicate x, its definition is pimpl->DefLocs[x].
-  // TODO:(Emad) what does the int mean? block index in scope? what about when its -1?
-  vector<int> DefLocs;
+  // Given the predicate x, its definition is DefLocs[x].
+  vector<optional<Location>> DefLocs;
 
   // The total number of predicate locations used by this instance.
   unsigned NumLocs;
 
-  // The maximum number of location used by any child
-  unsigned ChildrenMaxCumLocs,
-           Offset,  // If S0 does not need to be spilled around this scope,
-                    //   this is the offset to the available registers
-           SpillOffset; // Starting offset for this scope's spill locations
+  // The maximum number of location used by any child.
+  unsigned ChildrenMaxCumLocs;
+
+  /// The index of the first register this instance can use.
+  /// The registers below the index are used by a parent scope.
+  unsigned FirstUsableReg;
+
+  /// The index of the first stack spill slot this instance can use.
+  /// The slots below the index are used by a parent scope.
+  unsigned FirstUsableStackSlot; // Starting offset for this scope's spill locations
 
   // Comparator for predicates, furthest next use;
   // used in assignLocations()
@@ -219,6 +225,15 @@ public:
 
   bool NeedsScopeSpill;
 
+  Impl(RAInfo *pub, SPScope *S, unsigned availRegs):
+    Pub(*pub), MaxRegs(availRegs), LRs(S->getNumPredicates(), LiveRange(S)),
+    DefLocs(S->getNumPredicates(),none), NumLocs(0), ChildrenMaxCumLocs(0),
+    FirstUsableReg(0), FirstUsableStackSlot(0),NeedsScopeSpill(true)
+  {
+    createLiveRanges();
+    assignLocations();
+  }
+
   // Returns the first available location in the given set, removing it from the set.
   // If the set is empty, a new Location is created and returned.
   Location getAvailLoc(set<Location> &FreeLocs) {
@@ -230,7 +245,7 @@ public:
 
     // create a new location
     return Location(
-        NumLocs < (AvailRegs) ? Register : Stack,
+        NumLocs < (MaxRegs) ? Register : Stack,
         NumLocs++
       );
   }
@@ -241,26 +256,12 @@ public:
   // location (assuming the given set or the fields don't change).
   bool hasFreePhys(set<Location> &FreeLocs) {
     return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Register))
-        || (NumLocs < (AvailRegs));
-  }
-
-  // Returns whether the given register location is a physical
-  // register location.
-  bool isPhysRegLoc(int loc) const {
-    return loc < (int)(AvailRegs);
+        || (NumLocs < (MaxRegs));
   }
 
   // getCumLocs - Get the maximum number of locations
   // used by this scope and any of its children
   unsigned getCumLocs(void) const { return NumLocs + ChildrenMaxCumLocs; }
-
-  // assignSpillOffset
-  void assignSpillOffset(unsigned spillOffset) {
-    // assign the spill offset, increment
-    if (NumLocs > (AvailRegs)) {
-      this->SpillOffset = spillOffset;
-    }
-  }
 
   void createLiveRanges(void) {
     // create live range infomation for each predicate
@@ -336,8 +337,8 @@ public:
               // DO NOT free stack locations again, i.e. not freeLoc(curUseLoc);
               curUseLoc = getAvailLoc(FreeLocs);
               UL.loc = curUseLoc.getLoc(); // gets a register
-              assert(UL.load > (int)AvailRegs);
-              assert(UL.loc > (int)AvailRegs);
+              assert(UL.load > (int)MaxRegs);
+              assert(UL.loc > (int)MaxRegs);
             } else {
               // spill and reassign
               // order predicates wrt furthest next use
@@ -354,7 +355,7 @@ public:
               unsigned furthestPred = order.back();
               Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
               assert( stackLoc.getType() == Stack );
-              assert( stackLoc.getLoc() >= AvailRegs );
+              assert( stackLoc.getLoc() >= MaxRegs );
 
               UL.load  = curUseLoc.getLoc();
 
@@ -368,7 +369,7 @@ public:
               } else {
                 // if it has not been used, we change the initial
                 // definition location
-                DefLocs[furthestPred] = stackLoc.getLoc();
+                DefLocs[furthestPred] = make_optional(stackLoc);
               }
               findCurUseLoc = findFurthest;
               findFurthest->second = stackLoc;
@@ -381,7 +382,8 @@ public:
           assert(usePred == 0);
           // we get a loc for the header predicate
           Location loc = getAvailLoc(FreeLocs);
-          DefLocs[0] = UL.loc = loc.getLoc();
+          UL.loc = loc.getLoc();
+          DefLocs[0] = make_optional(loc);
           map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
           if(curLoc0 == curLocs.begin()){
             curLocs.insert(make_pair(0, loc));
@@ -435,12 +437,12 @@ public:
           }else{
             findCurUseLoc->second = l;
           }
-          DefLocs[pred] = l.getLoc();
+          DefLocs[pred] = make_optional(l);
 
-          assert((int)curLocs.find(pred)->second.getLoc() == DefLocs[pred]);
+          assert(curLocs.find(pred)->second.getLoc() == get(DefLocs[pred]).getLoc());
 
           DEBUG( dbgs() << "def " << pred << " in loc "
-                        << DefLocs[pred] << ", ");
+                        << get(DefLocs[pred]).getLoc() << ", ");
         }
       }
 
@@ -462,6 +464,13 @@ public:
     }
   }
 
+  unsigned unifyRegister(unsigned idx){
+    return idx + FirstUsableReg;
+  }
+
+  unsigned unifyStack(unsigned idx){
+    return (idx - MaxRegs) + FirstUsableStackSlot;
+  }
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -498,8 +507,8 @@ bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
 
 optional<unsigned> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
   if (priv->UseLocs.count(MBB)) {
-    unsigned loc = priv->UseLocs.at(MBB).loc + priv->Offset;
-    assert( loc < priv->AvailRegs );
+    unsigned loc = priv->unifyRegister(priv->UseLocs.at(MBB).loc);
+    assert( loc < priv->MaxRegs );
     return make_optional(loc);
   }
   return none;
@@ -509,47 +518,46 @@ optional<unsigned> RAInfo::getLoadLoc(const MachineBasicBlock *MBB) const {
   if (priv->UseLocs.count(MBB)) {
     int loc = priv->UseLocs.at(MBB).load;
     if (loc != -1) {
-      assert( loc >= (int)(priv->AvailRegs) );
-      return optional<unsigned>{(loc - (priv->AvailRegs)) + priv->SpillOffset};
+      assert( loc >= (int)(priv->MaxRegs) );
+      return make_optional(priv->unifyStack(loc));
     }
   }
-  return optional<unsigned>{};
+  return none;
 }
 
 optional<unsigned> RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
   if (priv->UseLocs.count(MBB)) {
     int loc = priv->UseLocs.at(MBB).spill;
     if (loc != -1) {
-      assert( loc >= (int)(priv->AvailRegs) );
-      return make_optional((loc - (priv->AvailRegs)) + priv->SpillOffset);
+      assert( loc >= (int)(priv->MaxRegs) );
+      return make_optional(priv->unifyStack(loc));
     }
   }
   return none;
 }
 
 tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
-  int dloc = priv->DefLocs[pred];
-  assert(dloc != -1);
-  bool isreg = priv->isPhysRegLoc(dloc);
-  unsigned loc;
-  if (isreg) {
-    loc = dloc + priv->Offset;
-  } else {
-    loc = (dloc - (priv->AvailRegs)) + priv->SpillOffset;
+  optional<Location> locOpt = priv->DefLocs[pred];
+  assert(locOpt.is_initialized());
+  Location loc = get(locOpt);
+  if( loc.getType() == RAInfo::Register){
+    return make_tuple(loc.getType(), priv->unifyRegister(loc.getLoc()));
+  }else{
+    return make_tuple(loc.getType(), priv->unifyStack(loc.getLoc()));
   }
-  return make_tuple(isreg? Register: Stack, loc);
 }
 
 void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel){
 
   // If we want to try to minimize the number of spills
   #ifdef NOSPILL_OPTIMIZATION
-    // check if we must spill the PRegs
-    // Parent.num + S.cum <= size  --> no spill!
-    if ( !topLevel && parent.priv->NumLocs + priv->getCumLocs() <= (priv->AvailRegs) ) {
+    // We can avoid a spill if the total number of locations
+    // used by the parent, this instance, and any child is less
+    // than/equal to the number of registers available to the function.
+    if ( !topLevel && parent.priv->NumLocs + priv->getCumLocs() <= (priv->MaxRegs) ) {
 
-      // compute offset, i.e. the first register not used by the parent.
-      priv->Offset = parent.priv->NumLocs + parent.priv->Offset;
+      // Compute the first register not used by an ancestor.
+      priv->FirstUsableReg = parent.priv->FirstUsableReg + parent.priv->NumLocs;
 
       // If the total number of locations the parent, myself, and my children need
       // are less than/equal to the number of available registers
@@ -557,7 +565,10 @@ void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool t
       priv->NeedsScopeSpill = false;
     }
   #endif
-  priv->assignSpillOffset(parentSpillLocCnt);
+
+  if (priv->NumLocs > priv->MaxRegs) {
+    priv->FirstUsableStackSlot = parentSpillLocCnt;
+  }
 }
 
 void RAInfo::unifyWithChild(const RAInfo &child){
@@ -565,10 +576,10 @@ void RAInfo::unifyWithChild(const RAInfo &child){
 }
 
 unsigned RAInfo::neededSpillLocs(){
-  if(priv->NumLocs > (priv->AvailRegs)) {
+  if(priv->NumLocs > (priv->MaxRegs)) {
     return 0;
   }else{
-    return priv->NumLocs - (priv->AvailRegs);
+    return priv->NumLocs - (priv->MaxRegs);
   }
 }
 
@@ -595,14 +606,19 @@ void RAInfo::dump() const {
 
   dbgs() << "  DefLocs:     ";
   for (unsigned j=0; j<priv->DefLocs.size(); j++) {
-    dbgs() << " p" << j << "=" << priv->DefLocs[j];
+    dbgs() << " p" << j << "=";
+    if( priv->DefLocs[j].is_initialized() ) {
+      dbgs() << "optional(" << get(priv->DefLocs[j]) << ")";
+    }else{
+      dbgs() << "none";
+    }
   }
   dbgs() << "\n";
 
   dbgs() << "  NumLocs:      " << priv->NumLocs << "\n"
             "  CumLocs:      " << priv->getCumLocs() << "\n"
-            "  Offset:       " << priv->Offset  << "\n"
-            "  SpillOffset:  " << priv->SpillOffset  << "\n";
+            "  Offset:       " << priv->FirstUsableReg  << "\n"
+            "  SpillOffset:  " << priv->FirstUsableStackSlot  << "\n";
 }
 
 std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *PSPI, unsigned AvailPredRegs){

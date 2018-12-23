@@ -25,9 +25,6 @@
 #include "PatmosSinglePathInfo.h"
 #include "spimpl.h"
 
-using namespace std;
-using namespace boost;
-
 namespace llvm {
 
 /// RAInfo - Class to hold register allocation information for a SPScope
@@ -61,22 +58,22 @@ public:
   /// Get the use location, which is a register location,
   /// for the given MBB. If the MBB is not mapped to a register location the empty
   /// option is returned.
-  optional<unsigned> getUseLoc(const MachineBasicBlock *MBB) const;
+  boost::optional<unsigned> getUseLoc(const MachineBasicBlock *MBB) const;
 
   /// Get the load location, which is a spill location,
   /// for the given MBB. Returns the empty option if the predicate does not need to be
   /// loaded from a spill slot.
-  optional<unsigned> getLoadLoc(const MachineBasicBlock *MBB) const;
+  boost::optional<unsigned> getLoadLoc(const MachineBasicBlock *MBB) const;
 
   /// Get the spill location, i.e. the location where the use
   /// register has to be spilled first, for the given MBB.
   /// Returns the empty option if it does not need to be spilled.
-  optional<unsigned> getSpillLoc(const MachineBasicBlock *MBB) const;
+  boost::optional<unsigned> getSpillLoc(const MachineBasicBlock *MBB) const;
 
   /// Returns the definition location for the given predicate.
   /// The first element is the type of the location (Register/Stack).
   /// The second element is the index of the location within the type.
-  tuple<LocType, unsigned> getDefLoc(unsigned pred) const;
+  std::tuple<LocType, unsigned> getDefLoc(unsigned pred) const;
 
   /// Dump this RAInfo to dbgs().
   void dump(void) const;
