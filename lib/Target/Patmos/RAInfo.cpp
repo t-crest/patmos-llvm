@@ -14,6 +14,8 @@
 
 #include "llvm/Support/Debug.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/DepthFirstIterator.h"
 
 #include <sstream>
 
@@ -21,6 +23,9 @@ using namespace llvm;
 using namespace boost;
 
 STATISTIC( SPNumPredicates, "Number of predicates for single-path code");
+STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
+STATISTIC( NoSpillScopes,
+                  "Number of SPScopes (loops) where S0 spill can be omitted");
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -588,7 +593,7 @@ void RAInfo::dump() const {
     dbgs() << "\n";
   }
 
-  dbgs() << "  pimpl->DefLocs:     ";
+  dbgs() << "  DefLocs:     ";
   for (unsigned j=0; j<priv->DefLocs.size(); j++) {
     dbgs() << " p" << j << "=" << priv->DefLocs[j];
   }
@@ -598,4 +603,47 @@ void RAInfo::dump() const {
             "  CumLocs:      " << priv->getCumLocs() << "\n"
             "  Offset:       " << priv->Offset  << "\n"
             "  SpillOffset:  " << priv->SpillOffset  << "\n";
+}
+
+std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *PSPI, unsigned AvailPredRegs){
+
+  std::map<const SPScope*, RAInfo> RAInfos;
+  // perform reg-allocation in post-order to compute cumulative location
+  // numbers in one go
+  for (po_iterator<PatmosSinglePathInfo*> I = po_begin(PSPI), E = po_end(PSPI);
+      I!=E; ++I) {
+    SPScope *S = *I;
+    // create RAInfo for SPScope
+    RAInfos.insert(std::make_pair(S, RAInfo(S,  AvailPredRegs)));
+    RAInfo &RI = RAInfos.at(S);
+
+    // Because this is a post-order traversal, we have already visited
+    // all children of the current scope (S). Synthesize the cumulative number of locations
+    for(SPScope::child_iterator CI = S->child_begin(), CE = S->child_end();
+        CI != CE; ++CI) {
+      SPScope *CN = *CI;
+      RI.unifyWithChild(RAInfos.at(CN));
+    }
+  } // end of PO traversal for RegAlloc
+
+
+  // Visit all scopes in depth-first order to compute offsets:
+  // - Offset is inherited during traversal
+  // - SpillOffset is assigned increased depth-first, from left to right
+  unsigned spillLocCnt   = 0;
+  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
+        I!=E; ++I) {
+    SPScope *S = *I;
+    RAInfo &RI = RAInfos.at(S);
+
+    if (!S->isTopLevel()) {
+       RI.unifyWithParent(RAInfos.at(S->getParent()), spillLocCnt, S->isTopLevel());
+      if (!RI.needsScopeSpill()) NoSpillScopes++; // STATISTIC
+    }
+    spillLocCnt += RI.neededSpillLocs();
+    DEBUG( RI.dump() );
+  } // end df
+
+  PredSpillLocs += spillLocCnt; // STATISTIC
+  return RAInfos;
 }

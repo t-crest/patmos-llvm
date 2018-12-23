@@ -81,10 +81,6 @@ STATISTIC( InsertedInstrs,      "Number of instructions inserted");
 STATISTIC( LoopCounters,        "Number of loop counters introduced");
 STATISTIC( ElimLdStCnt,         "Number of eliminated redundant loads/stores");
 
-STATISTIC( PredSpillLocs, "Number of required spill bits for predicates");
-STATISTIC( NoSpillScopes,
-                  "Number of SPScopes (loops) where S0 spill can be omitted");
-
 // anonymous namespace
 namespace {
 
@@ -112,9 +108,6 @@ namespace {
 
     /// doReduceFunction - Reduce a given MachineFunction
     void doReduceFunction(MachineFunction &MF);
-
-    /// computeRegAlloc - Compute RAInfo for each SPScope of the tree
-    void computeRegAlloc(SPScope *root);
 
     /// createRAInfo - Helper function to create a new RAInfo for an SPScope
     /// and insert it in the RAInfos map of the pass.
@@ -654,7 +647,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   PRTmp     = AvailPredRegs.back();
   AvailPredRegs.pop_back();
 
-  computeRegAlloc(PSPI->getRootScope());
+  DEBUG( dbgs() << "RegAlloc\n" );
+  RAInfos.clear();
+  RAInfos = RAInfo::computeRegAlloc(PSPI, AvailPredRegs.size());
 
 
   // before inserting code, we need to obtain additional instructions that are
@@ -713,59 +708,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   //DEBUG(MF.viewCFGOnly());
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
-}
-
-void PatmosSPReduce::computeRegAlloc(SPScope *root) {
-  DEBUG( dbgs() << "RegAlloc\n" );
-
-  RAInfos.clear();
-
-  // perform reg-allocation in post-order to compute cumulative location
-  // numbers in one go
-  for (po_iterator<PatmosSinglePathInfo*> I = po_begin(PSPI), E = po_end(PSPI);
-      I!=E; ++I) {
-    SPScope *S = *I;
-    // create RAInfo for SPScope
-    RAInfo &RI = createRAInfo(S);
-
-    // Because this is a post-order traversal, we have already visited
-    // all children of the current scope (S). Synthesize the cumulative number of locations
-    for(SPScope::child_iterator CI = S->child_begin(), CE = S->child_end();
-        CI != CE; ++CI) {
-      SPScope *CN = *CI;
-      RI.unifyWithChild(RAInfos.at(CN));
-    }
-  } // end of PO traversal for RegAlloc
-
-
-  // Visit all scopes in depth-first order to compute offsets:
-  // - Offset is inherited during traversal
-  // - SpillOffset is assigned increased depth-first, from left to right
-  unsigned spillLocCnt   = 0;
-  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
-        I!=E; ++I) {
-    SPScope *S = *I;
-    RAInfo &RI = RAInfos.at(S);
-
-    if (!S->isTopLevel()) {
-       RI.unifyWithParent(RAInfos.at(S->getParent()), spillLocCnt, S->isTopLevel());
-      if (!RI.needsScopeSpill()) NoSpillScopes++; // STATISTIC
-    }
-    spillLocCnt += RI.neededSpillLocs();
-    DEBUG( RI.dump() );
-  } // end df
-
-  PredSpillLocs += spillLocCnt; // STATISTIC
-
-}
-
-RAInfo& PatmosSPReduce::createRAInfo(SPScope *S) {
-  assert(!RAInfos.count(S) && "Already having RAInfo for Scope!");
-  // The number of colors for allocation is AvailPredRegs.size()
-  RAInfos.insert( std::make_pair(S, RAInfo(S,
-                                           AvailPredRegs.size()
-                                           )) );
-  return RAInfos.at(S);
 }
 
 void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,

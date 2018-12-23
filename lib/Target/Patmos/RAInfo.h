@@ -30,8 +30,6 @@ using namespace boost;
 
 namespace llvm {
 
-///////////////////////////////////////////////////////////////////////////////
-
 /// RAInfo - Class to hold register allocation information for a SPScope
 class RAInfo {
 public:
@@ -76,7 +74,7 @@ public:
   optional<unsigned> getSpillLoc(const MachineBasicBlock *MBB) const;
 
   /// Returns the definition location for the given predicate.
-  /// The first element is the type of the locatio (Register/Stack).
+  /// The first element is the type of the location (Register/Stack).
   /// The second element is the index of the location within the type.
   tuple<LocType, unsigned> getDefLoc(unsigned pred) const;
 
@@ -94,6 +92,12 @@ public:
   /// How many spill slots this RAInfo needs.
   unsigned neededSpillLocs();
 
+  /// Performs register allocation for the function associate with 'PSPI' assuming
+  /// it has 'availPredRegs' predicate registers it can use.
+  /// returns a mapping of the register allocation information computed for
+  /// each scope in the function.
+  static std::map<const SPScope*, RAInfo> computeRegAlloc(PatmosSinglePathInfo *PSPI, unsigned availPredRegs);
+
 private:
   class Impl;
   /// We use the PIMPL pattern to implement the private
@@ -101,8 +105,6 @@ private:
   spimpl::unique_impl_ptr<Impl> priv;
 
 };
-
-
 }
 
 #endif /* TARGET_PATMOS_SINGLEPATH_RAINFO_H_ */
