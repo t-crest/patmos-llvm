@@ -349,7 +349,7 @@ public:
               unsigned furthestPred = order.back();
               Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
               assert( stackLoc.getType() == Stack );
-              assert( stackLoc.getLoc() >= (int)AvailRegs );
+              assert( stackLoc.getLoc() >= AvailRegs );
 
               UL.load  = curUseLoc.getLoc();
 
@@ -432,7 +432,7 @@ public:
           }
           DefLocs[pred] = l.getLoc();
 
-          assert(curLocs.find(pred)->second.getLoc() == DefLocs[pred]);
+          assert((int)curLocs.find(pred)->second.getLoc() == DefLocs[pred]);
 
           DEBUG( dbgs() << "def " << pred << " in loc "
                         << DefLocs[pred] << ", ");
@@ -491,11 +491,11 @@ bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
   return false;
 }
 
-optional<tuple<RAInfo::LocType, unsigned>> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
+optional<unsigned> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
   if (priv->UseLocs.count(MBB)) {
     unsigned loc = priv->UseLocs.at(MBB).loc + priv->Offset;
-    assert( loc < (int)(priv->AvailRegs) );
-    return make_optional(make_tuple(Register, loc));
+    assert( loc < priv->AvailRegs );
+    return make_optional(loc);
   }
   return none;
 }
@@ -511,18 +511,18 @@ optional<unsigned> RAInfo::getLoadLoc(const MachineBasicBlock *MBB) const {
   return optional<unsigned>{};
 }
 
-int RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
+optional<unsigned> RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
   if (priv->UseLocs.count(MBB)) {
     int loc = priv->UseLocs.at(MBB).spill;
     if (loc != -1) {
       assert( loc >= (int)(priv->AvailRegs) );
-      return (loc - (priv->AvailRegs)) + priv->SpillOffset;
+      return make_optional((loc - (priv->AvailRegs)) + priv->SpillOffset);
     }
   }
-  return -1;
+  return none;
 }
 
-tuple<unsigned, bool> RAInfo::getDefLoc(unsigned pred) const {
+tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
   int dloc = priv->DefLocs[pred];
   assert(dloc != -1);
   bool isreg = priv->isPhysRegLoc(dloc);
@@ -532,7 +532,7 @@ tuple<unsigned, bool> RAInfo::getDefLoc(unsigned pred) const {
   } else {
     loc = (dloc - (priv->AvailRegs)) + priv->SpillOffset;
   }
-  return make_tuple(loc, isreg);
+  return make_tuple(isreg? Register: Stack, loc);
 }
 
 void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel){

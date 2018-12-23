@@ -812,10 +812,9 @@ void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
   DEBUG(dbgs() << "  - Stack Loc: " );
   // 0 is the header predicate, which we never need to clear
   for (unsigned pred = 1; pred < S->getNumPredicates(); pred++) {
-    unsigned stloc; bool isPhysReg;
-    std::tie(stloc, isPhysReg) = R.getDefLoc(pred);
-    if (!isPhysReg) {
-      // pred is defined in a stack location
+    RAInfo::LocType type; unsigned stloc;
+    std::tie(type, stloc) = R.getDefLoc(pred);
+    if (type == RAInfo::Stack) {
       int fi; unsigned bitpos;
       getStackLocPair(fi, bitpos, stloc);
       DEBUG(dbgs() << "p" << pred << " " << stloc
@@ -907,10 +906,10 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
   unsigned use_preg = getUsePReg(RI, SrcMBB, true);
 
   // Get the location for predicate r.
-  unsigned loc; bool isPhysReg;
-  std::tie(loc, isPhysReg) = R.getDefLoc(pred);
+  RAInfo::LocType type; unsigned loc;
+  std::tie(type, loc) = R.getDefLoc(pred);
 
-  if (isPhysReg) {
+  if (type == RAInfo::Register) {
     if (!S->isSubHeader(&Node) || (!RI.needsScopeSpill())) {
       // TODO proper condition to avoid writing to the stack slot
       // -> the chain of scopes from outer to inner should not contain any
@@ -1256,10 +1255,9 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
 unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
                                     const MachineBasicBlock *MBB,
                                     bool getP0) {
-  optional<std::tuple<RAInfo::LocType, unsigned>> opLoc = R.getUseLoc(MBB);
+  optional<unsigned> opLoc = R.getUseLoc(MBB);
   if (opLoc.is_initialized()) {
-    unsigned loc;
-    std::tie(std::ignore, loc) = get(opLoc);
+    unsigned loc = get(opLoc);
     assert(loc < AvailPredRegs.size());
     return AvailPredRegs[loc];
   }
@@ -1279,13 +1277,13 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
 
     optional<unsigned> loadOpt = R.getLoadLoc(MBB);
 
-    int spill = R.getSpillLoc(MBB);
+    optional<unsigned> spillOpt = R.getSpillLoc(MBB);
 
     // At one of spill or load must be set.
-    assert( spill!=-1  || loadOpt.is_initialized() );
+    assert( spillOpt.is_initialized()  || loadOpt.is_initialized() );
 
     // if spill is set, also load must be set
-    assert( spill==-1 || loadOpt.is_initialized() );
+    assert( !spillOpt.is_initialized() || loadOpt.is_initialized() );
 
     unsigned use_preg = getUsePReg(R, MBB);
     assert(use_preg != Patmos::NoRegister);
@@ -1294,7 +1292,8 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
     DebugLoc DL;
 
     // insert spill code
-    if (spill != -1) {
+    if (spillOpt.is_initialized()) {
+      unsigned spill = get(spillOpt);
       int fi; unsigned bitpos;
       getStackLocPair(fi, bitpos, spill);
       // load from stack slot
@@ -1616,11 +1615,11 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     for (SPScope::PredDefInfo::iterator di = DI->begin(), de = DI->end();
         di != de; ++di) {
       unsigned loc, pred = di->first;
-      bool isPhysReg;
-      std::tie(loc, isPhysReg) = RP .getDefLoc(pred);
+      RAInfo::LocType type;
+      std::tie(type, loc) = RP .getDefLoc(pred);
 
-      if (isPhysReg) {
-        // pred is defined in a register; we only need initialisation code if
+      if (type == RAInfo::Register) {
+        // We only need initialisation code if
         // it is defined in the subscope as first definition
         if (RP.isFirstDef(HeaderMBB, pred)) {
           unsigned reg = Pass.AvailPredRegs[loc];
