@@ -345,14 +345,11 @@ public:
             findCurUseLoc->second = l;
           }
           DefLocs[pred] = make_optional(l);
-
           assert(curLocs.find(pred)->second.getLoc() == get(DefLocs[pred]).getLoc());
-
           DEBUG( dbgs() << "def " << pred << " in loc "
                         << get(DefLocs[pred]).getLoc() << ", ");
         }
       }
-
       DEBUG(dbgs() << "\n");
     } // end of forall MBB
 
@@ -369,7 +366,6 @@ public:
         ul.load = findCurUseLoc->second.getLoc();
       }
     }
-    outs() << "RegAlloc done.\n";
   }
 
   /// Converts a register index into a global index that takes parent
@@ -395,11 +391,9 @@ private:
     // if previous location was not a register, we have to allocate
     // a register and/or possibly spill
     if (curUseLoc.getType() != Register) {
-      outs() << "Predicate not in register: " << curUseLoc << "\n";
       handleIfNotInRegister(blockIndex, FreeLocs, UL, curUseLoc, curLocs,
           findCurUseLoc);
     } else {
-      outs() << "Predicate in register: " << curUseLoc << "\n";
       // everything stays as is
       UL.loc = curUseLoc.getLoc();
     }
@@ -427,9 +421,6 @@ private:
 
     unsigned usePred = (*Pub.Scope->getPredUse(MBB))[0];
 
-    outs() << "Block index: " << i << ": Pred(" << usePred << ")\n";
-    MBB->print(outs(), NULL);
-
     // TODO:(Emad) handle multiple predicates.
     // for the top-level entry of a single-path root,
     // we don't need to assign a location, as we will use p0
@@ -438,31 +429,24 @@ private:
       assert(MBB == Pub.Scope->getHeader() || i > 0);
 
       if (!Pub.Scope->isHeader(MBB)) {
-        outs() << "Not Head!\n";
         UseLocs[MBB] = calculateNotHeaderUseLoc(i, findCurUseLoc, curLocs,
             FreeLocs);
       } else {
-        outs() << "Head!\n";
         // we get a loc for the header predicate
         UseLocs[MBB] = calculateHeaderUseLoc(FreeLocs, curLocs);
-
       };
-      outs() << "UseLocs: Loc(" << UseLocs[MBB].loc << ") Load(" << UseLocs[MBB].load << ") Spill(" << UseLocs[MBB].spill <<")\n";
+
       //DEBUG( dbgs() << "new " << curUseLoc << ". ");
       // (2) retire locations
       if (LRs[usePred].lastUse(i)) {
-        outs() << "Last use!!!\n";
         DEBUG(dbgs() << "retire. ");
         assert(findCurUseLoc != curLocs.end());
         Location& curUseLoc = findCurUseLoc->second;
 
-        outs() << "Freeing: " << curUseLoc << "\n";
         // free location, also removing it from the current one is use
         FreeLocs.insert(curUseLoc);
         curLocs.erase(findCurUseLoc);
       }
-    }else{
-      outs() << "Root, pred == 0\n";
     }
   }
 
@@ -470,16 +454,12 @@ private:
       UseLoc& UL, Location& curUseLoc, map<unsigned, Location>& curLocs,
       map<unsigned, Location>::iterator& findCurUseLoc) {
     if (hasFreeRegister(FreeLocs)) {
-      outs() << "has free register\n";
       UL.load = curUseLoc.getLoc();
-      outs() << "UL.load = " << UL.load << "\n";
       curUseLoc = getAvailLoc(FreeLocs);
-      outs() << "new location: " << curUseLoc << "\n";
       UL.loc = curUseLoc.getLoc();
-      outs() << "UL.loc = " << UL.loc << "\n";
       assert(UL.loc <= (int )MaxRegs);
     } else {
-      outs() << "no free register\n";
+
       // spill and reassign
       // order predicates wrt furthest next use
       vector<unsigned> order;
@@ -493,23 +473,21 @@ private:
       sort(order.begin(), order.end(),
           FurthestNextUseComparator(*this, blockIndex));
       unsigned furthestPred = order.back();
-      outs() << "furthestPred: "<< furthestPred << "\n";
+
       Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
-      outs() << "New stack location: "<< stackLoc << "\n";
+
       assert(stackLoc.getType() == Stack);
       assert(stackLoc.getLoc() >= MaxRegs);
       UL.load = curUseLoc.getLoc();
       map<unsigned, Location>::iterator findFurthest = curLocs.find(
           furthestPred);
       assert(findFurthest != curLocs.end());
-      outs() << "furthestPred's location: "<< findFurthest->second << "\n";
+
       UL.loc = findFurthest->second.getLoc();
       // differentiate between already used and not yet used
       if (LRs[furthestPred].anyUseBefore(blockIndex)) {
-        outs() << "furthestPred already used.";
         UL.spill = stackLoc.getLoc();
       } else {
-        outs() << "furthestPred not already used.";
         // if it has not been used, we change the initial
         // definition location
         DefLocs[furthestPred] = make_optional(stackLoc);
