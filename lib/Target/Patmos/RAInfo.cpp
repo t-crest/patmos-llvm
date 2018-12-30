@@ -248,10 +248,11 @@ public:
       FreeLocs.erase(it);
       return *it;
     }
-
+    
+	RAInfo::LocType type = NumLocs < (MaxRegs) ? Register : Stack;
     // create a new location
     return Location(
-        NumLocs < (MaxRegs) ? Register : Stack,
+        type,
         NumLocs++
       );
   }
