@@ -385,20 +385,22 @@ private:
   UseLoc calculateNotHeaderUseLoc(unsigned blockIndex,
       map<unsigned, Location>::iterator& findCurUseLoc,
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
-    UseLoc UL;
+
     assert(findCurUseLoc != curLocs.end());
     // each use must be preceded by a location assignment
     Location& curUseLoc = findCurUseLoc->second;
     // if previous location was not a register, we have to allocate
     // a register and/or possibly spill
     if (curUseLoc.getType() != Register) {
-      handleIfNotInRegister(blockIndex, FreeLocs, UL, curUseLoc, curLocs,
+      return handleIfNotInRegister(blockIndex, FreeLocs, curLocs,
           findCurUseLoc);
     } else {
+      UseLoc UL;
       // everything stays as is
       UL.loc = curUseLoc.getLoc();
+      return UL;
     }
-    return UL;
+
   }
 
   UseLoc calculateHeaderUseLoc(set<Location>& FreeLocs, map<unsigned, Location>& curLocs) {
@@ -408,7 +410,7 @@ private:
     UL.loc = loc.getLoc();
     DefLocs[0] = make_optional(loc);
     map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
-    if(curLoc0 == curLocs.begin()){
+    if(curLoc0 == curLocs.end()){
       curLocs.insert(make_pair(0, loc));
     }else{
       curLoc0->second = loc;
@@ -445,15 +447,21 @@ private:
         Location& curUseLoc = findCurUseLoc->second;
 
         // free location, also removing it from the current one is use
+        assert(!FreeLocs.count(curUseLoc));
         FreeLocs.insert(curUseLoc);
         curLocs.erase(findCurUseLoc);
       }
     }
   }
 
-  void handleIfNotInRegister(unsigned blockIndex, set<Location>& FreeLocs,
-      UseLoc& UL, Location& curUseLoc, map<unsigned, Location>& curLocs,
-      map<unsigned, Location>::iterator& findCurUseLoc) {
+  UseLoc handleIfNotInRegister(unsigned blockIndex, set<Location>& FreeLocs,
+      map<unsigned, Location>& curLocs,
+      map<unsigned, Location>::iterator& findCurUseLoc)
+  {
+    UseLoc UL;
+    assert(findCurUseLoc != curLocs.end());
+    Location& curUseLoc = findCurUseLoc->second;
+
     if (hasFreeRegister(FreeLocs)) {
       UL.load = curUseLoc.getLoc();
       curUseLoc = getAvailLoc(FreeLocs);
@@ -482,7 +490,7 @@ private:
       UL.load = curUseLoc.getLoc();
       map<unsigned, Location>::iterator findFurthest = curLocs.find(
           furthestPred);
-      assert(findFurthest != curLocs.end());
+      assert(findFurthest != curLocs.end());//TODO:(Emad) shouldn't be nescessary
 
       UL.loc = findFurthest->second.getLoc();
       // differentiate between already used and not yet used
@@ -496,6 +504,7 @@ private:
       findCurUseLoc = findFurthest;
       findFurthest->second = stackLoc;
     }
+    return UL;
   }
 };
 
@@ -671,7 +680,7 @@ std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *P
   // Visit all scopes in depth-first order to compute offsets:
   // - Offset is inherited during traversal
   // - SpillOffset is assigned increased depth-first, from left to right
-  unsigned spillLocCnt   = 0;
+  unsigned spillLocCnt = 0;
   for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
         I!=E; ++I) {
     SPScope *S = *I;
@@ -688,3 +697,4 @@ std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *P
   PredSpillLocs += spillLocCnt; // STATISTIC
   return RAInfos;
 }
+

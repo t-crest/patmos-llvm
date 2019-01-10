@@ -286,7 +286,11 @@ To setup Eclipse with C++ and GDB support for developing LLVM, follow those step
     - Select Eclipse as generator type
     - Do not use clang and clang++ as compilers, use defaults (g++)
       Otherwise gdb python scripts do not work properly for libstdc++ !
-    - Make sure to set CMAKE_BUILD_TYPE to Debug, enable assertions, ...
+    - Make sure to:
+		* Set CMAKE_BUILD_TYPE to Debug
+		* Enable assertions
+		* Change LLVM_DEFAULT_TARGET_TRIPLE to 'patmos-unknown-unknown-elf'
+		* Change LLVM_TARGETS_TO_BUILD to 'Patmos'
 - Setup Eclipse project
     - Use File->Import->General->Import Existing Project. Do not check Copy Sources.
     - Setup Resource->Resource Filters in Project settings on project root, 
