@@ -1,4 +1,7 @@
 ; RUN: llc  < %s -mpatmos-singlepath=init_func  | FileCheck %s 
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O0
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O1
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O2
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Test the code generated when branches are so deeply nested spilling registers is required.

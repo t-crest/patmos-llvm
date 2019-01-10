@@ -1,4 +1,7 @@
-; RUN: llc  < %s -mpatmos-singlepath=init_func  | FileCheck %s 
+; RUN: llc  < %s -mpatmos-singlepath=init_func | FileCheck %s -check-prefix CHECK -check-prefix OPTIM
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O0 | FileCheck %s -check-prefix CHECK -check-prefix UNOPT
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O1 | FileCheck %s -check-prefix CHECK -check-prefix OPTIM
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O2 | FileCheck %s -check-prefix CHECK -check-prefix OPTIM
 
 target triple = "patmos-unknown-unknown-elf"
 
@@ -30,18 +33,20 @@ if.end:                                           ; preds = %if.else, %if.then
 }
 
 ; CHECK-LABEL: init_func:
-; CHECK: li	$r1 = _0
-; CHECK: lwc	$r1 = [$r1]
-; CHECK: li	$r2 = _1
-; CHECK: lwc	$r2 = [$r2]
-; CHECK: nop	
-; CHECK: cmpeq	$p1 = $r2, 0
-; CHECK: pand	$p2 =  $p0, !$p1
-; CHECK: ( $p2) li	$r2 = _2
-; CHECK: ( $p2) lwc	$r2 = [$r2]
-; CHECK: pand	$p3 =  $p0,  $p1
-; CHECK: ( $p2) add	$r1 = $r1, $r2
-; CHECK: ( $p3) li	$r2 = _3
-; CHECK: ( $p3) lwc	$r2 = [$r2]
-; CHECK: nop	
-; CHECK: ( $p3) sub	$r1 = $r1, $r2
+; CHECK:						li		[[R1:\$r([1-9]|[12][0-9]|3[01])]] = _0
+; CHECK:						lwc		[[R2:\$r([1-9]|[12][0-9]|3[01])]] = {{\[}}[[R1]]{{\]}}
+; CHECK:						li		[[R3:\$r([1-9]|[12][0-9]|3[01])]] = _1
+; CHECK:						lwc		[[R4:\$r([1-9]|[12][0-9]|3[01])]] = {{\[}}[[R3]]{{\]}}
+; CHECK:						cmpeq	[[P1:\$p[1-7]]] = [[R4]], 0
+; UNOPT:						sws		[[SPL1:\[[0-9]+\]]] = [[R2]] 
+; CHECK:						pand	[[P2:\$p[1-7]]] =  $p0, ![[P1]]
+; UNOPT:						pand	[[P3:\$p[1-7]]] =  $p0,  [[P1]]
+; CHECK:			( [[P2]])	li		[[R5:\$r([1-9]|[12][0-9]|3[01])]] = _2
+; CHECK:			( [[P2]])	lwc		[[R6:\$r([1-9]|[12][0-9]|3[01])]] = {{\[}}[[R5]]{{\]}}
+; UNOPT:			( [[P2]])	lws		[[R2:\$r([1-9]|[12][0-9]|3[01])]] = [[SPL1]]
+; OPTIM:						pand	[[P3:\$p[1-7]]] =  $p0,  [[P1]]
+; CHECK:			( [[P2]])	add		$r1 = [[R2]], [[R6]]
+; CHECK:			( [[P3]])	li		[[R8:\$r([1-9]|[12][0-9]|3[01])]] = _3
+; CHECK:			( [[P3]])	lwc		[[R9:\$r([1-9]|[12][0-9]|3[01])]] = {{\[}}[[R8]]{{\]}}
+; UNOPT:			( [[P3]])	lws		[[R2:\$r([1-9]|[12][0-9]|3[01])]] = [[SPL1]]
+; CHECK:			( [[P3]])	sub		$r1 = [[R2]], [[R9]]

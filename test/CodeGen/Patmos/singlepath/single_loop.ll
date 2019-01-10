@@ -1,4 +1,8 @@
-; RUN: llc  < %s -mpatmos-singlepath=init_func  | FileCheck %s 
+; RUN: llc  < %s -mpatmos-singlepath=init_func  | FileCheck %s
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O0
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O1
+; RUN: llc  < %s -mpatmos-singlepath=init_func -O2
+
 target triple = "patmos-unknown-unknown-elf"
 
 @_1 = global i32 1
@@ -31,24 +35,23 @@ for.end:                                          ; preds = %for.cond
 ; Function Attrs: nounwind
 declare void @llvm.loopbound(i32, i32) #1
 
-; CHECK-LABEL: init_func:
-; CHECK:pmov $p2 =  $p0
-; CHECK:mov $r5 = $r0
-; CHECK:mov $r1 = $r0
-; CHECK:li $r4 = _1
-; CHECK:li $r2 = -1
-; CHECK:li $r26 = 101
-; CHECK:sws [0] = $r26
-; CHECK:.LBB0_1:
-; CHECK:( $p2) add $r2 = $r2, 1
-; CHECK:( $p2) cmple $p1 = $r3, $r2
-; CHECK:pand $p3 =  $p2, !$p1
-; CHECK:( $p3) lwc $r6 = [$r4]
-; CHECK:( $p2) pmov $p2 = !$p1
-; CHECK:( $p3) add $r6 = $r5, $r6
-; CHECK:( $p3) add $r1 = $r1, $r6
-; CHECK:sub $r26 = $r26, 1
-; CHECK:cmplt $p7 = $r0, $r26
-; CHECK:( $p7) br .LBB0_1
-; CHECK:sws [0] = $r26
-; CHECK:( $p3) add $r5 = $r5, 1
+; CHECK-LABEL:	init_func:
+; CHECK:						pmov	[[P1:\$p[1-7]]] =  $p0
+; CHECK:						mov		[[R1:\$r([1-9]|[12][0-9]|3[01])]] = $r0
+; CHECK:						mov		[[R2:\$r([1-9]|[12][0-9]|3[01])]] = $r0
+; CHECK:						li		[[R3:\$r([1-9]|[12][0-9]|3[01])]] = _1
+; CHECK:						li		[[R4:\$r([1-9]|[12][0-9]|3[01])]] = -1
+; CHECK:						li		[[R5:\$r([1-9]|[12][0-9]|3[01])]] = 101
+
+; CHECK-LABEL:	.LBB0_1:
+; CHECK:			( [[P1]]) 	add		[[R6:\$r([1-9]|[12][0-9]|3[01])]] = [[R4]], 1
+; CHECK:			( [[P1]]) 	cmple	[[P2:\$p[1-7]]] = $r3, [[R6]]
+; CHECK:						pand	[[P3:\$p[1-7]]] =  [[P1]], ![[P2]]
+; CHECK:			( [[P3]]) 	lwc		[[R7:\$r([1-9]|[12][0-9]|3[01])]] = {{\[}}[[R3]]{{\]}}
+; CHECK:			( [[P1]]) 	pmov	[[P1]] = ![[P2]]
+; CHECK:			( [[P3]]) 	add		[[R8:\$r([1-9]|[12][0-9]|3[01])]] = [[R1]], [[R7]]
+; CHECK:			( [[P3]]) 	add		[[R2]] = [[R2]], [[R8]]
+; CHECK:						sub		[[R5]] = [[R5]], 1
+; CHECK:						cmplt 	[[P4:\$p[1-7]]] = $r0, [[R5]]
+; CHECK:			( [[P4]])	br		.LBB0_1
+; CHECK:			( [[P3]]) 	add		[[R1]] = [[R1]], 1
