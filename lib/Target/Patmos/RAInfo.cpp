@@ -501,7 +501,7 @@ private:
         // definition location
         DefLocs[furthestPred] = make_optional(stackLoc);
       }
-      findCurUseLoc = findFurthest;
+      curUseLoc = findFurthest->second;
       findFurthest->second = stackLoc;
     }
     return UL;
