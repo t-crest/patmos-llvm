@@ -610,7 +610,7 @@ void RAInfo::unifyWithChild(const RAInfo &child){
 }
 
 unsigned RAInfo::neededSpillLocs(){
-  if(Priv->NumLocs > (Priv->MaxRegs)) {
+  if(Priv->NumLocs < (Priv->MaxRegs)) {
     return 0;
   }else{
     return Priv->NumLocs - (Priv->MaxRegs);
