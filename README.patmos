@@ -77,19 +77,17 @@ With cmake:
     
     mkdir build
     cd build
-    cmake .. -DCMAKE_BUILD_DIR=Debug 
-	     -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR
-	     -DLLVM_BINUTILS_INCDIR=`readlink -f $GOLD_INCLUDE_DIR`
-	     -DLLVM_TARGETS_TO_BUILD=Patmos
-		 -DLLVM_ENABLE_ASSERTIONS=true
+    cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR -DLLVM_BINUTILS_INCDIR=`readlink -f $GOLD_INCLUDE_DIR` -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_DEFAULT_TARGET_TRIPLE=patmos-unknown-unknown-elf -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
+		 
 
 $INSTALL_DIR: the local installation folder. typicalling '../local'
 $GOLD_INCLUDE_DIR: the include directory of the patmos-gold repo. typically '../gold/include'
 
 In both cases, LLVM is build using make
 
-    make all
+    make -j4
 
+where (-j4) tells make to use 4 cores. Change to fit your machine.
 
 To install libraries for LTO support:
     - Go to the directory where your patmos gold, ar and nm binaries with 
@@ -104,7 +102,7 @@ To install libraries for LTO support:
 
 Currently, there are only code generation tests that are specific to Patmos.
 To run these test, navigate to the folder `llvm/build` and run:
-```make && ./bin/llvm-lit ../test --filter=Patmos -v```
+```make -j4 && ./bin/llvm-lit ../test --filter=Patmos -v```
 
 This command will first build LLVM, and if successfull then run all Patmos tests
 
