@@ -212,18 +212,22 @@ public:
     FurthestNextUseComparator(RAInfo::Impl &ri, int p) : RI(ri), pos(p) {}
   };
 
-  /// Record to hold predicate use information for a MBB
-  /// TODO:(Emad) is this about the predicate the block uses?
+  /// Record to hold predicate use information for a MBB.
   struct UseLoc {
-    /// Which location to use (a register)
-    int loc;
+    /// Which register location to use as the predicate
+    /// to an MBB
+    unsigned loc;
 
-    /// Where to load loc from before using it (a stack location)
-    int load;
+    /// From which spill location to load the predicate
+    /// before using it (load it into 'loc').
+    /// If 'none' does not need to load before use.
+    optional<unsigned> load;
 
-    /// Where to spill loc to (a stack location)
-    int spill;
-    UseLoc(void) : loc(-1), load(-1), spill(-1) {}
+    /// To which spill location to spill the predicate (from 'loc')
+    /// after the MBB is done.
+    /// If 'none' does not need to spill after use.
+    optional<unsigned> spill;
+    UseLoc(unsigned loc) : loc(loc), load(none), spill(none) {}
   };
 
   // Map of MBB -> UseLoc, for an SPScope
@@ -360,11 +364,11 @@ public:
     // Code for loading the predicate is placed before the back-branch,
     // generated in LinearizeWalker::exitSubscope().
     if (!Pub.Scope->isTopLevel()) {
-      UseLoc &ul = UseLocs[Pub.Scope->getHeader()];
+      UseLoc &ul = UseLocs.at(Pub.Scope->getHeader());
       map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(0);
       assert(findCurUseLoc != curLocs.end());
-      if (ul.loc != (int)(findCurUseLoc->second.getLoc())) {
-        ul.load = findCurUseLoc->second.getLoc();
+      if (ul.loc != findCurUseLoc->second.getLoc()) {
+        ul.load = make_optional(findCurUseLoc->second.getLoc());
       }
     }
   }
@@ -395,19 +399,16 @@ private:
       return handleIfNotInRegister(blockIndex, FreeLocs, curLocs,
           findCurUseLoc);
     } else {
-      UseLoc UL;
       // everything stays as is
-      UL.loc = curUseLoc.getLoc();
-      return UL;
+      return UseLoc(curUseLoc.getLoc());
     }
-
   }
 
   UseLoc calculateHeaderUseLoc(set<Location>& FreeLocs, map<unsigned, Location>& curLocs) {
-    UseLoc UL;
+
     // we get a loc for the header predicate
     Location loc = getAvailLoc(FreeLocs);
-    UL.loc = loc.getLoc();
+    UseLoc UL(loc.getLoc());
     DefLocs[0] = make_optional(loc);
     map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
     if(curLoc0 == curLocs.end()){
@@ -430,13 +431,12 @@ private:
     if (!(usePred == 0 && Pub.Scope->isRootTopLevel())) {
       assert(MBB == Pub.Scope->getHeader() || i > 0);
 
-      if (!Pub.Scope->isHeader(MBB)) {
-        UseLocs[MBB] = calculateNotHeaderUseLoc(i, usePred, curLocs,
-            FreeLocs);
-      } else {
-        // we get a loc for the header predicate
-        UseLocs[MBB] = calculateHeaderUseLoc(FreeLocs, curLocs);
-      };
+      assert(!UseLocs.count(MBB));
+      UseLocs.insert(make_pair(MBB,
+        (Pub.Scope->isHeader(MBB)) ?
+          calculateHeaderUseLoc(FreeLocs, curLocs)
+          : calculateNotHeaderUseLoc(i, usePred, curLocs, FreeLocs)
+      ));
 
       //DEBUG( dbgs() << "new " << curUseLoc << ". ");
       // (2) retire locations
@@ -458,15 +458,17 @@ private:
       map<unsigned, Location>& curLocs,
       map<unsigned, Location>::iterator& findCurUseLoc)
   {
-    UseLoc UL;
+
     assert(findCurUseLoc != curLocs.end());
     Location& curUseLoc = findCurUseLoc->second;
 
     if (hasFreeRegister(FreeLocs)) {
-      UL.load = curUseLoc.getLoc();
-      curUseLoc = getAvailLoc(FreeLocs);
-      UL.loc = curUseLoc.getLoc();
-      assert(UL.loc <= (int )MaxRegs);
+      Location newLoc = getAvailLoc(FreeLocs);
+      UseLoc UL(newLoc.getLoc());
+      UL.load = make_optional(curUseLoc.getLoc());
+      curUseLoc = newLoc;
+      assert(UL.loc <= MaxRegs);
+      return UL;
     } else {
 
       // spill and reassign
@@ -487,15 +489,16 @@ private:
 
       assert(stackLoc.getType() == Stack);
       assert(stackLoc.getLoc() >= MaxRegs);
-      UL.load = curUseLoc.getLoc();
       map<unsigned, Location>::iterator findFurthest = curLocs.find(
           furthestPred);
-      assert(findFurthest != curLocs.end());//TODO:(Emad) shouldn't be nescessary
+      assert(findFurthest != curLocs.end());
 
-      UL.loc = findFurthest->second.getLoc();
+      UseLoc UL(findFurthest->second.getLoc());
+      UL.load = make_optional(curUseLoc.getLoc());
+
       // differentiate between already used and not yet used
       if (LRs[furthestPred].anyUseBefore(blockIndex)) {
-        UL.spill = stackLoc.getLoc();
+        UL.spill = make_optional(stackLoc.getLoc());
       } else {
         // if it has not been used, we change the initial
         // definition location
@@ -503,8 +506,8 @@ private:
       }
       curUseLoc = findFurthest->second;
       findFurthest->second = stackLoc;
+      return UL;
     }
-    return UL;
   }
 };
 
@@ -535,7 +538,7 @@ bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
 bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
   if (Priv->UseLocs.count(MBB)) {
     const Impl::UseLoc &ul = Priv->UseLocs.at(MBB);
-    return (ul.spill!=-1) || (ul.load!=-1);
+    return (ul.spill.is_initialized()) || (ul.load.is_initialized());
   }
   return false;
 }
@@ -551,9 +554,9 @@ optional<unsigned> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
 
 optional<unsigned> RAInfo::getLoadLoc(const MachineBasicBlock *MBB) const {
   if (Priv->UseLocs.count(MBB)) {
-    int loc = Priv->UseLocs.at(MBB).load;
-    if (loc != -1) {
-      return make_optional(Priv->unifyStack(loc));
+    optional<unsigned> loc = Priv->UseLocs.at(MBB).load;
+    if (loc.is_initialized()) {
+      return make_optional(Priv->unifyStack(get(loc)));
     }
   }
   return none;
@@ -561,10 +564,10 @@ optional<unsigned> RAInfo::getLoadLoc(const MachineBasicBlock *MBB) const {
 
 optional<unsigned> RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
   if (Priv->UseLocs.count(MBB)) {
-    int loc = Priv->UseLocs.at(MBB).spill;
-    if (loc != -1) {
-      assert( loc >= (int)(Priv->MaxRegs) );
-      return make_optional(Priv->unifyStack(loc));
+    optional<unsigned> loc = Priv->UseLocs.at(MBB).spill;
+    if (loc.is_initialized()) {
+      assert( get(loc) >= Priv->MaxRegs);
+      return make_optional(Priv->unifyStack(get(loc)));
     }
   }
   return none;
@@ -632,8 +635,18 @@ void RAInfo::dump() const {
     dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
     if (Priv->UseLocs.count(MBB)) {
       const Impl::UseLoc &UL = Priv->UseLocs.at(MBB);
-      dbgs() << "  loc=" << UL.loc << " load=" << UL.load
-          << " spill=" << UL.spill;
+      dbgs() << "  loc=" << UL.loc << " load=";
+      if (UL.load.is_initialized()) {
+        dbgs() << get(UL.load);
+      }else{
+        dbgs() << "none";
+      }
+      dbgs() << " spill=";
+      if (UL.spill.is_initialized()) {
+        dbgs() << get(UL.spill);
+      }else{
+        dbgs() << "none";
+      }
     }
     dbgs() << "\n";
   }
