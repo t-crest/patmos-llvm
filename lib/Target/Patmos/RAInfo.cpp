@@ -382,10 +382,10 @@ public:
   }
 
 private:
-  UseLoc calculateNotHeaderUseLoc(unsigned blockIndex,
-      map<unsigned, Location>::iterator& findCurUseLoc,
-      map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
-
+  UseLoc calculateNotHeaderUseLoc(unsigned blockIndex, unsigned usePred,
+      map<unsigned, Location>& curLocs, set<Location>& FreeLocs)
+  {
+    map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
     assert(findCurUseLoc != curLocs.end());
     // each use must be preceded by a location assignment
     Location& curUseLoc = findCurUseLoc->second;
@@ -428,11 +428,10 @@ private:
     // for the top-level entry of a single-path root,
     // we don't need to assign a location, as we will use p0
     if (!(usePred == 0 && Pub.Scope->isRootTopLevel())) {
-      map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
       assert(MBB == Pub.Scope->getHeader() || i > 0);
 
       if (!Pub.Scope->isHeader(MBB)) {
-        UseLocs[MBB] = calculateNotHeaderUseLoc(i, findCurUseLoc, curLocs,
+        UseLocs[MBB] = calculateNotHeaderUseLoc(i, usePred, curLocs,
             FreeLocs);
       } else {
         // we get a loc for the header predicate
@@ -443,6 +442,7 @@ private:
       // (2) retire locations
       if (LRs[usePred].lastUse(i)) {
         DEBUG(dbgs() << "retire. ");
+    	  map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
         assert(findCurUseLoc != curLocs.end());
         Location& curUseLoc = findCurUseLoc->second;
 
