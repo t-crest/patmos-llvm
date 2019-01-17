@@ -23,13 +23,12 @@
 ; }
 ; 
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
-target triple = "patmos-unknown-unknown-elf"
 
 @_1 = global i32 1
 @.str = private unnamed_addr constant [3 x i8] c"%d\00"
 @.str1 = private unnamed_addr constant [4 x i8] c"%d\0A\00"
 
-define i32 @init_func(i32 %iteration_count) #0 {
+define i32 @init_func(i32 %iteration_count)  {
 entry:
   br label %for.cond
 
@@ -54,7 +53,7 @@ for.end:                                          ; preds = %for.cond
   ret i32 %x.0
 }
 
-define i32 @main() #0 {
+define i32 @main()  {
 entry:
   %x = alloca i32
   %call = call i32 (i8*, ...)* @scanf(i8* getelementptr inbounds ([3 x i8]* @.str, i32 0, i32 0), i32* %x)
@@ -64,8 +63,8 @@ entry:
   ret i32 0
 }
 
-declare i32 @scanf(i8*, ...) #1
+declare i32 @scanf(i8*, ...) 
 
-declare i32 @printf(i8*, ...) #1
+declare i32 @printf(i8*, ...) 
 
-declare void @llvm.loopbound(i32, i32) #1
+declare void @llvm.loopbound(i32, i32) 
