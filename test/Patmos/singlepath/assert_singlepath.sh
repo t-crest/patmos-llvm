@@ -81,13 +81,6 @@ for inst in input:
 	name = split_line[0]
 	fetch_count = int(split_line[1]) + int(split_line[4])
 	print(name + " " + str(fetch_count))
-	
-#Find and output cycle count
-for line in input:
-	if line.strip().startswith("Cycles:"):
-		split = line.split()
-		print(split[0] + " " + split[1])
-		break
 
 #Find and output operation count
 for line in input:
