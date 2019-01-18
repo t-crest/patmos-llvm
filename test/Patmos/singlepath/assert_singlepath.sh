@@ -56,7 +56,7 @@
 # file to ensure that its always present and callable, even if this
 # script is moved.
 # The cleaning could have been done in pure bash script, but that
-# increases the runtime significantly (x7 in the tested cases).
+# increases the execution time significantly (x7 in the tested cases).
 read -r -d '' python_pasim_stat_clean << EndOfPython
 import fileinput
 
@@ -89,6 +89,26 @@ for line in input:
 		print(split[0] + " " + split[1])
 		break
 
+#Find profiling information
+for line in input:
+	if line.strip().startswith("Profiling information:"):
+		#Discard the next 3 lines, which are just table headers
+		input.readline()
+		input.readline()
+		input.readline()
+		break;
+		
+#Output how many times each function is called
+while True:
+	line = input.readline().strip()
+	if line.startswith("<"):
+		input.readline() #Discard next line
+		count = input.readline().strip().split()[0]
+		print(line[1:].split(">")[0] + "(): " + count)
+	else:
+		#Not part of the profiling
+		break;
+
 EndOfPython
 
 # Executes the given program (arg 1), running statistics on the given function (arg 2).
@@ -118,7 +138,7 @@ execute_and_stat(){
 		(>&2 echo "$actual_out")
 		(>&2 echo "--------------------------------------------------")
 		# '(>&2 ...)' outputs '...' on stderr
-		ret_code="1"
+		ret_code=1
 	fi
 	
 	# Clean 'pasim's statistics
@@ -127,7 +147,7 @@ execute_and_stat(){
 		(>&2 echo "Failed to clean pasim statistics from run of '$1' with functions '$2' and execution argument '$3'")
 		(>&2 echo "Pasim statistics were:")
 		(>&2 echo "$pasim_stats")
-		ret_code="1"
+		ret_code=1
 	fi
 	
 	# Return the cleaned stats to caller.
@@ -136,6 +156,8 @@ execute_and_stat(){
 	# Whether anything failed.
 	return $ret_code
 }
+
+#------------------------------------ Start of script execution -----------------------------------
 
 # Ensure that at least 2 execution arguments were given,
 # such that we can compare at least 2 executions
@@ -181,7 +203,7 @@ ret_code=0
 # all other executions
 first_stats=$(execute_and_stat "$exec" "$3" "$4")
 if [ $? -ne 0 ]; then
-	ret_code="1"
+	ret_code=1
 fi
 
 # Run the rest of the execution arguments.
@@ -193,11 +215,11 @@ do
 	rest_stats=$(execute_and_stat "$exec" "$3" "$i")
 	if [ $? -ne 0 ]; then
 		# There was an error in executing the program or cleaning the stats
-		ret_code="1" 
+		ret_code=1 
 	fi
 	if ! diff <(echo "$first_stats") <(echo "$rest_stats") ; then
 		echo "The execution of '$exec' for execution arguments '$4' and '$i' weren't equivalent."
-		ret_code="1"
+		ret_code=1
 	fi
 done
 
