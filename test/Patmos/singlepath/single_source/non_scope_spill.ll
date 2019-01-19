@@ -14,7 +14,7 @@
 ; 
 ; int init_func(int x){
 ; 	int result = 0;
-; 	_Pragma("loopbound min 0 max 15")
+; 	_Pragma("loopbound min 0 max 14")
 ; 	while (result < x) {
 ; 		if(result==6){
 ; 			result += _2;
@@ -47,7 +47,7 @@ entry:
 
 while.cond:                                       ; preds = %if.end7, %entry
   %result.0 = phi i32 [ 0, %entry ], [ %result.2, %if.end7 ]
-  call void @llvm.loopbound(i32 0, i32 15)
+  call void @llvm.loopbound(i32 0, i32 14)
   %cmp = icmp slt i32 %result.0, %x
   br i1 %cmp, label %while.body, label %while.end
 

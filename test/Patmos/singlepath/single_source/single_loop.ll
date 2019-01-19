@@ -9,7 +9,7 @@
 ; 
 ; int init_func(int iteration_count){
 ; 	int x = 0;
-; 	_Pragma("loopbound min 0 max 100")
+; 	#pragma loopbound min 0 max 99
 ; 	for(int i = 0; i<iteration_count; i++){
 ; 		x += i + _1;
 ; 	}
@@ -35,7 +35,7 @@ entry:
 for.cond:                                         ; preds = %for.inc, %entry
   %x.0 = phi i32 [ 0, %entry ], [ %add1, %for.inc ]
   %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
-  call void @llvm.loopbound(i32 0, i32 100)
+  call void @llvm.loopbound(i32 0, i32 99)
   %cmp = icmp slt i32 %i.0, %iteration_count
   br i1 %cmp, label %for.body, label %for.end
 
