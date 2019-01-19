@@ -180,17 +180,24 @@ link_libs_dir=$bin_dir../../../local/patmos-unknown-unknown-elf/lib
 # The source file to test
 bitcode="$3"
 
+linked="$bitcode.link"
+
 # The LLVM-linked object file, still missing final linked
-compiled="$bitcode.o"
+compiled="$linked.o"
 
 # Final executable
 exec="$compiled.o"
 
 # Link the source LLVM IR with the standard library and then compile to assembly
-$bin_dir/llvm-link -nostdlib -L$link_libs_dir/ $link_libs_dir/crt0.o $link_libs_dir/crtbegin.o $bitcode $link_libs_dir/libcsyms.o -lc -lpatmos $link_libs_dir/librtsfsyms.o -lrtsf $link_libs_dir/librtsyms.o -lrt $link_libs_dir/crtend.o \
-| $bin_dir/llc $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4"
+$bin_dir/llvm-link -nostdlib -L$link_libs_dir/ $link_libs_dir/crt0.o $link_libs_dir/crtbegin.o $bitcode $link_libs_dir/libcsyms.o -lc -lpatmos $link_libs_dir/librtsfsyms.o -lrtsf $link_libs_dir/librtsyms.o -lrt $link_libs_dir/crtend.o -o $linked
 if [ $? -ne 0 ]; then 
-	echo "Failed to compile '$bitcode'."
+	echo "Failed to link '$bitcode'."
+	exit 1
+fi
+
+$bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4"
+if [ $? -ne 0 ]; then 
+	echo "Failed to compile '$linked'."
 	exit 1
 fi
 
@@ -228,6 +235,7 @@ do
 done
 
 # Delete generated files.
+rm $linked
 rm $compiled
 rm $exec
 
