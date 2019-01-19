@@ -1,4 +1,4 @@
-; RUN: %p/../assert_singlepath.sh llc %s init_func 2=4 3=3
+; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func 2=4 3=3
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Tests that sinle-path functions that are not part of the root set are supported 

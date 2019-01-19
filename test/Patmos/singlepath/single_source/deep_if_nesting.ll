@@ -1,4 +1,4 @@
-; RUN: %p/../assert_singlepath.sh llc %s init_func 0=1 1=2 2=4 4=8 5=10 6=12 7=13
+; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func 0=1 1=2 2=4 4=8 5=10 6=12 7=13
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Tests deep if/else nesting. Because of this, spilling at least 1 register is required.

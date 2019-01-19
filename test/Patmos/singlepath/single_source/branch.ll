@@ -1,4 +1,4 @@
-; RUN: %p/../assert_singlepath.sh llc %s init_func 0=-2 1=1
+; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func 0=-2 1=1
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Test that a simple if/else statement generates single-path code.

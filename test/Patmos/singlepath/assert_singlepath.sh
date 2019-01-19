@@ -7,7 +7,7 @@
 # that 'pasim's execution statistics are equivalent for all runs.
 #
 # usage:
-# It takes >= 5 arguments:
+# It takes >= 6 arguments:
 #	1. The path to LLVM's binary folder. E.g. '$t-crest-home/llvm/build/bin'.
 #		May contain a '.'. If so, everything after (and including) the '.' is ignored.
 #		This allows the use of llvm-lit's substition, where 'llc' will give the correct path.
@@ -15,8 +15,12 @@
 #		The llvm binary folder must be exactly 3 levels below '$t-crest-home', otherwise the script
 #		will fail.
 #	2. The path to the source program to Test.
-#	3. A singlepath function to compile as singlepath and run statistics on
-#	>4. a list of execution arguments
+#	3. Additional build arguments for llc. E.g. '-O2' for a specific optimization flag.
+#		Must be exactly 1 argument to the script, so if you want to pass multiple arguments to llc
+#		they should be wrapped in quotes. E.g. "-O2 -v".
+#		Also, if no arguments are needed, "" must be used.
+#	4. A singlepath function to compile as singlepath and run statistics on
+#	>5. a list of execution arguments
 #		Each execution argument has the input to send to the program through stdin.
 #		The argument also includes the expected output of the program (on stdout).
 #		The two values are separated by '='.
@@ -161,7 +165,7 @@ execute_and_stat(){
 
 # Ensure that at least 2 execution arguments were given,
 # such that we can compare at least 2 executions
-if [ $# -lt 5 ]; then
+if [ $# -lt 6 ]; then
 	echo "Must have at least 2 execution arguments but was: ${@:4}"
 	exit 1
 fi
@@ -174,7 +178,7 @@ bin_dir=(${1//./ })
 link_libs_dir=$bin_dir../../../local/patmos-unknown-unknown-elf/lib
 
 # The source file to test
-bitcode="$2"
+bitcode="$3"
 
 # The LLVM-linked object file, still missing final linked
 compiled="$bitcode.o"
@@ -184,7 +188,7 @@ exec="$compiled.o"
 
 # Link the source LLVM IR with the standard library and then compile to assembly
 $bin_dir/llvm-link -nostdlib -L$link_libs_dir/ $link_libs_dir/crt0.o $link_libs_dir/crtbegin.o $bitcode $link_libs_dir/libcsyms.o -lc -lpatmos $link_libs_dir/librtsfsyms.o -lrtsf $link_libs_dir/librtsyms.o -lrt $link_libs_dir/crtend.o \
-| $bin_dir/llc -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$3"
+| $bin_dir/llc $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4"
 if [ $? -ne 0 ]; then 
 	echo "Failed to compile '$bitcode'."
 	exit 1
@@ -201,7 +205,7 @@ ret_code=0
 # Run the first execution argument on its own,
 # such that its stats result can be compared to
 # all other executions
-first_stats=$(execute_and_stat "$exec" "$3" "$4")
+first_stats=$(execute_and_stat "$exec" "$4" "$5")
 if [ $? -ne 0 ]; then
 	ret_code=1
 fi
@@ -210,15 +214,15 @@ fi
 # For each one, compare to the first. If they all
 # are equal to the first, they must also be equal to each other,
 # so we don't need to compare them to each other.
-for i in "${@:5}" 
+for i in "${@:6}" 
 do
-	rest_stats=$(execute_and_stat "$exec" "$3" "$i")
+	rest_stats=$(execute_and_stat "$exec" "$4" "$i")
 	if [ $? -ne 0 ]; then
 		# There was an error in executing the program or cleaning the stats
 		ret_code=1 
 	fi
 	if ! diff <(echo "$first_stats") <(echo "$rest_stats") ; then
-		echo "The execution of '$exec' for execution arguments '$4' and '$i' weren't equivalent."
+		echo "The execution of '$exec' for execution arguments '$5' and '$i' weren't equivalent."
 		ret_code=1
 	fi
 done

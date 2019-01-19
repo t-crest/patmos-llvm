@@ -1,4 +1,4 @@
-; RUN: %p/../assert_singlepath.sh llc %s init_func 0=0 1=55 2=700 9=4095 10=19500
+; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func 0=0 1=55 2=700 9=4095 10=19500
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Tests the code generated for two loops, each in a branch. 
