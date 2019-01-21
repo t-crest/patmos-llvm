@@ -127,11 +127,12 @@ public:
 
 // A class defining a predicate location in memory.
 // A location is either a register or a stack spill slot, i.e. the 'type'.
-// The 'idx' field specifie the index of the register or stack spill slot
+// The 'idx' field specifies the index of the register or stack spill slot
 // used by this location.
 // E.g. Location{Register, 1} specifies that this location is the second
 // register, while Location{Stack, 3} specifies this location is the
 // fourth stack spill slot.
+// Location indices start at 0 for both registers and stack spill slots.
 class Location {
 
   public:
@@ -147,7 +148,6 @@ class Location {
   private:
     RAInfo::LocType type;
     unsigned loc;
-
 
 };
 
@@ -201,17 +201,6 @@ public:
   /// The slots below the index are used by a parent scope.
   unsigned FirstUsableStackSlot;
 
-  // Comparator for predicates, furthest next use;
-  // used in assignLocations()
-  struct FurthestNextUseComparator {
-    RAInfo::Impl &RI;
-    int pos;
-    bool operator()(int a, int b) {
-      return RI.LRs[a].hasNextUseBefore(pos, RI.LRs[b]);
-    }
-    FurthestNextUseComparator(RAInfo::Impl &ri, int p) : RI(ri), pos(p) {}
-  };
-
   /// Record to hold predicate use information for a MBB.
   struct UseLoc {
     /// Which register location to use as the predicate
@@ -252,13 +241,13 @@ public:
       FreeLocs.erase(it);
       return *it;
     }
-    
-	RAInfo::LocType type = NumLocs < (MaxRegs) ? Register : Stack;
-    // create a new location
-    return Location(
-        type,
-        NumLocs++
-      );
+    // Create a new location
+    unsigned oldNumLocs = NumLocs++;
+
+    return (oldNumLocs < MaxRegs)?
+      Location(Register, oldNumLocs)
+      : Location(Stack, oldNumLocs - MaxRegs)
+    ;
   }
 
   // Returns whether either there is a free register location available
@@ -267,7 +256,7 @@ public:
   // location (assuming the given set or the fields don't change).
   bool hasFreeRegister(set<Location> &FreeLocs) {
     return (!FreeLocs.empty() && (FreeLocs.begin()->getType() == Register))
-        || (NumLocs < (MaxRegs));
+        || (NumLocs < MaxRegs);
   }
 
   // getCumLocs - Get the maximum number of locations
@@ -337,8 +326,7 @@ public:
             order.push_back(r);
           }
         }
-        sort(order.begin(), order.end(),
-            FurthestNextUseComparator(*this,i));
+        sortFurthestNextUse(i, order);
         // nearest use is in front
         for (unsigned j=0; j<order.size(); j++) {
           unsigned pred = order[j];
@@ -376,13 +364,16 @@ public:
   /// Converts a register index into a global index that takes parent
   /// into account.
   unsigned unifyRegister(unsigned idx){
+    // We don't have to check whether the result is larger that the number
+    // of available registers, because we know the parent will spill
+    // if that is the case.
     return idx + FirstUsableReg;
   }
 
   /// Converts a Stack spill slot index into a global index that takes parent
   /// into account.
   unsigned unifyStack(unsigned idx){
-    return (idx - MaxRegs) + FirstUsableStackSlot;
+    return idx + FirstUsableStackSlot;
   }
 
 private:
@@ -481,14 +472,12 @@ private:
           order.push_back(j);
         }
       }
-      sort(order.begin(), order.end(),
-          FurthestNextUseComparator(*this, blockIndex));
+      sortFurthestNextUse(blockIndex, order);
       unsigned furthestPred = order.back();
 
       Location stackLoc = getAvailLoc(FreeLocs); // guaranteed to be a stack location, since there are no physicals free
 
       assert(stackLoc.getType() == Stack);
-      assert(stackLoc.getLoc() >= MaxRegs);
       map<unsigned, Location>::iterator findFurthest = curLocs.find(
           furthestPred);
       assert(findFurthest != curLocs.end());
@@ -508,6 +497,14 @@ private:
       findFurthest->second = stackLoc;
       return UL;
     }
+  }
+
+  /// Sorts the given vector of predicates according to the
+  /// furthest next use from the given MBB position.
+  void sortFurthestNextUse(unsigned pos, vector<unsigned>& order) {
+    sort(order.begin(), order.end(), [this, pos](int a, int b){
+      return LRs[a].hasNextUseBefore(pos, LRs[b]);
+    });
   }
 };
 
@@ -566,7 +563,6 @@ optional<unsigned> RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
   if (Priv->UseLocs.count(MBB)) {
     optional<unsigned> loc = Priv->UseLocs.at(MBB).spill;
     if (loc.is_initialized()) {
-      assert( get(loc) >= Priv->MaxRegs);
       return make_optional(Priv->unifyStack(get(loc)));
     }
   }
@@ -586,12 +582,11 @@ tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
 
 void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel){
 
-  // If we want to try to minimize the number of spills
-  #ifdef NOSPILL_OPTIMIZATION
+
     // We can avoid a spill if the total number of locations
     // used by the parent, this instance, and any child is less
     // than/equal to the number of registers available to the function.
-    if ( !topLevel && parent.Priv->NumLocs + Priv->getCumLocs() <= (Priv->MaxRegs) ) {
+    if ( !topLevel && parent.Priv->NumLocs + Priv->getCumLocs() <= Priv->MaxRegs ) {
 
       // Compute the first register not used by an ancestor.
       Priv->FirstUsableReg = parent.Priv->FirstUsableReg + parent.Priv->NumLocs;
@@ -601,7 +596,6 @@ void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool t
       // we do not have to spill any predicates.
       Priv->NeedsScopeSpill = false;
     }
-  #endif
 
   if (Priv->NumLocs > Priv->MaxRegs) {
     Priv->FirstUsableStackSlot = parentSpillLocCnt;
@@ -613,10 +607,10 @@ void RAInfo::unifyWithChild(const RAInfo &child){
 }
 
 unsigned RAInfo::neededSpillLocs(){
-  if(Priv->NumLocs < (Priv->MaxRegs)) {
+  if(Priv->NumLocs < Priv->MaxRegs) {
     return 0;
   }else{
-    return Priv->NumLocs - (Priv->MaxRegs);
+    return Priv->NumLocs - Priv->MaxRegs;
   }
 }
 
