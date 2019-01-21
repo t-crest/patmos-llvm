@@ -196,13 +196,16 @@ if [ $? -ne 0 ]; then
 fi
 
 $bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4"
+rm $linked #cleanup
 if [ $? -ne 0 ]; then 
 	echo "Failed to compile '$linked'."
 	exit 1
 fi
 
 # Final assembly linking and generation of an executable patmos file
-if ! patmos-ld -nostdlib -static --defsym __heap_start=end --defsym __heap_end=0x100000 --defsym _shadow_stack_base=0x1f8000 --defsym _stack_cache_base=0x200000 -o $exec $compiled ; then
+patmos-ld -nostdlib -static --defsym __heap_start=end --defsym __heap_end=0x100000 --defsym _shadow_stack_base=0x1f8000 --defsym _stack_cache_base=0x200000 -o $exec $compiled 
+rm $compiled #cleanup
+if [ $? -ne 0 ]; then
 	echo "Failed to generate executable from '$compiled'."
 	exit 1
 fi
@@ -234,9 +237,6 @@ do
 	fi
 done
 
-# Delete generated files.
-rm $linked
-rm $compiled
-rm $exec
+rm $exec #cleanup
 
 exit $ret_code
