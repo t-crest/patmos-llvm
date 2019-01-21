@@ -376,6 +376,34 @@ public:
     return idx + FirstUsableStackSlot;
   }
 
+  /// Unifies with parent, such that this RAInfo knows which registers it can use
+  /// and where its spill slots are.
+  void unifyWithParent(const RAInfo::Impl &parent, int parentSpillLocCnt, bool topLevel){
+
+      // We can avoid a spill if the total number of locations
+      // used by the parent, this instance, and any child is less
+      // than/equal to the number of registers available to the function.
+      if ( !topLevel && parent.NumLocs + getCumLocs() <= MaxRegs ) {
+
+        // Compute the first register not used by an ancestor.
+        FirstUsableReg = parent.FirstUsableReg + parent.NumLocs;
+
+        // If the total number of locations the parent, myself, and my children need
+        // are less than/equal to the number of available registers
+        // we do not have to spill any predicates.
+        NeedsScopeSpill = false;
+      }
+
+    if (NumLocs > MaxRegs) {
+      FirstUsableStackSlot = parentSpillLocCnt;
+    }
+  }
+
+  /// Unifies with child, such that this RAInfo knows how many locations will
+  /// be used by the given child.
+  void unifyWithChild(const RAInfo::Impl &child){
+    ChildrenMaxCumLocs = max(child.getCumLocs(), ChildrenMaxCumLocs);
+  }
 private:
   UseLoc calculateNotHeaderUseLoc(unsigned blockIndex, unsigned usePred,
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs)
@@ -580,32 +608,6 @@ tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
   }
 }
 
-void RAInfo::unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel){
-
-
-    // We can avoid a spill if the total number of locations
-    // used by the parent, this instance, and any child is less
-    // than/equal to the number of registers available to the function.
-    if ( !topLevel && parent.Priv->NumLocs + Priv->getCumLocs() <= Priv->MaxRegs ) {
-
-      // Compute the first register not used by an ancestor.
-      Priv->FirstUsableReg = parent.Priv->FirstUsableReg + parent.Priv->NumLocs;
-
-      // If the total number of locations the parent, myself, and my children need
-      // are less than/equal to the number of available registers
-      // we do not have to spill any predicates.
-      Priv->NeedsScopeSpill = false;
-    }
-
-  if (Priv->NumLocs > Priv->MaxRegs) {
-    Priv->FirstUsableStackSlot = parentSpillLocCnt;
-  }
-}
-
-void RAInfo::unifyWithChild(const RAInfo &child){
-  Priv->ChildrenMaxCumLocs = max(child.Priv->getCumLocs(), Priv->ChildrenMaxCumLocs);
-}
-
 unsigned RAInfo::neededSpillLocs(){
   if(Priv->NumLocs < Priv->MaxRegs) {
     return 0;
@@ -679,7 +681,7 @@ std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *P
     for(SPScope::child_iterator CI = S->child_begin(), CE = S->child_end();
         CI != CE; ++CI) {
       SPScope *CN = *CI;
-      RI.unifyWithChild(RAInfos.at(CN));
+      RI.Priv->unifyWithChild(*(RAInfos.at(CN).Priv));
     }
   } // end of PO traversal for RegAlloc
 
@@ -694,7 +696,7 @@ std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *P
     RAInfo &RI = RAInfos.at(S);
 
     if (!S->isTopLevel()) {
-       RI.unifyWithParent(RAInfos.at(S->getParent()), spillLocCnt, S->isTopLevel());
+       RI.Priv->unifyWithParent(*(RAInfos.at(S->getParent()).Priv), spillLocCnt, S->isTopLevel());
       if (!RI.needsScopeSpill()) NoSpillScopes++; // STATISTIC
     }
     spillLocCnt += RI.neededSpillLocs();

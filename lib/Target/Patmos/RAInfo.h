@@ -78,14 +78,6 @@ public:
   /// Dump this RAInfo to dbgs().
   void dump(void) const;
 
-  /// Unifies with parent, such that this RAInfo knows which registers it can use
-  /// and where its spill slots are.
-  void unifyWithParent(const RAInfo &parent, int parentSpillLocCnt, bool topLevel);
-
-  /// Unifies with child, such that this RAInfo knows how many locations will
-  /// be used by the given child.
-  void unifyWithChild(const RAInfo &child);
-
   /// How many spill slots this RAInfo needs.
   unsigned neededSpillLocs();
 
