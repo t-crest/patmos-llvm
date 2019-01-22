@@ -22,7 +22,7 @@ BUILT_SOURCES = PatmosGenRegisterInfo.inc PatmosGenInstrInfo.inc \
 		PatmosGenDFAPacketizer.inc
 GEN_DAG_ISEL_FLAGS=-recursive-xform
 
-DIRS = InstPrinter TargetInfo MCTargetDesc AsmParser Disassembler
+DIRS = InstPrinter TargetInfo MCTargetDesc AsmParser Disassembler SinglePath
 
 include $(LEVEL)/Makefile.common
 

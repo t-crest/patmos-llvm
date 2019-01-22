@@ -16,7 +16,7 @@
 #include "Patmos.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosRegisterInfo.h"
-#include "PatmosSinglePathInfo.h"
+#include "SinglePath/PatmosSinglePathInfo.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"

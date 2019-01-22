@@ -31,18 +31,11 @@ add_llvm_target(PatmosCodeGen
   PatmosCallGraphBuilder.cpp
   PatmosStackCacheAnalysis.cpp
   PatmosExport.cpp
-  PatmosSinglePathInfo.cpp
-  PatmosSPClone.cpp
-  PatmosSPMark.cpp
-  PatmosSPPrepare.cpp
-  PatmosSPBundling.cpp
-  PatmosSPReduce.cpp
   PatmosBypassFromPML.cpp
   PatmosPostRAScheduler.cpp
   PatmosSchedStrategy.cpp
   PatmosPMLProfileImport.cpp
   PatmosEnsureAlignment.cpp
-  RAInfo.cpp
   )
 
 add_dependencies(LLVMPatmosCodeGen intrinsics_gen)
@@ -52,3 +45,4 @@ add_subdirectory(Disassembler)
 add_subdirectory(InstPrinter)
 add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)
+add_subdirectory(SinglePath)
