@@ -18,7 +18,6 @@
 
 using namespace llvm;
 
-
 SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
                     : Parent(NULL), FCFG(header),
                       RootTopLevel(isRootTopLevel), LoopBound(-1) {
@@ -27,7 +26,6 @@ SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
   Blocks.push_back(header);
 
 }
-
 
 SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   : Parent(parent), FCFG(loop.getHeader()),
@@ -62,7 +60,6 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
 
 }
 
-
 /// destructor - free the child scopes first, cleanup
 SPScope::~SPScope() {
   for (unsigned i=0; i<Subscopes.size(); i++) {
@@ -72,13 +69,11 @@ SPScope::~SPScope() {
   HeaderMap.clear();
 }
 
-
 void SPScope::addMBB(MachineBasicBlock *MBB) {
   if (Blocks.front() != MBB) {
     Blocks.push_back(MBB);
   }
 }
-
 
 SPScope::Edge SPScope::getDual(Edge &e) const {
   const MachineBasicBlock *src = e.first;
@@ -94,7 +89,6 @@ SPScope::Edge SPScope::getDual(Edge &e) const {
                         (const MachineBasicBlock *) NULL);
 }
 
-
 bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
   return getHeader() == MBB;
 }
@@ -106,11 +100,9 @@ bool SPScope::isMember(const MachineBasicBlock *MBB) const {
   return false;
 }
 
-
 bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
   return HeaderMap.count(MBB) > 0;
 }
-
 
 const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
   std::vector<const MachineBasicBlock *> SuccMBBs;
@@ -119,7 +111,6 @@ const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
   }
   return SuccMBBs;
 }
-
 
 void SPScope::computePredInfos(void) {
 
@@ -131,9 +122,6 @@ void SPScope::computePredInfos(void) {
   decompose();
 }
 
-
-///////////////////////////////////////////////////////////////////////////////
-//
 void SPScope::buildfcfg(void) {
   std::set<const MachineBasicBlock *> body(++Blocks.begin(), Blocks.end());
   std::vector<Edge> outedges;
@@ -181,9 +169,6 @@ void SPScope::buildfcfg(void) {
   }
 }
 
-
-///////////////////////////////////////////////////////////////////////////////
-//
 void SPScope::toposort(void) {
   // dfs the FCFG in postorder
   std::vector<MachineBasicBlock *> PO;
@@ -196,9 +181,6 @@ void SPScope::toposort(void) {
   Blocks.clear();
   Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
 }
-
-///////////////////////////////////////////////////////////////////////////////
-
 
 void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V,
     std::vector<Node*> &order) {
@@ -214,7 +196,6 @@ void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V,
   order.push_back(n);
 }
 
-
 SPScope::Node *SPScope::FCFG::_intersect(Node *b1, Node *b2) {
   assert(b2 != NULL);
   if (b2->ipdom == NULL) {
@@ -228,8 +209,6 @@ SPScope::Node *SPScope::FCFG::_intersect(Node *b1, Node *b2) {
   }
   return finger1;
 }
-
-
 
 void SPScope::FCFG::postdominators(void) {
   // adopted from:
@@ -262,8 +241,6 @@ void SPScope::FCFG::postdominators(void) {
   }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-
 void SPScope::_walkpdt(Node *a, Node *b, Edge &e) {
   _walkpdt(a, b, e, a);
 }
@@ -276,7 +253,6 @@ void SPScope::_walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc) {
     t = t->ipdom;
   }
 }
-
 
 void SPScope::ctrldep(void) {
 
@@ -317,8 +293,6 @@ void SPScope::ctrldep(void) {
     }
   });
 }
-
-///////////////////////////////////////////////////////////////////////////////
 
 void SPScope::decompose(void) {
   MBBPredicates_t mbbPreds;
@@ -402,10 +376,6 @@ void SPScope::decompose(void) {
   }
 }
 
-
-///////////////////////////////////////////////////////////////////////////////
-
-
 raw_ostream& SPScope::FCFG::printNode(Node &n) {
   raw_ostream& os = dbgs();
   if (&n == &nentry) {
@@ -436,12 +406,6 @@ void SPScope::dumpfcfg(void) {
   }
 }
 
-
-///////////////////////////////////////////////////////////////////////////////
-
-
-
-
 void SPScope::walk(SPScopeWalker &walker) {
   walker.enterSubscope(this);
   for (unsigned i=0; i<Blocks.size(); i++) {
@@ -454,7 +418,6 @@ void SPScope::walk(SPScopeWalker &walker) {
   }
   walker.exitSubscope(this);
 }
-
 
 static void printUDInfo(const SPScope &S, raw_ostream& os,
                         const MachineBasicBlock *MBB) {
@@ -472,8 +435,6 @@ static void printUDInfo(const SPScope &S, raw_ostream& os,
   }
   os << "\n";
 }
-
-
 
 void SPScope::dump(raw_ostream& os) const {
   os.indent(2*Depth) <<  "[BB#" << Blocks.front()->getNumber() << "]";
@@ -508,9 +469,6 @@ void SPScope::dump(raw_ostream& os) const {
     }
   }
 }
-//
-//
-///////////////////////////////////////////////////////////////////////////////
 
 const std::vector<unsigned> *SPScope::getPredUse(const MachineBasicBlock *MBB) const {
   if (PredUse.count(MBB)) {

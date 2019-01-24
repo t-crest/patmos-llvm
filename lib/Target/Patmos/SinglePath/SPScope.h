@@ -32,8 +32,6 @@ namespace llvm {
   class SPScopeWalker;
 
   class SPScope {
-    friend class PatmosSinglePathInfo;
-    friend struct GraphTraits<SPScope*>;
 
     public:
       /// iterator - Type for iterator through MBBs
@@ -179,23 +177,13 @@ namespace llvm {
         return Blocks;
       }
 
-
       // dump() - Dump state of this SP scope and the subtree
       void dump(raw_ostream&) const;
 
-
       void computePredInfos(void);
 
-
-    private:
-
-      /// Typedefs for CD, R and K
-      typedef std::set<std::pair<Node*, Edge> > CD_map_entry_t;
-      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
-      /**
-       * A map over which predicate is the guard for each basic block.
-       */
-      typedef std::map<const MachineBasicBlock*, std::vector<unsigned>> MBBPredicates_t;
+      /// addMBB - Add an MBB to the SP scope
+      void addMBB(MachineBasicBlock *MBB);
 
       class FCFG {
         public:
@@ -220,6 +208,18 @@ namespace llvm {
           void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
           Node *_intersect(Node *, Node *);
       };
+      // local foward CFG
+      FCFG FCFG;
+
+    private:
+
+      /// Typedefs for CD, R and K
+      typedef std::set<std::pair<Node*, Edge> > CD_map_entry_t;
+      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
+      /**
+       * A map over which predicate is the guard for each basic block.
+       */
+      typedef std::map<const MachineBasicBlock*, std::vector<unsigned>> MBBPredicates_t;
 
       void buildfcfg(void);
       /// toposort - sort blocks of this SPScope topologically
@@ -233,12 +233,8 @@ namespace llvm {
       void _walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc);
       ////// SNIP /////////
 
-
       // parent SPScope
       SPScope *Parent;
-
-      // local foward CFG
-      FCFG FCFG;
 
       // loop latches
       SmallVector<MachineBasicBlock *, 4> Latches;
@@ -276,9 +272,6 @@ namespace llvm {
 
       // number of defining edges for each predicate
       std::vector<unsigned> NumPredDefEdges;
-
-      /// addMBB - Add an MBB to the SP scope
-      void addMBB(MachineBasicBlock *MBB);
 
       // get the dual edge of an edge
       Edge getDual(Edge &e) const;
