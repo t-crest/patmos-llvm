@@ -6,6 +6,7 @@ add_llvm_library(LLVMPatmosSinglePath
   PatmosSPBundling.cpp
   PatmosSPReduce.cpp
   RAInfo.cpp
+  SPScope.cpp
   )
 
 add_dependencies(LLVMPatmosSinglePath PatmosCommonTableGen)
