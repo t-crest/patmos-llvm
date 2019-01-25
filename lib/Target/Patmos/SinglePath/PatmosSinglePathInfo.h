@@ -49,9 +49,6 @@ namespace llvm {
       /// Root SPScope
       SPScope *Root;
 
-      /// Map MBBs to their innermost scopes
-      std::map<const MachineBasicBlock *, SPScope *> MBBScopeMap;
-
       /// Analyze a given MachineFunction
       void analyzeFunction(MachineFunction &MF);
 

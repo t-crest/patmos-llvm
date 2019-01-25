@@ -17,6 +17,7 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/Support/Debug.h"
+#include "boost/optional.hpp"
 
 // define for more detailed debugging output
 #define PATMOS_SINGLEPATH_TRACE
@@ -288,6 +289,34 @@ namespace llvm {
 
       /// child_end - Iterator end for subloops
       child_iterator child_end() { return Subscopes.end(); }
+
+      bool containsMbb(const MachineBasicBlock *mbb)
+      {
+        return std::find(Blocks.begin(), Blocks.end(), mbb) != Blocks.end();
+      }
+
+      boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb)
+      {
+        boost::optional<SPScope*> found = boost::none;
+        for(auto i = Subscopes.begin(), end=Subscopes.end(); i != end; ++i)
+        {
+          SPScope* child = *i;
+          boost::optional<SPScope*> temp = child->findMBBScope(mbb);
+          //Ensure two different children don't have the same MBB
+          assert(!(temp.is_initialized() && found.is_initialized()));
+          if(temp.is_initialized()){
+            found = temp;
+          }
+        }
+
+        if(found.is_initialized()){
+          return found;
+        } else if(containsMbb(mbb)){
+          return boost::make_optional(this);
+        }else{
+          return boost::none;
+        }
+      }
   };
 
 ///////////////////////////////////////////////////////////////////////////////

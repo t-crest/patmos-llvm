@@ -126,8 +126,6 @@ bool PatmosSinglePathInfo::runOnMachineFunction(MachineFunction &MF) {
     delete Root;
     Root = NULL;
   }
-  // clear for sure
-  MBBScopeMap.clear();
 
   // only consider function actually marked for conversion
   std::string curfunc = MF.getFunction()->getName();
@@ -200,10 +198,12 @@ void PatmosSinglePathInfo::checkIrreducibility(MachineFunction &MF) const {
   c.dfs(&MF.front());
 }
 
-
 SPScope *
 PatmosSinglePathInfo::getScopeFor(const MachineBasicBlock *MBB) const {
-  return MBBScopeMap.at(MBB);
+  boost::optional<SPScope*> found = Root->findMBBScope(MBB);
+  return (found.is_initialized())?
+    boost::get(found) :
+    NULL;
 }
 
 void PatmosSinglePathInfo::print(raw_ostream &os, const Module *M) const {
@@ -230,6 +230,8 @@ void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
                          std::map<const MachineLoop *, SPScope *> &M) {
 
   SPScope *S = new SPScope(parent, *loop);
+  // add to parent's child list
+  parent->addChild(S, loop->getHeader());
 
   // update map: Loop -> SPScope
   M[loop] = S;
@@ -266,8 +268,6 @@ PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) {
     MachineBasicBlock *MBB = FI;
     const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
     M[Loop]->addMBB(MBB);
-
-    MBBScopeMap.insert(std::make_pair(MBB, M[Loop]));
   }
 
   return Root;
