@@ -18,9 +18,80 @@
 
 using namespace llvm;
 
+/// Node - a node used internally in the scope to construct a forward CFG
+/// of the scope MBBs
+
+class Node {
+  public:
+    typedef std::vector<Node*>::iterator child_iterator;
+    Node(const MachineBasicBlock *mbb=NULL)
+      : MBB(mbb), num(-1), ipdom(NULL) {}
+    const MachineBasicBlock *MBB;
+    int num;
+    Node *ipdom;
+    void connect(Node &n) {
+      succs.push_back(&n);
+      n.preds.push_back(this);
+    }
+    void connect(Node &n, SPScope::Edge e) {
+      outedges[&n] = e;
+      connect(n);
+    }
+    unsigned long dout() { return succs.size(); }
+    SPScope::Edge *edgeto(Node *n) {
+      if (outedges.count(n)) {
+        return &outedges.at(n);
+      }
+      return (SPScope::Edge *) NULL;
+    }
+    child_iterator succs_begin() { return succs.begin(); }
+    child_iterator succs_end()   { return succs.end(); }
+    child_iterator preds_begin() { return preds.begin(); }
+    child_iterator preds_end()   { return preds.end(); }
+  private:
+    std::vector<Node *> succs;
+    std::vector<Node *> preds;
+    std::map<Node *, SPScope::Edge> outedges;
+};
+
+class FCFG {
+  public:
+    explicit FCFG(const MachineBasicBlock *header) {
+      toexit(nentry);
+      nentry.connect(getNodeFor(header),
+          std::make_pair((const MachineBasicBlock *)NULL, header));
+    }
+    Node nentry, nexit;
+    Node &getNodeFor(const MachineBasicBlock *MBB) {
+      if (!nodes.count(MBB)) {
+        nodes.insert(std::make_pair(MBB, Node(MBB)));
+      }
+      return nodes.at(MBB);
+    }
+    void toexit(Node &n) { n.connect(nexit); }
+    void toexit(Node &n, SPScope::Edge &e) { n.connect(nexit, e); }
+    void postdominators(void);
+    raw_ostream& printNode(Node &n);
+  private:
+    std::map<const MachineBasicBlock*, Node> nodes;
+    void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
+    Node *_intersect(Node *, Node *);
+};
+
 // The private implementation of SPScope using the PIMPL pattern.
 class SPScope::Impl {
 public:
+
+// Typedefs
+  typedef std::set<std::pair<Node*, Edge> > CD_map_entry_t;
+  typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
+  /**
+   *  A map over which predicate is the guard for each basic block.
+   */
+  typedef std::map<const MachineBasicBlock*, std::vector<unsigned>> MBBPredicates_t;
+
+//Fields
+
   // A reference to the RAInfo that uses this instance
   // to implement its private members. (I.e. the public part
   // of the implementation)
@@ -66,17 +137,259 @@ public:
   // number of defining edges for each predicate
   std::vector<unsigned> NumPredDefEdges;
 
-  Impl(SPScope *pub, SPScope * parent, bool rootTopLevel):
+  // local foward CFG
+  FCFG fcfg;
+
+  CD_map_t CD;
+
+//Constructors
+  Impl(SPScope *pub, SPScope * parent, bool rootTopLevel, MachineBasicBlock *header):
     Pub(*pub), Parent(parent), RootTopLevel(rootTopLevel),
     LoopBound(-1), Depth((parent == NULL)? 0 : parent->Priv->Depth + 1),
-    PredCount(0)
+    PredCount(0), fcfg(header)
   {}
+
+//Functions
+
+  void buildfcfg(void) {
+    std::set<const MachineBasicBlock *> body(++Blocks.begin(), Blocks.end());
+    std::vector<Edge> outedges;
+
+    for (unsigned i=0; i<Blocks.size(); i++) {
+      MachineBasicBlock *MBB = Blocks[i];
+
+      if (HeaderMap.count(MBB)) {
+        const SPScope *subloop = HeaderMap[MBB];
+        // successors of the loop
+        outedges.insert(outedges.end(),
+                        subloop->Priv->ExitEdges.begin(),
+                        subloop->Priv->ExitEdges.end());
+      } else {
+        // simple block
+        for (MachineBasicBlock::succ_iterator si = MBB->succ_begin(),
+              se = MBB->succ_end(); si != se; ++si) {
+          outedges.push_back(std::make_pair(MBB, *si));
+        }
+      }
+
+      Node &n = fcfg.getNodeFor(MBB);
+      for (unsigned i=0; i<outedges.size(); i++) {
+        const MachineBasicBlock *succ = outedges[i].second;
+        if (body.count(succ)) {
+          Node &ns = fcfg.getNodeFor(succ);
+          n.connect(ns, outedges[i]);
+        } else {
+          if (succ != Pub.getHeader()) {
+            // record exit edges
+            fcfg.toexit(n, outedges[i]);
+          } else {
+            // we don't need back edges recorded
+            fcfg.toexit(n);
+          }
+        }
+      }
+
+      // special case: top-level loop has no exit/backedge
+      if (outedges.empty()) {
+        assert(Pub.isTopLevel());
+        fcfg.toexit(n);
+      }
+      outedges.clear();
+    }
+  }
+
+  void _walkpdt(Node *a, Node *b, Edge &e) {
+    _walkpdt(a, b, e, a);
+  }
+
+  void _walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc) {
+    Node *t = b;
+    while (t != a->ipdom) {
+      // add edge e to control dependence of t
+      CD[t->MBB].insert(std::make_pair(edgesrc, e));
+      t = t->ipdom;
+    }
+  }
+
+  void decompose(void) {
+      MBBPredicates_t mbbPreds;
+      std::vector<CD_map_entry_t> K;
+      int p = 0;
+      for (unsigned i=0; i<Blocks.size(); i++) {
+        const MachineBasicBlock *MBB = Blocks[i];
+        CD_map_entry_t t = CD.at(MBB);
+        int q=-1;
+        // try to lookup the control dependence
+        for (unsigned int i=0; i<K.size(); i++) {
+            if ( t == K[i] ) {
+              q = i;
+              break;
+            }
+        }
+        assert(mbbPreds.find(MBB) ==  mbbPreds.end());
+        mbbPreds.insert(std::make_pair(MBB, std::vector<unsigned>()));
+        if (q != -1) {
+          // we already have handled this dependence
+          mbbPreds[MBB].push_back(q);
+        } else {
+          // new dependence set:
+          K.push_back(t);
+          mbbPreds[MBB].push_back(p++);
+        }
+      } // end for each MBB
+
+      DEBUG_TRACE({
+        // dump R, K
+        dbgs() << "Decomposed CD:\n";
+        dbgs().indent(2) << "map R: MBB -> pN\n";
+        for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
+          dbgs().indent(4) << "R(" << RI->first->getNumber() << ") ={";
+          std::for_each(RI->second.begin(), RI->second.end(), [](unsigned n){ dbgs() << n << ", ";});
+          dbgs() << "}\n";
+        }
+        dbgs().indent(2) << "map K: pN -> t \\in CD\n";
+        for (unsigned long i = 0; i < K.size(); i++) {
+          dbgs().indent(4) << "K(p" << i << ") -> {";
+          for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
+                EI!=EE; ++EI) {
+            Node *n = EI->first;
+            Edge e  = EI->second;
+            fcfg.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1)
+                               << "," << e.second->getNumber() << "), ";
+          }
+          dbgs() << "}\n";
+        }
+      });
+
+
+
+      // Properly assign the Uses/Defs
+      PredCount = K.size();
+      PredUse = mbbPreds;
+      // initialize number of defining edges to 0 for all predicates
+      NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
+
+      // For each predicate, compute defs
+      for (unsigned int i=0; i<K.size(); i++) {
+        // store number of defining edges
+        NumPredDefEdges[i] = K[i].size();
+        // for each definition edge
+        for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
+                  EI!=EE; ++EI) {
+          Node *n = EI->first;
+          Edge e  = EI->second;
+          if (n == &fcfg.nentry) {
+            // Pseudo edge (from start node)
+            //assert(e.first == NULL);
+            assert(e.second == Pub.getHeader());
+            continue;
+          }
+
+          // get pred definition info of node
+          PredDefInfo &PredDef = Pub.getOrCreateDefInfo(n->MBB);
+          // insert definition edge for predicate i
+          PredDef.define(i, e);
+        } // end for each definition edge
+      }
+    }
+
+  void toposort(void);
+
+  void ctrldep(void);
+
+  void dumpfcfg(void);
 
 };
 
+namespace llvm{
+  // Allow clients to iterate over the Scope FCFG nodes
+  template <> struct GraphTraits<SPScope::Impl*> {
+    typedef Node NodeType;
+    typedef Node::child_iterator ChildIteratorType;
+
+    static NodeType *getEntryNode(SPScope::Impl *S) { return &S->fcfg.nentry; }
+    static inline ChildIteratorType child_begin(NodeType *N) {
+      return N->succs_begin();
+    }
+    static inline ChildIteratorType child_end(NodeType *N) {
+      return N->succs_end();
+    }
+  };
+}
+
+void SPScope::Impl::toposort(void) {
+  // dfs the fcfg in postorder
+  std::vector<MachineBasicBlock *> PO;
+  for (po_iterator<SPScope::Impl*> I = po_begin(this), E = po_end(this);
+      I != E; ++I) {
+    MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
+    if (MBB) PO.push_back(MBB);
+  }
+  // clear the blocks vector and re-insert MBBs in reverse post order
+  Blocks.clear();
+  Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
+}
+
+void SPScope::Impl::ctrldep(void) {
+
+    for (df_iterator<SPScope::Impl*> I = df_begin(this), E = df_end(this);
+        I != E; ++I) {
+      Node *n = *I;
+      if (n->dout() >= 2) {
+        for (Node::child_iterator it = n->succs_begin(), et = n->succs_end();
+              it != et; ++it) {
+          Edge *e = n->edgeto(*it);
+          if (e) _walkpdt(n, *it, *e);
+        }
+      }
+    }
+    // find exit edges
+    for (Node::child_iterator it = fcfg.nexit.preds_begin(),
+          et = fcfg.nexit.preds_end(); it != et; ++it) {
+      Edge *e = (*it)->edgeto(&fcfg.nexit);
+      if (!e) continue;
+      // we found an exit edge
+      Edge dual = Pub.getDual(*e);
+      _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()), dual, *it);
+    }
+
+    DEBUG_TRACE({
+      // dump CD
+      dbgs() << "Control dependence:\n";
+      for (CD_map_t::iterator I=CD.begin(), E=CD.end(); I!=E; ++I) {
+        dbgs().indent(4) << "BB#" << I->first->getNumber() << ": { ";
+        for (CD_map_entry_t::iterator EI=I->second.begin(), EE=I->second.end();
+             EI!=EE; ++EI) {
+          Node *n = EI->first;
+          Edge e  = EI->second;
+          fcfg.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1) << ","
+                        << e.second->getNumber() << "), ";
+        }
+        dbgs() << "}\n";
+      }
+    });
+  }
+
+void SPScope::Impl::dumpfcfg(void) {
+    dbgs() << "==========\nFCFG [BB#" << Pub.getHeader()->getNumber() << "]\n";
+
+    for (df_iterator<SPScope::Impl*> I = df_begin(this), E = df_end(this);
+        I != E; ++I) {
+
+      dbgs().indent(2);
+      fcfg.printNode(**I) << " ipdom ";
+      fcfg.printNode(*(*I)->ipdom) << " -> {";
+      // print outgoing edges
+      for (Node::child_iterator SI = (*I)->succs_begin(), SE = (*I)->succs_end();
+            SI != SE; ++SI ) {
+        fcfg.printNode(**SI) << ", ";
+      }
+      dbgs() << "}\n";
+    }
+  }
+
 SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
-                    : FCFG(header),
-                      Priv(spimpl::make_unique_impl<Impl>(this, (SPScope *)NULL, isRootTopLevel))
+  : Priv(spimpl::make_unique_impl<Impl>(this, (SPScope *)NULL, isRootTopLevel, header))
 {
   // add header also to this SPScope's block list
   Priv->Blocks.push_back(header);
@@ -84,8 +397,7 @@ SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
 }
 
 SPScope::SPScope(SPScope *parent, MachineLoop &loop)
-  : FCFG(loop.getHeader()),
-    Priv(spimpl::make_unique_impl<Impl>(this, parent, false))
+  : Priv(spimpl::make_unique_impl<Impl>(this, parent, false,loop.getHeader()))
 {
 
   assert(parent);
@@ -163,75 +475,15 @@ const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
 
 void SPScope::computePredInfos(void) {
 
-  buildfcfg();
-  toposort();
-  FCFG.postdominators();
-  DEBUG_TRACE(dumpfcfg()); // uses info about pdom
-  ctrldep();
-  decompose();
+  Priv->buildfcfg();
+  Priv->toposort();
+  Priv->fcfg.postdominators();
+  DEBUG_TRACE(Priv->dumpfcfg()); // uses info about pdom
+  Priv->ctrldep();
+  Priv->decompose();
 }
 
-void SPScope::buildfcfg(void) {
-  std::set<const MachineBasicBlock *> body(++Priv->Blocks.begin(), Priv->Blocks.end());
-  std::vector<Edge> outedges;
-
-  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
-    MachineBasicBlock *MBB = Priv->Blocks[i];
-
-    if (Priv->HeaderMap.count(MBB)) {
-      const SPScope *subloop = Priv->HeaderMap[MBB];
-      // successors of the loop
-      outedges.insert(outedges.end(),
-                      subloop->Priv->ExitEdges.begin(),
-                      subloop->Priv->ExitEdges.end());
-    } else {
-      // simple block
-      for (MachineBasicBlock::succ_iterator si = MBB->succ_begin(),
-            se = MBB->succ_end(); si != se; ++si) {
-        outedges.push_back(std::make_pair(MBB, *si));
-      }
-    }
-
-    Node &n = FCFG.getNodeFor(MBB);
-    for (unsigned i=0; i<outedges.size(); i++) {
-      const MachineBasicBlock *succ = outedges[i].second;
-      if (body.count(succ)) {
-        Node &ns = FCFG.getNodeFor(succ);
-        n.connect(ns, outedges[i]);
-      } else {
-        if (succ != getHeader()) {
-          // record exit edges
-          FCFG.toexit(n, outedges[i]);
-        } else {
-          // we don't need back edges recorded
-          FCFG.toexit(n);
-        }
-      }
-    }
-
-    // special case: top-level loop has no exit/backedge
-    if (outedges.empty()) {
-      assert(isTopLevel());
-      FCFG.toexit(n);
-    }
-    outedges.clear();
-  }
-}
-
-void SPScope::toposort(void) {
-  // dfs the FCFG in postorder
-  std::vector<MachineBasicBlock *> PO;
-  for (po_iterator<SPScope*> I = po_begin(this), E = po_end(this);
-      I != E; ++I) {
-    MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
-    if (MBB) PO.push_back(MBB);
-  }
-  // clear the blocks vector and re-insert MBBs in reverse post order
-  Priv->Blocks.clear();
-  Priv->Blocks.insert(Priv->Blocks.end(), PO.rbegin(), PO.rend());
-}
-
-void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V,
+void FCFG::_rdfs(Node *n, std::set<Node*> &V,
     std::vector<Node*> &order) {
   V.insert(n);
   n->num = -1;
@@ -245,7 +497,7 @@ void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V,
   order.push_back(n);
 }
 
-SPScope::Node *SPScope::FCFG::_intersect(Node *b1, Node *b2) {
+Node *FCFG::_intersect(Node *b1, Node *b2) {
   assert(b2 != NULL);
   if (b2->ipdom == NULL) {
     return b1;
@@ -259,7 +511,7 @@ SPScope::Node *SPScope::FCFG::_intersect(Node *b1, Node *b2) {
   return finger1;
 }
 
-void SPScope::FCFG::postdominators(void) {
+void FCFG::postdominators(void) {
   // adopted from:
   //   Cooper K.D., Harvey T.J. & Kennedy K. (2001).
   //   A simple, fast dominance algorithm
@@ -290,142 +542,7 @@ void SPScope::FCFG::postdominators(void) {
   }
 }
 
-void SPScope::_walkpdt(Node *a, Node *b, Edge &e) {
-  _walkpdt(a, b, e, a);
-}
-
-void SPScope::_walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc) {
-  Node *t = b;
-  while (t != a->ipdom) {
-    // add edge e to control dependence of t
-    CD[t->MBB].insert(std::make_pair(edgesrc, e));
-    t = t->ipdom;
-  }
-}
-
-void SPScope::ctrldep(void) {
-
-  for (df_iterator<SPScope*> I = df_begin(this), E = df_end(this);
-      I != E; ++I) {
-    Node *n = *I;
-    if (n->dout() >= 2) {
-      for (Node::child_iterator it = n->succs_begin(), et = n->succs_end();
-            it != et; ++it) {
-        Edge *e = n->edgeto(*it);
-        if (e) _walkpdt(n, *it, *e);
-      }
-    }
-  }
-  // find exit edges
-  for (Node::child_iterator it = FCFG.nexit.preds_begin(),
-        et = FCFG.nexit.preds_end(); it != et; ++it) {
-    Edge *e = (*it)->edgeto(&FCFG.nexit);
-    if (!e) continue;
-    // we found an exit edge
-    Edge dual = getDual(*e);
-    _walkpdt(&FCFG.nentry, &FCFG.getNodeFor(getHeader()), dual, *it);
-  }
-
-  DEBUG_TRACE({
-    // dump CD
-    dbgs() << "Control dependence:\n";
-    for (CD_map_t::iterator I=CD.begin(), E=CD.end(); I!=E; ++I) {
-      dbgs().indent(4) << "BB#" << I->first->getNumber() << ": { ";
-      for (CD_map_entry_t::iterator EI=I->second.begin(), EE=I->second.end();
-           EI!=EE; ++EI) {
-        Node *n = EI->first;
-        Edge e  = EI->second;
-        FCFG.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1) << ","
-                      << e.second->getNumber() << "), ";
-      }
-      dbgs() << "}\n";
-    }
-  });
-}
-
-void SPScope::decompose(void) {
-  MBBPredicates_t mbbPreds;
-  std::vector<CD_map_entry_t> K;
-  int p = 0;
-  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
-    const MachineBasicBlock *MBB = Priv->Blocks[i];
-    CD_map_entry_t t = CD.at(MBB);
-    int q=-1;
-    // try to lookup the control dependence
-    for (unsigned int i=0; i<K.size(); i++) {
-        if ( t == K[i] ) {
-          q = i;
-          break;
-        }
-    }
-    assert(mbbPreds.find(MBB) ==  mbbPreds.end());
-    mbbPreds.insert(std::make_pair(MBB, std::vector<unsigned>()));
-    if (q != -1) {
-      // we already have handled this dependence
-      mbbPreds[MBB].push_back(q);
-    } else {
-      // new dependence set:
-      K.push_back(t);
-      mbbPreds[MBB].push_back(p++);
-    }
-  } // end for each MBB
-
-  DEBUG_TRACE({
-    // dump R, K
-    dbgs() << "Decomposed CD:\n";
-    dbgs().indent(2) << "map R: MBB -> pN\n";
-    for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
-      dbgs().indent(4) << "R(" << RI->first->getNumber() << ") ={";
-      std::for_each(RI->second.begin(), RI->second.end(), [](unsigned n){ dbgs() << n << ", ";});
-      dbgs() << "}\n";
-    }
-    dbgs().indent(2) << "map K: pN -> t \\in CD\n";
-    for (unsigned long i = 0; i < K.size(); i++) {
-      dbgs().indent(4) << "K(p" << i << ") -> {";
-      for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
-            EI!=EE; ++EI) {
-        Node *n = EI->first;
-        Edge e  = EI->second;
-        FCFG.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1)
-                           << "," << e.second->getNumber() << "), ";
-      }
-      dbgs() << "}\n";
-    }
-  });
-
-
-
-  // Properly assign the Uses/Defs
-  Priv->PredCount = K.size();
-  Priv->PredUse = mbbPreds;
-  // initialize number of defining edges to 0 for all predicates
-  Priv->NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
-
-  // For each predicate, compute defs
-  for (unsigned int i=0; i<K.size(); i++) {
-    // store number of defining edges
-    Priv->NumPredDefEdges[i] = K[i].size();
-    // for each definition edge
-    for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
-              EI!=EE; ++EI) {
-      Node *n = EI->first;
-      Edge e  = EI->second;
-      if (n == &FCFG.nentry) {
-        // Pseudo edge (from start node)
-        //assert(e.first == NULL);
-        assert(e.second == getHeader());
-        continue;
-      }
-
-      // get pred definition info of node
-      PredDefInfo &PredDef = getOrCreateDefInfo(n->MBB);
-      // insert definition edge for predicate i
-      PredDef.define(i, e);
-    } // end for each definition edge
-  }
-}
-
-raw_ostream& SPScope::FCFG::printNode(Node &n) {
+raw_ostream& FCFG::printNode(Node &n) {
   raw_ostream& os = dbgs();
   if (&n == &nentry) {
     os << "_S<" << n.num << ">";
@@ -435,24 +552,6 @@ raw_ostream& SPScope::FCFG::printNode(Node &n) {
     os << "BB#" << n.MBB->getNumber() << "<" << n.num << ">";
   }
   return os;
-}
-
-void SPScope::dumpfcfg(void) {
-  dbgs() << "==========\nFCFG [BB#" << getHeader()->getNumber() << "]\n";
-
-  for (df_iterator<SPScope*> I = df_begin(this), E = df_end(this);
-      I != E; ++I) {
-
-    dbgs().indent(2);
-    FCFG.printNode(**I) << " ipdom ";
-    FCFG.printNode(*(*I)->ipdom) << " -> {";
-    // print outgoing edges
-    for (Node::child_iterator SI = (*I)->succs_begin(), SE = (*I)->succs_end();
-          SI != SE; ++SI ) {
-      FCFG.printNode(**SI) << ", ";
-    }
-    dbgs() << "}\n";
-  }
 }
 
 void SPScope::walk(SPScopeWalker &walker) {

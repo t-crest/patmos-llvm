@@ -63,42 +63,6 @@ namespace llvm {
           iterator end() const { return Defs.end(); }
       };
 
-      /// Node - a node used internally in the scope to construct a forward CFG
-      /// of the scope MBBs
-      class Node {
-        public:
-          typedef std::vector<Node*>::iterator child_iterator;
-          Node(const MachineBasicBlock *mbb=NULL)
-            : MBB(mbb), num(-1), ipdom(NULL) {}
-          const MachineBasicBlock *MBB;
-          int num;
-          Node *ipdom;
-          void connect(Node &n) {
-            succs.push_back(&n);
-            n.preds.push_back(this);
-          }
-          void connect(Node &n, Edge e) {
-            outedges[&n] = e;
-            connect(n);
-          }
-          unsigned long dout() { return succs.size(); }
-          Edge *edgeto(Node *n) {
-            if (outedges.count(n)) {
-              return &outedges.at(n);
-            }
-            return (Edge *) NULL;
-          }
-          child_iterator succs_begin() { return succs.begin(); }
-          child_iterator succs_end()   { return succs.end(); }
-          child_iterator preds_begin() { return preds.begin(); }
-          child_iterator preds_end()   { return preds.end(); }
-        private:
-          std::vector<Node *> succs;
-          std::vector<Node *> preds;
-          std::map<Node *, Edge> outedges;
-      };
-
-
       /// constructor - Create a top-level SPScope
       /// @param entry            The entry MBB;
       /// @param isRootTopLevel   True when this scope is a top level scope of
@@ -184,63 +148,18 @@ namespace llvm {
       /// addMBB - Add an MBB to the SP scope
       void addMBB(MachineBasicBlock *MBB);
 
-      class FCFG {
-        public:
-          explicit FCFG(const MachineBasicBlock *header) {
-            toexit(nentry);
-            nentry.connect(getNodeFor(header),
-                std::make_pair((const MachineBasicBlock *)NULL, header));
-          }
-          Node nentry, nexit;
-          Node &getNodeFor(const MachineBasicBlock *MBB) {
-            if (!nodes.count(MBB)) {
-              nodes.insert(std::make_pair(MBB, Node(MBB)));
-            }
-            return nodes.at(MBB);
-          }
-          void toexit(Node &n) { n.connect(nexit); }
-          void toexit(Node &n, Edge &e) { n.connect(nexit, e); }
-          void postdominators(void);
-          raw_ostream& printNode(Node &n);
-        private:
-          std::map<const MachineBasicBlock*, Node> nodes;
-          void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
-          Node *_intersect(Node *, Node *);
-      };
-      // local foward CFG
-      FCFG FCFG;
-
       void addChild(SPScope * child, MachineBasicBlock *childHeader);
 
-    private:
-
-      /// Typedefs for CD, R and K
-      typedef std::set<std::pair<Node*, Edge> > CD_map_entry_t;
-      typedef std::map<const MachineBasicBlock*, CD_map_entry_t> CD_map_t;
-      /**
-       * A map over which predicate is the guard for each basic block.
-       */
-      typedef std::map<const MachineBasicBlock*, std::vector<unsigned>> MBBPredicates_t;
-
-      void buildfcfg(void);
-      /// toposort - sort blocks of this SPScope topologically
-      void toposort(void);
-      void ctrldep(void);
-      void decompose(void);
-      void dumpfcfg(void);
-      CD_map_t CD;
-      // algorithms
-      void _walkpdt(Node *a, Node *b, Edge &e);
-      void _walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc);
-      ////// SNIP /////////
-
-      // get the dual edge of an edge
       Edge getDual(Edge &e) const;
 
+    private:
       class Impl;
       /// We use the PIMPL pattern to implement the private
       /// members of this instance.
       spimpl::unique_impl_ptr<Impl> Priv;
+
+      /// Allow GraphTraits to be implemented on Impl
+      friend struct GraphTraits<Impl*>;
 
     public:
       /// begin - Iterator begin for MBBs
@@ -270,18 +189,5 @@ namespace llvm {
       virtual ~SPScopeWalker() {};
   };
 
-  // Allow clients to iterate over the Scope FCFG nodes
-  template <> struct GraphTraits<SPScope*> {
-    typedef SPScope::Node NodeType;
-    typedef SPScope::Node::child_iterator ChildIteratorType;
-
-    static NodeType *getEntryNode(SPScope *S) { return &S->FCFG.nentry; }
-    static inline ChildIteratorType child_begin(NodeType *N) {
-      return N->succs_begin();
-    }
-    static inline ChildIteratorType child_end(NodeType *N) {
-      return N->succs_end();
-    }
-  };
 }
 #endif /* TARGET_PATMOS_SINGLEPATH_SPSCOPE_H_ */
