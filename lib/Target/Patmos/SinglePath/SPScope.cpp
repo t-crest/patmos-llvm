@@ -18,37 +18,92 @@
 
 using namespace llvm;
 
+// The private implementation of SPScope using the PIMPL pattern.
+class SPScope::Impl {
+public:
+  // A reference to the RAInfo that uses this instance
+  // to implement its private members. (I.e. the public part
+  // of the implementation)
+  SPScope &Pub;
+
+  // parent SPScope
+  SPScope *Parent;
+
+  // loop latches
+  SmallVector<MachineBasicBlock *, 4> Latches;
+
+  // exit edges
+  SmallVector<Edge, 4> ExitEdges;
+
+  // loop bound
+  int LoopBound;
+
+  // flag that only is set to true if the scope is a top-level scope
+  // of a single-path root function
+  const bool RootTopLevel;
+
+  // children as map: header MBB -> SPScope
+  std::map<MachineBasicBlock*, SPScope*> HeaderMap;
+
+  // MBBs contained
+  std::vector<MachineBasicBlock*> Blocks;
+
+  // sub-scopes
+  std::vector<SPScope*> Subscopes;
+
+  // nesting depth
+  unsigned int Depth;
+
+  /// Number of predicates used
+  unsigned PredCount;
+
+  /// Map MBBs to predicate they use
+  MBBPredicates_t PredUse;
+
+  /// PredDefs - Stores predicate define information for each basic block
+  std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
+
+  // number of defining edges for each predicate
+  std::vector<unsigned> NumPredDefEdges;
+
+  Impl(SPScope *pub, SPScope * parent, bool rootTopLevel):
+    Pub(*pub), Parent(parent), RootTopLevel(rootTopLevel),
+    LoopBound(-1), Depth((parent == NULL)? 0 : parent->Priv->Depth + 1),
+    PredCount(0)
+  {}
+
+};
+
 SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
-                    : Parent(NULL), FCFG(header),
-                      RootTopLevel(isRootTopLevel), LoopBound(-1) {
-  Depth = 0;
+                    : FCFG(header),
+                      Priv(spimpl::make_unique_impl<Impl>(this, (SPScope *)NULL, isRootTopLevel))
+{
   // add header also to this SPScope's block list
-  Blocks.push_back(header);
+  Priv->Blocks.push_back(header);
 
 }
 
 SPScope::SPScope(SPScope *parent, MachineLoop &loop)
-  : Parent(parent), FCFG(loop.getHeader()),
-    RootTopLevel(false), LoopBound(-1) {
+  : FCFG(loop.getHeader()),
+    Priv(spimpl::make_unique_impl<Impl>(this, parent, false))
+{
 
   assert(parent);
   MachineBasicBlock *header = loop.getHeader();
 
-  Depth = Parent->Depth + 1;
-
   // add header also to this SPScope's block list
-  Blocks.push_back(header);
+  Priv->Blocks.push_back(header);
 
   // info about loop latches and exit edges
-  loop.getLoopLatches(Latches);
-  loop.getExitEdges(ExitEdges);
+  loop.getLoopLatches(Priv->Latches);
+  loop.getExitEdges(Priv->ExitEdges);
 
   // scan the header for loopbound info
   for (MachineBasicBlock::iterator MI = header->begin(), ME = header->end();
       MI != ME; ++MI) {
     if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
       // max is the second operand (idx 1)
-      LoopBound = MI->getOperand(1).getImm() + 1;
+      Priv->LoopBound = MI->getOperand(1).getImm() + 1;
       break;
     }
   }
@@ -57,16 +112,15 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
 
 /// destructor - free the child scopes first, cleanup
 SPScope::~SPScope() {
-  for (unsigned i=0; i<Subscopes.size(); i++) {
-    delete Subscopes[i];
+  for (unsigned i=0; i<Priv->Subscopes.size(); i++) {
+    delete Priv->Subscopes[i];
   }
-  Subscopes.clear();
-  HeaderMap.clear();
+  Priv->Subscopes.clear();
 }
 
 void SPScope::addMBB(MachineBasicBlock *MBB) {
-  if (Blocks.front() != MBB) {
-    Blocks.push_back(MBB);
+  if (Priv->Blocks.front() != MBB) {
+    Priv->Blocks.push_back(MBB);
   }
 }
 
@@ -89,20 +143,20 @@ bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
 }
 
 bool SPScope::isMember(const MachineBasicBlock *MBB) const {
-  for (unsigned i=0; i<Blocks.size(); i++) {
-    if (Blocks[i] == MBB) return true;
+  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
+    if (Priv->Blocks[i] == MBB) return true;
   }
   return false;
 }
 
 bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
-  return HeaderMap.count(MBB) > 0;
+  return Priv->HeaderMap.count(MBB) > 0;
 }
 
 const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
   std::vector<const MachineBasicBlock *> SuccMBBs;
-  for (unsigned i=0; i<ExitEdges.size(); i++) {
-    SuccMBBs.push_back(ExitEdges[i].second);
+  for (unsigned i=0; i<Priv->ExitEdges.size(); i++) {
+    SuccMBBs.push_back(Priv->ExitEdges[i].second);
   }
   return SuccMBBs;
 }
@@ -118,18 +172,18 @@ void SPScope::computePredInfos(void) {
 }
 
 void SPScope::buildfcfg(void) {
-  std::set<const MachineBasicBlock *> body(++Blocks.begin(), Blocks.end());
+  std::set<const MachineBasicBlock *> body(++Priv->Blocks.begin(), Priv->Blocks.end());
   std::vector<Edge> outedges;
 
-  for (unsigned i=0; i<Blocks.size(); i++) {
-    MachineBasicBlock *MBB = Blocks[i];
+  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
+    MachineBasicBlock *MBB = Priv->Blocks[i];
 
-    if (HeaderMap.count(MBB)) {
-      const SPScope *subloop = HeaderMap[MBB];
+    if (Priv->HeaderMap.count(MBB)) {
+      const SPScope *subloop = Priv->HeaderMap[MBB];
       // successors of the loop
       outedges.insert(outedges.end(),
-                      subloop->ExitEdges.begin(),
-                      subloop->ExitEdges.end());
+                      subloop->Priv->ExitEdges.begin(),
+                      subloop->Priv->ExitEdges.end());
     } else {
       // simple block
       for (MachineBasicBlock::succ_iterator si = MBB->succ_begin(),
@@ -173,8 +227,8 @@ void SPScope::toposort(void) {
     if (MBB) PO.push_back(MBB);
   }
   // clear the blocks vector and re-insert MBBs in reverse post order
-  Blocks.clear();
-  Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
+  Priv->Blocks.clear();
+  Priv->Blocks.insert(Priv->Blocks.end(), PO.rbegin(), PO.rend());
 }
 
 void SPScope::FCFG::_rdfs(Node *n, std::set<Node*> &V,
@@ -293,8 +347,8 @@ void SPScope::decompose(void) {
   MBBPredicates_t mbbPreds;
   std::vector<CD_map_entry_t> K;
   int p = 0;
-  for (unsigned i=0; i<Blocks.size(); i++) {
-    const MachineBasicBlock *MBB = Blocks[i];
+  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
+    const MachineBasicBlock *MBB = Priv->Blocks[i];
     CD_map_entry_t t = CD.at(MBB);
     int q=-1;
     // try to lookup the control dependence
@@ -342,15 +396,15 @@ void SPScope::decompose(void) {
 
 
   // Properly assign the Uses/Defs
-  PredCount = K.size();
-  PredUse = mbbPreds;
+  Priv->PredCount = K.size();
+  Priv->PredUse = mbbPreds;
   // initialize number of defining edges to 0 for all predicates
-  NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
+  Priv->NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
 
   // For each predicate, compute defs
   for (unsigned int i=0; i<K.size(); i++) {
     // store number of defining edges
-    NumPredDefEdges[i] = K[i].size();
+    Priv->NumPredDefEdges[i] = K[i].size();
     // for each definition edge
     for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
               EI!=EE; ++EI) {
@@ -403,10 +457,10 @@ void SPScope::dumpfcfg(void) {
 
 void SPScope::walk(SPScopeWalker &walker) {
   walker.enterSubscope(this);
-  for (unsigned i=0; i<Blocks.size(); i++) {
-    MachineBasicBlock *MBB = Blocks[i];
-    if (HeaderMap.count(MBB)) {
-      HeaderMap[MBB]->walk(walker);
+  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
+    MachineBasicBlock *MBB = Priv->Blocks[i];
+    if (Priv->HeaderMap.count(MBB)) {
+      Priv->HeaderMap[MBB]->walk(walker);
     } else {
       walker.nextMBB(MBB);
     }
@@ -432,42 +486,42 @@ static void printUDInfo(const SPScope &S, raw_ostream& os,
 }
 
 void SPScope::dump(raw_ostream& os) const {
-  os.indent(2*Depth) <<  "[BB#" << Blocks.front()->getNumber() << "]";
-  if (!Parent) {
+  os.indent(2*Priv->Depth) <<  "[BB#" << Priv->Blocks.front()->getNumber() << "]";
+  if (!Priv->Parent) {
     os << " (top)";
-    assert(ExitEdges.empty());
-    assert(Latches.empty());
+    assert(Priv->ExitEdges.empty());
+    assert(Priv->Latches.empty());
   }
-  if (!ExitEdges.empty()) {
+  if (!Priv->ExitEdges.empty()) {
     os << " -> { ";
-    for (unsigned i=0; i<ExitEdges.size(); i++) {
-      os << "BB#" << ExitEdges[i].second->getNumber() << " ";
+    for (unsigned i=0; i<Priv->ExitEdges.size(); i++) {
+      os << "BB#" << Priv->ExitEdges[i].second->getNumber() << " ";
     }
     os << "}";
   }
-  if (!Latches.empty()) {
+  if (!Priv->Latches.empty()) {
     os << " L { ";
-    for (unsigned i=0; i<Latches.size(); i++) {
-      os << "BB#" << Latches[i]->getNumber() << " ";
+    for (unsigned i=0; i<Priv->Latches.size(); i++) {
+      os << "BB#" << Priv->Latches[i]->getNumber() << " ";
     }
     os << "}";
   }
-  os << " |P|=" <<  PredCount;
-  printUDInfo(*this, os, Blocks.front());
+  os << " |P|=" <<  Priv->PredCount;
+  printUDInfo(*this, os, Priv->Blocks.front());
 
-  for (unsigned i=1; i<Blocks.size(); i++) {
-    MachineBasicBlock *MBB = Blocks[i];
-    os.indent(2*(Depth+1)) << " BB#" << MBB->getNumber();
+  for (unsigned i=1; i<Priv->Blocks.size(); i++) {
+    MachineBasicBlock *MBB = Priv->Blocks[i];
+    os.indent(2*(Priv->Depth+1)) << " BB#" << MBB->getNumber();
     printUDInfo(*this, os, MBB);
-    if (HeaderMap.count(MBB)) {
-      HeaderMap.at(MBB)->dump(os);
+    if (Priv->HeaderMap.count(MBB)) {
+      Priv->HeaderMap.at(MBB)->dump(os);
     }
   }
 }
 
 const std::vector<unsigned> *SPScope::getPredUse(const MachineBasicBlock *MBB) const {
-  if (PredUse.count(MBB)) {
-    return &PredUse.at(MBB);
+  if (Priv->PredUse.count(MBB)) {
+    return &Priv->PredUse.at(MBB);
   }
   return NULL;
 }
@@ -475,8 +529,8 @@ const std::vector<unsigned> *SPScope::getPredUse(const MachineBasicBlock *MBB) c
 const SPScope::PredDefInfo *
 SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
 
-  if (PredDefs.count(MBB)) {
-    return &PredDefs.at(MBB);
+  if (Priv->PredDefs.count(MBB)) {
+    return &Priv->PredDefs.at(MBB);
   }
   return NULL;
 }
@@ -484,14 +538,79 @@ SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
 SPScope::PredDefInfo &
 SPScope::getOrCreateDefInfo(const MachineBasicBlock *MBB) {
 
-  if (!PredDefs.count(MBB)) {
+  if (!Priv->PredDefs.count(MBB)) {
     // Create new info
-    PredDefs.insert(std::make_pair(MBB, PredDefInfo()));
+    Priv->PredDefs.insert(std::make_pair(MBB, PredDefInfo()));
   }
 
-  return PredDefs.at(MBB);
+  return Priv->PredDefs.at(MBB);
 }
 
+bool SPScope::isTopLevel() const { return (NULL == Priv->Parent); }
 
+const SPScope *SPScope::getParent() const { return Priv->Parent; }
 
+bool SPScope::isRootTopLevel() const { return Priv->RootTopLevel; }
 
+bool SPScope::hasLoopBound() const { return (-1 != Priv->LoopBound); }
+
+int SPScope::getLoopBound() const { return Priv->LoopBound; }
+
+SPScope::iterator SPScope::begin() { return Priv->Blocks.begin(); }
+
+SPScope::iterator SPScope::end() { return Priv->Blocks.end(); }
+
+bool SPScope::containsMbb(const MachineBasicBlock *mbb)
+{
+  return std::find(Priv->Blocks.begin(), Priv->Blocks.end(), mbb) != Priv->Blocks.end();
+}
+
+MachineBasicBlock *SPScope::getHeader() const { return Priv->Blocks.front(); }
+
+const std::vector<MachineBasicBlock*> &SPScope::getBlocks() const
+{
+  return Priv->Blocks;
+}
+
+void SPScope::addChild(SPScope * child, MachineBasicBlock *childHeader)
+{
+  Priv->HeaderMap[childHeader] = child;
+  Priv->Subscopes.push_back(child);
+  addMBB(childHeader);
+}
+
+SPScope::child_iterator SPScope::child_begin() { return Priv->Subscopes.begin(); }
+
+SPScope::child_iterator SPScope::child_end() { return Priv->Subscopes.end(); }
+
+boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb)
+{
+  boost::optional<SPScope*> found = boost::none;
+  for(auto i = Priv->Subscopes.begin(), end=Priv->Subscopes.end(); i != end; ++i)
+  {
+    SPScope* child = *i;
+    boost::optional<SPScope*> temp = child->findMBBScope(mbb);
+    //Ensure two different children don't have the same MBB
+    assert(!(temp.is_initialized() && found.is_initialized()));
+    if(temp.is_initialized()){
+      found = temp;
+    }
+  }
+
+  if(found.is_initialized()){
+    return found;
+  } else if(containsMbb(mbb)){
+    return boost::make_optional(this);
+  }else{
+    return boost::none;
+  }
+}
+
+unsigned SPScope::getDepth() const { return Priv->Depth; }
+
+unsigned SPScope::getNumPredicates() const { return Priv->PredCount; }
+
+unsigned SPScope::getNumDefEdges(unsigned pred) const
+{
+  return Priv->NumPredDefEdges.at(pred);
+}

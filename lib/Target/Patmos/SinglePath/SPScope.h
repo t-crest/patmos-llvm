@@ -18,6 +18,8 @@
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/Support/Debug.h"
 #include "boost/optional.hpp"
+#include "spimpl.h"
+
 
 // define for more detailed debugging output
 #define PATMOS_SINGLEPATH_TRACE
@@ -110,24 +112,24 @@ namespace llvm {
       ~SPScope();
 
       /// getParent
-      const SPScope *getParent() const { return Parent; }
+      const SPScope *getParent() const;
 
       /// getHeader
-      MachineBasicBlock *getHeader() const { return Blocks.front(); }
+      MachineBasicBlock *getHeader() const;
 
       /// getSuccMBB - Get the successors
       const std::vector<const MachineBasicBlock *> getSuccMBBs() const;
 
       /// getDepth - Get the nesting depth of the SPScope
-      unsigned int getDepth() const { return Depth; }
+      unsigned int getDepth() const;
 
       /// isTopLevel - Returs true if the SPScope is the top-level SPScope
       /// (not a loop)
-      bool isTopLevel() const { return (NULL == Parent); }
-      //
+      bool isTopLevel() const;
+
       /// isRootTopLevel - Returs true if the SPScope is the top-level SPScope
       /// of a single-path root function
-      bool isRootTopLevel() const { return RootTopLevel; }
+      bool isRootTopLevel() const ;
 
       /// isHeader - Returns true if the specified MBB is the header of this
       /// SPScope
@@ -143,17 +145,17 @@ namespace llvm {
 
       /// hasLoopBound - Returs true if the SPScope is a loop and has a bound
       /// to be accounted for
-      bool hasLoopBound() const { return (-1 != LoopBound); }
+      bool hasLoopBound() const ;
 
       /// getLoopBound - Return the loop bound for this SPScope
-      int getLoopBound() const { return LoopBound; }
+      int getLoopBound() const ;
 
       /// walk - Walk this SPScope recursively
       void walk(SPScopeWalker &walker);
 
       /// getNumPredicates - Returns the number of predicates required for
       /// this function
-      unsigned getNumPredicates() const { return PredCount; }
+      unsigned getNumPredicates() const;
 
       /// getPredUse - Returns the guarding predicate for an MBB
       const std::vector<unsigned> * getPredUse(const MachineBasicBlock *) const;
@@ -168,15 +170,11 @@ namespace llvm {
 
       /// getNumDefEdges - Returns the number of definition edges for a given
       /// predicate.
-      unsigned getNumDefEdges(unsigned pred) const {
-        return NumPredDefEdges.at(pred);
-      }
+      unsigned getNumDefEdges(unsigned pred) const;
 
       /// getBlocks - Returns the list of basic blocks in this SPScope,
       /// in topological order.
-      const std::vector<MachineBasicBlock*> &getBlocks() const {
-        return Blocks;
-      }
+      const std::vector<MachineBasicBlock*> &getBlocks() const;
 
       // dump() - Dump state of this SP scope and the subtree
       void dump(raw_ostream&) const;
@@ -212,12 +210,7 @@ namespace llvm {
       // local foward CFG
       FCFG FCFG;
 
-      void addChild(SPScope * child, MachineBasicBlock *childHeader)
-      {
-        HeaderMap[childHeader] = child;
-        Subscopes.push_back(child);
-        addMBB(childHeader);
-      }
+      void addChild(SPScope * child, MachineBasicBlock *childHeader);
 
     private:
 
@@ -241,89 +234,30 @@ namespace llvm {
       void _walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc);
       ////// SNIP /////////
 
-      // parent SPScope
-      SPScope *Parent;
-
-      // loop latches
-      SmallVector<MachineBasicBlock *, 4> Latches;
-
-      // exit edges
-      SmallVector<Edge, 4> ExitEdges;
-
-      // flag that only is set to true if the scope is a top-level scope
-      // of a single-path root function
-      const bool RootTopLevel;
-
-      // loop bound
-      int LoopBound;
-
-      // children as map: header MBB -> SPScope
-      std::map<MachineBasicBlock*, SPScope*> HeaderMap;
-
-      // MBBs contained
-      std::vector<MachineBasicBlock*> Blocks;
-
-      // sub-scopes
-      std::vector<SPScope*> Subscopes;
-
-      // nesting depth
-      unsigned int Depth;
-
-      /// Number of predicates used
-      unsigned PredCount;
-
-      /// Map MBBs to predicate they use
-      MBBPredicates_t PredUse;
-
-      /// PredDefs - Stores predicate define information for each basic block
-      std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
-
-      // number of defining edges for each predicate
-      std::vector<unsigned> NumPredDefEdges;
-
       // get the dual edge of an edge
       Edge getDual(Edge &e) const;
 
+      class Impl;
+      /// We use the PIMPL pattern to implement the private
+      /// members of this instance.
+      spimpl::unique_impl_ptr<Impl> Priv;
+
     public:
       /// begin - Iterator begin for MBBs
-      iterator begin() { return Blocks.begin(); }
+      iterator begin();
 
       /// child_end - Iterator end for MBBs
-      iterator end() { return Blocks.end(); }
+      iterator end();
 
       /// child_begin - Iterator begin for subloops
-      child_iterator child_begin() { return Subscopes.begin(); }
+      child_iterator child_begin();
 
       /// child_end - Iterator end for subloops
-      child_iterator child_end() { return Subscopes.end(); }
+      child_iterator child_end();
 
-      bool containsMbb(const MachineBasicBlock *mbb)
-      {
-        return std::find(Blocks.begin(), Blocks.end(), mbb) != Blocks.end();
-      }
+      bool containsMbb(const MachineBasicBlock *mbb);
 
-      boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb)
-      {
-        boost::optional<SPScope*> found = boost::none;
-        for(auto i = Subscopes.begin(), end=Subscopes.end(); i != end; ++i)
-        {
-          SPScope* child = *i;
-          boost::optional<SPScope*> temp = child->findMBBScope(mbb);
-          //Ensure two different children don't have the same MBB
-          assert(!(temp.is_initialized() && found.is_initialized()));
-          if(temp.is_initialized()){
-            found = temp;
-          }
-        }
-
-        if(found.is_initialized()){
-          return found;
-        } else if(containsMbb(mbb)){
-          return boost::make_optional(this);
-        }else{
-          return boost::none;
-        }
-      }
+      boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb);
   };
 
 ///////////////////////////////////////////////////////////////////////////////
