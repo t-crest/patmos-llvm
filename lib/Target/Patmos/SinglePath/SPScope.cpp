@@ -34,11 +34,6 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   assert(parent);
   MachineBasicBlock *header = loop.getHeader();
 
-  // add to parent's child list
-  Parent->HeaderMap[header] = this;
-  Parent->Subscopes.push_back(this);
-  // add to parent's block list as well
-  Parent->addMBB(header);
   Depth = Parent->Depth + 1;
 
   // add header also to this SPScope's block list

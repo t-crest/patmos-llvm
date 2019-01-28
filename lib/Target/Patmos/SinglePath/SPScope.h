@@ -212,6 +212,13 @@ namespace llvm {
       // local foward CFG
       FCFG FCFG;
 
+      void addChild(SPScope * child, MachineBasicBlock *childHeader)
+      {
+        HeaderMap[childHeader] = child;
+        Subscopes.push_back(child);
+        addMBB(childHeader);
+      }
+
     private:
 
       /// Typedefs for CD, R and K
