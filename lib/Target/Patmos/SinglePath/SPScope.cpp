@@ -286,7 +286,7 @@ public:
           }
 
           // get pred definition info of node
-          PredDefInfo &PredDef = Pub.getOrCreateDefInfo(n->MBB);
+          PredDefInfo &PredDef = getOrCreateDefInfo(n->MBB);
           // insert definition edge for predicate i
           PredDef.define(i, e);
         } // end for each definition edge
@@ -298,6 +298,41 @@ public:
   void ctrldep(void);
 
   void dumpfcfg(void);
+
+  /// getOrCreateDefInfo - Returns a predicate definition info
+  /// for a given MBB.
+  PredDefInfo &
+  getOrCreateDefInfo(const MachineBasicBlock *MBB) {
+
+    if (!PredDefs.count(MBB)) {
+      // Create new info
+      PredDefs.insert(std::make_pair(MBB, PredDefInfo()));
+    }
+
+    return PredDefs.at(MBB);
+  }
+
+  Edge getDual(Edge &e) const {
+    const MachineBasicBlock *src = e.first;
+    assert(src->succ_size() == 2);
+    for (MachineBasicBlock::const_succ_iterator si = src->succ_begin(),
+        se = src->succ_end(); si != se; ++si) {
+      if (*si != e.second) {
+        return std::make_pair(src, *si);
+      }
+    }
+    llvm_unreachable("no dual edge found");
+    return std::make_pair((const MachineBasicBlock *) NULL,
+                          (const MachineBasicBlock *) NULL);
+  }
+
+
+  bool containsMbb(const MachineBasicBlock *mbb)
+  {
+    return std::find(Blocks.begin(), Blocks.end(), mbb) != Blocks.end();
+  }
+
+
 
 };
 
@@ -349,7 +384,7 @@ void SPScope::Impl::ctrldep(void) {
       Edge *e = (*it)->edgeto(&fcfg.nexit);
       if (!e) continue;
       // we found an exit edge
-      Edge dual = Pub.getDual(*e);
+      Edge dual = getDual(*e);
       _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()), dual, *it);
     }
 
@@ -434,20 +469,6 @@ void SPScope::addMBB(MachineBasicBlock *MBB) {
   if (Priv->Blocks.front() != MBB) {
     Priv->Blocks.push_back(MBB);
   }
-}
-
-SPScope::Edge SPScope::getDual(Edge &e) const {
-  const MachineBasicBlock *src = e.first;
-  assert(src->succ_size() == 2);
-  for (MachineBasicBlock::const_succ_iterator si = src->succ_begin(),
-      se = src->succ_end(); si != se; ++si) {
-    if (*si != e.second) {
-      return std::make_pair(src, *si);
-    }
-  }
-  llvm_unreachable("no dual edge found");
-  return std::make_pair((const MachineBasicBlock *) NULL,
-                        (const MachineBasicBlock *) NULL);
 }
 
 bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
@@ -634,17 +655,6 @@ SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
   return NULL;
 }
 
-SPScope::PredDefInfo &
-SPScope::getOrCreateDefInfo(const MachineBasicBlock *MBB) {
-
-  if (!Priv->PredDefs.count(MBB)) {
-    // Create new info
-    Priv->PredDefs.insert(std::make_pair(MBB, PredDefInfo()));
-  }
-
-  return Priv->PredDefs.at(MBB);
-}
-
 bool SPScope::isTopLevel() const { return (NULL == Priv->Parent); }
 
 const SPScope *SPScope::getParent() const { return Priv->Parent; }
@@ -658,11 +668,6 @@ int SPScope::getLoopBound() const { return Priv->LoopBound; }
 SPScope::iterator SPScope::begin() { return Priv->Blocks.begin(); }
 
 SPScope::iterator SPScope::end() { return Priv->Blocks.end(); }
-
-bool SPScope::containsMbb(const MachineBasicBlock *mbb)
-{
-  return std::find(Priv->Blocks.begin(), Priv->Blocks.end(), mbb) != Priv->Blocks.end();
-}
 
 MachineBasicBlock *SPScope::getHeader() const { return Priv->Blocks.front(); }
 
@@ -698,7 +703,7 @@ boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb)
 
   if(found.is_initialized()){
     return found;
-  } else if(containsMbb(mbb)){
+  } else if(Priv->containsMbb(mbb)){
     return boost::make_optional(this);
   }else{
     return boost::none;

@@ -128,10 +128,6 @@ namespace llvm {
       /// a given MBB, or NULL if no pred info exists for the MBB.
       const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
 
-      /// getOrCreateDefInfo - Returns a predicate definition info
-      /// for a given MBB.
-      PredDefInfo &getOrCreateDefInfo(const MachineBasicBlock *);
-
       /// getNumDefEdges - Returns the number of definition edges for a given
       /// predicate.
       unsigned getNumDefEdges(unsigned pred) const;
@@ -150,18 +146,6 @@ namespace llvm {
 
       void addChild(SPScope * child, MachineBasicBlock *childHeader);
 
-      Edge getDual(Edge &e) const;
-
-    private:
-      class Impl;
-      /// We use the PIMPL pattern to implement the private
-      /// members of this instance.
-      spimpl::unique_impl_ptr<Impl> Priv;
-
-      /// Allow GraphTraits to be implemented on Impl
-      friend struct GraphTraits<Impl*>;
-
-    public:
       /// begin - Iterator begin for MBBs
       iterator begin();
 
@@ -174,9 +158,18 @@ namespace llvm {
       /// child_end - Iterator end for subloops
       child_iterator child_end();
 
-      bool containsMbb(const MachineBasicBlock *mbb);
-
+      /// Returns the innermost scope containing the given basic block.
+      /// If the is not part of any scope, none is returned.
       boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb);
+
+    private:
+      class Impl;
+      /// We use the PIMPL pattern to implement the private
+      /// members of this instance.
+      spimpl::unique_impl_ptr<Impl> Priv;
+
+      /// Allow GraphTraits to be implemented on Impl
+      friend struct GraphTraits<Impl*>;
   };
 
 ///////////////////////////////////////////////////////////////////////////////
