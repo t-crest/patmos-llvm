@@ -52,6 +52,8 @@ namespace llvm {
       /// Instances for MBBs are stored in the PredDefs map.
       class PredDefInfo {
         private:
+
+          /// TODO:(Emad) What does the unsigned means?
           typedef std::vector<std::pair<unsigned, Edge> > PredEdgeList;
           PredEdgeList Defs;
         public:
@@ -67,12 +69,12 @@ namespace llvm {
       /// @param entry            The entry MBB;
       /// @param isRootTopLevel   True when this scope is a top level scope of
       ///                         a single-path root function.
-      explicit SPScope(MachineBasicBlock *entry, bool isRootTopLevel);
+      explicit SPScope(MachineBasicBlock *entry, bool isRootFunc);
 
       /// constructor - Create a loop SPScope
       explicit SPScope(SPScope *parent, MachineLoop &loop);
 
-      /// destructor - free the child scopes first, cleanup
+      /// Deletes the scope and all its children.
       ~SPScope();
 
       /// getParent
@@ -87,11 +89,11 @@ namespace llvm {
       /// getDepth - Get the nesting depth of the SPScope
       unsigned int getDepth() const;
 
-      /// isTopLevel - Returs true if the SPScope is the top-level SPScope
+      /// isTopLevel - Returns true if the SPScope is the top-level SPScope
       /// (not a loop)
       bool isTopLevel() const;
 
-      /// isRootTopLevel - Returs true if the SPScope is the top-level SPScope
+      /// isRootTopLevel - Returns true if the SPScope is the top-level SPScope
       /// of a single-path root function
       bool isRootTopLevel() const ;
 
@@ -99,12 +101,13 @@ namespace llvm {
       /// SPScope
       bool isHeader(const MachineBasicBlock *MBB) const;
 
-      /// isMember - Returns true if the specified MBB is a member of this
-      /// SPScope, (non-recursively)
+      /// Returns whether the specified MBB is a member of this SPScope.
+      /// Does not check for whether the MBB is part of a child or parent scope.
       bool isMember(const MachineBasicBlock *MBB) const;
 
-      /// isSubHeader - Returns true if the specified MBB is header of a
-      /// subscope of this scope
+      /// Returns whether the specified MBB is the header of an
+      /// immediate subscope of this scope.
+      /// I.e. it only checks one-level down the subscopes.
       bool isSubHeader(MachineBasicBlock *MBB) const;
 
       /// hasLoopBound - Returs true if the SPScope is a loop and has a bound
@@ -151,14 +154,14 @@ namespace llvm {
       iterator end();
 
       /// child_begin - Iterator begin for subloops
-      child_iterator child_begin();
+      child_iterator child_begin() const;
 
       /// child_end - Iterator end for subloops
-      child_iterator child_end();
+      child_iterator child_end() const;
 
       /// Returns the innermost scope containing the given basic block.
       /// If the is not part of any scope, none is returned.
-      boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb);
+      boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb) const;
 
       /// Create an SPScope tree, return the root scope.
       /// The tree needs to be destroyed by the client,

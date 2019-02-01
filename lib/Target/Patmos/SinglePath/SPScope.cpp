@@ -102,21 +102,14 @@ public:
   // parent SPScope
   SPScope *Parent;
 
-  // loop latches
-  SmallVector<MachineBasicBlock *, 4> Latches;
-
   // exit edges
   SmallVector<Edge, 4> ExitEdges;
 
   // loop bound
   int LoopBound;
 
-  // flag that only is set to true if the scope is a top-level scope
-  // of a single-path root function
-  const bool RootTopLevel;
-
-  // children as map: header MBB -> SPScope
-  std::map<MachineBasicBlock*, SPScope*> HeaderMap;
+  // Whether this scope is part of a root single-path function
+  const bool RootFunc;
 
   // MBBs contained
   std::vector<MachineBasicBlock*> Blocks;
@@ -145,8 +138,8 @@ public:
   CD_map_t CD;
 
 //Constructors
-  Impl(SPScope *pub, SPScope * parent, bool rootTopLevel, MachineBasicBlock *header):
-    Pub(*pub), Parent(parent), RootTopLevel(rootTopLevel),
+  Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
+    Pub(*pub), Parent(parent), RootFunc(rootFunc),
     LoopBound(-1), Depth((parent == NULL)? 0 : parent->Priv->Depth + 1),
     PredCount(0), fcfg(header)
   {}
@@ -160,8 +153,9 @@ public:
     for (unsigned i=0; i<Blocks.size(); i++) {
       MachineBasicBlock *MBB = Blocks[i];
 
-      if (HeaderMap.count(MBB)) {
-        const SPScope *subloop = HeaderMap[MBB];
+
+      if (Pub.isSubHeader(MBB)) {
+        const SPScope *subloop = get(Pub.findMBBScope(MBB));
         // successors of the loop
         outedges.insert(outedges.end(),
                         subloop->Priv->ExitEdges.begin(),
@@ -446,8 +440,8 @@ void SPScope::Impl::dumpfcfg(void) {
     }
   }
 
-SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
-  : Priv(spimpl::make_unique_impl<Impl>(this, (SPScope *)NULL, isRootTopLevel, header))
+SPScope::SPScope(MachineBasicBlock *header, bool isRootFunc)
+  : Priv(spimpl::make_unique_impl<Impl>(this, (SPScope *)NULL, isRootFunc, header))
 {
   // add header also to this SPScope's block list
   Priv->Blocks.push_back(header);
@@ -455,7 +449,7 @@ SPScope::SPScope(MachineBasicBlock *header, bool isRootTopLevel)
 }
 
 SPScope::SPScope(SPScope *parent, MachineLoop &loop)
-  : Priv(spimpl::make_unique_impl<Impl>(this, parent, false,loop.getHeader()))
+  : Priv(spimpl::make_unique_impl<Impl>(this, parent, parent->Priv->RootFunc, loop.getHeader()))
 {
 
   assert(parent);
@@ -464,8 +458,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   // add header also to this SPScope's block list
   Priv->Blocks.push_back(header);
 
-  // info about loop latches and exit edges
-  loop.getLoopLatches(Priv->Latches);
+  // info about loop exit edges
   loop.getExitEdges(Priv->ExitEdges);
 
   // scan the header for loopbound info
@@ -506,7 +499,9 @@ bool SPScope::isMember(const MachineBasicBlock *MBB) const {
 }
 
 bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
-  return Priv->HeaderMap.count(MBB) > 0;
+  return std::any_of(child_begin(), child_end(), [MBB](auto child){
+    return child->isHeader(MBB);
+  });
 }
 
 const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
@@ -592,8 +587,8 @@ void SPScope::walk(SPScopeWalker &walker) {
   walker.enterSubscope(this);
   for (unsigned i=0; i<Priv->Blocks.size(); i++) {
     MachineBasicBlock *MBB = Priv->Blocks[i];
-    if (Priv->HeaderMap.count(MBB)) {
-      Priv->HeaderMap[MBB]->walk(walker);
+    if (isSubHeader(MBB)) {
+      get(findMBBScope(MBB))->walk(walker);
     } else {
       walker.nextMBB(MBB);
     }
@@ -623,7 +618,6 @@ void SPScope::dump(raw_ostream& os) const {
   if (!Priv->Parent) {
     os << " (top)";
     assert(Priv->ExitEdges.empty());
-    assert(Priv->Latches.empty());
   }
   if (!Priv->ExitEdges.empty()) {
     os << " -> { ";
@@ -632,13 +626,7 @@ void SPScope::dump(raw_ostream& os) const {
     }
     os << "}";
   }
-  if (!Priv->Latches.empty()) {
-    os << " L { ";
-    for (unsigned i=0; i<Priv->Latches.size(); i++) {
-      os << "BB#" << Priv->Latches[i]->getNumber() << " ";
-    }
-    os << "}";
-  }
+
   os << " |P|=" <<  Priv->PredCount;
   printUDInfo(*this, os, Priv->Blocks.front());
 
@@ -646,8 +634,8 @@ void SPScope::dump(raw_ostream& os) const {
     MachineBasicBlock *MBB = Priv->Blocks[i];
     os.indent(2*(Priv->Depth+1)) << " BB#" << MBB->getNumber();
     printUDInfo(*this, os, MBB);
-    if (Priv->HeaderMap.count(MBB)) {
-      Priv->HeaderMap.at(MBB)->dump(os);
+    if (isSubHeader(MBB)) {
+      get(findMBBScope(MBB))->dump(os);
     }
   }
 }
@@ -672,7 +660,7 @@ bool SPScope::isTopLevel() const { return (NULL == Priv->Parent); }
 
 const SPScope *SPScope::getParent() const { return Priv->Parent; }
 
-bool SPScope::isRootTopLevel() const { return Priv->RootTopLevel; }
+bool SPScope::isRootTopLevel() const { return Priv->RootFunc && isTopLevel(); }
 
 bool SPScope::hasLoopBound() const { return (-1 != Priv->LoopBound); }
 
@@ -691,16 +679,15 @@ const std::vector<MachineBasicBlock*> &SPScope::getBlocks() const
 
 void SPScope::addChild(SPScope * child, MachineBasicBlock *childHeader)
 {
-  Priv->HeaderMap[childHeader] = child;
   Priv->Subscopes.push_back(child);
   addMBB(childHeader);
 }
 
-SPScope::child_iterator SPScope::child_begin() { return Priv->Subscopes.begin(); }
+SPScope::child_iterator SPScope::child_begin() const { return Priv->Subscopes.begin(); }
 
-SPScope::child_iterator SPScope::child_end() { return Priv->Subscopes.end(); }
+SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(); }
 
-boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb)
+boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb) const
 {
   boost::optional<SPScope*> found = boost::none;
   for(auto i = Priv->Subscopes.begin(), end=Priv->Subscopes.end(); i != end; ++i)
@@ -717,7 +704,7 @@ boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb)
   if(found.is_initialized()){
     return found;
   } else if(Priv->containsMbb(mbb)){
-    return boost::make_optional(this);
+    return boost::make_optional((SPScope*)this);
   }else{
     return boost::none;
   }
@@ -737,16 +724,16 @@ static
 void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
                          std::map<const MachineLoop *, SPScope *> &M) {
 
-  SPScope *S = new SPScope(parent, *loop);
+  SPScope *childScope = new SPScope(parent, *loop);
   // add to parent's child list
-  parent->addChild(S, loop->getHeader());
+  parent->addChild(childScope, loop->getHeader());
 
   // update map: Loop -> SPScope
-  M[loop] = S;
+  M[loop] = childScope;
   // visit subloops
   for (MachineLoop::iterator I = loop->begin(), E = loop->end();
           I != E; ++I) {
-    createSPScopeSubtree(*I, S, M);
+    createSPScopeSubtree(*I, childScope, M);
   }
 }
 
