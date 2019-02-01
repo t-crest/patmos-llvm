@@ -14,7 +14,9 @@
 
 #include "SPScope.h"
 #include "Patmos.h"
+#include "PatmosSinglePathInfo.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/CodeGen/MachineFunction.h"
 
 using namespace llvm;
 
@@ -718,3 +720,49 @@ unsigned SPScope::getNumDefEdges(unsigned pred) const
 {
   return Priv->NumPredDefEdges.at(pred);
 }
+
+// build the SPScope tree in DFS order, creating new SPScopes preorder
+static
+void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
+                         std::map<const MachineLoop *, SPScope *> &M) {
+
+  SPScope *S = new SPScope(parent, *loop);
+  // add to parent's child list
+  parent->addChild(S, loop->getHeader());
+
+  // update map: Loop -> SPScope
+  M[loop] = S;
+  // visit subloops
+  for (MachineLoop::iterator I = loop->begin(), E = loop->end();
+          I != E; ++I) {
+    createSPScopeSubtree(*I, S, M);
+  }
+}
+
+SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {
+
+  // First, create a SPScope tree
+  std::map<const MachineLoop *, SPScope *> M;
+
+  SPScope *Root = new SPScope(&MF.front(), PatmosSinglePathInfo::isRoot(MF));
+
+
+  M[NULL] = Root;
+
+  // iterate over top-level loops
+  for (MachineLoopInfo::iterator I=LI.begin(), E=LI.end(); I!=E; ++I) {
+    MachineLoop *Loop = *I;
+    createSPScopeSubtree(Loop, Root, M);
+  }
+
+  // Then, add MBBs to the corresponding SPScopes
+  for (MachineFunction::iterator FI=MF.begin(), FE=MF.end();
+          FI!=FE; ++FI) {
+    MachineBasicBlock *MBB = FI;
+    const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
+    M[Loop]->addMBB(MBB);
+  }
+
+  return Root;
+}
+

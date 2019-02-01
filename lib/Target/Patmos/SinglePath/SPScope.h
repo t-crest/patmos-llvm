@@ -162,6 +162,11 @@ namespace llvm {
       /// If the is not part of any scope, none is returned.
       boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb);
 
+      /// Create an SPScope tree, return the root scope.
+      /// The tree needs to be destroyed by the client,
+      /// by deleting the root scope.
+      static SPScope * createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI);
+
     private:
       class Impl;
       /// We use the PIMPL pattern to implement the private

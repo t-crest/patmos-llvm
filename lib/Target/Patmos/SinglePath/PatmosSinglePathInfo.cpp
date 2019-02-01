@@ -146,7 +146,7 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
   // we could use a custom algorithm (e.g. Havlak's algorithm)
   // that also checks irreducibility.
   // build the SPScope tree
-  Root = createSPScopeTree(MF);
+  Root = SPScope::createSPScopeTree(MF, getAnalysis<MachineLoopInfo>());
 
   // analyze each scope
   // NB: this could be solved more elegantly by analyzing a scope when it is
@@ -224,52 +224,6 @@ void PatmosSinglePathInfo::walkRoot(llvm::SPScopeWalker &walker) const {
   Root->walk(walker);
 }
 
-// build the SPScope tree in DFS order, creating new SPScopes preorder
-static
-void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
-                         std::map<const MachineLoop *, SPScope *> &M) {
-
-  SPScope *S = new SPScope(parent, *loop);
-  // add to parent's child list
-  parent->addChild(S, loop->getHeader());
-
-  // update map: Loop -> SPScope
-  M[loop] = S;
-  // visit subloops
-  for (MachineLoop::iterator I = loop->begin(), E = loop->end();
-          I != E; ++I) {
-    createSPScopeSubtree(*I, S, M);
-  }
-}
 
 
-SPScope *
-PatmosSinglePathInfo::createSPScopeTree(MachineFunction &MF) {
-  // Get loop information
-  MachineLoopInfo &LI = getAnalysis<MachineLoopInfo>();
-
-  // First, create a SPScope tree
-  std::map<const MachineLoop *, SPScope *> M;
-
-  SPScope *Root = new SPScope(&MF.front(), isRoot(MF));
-
-
-  M[NULL] = Root;
-
-  // iterate over top-level loops
-  for (MachineLoopInfo::iterator I=LI.begin(), E=LI.end(); I!=E; ++I) {
-    MachineLoop *Loop = *I;
-    createSPScopeSubtree(Loop, Root, M);
-  }
-
-  // Then, add MBBs to the corresponding SPScopes
-  for (MachineFunction::iterator FI=MF.begin(), FE=MF.end();
-          FI!=FE; ++FI) {
-    MachineBasicBlock *MBB = FI;
-    const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
-    M[Loop]->addMBB(MBB);
-  }
-
-  return Root;
-}
 

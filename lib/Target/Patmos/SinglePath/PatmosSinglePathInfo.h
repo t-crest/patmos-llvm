@@ -52,11 +52,6 @@ namespace llvm {
       /// Analyze a given MachineFunction
       void analyzeFunction(MachineFunction &MF);
 
-      /// createSPScopeTree - Create an SPScope tree, return the root scope.
-      /// The tree needs to be destroyed by the client,
-      /// by deleting the root scope.
-      SPScope *createSPScopeTree(MachineFunction &MF);
-
       /// Fail with an error if MF is irreducible.
       void checkIrreducibility(MachineFunction &MF) const;
 
