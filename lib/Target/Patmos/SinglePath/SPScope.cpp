@@ -129,20 +129,19 @@ public:
   // number of defining edges for each predicate
   std::vector<unsigned> NumPredDefEdges;
 
-  // local forward CFG
-  FCFG fcfg;
-
 //Constructors
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
     Pub(*pub), Parent(parent), RootFunc(rootFunc),
-    LoopBound(-1), PredCount(0), fcfg(header)
+    LoopBound(-1), PredCount(0)
   {}
 
 //Functions
 
-  void buildfcfg(void) {
+  FCFG buildfcfg(void) {
     std::set<const MachineBasicBlock *> body(++Blocks.begin(), Blocks.end());
     std::vector<Edge> outedges;
+
+    FCFG fcfg(Pub.getHeader());
 
     for (unsigned i=0; i<Blocks.size(); i++) {
       MachineBasicBlock *MBB = Blocks[i];
@@ -186,6 +185,7 @@ public:
       }
       outedges.clear();
     }
+    return fcfg;
   }
 
   void _walkpdt(Node *a, Node *b, Edge &e, CD_map_t &CD) {
@@ -201,7 +201,7 @@ public:
     }
   }
 
-  void decompose(CD_map_t &CD) {
+  void decompose(CD_map_t &CD, FCFG &fcfg) {
       MBBPredicates_t mbbPreds;
       std::vector<CD_map_entry_t> K;
 
@@ -282,11 +282,11 @@ public:
       }
     }
 
-  void toposort(void);
+  void toposort(FCFG &fcfg);
 
-  CD_map_t ctrldep();
+  CD_map_t ctrldep(FCFG &fcfg);
 
-  void dumpfcfg(void);
+  void dumpfcfg(FCFG &fcfg);
 
   /// getOrCreateDefInfo - Returns a predicate definition info
   /// for a given MBB.
@@ -322,23 +322,23 @@ public:
 
   void computePredInfos(void) {
 
-    buildfcfg();
-    toposort();
+    auto fcfg = buildfcfg();
+    toposort(fcfg);
     fcfg.postdominators();
-    DEBUG_TRACE(dumpfcfg()); // uses info about pdom
-    CD_map_t CD = ctrldep();
-    decompose(CD);
+    DEBUG_TRACE(dumpfcfg(fcfg)); // uses info about pdom
+    CD_map_t CD = ctrldep(fcfg);
+    decompose(CD, fcfg);
   }
 
 };
 
 namespace llvm{
   // Allow clients to iterate over the Scope FCFG nodes
-  template <> struct GraphTraits<SPScope::Impl*> {
+  template <> struct GraphTraits<FCFG*> {
     typedef Node NodeType;
     typedef Node::child_iterator ChildIteratorType;
 
-    static NodeType *getEntryNode(SPScope::Impl *S) { return &S->fcfg.nentry; }
+    static NodeType *getEntryNode(FCFG *f) { return &f->nentry; }
     static inline ChildIteratorType child_begin(NodeType *N) {
       return N->succs_begin();
     }
@@ -362,10 +362,10 @@ namespace llvm{
   };
 }
 
-void SPScope::Impl::toposort(void) {
+void SPScope::Impl::toposort(FCFG &fcfg) {
   // dfs the fcfg in postorder
   std::vector<MachineBasicBlock *> PO;
-  for (po_iterator<SPScope::Impl*> I = po_begin(this), E = po_end(this);
+  for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
       I != E; ++I) {
     MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
     if (MBB) PO.push_back(MBB);
@@ -375,9 +375,9 @@ void SPScope::Impl::toposort(void) {
   Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
 }
 
-SPScope::Impl::CD_map_t SPScope::Impl::ctrldep() {
+SPScope::Impl::CD_map_t SPScope::Impl::ctrldep(FCFG &fcfg) {
     CD_map_t CD;
-    for (df_iterator<SPScope::Impl*> I = df_begin(this), E = df_end(this);
+    for (df_iterator<FCFG*> I = df_begin(&fcfg), E = df_end(&fcfg);
         I != E; ++I) {
       Node *n = *I;
       if (n->dout() >= 2) {
@@ -416,10 +416,10 @@ SPScope::Impl::CD_map_t SPScope::Impl::ctrldep() {
     return CD;
   }
 
-void SPScope::Impl::dumpfcfg(void) {
+void SPScope::Impl::dumpfcfg(FCFG &fcfg) {
     dbgs() << "==========\nFCFG [BB#" << Pub.getHeader()->getNumber() << "]\n";
 
-    for (df_iterator<SPScope::Impl*> I = df_begin(this), E = df_end(this);
+    for (df_iterator<FCFG*> I = df_begin(&fcfg), E = df_end(&fcfg);
         I != E; ++I) {
 
       dbgs().indent(2);

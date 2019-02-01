@@ -173,9 +173,6 @@ namespace llvm {
       /// We use the PIMPL pattern to implement the private
       /// members of this instance.
       spimpl::unique_impl_ptr<Impl> Priv;
-
-      /// Allow GraphTraits to be implemented on Impl
-      friend struct GraphTraits<Impl*>;
   };
 
 ///////////////////////////////////////////////////////////////////////////////
