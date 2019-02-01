@@ -117,9 +117,6 @@ public:
   // sub-scopes
   std::vector<SPScope*> Subscopes;
 
-  // nesting depth
-  unsigned int Depth;
-
   /// Number of predicates used
   unsigned PredCount;
 
@@ -132,16 +129,13 @@ public:
   // number of defining edges for each predicate
   std::vector<unsigned> NumPredDefEdges;
 
-  // local foward CFG
+  // local forward CFG
   FCFG fcfg;
-
-  CD_map_t CD;
 
 //Constructors
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
     Pub(*pub), Parent(parent), RootFunc(rootFunc),
-    LoopBound(-1), Depth((parent == NULL)? 0 : parent->Priv->Depth + 1),
-    PredCount(0), fcfg(header)
+    LoopBound(-1), PredCount(0), fcfg(header)
   {}
 
 //Functions
@@ -194,11 +188,11 @@ public:
     }
   }
 
-  void _walkpdt(Node *a, Node *b, Edge &e) {
-    _walkpdt(a, b, e, a);
+  void _walkpdt(Node *a, Node *b, Edge &e, CD_map_t &CD) {
+    _walkpdt(a, b, e, a, CD);
   }
 
-  void _walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc) {
+  void _walkpdt(Node *a, Node *b, Edge &e, Node *edgesrc,  CD_map_t &CD) {
     Node *t = b;
     while (t != a->ipdom) {
       // add edge e to control dependence of t
@@ -207,9 +201,10 @@ public:
     }
   }
 
-  void decompose(void) {
+  void decompose(CD_map_t &CD) {
       MBBPredicates_t mbbPreds;
       std::vector<CD_map_entry_t> K;
+
       int p = 0;
       for (unsigned i=0; i<Blocks.size(); i++) {
         const MachineBasicBlock *MBB = Blocks[i];
@@ -257,8 +252,6 @@ public:
         }
       });
 
-
-
       // Properly assign the Uses/Defs
       PredCount = K.size();
       PredUse = mbbPreds;
@@ -291,7 +284,7 @@ public:
 
   void toposort(void);
 
-  void ctrldep(void);
+  CD_map_t ctrldep();
 
   void dumpfcfg(void);
 
@@ -333,8 +326,8 @@ public:
     toposort();
     fcfg.postdominators();
     DEBUG_TRACE(dumpfcfg()); // uses info about pdom
-    ctrldep();
-    decompose();
+    CD_map_t CD = ctrldep();
+    decompose(CD);
   }
 
 };
@@ -382,8 +375,8 @@ void SPScope::Impl::toposort(void) {
   Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
 }
 
-void SPScope::Impl::ctrldep(void) {
-
+SPScope::Impl::CD_map_t SPScope::Impl::ctrldep() {
+    CD_map_t CD;
     for (df_iterator<SPScope::Impl*> I = df_begin(this), E = df_end(this);
         I != E; ++I) {
       Node *n = *I;
@@ -391,7 +384,7 @@ void SPScope::Impl::ctrldep(void) {
         for (Node::child_iterator it = n->succs_begin(), et = n->succs_end();
               it != et; ++it) {
           Edge *e = n->edgeto(*it);
-          if (e) _walkpdt(n, *it, *e);
+          if (e) _walkpdt(n, *it, *e, CD);
         }
       }
     }
@@ -402,7 +395,7 @@ void SPScope::Impl::ctrldep(void) {
       if (!e) continue;
       // we found an exit edge
       Edge dual = getDual(*e);
-      _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()), dual, *it);
+      _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()), dual, *it, CD);
     }
 
     DEBUG_TRACE({
@@ -420,6 +413,7 @@ void SPScope::Impl::ctrldep(void) {
         dbgs() << "}\n";
       }
     });
+    return CD;
   }
 
 void SPScope::Impl::dumpfcfg(void) {
@@ -614,7 +608,7 @@ static void printUDInfo(const SPScope &S, raw_ostream& os,
 }
 
 void SPScope::dump(raw_ostream& os) const {
-  os.indent(2*Priv->Depth) <<  "[BB#" << Priv->Blocks.front()->getNumber() << "]";
+  os.indent(2*getDepth()) <<  "[BB#" << Priv->Blocks.front()->getNumber() << "]";
   if (!Priv->Parent) {
     os << " (top)";
     assert(Priv->ExitEdges.empty());
@@ -632,7 +626,7 @@ void SPScope::dump(raw_ostream& os) const {
 
   for (unsigned i=1; i<Priv->Blocks.size(); i++) {
     MachineBasicBlock *MBB = Priv->Blocks[i];
-    os.indent(2*(Priv->Depth+1)) << " BB#" << MBB->getNumber();
+    os.indent(2*(getDepth()+1)) << " BB#" << MBB->getNumber();
     printUDInfo(*this, os, MBB);
     if (isSubHeader(MBB)) {
       get(findMBBScope(MBB))->dump(os);
@@ -710,7 +704,7 @@ boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb) co
   }
 }
 
-unsigned SPScope::getDepth() const { return Priv->Depth; }
+unsigned SPScope::getDepth() const { return (Priv->Parent == NULL)? 0 : Priv->Parent->getDepth() + 1; }
 
 unsigned SPScope::getNumPredicates() const { return Priv->PredCount; }
 
