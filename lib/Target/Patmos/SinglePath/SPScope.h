@@ -139,8 +139,6 @@ namespace llvm {
       // dump() - Dump state of this SP scope and the subtree
       void dump(raw_ostream&) const;
 
-      void computePredInfos(void);
-
       /// addMBB - Add an MBB to the SP scope
       void addMBB(MachineBasicBlock *MBB);
 

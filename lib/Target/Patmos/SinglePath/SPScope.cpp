@@ -328,13 +328,20 @@ public:
                           (const MachineBasicBlock *) NULL);
   }
 
-
   bool containsMbb(const MachineBasicBlock *mbb)
   {
     return std::find(Blocks.begin(), Blocks.end(), mbb) != Blocks.end();
   }
 
+  void computePredInfos(void) {
 
+    buildfcfg();
+    toposort();
+    fcfg.postdominators();
+    DEBUG_TRACE(dumpfcfg()); // uses info about pdom
+    ctrldep();
+    decompose();
+  }
 
 };
 
@@ -350,6 +357,20 @@ namespace llvm{
     }
     static inline ChildIteratorType child_end(NodeType *N) {
       return N->succs_end();
+    }
+  };
+
+  // For iteration over child scopes
+  template <> struct GraphTraits<SPScope*> {
+    typedef SPScope NodeType;
+    typedef SPScope::child_iterator ChildIteratorType;
+
+    static NodeType *getEntryNode(SPScope *S) { return S; }
+    static inline ChildIteratorType child_begin(NodeType *N) {
+     return N->child_begin();
+    }
+    static inline ChildIteratorType child_end(NodeType *N) {
+     return N->child_end();
     }
   };
 }
@@ -494,16 +515,6 @@ const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
     SuccMBBs.push_back(Priv->ExitEdges[i].second);
   }
   return SuccMBBs;
-}
-
-void SPScope::computePredInfos(void) {
-
-  Priv->buildfcfg();
-  Priv->toposort();
-  Priv->fcfg.postdominators();
-  DEBUG_TRACE(Priv->dumpfcfg()); // uses info about pdom
-  Priv->ctrldep();
-  Priv->decompose();
 }
 
 void FCFG::_rdfs(Node *n, std::set<Node*> &V,
@@ -761,6 +772,15 @@ SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {
     MachineBasicBlock *MBB = FI;
     const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
     M[Loop]->addMBB(MBB);
+  }
+
+  // analyze each scope
+  // NB: this could be solved more elegantly by analyzing a scope when it is
+  // built. But how he tree is created right now, it will not become more
+  // elegant anyway.
+  for(df_iterator<SPScope*> I = df_begin(Root), E = df_end(Root); I != E; ++I)
+  {
+    (*I)->Priv->computePredInfos();
   }
 
   return Root;

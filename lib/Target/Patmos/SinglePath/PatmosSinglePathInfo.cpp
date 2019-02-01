@@ -148,15 +148,6 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
   // build the SPScope tree
   Root = SPScope::createSPScopeTree(MF, getAnalysis<MachineLoopInfo>());
 
-  // analyze each scope
-  // NB: this could be solved more elegantly by analyzing a scope when it is
-  // built. But how he tree is created right now, it will not become more
-  // elegant anyway.
-  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(this),
-      E = df_end(this); I!=E; ++I) {
-    (*I)->computePredInfos();
-  }
-
   DEBUG( print(dbgs()) );
 
   // XXX for extensive debugging
