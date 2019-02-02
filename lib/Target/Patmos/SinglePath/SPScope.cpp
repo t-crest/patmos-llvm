@@ -22,7 +22,6 @@ using namespace llvm;
 
 /// Node - a node used internally in the scope to construct a forward CFG
 /// of the scope MBBs
-
 class Node {
   public:
     typedef std::vector<Node*>::iterator child_iterator;
@@ -72,13 +71,106 @@ class FCFG {
     }
     void toexit(Node &n) { n.connect(nexit); }
     void toexit(Node &n, SPScope::Edge &e) { n.connect(nexit, e); }
-    void postdominators(void);
-    raw_ostream& printNode(Node &n);
+    void postdominators(void) {
+      // adopted from:
+      //   Cooper K.D., Harvey T.J. & Kennedy K. (2001).
+      //   A simple, fast dominance algorithm
+      // As we compute _post_dominators, we generate a PO numbering of the
+      // reversed graph and consider the successors instead of the predecessors.
+
+      // first, we generate a postorder numbering
+      std::set<Node*> visited;
+      std::vector<Node*> order;
+      // as we construct the postdominators, we dfs the reverse graph
+      _rdfs(&nexit, visited, order);
+
+      // initialize "start" (= exit) node
+      nexit.ipdom = &nexit;
+
+      // for all nodes except start node in reverse postorder
+      for (std::vector<Node *>::reverse_iterator i = ++order.rbegin(),
+          e = order.rend(); i != e; ++i) {
+        Node *n = *i;
+        // one pass is enough for acyclic graph, no loop required
+        Node *new_ipdom = NULL;
+        for (Node::child_iterator si = n->succs_begin(), se = n->succs_end();
+            si != se; ++si) {
+          new_ipdom = _intersect(new_ipdom, *si);
+        }
+        // assign the intersection
+        n->ipdom = new_ipdom;
+      }
+    }
+    raw_ostream& printNode(Node &n) {
+      raw_ostream& os = dbgs();
+      if (&n == &nentry) {
+        os << "_S<" << n.num << ">";
+      } else if (&n == &nexit) {
+        os << "_T<" << n.num << ">";
+      } else {
+        os << "BB#" << n.MBB->getNumber() << "<" << n.num << ">";
+      }
+      return os;
+    }
   private:
     std::map<const MachineBasicBlock*, Node> nodes;
-    void _rdfs(Node *, std::set<Node*>&, std::vector<Node*>&);
-    Node *_intersect(Node *, Node *);
+    void _rdfs(Node *n, std::set<Node*> &V,
+        std::vector<Node*> &order) {
+      V.insert(n);
+      n->num = -1;
+      for (Node::child_iterator I = n->preds_begin(), E = n->preds_end();
+          I != E; ++I) {
+        if (!V.count(*I)) {
+          _rdfs(*I, V, order);
+        }
+      }
+      n->num = order.size();
+      order.push_back(n);
+    }
+    Node *_intersect(Node *b1, Node *b2) {
+      assert(b2 != NULL);
+      if (b2->ipdom == NULL) {
+        return b1;
+      }
+      Node *finger1 = (b1 != NULL) ? b1 : b2;
+      Node *finger2 = b2;
+      while (finger1->num != finger2->num) {
+        while (finger1->num < finger2->num) finger1 = finger1->ipdom;
+        while (finger2->num < finger1->num) finger2 = finger2->ipdom;
+      }
+      return finger1;
+    }
 };
+
+namespace llvm{
+  // Allow clients to iterate over the Scope FCFG nodes
+  template <> struct GraphTraits<FCFG*> {
+    typedef Node NodeType;
+    typedef Node::child_iterator ChildIteratorType;
+
+    static NodeType *getEntryNode(FCFG *f) { return &f->nentry; }
+    static inline ChildIteratorType child_begin(NodeType *N) {
+      return N->succs_begin();
+    }
+    static inline ChildIteratorType child_end(NodeType *N) {
+      return N->succs_end();
+    }
+  };
+
+  // For iteration over child scopes
+  template <> struct GraphTraits<SPScope*> {
+    typedef SPScope NodeType;
+    typedef SPScope::child_iterator ChildIteratorType;
+
+    static NodeType *getEntryNode(SPScope *S) { return S; }
+    static inline ChildIteratorType child_begin(NodeType *N) {
+     return N->child_begin();
+    }
+    static inline ChildIteratorType child_end(NodeType *N) {
+     return N->child_end();
+    }
+  };
+}
 
 // The private implementation of SPScope using the PIMPL pattern.
 class SPScope::Impl {
@@ -282,11 +374,77 @@ public:
       }
     }
 
-  void toposort(FCFG &fcfg);
+  void toposort(FCFG &fcfg) {
+    // dfs the fcfg in postorder
+    std::vector<MachineBasicBlock *> PO;
+    for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
+        I != E; ++I) {
+      MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
+      if (MBB) PO.push_back(MBB);
+    }
+    // clear the blocks vector and re-insert MBBs in reverse post order
+    Blocks.clear();
+    Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
+  }
 
-  CD_map_t ctrldep(FCFG &fcfg);
+  CD_map_t ctrldep(FCFG &fcfg){
+    CD_map_t CD;
+    for (df_iterator<FCFG*> I = df_begin(&fcfg), E = df_end(&fcfg);
+        I != E; ++I) {
+      Node *n = *I;
+      if (n->dout() >= 2) {
+        for (Node::child_iterator it = n->succs_begin(), et = n->succs_end();
+              it != et; ++it) {
+          Edge *e = n->edgeto(*it);
+          if (e) _walkpdt(n, *it, *e, CD);
+        }
+      }
+    }
+    // find exit edges
+    for (Node::child_iterator it = fcfg.nexit.preds_begin(),
+          et = fcfg.nexit.preds_end(); it != et; ++it) {
+      Edge *e = (*it)->edgeto(&fcfg.nexit);
+      if (!e) continue;
+      // we found an exit edge
+      Edge dual = getDual(*e);
+      _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()), dual, *it, CD);
+    }
 
-  void dumpfcfg(FCFG &fcfg);
+    DEBUG_TRACE({
+      // dump CD
+      dbgs() << "Control dependence:\n";
+      for (CD_map_t::iterator I=CD.begin(), E=CD.end(); I!=E; ++I) {
+        dbgs().indent(4) << "BB#" << I->first->getNumber() << ": { ";
+        for (CD_map_entry_t::iterator EI=I->second.begin(), EE=I->second.end();
+             EI!=EE; ++EI) {
+          Node *n = EI->first;
+          Edge e  = EI->second;
+          fcfg.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1) << ","
+                        << e.second->getNumber() << "), ";
+        }
+        dbgs() << "}\n";
+      }
+    });
+    return CD;
+  }
+
+  void dumpfcfg(FCFG &fcfg){
+    dbgs() << "==========\nFCFG [BB#" << Pub.getHeader()->getNumber() << "]\n";
+
+    for (df_iterator<FCFG*> I = df_begin(&fcfg), E = df_end(&fcfg);
+        I != E; ++I) {
+
+      dbgs().indent(2);
+      fcfg.printNode(**I) << " ipdom ";
+      fcfg.printNode(*(*I)->ipdom) << " -> {";
+      // print outgoing edges
+      for (Node::child_iterator SI = (*I)->succs_begin(), SE = (*I)->succs_end();
+            SI != SE; ++SI ) {
+        fcfg.printNode(**SI) << ", ";
+      }
+      dbgs() << "}\n";
+    }
+  }
 
   /// getOrCreateDefInfo - Returns a predicate definition info
   /// for a given MBB.
@@ -345,108 +503,6 @@ public:
 
 };
 
-namespace llvm{
-  // Allow clients to iterate over the Scope FCFG nodes
-  template <> struct GraphTraits<FCFG*> {
-    typedef Node NodeType;
-    typedef Node::child_iterator ChildIteratorType;
-
-    static NodeType *getEntryNode(FCFG *f) { return &f->nentry; }
-    static inline ChildIteratorType child_begin(NodeType *N) {
-      return N->succs_begin();
-    }
-    static inline ChildIteratorType child_end(NodeType *N) {
-      return N->succs_end();
-    }
-  };
-
-  // For iteration over child scopes
-  template <> struct GraphTraits<SPScope*> {
-    typedef SPScope NodeType;
-    typedef SPScope::child_iterator ChildIteratorType;
-
-    static NodeType *getEntryNode(SPScope *S) { return S; }
-    static inline ChildIteratorType child_begin(NodeType *N) {
-     return N->child_begin();
-    }
-    static inline ChildIteratorType child_end(NodeType *N) {
-     return N->child_end();
-    }
-  };
-}
-
-void SPScope::Impl::toposort(FCFG &fcfg) {
-  // dfs the fcfg in postorder
-  std::vector<MachineBasicBlock *> PO;
-  for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
-      I != E; ++I) {
-    MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
-    if (MBB) PO.push_back(MBB);
-  }
-  // clear the blocks vector and re-insert MBBs in reverse post order
-  Blocks.clear();
-  Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
-}
-
-SPScope::Impl::CD_map_t SPScope::Impl::ctrldep(FCFG &fcfg) {
-    CD_map_t CD;
-    for (df_iterator<FCFG*> I = df_begin(&fcfg), E = df_end(&fcfg);
-        I != E; ++I) {
-      Node *n = *I;
-      if (n->dout() >= 2) {
-        for (Node::child_iterator it = n->succs_begin(), et = n->succs_end();
-              it != et; ++it) {
-          Edge *e = n->edgeto(*it);
-          if (e) _walkpdt(n, *it, *e, CD);
-        }
-      }
-    }
-    // find exit edges
-    for (Node::child_iterator it = fcfg.nexit.preds_begin(),
-          et = fcfg.nexit.preds_end(); it != et; ++it) {
-      Edge *e = (*it)->edgeto(&fcfg.nexit);
-      if (!e) continue;
-      // we found an exit edge
-      Edge dual = getDual(*e);
-      _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()), dual, *it, CD);
-    }
-
-    DEBUG_TRACE({
-      // dump CD
-      dbgs() << "Control dependence:\n";
-      for (CD_map_t::iterator I=CD.begin(), E=CD.end(); I!=E; ++I) {
-        dbgs().indent(4) << "BB#" << I->first->getNumber() << ": { ";
-        for (CD_map_entry_t::iterator EI=I->second.begin(), EE=I->second.end();
-             EI!=EE; ++EI) {
-          Node *n = EI->first;
-          Edge e  = EI->second;
-          fcfg.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1) << ","
-                        << e.second->getNumber() << "), ";
-        }
-        dbgs() << "}\n";
-      }
-    });
-    return CD;
-  }
-
-void SPScope::Impl::dumpfcfg(FCFG &fcfg) {
-    dbgs() << "==========\nFCFG [BB#" << Pub.getHeader()->getNumber() << "]\n";
-
-    for (df_iterator<FCFG*> I = df_begin(&fcfg), E = df_end(&fcfg);
-        I != E; ++I) {
-
-      dbgs().indent(2);
-      fcfg.printNode(**I) << " ipdom ";
-      fcfg.printNode(*(*I)->ipdom) << " -> {";
-      // print outgoing edges
-      for (Node::child_iterator SI = (*I)->succs_begin(), SE = (*I)->succs_end();
-            SI != SE; ++SI ) {
-        fcfg.printNode(**SI) << ", ";
-      }
-      dbgs() << "}\n";
-    }
-  }
-
 SPScope::SPScope(MachineBasicBlock *header, bool isRootFunc)
   : Priv(spimpl::make_unique_impl<Impl>(this, (SPScope *)NULL, isRootFunc, header))
 {
@@ -482,12 +538,11 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   parent->Priv->addChild(this, loop.getHeader());
 }
 
-/// destructor - free the child scopes first, cleanup
+/// free the child scopes first, cleanup
 SPScope::~SPScope() {
   for (unsigned i=0; i<Priv->Subscopes.size(); i++) {
     delete Priv->Subscopes[i];
   }
-  Priv->Subscopes.clear();
 }
 
 bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
@@ -506,77 +561,6 @@ const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
     SuccMBBs.push_back(Priv->ExitEdges[i].second);
   }
   return SuccMBBs;
-}
-
-void FCFG::_rdfs(Node *n, std::set<Node*> &V,
-    std::vector<Node*> &order) {
-  V.insert(n);
-  n->num = -1;
-  for (Node::child_iterator I = n->preds_begin(), E = n->preds_end();
-      I != E; ++I) {
-    if (!V.count(*I)) {
-      _rdfs(*I, V, order);
-    }
-  }
-  n->num = order.size();
-  order.push_back(n);
-}
-
-Node *FCFG::_intersect(Node *b1, Node *b2) {
-  assert(b2 != NULL);
-  if (b2->ipdom == NULL) {
-    return b1;
-  }
-  Node *finger1 = (b1 != NULL) ? b1 : b2;
-  Node *finger2 = b2;
-  while (finger1->num != finger2->num) {
-    while (finger1->num < finger2->num) finger1 = finger1->ipdom;
-    while (finger2->num < finger1->num) finger2 = finger2->ipdom;
-  }
-  return finger1;
-}
-
-void FCFG::postdominators(void) {
-  // adopted from:
-  //   Cooper K.D., Harvey T.J. & Kennedy K. (2001).
-  //   A simple, fast dominance algorithm
-  // As we compute _post_dominators, we generate a PO numbering of the
-  // reversed graph and consider the successors instead of the predecessors.
-
-  // first, we generate a postorder numbering
-  std::set<Node*> visited;
-  std::vector<Node*> order;
-  // as we construct the postdominators, we dfs the reverse graph
-  _rdfs(&nexit, visited, order);
-
-  // initialize "start" (= exit) node
-  nexit.ipdom = &nexit;
-
-  // for all nodes except start node in reverse postorder
-  for (std::vector<Node *>::reverse_iterator i = ++order.rbegin(),
-      e = order.rend(); i != e; ++i) {
-    Node *n = *i;
-    // one pass is enough for acyclic graph, no loop required
-    Node *new_ipdom = NULL;
-    for (Node::child_iterator si = n->succs_begin(), se = n->succs_end();
-        si != se; ++si) {
-      new_ipdom = _intersect(new_ipdom, *si);
-    }
-    // assign the intersection
-    n->ipdom = new_ipdom;
-  }
-}
-
-raw_ostream& FCFG::printNode(Node &n) {
-  raw_ostream& os = dbgs();
-  if (&n == &nentry) {
-    os << "_S<" << n.num << ">";
-  } else if (&n == &nexit) {
-    os << "_T<" << n.num << ">";
-  } else {
-    os << "BB#" << n.MBB->getNumber() << "<" << n.num << ">";
-  }
-  return os;
 }
 
 void SPScope::walk(SPScopeWalker &walker) {
