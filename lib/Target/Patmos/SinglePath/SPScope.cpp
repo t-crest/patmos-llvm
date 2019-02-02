@@ -330,6 +330,19 @@ public:
     decompose(CD, fcfg);
   }
 
+  /// addMBB - Add an MBB to the SP scope
+  void addMBB(MachineBasicBlock *MBB) {
+    if (Blocks.front() != MBB) {
+      Blocks.push_back(MBB);
+    }
+  }
+
+  void addChild(SPScope * child, MachineBasicBlock *childHeader)
+  {
+    Subscopes.push_back(child);
+    addMBB(childHeader);
+  }
+
 };
 
 namespace llvm{
@@ -465,6 +478,8 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
     }
   }
 
+  // add to parent's child list
+  parent->Priv->addChild(this, loop.getHeader());
 }
 
 /// destructor - free the child scopes first, cleanup
@@ -475,21 +490,8 @@ SPScope::~SPScope() {
   Priv->Subscopes.clear();
 }
 
-void SPScope::addMBB(MachineBasicBlock *MBB) {
-  if (Priv->Blocks.front() != MBB) {
-    Priv->Blocks.push_back(MBB);
-  }
-}
-
 bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
   return getHeader() == MBB;
-}
-
-bool SPScope::isMember(const MachineBasicBlock *MBB) const {
-  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
-    if (Priv->Blocks[i] == MBB) return true;
-  }
-  return false;
 }
 
 bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
@@ -671,12 +673,6 @@ const std::vector<MachineBasicBlock*> &SPScope::getBlocks() const
   return Priv->Blocks;
 }
 
-void SPScope::addChild(SPScope * child, MachineBasicBlock *childHeader)
-{
-  Priv->Subscopes.push_back(child);
-  addMBB(childHeader);
-}
-
 SPScope::child_iterator SPScope::child_begin() const { return Priv->Subscopes.begin(); }
 
 SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(); }
@@ -719,8 +715,6 @@ void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
                          std::map<const MachineLoop *, SPScope *> &M) {
 
   SPScope *childScope = new SPScope(parent, *loop);
-  // add to parent's child list
-  parent->addChild(childScope, loop->getHeader());
 
   // update map: Loop -> SPScope
   M[loop] = childScope;
@@ -752,7 +746,7 @@ SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {
           FI!=FE; ++FI) {
     MachineBasicBlock *MBB = FI;
     const MachineLoop *Loop = LI[MBB]; // also accounts for NULL (no loop)
-    M[Loop]->addMBB(MBB);
+    M[Loop]->Priv->addMBB(MBB);
   }
 
   // analyze each scope

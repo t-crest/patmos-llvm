@@ -101,10 +101,6 @@ namespace llvm {
       /// SPScope
       bool isHeader(const MachineBasicBlock *MBB) const;
 
-      /// Returns whether the specified MBB is a member of this SPScope.
-      /// Does not check for whether the MBB is part of a child or parent scope.
-      bool isMember(const MachineBasicBlock *MBB) const;
-
       /// Returns whether the specified MBB is the header of an
       /// immediate subscope of this scope.
       /// I.e. it only checks one-level down the subscopes.
@@ -141,11 +137,6 @@ namespace llvm {
 
       // dump() - Dump state of this SP scope and the subtree
       void dump(raw_ostream&) const;
-
-      /// addMBB - Add an MBB to the SP scope
-      void addMBB(MachineBasicBlock *MBB);
-
-      void addChild(SPScope * child, MachineBasicBlock *childHeader);
 
       /// begin - Iterator begin for MBBs
       iterator begin();
