@@ -279,7 +279,7 @@ public:
       // insert defs
       const SPScope::PredDefInfo *DI = Pub.Scope->getDefInfo(MBB);
       if (DI) {
-        for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
+        for (auto pi = DI->begin(), pe = DI->end();
             pi != pe; ++pi) {
           LRs[pi->first].addDef(i); // TODO:(Emad) why don't we check that the edge hits the block?
         }
@@ -318,7 +318,7 @@ public:
       const SPScope::PredDefInfo *DI = Pub.Scope->getDefInfo(MBB);
       if (DI) {
         vector<unsigned> order;
-        for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
+        for (auto pi = DI->begin(), pe = DI->end();
             pi != pe; ++pi) {
           int r = pi->first;
           if (curLocs.find(r) == curLocs.end()) {

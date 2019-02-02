@@ -369,7 +369,7 @@ public:
           // get pred definition info of node
           PredDefInfo &PredDef = getOrCreateDefInfo(n->MBB);
           // insert definition edge for predicate i
-          PredDef.define(i, e);
+          PredDef.push_back(std::make_pair(i, e));
         } // end for each definition edge
       }
     }
@@ -585,7 +585,7 @@ static void printUDInfo(const SPScope &S, raw_ostream& os,
   const SPScope::PredDefInfo *DI = S.getDefInfo(MBB);
   if (DI) {
     os << " d=";
-    for (SPScope::PredDefInfo::iterator pi = DI->begin(), pe = DI->end();
+    for (auto pi = DI->begin(), pe = DI->end();
         pi != pe; ++pi) {
       os << pi->first << ",";
     }

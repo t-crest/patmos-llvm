@@ -815,7 +815,7 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
     DEBUG(dbgs() << " - MBB#" << MBB->getNumber() << ": ");
 
     // for each definition edge: insert
-    for (SPScope::PredDefInfo::iterator di = DI->begin(), de = DI->end();
+    for (auto di = DI->begin(), de = DI->end();
         di != de; ++di) {
       DEBUG(dbgs() << di->first << " ");
       // Scope, (local) Node, predicate number, edge
@@ -1554,7 +1554,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
 
     std::vector<unsigned> defregs;
     // for each definition edge
-    for (SPScope::PredDefInfo::iterator di = DI->begin(), de = DI->end();
+    for (auto di = DI->begin(), de = DI->end();
         di != de; ++di) {
       unsigned loc, pred = di->first;
       RAInfo::LocType type;

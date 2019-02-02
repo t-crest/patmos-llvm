@@ -20,7 +20,6 @@
 #include "boost/optional.hpp"
 #include "spimpl.h"
 
-
 // define for more detailed debugging output
 #define PATMOS_SINGLEPATH_TRACE
 
@@ -47,23 +46,8 @@ namespace llvm {
       typedef std::pair<const MachineBasicBlock *,
                         const MachineBasicBlock *> Edge;
 
-      /// PredDefInfo - Class containing predicate definition information
-      /// of one MachineBasicBlock.
-      /// Instances for MBBs are stored in the PredDefs map.
-      class PredDefInfo {
-        private:
-
-          /// TODO:(Emad) What does the unsigned means?
-          typedef std::vector<std::pair<unsigned, Edge> > PredEdgeList;
-          PredEdgeList Defs;
-        public:
-          typedef PredEdgeList::const_iterator iterator;
-          void define(unsigned pred, const Edge e) {
-            Defs.push_back(std::make_pair(pred, e));
-          }
-          iterator begin() const { return Defs.begin(); }
-          iterator end() const { return Defs.end(); }
-      };
+      /// TODO:(Emad) What does the unsigned means?
+      typedef std::vector<std::pair<unsigned, Edge> > PredDefInfo;
 
       /// constructor - Create a top-level SPScope
       /// @param entry            The entry MBB;
