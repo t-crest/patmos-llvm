@@ -218,9 +218,6 @@ public:
   /// PredDefs - Stores predicate define information for each basic block
   std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
 
-  // number of defining edges for each predicate
-  std::vector<unsigned> NumPredDefEdges;
-
 //Constructors
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
     Pub(*pub), Parent(parent), RootFunc(rootFunc),
@@ -347,13 +344,9 @@ public:
       // Properly assign the Uses/Defs
       PredCount = K.size();
       PredUse = mbbPreds;
-      // initialize number of defining edges to 0 for all predicates
-      NumPredDefEdges = std::vector<unsigned>( K.size(), 0 );
 
       // For each predicate, compute defs
       for (unsigned int i=0; i<K.size(); i++) {
-        // store number of defining edges
-        NumPredDefEdges[i] = K[i].size();
         // for each definition edge
         for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
                   EI!=EE; ++EI) {
@@ -499,6 +492,26 @@ public:
   {
     Subscopes.push_back(child);
     addMBB(childHeader);
+  }
+
+  /// Returns the number of definitions the given predicate
+  /// has in the scope.
+  unsigned getNumDefs(unsigned pred)
+  {
+    // NOTE(Emad): I'm not sure this actually returns the correct result.
+    // Through it seems to be correct enough to use in SPScope::hasMultipleDefs
+    unsigned count = 0;
+    std::for_each(PredUse.begin(), PredUse.end(), [&](auto pair){
+      // Look for all MBBs that use that predicate
+      if(pair.second == pred){
+        auto predDef = PredDefs.find(pair.first);
+        if(predDef != PredDefs.end()){
+          // sum all their definition edges
+          count += predDef->second.size();
+        }
+      }
+    });
+    return count;
   }
 
 };
@@ -688,9 +701,9 @@ unsigned SPScope::getDepth() const { return (Priv->Parent == NULL)? 0 : Priv->Pa
 
 unsigned SPScope::getNumPredicates() const { return Priv->PredCount; }
 
-unsigned SPScope::getNumDefEdges(unsigned pred) const
+bool SPScope::hasMultDefEdges(unsigned pred) const
 {
-  return Priv->NumPredDefEdges.at(pred);
+  return Priv->getNumDefs(pred) > 1;
 }
 
 // build the SPScope tree in DFS order, creating new SPScopes preorder

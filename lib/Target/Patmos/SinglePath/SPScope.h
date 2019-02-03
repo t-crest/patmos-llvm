@@ -111,9 +111,8 @@ namespace llvm {
       /// a given MBB, or NULL if no pred info exists for the MBB.
       const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
 
-      /// getNumDefEdges - Returns the number of definition edges for a given
-      /// predicate.
-      unsigned getNumDefEdges(unsigned pred) const;
+      /// True if the predicate has multiple definitions
+      bool hasMultDefEdges(unsigned pred) const;
 
       /// getBlocks - Returns the list of basic blocks in this SPScope,
       /// in topological order.

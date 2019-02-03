@@ -863,7 +863,7 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
       // The definition location of the predicate is a physical register.
       insertDefToRegLoc(
           *SrcMBB, loc, use_preg, Cond,
-          R.Scope->getNumDefEdges(pred) > 1, // isMultiDef
+          R.Scope->hasMultDefEdges(pred),
           R.isFirstDef(&Node, pred),         // isFirstDef
           S->isSubHeader(&Node)              // isExitEdgeDef
           );
