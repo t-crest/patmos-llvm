@@ -1609,7 +1609,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   // Initialize the loop bound and store it to the stack slot
   if (S->hasLoopBound()) {
     unsigned tmpReg = Pass.GuardsReg;
-    uint32_t loop = S->getLoopBound();
+    uint32_t loop = get(S->getLoopBound());
     // Create an instruction to load the loop bound
     // TODO try to find an unused register
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,

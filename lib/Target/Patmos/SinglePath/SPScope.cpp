@@ -1,13 +1,9 @@
-//==-- SPScope.cpp -  -------------------===//
+//==-- SPScope.cpp - Single-Path Scope -----------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-//
-//===---------------------------------------------------------------------===//
-//
-//
 //
 //===---------------------------------------------------------------------===//
 #define DEBUG_TYPE "patmos-singlepath"
@@ -182,7 +178,7 @@ public:
   /**
    *  A map over which predicate is the guard for each basic block.
    */
-  typedef std::map<const MachineBasicBlock*, std::vector<unsigned>> MBBPredicates_t;
+  typedef std::map<const MachineBasicBlock*, unsigned> MBBPredicates_t;
 
 //Fields
 
@@ -198,12 +194,14 @@ public:
   SmallVector<Edge, 4> ExitEdges;
 
   // loop bound
-  int LoopBound;
+  boost::optional<unsigned> LoopBound;
 
   // Whether this scope is part of a root single-path function
   const bool RootFunc;
 
-  // MBBs contained
+  /// The MBBs that are either exclusively contained in this scope,
+  /// or are headers of this scope's subscopes.
+  /// It is sorted in topological order.
   std::vector<MachineBasicBlock*> Blocks;
 
   // sub-scopes
@@ -221,7 +219,7 @@ public:
 //Constructors
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
     Pub(*pub), Parent(parent), RootFunc(rootFunc),
-    LoopBound(-1), PredCount(0)
+    LoopBound(boost::none), PredCount(0)
   {}
 
 //Functions
@@ -306,15 +304,14 @@ public:
               break;
             }
         }
-        assert(mbbPreds.find(MBB) ==  mbbPreds.end());
-        mbbPreds.insert(std::make_pair(MBB, std::vector<unsigned>()));
+
         if (q != -1) {
           // we already have handled this dependence
-          mbbPreds[MBB].push_back(q);
+          mbbPreds[MBB] = q;
         } else {
           // new dependence set:
           K.push_back(t);
-          mbbPreds[MBB].push_back(p++);
+          mbbPreds[MBB] = p++;
         }
       } // end for each MBB
 
@@ -323,9 +320,8 @@ public:
         dbgs() << "Decomposed CD:\n";
         dbgs().indent(2) << "map R: MBB -> pN\n";
         for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
-          dbgs().indent(4) << "R(" << RI->first->getNumber() << ") ={";
-          std::for_each(RI->second.begin(), RI->second.end(), [](unsigned n){ dbgs() << n << ", ";});
-          dbgs() << "}\n";
+          dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p"
+                           << RI->second << "\n";
         }
         dbgs().indent(2) << "map K: pN -> t \\in CD\n";
         for (unsigned long i = 0; i < K.size(); i++) {
@@ -483,6 +479,7 @@ public:
 
   /// addMBB - Add an MBB to the SP scope
   void addMBB(MachineBasicBlock *MBB) {
+
     if (Blocks.front() != MBB) {
       Blocks.push_back(MBB);
     }
@@ -542,7 +539,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
       MI != ME; ++MI) {
     if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
       // max is the second operand (idx 1)
-      Priv->LoopBound = MI->getOperand(1).getImm() + 1;
+      Priv->LoopBound = boost::make_optional(MI->getOperand(1).getImm() + 1);
       break;
     }
   }
@@ -591,10 +588,7 @@ void SPScope::walk(SPScopeWalker &walker) {
 
 static void printUDInfo(const SPScope &S, raw_ostream& os,
                         const MachineBasicBlock *MBB) {
-  os << "  u={";
-  const std::vector<unsigned> *preds = S.getPredUse(MBB);
-  std::for_each(preds->begin(), preds->end(), [&](unsigned p){os << p << ", ";});
-  os << "}";
+  os << "  u=" << S.getPredUse(MBB);
   const SPScope::PredDefInfo *DI = S.getDefInfo(MBB);
   if (DI) {
     os << " d=";
@@ -633,11 +627,18 @@ void SPScope::dump(raw_ostream& os) const {
   }
 }
 
-const std::vector<unsigned> *SPScope::getPredUse(const MachineBasicBlock *MBB) const {
+unsigned SPScope::getPredUse(const MachineBasicBlock *MBB) const {
   if (Priv->PredUse.count(MBB)) {
-    return &Priv->PredUse.at(MBB);
+    return Priv->PredUse.at(MBB);
+  } else {
+    errs()  << "Cannot find Predicate for MachineBasicBlock '" << MBB
+            << "'(BasicBlock '" << MBB->getBasicBlock()->getName()
+            << "') in the scope with header '" << getHeader()
+            << "'(BasicBlock '" << getHeader()->getBasicBlock()->getName()
+            << "').\n";
+    abort();
+    return 0; // Unreachable, removed warning about missing return value.
   }
-  return NULL;
 }
 
 const SPScope::PredDefInfo *
@@ -655,9 +656,9 @@ const SPScope *SPScope::getParent() const { return Priv->Parent; }
 
 bool SPScope::isRootTopLevel() const { return Priv->RootFunc && isTopLevel(); }
 
-bool SPScope::hasLoopBound() const { return (-1 != Priv->LoopBound); }
+bool SPScope::hasLoopBound() const { return Priv->LoopBound.is_initialized(); }
 
-int SPScope::getLoopBound() const { return Priv->LoopBound; }
+boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound; }
 
 SPScope::iterator SPScope::begin() { return Priv->Blocks.begin(); }
 

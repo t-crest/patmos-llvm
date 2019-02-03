@@ -1,4 +1,4 @@
-//==-- SPScope.h -  -------------===//
+//==-- SPScope.h - Single-Path Scope -------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,16 @@
 //
 //===---------------------------------------------------------------------===//
 //
+// SPScope contains all information on the single-path scopes in a function.
+// It models the scopes as a tree, where the root is the scope of the function,
+// called the top-level scope, and each child is a loop inside that function,
+// called subscopes. Subscopes of subscopes are nested loops.
 //
+// The static function SPScope::createSPScopeTree can be used to construct
+// the scope tree from a MachineFunction.
+//
+// Also contains SPScopeWalker, which can be extended to walk the tree
+// of scopes.
 //
 //===---------------------------------------------------------------------===//
 
@@ -36,49 +45,60 @@ namespace llvm {
   class SPScope {
 
     public:
-      /// iterator - Type for iterator through MBBs
+      /// Type for iteration through the basic blocks that are part of the scope.
       typedef std::vector<MachineBasicBlock*>::iterator iterator;
 
-      /// child_iterator - Type for child iterator
+      /// Type for iteration through the subscopes of this scope.
       typedef std::vector<SPScope*>::iterator child_iterator;
 
-      // Edge type
+      /// Type representing control flow from one MachineBasicBlock to another.
       typedef std::pair<const MachineBasicBlock *,
                         const MachineBasicBlock *> Edge;
 
       /// TODO:(Emad) What does the unsigned means?
       typedef std::vector<std::pair<unsigned, Edge> > PredDefInfo;
 
-      /// constructor - Create a top-level SPScope
-      /// @param entry            The entry MBB;
-      /// @param isRootTopLevel   True when this scope is a top level scope of
-      ///                         a single-path root function.
-      explicit SPScope(MachineBasicBlock *entry, bool isRootFunc);
+      /// Create a top-level SPScope. I.e. the SPScope representing the function.
+      ///
+      /// @param header       The entry MBB into the function and therefore
+      ///                     also the header of the top-level scope.
+      ///
+      /// @param isRootFunc   Whether the function represented by this SPSCope
+      ///                     is a root SP function, I.e. it is given as a command
+      ///                     argument to the compiler.
+      explicit SPScope(MachineBasicBlock *header, bool isRootFunc);
 
-      /// constructor - Create a loop SPScope
+      /// Create a subscope of the given parent scope that represents
+      /// the given loop in the function.
+      /// The given loop must be nested inside the loop represented
+      /// by the parent.
       explicit SPScope(SPScope *parent, MachineLoop &loop);
 
-      /// Deletes the scope and all its children.
+      /// Deletes the scope and all its subscopes.
       ~SPScope();
 
-      /// getParent
+      /// Returns the parent scope of this scope.
+      /// NULL is returned if this scope has no parent.
       const SPScope *getParent() const;
 
-      /// getHeader
+      /// Returns the header MBB of this scope.
       MachineBasicBlock *getHeader() const;
 
-      /// getSuccMBB - Get the successors
+      /// Returns all the MBBs that succeed the loop represented by this
+      /// scope.
+      /// I.e. all the MBBs that control may branch after exiting the loop.
       const std::vector<const MachineBasicBlock *> getSuccMBBs() const;
 
-      /// getDepth - Get the nesting depth of the SPScope
-      unsigned int getDepth() const;
+      /// Returns the nesting depth of the SPScope.
+      /// The top-level scope has depth 0.
+      unsigned getDepth() const;
 
-      /// isTopLevel - Returns true if the SPScope is the top-level SPScope
-      /// (not a loop)
+      /// Returns whether the scope represents the functions itself and
+      /// not a loop in the function.
+      /// The top-level scope always returns true, while all subscopes return false.
       bool isTopLevel() const;
 
-      /// isRootTopLevel - Returns true if the SPScope is the top-level SPScope
-      /// of a single-path root function
+      /// Returns whether the scope is the Top-Level scope of a root SP function.
       bool isRootTopLevel() const ;
 
       /// isHeader - Returns true if the specified MBB is the header of this
@@ -90,56 +110,62 @@ namespace llvm {
       /// I.e. it only checks one-level down the subscopes.
       bool isSubHeader(MachineBasicBlock *MBB) const;
 
-      /// hasLoopBound - Returs true if the SPScope is a loop and has a bound
-      /// to be accounted for
+      /// Returns whether the loop represented by the scope has a loop bound.
+      /// The top-level scope never has a loop bound, since it only represents the
+      /// function.
       bool hasLoopBound() const ;
 
-      /// getLoopBound - Return the loop bound for this SPScope
-      int getLoopBound() const ;
+      /// Returns the loop bound for the scope. If the scope doesn't
+      /// have a loop bound, none is returned.
+      boost::optional<unsigned> getLoopBound() const;
 
-      /// walk - Walk this SPScope recursively
+      /// Walk this SPScope recursively
       void walk(SPScopeWalker &walker);
 
-      /// getNumPredicates - Returns the number of predicates required for
-      /// this function
+      /// Returns the number of predicates required for this scope.
       unsigned getNumPredicates() const;
 
-      /// getPredUse - Returns the guarding predicate for an MBB
-      const std::vector<unsigned> * getPredUse(const MachineBasicBlock *) const;
+      /// Returns the guarding predicate for an MBB.
+      /// If the MBB is not part of the scope, will abort.
+      unsigned getPredUse(const MachineBasicBlock *) const;
 
-      /// getDefInfo - Returns a pointer to a predicate definition info for
+      /// Returns a pointer to a predicate definition info for
       /// a given MBB, or NULL if no pred info exists for the MBB.
       const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
 
-      /// True if the predicate has multiple definitions
+      /// Returns whether the the predicate has multiple definitions
       bool hasMultDefEdges(unsigned pred) const;
 
-      /// getBlocks - Returns the list of basic blocks in this SPScope,
-      /// in topological order.
+      /// Returns the MBBs that are either exclusively contained in this scope,
+      /// or are headers of this scope's subscopes.
+      /// It is sorted in topological order.
       const std::vector<MachineBasicBlock*> &getBlocks() const;
 
-      // dump() - Dump state of this SP scope and the subtree
+      /// Dump state of this scope and its subscopes recursively
       void dump(raw_ostream&) const;
 
-      /// begin - Iterator begin for MBBs
+      /// Beginning iterator over the MBBs that are exclusively
+      /// in this scope, or are headers of this scope's subscopes.
+      /// The MBBs are in topological order.
       iterator begin();
 
-      /// child_end - Iterator end for MBBs
+      /// The end of the iterator over MBBs in this scope.
       iterator end();
 
-      /// child_begin - Iterator begin for subloops
+      /// Beginning iterator over the subscopes of this scope.
       child_iterator child_begin() const;
 
-      /// child_end - Iterator end for subloops
+      /// The end of the iterator over the subscopes of this scope.
       child_iterator child_end() const;
 
-      /// Returns the innermost scope containing the given basic block.
-      /// If the is not part of any scope, none is returned.
+      /// Returns the deepest scope, starting from this scope,
+      /// containing the given MBB.
+      /// If the MBB is not part of any scope, none is returned.
       boost::optional<SPScope*> findMBBScope(const MachineBasicBlock *mbb) const;
 
-      /// Create an SPScope tree, return the root scope.
+      /// Create an SPScope tree, return the top-level scope.
       /// The tree needs to be destroyed by the client,
-      /// by deleting the root scope.
+      /// by deleting the top-level scope.
       static SPScope * createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI);
 
     private:
@@ -148,8 +174,6 @@ namespace llvm {
       /// members of this instance.
       spimpl::unique_impl_ptr<Impl> Priv;
   };
-
-///////////////////////////////////////////////////////////////////////////////
 
   class SPScopeWalker {
     public:

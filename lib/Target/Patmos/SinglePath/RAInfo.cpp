@@ -272,10 +272,8 @@ public:
     for (unsigned i=0, e=Pub.Scope->getBlocks().size(); i<e; i++) {
       MachineBasicBlock *MBB = Pub.Scope->getBlocks()[i];
       // insert use
-      const vector<unsigned> *predUses = Pub.Scope->getPredUse(MBB);
-      for_each(predUses->begin(), predUses->end(), [&](unsigned p){
-        LRs[p].addUse(i);
-      });
+      LRs[Pub.Scope->getPredUse(MBB)].addUse(i);
+
       // insert defs
       const SPScope::PredDefInfo *DI = Pub.Scope->getDefInfo(MBB);
       if (DI) {
@@ -442,7 +440,7 @@ private:
   void handlePredUse(unsigned i, MachineBasicBlock* MBB,
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
 
-    unsigned usePred = (*Pub.Scope->getPredUse(MBB))[0];
+    unsigned usePred = Pub.Scope->getPredUse(MBB);
 
     // TODO:(Emad) handle multiple predicates.
     // for the top-level entry of a single-path root,
