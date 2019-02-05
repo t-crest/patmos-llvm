@@ -34,11 +34,14 @@ STATISTIC( NoSpillScopes,
 /// an RAInfo object.
 /// A live range is a set of position, each of which is associated with a
 /// basic block in the scope being described. The first position in the
-/// range matches the first block in the scope. There is one more position
-/// that there are blocks, so the last position is not associated with any block.
+/// range matches the header block in the scope. The rest of the blocks
+/// are indexed in topological ordering.
+/// There is one more position that there are blocks, so the last position
+/// is not associated with any block.
 /// At any location, the predicate can be used and/or defined.
 /// TODO:(Emad) what does it mean that a predicate is 'defined' at a position?
-/// TODO:(Emad) can it be 'defined' in more than one position ? i think so, see PatmosSinglePathInfo.h::PredDefInfo
+/// TODO:(Emad) can it be 'defined' in more than one position ?
+///             i think so, see SPScope::PredDefInfo
 class LiveRange {
 friend class RAInfo;
 private:
@@ -64,7 +67,7 @@ public:
   /// Constructs a new live range for a scope.
   /// the number of points in the range is 1 more than the number of blocks.
   LiveRange(SPScope *S){
-    int range = S->getBlocks().size()+1;
+    int range = S->getNumberOfFcfgBlocks()+1;
     uses = BitVector(range);
     defs = BitVector(range);
   }
@@ -268,9 +271,9 @@ public:
     DEBUG(dbgs() << " Create live-ranges for [MBB#"
                  << Pub.Scope->getHeader()->getNumber() << "]\n");
 
-
-    for (unsigned i=0, e=Pub.Scope->getBlocks().size(); i<e; i++) {
-      MachineBasicBlock *MBB = Pub.Scope->getBlocks()[i];
+    auto blocks = Pub.Scope->getBlocksTopoOrd();
+    for (unsigned i = 0, e = blocks.size(); i < e; i++) {
+      MachineBasicBlock *MBB = blocks[i];
       // insert use
       LRs[Pub.Scope->getPredUse(MBB)].addUse(i);
 
@@ -288,7 +291,7 @@ public:
     // TODO:(Emad) of the loop, therefore we say that the last block also uses P0? i.e. connecting
     // TODO:(Emad) the loop end with the start?
     if (!Pub.Scope->isTopLevel()) {
-      LRs[0].addUse(Pub.Scope->getBlocks().size());
+      LRs[0].addUse(blocks.size());
     }
   }
 
@@ -302,8 +305,9 @@ public:
     // map to keep track of locations of predicates during the scan
     map<unsigned, Location> curLocs;
 
-    for (unsigned i=0, e=Pub.Scope->getBlocks().size(); i<e; i++) {
-      MachineBasicBlock *MBB = Pub.Scope->getBlocks()[i];
+    auto blocks = Pub.Scope->getBlocksTopoOrd();
+    for (unsigned i = 0, e = blocks.size(); i < e; i++) {
+      MachineBasicBlock *MBB = blocks[i];
 
       DEBUG( dbgs() << "  MBB#" << MBB->getNumber() << ": " );
 
@@ -550,8 +554,9 @@ bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
   // header predicate
   if (pred == 0) return false;
 
-  for(unsigned i=0; i< Scope->getBlocks().size(); i++) {
-    if (Scope->getBlocks()[i] == MBB) {
+  auto blocks = Scope->getBlocksTopoOrd();
+  for(unsigned i=0; i< blocks.size(); i++) {
+    if (blocks[i] == MBB) {
       return !Priv->LRs[pred].hasDefBefore(i);
     }
   }
@@ -623,9 +628,9 @@ void RAInfo::dump() const {
     dbgs() << "  LR(p" << i << ") = [" << LR.str() << "]\n";
   }
 
-  for (unsigned i=0, e=Scope->getBlocks().size(); i<e; i++) {
-    MachineBasicBlock *MBB = Scope->getBlocks()[i];
-
+  auto blocks = Scope->getBlocksTopoOrd();
+  for (unsigned i=0, e=blocks.size(); i<e; i++) {
+    MachineBasicBlock *MBB = blocks[i];
     dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
     if (Priv->UseLocs.count(MBB)) {
       const Impl::UseLoc &UL = Priv->UseLocs.at(MBB);

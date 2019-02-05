@@ -199,9 +199,8 @@ public:
   // Whether this scope is part of a root single-path function
   const bool RootFunc;
 
-  /// The MBBs that are either exclusively contained in this scope,
-  /// or are headers of this scope's subscopes.
-  /// It is sorted in topological order.
+  /// The MBBs that are exclusively contained in this scope.
+  /// The header of the scope is always the first element.
   std::vector<MachineBasicBlock*> Blocks;
 
   // sub-scopes
@@ -218,8 +217,8 @@ public:
 
 //Constructors
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
-    Pub(*pub), Parent(parent), RootFunc(rootFunc),
-    LoopBound(boost::none), PredCount(0)
+    Pub(*pub), Parent(parent), LoopBound(boost::none), RootFunc(rootFunc),
+    PredCount(0)
   {
     Blocks.push_back(header);
   }
@@ -228,13 +227,17 @@ public:
 
   FCFG buildfcfg(void) {
 
-    // Get all blocks only in this scope.
-    std::set<const MachineBasicBlock *> fcfgBlocks(++Blocks.begin(), Blocks.end());
-    std::vector<Edge> outedges;
+    auto fcfgBlocks = Pub.getScopeBlocks();
+    std::set<const MachineBasicBlock *> succBlocks(++fcfgBlocks.begin(), fcfgBlocks.end());
+    std::for_each(Pub.child_begin(), Pub.child_end(), [&](auto child){
+      fcfgBlocks.push_back(child->getHeader());
+      succBlocks.insert(child->getHeader());
+    });
 
     FCFG fcfg(Pub.getHeader());
 
-    std::for_each(Blocks.begin(), Blocks.end(), [&](auto MBB){
+    std::for_each(fcfgBlocks.begin(), fcfgBlocks.end(), [&](auto MBB){
+      std::vector<Edge> outedges;
       if (Pub.isSubHeader(MBB)) {
         const SPScope *subloop = get(Pub.findMBBScope(MBB));
         // successors of the loop
@@ -253,7 +256,7 @@ public:
       std::for_each(outedges.begin(), outedges.end(), [&](auto edge){
         auto succ = edge.second;
         // if succ is one of the fcfg blocks except the scope header.
-        if (fcfgBlocks.count(succ)) {
+        if (succBlocks.count(succ)) {
           Node &ns = fcfg.getNodeFor(succ);
           n.connect(ns, edge);
         } else {
@@ -269,10 +272,9 @@ public:
 
       // special case: top-level loop has no exit/backedge
       if (outedges.empty()) {
-        assert(Pub.isTopLevel());
+        //assert(Pub.isTopLevel());
         fcfg.toexit(n);
       }
-      outedges.clear();
     });
     return fcfg;
   }
@@ -295,8 +297,8 @@ public:
       std::vector<CD_map_entry_t> K;
 
       int p = 0;
-      for (unsigned i=0; i<Blocks.size(); i++) {
-        const MachineBasicBlock *MBB = Blocks[i];
+      auto blocks = Pub.getBlocksTopoOrd();
+      std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
         CD_map_entry_t t = CD.at(MBB);
         int q=-1;
         // try to lookup the control dependence
@@ -315,7 +317,7 @@ public:
           K.push_back(t);
           mbbPreds[MBB] = p++;
         }
-      } // end for each MBB
+      }); // end for each MBB
 
       DEBUG_TRACE({
         // dump R, K
@@ -364,19 +366,6 @@ public:
         } // end for each definition edge
       }
     }
-
-  void toposort(FCFG &fcfg) {
-    // dfs the fcfg in postorder
-    std::vector<MachineBasicBlock *> PO;
-    for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
-        I != E; ++I) {
-      MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
-      if (MBB) PO.push_back(MBB);
-    }
-    // clear the blocks vector and re-insert MBBs in reverse post order
-    Blocks.clear();
-    Blocks.insert(Blocks.end(), PO.rbegin(), PO.rend());
-  }
 
   CD_map_t ctrldep(FCFG &fcfg){
     CD_map_t CD;
@@ -464,15 +453,16 @@ public:
                           (const MachineBasicBlock *) NULL);
   }
 
-  bool containsMbb(const MachineBasicBlock *mbb)
+  bool fcfgContainsMbb(const MachineBasicBlock *mbb)
   {
-    return std::find(Blocks.begin(), Blocks.end(), mbb) != Blocks.end();
+    return std::any_of(Blocks.begin(), Blocks.end(), [&](auto MBB){return MBB == mbb;}) ||
+        std::any_of(Pub.child_begin(), Pub.child_end(), [&](auto child){ return child->getHeader() == mbb;});
   }
 
   void computePredInfos(void) {
 
     auto fcfg = buildfcfg();
-    toposort(fcfg);
+    //toposort(fcfg);
     fcfg.postdominators();
     DEBUG_TRACE(dumpfcfg(fcfg)); // uses info about pdom
     CD_map_t CD = ctrldep(fcfg);
@@ -485,12 +475,6 @@ public:
     if (Blocks.front() != MBB) {
       Blocks.push_back(MBB);
     }
-  }
-
-  void addChild(SPScope * child, MachineBasicBlock *childHeader)
-  {
-    Subscopes.push_back(child);
-    addMBB(childHeader);
   }
 
   /// Returns the number of definitions the given predicate
@@ -526,7 +510,6 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   assert(parent);
   MachineBasicBlock *header = loop.getHeader();
 
-
   // info about loop exit edges
   loop.getExitEdges(Priv->ExitEdges);
 
@@ -541,7 +524,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   }
 
   // add to parent's child list
-  parent->Priv->addChild(this, loop.getHeader());
+  parent->Priv->Subscopes.push_back(this);
 }
 
 /// free the child scopes first, cleanup
@@ -571,14 +554,14 @@ const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
 
 void SPScope::walk(SPScopeWalker &walker) {
   walker.enterSubscope(this);
-  for (unsigned i=0; i<Priv->Blocks.size(); i++) {
-    MachineBasicBlock *MBB = Priv->Blocks[i];
+  auto blocks = getBlocksTopoOrd();
+  std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
     if (isSubHeader(MBB)) {
       get(findMBBScope(MBB))->walk(walker);
     } else {
       walker.nextMBB(MBB);
     }
-  }
+  });
   walker.exitSubscope(this);
 }
 
@@ -613,14 +596,14 @@ void SPScope::dump(raw_ostream& os) const {
   os << " |P|=" <<  Priv->PredCount;
   printUDInfo(*this, os, Priv->Blocks.front());
 
-  for (unsigned i=1; i<Priv->Blocks.size(); i++) {
-    MachineBasicBlock *MBB = Priv->Blocks[i];
+  auto blocks = getBlocksTopoOrd();
+  std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
     os.indent(2*(getDepth()+1)) << " BB#" << MBB->getNumber();
     printUDInfo(*this, os, MBB);
     if (isSubHeader(MBB)) {
       get(findMBBScope(MBB))->dump(os);
     }
-  }
+  });
 }
 
 unsigned SPScope::getPredUse(const MachineBasicBlock *MBB) const {
@@ -658,9 +641,39 @@ boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound
 
 MachineBasicBlock *SPScope::getHeader() const { return Priv->Blocks.front(); }
 
-const std::vector<MachineBasicBlock*> &SPScope::getBlocks() const
+std::vector<MachineBasicBlock*> SPScope::getScopeBlocks() const
 {
-  return Priv->Blocks;
+  return std::vector<MachineBasicBlock*>(Priv->Blocks.begin(), Priv->Blocks.end());
+}
+
+std::vector<MachineBasicBlock*> SPScope::getBlocksTopoOrd() const
+{
+  auto fcfg = Priv->buildfcfg();
+  // dfs the fcfg in postorder
+  std::vector<MachineBasicBlock *> PO;
+  for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
+      I != E; ++I) {
+    MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
+    if (MBB) PO.push_back(MBB);
+  }
+  std::reverse(PO.begin(), PO.end());
+  return PO;
+}
+
+unsigned SPScope::getNumberOfFcfgBlocks() const
+{
+  return getScopeBlocks().size()
+      // Each subscope has 1 header, so just count supscopes
+      + Priv->Subscopes.size();
+}
+
+std::vector<MachineBasicBlock*> SPScope::getFcfgBlocks() const
+{
+  auto result = getScopeBlocks();
+  std::for_each(child_begin(), child_end(), [&](auto child){
+    result.push_back(child->getHeader());
+  });
+  return result;
 }
 
 SPScope::child_iterator SPScope::child_begin() const { return Priv->Subscopes.begin(); }
@@ -670,20 +683,19 @@ SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(
 boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb) const
 {
   boost::optional<SPScope*> found = boost::none;
-  for(auto i = Priv->Subscopes.begin(), end=Priv->Subscopes.end(); i != end; ++i)
-  {
-    SPScope* child = *i;
-    boost::optional<SPScope*> temp = child->findMBBScope(mbb);
-    //Ensure two different children don't have the same MBB
+  std:for_each(Priv->Subscopes.begin(), Priv->Subscopes.end(), [&](auto subscope){
+    boost::optional<SPScope*> temp = subscope->findMBBScope(mbb);
+    //Assert two different children don't have the same MBB
     assert(!(temp.is_initialized() && found.is_initialized()));
     if(temp.is_initialized()){
       found = temp;
     }
-  }
+  });
 
   if(found.is_initialized()){
     return found;
-  } else if(Priv->containsMbb(mbb)){
+  } else if(std::any_of(Priv->Blocks.begin(), Priv->Blocks.end(),
+      [&](auto MBB){return MBB == mbb;})){
     return boost::make_optional((SPScope*)this);
   }else{
     return boost::none;
@@ -704,15 +716,14 @@ static
 void createSPScopeSubtree(MachineLoop *loop, SPScope *parent,
                          std::map<const MachineLoop *, SPScope *> &M) {
 
-  SPScope *childScope = new SPScope(parent, *loop);
+  SPScope *subScope = new SPScope(parent, *loop);
 
   // update map: Loop -> SPScope
-  M[loop] = childScope;
+  M[loop] = subScope;
   // visit subloops
-  for (MachineLoop::iterator I = loop->begin(), E = loop->end();
-          I != E; ++I) {
-    createSPScopeSubtree(*I, childScope, M);
-  }
+  std::for_each(loop->begin(), loop->end(), [&](auto subLoop){
+    createSPScopeSubtree(subLoop, subScope, M);
+  });
 }
 
 SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {

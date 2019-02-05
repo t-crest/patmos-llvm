@@ -804,13 +804,12 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
   DEBUG( dbgs() << " Insert Predicate Definitions in [MBB#"
                 << S->getHeader()->getNumber() << "]\n");
 
-  // Visit the MBBs (in topological order).
-  for (SPScope::iterator I=S->begin(), E=S->end(); I!=E; ++I) {
-    MachineBasicBlock *MBB = *I;
+  auto blocks = S->getFcfgBlocks();
+  std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
     const SPScope::PredDefInfo *DI = S->getDefInfo(MBB);
 
     // procede to next if this does not define any predicates
-    if (!DI) continue;
+    if (!DI) return;
 
     DEBUG(dbgs() << " - MBB#" << MBB->getNumber() << ": ");
 
@@ -823,7 +822,7 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
     }
     DEBUG(dbgs() << "\n");
 
-  } // end for each MBB
+  });
 }
 
 void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
@@ -1075,15 +1074,8 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
   // Predicate the instructions of blocks in S, also inserting spill/load
   // of predicates not in registers.
 
-  // for each MBB
-  for (SPScope::iterator I=S->begin(), E=S->end(); I!=E; ++I) {
-    MachineBasicBlock *MBB = *I;
-
-    // Subheaders are treated in "their" SPScope.
-    // The necessary glue code (copy predicates etc) is done in the linearize
-    // walk.
-    if (S->isSubHeader(MBB))
-      continue;
+  auto blocks = S->getScopeBlocks();
+  std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
 
     unsigned use_preg = getUsePReg(R, MBB, true);
 
@@ -1190,7 +1182,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
         .addReg(PRTmp).addImm(0);
     }
 
-  } // end for each MBB
+  });
 }
 
 
