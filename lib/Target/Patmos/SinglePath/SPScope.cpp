@@ -220,20 +220,21 @@ public:
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
     Pub(*pub), Parent(parent), RootFunc(rootFunc),
     LoopBound(boost::none), PredCount(0)
-  {}
+  {
+    Blocks.push_back(header);
+  }
 
 //Functions
 
   FCFG buildfcfg(void) {
-    std::set<const MachineBasicBlock *> body(++Blocks.begin(), Blocks.end());
+
+    // Get all blocks only in this scope.
+    std::set<const MachineBasicBlock *> fcfgBlocks(++Blocks.begin(), Blocks.end());
     std::vector<Edge> outedges;
 
     FCFG fcfg(Pub.getHeader());
 
-    for (unsigned i=0; i<Blocks.size(); i++) {
-      MachineBasicBlock *MBB = Blocks[i];
-
-
+    std::for_each(Blocks.begin(), Blocks.end(), [&](auto MBB){
       if (Pub.isSubHeader(MBB)) {
         const SPScope *subloop = get(Pub.findMBBScope(MBB));
         // successors of the loop
@@ -242,28 +243,29 @@ public:
                         subloop->Priv->ExitEdges.end());
       } else {
         // simple block
-        for (MachineBasicBlock::succ_iterator si = MBB->succ_begin(),
+        for (auto si = MBB->succ_begin(),
               se = MBB->succ_end(); si != se; ++si) {
           outedges.push_back(std::make_pair(MBB, *si));
         }
       }
 
       Node &n = fcfg.getNodeFor(MBB);
-      for (unsigned i=0; i<outedges.size(); i++) {
-        const MachineBasicBlock *succ = outedges[i].second;
-        if (body.count(succ)) {
+      std::for_each(outedges.begin(), outedges.end(), [&](auto edge){
+        auto succ = edge.second;
+        // if succ is one of the fcfg blocks except the scope header.
+        if (fcfgBlocks.count(succ)) {
           Node &ns = fcfg.getNodeFor(succ);
-          n.connect(ns, outedges[i]);
+          n.connect(ns, edge);
         } else {
           if (succ != Pub.getHeader()) {
             // record exit edges
-            fcfg.toexit(n, outedges[i]);
+            fcfg.toexit(n, edge);
           } else {
             // we don't need back edges recorded
             fcfg.toexit(n);
           }
         }
-      }
+      });
 
       // special case: top-level loop has no exit/backedge
       if (outedges.empty()) {
@@ -271,7 +273,7 @@ public:
         fcfg.toexit(n);
       }
       outedges.clear();
-    }
+    });
     return fcfg;
   }
 
@@ -515,11 +517,7 @@ public:
 
 SPScope::SPScope(MachineBasicBlock *header, bool isRootFunc)
   : Priv(spimpl::make_unique_impl<Impl>(this, (SPScope *)NULL, isRootFunc, header))
-{
-  // add header also to this SPScope's block list
-  Priv->Blocks.push_back(header);
-
-}
+{}
 
 SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   : Priv(spimpl::make_unique_impl<Impl>(this, parent, parent->Priv->RootFunc, loop.getHeader()))
@@ -528,8 +526,6 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop)
   assert(parent);
   MachineBasicBlock *header = loop.getHeader();
 
-  // add header also to this SPScope's block list
-  Priv->Blocks.push_back(header);
 
   // info about loop exit edges
   loop.getExitEdges(Priv->ExitEdges);
@@ -559,7 +555,7 @@ bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
   return getHeader() == MBB;
 }
 
-bool SPScope::isSubHeader(MachineBasicBlock *MBB) const {
+bool SPScope::isSubHeader(const MachineBasicBlock *MBB) const {
   return std::any_of(child_begin(), child_end(), [MBB](auto child){
     return child->isHeader(MBB);
   });
@@ -659,10 +655,6 @@ bool SPScope::isRootTopLevel() const { return Priv->RootFunc && isTopLevel(); }
 bool SPScope::hasLoopBound() const { return Priv->LoopBound.is_initialized(); }
 
 boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound; }
-
-SPScope::iterator SPScope::begin() { return Priv->Blocks.begin(); }
-
-SPScope::iterator SPScope::end() { return Priv->Blocks.end(); }
 
 MachineBasicBlock *SPScope::getHeader() const { return Priv->Blocks.front(); }
 

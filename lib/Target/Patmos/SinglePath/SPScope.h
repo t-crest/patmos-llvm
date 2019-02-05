@@ -108,7 +108,7 @@ namespace llvm {
       /// Returns whether the specified MBB is the header of an
       /// immediate subscope of this scope.
       /// I.e. it only checks one-level down the subscopes.
-      bool isSubHeader(MachineBasicBlock *MBB) const;
+      bool isSubHeader(const MachineBasicBlock *MBB) const;
 
       /// Returns whether the loop represented by the scope has a loop bound.
       /// The top-level scope never has a loop bound, since it only represents the
@@ -143,14 +143,6 @@ namespace llvm {
 
       /// Dump state of this scope and its subscopes recursively
       void dump(raw_ostream&) const;
-
-      /// Beginning iterator over the MBBs that are exclusively
-      /// in this scope, or are headers of this scope's subscopes.
-      /// The MBBs are in topological order.
-      iterator begin();
-
-      /// The end of the iterator over MBBs in this scope.
-      iterator end();
 
       /// Beginning iterator over the subscopes of this scope.
       child_iterator child_begin() const;
