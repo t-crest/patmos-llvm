@@ -101,12 +101,12 @@ To install libraries for LTO support:
 3. Run Tests
 
 To run test that are specific to Patmos, navigate to the folder `llvm/build` and run:
-```make -j4 && ./bin/llvm-lit ../test --filter=Patmos -v```
+```make -j4 UnitTests llc && ./bin/llvm-lit ../test --filter=Patmos -v```
 
-This command will first build LLVM, and if successfull then run all Patmos tests
+This command will first build `llc` and unit tests, and if successfull then run all Patmos tests.
 
-To only run regression tests (unit tests) use:
-```make -j4 PatmosUnitTests && ./bin/llvm-lit ../test --filter=PatmosUnit -v```
+To only run unit tests use:
+```make -j4 UnitTests && ./bin/llvm-lit ../test --filter="Unit.*Patmos" -v```
 
 This will run quicker, as it doesn't build the whole LLVM. But it also does
 not run all tests.
