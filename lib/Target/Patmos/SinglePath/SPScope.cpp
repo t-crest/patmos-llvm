@@ -682,22 +682,18 @@ SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(
 
 boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb) const
 {
-  boost::optional<SPScope*> found = boost::none;
-  std:for_each(Priv->Subscopes.begin(), Priv->Subscopes.end(), [&](auto subscope){
-    boost::optional<SPScope*> temp = subscope->findMBBScope(mbb);
-    //Assert two different children don't have the same MBB
-    assert(!(temp.is_initialized() && found.is_initialized()));
-    if(temp.is_initialized()){
-      found = temp;
-    }
-  });
-
-  if(found.is_initialized()){
-    return found;
-  } else if(std::any_of(Priv->Blocks.begin(), Priv->Blocks.end(),
-      [&](auto MBB){return MBB == mbb;})){
+  if(std::any_of(Priv->Blocks.begin(), Priv->Blocks.end(),
+      [&](auto MBB){return MBB == mbb;})
+  ){
     return boost::make_optional((SPScope*)this);
   }else{
+    for(auto subscope = Priv->Subscopes.begin(), end = Priv->Subscopes.end();
+          subscope != end; ++subscope){
+      auto inSubscope = (*subscope)->findMBBScope(mbb);
+      if(inSubscope.is_initialized()){
+        return inSubscope;
+      }
+    }
     return boost::none;
   }
 }
