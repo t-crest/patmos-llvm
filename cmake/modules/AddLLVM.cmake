@@ -212,6 +212,7 @@ function(add_unittest test_suite test_name)
   add_llvm_executable(${test_name} ${ARGN})
   target_link_libraries(${test_name}
     gtest
+	gmock
     gtest_main
     LLVMSupport # gtest needs it for raw_ostream.
     )
@@ -229,6 +230,7 @@ function(add_unittest test_suite test_name)
   endif ()
 
   include_directories(${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include)
+  include_directories(${LLVM_MAIN_SRC_DIR}/utils/unittest/googlemock/include)
   set_property(TARGET ${test_name} APPEND PROPERTY COMPILE_DEFINITIONS GTEST_HAS_RTTI=0)
   if (NOT LLVM_ENABLE_THREADS)
     set_property(TARGET ${test_name} APPEND PROPERTY COMPILE_DEFINITIONS GTEST_HAS_PTHREAD=0)

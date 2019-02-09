@@ -17,23 +17,44 @@
 
 namespace llvm {
 
-  class PredicatedBlock {
-    public:
+  /// We template PredicatedBlock such that we can use mocked MBBs when testing it.
+  /// This template shouldn't be used directly outside test code, instead use 'PredicatedBlock'.
+  template<class M>
+  class _PredicatedBlock {
+  public:
 
-      PredicatedBlock(MachineBasicBlock *mbb);
+    /// Constructs a new instance where all instructions in the
+    /// given MBB are predicated by the given predicate.
+    _PredicatedBlock(M *mbb, unsigned predicate):
+      MBB(*mbb), Pred(predicate)
+    {}
 
-      MachineBasicBlock *getMBB();
+    /// Get the MachineBasicBlock
+    M *getMBB()
+    {
+      return &MBB;
+    }
 
-    private:
-      class Impl;
-      /// We use the PIMPL pattern to implement the private
-      /// members of this instance.
-      spimpl::unique_impl_ptr<Impl> Priv;
+    /// Get the list of predicates the MBBs instructions
+    /// are predicated by
+    std::vector<unsigned> getBlockPredicates()
+    {
+      std::vector<unsigned> result;
+      result.push_back(Pred);
+      return result;
+    }
 
+  private:
+
+    /// The MBB that this instance manages the predicates for.
+    M &MBB;
+
+    unsigned Pred;
   };
 
+  /// Untemplated version of _PredicatedBlock. To be used by non-test code.
+  typedef _PredicatedBlock<MachineBasicBlock> PredicatedBlock;
+
 }
-
-
 
 #endif /* TARGET_PATMOS_SINGLEPATH_PREDICATEDBLOCK_H_ */

@@ -15,6 +15,8 @@
 include_directories(
   googletest/include
   googletest
+  googlemock/include
+  googlemock
   )
 
 if(WIN32)
@@ -40,6 +42,10 @@ endif ()
 
 add_llvm_library(gtest
   googletest/src/gtest-all.cc
+  )
+  
+add_llvm_library(gmock
+  googlemock/src/gmock-all.cc
   )
 
 add_llvm_library(gtest_main

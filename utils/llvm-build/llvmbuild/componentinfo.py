@@ -187,7 +187,7 @@ parent = %s
 
         # FIXME: We need to get the prefix information from an explicit project
         # object, or something.
-        if basename in ('gtest', 'gtest_main'):
+        if basename in ('gtest', 'gmock', 'gtest_main'):
             return basename
 
         return 'LLVM%s' % basename
