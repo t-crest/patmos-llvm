@@ -1,15 +1,34 @@
-
-#include "../lib/Target/Patmos/SinglePath/PredicatedBlock.h"
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
+#include "SinglePath/PredicatedBlock.h"
+#include "SinglePath/RAInfo.h"
 
 using namespace llvm;
 
+using ::testing::Return;
+
 namespace llvm{
+
+  class MockInstr {
+  };
 
   class MockMBB{
   public:
-    MOCK_CONST_METHOD0(begin, MachineInstr*());
+    MockMBB(unsigned length):
+      instr(length, MockInstr())
+    {}
+
+    std::vector<MockInstr> instr;
+
+    std::vector<MockInstr>::iterator begin()
+    {
+      return instr.begin();
+    }
+
+    std::vector<MockInstr>::iterator end()
+    {
+      return instr.end();
+    }
   };
 
 }
@@ -17,20 +36,23 @@ namespace llvm{
 namespace {
 
 /// For testing, we mock 'MachineBasicBlock' with 'MockMBB'
-typedef _PredicatedBlock<MockMBB> PredicatedBlock;
+typedef _PredicatedBlock<MockMBB, MockInstr> PredicatedBlock;
 
 TEST(PredicatedBlockTest, SinglePredicateTest){
   /*
-   * We test that if a block is only predicated by one predicates,
+   * We test that if a block is only predicated by one predicate,
    * 'getBlockPredicates()' only returns that single predicate
    */
-  MockMBB mockMBB;
-  PredicatedBlock b(& mockMBB, 1);
+  MockMBB mockMBB(5);
+
+  PredicatedBlock b(&mockMBB, 1);
 
   auto preds = b.getBlockPredicates();
 
-  ASSERT_EQ(1,preds.size());
-	ASSERT_EQ(1,preds[0]);
+  ASSERT_EQ((unsigned)1,preds.size());
+	ASSERT_EQ((unsigned)1,*preds.begin());
 }
+
+
 
 }

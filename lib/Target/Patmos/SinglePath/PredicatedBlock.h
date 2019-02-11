@@ -13,47 +13,59 @@
 #define TARGET_PATMOS_SINGLEPATH_PREDICATEDBLOCK_H_
 
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "spimpl.h"
+
+#include <map>
+#include <set>
 
 namespace llvm {
 
   /// We template PredicatedBlock such that we can use mocked MBBs when testing it.
   /// This template shouldn't be used directly outside test code, instead use 'PredicatedBlock'.
-  template<class M>
+  template<class MachineBasicBlock, class MachineInstr>
   class _PredicatedBlock {
   public:
 
     /// Constructs a new instance where all instructions in the
     /// given MBB are predicated by the given predicate.
-    _PredicatedBlock(M *mbb, unsigned predicate):
-      MBB(*mbb), Pred(predicate)
-    {}
+    _PredicatedBlock(MachineBasicBlock *mbb, unsigned predicate):
+      MBB(*mbb)
+    {
+      for( auto instr_iter = mbb->begin(), end = mbb->end(); instr_iter != end; instr_iter++){
+        MachineInstr* instr = &(*instr_iter);
+        assert(InstrPred.find(instr) == InstrPred.end());
+        InstrPred.insert(std::make_pair(instr, predicate));
+      }
+    }
 
     /// Get the MachineBasicBlock
-    M *getMBB()
+    MachineBasicBlock *getMBB()
     {
       return &MBB;
     }
 
     /// Get the list of predicates the MBBs instructions
     /// are predicated by
-    std::vector<unsigned> getBlockPredicates()
+    std::set<unsigned> getBlockPredicates()
     {
-      std::vector<unsigned> result;
-      result.push_back(Pred);
+      std::set<unsigned> result;
+      for(auto const &pair: InstrPred)
+      {
+        result.insert(pair.second);
+      }
       return result;
     }
 
   private:
 
     /// The MBB that this instance manages the predicates for.
-    M &MBB;
+    MachineBasicBlock &MBB;
 
-    unsigned Pred;
+    /// A mapping of which predicate each instruction is predicated by.
+    std::map<MachineInstr*, unsigned> InstrPred;
   };
 
   /// Untemplated version of _PredicatedBlock. To be used by non-test code.
-  typedef _PredicatedBlock<MachineBasicBlock> PredicatedBlock;
+  typedef _PredicatedBlock<MachineBasicBlock, MachineInstr> PredicatedBlock;
 
 }
 
