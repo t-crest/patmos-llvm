@@ -38,14 +38,14 @@ namespace llvm {
     }
 
     /// Get the MachineBasicBlock
-    MachineBasicBlock *getMBB()
+    MachineBasicBlock *getMBB() const
     {
       return &MBB;
     }
 
     /// Get the list of predicates the MBBs instructions
     /// are predicated by
-    std::set<unsigned> getBlockPredicates()
+    std::set<unsigned> getBlockPredicates() const
     {
       std::set<unsigned> result;
       for(auto const &pair: InstrPred)
@@ -53,6 +53,26 @@ namespace llvm {
         result.insert(pair.second);
       }
       return result;
+    }
+
+    /// Sets all of the MBB's instructions to be predicated by the given predicate.
+    /// Should be used with care.
+    void setPredicate(unsigned pred)
+    {
+      for(auto pair: InstrPred)
+      {
+        InstrPred[pair.first] = pred;
+      }
+    }
+
+    void dump()
+    {
+      errs() << "PredicatedBlock(" << &MBB << "):\n";
+      for(auto instr_iter = MBB.begin(), end = MBB.end(); instr_iter != end; ++instr_iter)
+      {
+        errs() << "(" << InstrPred[&*instr_iter] << "): ";
+        instr_iter->print(errs());
+      }
     }
 
   private:

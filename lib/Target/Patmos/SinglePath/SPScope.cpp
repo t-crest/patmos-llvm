@@ -13,6 +13,7 @@
 #include "PatmosSinglePathInfo.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "PredicatedBlock.h"
 
 using namespace llvm;
 
@@ -201,16 +202,21 @@ public:
 
   /// The MBBs that are exclusively contained in this scope.
   /// The header of the scope is always the first element.
-  std::vector<MachineBasicBlock*> Blocks;
+  std::vector<PredicatedBlock> Blocks;
+
+  // Tracks the predicates for each subheader.
+  // The predicate of a subscopes header is different in the parent
+  // than it is in the subscope itself.
+  // E.g. for block 'b' which is a header of 'S',
+  // 'b' in 'S.getParent().SubHeaderPredicate' might have a different
+  // predicate that 'b' in 'S.Blocks'.
+  std::vector<PredicatedBlock> SubHeaderPredicates;
 
   // sub-scopes
   std::vector<SPScope*> Subscopes;
 
   /// Number of predicates used
   unsigned PredCount;
-
-  /// Map MBBs to predicate they use
-  MBBPredicates_t PredUse;
 
   /// PredDefs - Stores predicate define information for each basic block
   std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
@@ -220,7 +226,7 @@ public:
     Pub(*pub), Parent(parent), LoopBound(boost::none), RootFunc(rootFunc),
     PredCount(0)
   {
-    Blocks.push_back(header);
+    Blocks.push_back(PredicatedBlock(header,0));
   }
 
 //Functions
@@ -343,7 +349,19 @@ public:
 
       // Properly assign the Uses/Defs
       PredCount = K.size();
-      PredUse = mbbPreds;
+      // Assign each block's predicate
+      for(auto iter = Blocks.begin(), end = Blocks.end(); iter != end; ++iter)
+      {
+        auto b = &*iter;
+        b->setPredicate(mbbPreds[b->getMBB()]);
+      }
+
+      // Assign subHeader's predicates
+      for(auto subscope_iter = Pub.child_begin(), end = Pub.child_end(); subscope_iter != end; ++subscope_iter)
+      {
+        auto subscope = *subscope_iter;
+        SubHeaderPredicates.push_back(PredicatedBlock(subscope->getHeader(), mbbPreds[subscope->getHeader()]));
+      }
 
       // For each predicate, compute defs
       for (unsigned int i=0; i<K.size(); i++) {
@@ -455,7 +473,7 @@ public:
 
   bool fcfgContainsMbb(const MachineBasicBlock *mbb)
   {
-    return std::any_of(Blocks.begin(), Blocks.end(), [&](auto MBB){return MBB == mbb;}) ||
+    return std::any_of(Blocks.begin(), Blocks.end(), [&](auto MBB){return MBB.getMBB() == mbb;}) ||
         std::any_of(Pub.child_begin(), Pub.child_end(), [&](auto child){ return child->getHeader() == mbb;});
   }
 
@@ -472,8 +490,8 @@ public:
   /// addMBB - Add an MBB to the SP scope
   void addMBB(MachineBasicBlock *MBB) {
 
-    if (Blocks.front() != MBB) {
-      Blocks.push_back(MBB);
+    if (Blocks.front().getMBB() != MBB) {
+      Blocks.push_back(PredicatedBlock(MBB,0));
     }
   }
 
@@ -484,19 +502,39 @@ public:
     // NOTE(Emad): I'm not sure this actually returns the correct result.
     // Through it seems to be correct enough to use in SPScope::hasMultipleDefs
     unsigned count = 0;
-    std::for_each(PredUse.begin(), PredUse.end(), [&](auto pair){
-      // Look for all MBBs that use that predicate
-      if(pair.second == pred){
-        auto predDef = PredDefs.find(pair.first);
-        if(predDef != PredDefs.end()){
-          // sum all their definition edges
-          count += predDef->second.size();
-        }
+    std::vector<PredicatedBlock*> blocksUsingPred;
+    auto addIfUsingPred = [&](auto b) {
+      auto blockPredicates = b.getBlockPredicates();
+      if (blockPredicates.find(pred) != blockPredicates.end()) {
+        blocksUsingPred.push_back(&b);
+      }
+    };
+
+    // Look for all MBBs that use that predicate
+    std::for_each(Blocks.begin(), Blocks.end(), addIfUsingPred);
+    std::for_each(SubHeaderPredicates.begin(), SubHeaderPredicates.end(), addIfUsingPred);
+
+    // Sum the number of definition edges of all the blocks using pred
+    std::for_each(blocksUsingPred.begin(), blocksUsingPred.end(), [&](auto b){
+      auto predDef = PredDefs.find(b->getMBB());
+      if(predDef != PredDefs.end()){
+        count += predDef->second.size();
       }
     });
     return count;
   }
 
+  /// Returns the PredicatedBlock of the given MBB, if it exists
+  boost::optional<PredicatedBlock*> getPredicated(const MachineBasicBlock *mbb)
+  {
+    auto found = std::find_if(Blocks.begin(), Blocks.end(), [&](auto block){
+      return block.getMBB() == mbb;
+    });
+
+    return found != Blocks.end()?
+      boost::make_optional(&*found) :
+      boost::none;
+  }
 };
 
 SPScope::SPScope(MachineBasicBlock *header, bool isRootFunc)
@@ -580,7 +618,7 @@ static void printUDInfo(const SPScope &S, raw_ostream& os,
 }
 
 void SPScope::dump(raw_ostream& os) const {
-  os.indent(2*getDepth()) <<  "[BB#" << Priv->Blocks.front()->getNumber() << "]";
+  os.indent(2*getDepth()) <<  "[BB#" << Priv->Blocks.front().getMBB()->getNumber() << "]";
   if (!Priv->Parent) {
     os << " (top)";
     assert(Priv->ExitEdges.empty());
@@ -594,7 +632,7 @@ void SPScope::dump(raw_ostream& os) const {
   }
 
   os << " |P|=" <<  Priv->PredCount;
-  printUDInfo(*this, os, Priv->Blocks.front());
+  printUDInfo(*this, os, Priv->Blocks.front().getMBB());
 
   auto blocks = getBlocksTopoOrd();
   std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
@@ -607,16 +645,29 @@ void SPScope::dump(raw_ostream& os) const {
 }
 
 unsigned SPScope::getPredUse(const MachineBasicBlock *MBB) const {
-  if (Priv->PredUse.count(MBB)) {
-    return Priv->PredUse.at(MBB);
+
+  // First look for the MBB in the scope blocks
+  auto scopeBlock = Priv->getPredicated(MBB);
+  if( scopeBlock.is_initialized() )
+  {
+    return *get(scopeBlock)->getBlockPredicates().begin();
   } else {
-    errs()  << "Cannot find Predicate for MachineBasicBlock '" << MBB
-            << "'(BasicBlock '" << MBB->getBasicBlock()->getName()
-            << "') in the scope with header '" << getHeader()
-            << "'(BasicBlock '" << getHeader()->getBasicBlock()->getName()
-            << "').\n";
-    abort();
-    return 0; // Unreachable, removed warning about missing return value.
+    // Then try the subheaders
+    auto subHeader = std::find_if(Priv->SubHeaderPredicates.begin(), Priv->SubHeaderPredicates.end(), [&](auto pb){
+      return pb.getMBB() == MBB;
+    });
+    if(subHeader != Priv->SubHeaderPredicates.end())
+    {
+      return *(subHeader->getBlockPredicates().begin());
+    } else {
+      errs()  << "Cannot find Predicate for MachineBasicBlock '" << MBB
+              << "'(BasicBlock '" << MBB->getBasicBlock()->getName()
+              << "') in the scope with header '" << getHeader()
+              << "'(BasicBlock '" << getHeader()->getBasicBlock()->getName()
+              << "').\n";
+      abort();
+      return 0; // Unreachable, removed warning about missing return value.
+    }
   }
 }
 
@@ -639,11 +690,17 @@ bool SPScope::hasLoopBound() const { return Priv->LoopBound.is_initialized(); }
 
 boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound; }
 
-MachineBasicBlock *SPScope::getHeader() const { return Priv->Blocks.front(); }
+MachineBasicBlock *SPScope::getHeader() const { return Priv->Blocks.front().getMBB(); }
 
 std::vector<MachineBasicBlock*> SPScope::getScopeBlocks() const
 {
-  return std::vector<MachineBasicBlock*>(Priv->Blocks.begin(), Priv->Blocks.end());
+  std::vector<MachineBasicBlock*> result;
+  for(auto block: Priv->Blocks)
+  {
+    result.push_back(block.getMBB());
+  }
+
+  return result;
 }
 
 std::vector<MachineBasicBlock*> SPScope::getBlocksTopoOrd() const
@@ -683,7 +740,7 @@ SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(
 boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb) const
 {
   if(std::any_of(Priv->Blocks.begin(), Priv->Blocks.end(),
-      [&](auto MBB){return MBB == mbb;})
+      [&](auto PB){return PB.getMBB() == mbb;})
   ){
     return boost::make_optional((SPScope*)this);
   }else{
