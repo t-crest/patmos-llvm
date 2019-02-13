@@ -129,9 +129,8 @@ namespace llvm {
       /// If it is not found, will abort.
       unsigned getPredUse(const MachineBasicBlock *) const;
 
-      /// Returns a pointer to a predicate definition info for
-      /// a given MBB, or NULL if no pred info exists for the MBB.
-      const PredDefInfo *getDefInfo( const MachineBasicBlock *) const;
+      /// Returns the predicate definition info for a given MBB, if it exists.
+      boost::optional<SPScope::PredDefInfo> getDefInfo( const MachineBasicBlock *) const;
 
       /// Returns whether the the predicate has multiple definitions
       bool hasMultDefEdges(unsigned pred) const;

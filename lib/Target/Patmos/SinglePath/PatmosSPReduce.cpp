@@ -806,15 +806,15 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 
   auto blocks = S->getFcfgBlocks();
   std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
-    const SPScope::PredDefInfo *DI = S->getDefInfo(MBB);
+    auto opDI = S->getDefInfo(MBB);
 
     // procede to next if this does not define any predicates
-    if (!DI) return;
-
+    if (!opDI.is_initialized()) return;
+    auto DI = get(opDI);
     DEBUG(dbgs() << " - MBB#" << MBB->getNumber() << ": ");
 
     // for each definition edge: insert
-    for (auto di = DI->begin(), de = DI->end();
+    for (auto di = DI.begin(), de = DI.end();
         di != de; ++di) {
       DEBUG(dbgs() << di->first << " ");
       // Scope, (local) Node, predicate number, edge
@@ -1540,13 +1540,14 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   //     predicate might retire, be reused for exit edge defs and the
   //     initialization code would clear the header predicate before ever
   //     used in the subloop
-  const SPScope::PredDefInfo *DI = SParent->getDefInfo(HeaderMBB);
-  if (DI) {
+  auto opDI = SParent->getDefInfo(HeaderMBB);
+  if (opDI.is_initialized()) {
+    auto DI = get(opDI);
     DEBUG(dbgs() << "  (reg loc first defined in subscope: ");
 
     std::vector<unsigned> defregs;
     // for each definition edge
-    for (auto di = DI->begin(), de = DI->end();
+    for (auto di = DI.begin(), de = DI.end();
         di != de; ++di) {
       unsigned loc, pred = di->first;
       RAInfo::LocType type;

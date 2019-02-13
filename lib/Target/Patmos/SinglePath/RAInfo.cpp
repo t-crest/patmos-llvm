@@ -278,9 +278,10 @@ public:
       LRs[Pub.Scope->getPredUse(MBB)].addUse(i);
 
       // insert defs
-      const SPScope::PredDefInfo *DI = Pub.Scope->getDefInfo(MBB);
-      if (DI) {
-        for (auto pi = DI->begin(), pe = DI->end();
+      auto opDI = Pub.Scope->getDefInfo(MBB);
+      if (opDI.is_initialized()) {
+        auto DI = get(opDI);
+        for (auto pi = DI.begin(), pe = DI.end();
             pi != pe; ++pi) {
           LRs[pi->first].addDef(i); // TODO:(Emad) why don't we check that the edge hits the block?
         }
@@ -317,10 +318,11 @@ public:
       // (3) handle definitions in this basic block.
       //     if we need to get new locations for predicates (loc==-1),
       //     assign new ones in nearest-next-use order
-      const SPScope::PredDefInfo *DI = Pub.Scope->getDefInfo(MBB);
-      if (DI) {
+      auto opDI = Pub.Scope->getDefInfo(MBB);
+      if (opDI.is_initialized()) {
+        auto DI = get(opDI);
         vector<unsigned> order;
-        for (auto pi = DI->begin(), pe = DI->end();
+        for (auto pi = DI.begin(), pe = DI.end();
             pi != pe; ++pi) {
           int r = pi->first;
           if (curLocs.find(r) == curLocs.end()) {

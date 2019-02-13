@@ -219,7 +219,7 @@ public:
   unsigned PredCount;
 
   /// PredDefs - Stores predicate define information for each basic block
-  std::map<const MachineBasicBlock*, PredDefInfo> PredDefs;
+  std::map<const MachineBasicBlock*, std::vector<std::pair<unsigned, const MachineBasicBlock *>>> PredDefs;
 
 //Constructors
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineBasicBlock *header):
@@ -378,9 +378,9 @@ public:
           }
 
           // get pred definition info of node
-          PredDefInfo &PredDef = getOrCreateDefInfo(n->MBB);
+          auto PredDef = getOrCreateDefInfo(n->MBB);
           // insert definition edge for predicate i
-          PredDef.push_back(std::make_pair(i, e));
+          PredDef->push_back(std::make_pair(i, e.second));
         } // end for each definition edge
       }
     }
@@ -446,15 +446,15 @@ public:
 
   /// getOrCreateDefInfo - Returns a predicate definition info
   /// for a given MBB.
-  PredDefInfo &
+  std::vector<std::pair<unsigned, const MachineBasicBlock *>> *
   getOrCreateDefInfo(const MachineBasicBlock *MBB) {
 
     if (!PredDefs.count(MBB)) {
       // Create new info
-      PredDefs.insert(std::make_pair(MBB, PredDefInfo()));
+      PredDefs.insert(std::make_pair(MBB, std::vector<std::pair<unsigned, const MachineBasicBlock *>>()));
     }
 
-    return PredDefs.at(MBB);
+    return &PredDefs.at(MBB);
   }
 
   Edge getDual(Edge &e) const {
@@ -606,10 +606,11 @@ void SPScope::walk(SPScopeWalker &walker) {
 static void printUDInfo(const SPScope &S, raw_ostream& os,
                         const MachineBasicBlock *MBB) {
   os << "  u=" << S.getPredUse(MBB);
-  const SPScope::PredDefInfo *DI = S.getDefInfo(MBB);
-  if (DI) {
+  auto opDI = S.getDefInfo(MBB);
+  if (opDI.is_initialized()) {
+    auto DI = get(opDI);
     os << " d=";
-    for (auto pi = DI->begin(), pe = DI->end();
+    for (auto pi = DI.begin(), pe = DI.end();
         pi != pe; ++pi) {
       os << pi->first << ",";
     }
@@ -671,13 +672,20 @@ unsigned SPScope::getPredUse(const MachineBasicBlock *MBB) const {
   }
 }
 
-const SPScope::PredDefInfo *
+boost::optional<SPScope::PredDefInfo>
 SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
 
   if (Priv->PredDefs.count(MBB)) {
-    return &Priv->PredDefs.at(MBB);
+    auto defs = Priv->PredDefs.at(MBB);
+    PredDefInfo result;
+
+    std::for_each(defs.begin(), defs.end(), [&](auto pair){
+      result.push_back(std::make_pair(pair.first, std::make_pair(MBB, pair.second)));
+    });
+
+    return result;
   }
-  return NULL;
+  return boost::none;
 }
 
 bool SPScope::isTopLevel() const { return (NULL == Priv->Parent); }
@@ -811,6 +819,19 @@ SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {
   {
     (*I)->Priv->computePredInfos();
   }
+
+//  std::function<void(SPScope*)> checkPredDefs = [&](auto scope){
+//    std::for_each(scope->Priv->PredDefs.begin(), scope->Priv->PredDefs.end(),
+//      [&](auto m){
+//        std::for_each(m.second.begin(), m.second.end(), [&](auto pair){
+//          assert(m.first == pair.second.first);
+//        });
+//      }
+//    );
+//    std::for_each(scope->Priv->Subscopes.begin(), scope->Priv->Subscopes.end(), [&checkPredDefs](auto subscope){ checkPredDefs(subscope);});
+//  };
+//  checkPredDefs(Root);
+
 
   return Root;
 }
