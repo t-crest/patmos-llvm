@@ -6,6 +6,9 @@
 using namespace llvm;
 
 using ::testing::Return;
+using ::testing::Contains;
+using ::testing::SizeIs;
+using ::testing::UnorderedElementsAreArray;
 
 namespace llvm{
 
@@ -94,5 +97,44 @@ TEST(PredicatedBlockTest, SetPredicateTest){
   ASSERT_EQ((unsigned)1,preds.size());
   ASSERT_EQ((unsigned)2,*preds.begin());
 }
+
+TEST(PredicatedBlockTest, NoDefsAtInitTest){
+  /*
+   * We test that initially a block does not define any predicate
+   * definitions
+   */
+  MockMBB mockMBB(5);
+
+  PredicatedBlock b(&mockMBB, 1);
+
+  auto defs = b.getDefinitions();
+
+  ASSERT_THAT(defs, SizeIs(0));
+}
+
+TEST(PredicatedBlockTest, AddDefinitionTest){
+  /*
+   * We test that initially a block does not define any predicate
+   * definitions
+   */
+  MockMBB mockMBB1(1);
+  MockMBB mockMBB2(1);
+  MockMBB mockMBB3(1);
+
+  PredicatedBlock b1(&mockMBB1, 1);
+  PredicatedBlock b2(&mockMBB2, 1);
+  PredicatedBlock b3(&mockMBB3, 1);
+
+  b1.addDefinition(2, &mockMBB2);
+  b1.addDefinition(3, &mockMBB3);
+
+  auto defs = b1.getDefinitions();
+
+  EXPECT_THAT(defs, UnorderedElementsAreArray({
+    std::make_pair(2, &mockMBB2),
+    std::make_pair(3, &mockMBB3)
+  }));
+}
+
 
 }
