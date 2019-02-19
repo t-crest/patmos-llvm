@@ -14,38 +14,40 @@
 #		I.e. llvm-lit will substitue 'llc' for '$t-crest-home/llvm/build/bin/./llc' which will work.
 #		The llvm binary folder must be exactly 3 levels below '$t-crest-home', otherwise the script
 #		will fail.
-#	2. The path to the source program to Test.
+#	2. The path to the source program to test.
 #	3. Additional build arguments for llc. E.g. '-O2' for a specific optimization flag.
 #		Must be exactly 1 argument to the script, so if you want to pass multiple arguments to llc
 #		they should be wrapped in quotes. E.g. "-O2 -v".
-#		Also, if no arguments are needed, "" must be used.
+#		I no arguments are needed, "" must be used.
 #	4. A singlepath function to compile as singlepath and run statistics on
-#	>5. a list of execution arguments
-#		Each execution argument has the input to send to the program through stdin.
-#		The argument also includes the expected output of the program (on stdout).
-#		The two values are separated by '='.
+#	>5. a list of execution arguments.
+#		Each execution argument has the input to send to the program through stdin
+#		and the expected output of the program (on stdout). The two values are separated by '='.
 #		E.g '1=2' will run the program, send it '1' through the stdin. when the program finishes
 #		the script ensures that the program output '2' on stdout.
-#		Giving '1=2 2=3' will run the program twice, ensuring the first time gets '1' and outputs '2'
-#		and the rest_stats time gets '2' and outputs '3'.
+#		Giving '1=2 2=3' will run the program twice, ensuring the first run gets '1' and outputs '2'
+#		and the second run gets '2' and outputs '3'.
 #		At least two execution arguments must be given.
+#		If input or output need to have spaces, this is possible too using quotes.
+#		E.g. the argument '"1 2=3 4"' will run the program with input '1 2' and
+#		expect the output '3 4'.
 #
 # Additionally, the script ensures that all runs of the program produce equivalent pasim statistics.
-# This means the same number of instructions (and type of instruction) is fetched (but not retired/discarded),
-# the same number of cycles are spent in the function, and the same number of operations are executed.
-# This ensures that the code is singlepath. 
+# This means the same number of instructions (and type of instruction) are fetched 
+# (but not retired/discarded), the same number of cycles are spent in the function, 
+# and the same number of operations are executed. This ensures that the code is singlepath. 
 #
 # Requirements:
 #	The design of this script assumes that setup of t-crest on the machine was done by
-#	the 'build.sh' scipt in the patmos-misc repository (github.com/t-crest/patmos-misc).
+#	the 'build.sh' script in the patmos-misc repository (github.com/t-crest/patmos-misc).
 #	Specifically, this scripts uses the 'local' directory created by the script, assuming
 #	it is in the same directory as LLVM. 
 #	Additionally, it requires 'pasim' and 'patmos-ld' are discoverable on the path.
 #	Lastly, this script uses python code, therefore, 'python3' must also be on the path.
 #
 # Notes:
-#	This script will create files as part of its build but deletes before terminating.
-#	Some messages printed by the script may refer to files that have been deleted.
+#	This script will create files as part of its build but deletes them before terminating.
+#	Some messages printed by the script may refer to these files even though they have been deleted.
 #
 # TODO: Currently only supports running 'pasim' statistics on 1 function. Should support multiple.
 #
@@ -53,7 +55,7 @@
 # This is imbedded python code. Can be accessed through the $python_pasim_stat_clean
 # variable and run using 'python3 -c "$python_pasim_stat_clean"'.
 #
-# It reads 'pasim's statistics from stdin and cleans them
+# It reads pasim's statistics from stdin and cleans them
 # leaving only the stats needed to ensure two run of a singlepath
 # program are identical (execution-wise).
 # We embed the python code here instead of having it in its own
@@ -121,9 +123,16 @@ EndOfPython
 # Returns the cleaned statistics.
 execute_and_stat(){
 	# Split the execution argument into input and expected output.
-	split=(${3//=/ })
-	input=${split[0]}
-	expected_out=${split[1]}
+	
+	# We rename spaces such that they are not recognized as list separators when we split
+	# the input from the expected output
+	placeholder="<!!SPACE!!>"
+	no_space=${3// /$placeholder}
+	split=(${no_space//=/ })
+	
+	#We now reinsert the spaces
+	input=${split[0]//$placeholder/ }
+	expected_out=${split[1]//$placeholder/ }
 	
 	ret_code=0
 	
