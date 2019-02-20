@@ -9,6 +9,7 @@ using ::testing::Return;
 using ::testing::Contains;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAreArray;
+using ::testing::Eq;
 
 namespace llvm{
 
@@ -32,6 +33,10 @@ namespace llvm{
     {
       return instr.end();
     }
+
+    MOCK_METHOD0(succ_begin, MockMBB**());
+    MOCK_METHOD0(succ_end, MockMBB**());
+
   };
 
 }
@@ -136,5 +141,45 @@ TEST(PredicatedBlockTest, AddDefinitionTest){
   }));
 }
 
+TEST(PredicatedBlockTest, NoExitAtInitTest){
+  /*
+   * We test that initially a block does not define any single-path
+   * scope exit targets
+   */
+  MockMBB mockMBB1(1);
+
+  PredicatedBlock b1(&mockMBB1, 1);
+
+  auto exits = b1.getExitTargets();
+
+  EXPECT_THAT(exits, SizeIs(0));
+}
+
+TEST(PredicatedBlockTest, AddExitTest){
+  /*
+   * We test that we can add exit targets
+   */
+  MockMBB mockMBB1(1);
+  MockMBB mockMBB2(1);
+  MockMBB mockMBB3(1);
+
+  // We allow the implementation to assert that the added blocks actually
+  // are successors of the main block.
+  MockMBB* succs[3] = {&mockMBB2, &mockMBB3, NULL};
+  EXPECT_CALL(mockMBB1, succ_begin()).WillRepeatedly(Return(succs));
+  EXPECT_CALL(mockMBB1, succ_end()).WillRepeatedly(Return(succs+2));
+
+  PredicatedBlock b1(&mockMBB1, 1);
+
+  b1.addExitTarget(&mockMBB2);
+  b1.addExitTarget(&mockMBB3);
+
+  auto exits = b1.getExitTargets();
+
+  EXPECT_THAT(exits, UnorderedElementsAreArray({
+      &mockMBB2,
+      &mockMBB3
+    }));
+}
 
 }

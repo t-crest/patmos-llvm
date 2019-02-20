@@ -1437,14 +1437,14 @@ void PatmosSPReduce::eliminateFrameIndices(MachineFunction &MF) {
 void PatmosSPReduce::getLoopLiveOutPRegs(const SPScope *S,
                                          std::vector<unsigned> &pregs) const {
 
-  const std::vector<const MachineBasicBlock *> SuccMBBs = S->getSuccMBBs();
+  auto SuccMBBs = S->getSuccMBBs();
 
   pregs.clear();
-  for (unsigned j=0; j<SuccMBBs.size(); j++) {
+  for(auto succ: SuccMBBs) {
     for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
-      if (SuccMBBs[j]->isLiveIn(UnavailPredRegs[i])) {
+      if (succ->isLiveIn(UnavailPredRegs[i])) {
         DEBUG(dbgs() << "LiveIn: " << TRI->getName(UnavailPredRegs[i])
-            << " into MBB#" << SuccMBBs[j]->getNumber() << "\n");
+            << " into MBB#" << succ->getNumber() << "\n");
         pregs.push_back(UnavailPredRegs[i]);
       }
     }

@@ -60,19 +60,20 @@ namespace llvm {
 
       /// Create a top-level SPScope. I.e. the SPScope representing the function.
       ///
-      /// @param header       The entry MBB into the function and therefore
-      ///                     also the header of the top-level scope.
+      /// @param isRootFunc
+      /// Whether the function represented by this SPSCope is a root SP function,
+      /// I.e. it is given as a command argument to the compiler.
       ///
-      /// @param isRootFunc   Whether the function represented by this SPSCope
-      ///                     is a root SP function, I.e. it is given as a command
-      ///                     argument to the compiler.
-      explicit SPScope(MachineBasicBlock *header, bool isRootFunc);
+      /// @param MF
+      /// The MachineFunction that the loop represented by this scope resides in.
+      ///
+      /// @param LI
+      /// used with MF to get all the needed information about the loop.
+      explicit SPScope(bool isRootFunc, MachineFunction &MF, MachineLoopInfo &LI);
 
-      /// Create a subscope of the given parent scope that represents
-      /// the given loop in the function.
-      /// The given loop must be nested inside the loop represented
-      /// by the parent.
-      explicit SPScope(SPScope *parent, MachineLoop &loop);
+      /// Create a subscope of the given parent scope that represents the given loop in the function.
+      /// The given loop must be nested inside the loop represented by the parent.
+      explicit SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, MachineLoopInfo &LI);
 
       /// Deletes the scope and all its subscopes.
       ~SPScope();
@@ -84,9 +85,15 @@ namespace llvm {
       /// Returns the header MBB of this scope.
       MachineBasicBlock *getHeader() const;
 
-      /// Returns all the MBBs that succeed the loop represented by this
-      /// scope.
+      /// Returns all edges in the control flow who's source is inside the loop and
+      /// target is outside the loop.
+      /// The source may therefore be a MBB that resides in a subscope of this scope.
+      /// The target will always be a MBB that is not in this scope or any subscope.
+      const std::set<SPScope::Edge> getOutEdges() const;
+
+      /// Returns all the MBBs that succeed the loop represented by this scope.
       /// I.e. all the MBBs that control may branch after exiting the loop.
+      /// Is equivalent to getOutEdges(), except that the source MBBs have been removed.
       const std::vector<const MachineBasicBlock *> getSuccMBBs() const;
 
       /// Returns the nesting depth of the SPScope.

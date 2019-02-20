@@ -67,14 +67,22 @@ namespace llvm {
       }
     }
 
-    void dump()
+    void dump(raw_ostream& os, unsigned indent) const
     {
-      errs() << "PredicatedBlock(" << &MBB << "):\n";
-      for(auto instr_iter = MBB.begin(), end = MBB.end(); instr_iter != end; ++instr_iter)
+      os.indent(indent) << "PredicatedBlock(" << &MBB << "):\n";
+      os.indent(indent + 2) << "InstrPreds:{";
+      for(auto pair: InstrPred)
       {
-        errs() << "(" << InstrPred[&*instr_iter] << "): ";
-        instr_iter->print(errs());
+        os << "(" << pair.first << "," << pair.second << "), ";
       }
+      os <<"}\n";
+
+      os.indent(indent + 2) << "ExitTargets:{";
+      for(auto t: ExitTargets)
+      {
+        os << t << ", ";
+      }
+      os <<"}\n";
     }
 
     /// Returns a list predicates that are defined by this block pair with the block
@@ -102,6 +110,17 @@ namespace llvm {
       Definitions.push_back(std::make_pair(pred, b));
     }
 
+    std::vector<const MachineBasicBlock*> getExitTargets() const
+    {
+      return std::vector<const MachineBasicBlock*>(ExitTargets.begin(), ExitTargets.end());
+    }
+
+    void addExitTarget(const MachineBasicBlock *block)
+    {
+      assert(std::find(MBB.succ_begin(), MBB.succ_end(), block) != MBB.succ_end());
+      ExitTargets.push_back(block);
+    }
+
   private:
 
     /// The MBB that this instance manages the predicates for.
@@ -115,6 +134,8 @@ namespace llvm {
     /// It is paired with a MBB that uses the predicate
     /// to predicate some of its instructions.
     std::vector<std::pair<unsigned, const MachineBasicBlock*>> Definitions;
+
+    std::vector<const MachineBasicBlock*> ExitTargets;
   };
 
   /// Untemplated version of _PredicatedBlock. To be used by non-test code.
