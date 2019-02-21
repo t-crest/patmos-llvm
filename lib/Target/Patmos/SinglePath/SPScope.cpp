@@ -246,19 +246,16 @@ public:
     FCFG fcfg(Pub.getHeader());
 
     std::for_each(fcfgBlocks.begin(), fcfgBlocks.end(), [&](auto MBB){
-      std::vector<Edge> outedges;
+//      std::vector<Edge> outedges;
+      std::set<Edge> outedges;
       if (Pub.isSubHeader(MBB)) {
         const SPScope *subloop = get(Pub.findMBBScope(MBB));
-        auto suboutedges = subloop->getOutEdges();
-        outedges.insert(outedges.end(),
-            suboutedges.begin(),
-            suboutedges.end());
-
+        outedges = subloop->Priv->getOutEdges();
       } else {
         // simple block
         for (auto si = MBB->succ_begin(),
               se = MBB->succ_end(); si != se; ++si) {
-          outedges.push_back(std::make_pair(MBB, *si));
+          outedges.insert(std::make_pair(MBB, *si));
         }
       }
 
@@ -546,6 +543,36 @@ public:
     }
     return pBlocks;
   }
+
+  /// Returns all edges in the control flow who's source is inside the loop and
+  /// target is outside the loop.
+  /// The source may therefore be a MBB that resides in a subscope of this scope.
+  /// The target will always be a MBB that is not in this scope or any subscope.
+  const std::set<SPScope::Edge> getOutEdges() const
+  {
+    std::set<SPScope::Edge> outs;
+
+    for(auto b: Blocks)
+    {
+      auto exits = b.getExitTargets();
+      for(auto t: exits)
+      {
+        outs.insert(std::make_pair(b.getMBB(),t));
+      }
+    }
+
+    for(auto subscope: Subscopes){
+      auto subexits = subscope->Priv->getOutEdges();
+      for(auto edge: subexits)
+      {
+        if(std::none_of(Blocks.begin(), Blocks.end(), [&](auto pb){ return pb.getMBB() == edge.second;}))
+        {
+          outs.insert(edge);
+        }
+      }
+    }
+    return outs;
+  }
 };
 
 SPScope::SPScope(bool isRootFunc, MachineFunction &MF, MachineLoopInfo &LI)
@@ -603,38 +630,12 @@ bool SPScope::isSubHeader(const MachineBasicBlock *MBB) const {
   });
 }
 
-const std::set<SPScope::Edge> SPScope::getOutEdges() const
-{
-  std::set<SPScope::Edge> outs;
-
-  for(auto b: Priv->Blocks)
-  {
-    auto exits = b.getExitTargets();
-    for(auto t: exits)
-    {
-      outs.insert(std::make_pair(b.getMBB(),t));
-    }
-  }
-
-  std::for_each(child_begin(), child_end(), [&](auto subscope){
-    auto subexits = subscope->getOutEdges();
-    for(auto edge: subexits)
-    {
-      if(std::none_of(Priv->Blocks.begin(), Priv->Blocks.end(), [&](auto pb){ return pb.getMBB() == edge.second;}))
-      {
-        outs.insert(edge);
-      }
-    }
-  });
-  return outs;
-}
-
-const std::vector<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
-  std::vector<const MachineBasicBlock *> succMBBs;
-  auto outEdges = getOutEdges();
+const std::set<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
+  std::set<const MachineBasicBlock *> succMBBs;
+  auto outEdges = Priv->getOutEdges();
   for(auto edge: outEdges)
   {
-    succMBBs.push_back(edge.second);
+    succMBBs.insert(edge.second);
   }
   return succMBBs;
 }

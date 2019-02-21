@@ -85,16 +85,9 @@ namespace llvm {
       /// Returns the header MBB of this scope.
       MachineBasicBlock *getHeader() const;
 
-      /// Returns all edges in the control flow who's source is inside the loop and
-      /// target is outside the loop.
-      /// The source may therefore be a MBB that resides in a subscope of this scope.
-      /// The target will always be a MBB that is not in this scope or any subscope.
-      const std::set<SPScope::Edge> getOutEdges() const;
-
       /// Returns all the MBBs that succeed the loop represented by this scope.
       /// I.e. all the MBBs that control may branch after exiting the loop.
-      /// Is equivalent to getOutEdges(), except that the source MBBs have been removed.
-      const std::vector<const MachineBasicBlock *> getSuccMBBs() const;
+      const std::set<const MachineBasicBlock *> getSuccMBBs() const;
 
       /// Returns the nesting depth of the SPScope.
       /// The top-level scope has depth 0.
