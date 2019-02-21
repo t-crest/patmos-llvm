@@ -1,4 +1,5 @@
 ; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func 0=0  1=-19 4=5788 5=-14295
+; END.
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Tests the spilling of the predicate register when entering new loop scopes.

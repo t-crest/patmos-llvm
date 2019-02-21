@@ -1,4 +1,5 @@
 ; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func 0=0 1=-19 2=-40 6=-76 7=-70 19=2 20=8
+; END.
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Tests the spilling of predicate registers inside a non-top-level-scope. I.e. spilling registers because
