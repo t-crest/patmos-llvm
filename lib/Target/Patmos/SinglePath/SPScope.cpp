@@ -220,7 +220,7 @@ public:
     Pub(*pub), Parent(parent), LoopBound(boost::none), RootFunc(rootFunc),
     PredCount(0)
   {
-    Blocks.push_back(PredicatedBlock(header,0));
+    Blocks.push_back(PredicatedBlock(header));
 
     // add the rest of the MBBs to the scope
     for (MachineFunction::iterator FI=MF.begin(), FE=MF.end();
@@ -361,7 +361,9 @@ public:
       for(auto subscope_iter = Pub.child_begin(), end = Pub.child_end(); subscope_iter != end; ++subscope_iter)
       {
         auto subscope = *subscope_iter;
-        SubHeaderPredicates.push_back(PredicatedBlock(subscope->getHeader(), mbbPreds[subscope->getHeader()]));
+        auto block = PredicatedBlock(subscope->getHeader());
+        block.setPredicate(mbbPreds[subscope->getHeader()]);
+        SubHeaderPredicates.push_back(block);
       }
 
       // For each predicate, compute defs
@@ -373,7 +375,6 @@ public:
           Edge e  = EI->second;
           if (n == &fcfg.nentry) {
             // Pseudo edge (from start node)
-            //assert(e.first == NULL);
             assert(e.second == Pub.getHeader());
             continue;
           }
@@ -479,7 +480,7 @@ public:
   void addMBB(MachineBasicBlock *MBB) {
 
     if (Blocks.front().getMBB() != MBB) {
-      Blocks.push_back(PredicatedBlock(MBB,0));
+      Blocks.push_back(PredicatedBlock(MBB));
     }
   }
 

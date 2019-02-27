@@ -29,15 +29,9 @@ namespace llvm {
 
     /// Constructs a new instance where all instructions in the
     /// given MBB are predicated by the given predicate.
-    _PredicatedBlock(MachineBasicBlock *mbb, unsigned predicate):
+    _PredicatedBlock(MachineBasicBlock *mbb):
       MBB(*mbb)
-    {
-      for( auto instr_iter = mbb->begin(), end = mbb->end(); instr_iter != end; instr_iter++){
-        MachineInstr* instr = &(*instr_iter);
-        assert(InstrPred.find(instr) == InstrPred.end());
-        InstrPred.insert(std::make_pair(instr, predicate));
-      }
-    }
+    {}
 
     /// Get the MachineBasicBlock
     MachineBasicBlock *getMBB() const
@@ -61,9 +55,11 @@ namespace llvm {
     /// Should be used with care.
     void setPredicate(unsigned pred)
     {
-      for(auto pair: InstrPred)
-      {
-        InstrPred[pair.first] = pred;
+      InstrPred.clear();
+      for( auto instr_iter = MBB.begin(), end = MBB.end(); instr_iter != end; instr_iter++){
+        MachineInstr* instr = &(*instr_iter);
+        assert(InstrPred.find(instr) == InstrPred.end());
+        InstrPred.insert(std::make_pair(instr, pred));
       }
     }
 

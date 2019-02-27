@@ -53,7 +53,7 @@ TEST(PredicatedBlockTest, SameMBBTest){
    */
   MockMBB mockMBB(0);
 
-  PredicatedBlock b(&mockMBB, 1);
+  PredicatedBlock b(&mockMBB);
 
   ASSERT_EQ(b.getMBB(),&mockMBB);
 }
@@ -65,11 +65,24 @@ TEST(PredicatedBlockTest, EmptyBlockTest){
    */
   MockMBB mockMBB(0);
 
-  PredicatedBlock b(&mockMBB, 1);
+  PredicatedBlock b(&mockMBB);
 
   auto preds = b.getBlockPredicates();
 
   ASSERT_EQ((unsigned)0,preds.size());
+}
+
+TEST(PredicatedBlockTest, NoPredsAtInitTest){
+  /*
+   * We test that no instructions are predicated at init
+   */
+  MockMBB mockMBB(5);
+
+  PredicatedBlock b(&mockMBB);
+
+  auto preds = b.getBlockPredicates();
+
+  EXPECT_THAT(preds, SizeIs(0));
 }
 
 TEST(PredicatedBlockTest, SinglePredicateTest){
@@ -79,28 +92,13 @@ TEST(PredicatedBlockTest, SinglePredicateTest){
    */
   MockMBB mockMBB(5);
 
-  PredicatedBlock b(&mockMBB, 1);
-
-  auto preds = b.getBlockPredicates();
-
-  ASSERT_EQ((unsigned)1,preds.size());
-	ASSERT_EQ((unsigned)1,*preds.begin());
-}
-
-TEST(PredicatedBlockTest, SetPredicateTest){
-  /*
-   * We test that we can give the whole block a new predicate
-   * using 'setPredicate()'.
-   */
-  MockMBB mockMBB(5);
-
-  PredicatedBlock b(&mockMBB, 1);
+  PredicatedBlock b(&mockMBB);
   b.setPredicate(2);
 
   auto preds = b.getBlockPredicates();
 
-  ASSERT_EQ((unsigned)1,preds.size());
-  ASSERT_EQ((unsigned)2,*preds.begin());
+  EXPECT_THAT(preds, SizeIs(1));
+  EXPECT_THAT(preds, Contains(2));
 }
 
 TEST(PredicatedBlockTest, NoDefsAtInitTest){
@@ -110,7 +108,7 @@ TEST(PredicatedBlockTest, NoDefsAtInitTest){
    */
   MockMBB mockMBB(5);
 
-  PredicatedBlock b(&mockMBB, 1);
+  PredicatedBlock b(&mockMBB);
 
   auto defs = b.getDefinitions();
 
@@ -126,9 +124,9 @@ TEST(PredicatedBlockTest, AddDefinitionTest){
   MockMBB mockMBB2(1);
   MockMBB mockMBB3(1);
 
-  PredicatedBlock b1(&mockMBB1, 1);
-  PredicatedBlock b2(&mockMBB2, 1);
-  PredicatedBlock b3(&mockMBB3, 1);
+  PredicatedBlock b1(&mockMBB1);
+  PredicatedBlock b2(&mockMBB2);
+  PredicatedBlock b3(&mockMBB3);
 
   b1.addDefinition(2, &mockMBB2);
   b1.addDefinition(3, &mockMBB3);
@@ -148,7 +146,7 @@ TEST(PredicatedBlockTest, NoExitAtInitTest){
    */
   MockMBB mockMBB1(1);
 
-  PredicatedBlock b1(&mockMBB1, 1);
+  PredicatedBlock b1(&mockMBB1);
 
   auto exits = b1.getExitTargets();
 
@@ -169,7 +167,7 @@ TEST(PredicatedBlockTest, AddExitTest){
   EXPECT_CALL(mockMBB1, succ_begin()).WillRepeatedly(Return(succs));
   EXPECT_CALL(mockMBB1, succ_end()).WillRepeatedly(Return(succs+2));
 
-  PredicatedBlock b1(&mockMBB1, 1);
+  PredicatedBlock b1(&mockMBB1);
 
   b1.addExitTarget(&mockMBB2);
   b1.addExitTarget(&mockMBB3);
