@@ -126,10 +126,6 @@ namespace llvm {
       /// Returns the number of predicates required for this scope.
       unsigned getNumPredicates() const;
 
-      /// Returns the guarding predicate for an MBB that is part of the scope or is a subheader.
-      /// If it is not found, will abort.
-      unsigned getPredUse(const MachineBasicBlock *) const;
-
       /// Returns the predicates that are defined in the block, paired
       /// with the block that makes use of the predicate.
       /// If the given block is not part of the scope, or it does not define

@@ -273,9 +273,10 @@ public:
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
-      MachineBasicBlock *MBB = blocks[i]->getMBB();
+      auto block = blocks[i];
+      MachineBasicBlock *MBB = block->getMBB();
       // insert use
-      LRs[Pub.Scope->getPredUse(MBB)].addUse(i);
+      LRs[*block->getBlockPredicates().begin()].addUse(i);
 
       // insert defs
       auto opDI = Pub.Scope->getDefInfo(MBB);
@@ -447,7 +448,7 @@ private:
   void handlePredUse(unsigned i, PredicatedBlock* block,
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
 
-    unsigned usePred = Pub.Scope->getPredUse(block->getMBB());
+    unsigned usePred = *block->getBlockPredicates().begin();
 
     // TODO:(Emad) handle multiple predicates.
     // for the top-level entry of a single-path root,

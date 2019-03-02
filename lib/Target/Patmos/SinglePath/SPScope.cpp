@@ -684,7 +684,6 @@ void SPScope::walk(SPScopeWalker &walker) {
 
 static void printUDInfo(const SPScope &S, raw_ostream& os,
                         const MachineBasicBlock *MBB) {
-  os << "  u=" << S.getPredUse(MBB);
   auto opDI = S.getDefInfo(MBB);
   if (opDI.is_initialized()) {
     auto DI = get(opDI);
@@ -723,24 +722,6 @@ void SPScope::dump(raw_ostream& os) const {
   os.indent(2*getDepth()) << "children:\n";
   for(auto sub: Priv->Subscopes){
     sub->dump(os);
-  }
-}
-
-unsigned SPScope::getPredUse(const MachineBasicBlock *MBB) const {
-
-  // First look for the MBB in the scope blocks
-  auto scopeBlock = Priv->getPredicatedFcfg(MBB);
-  if( scopeBlock.is_initialized() )
-  {
-    return *get(scopeBlock)->getBlockPredicates().begin();
-  } else {
-    errs()  << "Cannot find Predicate for MachineBasicBlock '" << MBB
-            << "'(BasicBlock '" << MBB->getBasicBlock()->getName()
-            << "') in the scope with header '" << getHeader()->getMBB()
-            << "'(BasicBlock '" << getHeader()->getMBB()->getBasicBlock()->getName()
-            << "').\n";
-    abort();
-    return 0; // Unreachable, removed warning about missing return value.
   }
 }
 

@@ -144,7 +144,6 @@ void PatmosSPBundling::printFunction(MachineFunction &MF) {
   for (MachineFunction::iterator MBB = MF.begin(), MBBE = MF.end();
                                    MBB != MBBE; ++MBB) {
     outs() << MBB->getFullName()<< "\nScope: " << PSPI->getScopeFor(MBB)->getHeader()->getMBB()->getFullName() << "\n";
-    outs() << "Predicate: " << PSPI->getScopeFor(MBB)->getPredUse(MBB) << "\n";
     for( MachineBasicBlock::iterator MI = MBB->begin(),
                                          ME = MBB->getFirstTerminator();
                                          MI != ME; ++MI) {
