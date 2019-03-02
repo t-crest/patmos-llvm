@@ -304,8 +304,8 @@ public:
 
       int p = 0;
       auto blocks = Pub.getBlocksTopoOrd();
-      std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
-//        auto MBB = pMBB->getMBB();
+      std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
+        auto MBB = pMBB->getMBB();
         CD_map_entry_t t = CD.at(MBB);
         int q=-1;
         // try to lookup the control dependence
@@ -358,12 +358,9 @@ public:
       }
 
       // Assign subHeader's predicates
-      for(auto subscope_iter = Pub.child_begin(), end = Pub.child_end(); subscope_iter != end; ++subscope_iter)
+      for(auto iter = SubHeaderPredicates.begin(), end = SubHeaderPredicates.end(); iter != end; ++iter)
       {
-        auto subscope = *subscope_iter;
-        auto block = PredicatedBlock(subscope->getHeader()->getMBB());
-        block.setPredicate(mbbPreds[subscope->getHeader()->getMBB()]);
-        SubHeaderPredicates.push_back(block);
+        iter->setPredicate(mbbPreds[iter->getMBB()]);
       }
 
       // For each predicate, compute defs
@@ -564,6 +561,12 @@ public:
 
     return outs;
   }
+
+  void addSubscope(SPScope *subscope)
+  {
+    Subscopes.push_back(subscope);
+    SubHeaderPredicates.push_back(PredicatedBlock(subscope->getHeader()->getMBB()));
+  }
 };
 
 SPScope::SPScope(bool isRootFunc, MachineFunction &MF, MachineLoopInfo &LI)
@@ -600,8 +603,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
     }
   }
 
-  // add to parent's child list
-  parent->Priv->Subscopes.push_back(this);
+  parent->Priv->addSubscope(this);
 }
 
 /// free the child scopes first, cleanup
@@ -634,8 +636,8 @@ const std::set<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
 void SPScope::walk(SPScopeWalker &walker) {
   walker.enterSubscope(this);
   auto blocks = getBlocksTopoOrd();
-  std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
-//    auto MBB = pMBB->getMBB();
+  std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
+    auto MBB = pMBB->getMBB();
     if (isSubHeader(MBB)) {
       get(findMBBScope(MBB))->walk(walker);
     } else {
@@ -749,15 +751,19 @@ std::vector<PredicatedBlock*> SPScope::getScopeBlocks() const
   return result;
 }
 
-std::vector<MachineBasicBlock*> SPScope::getBlocksTopoOrd() const
+std::vector<PredicatedBlock*> SPScope::getBlocksTopoOrd() const
 {
   auto fcfg = Priv->buildfcfg();
   // dfs the fcfg in postorder
-  std::vector<MachineBasicBlock *> PO;
+  std::vector<PredicatedBlock *> PO;
   for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
       I != E; ++I) {
     MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
-    if (MBB)PO.push_back(MBB);
+    if (MBB) {
+      auto pmbb = Priv->getPredicatedFcfg(MBB);
+      assert(pmbb.is_initialized());
+      PO.push_back(get(pmbb));
+    }
   }
   std::reverse(PO.begin(), PO.end());
   return PO;

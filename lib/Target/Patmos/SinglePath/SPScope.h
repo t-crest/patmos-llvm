@@ -142,7 +142,7 @@ namespace llvm {
       /// Returns the MBBs that are either exclusively contained in this scope,
       /// or are headers of this scope's subscopes.
       /// It is sorted in topological order.
-      std::vector<MachineBasicBlock*> getBlocksTopoOrd() const;
+      std::vector<PredicatedBlock*> getBlocksTopoOrd() const;
 
       /// Returns the number of MBBs that are part of this scope,
       /// including the headers of the scope's subscopes.

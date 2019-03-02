@@ -273,7 +273,7 @@ public:
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
-      MachineBasicBlock *MBB = blocks[i];
+      MachineBasicBlock *MBB = blocks[i]->getMBB();
       // insert use
       LRs[Pub.Scope->getPredUse(MBB)].addUse(i);
 
@@ -308,7 +308,7 @@ public:
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
-      MachineBasicBlock *MBB = blocks[i];
+      MachineBasicBlock *MBB = blocks[i]->getMBB();
 
       DEBUG( dbgs() << "  MBB#" << MBB->getNumber() << ": " );
 
@@ -558,7 +558,7 @@ bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
 
   auto blocks = Scope->getBlocksTopoOrd();
   for(unsigned i=0; i< blocks.size(); i++) {
-    if (blocks[i] == MBB) {
+    if (blocks[i]->getMBB() == MBB) {
       return !Priv->LRs[pred].hasDefBefore(i);
     }
   }
@@ -632,7 +632,7 @@ void RAInfo::dump() const {
 
   auto blocks = Scope->getBlocksTopoOrd();
   for (unsigned i=0, e=blocks.size(); i<e; i++) {
-    MachineBasicBlock *MBB = blocks[i];
+    MachineBasicBlock *MBB = blocks[i]->getMBB();
     dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
     if (Priv->UseLocs.count(MBB)) {
       const Impl::UseLoc &UL = Priv->UseLocs.at(MBB);
