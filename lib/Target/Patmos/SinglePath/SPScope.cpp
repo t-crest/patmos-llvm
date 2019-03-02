@@ -640,13 +640,18 @@ SPScope::~SPScope() {
   }
 }
 
-bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
-  return getHeader()->getMBB() == MBB;
+bool SPScope::isHeader(const PredicatedBlock *block) const {
+  return getHeader() == block;
 }
 
 bool SPScope::isSubHeader(const MachineBasicBlock *MBB) const {
-  return std::any_of(child_begin(), child_end(), [MBB](auto child){
-    return child->isHeader(MBB);
+  return std::any_of(child_begin(), child_end(), [&](auto child){
+    auto b = child->Priv->getPredicated(MBB);
+    if(b.is_initialized()){
+      return child->isHeader(get(b));
+    }else{
+      return false;
+    }
   });
 }
 

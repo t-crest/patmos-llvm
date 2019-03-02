@@ -308,12 +308,13 @@ public:
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
-      MachineBasicBlock *MBB = blocks[i]->getMBB();
+      auto block = blocks[i];
+      MachineBasicBlock *MBB = block->getMBB();
 
       DEBUG( dbgs() << "  MBB#" << MBB->getNumber() << ": " );
 
       // (1) handle use
-      handlePredUse(i, MBB, curLocs, FreeLocs);
+      handlePredUse(i, block, curLocs, FreeLocs);
 
       // (3) handle definitions in this basic block.
       //     if we need to get new locations for predicates (loc==-1),
@@ -443,25 +444,24 @@ private:
     return UL;
   }
 
-  void handlePredUse(unsigned i, MachineBasicBlock* MBB,
+  void handlePredUse(unsigned i, PredicatedBlock* block,
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
 
-    unsigned usePred = Pub.Scope->getPredUse(MBB);
+    unsigned usePred = Pub.Scope->getPredUse(block->getMBB());
 
     // TODO:(Emad) handle multiple predicates.
     // for the top-level entry of a single-path root,
     // we don't need to assign a location, as we will use p0
     if (!(usePred == 0 && Pub.Scope->isRootTopLevel())) {
-      assert(MBB == Pub.Scope->getHeader()->getMBB() || i > 0);
+      assert(block == Pub.Scope->getHeader() || i > 0);
 
-      assert(!UseLocs.count(MBB));
-      UseLocs.insert(make_pair(MBB,
-        (Pub.Scope->isHeader(MBB)) ?
+      assert(!UseLocs.count(block->getMBB()));
+      UseLocs.insert(make_pair(block->getMBB(),
+        (Pub.Scope->isHeader(block)) ?
           calculateHeaderUseLoc(FreeLocs, curLocs)
           : calculateNotHeaderUseLoc(i, usePred, curLocs, FreeLocs)
       ));
 
-      //DEBUG( dbgs() << "new " << curUseLoc << ". ");
       // (2) retire locations
       if (LRs[usePred].lastUse(i)) {
         DEBUG(dbgs() << "retire. ");

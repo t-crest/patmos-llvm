@@ -1076,8 +1076,8 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
   // of predicates not in registers.
 
   auto blocks = S->getScopeBlocks();
-  std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
-    auto MBB = pMBB->getMBB();
+  std::for_each(blocks.begin(), blocks.end(), [&](auto block){
+    auto MBB = block->getMBB();
     unsigned use_preg = getUsePReg(R, MBB, true);
 
 
@@ -1168,13 +1168,13 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
 
 
     // insert spill and load instructions for the guard register
-    if (!S->isHeader(MBB) && R.hasSpillLoad(MBB)) {
+    if (!S->isHeader(block) && R.hasSpillLoad(MBB)) {
       insertUseSpillLoad(R, MBB);
     }
 
     // if this is a reachable function, we need to get the
     // top-level predicate from the caller
-    if (S->isTopLevel() && !S->isRootTopLevel() && S->isHeader(MBB)) {
+    if (S->isTopLevel() && !S->isRootTopLevel() && S->isHeader(block)) {
       // skip unconditionally executed frame setup
       MachineBasicBlock::iterator MI = MBB->begin();
       while (MI->getFlag(MachineInstr::FrameSetup)) ++MI;

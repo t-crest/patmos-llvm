@@ -104,7 +104,7 @@ namespace llvm {
 
       /// isHeader - Returns true if the specified MBB is the header of this
       /// SPScope
-      bool isHeader(const MachineBasicBlock *MBB) const;
+      bool isHeader(const PredicatedBlock *MBB) const;
 
       /// Returns whether the specified MBB is the header of an
       /// immediate subscope of this scope.
