@@ -57,7 +57,7 @@ namespace llvm {
                         const MachineBasicBlock *> Edge;
 
       /// TODO:(Emad) What does the unsigned means?
-      typedef std::vector<std::pair<unsigned, Edge> > PredDefInfo;
+      typedef std::vector<std::pair<unsigned, std::pair<const PredicatedBlock*, const PredicatedBlock*>> > PredDefInfo;
 
       /// Create a top-level SPScope. I.e. the SPScope representing the function.
       ///

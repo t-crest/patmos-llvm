@@ -746,7 +746,7 @@ SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
     {
       PredDefInfo result;
       std::for_each(defs.begin(), defs.end(), [&](auto pair){
-        result.push_back(std::make_pair(pair.first, std::make_pair(MBB, pair.second->getMBB())));
+        result.push_back(std::make_pair(pair.first, std::make_pair(get(pb), pair.second)));
       });
 
       return result;

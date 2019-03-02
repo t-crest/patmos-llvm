@@ -819,7 +819,7 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
         di != de; ++di) {
       DEBUG(dbgs() << di->first << " ");
       // Scope, (local) Node, predicate number, edge
-      insertDefEdge(S, *MBB, di->first, di->second);
+      insertDefEdge(S, *MBB, di->first, std::make_pair(di->second.first->getMBB(), di->second.second->getMBB()));
     }
     DEBUG(dbgs() << "\n");
 
