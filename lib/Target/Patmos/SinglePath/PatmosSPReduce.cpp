@@ -1443,9 +1443,9 @@ void PatmosSPReduce::getLoopLiveOutPRegs(const SPScope *S,
   pregs.clear();
   for(auto succ: SuccMBBs) {
     for (unsigned i=0; i<UnavailPredRegs.size(); i++) {
-      if (succ->isLiveIn(UnavailPredRegs[i])) {
+      if (succ->getMBB()->isLiveIn(UnavailPredRegs[i])) {
         DEBUG(dbgs() << "LiveIn: " << TRI->getName(UnavailPredRegs[i])
-            << " into MBB#" << succ->getNumber() << "\n");
+            << " into MBB#" << succ->getMBB()->getNumber() << "\n");
         pregs.push_back(UnavailPredRegs[i]);
       }
     }

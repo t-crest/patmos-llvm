@@ -88,7 +88,7 @@ namespace llvm {
 
       /// Returns all the MBBs that succeed the loop represented by this scope.
       /// I.e. all the MBBs that control may branch after exiting the loop.
-      const std::set<const MachineBasicBlock *> getSuccMBBs() const;
+      const std::set<const PredicatedBlock *> getSuccMBBs() const;
 
       /// Returns the nesting depth of the SPScope.
       /// The top-level scope has depth 0.

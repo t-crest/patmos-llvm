@@ -546,17 +546,35 @@ public:
   /// target is outside the loop.
   /// The source may therefore be a MBB that resides in a subscope of this scope.
   /// The target will always be a MBB that is not in this scope or any subscope.
-  const std::set<SPScope::Edge> getOutEdges() const
+  const std::set<std::pair<const PredicatedBlock*, const PredicatedBlock*>> getPredicatedOutEdges() const
   {
-    std::set<SPScope::Edge> outs;
+    std::set<std::pair<const PredicatedBlock*, const PredicatedBlock*>> outs;
 
-    for(auto b: Blocks)
+    for(auto iter = Blocks.begin(), end = Blocks.end(); iter != end; iter++)
     {
-      auto exits = b.getExitTargets();
+      auto exits = iter->getExitTargets();
       for(auto t: exits)
       {
-        outs.insert(std::make_pair(b.getMBB(),t->getMBB()));
+        outs.insert(std::make_pair(&(*iter),t));
       }
+    }
+
+    return outs;
+  }
+
+  /// Returns all edges in the control flow who's source is inside the loop and
+  /// target is outside the loop.
+  /// The source may therefore be a MBB that resides in a subscope of this scope.
+  /// The target will always be a MBB that is not in this scope or any subscope.
+  const std::set<SPScope::Edge> getOutEdges() const
+  {
+    auto predOuts = getPredicatedOutEdges();
+
+    std::set<SPScope::Edge> outs;
+
+    for(auto edge: predOuts)
+    {
+      outs.insert(std::make_pair(edge.first->getMBB(),edge.second->getMBB()));
     }
 
     return outs;
@@ -632,9 +650,9 @@ bool SPScope::isSubHeader(const MachineBasicBlock *MBB) const {
   });
 }
 
-const std::set<const MachineBasicBlock *> SPScope::getSuccMBBs() const {
-  std::set<const MachineBasicBlock *> succMBBs;
-  auto outEdges = Priv->getOutEdges();
+const std::set<const PredicatedBlock *> SPScope::getSuccMBBs() const {
+  std::set<const PredicatedBlock *> succMBBs;
+  auto outEdges = Priv->getPredicatedOutEdges();
   for(auto edge: outEdges)
   {
     succMBBs.insert(edge.second);
@@ -681,7 +699,7 @@ void SPScope::dump(raw_ostream& os) const {
   if (!succs.empty()) {
     os << " -> { ";
     for (auto target: succs) {
-      os << "BB#" << target->getNumber() << ":" << target << ", ";
+      os << "BB#" << target->getMBB()->getNumber() << ":" << target << ", ";
     }
     os << "}";
   }
