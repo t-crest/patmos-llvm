@@ -85,10 +85,10 @@ namespace llvm {
     /// that uses the predicate.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.
-    std::vector<std::pair<unsigned, const MachineBasicBlock*>>
+    std::vector<std::pair<unsigned, const PredicatedBlock*>>
     getDefinitions() const
     {
-      std::vector<std::pair<unsigned, const MachineBasicBlock*>> result;
+      std::vector<std::pair<unsigned, const PredicatedBlock*>> result;
       result.reserve(Definitions.size());
       for(auto iter = Definitions.begin(), end = Definitions.end(); iter != end; ++iter)
       {
@@ -101,7 +101,7 @@ namespace llvm {
     /// that predicate.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.
-    void addDefinition(unsigned pred, const MachineBasicBlock* b)
+    void addDefinition(unsigned pred, const PredicatedBlock* b)
     {
       Definitions.push_back(std::make_pair(pred, b));
     }
@@ -129,7 +129,7 @@ namespace llvm {
     /// the predicate's true/false value is calculated in this block.
     /// It is paired with a MBB that uses the predicate
     /// to predicate some of its instructions.
-    std::vector<std::pair<unsigned, const MachineBasicBlock*>> Definitions;
+    std::vector<std::pair<unsigned, const PredicatedBlock*>> Definitions;
 
     std::vector<const PredicatedBlock*> ExitTargets;
   };

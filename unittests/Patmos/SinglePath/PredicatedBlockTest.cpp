@@ -128,14 +128,14 @@ TEST(PredicatedBlockTest, AddDefinitionTest){
   PredicatedBlock b2(&mockMBB2);
   PredicatedBlock b3(&mockMBB3);
 
-  b1.addDefinition(2, &mockMBB2);
-  b1.addDefinition(3, &mockMBB3);
+  b1.addDefinition(2, &b2);
+  b1.addDefinition(3, &b3);
 
   auto defs = b1.getDefinitions();
 
   EXPECT_THAT(defs, UnorderedElementsAreArray({
-    std::make_pair(2, &mockMBB2),
-    std::make_pair(3, &mockMBB3)
+    std::make_pair(2, &b2),
+    std::make_pair(3, &b3)
   }));
 }
 

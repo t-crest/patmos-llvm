@@ -379,7 +379,7 @@ public:
           // insert definition edge for predicate i
           auto pBlock = getPredicatedFcfg(n->MBB);
           assert(pBlock.is_initialized());
-          get(pBlock)->addDefinition(i, e.second);
+          get(pBlock)->addDefinition(i, get(getPredicatedFcfg(e.second)));
         } // end for each definition edge
       }
     }
@@ -746,7 +746,7 @@ SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
     {
       PredDefInfo result;
       std::for_each(defs.begin(), defs.end(), [&](auto pair){
-        result.push_back(std::make_pair(pair.first, std::make_pair(MBB, pair.second)));
+        result.push_back(std::make_pair(pair.first, std::make_pair(MBB, pair.second->getMBB())));
       });
 
       return result;
