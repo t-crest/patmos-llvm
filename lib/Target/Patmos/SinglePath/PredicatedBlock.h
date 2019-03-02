@@ -81,7 +81,7 @@ namespace llvm {
       os <<"}\n";
     }
 
-    /// Returns a list predicates that are defined by this block pair with the block
+    /// Returns a list predicates that are defined by this block, paired with the block
     /// that uses the predicate.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.

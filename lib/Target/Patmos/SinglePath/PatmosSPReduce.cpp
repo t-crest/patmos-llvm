@@ -72,7 +72,6 @@
 #include <sstream>
 #include <iostream>
 
-
 using namespace llvm;
 using namespace boost;
 
@@ -805,25 +804,19 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
                 << S->getHeader()->getMBB()->getNumber() << "]\n");
 
   auto blocks = S->getFcfgBlocks();
-  std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
-    auto MBB = pMBB->getMBB();
-    auto opDI = S->getDefInfo(MBB);
-
-    // procede to next if this does not define any predicates
-    if (!opDI.is_initialized()) return;
-    auto DI = get(opDI);
-    DEBUG(dbgs() << " - MBB#" << MBB->getNumber() << ": ");
+  for(auto block: blocks){
+    DEBUG(dbgs() << " - MBB#" << block->getMBB()->getNumber() << ": ");
 
     // for each definition edge: insert
-    for (auto di = DI.begin(), de = DI.end();
-        di != de; ++di) {
-      DEBUG(dbgs() << di->first << " ");
-      // Scope, (local) Node, predicate number, edge
-      insertDefEdge(S, *pMBB, di->first, std::make_pair(di->second.first->getMBB(), di->second.second->getMBB()));
+    for(auto def: block->getDefinitions()){
+      auto pred = def.first;
+      auto defBlock = def.second;
+      DEBUG(dbgs() << pred << " ");
+      insertDefEdge(S, *block, pred, std::make_pair(block->getMBB(), defBlock->getMBB()));
     }
     DEBUG(dbgs() << "\n");
 
-  });
+  }
 }
 
 void PatmosSPReduce::insertDefEdge(SPScope *S, PredicatedBlock &block,
@@ -1490,8 +1483,8 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   MF.push_back(PrehdrMBB);
 
   const SPScope *SParent = S->getParent();
-
-  const MachineBasicBlock *HeaderMBB = S->getHeader()->getMBB();
+  auto headerBlock = S->getHeader();
+  const MachineBasicBlock *HeaderMBB = headerBlock->getMBB();
 
   const RAInfo &RI = Pass.RAInfos.at(S),
                &RP = Pass.RAInfos.at(SParent);
@@ -1541,17 +1534,15 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   //     predicate might retire, be reused for exit edge defs and the
   //     initialization code would clear the header predicate before ever
   //     used in the subloop
-  auto opDI = SParent->getDefInfo(HeaderMBB);
-  if (opDI.is_initialized()) {
-    auto DI = get(opDI);
+  auto definitions = SParent->getSubheaderEquivalentTo(headerBlock)->getDefinitions();
+  if (!definitions.empty()) {
     DEBUG(dbgs() << "  (reg loc first defined in subscope: ");
 
     std::vector<unsigned> defregs;
     // for each definition edge
-    for (auto di = DI.begin(), de = DI.end();
-        di != de; ++di) {
-      unsigned loc, pred = di->first;
-      RAInfo::LocType type;
+    for(auto def: definitions){
+      auto pred = def.first;
+      unsigned loc; RAInfo::LocType type;
       std::tie(type, loc) = RP .getDefLoc(pred);
 
       if (type == RAInfo::Register) {

@@ -682,15 +682,13 @@ void SPScope::walk(SPScopeWalker &walker) {
   walker.exitSubscope(this);
 }
 
-static void printUDInfo(const SPScope &S, raw_ostream& os,
-                        const MachineBasicBlock *MBB) {
-  auto opDI = S.getDefInfo(MBB);
-  if (opDI.is_initialized()) {
-    auto DI = get(opDI);
+static void printUDInfo(raw_ostream& os, const PredicatedBlock *block) {
+  os << "  u=" << *block->getBlockPredicates().begin();
+  auto defs = block->getDefinitions();
+  if (!defs.empty()) {
     os << " d=";
-    for (auto pi = DI.begin(), pe = DI.end();
-        pi != pe; ++pi) {
-      os << pi->first << ",";
+    for (auto def: defs) {
+      os << def.first << ",";
     }
   }
   os << "\n";
@@ -712,7 +710,7 @@ void SPScope::dump(raw_ostream& os) const {
   }
 
   os << " |P|=" <<  Priv->PredCount;
-  printUDInfo(*this, os, Priv->Blocks.front().getMBB());
+  printUDInfo(os, &Priv->Blocks.front());
 
   os.indent(2*getDepth()) << "Blocks: {\n";
   for(auto b: Priv->Blocks){
@@ -723,25 +721,6 @@ void SPScope::dump(raw_ostream& os) const {
   for(auto sub: Priv->Subscopes){
     sub->dump(os);
   }
-}
-
-boost::optional<SPScope::PredDefInfo>
-SPScope::getDefInfo( const MachineBasicBlock *MBB) const {
-  auto pb = Priv->getPredicatedFcfg(MBB);
-  if(pb.is_initialized()){
-    auto defs = get(pb)->getDefinitions();
-
-    if(defs.size() > 0)
-    {
-      PredDefInfo result;
-      std::for_each(defs.begin(), defs.end(), [&](auto pair){
-        result.push_back(std::make_pair(pair.first, std::make_pair(get(pb), pair.second)));
-      });
-
-      return result;
-    }
-  }
-  return boost::none;
 }
 
 bool SPScope::isTopLevel() const { return (NULL == Priv->Parent); }
@@ -864,5 +843,10 @@ SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {
   }
 
   return Root;
+}
+
+PredicatedBlock* SPScope::getSubheaderEquivalentTo(const PredicatedBlock* block) const
+{
+  return get(Priv->getPredicatedFrom(block->getMBB(), &Priv->SubHeaderPredicates));
 }
 

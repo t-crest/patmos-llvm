@@ -126,12 +126,6 @@ namespace llvm {
       /// Returns the number of predicates required for this scope.
       unsigned getNumPredicates() const;
 
-      /// Returns the predicates that are defined in the block, paired
-      /// with the block that makes use of the predicate.
-      /// If the given block is not part of the scope, or it does not define
-      /// any predicates, then none is returned.
-      boost::optional<SPScope::PredDefInfo> getDefInfo( const MachineBasicBlock *) const;
-
       /// Returns whether the the predicate has multiple definitions
       bool hasMultDefEdges(unsigned pred) const;
 
@@ -170,6 +164,8 @@ namespace llvm {
       /// The tree needs to be destroyed by the client,
       /// by deleting the top-level scope.
       static SPScope * createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI);
+
+      PredicatedBlock* getSubheaderEquivalentTo(const PredicatedBlock* block) const;
 
     private:
       class Impl;

@@ -274,18 +274,12 @@ public:
     auto blocks = Pub.Scope->getBlocksTopoOrd();
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
       auto block = blocks[i];
-      MachineBasicBlock *MBB = block->getMBB();
       // insert use
       LRs[*block->getBlockPredicates().begin()].addUse(i);
 
       // insert defs
-      auto opDI = Pub.Scope->getDefInfo(MBB);
-      if (opDI.is_initialized()) {
-        auto DI = get(opDI);
-        for (auto pi = DI.begin(), pe = DI.end();
-            pi != pe; ++pi) {
-          LRs[pi->first].addDef(i); // TODO:(Emad) why don't we check that the edge hits the block?
-        }
+      for(auto def: block->getDefinitions()){
+        LRs[def.first].addDef(i); // TODO:(Emad) why don't we check that the edge hits the block?
       }
     }
     // add a use for header predicate
@@ -320,22 +314,21 @@ public:
       // (3) handle definitions in this basic block.
       //     if we need to get new locations for predicates (loc==-1),
       //     assign new ones in nearest-next-use order
-      auto opDI = Pub.Scope->getDefInfo(MBB);
-      if (opDI.is_initialized()) {
-        auto DI = get(opDI);
+      auto definitions = block->getDefinitions();
+      if (!definitions.empty()) {
         vector<unsigned> order;
-        for (auto pi = DI.begin(), pe = DI.end();
-            pi != pe; ++pi) {
-          int r = pi->first;
-          if (curLocs.find(r) == curLocs.end()) {
-            // need to get a new loc for predicate r
-            order.push_back(r);
+        for(auto def: definitions){
+          auto pred = def.first;
+          if (curLocs.find(pred) == curLocs.end()) {
+            // need to get a new loc for predicate
+            order.push_back(pred);
           }
         }
+
         sortFurthestNextUse(i, order);
+
         // nearest use is in front
-        for (unsigned j=0; j<order.size(); j++) {
-          unsigned pred = order[j];
+        for (auto pred: order) {
           Location l = getAvailLoc(FreeLocs);
           map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(pred);
           if(findCurUseLoc == curLocs.end()){
