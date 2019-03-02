@@ -770,15 +770,11 @@ unsigned SPScope::getNumberOfFcfgBlocks() const
       + Priv->Subscopes.size();
 }
 
-std::vector<MachineBasicBlock*> SPScope::getFcfgBlocks() const
+std::vector<PredicatedBlock*> SPScope::getFcfgBlocks() const
 {
-  auto blocks = getScopeBlocks();
-  std::vector<MachineBasicBlock*> result;
-  for(auto b: blocks){
-    result.push_back(b->getMBB());
-  }
+  auto result = getScopeBlocks();
   std::for_each(child_begin(), child_end(), [&](auto child){
-    result.push_back(child->getHeader()->getMBB());
+    result.push_back(child->getHeader());
   });
   return result;
 }

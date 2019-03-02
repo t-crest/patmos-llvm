@@ -805,7 +805,8 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
                 << S->getHeader()->getMBB()->getNumber() << "]\n");
 
   auto blocks = S->getFcfgBlocks();
-  std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
+  std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
+    auto MBB = pMBB->getMBB();
     auto opDI = S->getDefInfo(MBB);
 
     // procede to next if this does not define any predicates

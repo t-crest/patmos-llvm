@@ -154,7 +154,7 @@ namespace llvm {
       /// Returns the MBBs that are either exclusively contained in this scope,
       /// or are header of this scope's subscopes.
       /// Unlike getBlocksTopoOrd(), this is not sorted.
-      std::vector<MachineBasicBlock*> getFcfgBlocks() const;
+      std::vector<PredicatedBlock*> getFcfgBlocks() const;
 
       /// Dump state of this scope and its subscopes recursively
       void dump(raw_ostream&) const;
