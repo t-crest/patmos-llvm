@@ -137,7 +137,7 @@ namespace {
     /// @param e the definition edge (NB if Node is not a subloop, then
     ///          the source of the edge and Node are equal, otherwise the
     ///          the edge is an exit edge of he subloop)
-    void insertDefEdge(SPScope *S, MachineBasicBlock &Node,
+    void insertDefEdge(SPScope *S, PredicatedBlock &block,
                        unsigned pred, const SPScope::Edge e);
 
     /// insertDefToStackLoc - insert a predicate definition to a predicate
@@ -819,25 +819,25 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
         di != de; ++di) {
       DEBUG(dbgs() << di->first << " ");
       // Scope, (local) Node, predicate number, edge
-      insertDefEdge(S, *MBB, di->first, std::make_pair(di->second.first->getMBB(), di->second.second->getMBB()));
+      insertDefEdge(S, *pMBB, di->first, std::make_pair(di->second.first->getMBB(), di->second.second->getMBB()));
     }
     DEBUG(dbgs() << "\n");
 
   });
 }
 
-void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
+void PatmosSPReduce::insertDefEdge(SPScope *S, PredicatedBlock &block,
                                    unsigned pred, const SPScope::Edge e) {
 
   // if Node is not a subheader, then it must be the source of the edge
-  assert(S->isSubHeader(&Node) || (e.first == &Node));
+  assert(S->isSubHeader(&block) || (e.first == block.getMBB()));
 
   // the MBB we need to insert the defining instruction is the edge source
   MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(e.first);
 
   RAInfo &R = RAInfos.at(S); // local scope of definitions
   // inner scope
-  RAInfo &RI = !S->isSubHeader(&Node) ? R
+  RAInfo &RI = !S->isSubHeader(&block) ? R
                                       : RAInfos.at(PSPI->getScopeFor(SrcMBB));
 
 
@@ -852,20 +852,20 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, MachineBasicBlock &Node,
   std::tie(type, loc) = R.getDefLoc(pred);
 
   if (type == RAInfo::Register) {
-    if (!S->isSubHeader(&Node) || (!RI.needsScopeSpill())) {
+    if (!S->isSubHeader(&block) || (!RI.needsScopeSpill())) {
       // TODO proper condition to avoid writing to the stack slot
       // -> the chain of scopes from outer to inner should not contain any
       // spilling requirements (RAInfo.needsScopeSpill)
 
       // FIXME assumes direct parent-child relationship, if nested
-      assert(!S->isSubHeader(&Node) || (RI.Scope->getParent() == S));
+      assert(!S->isSubHeader(&block) || (RI.Scope->getParent() == S));
 
       // The definition location of the predicate is a physical register.
       insertDefToRegLoc(
           *SrcMBB, loc, use_preg, Cond,
           R.Scope->hasMultDefEdges(pred),
-          R.isFirstDef(&Node, pred),         // isFirstDef
-          S->isSubHeader(&Node)              // isExitEdgeDef
+          R.isFirstDef(block.getMBB(), pred),         // isFirstDef
+          S->isSubHeader(&block)              // isExitEdgeDef
           );
     } else {
       // assert(there exists an inner R s.t. R.needsScopeSpill());

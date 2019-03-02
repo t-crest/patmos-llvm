@@ -109,7 +109,7 @@ namespace llvm {
       /// Returns whether the specified MBB is the header of an
       /// immediate subscope of this scope.
       /// I.e. it only checks one-level down the subscopes.
-      bool isSubHeader(const MachineBasicBlock *MBB) const;
+      bool isSubHeader(const PredicatedBlock *block) const;
 
       /// Returns whether the loop represented by the scope has a loop bound.
       /// The top-level scope never has a loop bound, since it only represents the

@@ -244,10 +244,10 @@ public:
 
     FCFG fcfg(Pub.getHeader()->getMBB());
 
-    for(auto pMBB: fcfgBlocks){
-      auto MBB = pMBB->getMBB();
+    for(auto block: fcfgBlocks){
+      auto MBB = block->getMBB();
       std::set<Edge> outedges;
-      if (Pub.isSubHeader(MBB)) {
+      if (Pub.isSubHeader(block)) {
         const SPScope *subloop = get(Pub.findMBBScope(MBB));
         outedges = subloop->Priv->getOutEdges();
       } else {
@@ -644,14 +644,17 @@ bool SPScope::isHeader(const PredicatedBlock *block) const {
   return getHeader() == block;
 }
 
-bool SPScope::isSubHeader(const MachineBasicBlock *MBB) const {
+bool SPScope::isSubHeader(const PredicatedBlock *block) const {
   return std::any_of(child_begin(), child_end(), [&](auto child){
-    auto b = child->Priv->getPredicated(MBB);
+    // A subscopes header uses a different PredicatedBlock,
+    // that the parent uses for the same MBB
+    auto b = child->Priv->getPredicated(block->getMBB());
     if(b.is_initialized()){
       return child->isHeader(get(b));
     }else{
       return false;
     }
+
   });
 }
 
@@ -668,14 +671,14 @@ const std::set<const PredicatedBlock *> SPScope::getSuccMBBs() const {
 void SPScope::walk(SPScopeWalker &walker) {
   walker.enterSubscope(this);
   auto blocks = getBlocksTopoOrd();
-  std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
-    auto MBB = pMBB->getMBB();
-    if (isSubHeader(MBB)) {
+  for(auto block: blocks){
+    auto MBB = block->getMBB();
+    if (isSubHeader(block)) {
       get(findMBBScope(MBB))->walk(walker);
     } else {
       walker.nextMBB(MBB);
     }
-  });
+  }
   walker.exitSubscope(this);
 }
 
