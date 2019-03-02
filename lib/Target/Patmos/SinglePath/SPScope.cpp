@@ -13,7 +13,6 @@
 #include "PatmosSinglePathInfo.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/CodeGen/MachineFunction.h"
-#include "PredicatedBlock.h"
 
 using namespace llvm;
 
@@ -239,14 +238,13 @@ public:
     auto fcfgBlocks = Pub.getScopeBlocks();
     std::set<const MachineBasicBlock *> succBlocks(++fcfgBlocks.begin(), fcfgBlocks.end());
     std::for_each(Pub.child_begin(), Pub.child_end(), [&](auto child){
-      fcfgBlocks.push_back(child->getHeader());
-      succBlocks.insert(child->getHeader());
+      fcfgBlocks.push_back(child->getHeader()->getMBB());
+      succBlocks.insert(child->getHeader()->getMBB());
     });
 
-    FCFG fcfg(Pub.getHeader());
+    FCFG fcfg(Pub.getHeader()->getMBB());
 
     std::for_each(fcfgBlocks.begin(), fcfgBlocks.end(), [&](auto MBB){
-//      std::vector<Edge> outedges;
       std::set<Edge> outedges;
       if (Pub.isSubHeader(MBB)) {
         const SPScope *subloop = get(Pub.findMBBScope(MBB));
@@ -267,7 +265,7 @@ public:
           Node &ns = fcfg.getNodeFor(succ);
           n.connect(ns, edge);
         } else {
-          if (succ != Pub.getHeader()) {
+          if (succ != Pub.getHeader()->getMBB()) {
             // record exit edges
             fcfg.toexit(n, edge);
           } else {
@@ -306,6 +304,7 @@ public:
       int p = 0;
       auto blocks = Pub.getBlocksTopoOrd();
       std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
+//        auto MBB = pMBB->getMBB();
         CD_map_entry_t t = CD.at(MBB);
         int q=-1;
         // try to lookup the control dependence
@@ -361,8 +360,8 @@ public:
       for(auto subscope_iter = Pub.child_begin(), end = Pub.child_end(); subscope_iter != end; ++subscope_iter)
       {
         auto subscope = *subscope_iter;
-        auto block = PredicatedBlock(subscope->getHeader());
-        block.setPredicate(mbbPreds[subscope->getHeader()]);
+        auto block = PredicatedBlock(subscope->getHeader()->getMBB());
+        block.setPredicate(mbbPreds[subscope->getHeader()->getMBB()]);
         SubHeaderPredicates.push_back(block);
       }
 
@@ -375,7 +374,7 @@ public:
           Edge e  = EI->second;
           if (n == &fcfg.nentry) {
             // Pseudo edge (from start node)
-            assert(e.second == Pub.getHeader());
+            assert(e.second == Pub.getHeader()->getMBB());
             continue;
           }
 
@@ -407,7 +406,7 @@ public:
       if (!e) continue;
       // we found an exit edge
       Edge dual = getDual(*e);
-      _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()), dual, *it, CD);
+      _walkpdt(&fcfg.nentry, &fcfg.getNodeFor(Pub.getHeader()->getMBB()), dual, *it, CD);
     }
 
     DEBUG_TRACE({
@@ -429,7 +428,7 @@ public:
   }
 
   void dumpfcfg(FCFG &fcfg){
-    dbgs() << "==========\nFCFG [BB#" << Pub.getHeader()->getNumber() << "]\n";
+    dbgs() << "==========\nFCFG [BB#" << Pub.getHeader()->getMBB()->getNumber() << "]\n";
 
     for (df_iterator<FCFG*> I = df_begin(&fcfg), E = df_end(&fcfg);
         I != E; ++I) {
@@ -463,7 +462,7 @@ public:
   bool fcfgContainsMbb(const MachineBasicBlock *mbb)
   {
     return std::any_of(Blocks.begin(), Blocks.end(), [&](auto MBB){return MBB.getMBB() == mbb;}) ||
-        std::any_of(Pub.child_begin(), Pub.child_end(), [&](auto child){ return child->getHeader() == mbb;});
+        std::any_of(Pub.child_begin(), Pub.child_end(), [&](auto child){ return child->getHeader()->getMBB() == mbb;});
   }
 
   void computePredInfos(void) {
@@ -562,16 +561,6 @@ public:
       }
     }
 
-    for(auto subscope: Subscopes){
-      auto subexits = subscope->Priv->getOutEdges();
-      for(auto edge: subexits)
-      {
-        if(std::none_of(Blocks.begin(), Blocks.end(), [&](auto pb){ return pb.getMBB() == edge.second;}))
-        {
-          outs.insert(edge);
-        }
-      }
-    }
     return outs;
   }
 };
@@ -622,7 +611,7 @@ SPScope::~SPScope() {
 }
 
 bool SPScope::isHeader(const MachineBasicBlock *MBB) const {
-  return getHeader() == MBB;
+  return getHeader()->getMBB() == MBB;
 }
 
 bool SPScope::isSubHeader(const MachineBasicBlock *MBB) const {
@@ -645,6 +634,7 @@ void SPScope::walk(SPScopeWalker &walker) {
   walker.enterSubscope(this);
   auto blocks = getBlocksTopoOrd();
   std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
+//    auto MBB = pMBB->getMBB();
     if (isSubHeader(MBB)) {
       get(findMBBScope(MBB))->walk(walker);
     } else {
@@ -708,8 +698,8 @@ unsigned SPScope::getPredUse(const MachineBasicBlock *MBB) const {
   } else {
     errs()  << "Cannot find Predicate for MachineBasicBlock '" << MBB
             << "'(BasicBlock '" << MBB->getBasicBlock()->getName()
-            << "') in the scope with header '" << getHeader()
-            << "'(BasicBlock '" << getHeader()->getBasicBlock()->getName()
+            << "') in the scope with header '" << getHeader()->getMBB()
+            << "'(BasicBlock '" << getHeader()->getMBB()->getBasicBlock()->getName()
             << "').\n";
     abort();
     return 0; // Unreachable, removed warning about missing return value.
@@ -745,7 +735,7 @@ bool SPScope::hasLoopBound() const { return Priv->LoopBound.is_initialized(); }
 
 boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound; }
 
-MachineBasicBlock *SPScope::getHeader() const { return Priv->Blocks.front().getMBB(); }
+PredicatedBlock *SPScope::getHeader() const { return &Priv->Blocks.front(); }
 
 std::vector<MachineBasicBlock*> SPScope::getScopeBlocks() const
 {
@@ -766,7 +756,7 @@ std::vector<MachineBasicBlock*> SPScope::getBlocksTopoOrd() const
   for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
       I != E; ++I) {
     MachineBasicBlock *MBB = const_cast<MachineBasicBlock*>((*I)->MBB);
-    if (MBB) PO.push_back(MBB);
+    if (MBB)PO.push_back(MBB);
   }
   std::reverse(PO.begin(), PO.end());
   return PO;
@@ -783,7 +773,7 @@ std::vector<MachineBasicBlock*> SPScope::getFcfgBlocks() const
 {
   auto result = getScopeBlocks();
   std::for_each(child_begin(), child_end(), [&](auto child){
-    result.push_back(child->getHeader());
+    result.push_back(child->getHeader()->getMBB());
   });
   return result;
 }

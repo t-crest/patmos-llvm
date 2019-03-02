@@ -139,7 +139,7 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
     unsigned preds = S->getNumPredicates();
     unsigned d = S->getDepth();
 
-    DEBUG( dbgs() << "[MBB#" << S->getHeader()->getNumber()
+    DEBUG( dbgs() << "[MBB#" << S->getHeader()->getMBB()->getNumber()
                   << "]: d=" << d << ", " << preds << "\n");
 
     // keep track of the maximum required number of predicates for each SPScope

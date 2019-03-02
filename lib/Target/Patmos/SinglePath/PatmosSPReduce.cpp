@@ -744,7 +744,7 @@ void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,
 
 void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
   DEBUG( dbgs() << " Insert StackLoc Initializations in [MBB#"
-                << S->getHeader()->getNumber() << "]\n");
+                << S->getHeader()->getMBB()->getNumber() << "]\n");
 
   // register allocation information
   RAInfo &R = RAInfos.at(S);
@@ -770,7 +770,7 @@ void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
   DEBUG(dbgs() << "\n");
 
   // Clear stack locations according to masks, at the beginning of the header
-  MachineBasicBlock *MBB = S->getHeader();
+  MachineBasicBlock *MBB = S->getHeader()->getMBB();
   MachineBasicBlock::iterator MI = MBB->begin();
   if (S->isTopLevel()) {
     // skip frame setup
@@ -802,7 +802,7 @@ void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
 
 void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
   DEBUG( dbgs() << " Insert Predicate Definitions in [MBB#"
-                << S->getHeader()->getNumber() << "]\n");
+                << S->getHeader()->getMBB()->getNumber() << "]\n");
 
   auto blocks = S->getFcfgBlocks();
   std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
@@ -1067,7 +1067,7 @@ void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
 
 void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
   DEBUG( dbgs() << " Applying predicates in [MBB#"
-                << S->getHeader()->getNumber() << "]\n");
+                << S->getHeader()->getMBB()->getNumber() << "]\n");
 
   const RAInfo &R = RAInfos.at(S);
 
@@ -1490,7 +1490,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
 
   const SPScope *SParent = S->getParent();
 
-  const MachineBasicBlock *HeaderMBB = S->getHeader();
+  const MachineBasicBlock *HeaderMBB = S->getHeader()->getMBB();
 
   const RAInfo &RI = Pass.RAInfos.at(S),
                &RP = Pass.RAInfos.at(SParent);
@@ -1632,7 +1632,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
 
 void LinearizeWalker::exitSubscope(SPScope *S) {
 
-  MachineBasicBlock *HeaderMBB = S->getHeader();
+  MachineBasicBlock *HeaderMBB = S->getHeader()->getMBB();
   DEBUG_TRACE( dbgs() << "ScopeRange [MBB#" <<  HeaderMBB->getNumber()
                 <<  ", MBB#" <<  LastMBB->getNumber() << "]\n" );
 

@@ -269,7 +269,7 @@ public:
   void createLiveRanges(void) {
     // create live range infomation for each predicate
     DEBUG(dbgs() << " Create live-ranges for [MBB#"
-                 << Pub.Scope->getHeader()->getNumber() << "]\n");
+                 << Pub.Scope->getHeader()->getMBB()->getNumber() << "]\n");
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
@@ -298,7 +298,7 @@ public:
 
   void assignLocations(void) {
     DEBUG(dbgs() << " Assign locations for [MBB#"
-                 << Pub.Scope->getHeader()->getNumber() << "]\n");
+                 << Pub.Scope->getHeader()->getMBB()->getNumber() << "]\n");
     SPNumPredicates += Pub.Scope->getNumPredicates(); // STATISTIC
 
     set<Location> FreeLocs;
@@ -356,7 +356,7 @@ public:
     // Code for loading the predicate is placed before the back-branch,
     // generated in LinearizeWalker::exitSubscope().
     if (!Pub.Scope->isTopLevel()) {
-      UseLoc &ul = UseLocs.at(Pub.Scope->getHeader());
+      UseLoc &ul = UseLocs.at(Pub.Scope->getHeader()->getMBB());
       map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(0);
       assert(findCurUseLoc != curLocs.end());
       if (ul.loc != findCurUseLoc->second.getLoc()) {
@@ -452,7 +452,7 @@ private:
     // for the top-level entry of a single-path root,
     // we don't need to assign a location, as we will use p0
     if (!(usePred == 0 && Pub.Scope->isRootTopLevel())) {
-      assert(MBB == Pub.Scope->getHeader() || i > 0);
+      assert(MBB == Pub.Scope->getHeader()->getMBB() || i > 0);
 
       assert(!UseLocs.count(MBB));
       UseLocs.insert(make_pair(MBB,
@@ -622,7 +622,7 @@ unsigned RAInfo::neededSpillLocs(){
 }
 
 void RAInfo::dump() const {
-  dbgs() << "[MBB#"     << Scope->getHeader()->getNumber()
+  dbgs() << "[MBB#"     << Scope->getHeader()->getMBB()->getNumber()
          <<  "] depth=" << Scope->getDepth() << "\n";
 
   for(unsigned i=0; i<Priv->LRs.size(); i++) {

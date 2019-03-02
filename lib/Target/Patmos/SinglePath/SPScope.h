@@ -28,6 +28,7 @@
 #include "llvm/Support/Debug.h"
 #include "boost/optional.hpp"
 #include "spimpl.h"
+#include "PredicatedBlock.h"
 
 // define for more detailed debugging output
 #define PATMOS_SINGLEPATH_TRACE
@@ -83,7 +84,7 @@ namespace llvm {
       const SPScope *getParent() const;
 
       /// Returns the header MBB of this scope.
-      MachineBasicBlock *getHeader() const;
+      PredicatedBlock *getHeader() const;
 
       /// Returns all the MBBs that succeed the loop represented by this scope.
       /// I.e. all the MBBs that control may branch after exiting the loop.
