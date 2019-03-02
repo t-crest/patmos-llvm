@@ -168,15 +168,17 @@ TEST(PredicatedBlockTest, AddExitTest){
   EXPECT_CALL(mockMBB1, succ_end()).WillRepeatedly(Return(succs+2));
 
   PredicatedBlock b1(&mockMBB1);
+  PredicatedBlock b2(&mockMBB2);
+  PredicatedBlock b3(&mockMBB3);
 
-  b1.addExitTarget(&mockMBB2);
-  b1.addExitTarget(&mockMBB3);
+  b1.addExitTarget(&b2);
+  b1.addExitTarget(&b3);
 
   auto exits = b1.getExitTargets();
 
   EXPECT_THAT(exits, UnorderedElementsAreArray({
-      &mockMBB2,
-      &mockMBB3
+      &b2,
+      &b3
     }));
 }
 

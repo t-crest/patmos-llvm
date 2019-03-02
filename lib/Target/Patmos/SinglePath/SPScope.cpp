@@ -555,7 +555,7 @@ public:
       auto exits = b.getExitTargets();
       for(auto t: exits)
       {
-        outs.insert(std::make_pair(b.getMBB(),t));
+        outs.insert(std::make_pair(b.getMBB(),t->getMBB()));
       }
     }
 
@@ -567,6 +567,17 @@ public:
     Subscopes.push_back(subscope);
     SubHeaderPredicates.push_back(PredicatedBlock(subscope->getHeader()->getMBB()));
   }
+
+  boost::optional<PredicatedBlock*> getPredicatedParent(const MachineBasicBlock *mbb)
+  {
+    if(Parent){
+      auto pb = Parent->Priv->getPredicatedFcfg(mbb);
+      return pb.is_initialized() ?
+          pb :
+          Parent->Priv->getPredicatedParent(mbb);
+    }
+    return boost::none;
+  }
 };
 
 SPScope::SPScope(bool isRootFunc, MachineFunction &MF, MachineLoopInfo &LI)
@@ -576,7 +587,7 @@ SPScope::SPScope(bool isRootFunc, MachineFunction &MF, MachineLoopInfo &LI)
 SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, MachineLoopInfo &LI)
   : Priv(spimpl::make_unique_impl<Impl>(this, parent, parent->Priv->RootFunc, &loop, loop.getHeader(), MF, LI))
 {
-
+  parent->Priv->addSubscope(this);
   assert(parent);
   MachineBasicBlock *header = loop.getHeader();
 
@@ -587,7 +598,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
   std::for_each(ExitEdges.begin(), ExitEdges.end(), [&](auto edge){
     for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
       if(iter->getMBB() == edge.first){
-        iter->addExitTarget(edge.second);
+        iter->addExitTarget(get(Priv->getPredicatedParent(edge.second)));
         return;
       }
     }
@@ -602,8 +613,6 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
       break;
     }
   }
-
-  parent->Priv->addSubscope(this);
 }
 
 /// free the child scopes first, cleanup

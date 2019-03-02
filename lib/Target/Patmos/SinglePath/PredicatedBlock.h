@@ -106,14 +106,14 @@ namespace llvm {
       Definitions.push_back(std::make_pair(pred, b));
     }
 
-    std::vector<const MachineBasicBlock*> getExitTargets() const
+    std::vector<const PredicatedBlock*> getExitTargets() const
     {
-      return std::vector<const MachineBasicBlock*>(ExitTargets.begin(), ExitTargets.end());
+      return std::vector<const PredicatedBlock*>(ExitTargets.begin(), ExitTargets.end());
     }
 
-    void addExitTarget(const MachineBasicBlock *block)
+    void addExitTarget(const PredicatedBlock *block)
     {
-      assert(std::find(MBB.succ_begin(), MBB.succ_end(), block) != MBB.succ_end());
+      assert(std::find_if(MBB.succ_begin(), MBB.succ_end(), [&](auto o){return o == block->getMBB();}) != MBB.succ_end());
       ExitTargets.push_back(block);
     }
 
@@ -131,7 +131,7 @@ namespace llvm {
     /// to predicate some of its instructions.
     std::vector<std::pair<unsigned, const MachineBasicBlock*>> Definitions;
 
-    std::vector<const MachineBasicBlock*> ExitTargets;
+    std::vector<const PredicatedBlock*> ExitTargets;
   };
 
   /// Untemplated version of _PredicatedBlock. To be used by non-test code.
