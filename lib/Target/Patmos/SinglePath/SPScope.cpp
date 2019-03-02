@@ -773,9 +773,9 @@ unsigned SPScope::getNumberOfFcfgBlocks() const
 std::vector<PredicatedBlock*> SPScope::getFcfgBlocks() const
 {
   auto result = getScopeBlocks();
-  std::for_each(child_begin(), child_end(), [&](auto child){
-    result.push_back(child->getHeader());
-  });
+  for(auto iter = Priv->SubHeaderPredicates.begin(), end = Priv->SubHeaderPredicates.end(); iter != end; iter++){
+    result.push_back(&(*iter));
+  }
   return result;
 }
 
