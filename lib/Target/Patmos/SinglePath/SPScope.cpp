@@ -236,15 +236,16 @@ public:
   FCFG buildfcfg(void) {
 
     auto fcfgBlocks = Pub.getScopeBlocks();
-    std::set<const MachineBasicBlock *> succBlocks(++fcfgBlocks.begin(), fcfgBlocks.end());
+    std::set<const PredicatedBlock *> succBlocks(++fcfgBlocks.begin(), fcfgBlocks.end());
     std::for_each(Pub.child_begin(), Pub.child_end(), [&](auto child){
-      fcfgBlocks.push_back(child->getHeader()->getMBB());
-      succBlocks.insert(child->getHeader()->getMBB());
+      fcfgBlocks.push_back(child->getHeader());
+      succBlocks.insert(child->getHeader());
     });
 
     FCFG fcfg(Pub.getHeader()->getMBB());
 
-    std::for_each(fcfgBlocks.begin(), fcfgBlocks.end(), [&](auto MBB){
+    for(auto pMBB: fcfgBlocks){
+      auto MBB = pMBB->getMBB();
       std::set<Edge> outedges;
       if (Pub.isSubHeader(MBB)) {
         const SPScope *subloop = get(Pub.findMBBScope(MBB));
@@ -258,10 +259,10 @@ public:
       }
 
       Node &n = fcfg.getNodeFor(MBB);
-      std::for_each(outedges.begin(), outedges.end(), [&](auto edge){
+      for(auto edge : outedges){
         auto succ = edge.second;
         // if succ is one of the fcfg blocks except the scope header.
-        if (succBlocks.count(succ)) {
+        if (std::find_if(succBlocks.begin(), succBlocks.end(), [&](auto pMBB){ return pMBB->getMBB() == succ;}) != succBlocks.end()) {
           Node &ns = fcfg.getNodeFor(succ);
           n.connect(ns, edge);
         } else {
@@ -273,14 +274,14 @@ public:
             fcfg.toexit(n);
           }
         }
-      });
+      }
 
       // special case: top-level loop has no exit/backedge
       if (outedges.empty()) {
         //assert(Pub.isTopLevel());
         fcfg.toexit(n);
       }
-    });
+    }
     return fcfg;
   }
 
@@ -737,12 +738,12 @@ boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound
 
 PredicatedBlock *SPScope::getHeader() const { return &Priv->Blocks.front(); }
 
-std::vector<MachineBasicBlock*> SPScope::getScopeBlocks() const
+std::vector<PredicatedBlock*> SPScope::getScopeBlocks() const
 {
-  std::vector<MachineBasicBlock*> result;
-  for(auto block: Priv->Blocks)
+  std::vector<PredicatedBlock*> result;
+  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++)
   {
-    result.push_back(block.getMBB());
+    result.push_back(&(*iter));
   }
 
   return result;
@@ -771,7 +772,11 @@ unsigned SPScope::getNumberOfFcfgBlocks() const
 
 std::vector<MachineBasicBlock*> SPScope::getFcfgBlocks() const
 {
-  auto result = getScopeBlocks();
+  auto blocks = getScopeBlocks();
+  std::vector<MachineBasicBlock*> result;
+  for(auto b: blocks){
+    result.push_back(b->getMBB());
+  }
   std::for_each(child_begin(), child_end(), [&](auto child){
     result.push_back(child->getHeader()->getMBB());
   });

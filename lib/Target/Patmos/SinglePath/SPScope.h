@@ -149,7 +149,7 @@ namespace llvm {
       unsigned getNumberOfFcfgBlocks() const;
 
       /// Returns the MBBs that are exclusively contained in this scope.
-      std::vector<MachineBasicBlock*> getScopeBlocks() const;
+      std::vector<PredicatedBlock*> getScopeBlocks() const;
 
       /// Returns the MBBs that are either exclusively contained in this scope,
       /// or are header of this scope's subscopes.

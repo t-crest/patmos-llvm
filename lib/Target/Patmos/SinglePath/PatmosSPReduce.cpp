@@ -1075,8 +1075,8 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
   // of predicates not in registers.
 
   auto blocks = S->getScopeBlocks();
-  std::for_each(blocks.begin(), blocks.end(), [&](auto MBB){
-
+  std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
+    auto MBB = pMBB->getMBB();
     unsigned use_preg = getUsePReg(R, MBB, true);
 
 
