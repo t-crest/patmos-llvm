@@ -39,9 +39,8 @@ STATISTIC( NoSpillScopes,
 /// There is one more position that there are blocks, so the last position
 /// is not associated with any block.
 /// At any location, the predicate can be used and/or defined.
-/// TODO:(Emad) what does it mean that a predicate is 'defined' at a position?
-/// TODO:(Emad) can it be 'defined' in more than one position ?
-///             i think so, see SPScope::PredDefInfo
+/// Defining a predicate at a location means it gets its runtime value there,
+/// i.e. whether it is true or false.
 class LiveRange {
 friend class RAInfo;
 private:

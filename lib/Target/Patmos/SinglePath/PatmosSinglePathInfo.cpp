@@ -190,8 +190,8 @@ void PatmosSinglePathInfo::checkIrreducibility(MachineFunction &MF) const {
 }
 
 SPScope *
-PatmosSinglePathInfo::getScopeFor(const MachineBasicBlock *MBB) const {
-  boost::optional<SPScope*> found = Root->findMBBScope(MBB);
+PatmosSinglePathInfo::getScopeFor(const PredicatedBlock *block) const {
+  boost::optional<SPScope*> found = Root->findMBBScope(block);
   return (found.is_initialized())?
     boost::get(found) :
     NULL;

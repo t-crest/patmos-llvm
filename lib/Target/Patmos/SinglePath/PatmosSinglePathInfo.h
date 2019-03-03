@@ -114,7 +114,7 @@ namespace llvm {
       SPScope *getRootScope() const { return Root; }
 
       /// getScopeFor - Return the innermost scope of an MBB
-      SPScope *getScopeFor(const MachineBasicBlock *MBB) const;
+      SPScope *getScopeFor(const PredicatedBlock *MBB) const;
 
       /// walkRoot - Walk the top-level SPScope
       void walkRoot(SPScopeWalker &walker) const;

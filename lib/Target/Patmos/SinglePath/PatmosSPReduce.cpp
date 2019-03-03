@@ -137,7 +137,7 @@ namespace {
     ///          the source of the edge and Node are equal, otherwise the
     ///          the edge is an exit edge of he subloop)
     void insertDefEdge(SPScope *S, PredicatedBlock &block,
-                       unsigned pred, const SPScope::Edge e);
+                       unsigned pred, std::pair<const PredicatedBlock*, const PredicatedBlock*> e);
 
     /// insertDefToStackLoc - insert a predicate definition to a predicate
     /// which is located on a stack spill location
@@ -812,7 +812,7 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
       auto pred = def.first;
       auto defBlock = def.second;
       DEBUG(dbgs() << pred << " ");
-      insertDefEdge(S, *block, pred, std::make_pair(block->getMBB(), defBlock->getMBB()));
+      insertDefEdge(S, *block, pred, std::make_pair(block, defBlock));
     }
     DEBUG(dbgs() << "\n");
 
@@ -820,22 +820,23 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 }
 
 void PatmosSPReduce::insertDefEdge(SPScope *S, PredicatedBlock &block,
-                                   unsigned pred, const SPScope::Edge e) {
+     unsigned pred, std::pair<const PredicatedBlock*, const PredicatedBlock*> e)
+{
 
   // if Node is not a subheader, then it must be the source of the edge
-  assert(S->isSubHeader(&block) || (e.first == block.getMBB()));
+  assert(S->isSubHeader(&block) || (e.first == &block));
 
   // the MBB we need to insert the defining instruction is the edge source
-  MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(e.first);
+  MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(e.first->getMBB());
 
   RAInfo &R = RAInfos.at(S); // local scope of definitions
   // inner scope
   RAInfo &RI = !S->isSubHeader(&block) ? R
-                                      : RAInfos.at(PSPI->getScopeFor(SrcMBB));
+                                      : RAInfos.at(PSPI->getScopeFor(e.first));
 
 
   SmallVector<MachineOperand, 2> Cond;
-  getEdgeCondition(e, Cond);
+  getEdgeCondition(std::make_pair(e.first->getMBB(), e.second->getMBB()), Cond);
 
   // get the guard register for the source block
   unsigned use_preg = getUsePReg(RI, SrcMBB, true);

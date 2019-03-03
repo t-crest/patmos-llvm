@@ -248,7 +248,9 @@ public:
       auto MBB = block->getMBB();
       std::set<Edge> outedges;
       if (Pub.isSubHeader(block)) {
-        const SPScope *subloop = get(Pub.findMBBScope(MBB));
+        auto subscopeOp = Pub.findMBBScope(block);
+        assert(subscopeOp.is_initialized());
+        const SPScope *subloop = get(subscopeOp);
         outedges = subloop->Priv->getOutEdges();
       } else {
         // simple block
@@ -580,12 +582,16 @@ public:
     return outs;
   }
 
+  /// Add the given scope as a subscope of this scope.
   void addSubscope(SPScope *subscope)
   {
     Subscopes.push_back(subscope);
     SubHeaderPredicates.push_back(PredicatedBlock(subscope->getHeader()->getMBB()));
   }
 
+  /// Searches for the given block's PredicatedBlock recursively in the parent of
+  /// this scope.
+  /// Returns none of no block was found in any ancestor.
   boost::optional<PredicatedBlock*> getPredicatedParent(const MachineBasicBlock *mbb)
   {
     if(Parent){
@@ -674,7 +680,9 @@ void SPScope::walk(SPScopeWalker &walker) {
   for(auto block: blocks){
     auto MBB = block->getMBB();
     if (isSubHeader(block)) {
-      get(findMBBScope(MBB))->walk(walker);
+      auto opt = findMBBScope(block);
+      assert(opt.is_initialized());
+      get(opt)->walk(walker);
     } else {
       walker.nextMBB(MBB);
     }
@@ -784,8 +792,9 @@ SPScope::child_iterator SPScope::child_begin() const { return Priv->Subscopes.be
 
 SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(); }
 
-boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb) const
+boost::optional<SPScope*> SPScope::findMBBScope(const PredicatedBlock *block) const
 {
+  auto mbb = block->getMBB();
   if(std::any_of(Priv->Blocks.begin(), Priv->Blocks.end(),
       [&](auto PB){return PB.getMBB() == mbb;})
   ){
@@ -793,7 +802,7 @@ boost::optional<SPScope*> SPScope::findMBBScope(const MachineBasicBlock *mbb) co
   }else{
     for(auto subscope = Priv->Subscopes.begin(), end = Priv->Subscopes.end();
           subscope != end; ++subscope){
-      auto inSubscope = (*subscope)->findMBBScope(mbb);
+      auto inSubscope = (*subscope)->findMBBScope(block);
       if(inSubscope.is_initialized()){
         return inSubscope;
       }
