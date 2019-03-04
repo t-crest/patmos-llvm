@@ -187,7 +187,7 @@ public:
 
   // The definition location of each predicate.
   // Given the predicate x, its definition is DefLocs[x].
-  vector<optional<Location>> DefLocs;
+  std::map<unsigned, Location> DefLocs;
 
   // The total number of predicate locations used by this instance.
   unsigned NumLocs;
@@ -227,8 +227,7 @@ public:
   bool NeedsScopeSpill;
 
   Impl(RAInfo *pub, SPScope *S, unsigned availRegs):
-    Pub(*pub), MaxRegs(availRegs),
-    DefLocs(S->getNumPredicates(),none), NumLocs(0), ChildrenMaxCumLocs(0),
+    Pub(*pub), MaxRegs(availRegs), NumLocs(0), ChildrenMaxCumLocs(0),
     FirstUsableReg(0), FirstUsableStackSlot(0),NeedsScopeSpill(true)
   {
     createLiveRanges();
@@ -346,10 +345,11 @@ public:
           }else{
             findCurUseLoc->second = l;
           }
-          DefLocs[pred] = make_optional(l);
-          assert(curLocs.find(pred)->second.getLoc() == get(DefLocs[pred]).getLoc());
+          assert(DefLocs.find(pred) == DefLocs.end());
+          DefLocs.insert(std::make_pair(pred, l));
+          assert(curLocs.find(pred)->second.getLoc() == DefLocs.at(pred).getLoc());
           DEBUG( dbgs() << "def " << pred << " in loc "
-                        << get(DefLocs[pred]).getLoc() << ", ");
+                        << DefLocs.at(pred).getLoc() << ", ");
         }
       }
       DEBUG(dbgs() << "\n");
@@ -437,7 +437,8 @@ private:
     // we get a loc for the header predicate
     Location loc = getAvailLoc(FreeLocs);
     UseLoc UL(loc.getLoc());
-    DefLocs[0] = make_optional(loc);
+    assert(DefLocs.find(0) == DefLocs.end());
+    DefLocs.insert(std::make_pair(0,loc));
     map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
     if(curLoc0 == curLocs.end()){
       curLocs.insert(make_pair(0, loc));
@@ -527,7 +528,8 @@ private:
       } else {
         // if it has not been used, we change the initial
         // definition location
-        DefLocs[furthestPred] = make_optional(stackLoc);
+        assert(DefLocs.find(furthestPred) == DefLocs.end());
+        DefLocs.insert(std::make_pair(furthestPred, stackLoc));
       }
       curUseLoc = findFurthest->second;
       findFurthest->second = stackLoc;
@@ -607,9 +609,9 @@ optional<unsigned> RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
 }
 
 tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
-  optional<Location> locOpt = Priv->DefLocs[pred];
-  assert(locOpt.is_initialized());
-  Location loc = get(locOpt);
+  auto pair = Priv->DefLocs.find(pred);
+  assert(pair != Priv->DefLocs.end());
+  Location loc = pair->second;
   if( loc.getType() == RAInfo::Register){
     return make_tuple(loc.getType(), Priv->unifyRegister(loc.getLoc()));
   }else{
@@ -656,13 +658,8 @@ void RAInfo::dump() const {
   }
 
   dbgs() << "  DefLocs:     ";
-  for (unsigned j=0; j<Priv->DefLocs.size(); j++) {
-    dbgs() << " p" << j << "=";
-    if( Priv->DefLocs[j].is_initialized() ) {
-      dbgs() << "optional(" << get(Priv->DefLocs[j]) << ")";
-    }else{
-      dbgs() << "none";
-    }
+  for(auto pair: Priv->DefLocs){
+    dbgs() << " p" << pair.first << "=" << pair.second << ", ";
   }
   dbgs() << "\n";
 
