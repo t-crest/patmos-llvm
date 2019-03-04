@@ -36,7 +36,7 @@ STATISTIC( NoSpillScopes,
 /// basic block in the scope being described. The first position in the
 /// range matches the header block in the scope. The rest of the blocks
 /// are indexed in topological ordering.
-/// There is one more position that there are blocks, so the last position
+/// There is one more position than there are blocks, so the last position
 /// is not associated with any block.
 /// At any location, the predicate can be used and/or defined.
 /// Defining a predicate at a location means it gets its runtime value there,
@@ -64,9 +64,9 @@ public:
   void addDef(long pos) { defs.set(pos); }
 
   /// Constructs a new live range for a scope.
-  /// the number of points in the range is 1 more than the number of blocks.
-  LiveRange(SPScope *S){
-    int range = S->getNumberOfFcfgBlocks()+1;
+  /// Must be given the number of FCFG blocks in the scope.
+  LiveRange(unsigned range){
+    range++; // We use 1 extra position that is not associated with a block
     uses = BitVector(range);
     defs = BitVector(range);
   }
@@ -129,7 +129,7 @@ public:
 
 // A class defining a predicate location in memory.
 // A location is either a register or a stack spill slot, i.e. the 'type'.
-// The 'idx' field specifies the index of the register or stack spill slot
+// The 'loc' field specifies the index of the register or stack spill slot
 // used by this location.
 // E.g. Location{Register, 1} specifies that this location is the second
 // register, while Location{Stack, 3} specifies this location is the
@@ -183,7 +183,7 @@ public:
 
   // The live ranges of predicates.
   // Given a predicate x, then its live range is LRs[x]
-  vector<LiveRange> LRs;
+  std::map<unsigned, LiveRange> LRs;
 
   // The definition location of each predicate.
   // Given the predicate x, its definition is DefLocs[x].
@@ -227,7 +227,7 @@ public:
   bool NeedsScopeSpill;
 
   Impl(RAInfo *pub, SPScope *S, unsigned availRegs):
-    Pub(*pub), MaxRegs(availRegs), LRs(S->getNumPredicates(), LiveRange(S)),
+    Pub(*pub), MaxRegs(availRegs),
     DefLocs(S->getNumPredicates(),none), NumLocs(0), ChildrenMaxCumLocs(0),
     FirstUsableReg(0), FirstUsableStackSlot(0),NeedsScopeSpill(true)
   {
@@ -266,19 +266,30 @@ public:
   unsigned getCumLocs(void) const { return NumLocs + ChildrenMaxCumLocs; }
 
   void createLiveRanges(void) {
-    // create live range infomation for each predicate
+
+    auto
+    getOrCreateLRFor = [&](unsigned predicate){
+      if(LRs.find(predicate) == LRs.end()){
+        LRs.insert(std::make_pair(predicate, LiveRange(Pub.Scope->getNumberOfFcfgBlocks())));
+      }
+      assert(LRs.find(predicate) != LRs.end());
+      return &LRs.at(predicate);
+    };
+
+    // create live range information for each predicate
     DEBUG(dbgs() << " Create live-ranges for [MBB#"
                  << Pub.Scope->getHeader()->getMBB()->getNumber() << "]\n");
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
       auto block = blocks[i];
+      auto pred = *block->getBlockPredicates().begin();
       // insert use
-      LRs[*block->getBlockPredicates().begin()].addUse(i);
+      getOrCreateLRFor(pred)->addUse(i);
 
       // insert defs
       for(auto def: block->getDefinitions()){
-        LRs[def.first].addDef(i); // TODO:(Emad) why don't we check that the edge hits the block?
+        getOrCreateLRFor(def.first)->addDef(i); // TODO:(Emad) why don't we check that the edge hits the block?
       }
     }
     // add a use for header predicate
@@ -286,7 +297,7 @@ public:
     // TODO:(Emad) of the loop, therefore we say that the last block also uses P0? i.e. connecting
     // TODO:(Emad) the loop end with the start?
     if (!Pub.Scope->isTopLevel()) {
-      LRs[0].addUse(blocks.size());
+      getOrCreateLRFor(0)->addUse(blocks.size());
     }
   }
 
@@ -456,7 +467,7 @@ private:
       ));
 
       // (2) retire locations
-      if (LRs[usePred].lastUse(i)) {
+      if (LRs.at(usePred).lastUse(i)) {
         DEBUG(dbgs() << "retire. ");
     	  map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
         assert(findCurUseLoc != curLocs.end());
@@ -490,11 +501,11 @@ private:
       // spill and reassign
       // order predicates wrt furthest next use
       vector<unsigned> order;
-      for (unsigned j = 0; j < LRs.size(); j++) {
-        // consider all physical registers in use
-        map<unsigned, Location>::iterator cj = curLocs.find(j);
+      for(auto pair: LRs){
+        auto pred = pair.first;
+        map<unsigned, Location>::iterator cj = curLocs.find(pred);
         if (cj != curLocs.end() && cj->second.getType() == Register) {
-          order.push_back(j);
+          order.push_back(pred);
         }
       }
       sortFurthestNextUse(blockIndex, order);
@@ -511,7 +522,7 @@ private:
       UL.load = make_optional(curUseLoc.getLoc());
 
       // differentiate between already used and not yet used
-      if (LRs[furthestPred].anyUseBefore(blockIndex)) {
+      if (LRs.at(furthestPred).anyUseBefore(blockIndex)) {
         UL.spill = make_optional(stackLoc.getLoc());
       } else {
         // if it has not been used, we change the initial
@@ -528,7 +539,7 @@ private:
   /// furthest next use from the given MBB position.
   void sortFurthestNextUse(unsigned pos, vector<unsigned>& order) {
     sort(order.begin(), order.end(), [this, pos](int a, int b){
-      return LRs[a].hasNextUseBefore(pos, LRs[b]);
+      return LRs.at(a).hasNextUseBefore(pos, LRs.at(b));
     });
   }
 };
@@ -552,7 +563,7 @@ bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
   auto blocks = Scope->getBlocksTopoOrd();
   for(unsigned i=0; i< blocks.size(); i++) {
     if (blocks[i]->getMBB() == MBB) {
-      return !Priv->LRs[pred].hasDefBefore(i);
+      return !Priv->LRs.at(pred).hasDefBefore(i);
     }
   }
   return false;
@@ -618,9 +629,8 @@ void RAInfo::dump() const {
   dbgs() << "[MBB#"     << Scope->getHeader()->getMBB()->getNumber()
          <<  "] depth=" << Scope->getDepth() << "\n";
 
-  for(unsigned i=0; i<Priv->LRs.size(); i++) {
-    const LiveRange &LR = Priv->LRs[i];
-    dbgs() << "  LR(p" << i << ") = [" << LR.str() << "]\n";
+  for(auto pair: Priv->LRs){
+    dbgs() << "  LR(p" << pair.first << ") = [" << pair.second.str() << "]\n";
   }
 
   auto blocks = Scope->getBlocksTopoOrd();
