@@ -301,89 +301,91 @@ public:
   }
 
   void decompose(CD_map_t &CD, FCFG &fcfg) {
-      MBBPredicates_t mbbPreds;
-      std::vector<CD_map_entry_t> K;
+    MBBPredicates_t mbbPreds;
+    std::map<unsigned, CD_map_entry_t> K;
 
-      int p = 0;
-      auto blocks = Pub.getBlocksTopoOrd();
-      std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
-        auto MBB = pMBB->getMBB();
-        CD_map_entry_t t = CD.at(MBB);
-        int q=-1;
-        // try to lookup the control dependence
-        for (unsigned int i=0; i<K.size(); i++) {
-            if ( t == K[i] ) {
-              q = i;
-              break;
-            }
-        }
+    int p = 0;
 
-        if (q != -1) {
-          // we already have handled this dependence
-          mbbPreds[MBB] = q;
-        } else {
-          // new dependence set:
-          K.push_back(t);
-          mbbPreds[MBB] = p++;
-        }
-      }); // end for each MBB
-
-      DEBUG_TRACE({
-        // dump R, K
-        dbgs() << "Decomposed CD:\n";
-        dbgs().indent(2) << "map R: MBB -> pN\n";
-        for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
-          dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p"
-                           << RI->second << "\n";
-        }
-        dbgs().indent(2) << "map K: pN -> t \\in CD\n";
-        for (unsigned long i = 0; i < K.size(); i++) {
-          dbgs().indent(4) << "K(p" << i << ") -> {";
-          for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
-                EI!=EE; ++EI) {
-            Node *n = EI->first;
-            Edge e  = EI->second;
-            fcfg.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1)
-                               << "," << e.second->getNumber() << "), ";
+    auto blocks = Pub.getBlocksTopoOrd();
+    std::for_each(blocks.begin(), blocks.end(), [&](auto pMBB){
+      auto MBB = pMBB->getMBB();
+      CD_map_entry_t t = CD.at(MBB);
+      int q=-1;
+      // try to lookup the control dependence
+      for (auto pair: K) {
+          if ( t == pair.second ) {
+            q = pair.first;
+            break;
           }
-          dbgs() << "}\n";
-        }
-      });
-
-      // Properly assign the Uses/Defs
-      PredCount = K.size();
-      // Assign each block's predicate
-      for(auto iter = Blocks.begin(), end = Blocks.end(); iter != end; ++iter)
-      {
-        auto b = &*iter;
-        b->setPredicate(mbbPreds[b->getMBB()]);
       }
 
-      // Assign subHeader's predicates
-      for(auto iter = SubHeaderPredicates.begin(), end = SubHeaderPredicates.end(); iter != end; ++iter)
-      {
-        iter->setPredicate(mbbPreds[iter->getMBB()]);
+      if (q != -1) {
+        // we already have handled this dependence
+        mbbPreds[MBB] = q;
+      } else {
+        // new dependence set:
+        K.insert(make_pair(p, t));
+        mbbPreds[MBB] = p++;
       }
+    }); // end for each MBB
 
-      // For each predicate, compute defs
-      for (unsigned int i=0; i<K.size(); i++) {
-        // for each definition edge
+    DEBUG_TRACE({
+      // dump R, K
+      dbgs() << "Decomposed CD:\n";
+      dbgs().indent(2) << "map R: MBB -> pN\n";
+      for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
+        dbgs().indent(4) << "R(" << RI->first->getNumber() << ") = p"
+                         << RI->second << "\n";
+      }
+      dbgs().indent(2) << "map K: pN -> t \\in CD\n";
+      for (unsigned long i = 0; i < K.size(); i++) {
+        dbgs().indent(4) << "K(p" << i << ") -> {";
         for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
-                  EI!=EE; ++EI) {
+              EI!=EE; ++EI) {
           Node *n = EI->first;
           Edge e  = EI->second;
-          if (n == &fcfg.nentry) {
-            // Pseudo edge (from start node)
-            assert(e.second == Pub.getHeader()->getMBB());
-            continue;
-          }
-
-          // insert definition edge for predicate i
-          auto pBlock = getPredicatedFcfg(n->MBB);
-          assert(pBlock.is_initialized());
-          get(pBlock)->addDefinition(i, get(getPredicatedFcfg(e.second)));
-        } // end for each definition edge
+          fcfg.printNode(*n) << "(" << ((e.first) ? e.first->getNumber() : -1)
+                             << "," << e.second->getNumber() << "), ";
+        }
+        dbgs() << "}\n";
       }
+    });
+
+    // Properly assign the Uses/Defs
+    PredCount = K.size();
+    // Assign each block's predicate
+    for(auto iter = Blocks.begin(), end = Blocks.end(); iter != end; ++iter)
+    {
+      auto b = &*iter;
+      b->setPredicate(mbbPreds[b->getMBB()]);
+    }
+
+    // Assign subHeader's predicates
+    for(auto iter = SubHeaderPredicates.begin(), end = SubHeaderPredicates.end(); iter != end; ++iter)
+    {
+      iter->setPredicate(mbbPreds[iter->getMBB()]);
+    }
+
+    // For each predicate, compute defs
+    for (auto pair: K) {
+      auto map_entry = pair.second;
+      // for each definition edge
+      for (CD_map_entry_t::iterator EI=map_entry.begin(), EE=map_entry.end();
+                EI!=EE; ++EI) {
+        Node *n = EI->first;
+        Edge e  = EI->second;
+        if (n == &fcfg.nentry) {
+          // Pseudo edge (from start node)
+          assert(e.second == Pub.getHeader()->getMBB());
+          continue;
+        }
+
+        // insert definition edge for predicate i
+        auto pBlock = getPredicatedFcfg(n->MBB);
+        assert(pBlock.is_initialized());
+        get(pBlock)->addDefinition(pair.first, get(getPredicatedFcfg(e.second)));
+      } // end for each definition edge
+    }
     }
 
   CD_map_t ctrldep(FCFG &fcfg){
