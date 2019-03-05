@@ -172,10 +172,7 @@ namespace llvm {
       /// The tree needs to be destroyed by the client, by deleting the top-level scope.
       static SPScope * createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI);
 
-      /// Returns the subheader of this scope that tracks the same MBB as the given block.
-      /// Assumes that there exists such a block, otherwise has undefined behavior.
-      PredicatedBlock* getSubheaderEquivalentTo(const PredicatedBlock* block) const;
-
+      /// Returns all the predicates use by the blocks in this scope. (including subheaders)
       std::set<unsigned> getAllPredicates() const;
 
     private:

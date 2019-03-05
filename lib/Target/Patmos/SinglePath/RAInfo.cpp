@@ -345,8 +345,11 @@ public:
           }else{
             findCurUseLoc->second = l;
           }
-          assert(DefLocs.find(pred) == DefLocs.end());
-          DefLocs.insert(std::make_pair(pred, l));
+          if(DefLocs.find(pred) == DefLocs.end()){
+            DefLocs.insert(std::make_pair(pred, l));
+          }else{
+            DefLocs.find(pred)->second = l;
+          }
           assert(curLocs.find(pred)->second.getLoc() == DefLocs.at(pred).getLoc());
           DEBUG( dbgs() << "def " << pred << " in loc "
                         << DefLocs.at(pred).getLoc() << ", ");

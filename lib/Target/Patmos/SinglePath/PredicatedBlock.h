@@ -72,7 +72,12 @@ namespace llvm {
         os << "(" << pair.first << "," << pair.second << "), ";
       }
       os <<"}\n";
-
+      os.indent(indent + 2) << "Definitions:{";
+      for(auto t: Definitions)
+      {
+        os << "(" << t.first << ", " << t.second << "), ";
+      }
+      os <<"}\n";
       os.indent(indent + 2) << "ExitTargets:{";
       for(auto t: ExitTargets)
       {
@@ -97,7 +102,7 @@ namespace llvm {
       return result;
     }
 
-    /// Add a predicate definition to this block, paired with the blockt that uses
+    /// Add a predicate definition to this block, paired with the block that uses
     /// that predicate.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.

@@ -50,7 +50,6 @@
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-//#include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -756,6 +755,7 @@ void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
     if(pred == *S->getHeader()->getBlockPredicates().begin()) continue;
     RAInfo::LocType type; unsigned stloc;
     std::tie(type, stloc) = R.getDefLoc(pred);
+
     if (type == RAInfo::Stack) {
       int fi; unsigned bitpos;
       getStackLocPair(fi, bitpos, stloc);
@@ -804,7 +804,7 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
   DEBUG( dbgs() << " Insert Predicate Definitions in [MBB#"
                 << S->getHeader()->getMBB()->getNumber() << "]\n");
 
-  auto blocks = S->getFcfgBlocks();
+  auto blocks = S->getScopeBlocks();
   for(auto block: blocks){
     DEBUG(dbgs() << " - MBB#" << block->getMBB()->getNumber() << ": ");
 
@@ -1474,7 +1474,6 @@ void LinearizeWalker::nextMBB(MachineBasicBlock *MBB) {
   LastMBB = MBB;
 }
 
-
 void LinearizeWalker::enterSubscope(SPScope *S) {
 
   // We don't create a preheader for entry.
@@ -1528,70 +1527,6 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
       InsertedInstrs++; // STATISTIC
     }
   }
-
-  // Insert initialization code in the preheader for predicates that are
-  // defined in a register location by exit-edges of the entered subscope.
-  // The subscope is represented by the header.
-  // NB: We need to do this after copying the header predicate, as the
-  //     predicate might retire, be reused for exit edge defs and the
-  //     initialization code would clear the header predicate before ever
-  //     used in the subloop
-  auto definitions = SParent->getSubheaderEquivalentTo(headerBlock)->getDefinitions();
-  if (!definitions.empty()) {
-    DEBUG(dbgs() << "  (reg loc first defined in subscope: ");
-
-    std::vector<unsigned> defregs;
-    // for each definition edge
-    for(auto def: definitions){
-      auto pred = def.first;
-      unsigned loc; RAInfo::LocType type;
-      std::tie(type, loc) = RP .getDefLoc(pred);
-
-      if (type == RAInfo::Register) {
-        // We only need initialisation code if
-        // it is defined in the subscope as first definition
-        if (RP.isFirstDef(HeaderMBB, pred)) {
-          unsigned reg = Pass.AvailPredRegs[loc];
-          defregs.push_back(reg);
-          DEBUG(dbgs() << Pass.TRI->getName(reg) << ", ");
-        }
-      }
-    }
-    DEBUG(dbgs() << ")\n");
-
-    // insert the instructions
-    if (RI.needsScopeSpill()) {
-      uint32_t mask = 0;
-      for (unsigned i = 0; i < defregs.size(); i++) {
-        mask |= (1 << Pass.TRI->getS0Index(defregs[i]));
-      }
-      assert(isUInt<12>(mask));
-
-      int fi = Pass.PMFI->getSinglePathS0SpillFI(S->getDepth() - 1);
-      // load from stack slot
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-            Pass.TII->get(Patmos::LBC), Pass.GuardsReg))
-        .addFrameIndex(fi).addImm(0); // address
-      // mask out the initialization bits
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-          Pass.TII->get(Patmos::ANDl), Pass.GuardsReg))
-      .addReg(Pass.GuardsReg)
-      .addImm(~mask);
-      // store back to stack slot
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-            Pass.TII->get(Patmos::SBC)))
-        .addFrameIndex(fi).addImm(0) // address
-        .addReg(Pass.GuardsReg, RegState::Kill);
-      InsertedInstrs += 3; // STATISTIC
-    } else {
-      for (unsigned i = 0; i < defregs.size(); i++) {
-        AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-              Pass.TII->get(Patmos::PCLR), defregs[i]));
-        InsertedInstrs++; // STATISTIC
-      }
-    }
-  } // end if (DI)
-
 
   // Initialize the loop bound and store it to the stack slot
   if (S->hasLoopBound()) {
