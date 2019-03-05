@@ -313,10 +313,10 @@ public:
       int q=-1;
       // try to lookup the control dependence
       for (auto pair: K) {
-          if ( t == pair.second ) {
-            q = pair.first;
-            break;
-          }
+        if ( t == pair.second ) {
+          q = pair.first;
+          break;
+        }
       }
 
       if (q != -1) {
@@ -338,9 +338,9 @@ public:
                          << RI->second << "\n";
       }
       dbgs().indent(2) << "map K: pN -> t \\in CD\n";
-      for (unsigned long i = 0; i < K.size(); i++) {
-        dbgs().indent(4) << "K(p" << i << ") -> {";
-        for (CD_map_entry_t::iterator EI=K[i].begin(), EE=K[i].end();
+      for (auto pair: K) {
+        dbgs().indent(4) << "K(p" << pair.first << ") -> {";
+        for (CD_map_entry_t::iterator EI=pair.second.begin(), EE=pair.second.end();
               EI!=EE; ++EI) {
           Node *n = EI->first;
           Edge e  = EI->second;
@@ -386,7 +386,7 @@ public:
         get(pBlock)->addDefinition(pair.first, get(getPredicatedFcfg(e.second)));
       } // end for each definition edge
     }
-    }
+  }
 
   CD_map_t ctrldep(FCFG &fcfg){
     CD_map_t CD;
@@ -693,7 +693,9 @@ void SPScope::walk(SPScopeWalker &walker) {
 }
 
 static void printUDInfo(raw_ostream& os, const PredicatedBlock *block) {
-  os << "  u=" << *block->getBlockPredicates().begin();
+  os << "  u={";
+  for(auto pred: block->getBlockPredicates()) os << pred << ", ";
+  os << "}";
   auto defs = block->getDefinitions();
   if (!defs.empty()) {
     os << " d=";
@@ -861,3 +863,14 @@ PredicatedBlock* SPScope::getSubheaderEquivalentTo(const PredicatedBlock* block)
   return get(Priv->getPredicatedFrom(block->getMBB(), &Priv->SubHeaderPredicates));
 }
 
+std::set<unsigned> SPScope::getAllPredicates() const
+{
+  std::set<unsigned> result;
+
+  for(auto block: getFcfgBlocks()){
+    auto preds = block->getBlockPredicates();
+    result.insert(preds.begin(), preds.end());
+  }
+
+  return result;
+}

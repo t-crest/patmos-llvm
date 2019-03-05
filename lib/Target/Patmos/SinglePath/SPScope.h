@@ -176,6 +176,8 @@ namespace llvm {
       /// Assumes that there exists such a block, otherwise has undefined behavior.
       PredicatedBlock* getSubheaderEquivalentTo(const PredicatedBlock* block) const;
 
+      std::set<unsigned> getAllPredicates() const;
+
     private:
       class Impl;
       /// We use the PIMPL pattern to implement the private

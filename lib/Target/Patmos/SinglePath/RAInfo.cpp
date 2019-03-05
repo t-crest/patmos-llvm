@@ -296,7 +296,7 @@ public:
     // TODO:(Emad) of the loop, therefore we say that the last block also uses P0? i.e. connecting
     // TODO:(Emad) the loop end with the start?
     if (!Pub.Scope->isTopLevel()) {
-      getOrCreateLRFor(0)->addUse(blocks.size());
+      getOrCreateLRFor(getHeaderPred())->addUse(blocks.size());
     }
   }
 
@@ -362,7 +362,7 @@ public:
     // generated in LinearizeWalker::exitSubscope().
     if (!Pub.Scope->isTopLevel()) {
       UseLoc &ul = UseLocs.at(Pub.Scope->getHeader()->getMBB());
-      map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(0);
+      map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(getHeaderPred());
       assert(findCurUseLoc != curLocs.end());
       if (ul.loc != findCurUseLoc->second.getLoc()) {
         ul.load = make_optional(findCurUseLoc->second.getLoc());
@@ -413,7 +413,7 @@ public:
   void unifyWithChild(const RAInfo::Impl &child){
     ChildrenMaxCumLocs = max(child.getCumLocs(), ChildrenMaxCumLocs);
   }
-private:
+
   UseLoc calculateNotHeaderUseLoc(unsigned blockIndex, unsigned usePred,
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs)
   {
@@ -437,11 +437,12 @@ private:
     // we get a loc for the header predicate
     Location loc = getAvailLoc(FreeLocs);
     UseLoc UL(loc.getLoc());
-    assert(DefLocs.find(0) == DefLocs.end());
-    DefLocs.insert(std::make_pair(0,loc));
-    map<unsigned, Location>::iterator curLoc0 = curLocs.find(0);
+    auto headerPred = getHeaderPred();
+    assert(DefLocs.find(headerPred) == DefLocs.end());
+    DefLocs.insert(std::make_pair(headerPred,loc));
+    map<unsigned, Location>::iterator curLoc0 = curLocs.find(headerPred);
     if(curLoc0 == curLocs.end()){
-      curLocs.insert(make_pair(0, loc));
+      curLocs.insert(make_pair(headerPred, loc));
     }else{
       curLoc0->second = loc;
     }
@@ -453,11 +454,10 @@ private:
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
 
     unsigned usePred = *block->getBlockPredicates().begin();
-
     // TODO:(Emad) handle multiple predicates.
     // for the top-level entry of a single-path root,
     // we don't need to assign a location, as we will use p0
-    if (!(usePred == 0 && Pub.Scope->isRootTopLevel())) {
+    if (!(usePred == getHeaderPred() && Pub.Scope->isRootTopLevel())) {
       assert(block == Pub.Scope->getHeader() || i > 0);
 
       assert(!UseLocs.count(block->getMBB()));
@@ -543,6 +543,10 @@ private:
     sort(order.begin(), order.end(), [this, pos](int a, int b){
       return LRs.at(a).hasNextUseBefore(pos, LRs.at(b));
     });
+  }
+
+  unsigned getHeaderPred(){
+    return *Pub.Scope->getHeader()->getBlockPredicates().begin();
   }
 };
 

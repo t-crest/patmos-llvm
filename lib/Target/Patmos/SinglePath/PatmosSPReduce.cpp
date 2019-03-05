@@ -751,8 +751,9 @@ void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
   // Create the masks
   std::map<int, uint32_t> masks;
   DEBUG(dbgs() << "  - Stack Loc: " );
-  // 0 is the header predicate, which we never need to clear
-  for (unsigned pred = 1; pred < S->getNumPredicates(); pred++) {
+  for(auto pred: S->getAllPredicates()){
+    // We don't clear the header predicate
+    if(pred == *S->getHeader()->getBlockPredicates().begin()) continue;
     RAInfo::LocType type; unsigned stloc;
     std::tie(type, stloc) = R.getDefLoc(pred);
     if (type == RAInfo::Stack) {
