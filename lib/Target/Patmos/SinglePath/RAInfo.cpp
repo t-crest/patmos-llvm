@@ -559,9 +559,6 @@ bool RAInfo::needsScopeSpill(void) const {
 }
 
 bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
-  // header predicate
-  if (pred == 0) return false;
-
   auto blocks = Scope->getBlocksTopoOrd();
   for(unsigned i=0; i< blocks.size(); i++) {
     if (blocks[i]->getMBB() == MBB) {
