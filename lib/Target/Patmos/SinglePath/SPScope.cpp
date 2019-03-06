@@ -51,6 +51,7 @@ class Node {
     std::map<Node *, SPScope::Edge> outedges;
 };
 
+/// represents the Forward Control-Flow Graph (FCFG) of a SPScope.
 class FCFG {
   public:
     explicit FCFG(const MachineBasicBlock *header) {
@@ -196,7 +197,7 @@ public:
   // Whether this scope is part of a root single-path function
   const bool RootFunc;
 
-  /// The MBBs that are exclusively contained in this scope.
+  /// The blocks that are exclusively contained in this scope.
   /// The header of the scope is always the first element.
   std::vector<PredicatedBlock> Blocks;
 
@@ -225,22 +226,23 @@ public:
 
 //Functions
 
+  /// Returns the FCFG of this scope.
   FCFG buildfcfg(void) {
 
     auto fcfgBlocks = Pub.getScopeBlocks();
     std::set<const PredicatedBlock *> succBlocks(++fcfgBlocks.begin(), fcfgBlocks.end());
-    std::for_each(Pub.child_begin(), Pub.child_end(), [&](auto child){
-      fcfgBlocks.push_back(child->getHeader());
-      succBlocks.insert(child->getHeader());
-    });
+    for(auto subscope: Subscopes){
+      fcfgBlocks.push_back(subscope->getHeader());
+      succBlocks.insert(subscope->getHeader());
+    }
 
     FCFG fcfg(Pub.getHeader()->getMBB());
 
     for(auto block: fcfgBlocks){
       auto MBB = block->getMBB();
       std::set<Edge> outedges;
-      if (Pub.isSubHeader(block)) {
-        auto subscopeOp = Pub.findMBBScope(block);
+      if (Pub.isSubheader(block)) {
+        auto subscopeOp = Pub.findScopeOf(block);
         assert(subscopeOp.is_initialized());
         const SPScope *subloop = get(subscopeOp);
         outedges = subloop->Priv->getOutEdges();
@@ -651,7 +653,7 @@ bool SPScope::isHeader(const PredicatedBlock *block) const {
   return getHeader() == block;
 }
 
-bool SPScope::isSubHeader(const PredicatedBlock *block) const {
+bool SPScope::isSubheader(const PredicatedBlock *block) const {
   return std::any_of(child_begin(), child_end(), [&](auto child){
     // A subscopes header uses a different PredicatedBlock,
     // that the parent uses for the same MBB
@@ -665,7 +667,7 @@ bool SPScope::isSubHeader(const PredicatedBlock *block) const {
   });
 }
 
-const std::set<const PredicatedBlock *> SPScope::getSuccMBBs() const {
+const std::set<const PredicatedBlock *> SPScope::getSucceedingBlocks() const {
   std::set<const PredicatedBlock *> succMBBs;
   auto outEdges = Priv->getPredicatedOutEdges();
   for(auto edge: outEdges)
@@ -680,8 +682,8 @@ void SPScope::walk(SPScopeWalker &walker) {
   auto blocks = getBlocksTopoOrd();
   for(auto block: blocks){
     auto MBB = block->getMBB();
-    if (isSubHeader(block)) {
-      auto opt = findMBBScope(block);
+    if (isSubheader(block)) {
+      auto opt = findScopeOf(block);
       assert(opt.is_initialized());
       get(opt)->walk(walker);
     } else {
@@ -707,7 +709,7 @@ static void printUDInfo(raw_ostream& os, const PredicatedBlock *block) {
 
 void SPScope::dump(raw_ostream& os) const {
   os.indent(2*getDepth()) <<  "[BB#" << Priv->Blocks.front().getMBB()->getNumber() << ":" << Priv->Blocks.front().getMBB() <<"]";
-  auto succs = getSuccMBBs();
+  auto succs = getSucceedingBlocks();
   if (!Priv->Parent) {
     os << " (top)";
     assert(succs.empty());
@@ -777,8 +779,8 @@ std::vector<PredicatedBlock*> SPScope::getBlocksTopoOrd() const
 
 unsigned SPScope::getNumberOfFcfgBlocks() const
 {
-  return getScopeBlocks().size()
-      // Each subscope has 1 header, so just count supscopes
+  return Priv->Blocks.size()
+      // Each subscope has 1 header, so just count subscopes
       + Priv->Subscopes.size();
 }
 
@@ -794,23 +796,25 @@ SPScope::child_iterator SPScope::child_begin() const { return Priv->Subscopes.be
 
 SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(); }
 
-boost::optional<SPScope*> SPScope::findMBBScope(const PredicatedBlock *block) const
+boost::optional<SPScope*> SPScope::findScopeOf(const PredicatedBlock *block) const
 {
-  auto mbb = block->getMBB();
-  if(std::any_of(Priv->Blocks.begin(), Priv->Blocks.end(),
-      [&](auto PB){return PB.getMBB() == mbb;})
-  ){
-    return boost::make_optional((SPScope*)this);
-  }else{
-    for(auto subscope = Priv->Subscopes.begin(), end = Priv->Subscopes.end();
-          subscope != end; ++subscope){
-      auto inSubscope = (*subscope)->findMBBScope(block);
-      if(inSubscope.is_initialized()){
-        return inSubscope;
-      }
+  // Look in this scope's blocks
+  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; ++iter){
+    if(block == &(*iter)){
+      return boost::make_optional((SPScope*)this);
     }
-    return boost::none;
   }
+
+  // Otherwise, look through the subscopes
+  for(auto subscope: Priv->Subscopes){
+    auto inSubscope = subscope->findScopeOf(block);
+    if(inSubscope.is_initialized()){
+      return inSubscope;
+    }
+  }
+
+  // Not found
+  return boost::none;
 }
 
 unsigned SPScope::getDepth() const { return (Priv->Parent == NULL)? 0 : Priv->Parent->getDepth() + 1; }

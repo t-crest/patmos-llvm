@@ -45,14 +45,11 @@ namespace llvm {
 
   /// Represents a single-path scope as a tree structure where each scope may have subscopes.
   /// The root scope represents the body of a function, while each subscope represents a loop
-  /// in that function. Nested loops are therefore subscopes of the scopes representing the outer
+  /// in that function. Nested loops are therefore subscopes of the scope representing the outer
   /// loop.
   /// Each scope tracks the basic blocks in it and has a header block, which is the entry block
-  /// of the loop. Each block is only tracked by deepest scope it is in. The exception is header
-  /// blocks, where a parent scope will keep track of the headers of its subscopes. Such blocks
-  /// are called subheaders. The headers are also tracked by their loop. Therefore, there
-  /// are 2 PredicatedBlocks for each MBB which is header of a loop: One in the parent scope
-  /// and one in the subscope.
+  /// of the loop. Each block is only tracked by deepest scope it is in.
+  /// For a scope, its subheaders are all the headers of its subscopes.
   ///
   class SPScope {
 
@@ -96,7 +93,7 @@ namespace llvm {
 
       /// Returns all the blocks that succeed the loop represented by this scope.
       /// I.e. all the blocks that control may branch to after exiting the loop.
-      const std::set<const PredicatedBlock *> getSuccMBBs() const;
+      const std::set<const PredicatedBlock *> getSucceedingBlocks() const;
 
       /// Returns the nesting depth of the SPScope.
       /// The top-level scope has depth 0.
@@ -108,14 +105,16 @@ namespace llvm {
       bool isTopLevel() const;
 
       /// Returns whether the scope is the Top-Level scope of a root SP function.
-      bool isRootTopLevel() const ;
+      /// A root SP function has been flag as an SP function, while a non-root
+      /// is one which is called by another SP function (root or not).
+      bool isRootTopLevel() const;
 
-      /// isHeader - Returns true if the given block is the header of this SPScope.
+      /// Returns true if the given block is the header of this scope.
       bool isHeader(const PredicatedBlock *MBB) const;
 
-      /// Returns whether the given block is the header of an immediate subscope of this scope.
-      /// I.e. it only checks one-level down the subscopes.
-      bool isSubHeader(const PredicatedBlock *block) const;
+      /// Returns whether the given block is the header of a subscope of this scope.
+      /// I.e. it only checks one-level down.
+      bool isSubheader(const PredicatedBlock *block) const;
 
       /// Returns whether the loop represented by the scope has a loop bound.
       /// The top-level scope never has a loop bound, since it only represents the
@@ -129,29 +128,25 @@ namespace llvm {
       /// Walk this SPScope recursively
       void walk(SPScopeWalker &walker);
 
-      /// Returns the number of predicates required for this scope.
+      /// Returns the number of unique predicates used by the blocks in this scope.
       unsigned getNumPredicates() const;
 
-      /// Returns whether the the predicate has multiple definitions
+      /// Returns whether the given predicate is defined by more than one block in this scope.
       bool hasMultDefEdges(unsigned pred) const;
 
-      /// Returns the blocks that are either exclusively contained in this scope,
-      /// or are headers of this scope's subscopes (subheaders).
+      /// Returns the blocks that are in this scope and all the subheaders of the scope.
       /// It is sorted in topological order.
-      /// The subheaders are given as seen from this scope.
       std::vector<PredicatedBlock*> getBlocksTopoOrd() const;
 
-      /// Returns the number of blocks that are part of this scope,
-      /// including the headers of the scope's subscopes.
+      /// Returns the number of blocks that are in this scope and
+      /// are subheaders of the scope.
       unsigned getNumberOfFcfgBlocks() const;
 
-      /// Returns the blocks that are exclusively contained in this scope.
+      /// Returns this scope's blocks.
       std::vector<PredicatedBlock*> getScopeBlocks() const;
 
-      /// Returns the blocks that are either exclusively contained in this scope,
-      /// or are header of this scope's subscopes  (subheaders).
-      /// Unlike getBlocksTopoOrd(), this is not sorted.
-      /// The subheaders are given as seen from this scope.
+      /// Returns the blocks that are this scope or are subheaders of it.
+      /// This is not sorted.
       std::vector<PredicatedBlock*> getFcfgBlocks() const;
 
       /// Dump state of this scope and its subscopes recursively
@@ -166,7 +161,7 @@ namespace llvm {
       /// Returns the deepest scope, starting from this scope, containing
       /// the MBB represented by the given block.
       /// If the MBB is not part of any scope, none is returned.
-      boost::optional<SPScope*> findMBBScope(const PredicatedBlock *) const;
+      boost::optional<SPScope*> findScopeOf(const PredicatedBlock *) const;
 
       /// Create an SPScope tree, return the top-level scope.
       /// The tree needs to be destroyed by the client, by deleting the top-level scope.

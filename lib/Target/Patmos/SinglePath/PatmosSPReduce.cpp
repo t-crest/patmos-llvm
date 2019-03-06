@@ -825,14 +825,14 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, PredicatedBlock &block,
 {
 
   // if Node is not a subheader, then it must be the source of the edge
-  assert(S->isSubHeader(&block) || (e.first == &block));
+  assert(S->isSubheader(&block) || (e.first == &block));
 
   // the MBB we need to insert the defining instruction is the edge source
   MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(e.first->getMBB());
 
   RAInfo &R = RAInfos.at(S); // local scope of definitions
   // inner scope
-  RAInfo &RI = !S->isSubHeader(&block) ? R
+  RAInfo &RI = !S->isSubheader(&block) ? R
                                       : RAInfos.at(PSPI->getScopeFor(e.first));
 
 
@@ -847,20 +847,20 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, PredicatedBlock &block,
   std::tie(type, loc) = R.getDefLoc(pred);
 
   if (type == RAInfo::Register) {
-    if (!S->isSubHeader(&block) || (!RI.needsScopeSpill())) {
+    if (!S->isSubheader(&block) || (!RI.needsScopeSpill())) {
       // TODO proper condition to avoid writing to the stack slot
       // -> the chain of scopes from outer to inner should not contain any
       // spilling requirements (RAInfo.needsScopeSpill)
 
       // FIXME assumes direct parent-child relationship, if nested
-      assert(!S->isSubHeader(&block) || (RI.Scope->getParent() == S));
+      assert(!S->isSubheader(&block) || (RI.Scope->getParent() == S));
 
       // The definition location of the predicate is a physical register.
       insertDefToRegLoc(
           *SrcMBB, loc, use_preg, Cond,
           R.Scope->hasMultDefEdges(pred),
           R.isFirstDef(block.getMBB(), pred),         // isFirstDef
-          S->isSubHeader(&block)              // isExitEdgeDef
+          S->isSubheader(&block)              // isExitEdgeDef
           );
     } else {
       // assert(there exists an inner R s.t. R.needsScopeSpill());
@@ -1433,7 +1433,7 @@ void PatmosSPReduce::eliminateFrameIndices(MachineFunction &MF) {
 void PatmosSPReduce::getLoopLiveOutPRegs(const SPScope *S,
                                          std::vector<unsigned> &pregs) const {
 
-  auto SuccMBBs = S->getSuccMBBs();
+  auto SuccMBBs = S->getSucceedingBlocks();
 
   pregs.clear();
   for(auto succ: SuccMBBs) {
