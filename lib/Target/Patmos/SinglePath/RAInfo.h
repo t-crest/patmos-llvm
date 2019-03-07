@@ -57,18 +57,18 @@ public:
 
   /// Get the use location, which is a register location,
   /// for the given MBB. If the MBB is not mapped to a register location the empty
-  /// option is returned.
-  std::set<unsigned> getUseLocs(const MachineBasicBlock *MBB) const;
+  /// option is returned. Pred -> Location
+  std::map<unsigned, unsigned> getUseLocs(const MachineBasicBlock *MBB) const;
 
   /// Get the load location, which is a spill location,
   /// for the given MBB. Returns the empty option if the predicate does not need to be
-  /// loaded from a spill slot.
-  std::set<unsigned> getLoadLocs(const MachineBasicBlock *MBB) const;
+  /// loaded from a spill slot. Pred -> Location
+  std::map<unsigned, unsigned> getLoadLocs(const MachineBasicBlock *MBB) const;
 
   /// Get the spill location, i.e. the location where the use
   /// register has to be spilled first, for the given MBB.
   /// Returns the empty option if it does not need to be spilled.
-  std::set<unsigned> getSpillLocs(const MachineBasicBlock *MBB) const;
+  std::map<unsigned, unsigned> getSpillLocs(const MachineBasicBlock *MBB) const;
 
   /// Returns the definition location for the given predicate.
   /// The first element is the type of the location (Register/Stack).

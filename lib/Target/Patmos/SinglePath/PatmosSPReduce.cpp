@@ -1187,7 +1187,7 @@ unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
                                     bool getP0) {
   auto uls =  R.getUseLocs(MBB);
   if (!uls.empty()) {
-    unsigned loc = *uls.begin();
+    unsigned loc = uls.begin()->second;
     assert(loc < AvailPredRegs.size());
     return AvailPredRegs[loc];
   }
@@ -1223,7 +1223,7 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
 
     // insert spill code
     if (!spillLocs.empty()) {
-      unsigned spill = *spillLocs.begin();
+      unsigned spill = spillLocs.begin()->second;
       int fi; unsigned bitpos;
       getStackLocPair(fi, bitpos, spill);
       // load from stack slot
@@ -1263,7 +1263,7 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
 
     // insert load code
     if (!loadLocs.empty() ) {
-      insertPredicateLoad(MBB, firstMI, *loadLocs.begin(), use_preg);
+      insertPredicateLoad(MBB, firstMI, loadLocs.begin()->second, use_preg);
     }
 }
 
@@ -1515,7 +1515,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   unsigned inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
   if (!loadLocs.empty()) {
     Pass.insertPredicateLoad(PrehdrMBB, PrehdrMBB->end(),
-        *loadLocs.begin(), inner_preg);
+        loadLocs.begin()->second, inner_preg);
     InsertedInstrs++; // STATISTIC
   } else {
     unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true);
@@ -1583,7 +1583,7 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   auto loadlocs = RI.getLoadLocs(HeaderMBB);
   if (!loadlocs.empty()) {
     Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
-        *loadlocs.begin(), header_preg);
+        loadlocs.begin()->second, header_preg);
   }
   // TODO copy between pregs?
 

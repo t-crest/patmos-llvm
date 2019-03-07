@@ -560,6 +560,21 @@ public:
   unsigned getHeaderPred(){
     return *Pub.Scope->getHeader()->getBlockPredicates().begin();
   }
+
+  std::map<unsigned, unsigned> getAnyLoc(const MachineBasicBlock *MBB, std::function<boost::optional<unsigned>(UseLoc)> f)
+  {
+    std::map<unsigned, unsigned> result;
+    if (UseLocs.count(MBB)) {
+      for(auto ul: UseLocs[MBB]){
+        auto opLoc = f(ul.second);
+        if(opLoc.is_initialized()){
+          result[ul.first] = unifyRegister(get(opLoc));
+        }
+      }
+    }
+    return result;
+  }
+
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -595,42 +610,24 @@ bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
   return false;
 }
 
-std::set<unsigned> RAInfo::getUseLocs(const MachineBasicBlock *MBB) const {
-  std::set<unsigned> result;
+std::map<unsigned, unsigned> RAInfo::getUseLocs(const MachineBasicBlock *MBB) const {
+  std::map<unsigned, unsigned> result;
   if (Priv->UseLocs.count(MBB)) {
     for(auto ul: Priv->UseLocs[MBB]){
       auto loc = Priv->unifyRegister(ul.second.loc);
       assert( loc < Priv->MaxRegs );
-      result.insert(loc);
+      result[ul.first] = loc;
     }
   }
   return result;
 }
 
-std::set<unsigned> RAInfo::getLoadLocs(const MachineBasicBlock *MBB) const {
-  std::set<unsigned> result;
-  if (Priv->UseLocs.count(MBB)) {
-    for(auto ul: Priv->UseLocs[MBB]){
-      auto opLoc = ul.second.load;
-      if(opLoc.is_initialized()){
-        result.insert(Priv->unifyRegister(get(opLoc)));
-      }
-    }
-  }
-  return result;
+std::map<unsigned, unsigned> RAInfo::getLoadLocs(const MachineBasicBlock *MBB) const {
+  return Priv->getAnyLoc(MBB, [](Impl::UseLoc ul){return ul.load;});
 }
 
-std::set<unsigned> RAInfo::getSpillLocs(const MachineBasicBlock *MBB) const {
-  std::set<unsigned> result;
-  if (Priv->UseLocs.count(MBB)) {
-    for(auto ul: Priv->UseLocs[MBB]){
-      auto opLoc = ul.second.spill;
-      if(opLoc.is_initialized()){
-        result.insert(Priv->unifyRegister(get(opLoc)));
-      }
-    }
-  }
-  return result;
+std::map<unsigned, unsigned> RAInfo::getSpillLocs(const MachineBasicBlock *MBB) const {
+  return Priv->getAnyLoc(MBB, [](Impl::UseLoc ul){return ul.spill;});
 }
 
 tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
