@@ -221,8 +221,8 @@ public:
     UseLoc(unsigned loc) : loc(loc), load(none), spill(none) {}
   };
 
-  // Map of MBB -> UseLoc, for an SPScope
-  map<const MachineBasicBlock*, UseLoc> UseLocs;
+  // Map of MBB -> (map of Predicate ->UseLoc), for an SPScope
+  map<const MachineBasicBlock*, std::map<unsigned, UseLoc>> UseLocs;
 
   bool NeedsScopeSpill;
 
@@ -364,11 +364,18 @@ public:
     // Code for loading the predicate is placed before the back-branch,
     // generated in LinearizeWalker::exitSubscope().
     if (!Pub.Scope->isTopLevel()) {
-      UseLoc &ul = UseLocs.at(Pub.Scope->getHeader()->getMBB());
-      map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(getHeaderPred());
-      assert(findCurUseLoc != curLocs.end());
-      if (ul.loc != findCurUseLoc->second.getLoc()) {
-        ul.load = make_optional(findCurUseLoc->second.getLoc());
+      auto headerUseLocs = UseLocs.find(Pub.Scope->getHeader()->getMBB());
+      assert(headerUseLocs != UseLocs.end());
+
+      for(auto headerPred: Pub.Scope->getHeader()->getBlockPredicates()){
+        auto predUseLocPair = headerUseLocs->second.find(headerPred);
+        assert(predUseLocPair != headerUseLocs->second.end());
+        auto predUseLoc = &predUseLocPair->second;
+
+        auto curPredLoc = curLocs.at(headerPred).getLoc();
+        if (predUseLoc->loc != curPredLoc) {
+          predUseLoc->load = boost::make_optional(curPredLoc);
+        }
       }
     }
   }
@@ -456,31 +463,31 @@ public:
   void handlePredUse(unsigned i, PredicatedBlock* block,
       map<unsigned, Location>& curLocs, set<Location>& FreeLocs) {
 
-    unsigned usePred = *block->getBlockPredicates().begin();
-    // TODO:(Emad) handle multiple predicates.
-    // for the top-level entry of a single-path root,
-    // we don't need to assign a location, as we will use p0
-    if (!(usePred == getHeaderPred() && Pub.Scope->isRootTopLevel())) {
-      assert(block == Pub.Scope->getHeader() || i > 0);
+    for(auto usePred: block->getBlockPredicates()){
+      // for the top-level entry of a single-path root,
+      // we don't need to assign a location, as we will use p0
+      if (!(usePred == getHeaderPred() && Pub.Scope->isRootTopLevel())) {
+        assert(block == Pub.Scope->getHeader() || i > 0);
 
-      assert(!UseLocs.count(block->getMBB()));
-      UseLocs.insert(make_pair(block->getMBB(),
-        (Pub.Scope->isHeader(block)) ?
-          calculateHeaderUseLoc(FreeLocs, curLocs)
-          : calculateNotHeaderUseLoc(i, usePred, curLocs, FreeLocs)
-      ));
+        assert(!UseLocs.count(block->getMBB()));
+        UseLocs[block->getMBB()].insert(std::make_pair(usePred,
+          (Pub.Scope->isHeader(block)) ?
+            calculateHeaderUseLoc(FreeLocs, curLocs)
+            : calculateNotHeaderUseLoc(i, usePred, curLocs, FreeLocs)
+        ));
 
-      // (2) retire locations
-      if (LRs.at(usePred).lastUse(i)) {
-        DEBUG(dbgs() << "retire. ");
-    	  map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
-        assert(findCurUseLoc != curLocs.end());
-        Location& curUseLoc = findCurUseLoc->second;
+        // (2) retire locations
+        if (LRs.at(usePred).lastUse(i)) {
+          DEBUG(dbgs() << "retire. ");
+          map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
+          assert(findCurUseLoc != curLocs.end());
+          Location& curUseLoc = findCurUseLoc->second;
 
-        // free location, also removing it from the current one is use
-        assert(!FreeLocs.count(curUseLoc));
-        FreeLocs.insert(curUseLoc);
-        curLocs.erase(findCurUseLoc);
+          // free location, also removing it from the current one is use
+          assert(!FreeLocs.count(curUseLoc));
+          FreeLocs.insert(curUseLoc);
+          curLocs.erase(findCurUseLoc);
+        }
       }
     }
   }
@@ -548,6 +555,8 @@ public:
     });
   }
 
+  /// Returns the predicate used by the header of the scope that is represented
+  /// by this instance.
   unsigned getHeaderPred(){
     return *Pub.Scope->getHeader()->getBlockPredicates().begin();
   }
@@ -577,39 +586,51 @@ bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
 
 bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
   if (Priv->UseLocs.count(MBB)) {
-    const Impl::UseLoc &ul = Priv->UseLocs.at(MBB);
-    return (ul.spill.is_initialized()) || (ul.load.is_initialized());
+    for(auto ul: Priv->UseLocs[MBB]){
+      if(ul.second.spill.is_initialized() || ul.second.load.is_initialized()){
+        return true;
+      }
+    }
   }
   return false;
 }
 
-optional<unsigned> RAInfo::getUseLoc(const MachineBasicBlock *MBB) const {
+std::set<unsigned> RAInfo::getUseLocs(const MachineBasicBlock *MBB) const {
+  std::set<unsigned> result;
   if (Priv->UseLocs.count(MBB)) {
-    unsigned loc = Priv->unifyRegister(Priv->UseLocs.at(MBB).loc);
-    assert( loc < Priv->MaxRegs );
-    return make_optional(loc);
-  }
-  return none;
-}
-
-optional<unsigned> RAInfo::getLoadLoc(const MachineBasicBlock *MBB) const {
-  if (Priv->UseLocs.count(MBB)) {
-    optional<unsigned> loc = Priv->UseLocs.at(MBB).load;
-    if (loc.is_initialized()) {
-      return make_optional(Priv->unifyStack(get(loc)));
+    for(auto ul: Priv->UseLocs[MBB]){
+      auto loc = Priv->unifyRegister(ul.second.loc);
+      assert( loc < Priv->MaxRegs );
+      result.insert(loc);
     }
   }
-  return none;
+  return result;
 }
 
-optional<unsigned> RAInfo::getSpillLoc(const MachineBasicBlock *MBB) const {
+std::set<unsigned> RAInfo::getLoadLocs(const MachineBasicBlock *MBB) const {
+  std::set<unsigned> result;
   if (Priv->UseLocs.count(MBB)) {
-    optional<unsigned> loc = Priv->UseLocs.at(MBB).spill;
-    if (loc.is_initialized()) {
-      return make_optional(Priv->unifyStack(get(loc)));
+    for(auto ul: Priv->UseLocs[MBB]){
+      auto opLoc = ul.second.load;
+      if(opLoc.is_initialized()){
+        result.insert(Priv->unifyRegister(get(opLoc)));
+      }
     }
   }
-  return none;
+  return result;
+}
+
+std::set<unsigned> RAInfo::getSpillLocs(const MachineBasicBlock *MBB) const {
+  std::set<unsigned> result;
+  if (Priv->UseLocs.count(MBB)) {
+    for(auto ul: Priv->UseLocs[MBB]){
+      auto opLoc = ul.second.spill;
+      if(opLoc.is_initialized()){
+        result.insert(Priv->unifyRegister(get(opLoc)));
+      }
+    }
+  }
+  return result;
 }
 
 tuple<RAInfo::LocType, unsigned> RAInfo::getDefLoc(unsigned pred) const {
@@ -643,22 +664,23 @@ void RAInfo::dump() const {
   for (unsigned i=0, e=blocks.size(); i<e; i++) {
     MachineBasicBlock *MBB = blocks[i]->getMBB();
     dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
-    if (Priv->UseLocs.count(MBB)) {
-      const Impl::UseLoc &UL = Priv->UseLocs.at(MBB);
-      dbgs() << "  loc=" << UL.loc << " load=";
-      if (UL.load.is_initialized()) {
-        dbgs() << get(UL.load);
+    dbgs() << " UseLocs{\n";
+    for(auto predUl: Priv->UseLocs[MBB]){
+      dbgs() << "    (Pred: " << predUl.first << "loc=" << predUl.second.loc << " load=";
+      if (predUl.second.load.is_initialized()) {
+        dbgs() << get(predUl.second.load);
       }else{
         dbgs() << "none";
       }
       dbgs() << " spill=";
-      if (UL.spill.is_initialized()) {
-        dbgs() << get(UL.spill);
+      if (predUl.second.spill.is_initialized()) {
+        dbgs() << get(predUl.second.spill);
       }else{
         dbgs() << "none";
       }
+      dbgs() << "), ";
     }
-    dbgs() << "\n";
+    dbgs() << "}\n";
   }
 
   dbgs() << "  DefLocs:     ";

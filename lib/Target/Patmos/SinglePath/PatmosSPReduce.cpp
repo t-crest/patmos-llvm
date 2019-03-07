@@ -1185,9 +1185,9 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
 unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
                                     const MachineBasicBlock *MBB,
                                     bool getP0) {
-  optional<unsigned> opLoc = R.getUseLoc(MBB);
-  if (opLoc.is_initialized()) {
-    unsigned loc = get(opLoc);
+  auto uls =  R.getUseLocs(MBB);
+  if (!uls.empty()) {
+    unsigned loc = *uls.begin();
     assert(loc < AvailPredRegs.size());
     return AvailPredRegs[loc];
   }
@@ -1205,15 +1205,15 @@ void PatmosSPReduce::getStackLocPair(int &fi, unsigned &bitpos,
 void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
                                         MachineBasicBlock *MBB) {
 
-    optional<unsigned> loadOpt = R.getLoadLoc(MBB);
+    auto loadLocs = R.getLoadLocs(MBB);
 
-    optional<unsigned> spillOpt = R.getSpillLoc(MBB);
+    auto spillLocs = R.getSpillLocs(MBB);
 
     // At one of spill or load must be set.
-    assert( spillOpt.is_initialized()  || loadOpt.is_initialized() );
+    assert( !spillLocs.empty()  || !loadLocs.empty() );
 
     // if spill is set, also load must be set
-    assert( !spillOpt.is_initialized() || loadOpt.is_initialized() );
+    assert( spillLocs.empty() || !loadLocs.empty() );
 
     unsigned use_preg = getUsePReg(R, MBB);
     assert(use_preg != Patmos::NoRegister);
@@ -1222,8 +1222,8 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
     DebugLoc DL;
 
     // insert spill code
-    if (spillOpt.is_initialized()) {
-      unsigned spill = get(spillOpt);
+    if (!spillLocs.empty()) {
+      unsigned spill = *spillLocs.begin();
       int fi; unsigned bitpos;
       getStackLocPair(fi, bitpos, spill);
       // load from stack slot
@@ -1262,8 +1262,8 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
     }
 
     // insert load code
-    if (loadOpt.is_initialized() ) {
-      insertPredicateLoad(MBB, firstMI, get(loadOpt), use_preg);
+    if (!loadLocs.empty() ) {
+      insertPredicateLoad(MBB, firstMI, *loadLocs.begin(), use_preg);
     }
 }
 
@@ -1511,11 +1511,11 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   }
 
   // copy/load the header predicate for the subloop
-  optional<unsigned> loadLocOpt = RP.getLoadLoc(HeaderMBB);
+  auto loadLocs = RP.getLoadLocs(HeaderMBB);
   unsigned inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
-  if (loadLocOpt.is_initialized()) {
+  if (!loadLocs.empty()) {
     Pass.insertPredicateLoad(PrehdrMBB, PrehdrMBB->end(),
-        get(loadLocOpt), inner_preg);
+        *loadLocs.begin(), inner_preg);
     InsertedInstrs++; // STATISTIC
   } else {
     unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true);
@@ -1580,10 +1580,10 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   //
   // load the header predicate, if necessary
   unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
-  optional<unsigned> loadloc = RI.getLoadLoc(HeaderMBB);
-  if (loadloc.is_initialized()) {
+  auto loadlocs = RI.getLoadLocs(HeaderMBB);
+  if (!loadlocs.empty()) {
     Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
-        get(loadloc), header_preg);
+        *loadlocs.begin(), header_preg);
   }
   // TODO copy between pregs?
 
