@@ -75,7 +75,7 @@ namespace llvm {
       os.indent(indent + 2) << "Definitions:{";
       for(auto t: Definitions)
       {
-        os << "(" << t.first << ", " << t.second << "), ";
+        os << "(" << std::get<0>(t) << ", " << std::get<1>(t) << ", " << std::get<2>(t) << "), ";
       }
       os <<"}\n";
       os.indent(indent + 2) << "ExitTargets:{";
@@ -86,29 +86,27 @@ namespace llvm {
       os <<"}\n";
     }
 
-    /// Returns a list predicates that are defined by this block, paired with the block
-    /// that uses the predicate.
+    /// Returns a list of predicates that are defined by this block, paired with the block
+    /// that uses the predicate and the guard predicate of the condition that gives it value.
+    /// The first element is the predicate being defined, the second is the block that use the
+    /// the predicate, and the last element is the guard of the defining condition.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.
-    std::vector<std::pair<unsigned, const PredicatedBlock*>>
+    std::vector<std::tuple<unsigned, const PredicatedBlock*, unsigned>>
     getDefinitions() const
     {
-      std::vector<std::pair<unsigned, const PredicatedBlock*>> result;
-      result.reserve(Definitions.size());
-      for(auto iter = Definitions.begin(), end = Definitions.end(); iter != end; ++iter)
-      {
-        result.push_back(*iter);
-      }
+      std::vector<std::tuple<unsigned, const PredicatedBlock*, unsigned>> result;
+      result.insert(result.end(), Definitions.begin(), Definitions.end());
       return result;
     }
 
     /// Add a predicate definition to this block, paired with the block that uses
-    /// that predicate.
+    /// that predicate and the predicate of teh condition tha gives it value.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.
-    void addDefinition(unsigned pred, const PredicatedBlock* b)
+    void addDefinition(unsigned pred, const PredicatedBlock* b, unsigned guardPred)
     {
-      Definitions.push_back(std::make_pair(pred, b));
+      Definitions.push_back(std::make_tuple(pred, b, guardPred));
     }
 
     std::vector<const PredicatedBlock*> getExitTargets() const
@@ -132,9 +130,11 @@ namespace llvm {
 
     /// A list of predicates that are defined by this block, I.e. at runtime
     /// the predicate's true/false value is calculated in this block.
-    /// It is paired with a MBB that uses the predicate
+    /// The second element is a block that uses the predicate
     /// to predicate some of its instructions.
-    std::vector<std::pair<unsigned, const PredicatedBlock*>> Definitions;
+    /// The last element is the predicate of the condition that gives the first
+    /// element its value.
+    std::vector<std::tuple<unsigned, const PredicatedBlock*, unsigned>> Definitions;
 
     std::vector<const PredicatedBlock*> ExitTargets;
   };

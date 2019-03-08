@@ -810,8 +810,8 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 
     // for each definition edge: insert
     for(auto def: block->getDefinitions()){
-      auto pred = def.first;
-      auto defBlock = def.second;
+      auto pred = get<0>(def);
+      auto defBlock = get<1>(def);
       DEBUG(dbgs() << pred << " ");
       insertDefEdge(S, *block, pred, std::make_pair(block, defBlock));
     }

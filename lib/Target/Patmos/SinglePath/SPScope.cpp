@@ -387,7 +387,9 @@ public:
         // insert definition edge for predicate i
         auto pBlock = getPredicatedFcfg(n->MBB);
         assert(pBlock.is_initialized());
-        get(pBlock)->addDefinition(pair.first, get(getPredicatedFcfg(e.second)));
+        auto block = get(pBlock);
+        assert(!block->getBlockPredicates().empty());
+        block->addDefinition(pair.first, get(getPredicatedFcfg(e.second)), *block->getBlockPredicates().begin());
       } // end for each definition edge
     }
   }
@@ -501,8 +503,8 @@ public:
     // for this scope.
     std::for_each(Blocks.begin(), Blocks.end(), [&](auto b){
       auto defs = b.getDefinitions();
-      if(std::find_if(defs.begin(), defs.end(), [&](auto pair){
-        return pair.first == pred;
+      if(std::find_if(defs.begin(), defs.end(), [&](auto def){
+        return std::get<0>(def) == pred;
       }) != defs.end()){
         count++;
       }
@@ -701,7 +703,7 @@ static void printUDInfo(raw_ostream& os, const PredicatedBlock *block) {
   if (!defs.empty()) {
     os << " d=";
     for (auto def: defs) {
-      os << def.first << ",";
+      os << std::get<0>(def) << ",";
     }
   }
   os << "\n";

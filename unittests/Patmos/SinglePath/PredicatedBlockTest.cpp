@@ -117,8 +117,7 @@ TEST(PredicatedBlockTest, NoDefsAtInitTest){
 
 TEST(PredicatedBlockTest, AddDefinitionTest){
   /*
-   * We test that initially a block does not define any predicate
-   * definitions
+   * We test that we can add definitions to a block
    */
   MockMBB mockMBB1(1);
   MockMBB mockMBB2(1);
@@ -128,14 +127,14 @@ TEST(PredicatedBlockTest, AddDefinitionTest){
   PredicatedBlock b2(&mockMBB2);
   PredicatedBlock b3(&mockMBB3);
 
-  b1.addDefinition(2, &b2);
-  b1.addDefinition(3, &b3);
+  b1.addDefinition(2, &b2, 4);
+  b1.addDefinition(3, &b3, 5);
 
   auto defs = b1.getDefinitions();
 
   EXPECT_THAT(defs, UnorderedElementsAreArray({
-    std::make_pair(2, &b2),
-    std::make_pair(3, &b3)
+    std::make_tuple(2, &b2, 4),
+    std::make_tuple(3, &b3, 5)
   }));
 }
 
