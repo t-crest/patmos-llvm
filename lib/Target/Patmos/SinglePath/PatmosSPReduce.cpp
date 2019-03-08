@@ -135,8 +135,8 @@ namespace {
     /// @param e the definition edge (NB if Node is not a subloop, then
     ///          the source of the edge and Node are equal, otherwise the
     ///          the edge is an exit edge of he subloop)
-    void insertDefEdge(SPScope *S, PredicatedBlock &block,
-                       unsigned pred, std::pair<const PredicatedBlock*, const PredicatedBlock*> e);
+    void insertDefEdge(SPScope *S, const PredicatedBlock *block,
+         unsigned pred, const PredicatedBlock* useBlock, unsigned guardPred);
 
     /// insertDefToStackLoc - insert a predicate definition to a predicate
     /// which is located on a stack spill location
@@ -197,7 +197,7 @@ namespace {
 
     /// insertUseSpillLoad - Insert Spill/Load code at the beginning of the
     /// given MBB, according to R.
-    void insertUseSpillLoad(const RAInfo &R, MachineBasicBlock *MBB);
+    void insertUseSpillLoad(const RAInfo &R, PredicatedBlock *block);
 
     /// insertPredicateLoad - Insert code to load from a spill stack slot to
     /// a predicate register.
@@ -205,11 +205,8 @@ namespace {
                              MachineBasicBlock::iterator MI,
                              int loc, unsigned target_preg);
 
-    /// getUsePReg - Returns the physical predicate register for the guard of
-    /// the given MBB, if getP0 is set, it returns P0 if no guard is set for
-    /// MBB, else NoRegister.
-    unsigned getUsePReg(const RAInfo &R, const MachineBasicBlock *MBB,
-                        bool getP0=false);
+    /// Returns which registers are used for each predicate use by the given block.
+    std::map<unsigned, unsigned> getPredicateRegisters(const RAInfo &R, const PredicatedBlock *MBB);
 
     /// getStackLocPair - Return frame index and bit position within,
     /// given by a stack location
@@ -318,6 +315,43 @@ namespace {
       MachineFunction &MF;
 
       MachineBasicBlock *LastMBB; // state: last MBB re-inserted
+
+      /// Inserts into the given MBB predicate loads or copies for the
+      /// predicates used by the header of the given scope.
+      void insertHeaderPredLoadOrCopy(const SPScope *scope, MachineBasicBlock *PrehdrMBB, DebugLoc DL){
+        const RAInfo &RI = Pass.RAInfos.at(scope),
+                     &RP = Pass.RAInfos.at(scope->getParent());
+        auto headerBlock = scope->getHeader();
+        auto HeaderMBB = headerBlock->getMBB();
+
+        // copy/load the header predicate for the subloop
+        auto parentLoadLocs = RP.getLoadLocs(HeaderMBB); // In the parent RAInfo, which preds should be loaded
+        auto parentPredRegs = Pass.getPredicateRegisters(RP, headerBlock); // In the parent RAInfo, which registers does the block use
+        auto predRegs = Pass.getPredicateRegisters(RI, headerBlock); // Which registers does the block actually use
+        for(auto pred: headerBlock->getBlockPredicates()){
+          if(parentLoadLocs.count(pred)){
+            // The predicate needs to be loaded from a spill slot
+            Pass.insertPredicateLoad(PrehdrMBB, PrehdrMBB->end(),
+                parentLoadLocs[pred], predRegs[pred]);
+            InsertedInstrs++; // STATISTIC
+          } else {
+            // The predicate does not need to be loaded.
+
+            // Find the register the parent uses for the predicate
+            unsigned parentReg = parentPredRegs.count(pred)? parentPredRegs[pred] : Patmos::P0;
+
+            // if the registers used for the predicate don't match between
+            // parent and this scope, move the value of the predicate
+            // from the parent register to this scope's register
+            if(predRegs[pred] != parentPredRegs[pred]){
+              AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
+                    Pass.TII->get(Patmos::PMOV), predRegs[pred]))
+                .addReg( parentReg ).addImm(0);
+              InsertedInstrs++; // STATISTIC
+            }
+          }
+        }
+      }
     public:
       explicit LinearizeWalker(PatmosSPReduce &pass, MachineFunction &mf)
         : Pass(pass), MF(mf), LastMBB(NULL) {}
@@ -811,56 +845,55 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
     // for each definition edge: insert
     for(auto def: block->getDefinitions()){
       auto pred = get<0>(def);
-      auto defBlock = get<1>(def);
+      auto useBlock = get<1>(def);
+      auto guardPred = get<2>(def);
       DEBUG(dbgs() << pred << " ");
-      insertDefEdge(S, *block, pred, std::make_pair(block, defBlock));
+      insertDefEdge(S, block, pred, useBlock, guardPred);
     }
     DEBUG(dbgs() << "\n");
 
   }
 }
 
-void PatmosSPReduce::insertDefEdge(SPScope *S, PredicatedBlock &block,
-     unsigned pred, std::pair<const PredicatedBlock*, const PredicatedBlock*> e)
+void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
+     unsigned pred, const PredicatedBlock* useBlock, unsigned guardPred)
 {
 
-  // if Node is not a subheader, then it must be the source of the edge
-  assert(S->isSubheader(&block) || (e.first == &block));
-
   // the MBB we need to insert the defining instruction is the edge source
-  MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(e.first->getMBB());
+  MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(block->getMBB());
 
   RAInfo &R = RAInfos.at(S); // local scope of definitions
   // inner scope
-  RAInfo &RI = !S->isSubheader(&block) ? R
-                                      : RAInfos.at(PSPI->getScopeFor(e.first));
+  RAInfo &RI = !S->isSubheader(block) ? R
+                                      : RAInfos.at(PSPI->getScopeFor(block));
 
 
   SmallVector<MachineOperand, 2> Cond;
-  getEdgeCondition(std::make_pair(e.first->getMBB(), e.second->getMBB()), Cond);
+  getEdgeCondition(std::make_pair(block->getMBB(), useBlock->getMBB()), Cond);
 
-  // get the guard register for the source block
-  unsigned use_preg = getUsePReg(RI, SrcMBB, true);
+  // get the guard register from the source block
+  auto useLocs = getPredicateRegisters(RI, block);
+  unsigned guardLoc = useLocs.count(guardPred)? useLocs[guardPred] : Patmos::P0;
 
   // Get the location for predicate r.
   RAInfo::LocType type; unsigned loc;
   std::tie(type, loc) = R.getDefLoc(pred);
 
   if (type == RAInfo::Register) {
-    if (!S->isSubheader(&block) || (!RI.needsScopeSpill())) {
+    if (!S->isSubheader(block) || (!RI.needsScopeSpill())) {
       // TODO proper condition to avoid writing to the stack slot
       // -> the chain of scopes from outer to inner should not contain any
       // spilling requirements (RAInfo.needsScopeSpill)
 
       // FIXME assumes direct parent-child relationship, if nested
-      assert(!S->isSubheader(&block) || (RI.Scope->getParent() == S));
+      assert(!S->isSubheader(block) || (RI.Scope->getParent() == S));
 
       // The definition location of the predicate is a physical register.
       insertDefToRegLoc(
-          *SrcMBB, loc, use_preg, Cond,
+          *SrcMBB, loc, guardLoc, Cond,
           R.Scope->hasMultDefEdges(pred),
-          R.isFirstDef(block.getMBB(), pred),         // isFirstDef
-          S->isSubheader(&block)              // isExitEdgeDef
+          R.isFirstDef(block->getMBB(), pred),         // isFirstDef
+          S->isSubheader(block)              // isExitEdgeDef
           );
     } else {
       // assert(there exists an inner R s.t. R.needsScopeSpill());
@@ -871,10 +904,10 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, PredicatedBlock &block,
       unsigned slot = RI.Scope->getDepth()-1;
 
       // set a bit in the appropriate S0 spill slot
-      insertDefToS0SpillSlot(*SrcMBB, slot, loc, use_preg, Cond);
+      insertDefToS0SpillSlot(*SrcMBB, slot, loc, guardLoc, Cond);
     }
   } else {
-    insertDefToStackLoc(*SrcMBB, loc, use_preg, Cond);
+    insertDefToStackLoc(*SrcMBB, loc, guardLoc, Cond);
   }
 }
 
@@ -1071,14 +1104,10 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
   // of predicates not in registers.
 
   auto blocks = S->getScopeBlocks();
-  std::for_each(blocks.begin(), blocks.end(), [&](auto block){
+  for(auto block: blocks){
     auto MBB = block->getMBB();
-    unsigned use_preg = getUsePReg(R, MBB, true);
-
-
-    DEBUG_TRACE( dbgs() << "  applying "
-                        << TRI->getName(use_preg)
-                        << " to MBB#" << MBB->getNumber() << "\n" );
+    auto instrPreds = block->getInstructionPredicates();
+    auto predRegs = getPredicateRegisters(R, block);
 
     // apply predicate to all instructions in block
     for( MachineBasicBlock::iterator MI = MBB->begin(),
@@ -1104,6 +1133,10 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           continue;
       }
 
+      assert(instrPreds.count(&(*MI)));
+      auto instrPred = instrPreds[&(*MI)];
+      auto predReg = predRegs.count(instrPred) ? predRegs[instrPred] : Patmos::P0;
+
       if (MI->isCall()) {
           DEBUG_TRACE( dbgs() << "    call: " << *MI );
           assert(!TII->isPredicated(MI) && "call predicated");
@@ -1111,7 +1144,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           // copy actual preg to temporary preg
           AddDefaultPred(BuildMI(*MBB, MI, DL,
                 TII->get(Patmos::PMOV), PRTmp))
-            .addReg(use_preg).addImm(0);
+            .addReg(predReg).addImm(0);
 
           // store/restore caller saved R9 (gets dirty during frame setup)
           int fi = PMFI->getSinglePathCallSpillFI();
@@ -1128,7 +1161,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           continue;
       }
 
-      if (MI->isPredicable() && use_preg != Patmos::P0) {
+      if (MI->isPredicable() && predReg != Patmos::P0) {
         if (!TII->isPredicated(MI)) {
           // find first predicate operand
           int i = MI->findFirstPredOperandIdx();
@@ -1137,7 +1170,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           MachineOperand &PO2 = MI->getOperand(i+1);
           assert(PO1.isReg() && PO2.isImm() &&
                  "Unexpected Patmos predicate operand");
-          PO1.setReg(use_preg);
+          PO1.setReg(predReg);
           PO2.setImm(0);
         } else {
           DEBUG_TRACE( dbgs() << "    in MBB#" << MBB->getNumber()
@@ -1147,11 +1180,11 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           assert(i != -1);
           MachineOperand &PO1 = MI->getOperand(i);
           MachineOperand &PO2 = MI->getOperand(i+1);
-          if (!(PO1.getReg() == use_preg && PO2.getImm() == 0)) {
+          if (!(PO1.getReg() == predReg && PO2.getImm() == 0)) {
             // build a new predicate := use_preg & old pred
             AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
                                 TII->get(Patmos::PAND), PRTmp))
-                  .addReg(use_preg).addImm(0)
+                  .addReg(predReg).addImm(0)
                   .addOperand(PO1).addOperand(PO2);
             PO1.setReg(PRTmp);
             PO2.setImm(0);
@@ -1161,10 +1194,9 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
       }
     } // for each instruction in MBB
 
-
     // insert spill and load instructions for the guard register
     if (!S->isHeader(block) && R.hasSpillLoad(MBB)) {
-      insertUseSpillLoad(R, MBB);
+      insertUseSpillLoad(R, block);
     }
 
     // if this is a reachable function, we need to get the
@@ -1173,27 +1205,34 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
       // skip unconditionally executed frame setup
       MachineBasicBlock::iterator MI = MBB->begin();
       while (MI->getFlag(MachineInstr::FrameSetup)) ++MI;
+
+      auto headerPreds = block->getBlockPredicates();
+      assert(headerPreds.size() == 1);
+      // HT
+      auto pred = *block->getBlockPredicates().begin();
+      assert(predRegs.count(pred));
+      auto predReg = predRegs[pred];
+
       AddDefaultPred(BuildMI(*MBB, MI, MI->getDebugLoc(),
-            TII->get(Patmos::PMOV), use_preg))
+            TII->get(Patmos::PMOV), predReg))
         .addReg(PRTmp).addImm(0);
     }
-
-  });
-}
-
-
-unsigned PatmosSPReduce::getUsePReg(const RAInfo &R,
-                                    const MachineBasicBlock *MBB,
-                                    bool getP0) {
-  auto uls =  R.getUseLocs(MBB);
-  if (!uls.empty()) {
-    unsigned loc = uls.begin()->second;
-    assert(loc < AvailPredRegs.size());
-    return AvailPredRegs[loc];
   }
-  return (getP0) ? Patmos::P0 : Patmos::NoRegister;
 }
 
+std::map<unsigned, unsigned> PatmosSPReduce::getPredicateRegisters(const RAInfo &R,
+                                    const PredicatedBlock *block)
+{
+  auto uls =  R.getUseLocs(block->getMBB());
+
+  // We replace all location with the register they represent
+  for(auto iter = uls.begin(), end = uls.end(); iter != end; iter++){
+    assert(iter->second < AvailPredRegs.size());
+    iter->second = AvailPredRegs[iter->second];
+  }
+
+  return uls;
+}
 
 void PatmosSPReduce::getStackLocPair(int &fi, unsigned &bitpos,
                                      const unsigned stloc) const {
@@ -1203,27 +1242,28 @@ void PatmosSPReduce::getStackLocPair(int &fi, unsigned &bitpos,
 
 
 void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
-                                        MachineBasicBlock *MBB) {
+                                        PredicatedBlock *block) {
+  auto MBB = block->getMBB();
+  auto spillLocs = R.getSpillLocs(MBB);
+  auto loadLocs = R.getLoadLocs(MBB);
+  auto useLocs = getPredicateRegisters(R, block);
 
-    auto loadLocs = R.getLoadLocs(MBB);
+  // All spills must be followed by a load
+  for(auto spillLoc: spillLocs){
+    assert(loadLocs.count(spillLoc.first));
+  }
 
-    auto spillLocs = R.getSpillLocs(MBB);
-
-    // At one of spill or load must be set.
-    assert( !spillLocs.empty()  || !loadLocs.empty() );
-
-    // if spill is set, also load must be set
-    assert( spillLocs.empty() || !loadLocs.empty() );
-
-    unsigned use_preg = getUsePReg(R, MBB);
-    assert(use_preg != Patmos::NoRegister);
-
+  for(auto loadLoc: loadLocs){
+    auto pred = loadLoc.first;
     MachineBasicBlock::iterator firstMI = MBB->begin();
     DebugLoc DL;
+    assert(useLocs.count(pred));
+    auto use_preg = useLocs[pred];
 
     // insert spill code
-    if (!spillLocs.empty()) {
-      unsigned spill = spillLocs.begin()->second;
+    if(spillLocs.count(pred)){
+      auto spill = spillLocs[pred];
+
       int fi; unsigned bitpos;
       getStackLocPair(fi, bitpos, spill);
       // load from stack slot
@@ -1261,10 +1301,8 @@ void PatmosSPReduce::insertUseSpillLoad(const RAInfo &R,
       InsertedInstrs += 2; // STATISTIC (load/store)
     }
 
-    // insert load code
-    if (!loadLocs.empty() ) {
-      insertPredicateLoad(MBB, firstMI, loadLocs.begin()->second, use_preg);
-    }
+    insertPredicateLoad(MBB, firstMI, loadLoc.second, use_preg);
+  }
 }
 
 
@@ -1510,23 +1548,8 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
     InsertedInstrs += 3; // STATISTIC
   }
 
-  // copy/load the header predicate for the subloop
-  auto loadLocs = RP.getLoadLocs(HeaderMBB);
-  unsigned inner_preg = Pass.getUsePReg(RI, HeaderMBB, true);
-  if (!loadLocs.empty()) {
-    Pass.insertPredicateLoad(PrehdrMBB, PrehdrMBB->end(),
-        loadLocs.begin()->second, inner_preg);
-    InsertedInstrs++; // STATISTIC
-  } else {
-    unsigned outer_preg = Pass.getUsePReg(RP, HeaderMBB, true);
-    assert(inner_preg != Patmos::P0);
-    if (outer_preg != inner_preg) {
-      AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
-            Pass.TII->get(Patmos::PMOV), inner_preg))
-        .addReg( outer_preg ).addImm(0);
-      InsertedInstrs++; // STATISTIC
-    }
-  }
+  insertHeaderPredLoadOrCopy(S, PrehdrMBB, DL);
+
 
   // Initialize the loop bound and store it to the stack slot
   if (S->hasLoopBound()) {
@@ -1561,7 +1584,8 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
 
 void LinearizeWalker::exitSubscope(SPScope *S) {
 
-  MachineBasicBlock *HeaderMBB = S->getHeader()->getMBB();
+  auto headerBlock = S->getHeader();
+  MachineBasicBlock *HeaderMBB = headerBlock->getMBB();
   DEBUG_TRACE( dbgs() << "ScopeRange [MBB#" <<  HeaderMBB->getNumber()
                 <<  ", MBB#" <<  LastMBB->getNumber() << "]\n" );
 
@@ -1579,46 +1603,48 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   // now we can fill the MBB with instructions:
   //
   // load the header predicate, if necessary
-  unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
-  auto loadlocs = RI.getLoadLocs(HeaderMBB);
-  if (!loadlocs.empty()) {
+//  unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
+//  auto loadlocs = RI.getLoadLocs(HeaderMBB);
+//  if (!loadlocs.empty()) {
+//    Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
+//        loadlocs.begin()->second, header_preg);
+//  }
+
+  const auto predRegs = Pass.getPredicateRegisters(RI, headerBlock);
+  auto neededLoads = RI.getLoadLocs(HeaderMBB);
+  for(auto load: neededLoads){
     Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
-        loadlocs.begin()->second, header_preg);
+        load.second, predRegs.at(load.first));
   }
-  // TODO copy between pregs?
 
+  assert(!S->isTopLevel());
+  assert(S->hasLoopBound());
+  // load the branch predicate:
+  // load the loop counter, decrement it by one, and if it is not (yet)
+  // zero, we enter the loop again.
+  // TODO is the loop counter in a register?!
+  int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth() - 1);
+  unsigned tmpReg = Pass.GuardsReg;
+  AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+          Pass.TII->get(Patmos::LWC), tmpReg))
+    .addFrameIndex(fi).addImm(0); // address
 
-  // load the branch predicate
-  unsigned branch_preg = Patmos::NoRegister;
-  if (S->hasLoopBound()) {
-    // load the loop counter, decrement it by one, and if it is not (yet)
-    // zero, we enter the loop again.
-    // TODO is the loop counter in a register?!
-    int fi = Pass.PMFI->getSinglePathLoopCntFI(S->getDepth() - 1);
-    unsigned tmpReg = Pass.GuardsReg;
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
-            Pass.TII->get(Patmos::LWC), tmpReg))
-      .addFrameIndex(fi).addImm(0); // address
+  // decrement
+  AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+          Pass.TII->get(Patmos::SUBi), tmpReg))
+    .addReg(tmpReg).addImm(1);
+  // compare with 0, PRTmp as predicate register
+  unsigned branch_preg = Pass.PRTmp;
+  AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+          Pass.TII->get(Patmos::CMPLT), branch_preg))
+    .addReg(Patmos::R0).addReg(tmpReg);
+  // store back
+  AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
+          Pass.TII->get(Patmos::SWC)))
+    .addFrameIndex(fi).addImm(0) // address
+    .addReg(tmpReg, RegState::Kill);
+  InsertedInstrs += 4; // STATISTIC
 
-    // decrement
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
-            Pass.TII->get(Patmos::SUBi), tmpReg))
-      .addReg(tmpReg).addImm(1);
-    // compare with 0, PRTmp as predicate register
-    branch_preg = Pass.PRTmp;
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
-            Pass.TII->get(Patmos::CMPLT), branch_preg))
-      .addReg(Patmos::R0).addReg(tmpReg);
-    // store back
-    AddDefaultPred(BuildMI(*BranchMBB, BranchMBB->end(), DL,
-            Pass.TII->get(Patmos::SWC)))
-      .addFrameIndex(fi).addImm(0) // address
-      .addReg(tmpReg, RegState::Kill);
-    InsertedInstrs += 4; // STATISTIC
-  } else {
-    // no explicit loop bound: branch on header predicate
-    branch_preg = header_preg;
-  }
   // insert branch to header
   assert(branch_preg != Patmos::NoRegister);
 

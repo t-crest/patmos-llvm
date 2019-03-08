@@ -63,6 +63,12 @@ namespace llvm {
       }
     }
 
+    std::map<MachineInstr*, unsigned> getInstructionPredicates(){
+      std::map<MachineInstr*, unsigned> result;
+      result.insert(InstrPred.begin(), InstrPred.end());
+      return result;
+    }
+
     void dump(raw_ostream& os, unsigned indent) const
     {
       os.indent(indent) << "PredicatedBlock(" << &MBB << "):\n";
