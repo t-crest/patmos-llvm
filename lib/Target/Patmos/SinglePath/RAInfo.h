@@ -22,8 +22,8 @@
 #define NOSPILL_OPTIMIZATION
 
 #include "boost/optional.hpp"
-#include "PatmosSinglePathInfo.h"
 #include "spimpl.h"
+#include "SPScope.h"
 
 namespace llvm {
 
@@ -85,7 +85,7 @@ public:
   /// it has 'availPredRegs' predicate registers it can use.
   /// returns a mapping of the register allocation information computed for
   /// each scope in the function.
-  static std::map<const SPScope*, RAInfo> computeRegAlloc(PatmosSinglePathInfo *PSPI, unsigned availPredRegs);
+  static std::map<const SPScope*, RAInfo> computeRegAlloc(SPScope* root, unsigned availPredRegs);
 
 private:
   class Impl;

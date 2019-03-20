@@ -19,7 +19,6 @@
 #include <Patmos.h>
 #include <PatmosTargetMachine.h>
 #include <llvm/IR/Module.h>
-#include <llvm/ADT/BitVector.h>
 #include <llvm/CodeGen/MachineFunctionPass.h>
 
 #include "SPScope.h"

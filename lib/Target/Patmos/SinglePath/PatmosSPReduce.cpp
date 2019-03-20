@@ -59,7 +59,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "PatmosSinglePathInfo.h"
+#include "PatmosSPBundling.h"
 #include "RAInfo.h"
 
 #include "boost/optional.hpp"
@@ -102,7 +102,7 @@ namespace {
     // predicate spilling and loop bounds.
     const PatmosMachineFunctionInfo *PMFI;
 
-    PatmosSinglePathInfo *PSPI;
+    SPScope *RootScope;
 
     /// doReduceFunction - Reduce a given MachineFunction
     void doReduceFunction(MachineFunction &MF);
@@ -278,18 +278,18 @@ namespace {
 
     /// getAnalysisUsage - Specify which passes this pass depends on
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      AU.addRequired<PatmosSinglePathInfo>();
+      AU.addRequired<PatmosSPBundling>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
 
     /// runOnMachineFunction - Run the SP converter on the given function.
     virtual bool runOnMachineFunction(MachineFunction &MF) {
-      PSPI = &getAnalysis<PatmosSinglePathInfo>();
+      RootScope = getAnalysis<PatmosSPBundling>().getRootScope();
       PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
       bool changed = false;
       // only convert function if marked
-      if ( PSPI->isConverting(MF) ) {
+      if ( MF.getInfo<PatmosMachineFunctionInfo>()->isSinglePath()) {
         DEBUG( dbgs() << "[Single-Path] Reducing "
                       << MF.getFunction()->getName() << "\n" );
         doReduceFunction(MF);
@@ -681,7 +681,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   DEBUG( dbgs() << "RegAlloc\n" );
   RAInfos.clear();
-  RAInfos = RAInfo::computeRegAlloc(PSPI, AvailPredRegs.size());
+  RAInfos = RAInfo::computeRegAlloc(RootScope, AvailPredRegs.size());
 
 
   // before inserting code, we need to obtain additional instructions that are
@@ -691,15 +691,15 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   //collectReturnInfoInsts(MF);
 
   // Guard the instructions (no particular order necessary)
-  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
-        I != E; ++I) {
-    applyPredicates(*I, MF);
+  for (auto iter = df_begin(RootScope), end = df_end(RootScope);
+        iter != end; ++iter) {
+    applyPredicates(*iter, MF);
   }
   // Insert predicate definitions (no particular order necessary)
-  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
-        I != E; ++I) {
-    insertPredDefinitions(*I);
-    insertStackLocInitializations(*I);
+  for (auto iter = df_begin(RootScope), end = df_end(RootScope);
+        iter != end; ++iter) {
+    insertPredDefinitions(*iter);
+    insertStackLocInitializations(*iter);
   }
 
   // After all scopes are handled, perform some global fixups
@@ -721,7 +721,7 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // inserting MBBs as required (preheader, spill/restore, loop counts, ...)
   DEBUG( dbgs() << "Linearize MBBs\n" );
   LinearizeWalker LW(*this, MF);
-  PSPI->walkRoot(LW);
+  RootScope->walk(LW);
 
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
@@ -864,8 +864,8 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
 
   RAInfo &R = RAInfos.at(S); // local scope of definitions
   // inner scope
-  RAInfo &RI = !S->isSubheader(block) ? R
-                                      : RAInfos.at(PSPI->getScopeFor(block));
+  RAInfo &RI = S->isSubheader(block) ? RAInfos.at(get(S->findScopeOf(block)))
+                                     : R;
 
 
   SmallVector<MachineOperand, 2> Cond;

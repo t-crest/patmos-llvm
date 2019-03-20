@@ -12,81 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "patmos-singlepath"
-
-#include "Patmos.h"
-#include "PatmosMachineFunctionInfo.h"
-#include "PatmosSinglePathInfo.h"
-#include "PatmosTargetMachine.h"
-#include "llvm/CodeGen/MachineModulePass.h"
-#include "llvm/IR/Metadata.h"
-
-#include "PatmosSinglePathInfo.h"
-
-// TODO: statistics
+#include "PatmosSPBundling.h"
 
 using namespace llvm;
 
-namespace {
-
-class PatmosSPBundling : public MachineFunctionPass {
-
-private:
-  static char ID;
-  const PatmosTargetMachine &TM;
-  const PatmosSubtarget &STC;
-  const PatmosInstrInfo *TII;
-  const PatmosRegisterInfo *TRI;
-
-  // The pointer to the PatmosMachinFunctionInfo is set upon running on a
-  // particular function. It contains information about stack slots for
-  // predicate spilling and loop bounds.
-  const PatmosMachineFunctionInfo *PMFI;
-
-  PatmosSinglePathInfo *PSPI;
-
-  /// doBundlingFunction - Bundle a given MachineFunction
-  void doBundlingFunction(MachineFunction &MF);
-
-  void printFunction(MachineFunction &MF);
-public:
-
-  PatmosSPBundling(const PatmosTargetMachine &tm):
-       MachineFunctionPass(ID), TM(tm),
-       STC(tm.getSubtarget<PatmosSubtarget>()),
-       TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
-       TRI(static_cast<const PatmosRegisterInfo*>(tm.getRegisterInfo())){ (void) TM; }
-
-  /// getPassName - Return the pass' name.
-  virtual const char *getPassName() const {
-    return "Patmos Single-Path Bundling (machine code)";
-  }
-
-  /// getAnalysisUsage - Specify which passes this pass depends on
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-    AU.addRequired<PatmosSinglePathInfo>();
-    MachineFunctionPass::getAnalysisUsage(AU);
-  }
-
-  virtual bool runOnMachineFunction(MachineFunction &MF) {
-    PSPI = &getAnalysis<PatmosSinglePathInfo>();
-    PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
-    bool changed = false;
-    // only convert function if marked
-    if ( PSPI->isConverting(MF) ) {
-      // TODO: DEBUG( dbgs() << "[Single-Path] Reducing "
-      //              << MF.getFunction()->getName() << "\n" );
-      doBundlingFunction(MF);
-      changed = true;
-    }
-    return changed;
-  }
-};
-
-  char PatmosSPBundling::ID = 0;
-}// end of anonymous namespace
-
-///////////////////////////////////////////////////////////////////////////////
+char PatmosSPBundling::ID = 0;
 
 /// createPatmosSPBundlingPass - Returns a new PatmosSPBundling
 /// \see PatmosSPBundling
@@ -122,7 +52,7 @@ void checkSPPredicateConsistency(MachineFunction &MF){
 void PatmosSPBundling::doBundlingFunction(MachineFunction &MF) {
   //outs() << "------------ At bundling -----------------\n";
   //printFunction(MF);
-  checkSPPredicateConsistency(MF);
+//  checkSPPredicateConsistency(MF);
 }
 
 void printMetaData(MachineBasicBlock::iterator & MI){

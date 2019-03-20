@@ -139,8 +139,6 @@ namespace {
         addPass(createPatmosSPMarkPass(getPatmosTargetMachine()));
         addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
         addPass(createPatmosSPPreparePass(getPatmosTargetMachine()));
-        addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
-        addPass(createPatmosSPBundlingPass(getPatmosTargetMachine()));
       }
       return false;
     }
@@ -155,6 +153,7 @@ namespace {
 
       if (PatmosSinglePathInfo::isEnabled()) {
         addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+        addPass(createPatmosSPBundlingPass(getPatmosTargetMachine()));
         addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {

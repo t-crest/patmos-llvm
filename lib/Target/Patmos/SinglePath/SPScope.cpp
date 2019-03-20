@@ -154,19 +154,6 @@ namespace llvm{
     }
   };
 
-  // For iteration over child scopes
-  template <> struct GraphTraits<SPScope*> {
-    typedef SPScope NodeType;
-    typedef SPScope::child_iterator ChildIteratorType;
-
-    static NodeType *getEntryNode(SPScope *S) { return S; }
-    static inline ChildIteratorType child_begin(NodeType *N) {
-     return N->child_begin();
-    }
-    static inline ChildIteratorType child_end(NodeType *N) {
-     return N->child_end();
-    }
-  };
 }
 
 // The private implementation of SPScope using the PIMPL pattern.

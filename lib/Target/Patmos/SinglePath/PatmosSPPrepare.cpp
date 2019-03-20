@@ -124,7 +124,7 @@ FunctionPass *llvm::createPatmosSPPreparePass(const PatmosTargetMachine &tm) {
 void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
 
   PatmosSinglePathInfo *PSPI = &getAnalysis<PatmosSinglePathInfo>();
-
+  SPScope* rootScope = PSPI->getRootScope();
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   PatmosMachineFunctionInfo &PMFI = *MF.getInfo<PatmosMachineFunctionInfo>();
 
@@ -133,13 +133,13 @@ void PatmosSPPrepare::doPrepareFunction(MachineFunction &MF) {
   std::vector<unsigned> requiredPreds;
 
   // for all (sub-)SPScopes
-  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
-      I!=E; ++I) {
-    SPScope *S = *I;
-    unsigned preds = S->getNumPredicates();
-    unsigned d = S->getDepth();
+  for (auto iter = df_begin(rootScope), end = df_end(rootScope);
+      iter!=end; ++iter) {
+    auto scope = *iter;
+    unsigned preds = scope->getNumPredicates();
+    unsigned d = scope->getDepth();
 
-    DEBUG( dbgs() << "[MBB#" << S->getHeader()->getMBB()->getNumber()
+    DEBUG( dbgs() << "[MBB#" << scope->getHeader()->getMBB()->getNumber()
                   << "]: d=" << d << ", " << preds << "\n");
 
     // keep track of the maximum required number of predicates for each SPScope

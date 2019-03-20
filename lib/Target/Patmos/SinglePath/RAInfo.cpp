@@ -17,6 +17,7 @@
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/DepthFirstIterator.h"
 
+#include <llvm/ADT/BitVector.h>
 #include <sstream>
 
 using namespace llvm;
@@ -692,21 +693,21 @@ void RAInfo::dump() const {
             "  SpillOffset:  " << Priv->FirstUsableStackSlot  << "\n";
 }
 
-std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *PSPI, unsigned AvailPredRegs){
+std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(SPScope *rootScope, unsigned AvailPredRegs){
 
   std::map<const SPScope*, RAInfo> RAInfos;
   // perform reg-allocation in post-order to compute cumulative location
   // numbers in one go
-  for (po_iterator<PatmosSinglePathInfo*> I = po_begin(PSPI), E = po_end(PSPI);
-      I!=E; ++I) {
-    SPScope *S = *I;
+  for (auto iter = po_begin(rootScope), end = po_end(rootScope);
+      iter!=end; ++iter) {
+    auto scope = *iter;
     // create RAInfo for SPScope
-    RAInfos.insert(std::make_pair(S, RAInfo(S,  AvailPredRegs)));
-    RAInfo &RI = RAInfos.at(S);
+    RAInfos.insert(std::make_pair(scope, RAInfo(scope,  AvailPredRegs)));
+    RAInfo &RI = RAInfos.at(scope);
 
     // Because this is a post-order traversal, we have already visited
     // all children of the current scope (S). Synthesize the cumulative number of locations
-    for(SPScope::child_iterator CI = S->child_begin(), CE = S->child_end();
+    for(SPScope::child_iterator CI = scope->child_begin(), CE = scope->child_end();
         CI != CE; ++CI) {
       SPScope *CN = *CI;
       RI.Priv->unifyWithChild(*(RAInfos.at(CN).Priv));
@@ -718,13 +719,13 @@ std::map<const SPScope*, RAInfo> RAInfo::computeRegAlloc(PatmosSinglePathInfo *P
   // - Offset is inherited during traversal
   // - SpillOffset is assigned increased depth-first, from left to right
   unsigned spillLocCnt = 0;
-  for (df_iterator<PatmosSinglePathInfo*> I = df_begin(PSPI), E = df_end(PSPI);
-        I!=E; ++I) {
-    SPScope *S = *I;
-    RAInfo &RI = RAInfos.at(S);
+  for (auto iter = df_begin(rootScope), end = df_end(rootScope);
+        iter!=end; ++iter) {
+    auto scope = *iter;
+    RAInfo &RI = RAInfos.at(scope);
 
-    if (!S->isTopLevel()) {
-       RI.Priv->unifyWithParent(*(RAInfos.at(S->getParent()).Priv), spillLocCnt, S->isTopLevel());
+    if (!scope->isTopLevel()) {
+       RI.Priv->unifyWithParent(*(RAInfos.at(scope->getParent()).Priv), spillLocCnt, scope->isTopLevel());
       if (!RI.needsScopeSpill()) NoSpillScopes++; // STATISTIC
     }
     spillLocCnt += RI.neededSpillLocs();
