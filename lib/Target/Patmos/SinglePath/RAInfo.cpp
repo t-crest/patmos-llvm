@@ -289,7 +289,7 @@ public:
 
       // insert defs
       for(auto def: block->getDefinitions()){
-        getOrCreateLRFor(get<0>(def))->addDef(i);
+        getOrCreateLRFor(def.predicate)->addDef(i);
       }
     }
     // add a use for header predicate
@@ -328,7 +328,7 @@ public:
       if (!definitions.empty()) {
         vector<unsigned> order;
         for(auto def: definitions){
-          auto pred = get<0>(def);
+          auto pred = def.predicate;
           if (curLocs.find(pred) == curLocs.end()) {
             // need to get a new loc for predicate
             order.push_back(pred);

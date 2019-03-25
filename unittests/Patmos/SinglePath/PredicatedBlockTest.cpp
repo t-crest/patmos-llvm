@@ -38,13 +38,12 @@ namespace llvm{
     MOCK_METHOD0(succ_end, MockMBB**());
 
   };
-
 }
 
 namespace {
 
 /// For testing, we mock 'MachineBasicBlock' with 'MockMBB'
-typedef _PredicatedBlock<MockMBB, MockInstr> PredicatedBlock;
+typedef _PredicatedBlock<MockMBB, MockInstr, int> PredicatedBlock;
 
 TEST(PredicatedBlockTest, SameMBBTest){
   /*
@@ -127,14 +126,14 @@ TEST(PredicatedBlockTest, AddDefinitionTest){
   PredicatedBlock b2(&mockMBB2);
   PredicatedBlock b3(&mockMBB3);
 
-  b1.addDefinition(2, &b2, 4);
-  b1.addDefinition(3, &b3, 5);
+  b1.addDefinition(2, 4, &b2, 1, 2);
+  b1.addDefinition(3, 5, &b3, 3, 4);
 
   auto defs = b1.getDefinitions();
 
   EXPECT_THAT(defs, UnorderedElementsAreArray({
-    std::make_tuple(2, &b2, 4),
-    std::make_tuple(3, &b3, 5)
+    PredicatedBlock::Definition{2, 4, &b2, 1, 2},
+    PredicatedBlock::Definition{3, 5, &b3, 3, 4}
   }));
 }
 

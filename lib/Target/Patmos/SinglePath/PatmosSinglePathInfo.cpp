@@ -146,7 +146,7 @@ void PatmosSinglePathInfo::analyzeFunction(MachineFunction &MF) {
   // we could use a custom algorithm (e.g. Havlak's algorithm)
   // that also checks irreducibility.
   // build the SPScope tree
-  Root = SPScope::createSPScopeTree(MF, getAnalysis<MachineLoopInfo>());
+  Root = SPScope::createSPScopeTree(MF, getAnalysis<MachineLoopInfo>(), TII);
 
   DEBUG( print(dbgs()) );
 

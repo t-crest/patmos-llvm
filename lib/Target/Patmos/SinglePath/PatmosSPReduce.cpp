@@ -116,8 +116,9 @@ namespace {
     /// to a edge (predicate operand is true -> edge is taken)
     /// Side effect: branch conditions where the register operand
     /// contained a kill flag are stored in KilledCondRegs.
-    void getEdgeCondition(const SPScope::Edge &E,
-                          SmallVectorImpl<MachineOperand> &Cond);
+    SmallVector<MachineOperand, 2> getEdgeCondition(
+        const PredicatedBlock* sourceBlock,
+        PredicatedBlock::Definition def);
 
     /// insertStackLocInitializations - Insert predicate initializations
     /// for predicates located on the stack.
@@ -136,7 +137,7 @@ namespace {
     ///          the source of the edge and Node are equal, otherwise the
     ///          the edge is an exit edge of he subloop)
     void insertDefEdge(SPScope *S, const PredicatedBlock *block,
-         unsigned pred, const PredicatedBlock* useBlock, unsigned guardPred);
+        PredicatedBlock::Definition def);
 
     /// insertDefToStackLoc - insert a predicate definition to a predicate
     /// which is located on a stack spill location
@@ -742,36 +743,24 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
-void PatmosSPReduce::getEdgeCondition(const SPScope::Edge &E,
-    SmallVectorImpl<MachineOperand> &Cond) {
+SmallVector<MachineOperand, 2> PatmosSPReduce::getEdgeCondition(
+    const PredicatedBlock* sourceBlock,
+    PredicatedBlock::Definition def) {
 
-  MachineBasicBlock *SrcMBB = const_cast<MachineBasicBlock*>(E.first),
-                    *DstMBB = const_cast<MachineBasicBlock*>(E.second);
+  MachineBasicBlock *SrcMBB = sourceBlock->getMBB();
 
-  // get the branch condition
-  MachineBasicBlock *TBB = NULL, *FBB = NULL;
-  if (TII->AnalyzeBranch(*SrcMBB, TBB, FBB, Cond)) {
-    DEBUG(dbgs() << *SrcMBB);
-    report_fatal_error("AnalyzeBranch for SP-Transformation failed; "
-        "could not determine branch condition");
-  }
-  // following is a fix: if it appears to be an unconditional branch though
-  // (disabled/missed optimization), we set the condition to P0 (true)
-  if (Cond.empty()) {
-      Cond.push_back(MachineOperand::CreateReg(Patmos::P0, false)); // reg
-      Cond.push_back(MachineOperand::CreateImm(0)); // flag
-  }
-  if (TBB != DstMBB) {
-    TII->ReverseBranchCondition(Cond);
-  }
+  SmallVector<MachineOperand, 2> condition;
+  condition.push_back(def.condPred);
+  condition.push_back(def.condFlag);
 
-  if (Cond[0].isKill()) {
-    Cond[0].setIsKill(false);
+  if (condition[0].isKill()) {
+    condition[0].setIsKill(false);
     // remember MBBs which have their final branch condition killed
     if (!KilledCondRegs.count(SrcMBB)) {
-      KilledCondRegs.insert(std::make_pair(SrcMBB, Cond[0]));
+      KilledCondRegs.insert(std::make_pair(SrcMBB, condition[0]));
     }
   }
+  return condition;
 }
 
 void PatmosSPReduce::insertStackLocInitializations(SPScope *S) {
@@ -844,11 +833,11 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 
     // for each definition edge: insert
     for(auto def: block->getDefinitions()){
-      auto pred = get<0>(def);
-      auto useBlock = get<1>(def);
-      auto guardPred = get<2>(def);
+      auto pred = def.predicate;
+      auto useBlock = def.useBlock;
+      auto guardPred = def.guard;
       DEBUG(dbgs() << pred << " ");
-      insertDefEdge(S, block, pred, useBlock, guardPred);
+      insertDefEdge(S, block, def);
     }
     DEBUG(dbgs() << "\n");
 
@@ -856,7 +845,7 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 }
 
 void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
-     unsigned pred, const PredicatedBlock* useBlock, unsigned guardPred)
+     PredicatedBlock::Definition def)
 {
 
   // the MBB we need to insert the defining instruction is the edge source
@@ -866,10 +855,10 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
   // inner scope
   RAInfo &RI = S->isSubheader(block) ? RAInfos.at(get(S->findScopeOf(block)))
                                      : R;
+  auto useBlock = def.useBlock;
+  auto pred = def.predicate, guardPred = def.guard;
 
-
-  SmallVector<MachineOperand, 2> Cond;
-  getEdgeCondition(std::make_pair(block->getMBB(), useBlock->getMBB()), Cond);
+  auto Cond = getEdgeCondition(block, def);
 
   // get the guard register from the source block
   auto useLocs = getPredicateRegisters(RI, block);

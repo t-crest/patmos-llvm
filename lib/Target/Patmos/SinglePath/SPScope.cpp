@@ -281,7 +281,7 @@ public:
     }
   }
 
-  void decompose(CD_map_t &CD, FCFG &fcfg) {
+  void decompose(CD_map_t &CD, FCFG &fcfg, const PatmosInstrInfo* instrInfo) {
     MBBPredicates_t mbbPreds;
     std::map<unsigned, CD_map_entry_t> K;
 
@@ -376,9 +376,45 @@ public:
         assert(pBlock.is_initialized());
         auto block = get(pBlock);
         assert(!block->getBlockPredicates().empty());
-        block->addDefinition(pair.first, get(getPredicatedFcfg(e.second)), *block->getBlockPredicates().begin());
+
+        auto condition = getCondition(block, get(getPredicatedFcfg(e.second)), instrInfo);
+
+        block->addDefinition(
+            pair.first, *block->getBlockPredicates().begin(),
+            get(getPredicatedFcfg(e.second)),
+            std::get<0>(condition), std::get<1>(condition));
       } // end for each definition edge
     }
+  }
+
+  /// Gets the condition predicate and flag for the transition between the given blocks
+  /// E.g. if the transition is '( !P1) br targetBlock', then the first element is predicate
+  /// register P1, and the second element is the false value (!).
+  std::tuple<MachineOperand, MachineOperand> getCondition(
+      const PredicatedBlock* sourceBlock,
+      const PredicatedBlock* targetBlock, const PatmosInstrInfo* instrInfo)
+  {
+    MachineBasicBlock *SrcMBB = sourceBlock->getMBB(),
+                      *DstMBB = targetBlock->getMBB();
+
+    // get the branch condition
+    MachineBasicBlock *TBB = NULL, *FBB = NULL;
+    SmallVector<MachineOperand, 2> Cond;
+    if (instrInfo->AnalyzeBranch(*SrcMBB, TBB, FBB, Cond)) {
+      DEBUG(dbgs() << *SrcMBB);
+      report_fatal_error("AnalyzeBranch for SP-Transformation failed; "
+          "could not determine branch condition");
+    }
+    // following is a fix: if it appears to be an unconditional branch though
+    // (disabled/missed optimization), we set the condition to P0 (true)
+    if (Cond.empty()) {
+        Cond.push_back(MachineOperand::CreateReg(Patmos::P0, false)); // reg
+        Cond.push_back(MachineOperand::CreateImm(0)); // flag
+    }
+    if (TBB != DstMBB) {
+      instrInfo->ReverseBranchCondition(Cond);
+    }
+    return std::make_tuple(Cond[0], Cond[1]);
   }
 
   CD_map_t ctrldep(FCFG &fcfg){
@@ -460,14 +496,14 @@ public:
         std::any_of(Pub.child_begin(), Pub.child_end(), [&](auto child){ return child->getHeader()->getMBB() == mbb;});
   }
 
-  void computePredInfos(void) {
+  void computePredInfos(const PatmosInstrInfo* instrInfo) {
 
     auto fcfg = buildfcfg();
     //toposort(fcfg);
     fcfg.postdominators();
     DEBUG_TRACE(dumpfcfg(fcfg)); // uses info about pdom
     CD_map_t CD = ctrldep(fcfg);
-    decompose(CD, fcfg);
+    decompose(CD, fcfg, instrInfo);
   }
 
   /// addMBB - Add an MBB to the SP scope
@@ -491,7 +527,7 @@ public:
     std::for_each(Blocks.begin(), Blocks.end(), [&](auto b){
       auto defs = b.getDefinitions();
       if(std::find_if(defs.begin(), defs.end(), [&](auto def){
-        return std::get<0>(def) == pred;
+        return def.predicate == pred;
       }) != defs.end()){
         count++;
       }
@@ -690,7 +726,7 @@ static void printUDInfo(raw_ostream& os, const PredicatedBlock *block) {
   if (!defs.empty()) {
     os << " d=";
     for (auto def: defs) {
-      os << std::get<0>(def) << ",";
+      os << def.predicate << ",";
     }
   }
   os << "\n";
@@ -827,7 +863,7 @@ void createSPScopeSubtree(MachineLoop *loop, SPScope *parent, MachineFunction &M
   });
 }
 
-SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {
+SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI, const PatmosInstrInfo* instrInfo) {
 
   SPScope *Root = new SPScope(PatmosSinglePathInfo::isRoot(MF), MF, LI);
 
@@ -843,7 +879,7 @@ SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI) {
   // elegant anyway.
   for(df_iterator<SPScope*> I = df_begin(Root), E = df_end(Root); I != E; ++I)
   {
-    (*I)->Priv->computePredInfos();
+    (*I)->Priv->computePredInfos(instrInfo);
   }
 
   return Root;

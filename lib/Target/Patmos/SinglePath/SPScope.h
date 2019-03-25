@@ -29,6 +29,7 @@
 #include "boost/optional.hpp"
 #include "spimpl.h"
 #include "PredicatedBlock.h"
+#include "PatmosInstrInfo.h"
 
 // define for more detailed debugging output
 #define PATMOS_SINGLEPATH_TRACE
@@ -165,7 +166,7 @@ namespace llvm {
 
       /// Create an SPScope tree, return the top-level scope.
       /// The tree needs to be destroyed by the client, by deleting the top-level scope.
-      static SPScope * createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI);
+      static SPScope * createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI, const PatmosInstrInfo*);
 
       /// Returns all the predicates use by the blocks in this scope. (including subheaders)
       std::set<unsigned> getAllPredicates() const;

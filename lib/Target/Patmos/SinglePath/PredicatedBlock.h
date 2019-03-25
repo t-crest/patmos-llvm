@@ -21,11 +21,24 @@ namespace llvm {
 
   /// We template PredicatedBlock such that we can use mocked MBBs when testing it.
   /// This template shouldn't be used directly outside test code, instead use 'PredicatedBlock'.
-  template<class MachineBasicBlock, class MachineInstr>
+  template<class MachineBasicBlock, class MachineInstr, class MachineOperand>
   class _PredicatedBlock {
     /// For easy reference
-    typedef _PredicatedBlock<MachineBasicBlock, MachineInstr> PredicatedBlock;
+    typedef _PredicatedBlock<MachineBasicBlock, MachineInstr, MachineOperand> PredicatedBlock;
   public:
+
+    struct Definition{
+      unsigned predicate, guard;
+      const PredicatedBlock* useBlock;
+      MachineOperand condPred, condFlag;
+
+      bool operator==(const Definition &o) const{
+        return
+            predicate == o.predicate  &&
+            guard     == o.guard      &&
+            useBlock  == o.useBlock;
+      }
+    };
 
     /// Constructs a new instance where all instructions in the
     /// given MBB are predicated by the given predicate.
@@ -79,9 +92,9 @@ namespace llvm {
       }
       os <<"}\n";
       os.indent(indent + 2) << "Definitions:{";
-      for(auto t: Definitions)
+      for(auto def: Definitions)
       {
-        os << "(" << std::get<0>(t) << ", " << std::get<1>(t) << ", " << std::get<2>(t) << "), ";
+        os << "(" << def.predicate << ", " << def.guard << ", " << def.useBlock << "), ";
       }
       os <<"}\n";
       os.indent(indent + 2) << "ExitTargets:{";
@@ -98,21 +111,22 @@ namespace llvm {
     /// the predicate, and the last element is the guard of the defining condition.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.
-    std::vector<std::tuple<unsigned, const PredicatedBlock*, unsigned>>
+    std::vector<Definition>
     getDefinitions() const
     {
-      std::vector<std::tuple<unsigned, const PredicatedBlock*, unsigned>> result;
+      std::vector<Definition> result;
       result.insert(result.end(), Definitions.begin(), Definitions.end());
       return result;
     }
 
     /// Add a predicate definition to this block, paired with the block that uses
-    /// that predicate and the predicate of teh condition tha gives it value.
+    /// that predicate and the predicate of the condition that gives it value.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.
-    void addDefinition(unsigned pred, const PredicatedBlock* b, unsigned guardPred)
+    void addDefinition(unsigned pred, unsigned guard, const PredicatedBlock* useBlock,
+        MachineOperand condition, MachineOperand condFlag)
     {
-      Definitions.push_back(std::make_tuple(pred, b, guardPred));
+      Definitions.push_back(Definition{pred, guard, useBlock, condition, condFlag});
     }
 
     std::vector<const PredicatedBlock*> getExitTargets() const
@@ -140,13 +154,13 @@ namespace llvm {
     /// to predicate some of its instructions.
     /// The last element is the predicate of the condition that gives the first
     /// element its value.
-    std::vector<std::tuple<unsigned, const PredicatedBlock*, unsigned>> Definitions;
+    std::vector<Definition> Definitions;
 
     std::vector<const PredicatedBlock*> ExitTargets;
   };
 
   /// Untemplated version of _PredicatedBlock. To be used by non-test code.
-  typedef _PredicatedBlock<MachineBasicBlock, MachineInstr> PredicatedBlock;
+  typedef _PredicatedBlock<MachineBasicBlock, MachineInstr, MachineOperand> PredicatedBlock;
 
 }
 
