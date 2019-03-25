@@ -43,13 +43,13 @@ namespace llvm {
     /// Constructs a new instance where all instructions in the
     /// given MBB are predicated by the given predicate.
     _PredicatedBlock(MachineBasicBlock *mbb):
-      MBB(*mbb)
+      MBB(mbb)
     {}
 
     /// Get the MachineBasicBlock
     MachineBasicBlock *getMBB() const
     {
-      return &MBB;
+      return MBB;
     }
 
     /// Get the list of predicates the MBBs instructions
@@ -69,15 +69,15 @@ namespace llvm {
     void setPredicate(unsigned pred)
     {
       InstrPred.clear();
-      for( auto instr_iter = MBB.begin(), end = MBB.end(); instr_iter != end; instr_iter++){
+      for( auto instr_iter = MBB->begin(), end = MBB->end(); instr_iter != end; instr_iter++){
         MachineInstr* instr = &(*instr_iter);
         assert(InstrPred.find(instr) == InstrPred.end());
         InstrPred.insert(std::make_pair(instr, pred));
       }
     }
 
-    std::map<MachineInstr*, unsigned> getInstructionPredicates(){
-      std::map<MachineInstr*, unsigned> result;
+    std::map<const MachineInstr*, unsigned> getInstructionPredicates() const {
+      std::map<const MachineInstr*, unsigned> result;
       result.insert(InstrPred.begin(), InstrPred.end());
       return result;
     }
@@ -136,17 +136,57 @@ namespace llvm {
 
     void addExitTarget(const PredicatedBlock *block)
     {
-      assert(std::find_if(MBB.succ_begin(), MBB.succ_end(), [&](auto o){return o == block->getMBB();}) != MBB.succ_end());
+      assert(std::find_if(MBB->succ_begin(), MBB->succ_end(), [&](auto o){return o == block->getMBB();}) != MBB->succ_end());
       ExitTargets.push_back(block);
+    }
+
+    void bundleWith(const PredicatedBlock* b2){
+      auto mbb1 = getMBB(), mbb2 = b2->getMBB();
+      assert(mbb1->getParent() == mbb2->getParent());
+
+      auto inst = &(*mbb2->begin());
+      mbb2->remove(inst);
+      mbb1->insert(mbb1->begin(), inst);
+      InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
+      while(mbb2->begin() != mbb2->getFirstTerminator()){
+        auto inst = &(*mbb2->begin());
+        mbb2->remove(inst);
+        mbb1->insert(mbb1->getFirstInstrTerminator(), inst);
+        InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
+      }
+
+      while(mbb2->getFirstTerminator() != mbb2->end()){
+        auto inst = &(*mbb2->begin());
+        mbb2->remove(inst);
+        mbb1->insert(mbb1->end(), inst);
+        InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
+      }
+
+      Definitions.insert(Definitions.end(), b2->Definitions.begin(), b2->Definitions.end());
+      ExitTargets.insert(ExitTargets.end(), b2->ExitTargets.begin(), b2->ExitTargets.end());
+    }
+
+    void replaceUseOfBlockWith(PredicatedBlock* oldBlock, PredicatedBlock* newBlock){
+      for(auto iter = Definitions.begin(), end = Definitions.end(); iter != end; iter ++){
+        if((*iter).useBlock == oldBlock){
+          (*iter).useBlock = newBlock;
+        }
+      }
+
+      for(auto iter = ExitTargets.begin(), end = ExitTargets.end(); iter != end; iter ++){
+        if(*iter == oldBlock){
+          *iter = newBlock;
+        }
+      }
     }
 
   private:
 
     /// The MBB that this instance manages the predicates for.
-    MachineBasicBlock &MBB;
+    MachineBasicBlock *MBB;
 
     /// A mapping of which predicate each instruction is predicated by.
-    std::map<MachineInstr*, unsigned> InstrPred;
+    std::map<const MachineInstr*, unsigned> InstrPred;
 
     /// A list of predicates that are defined by this block, I.e. at runtime
     /// the predicate's true/false value is calculated in this block.
@@ -157,6 +197,7 @@ namespace llvm {
     std::vector<Definition> Definitions;
 
     std::vector<const PredicatedBlock*> ExitTargets;
+
   };
 
   /// Untemplated version of _PredicatedBlock. To be used by non-test code.

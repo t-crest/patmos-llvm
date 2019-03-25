@@ -1,0 +1,3 @@
+
+#ignores objdumps from ../assert_singlepath.sh
+*.asm 

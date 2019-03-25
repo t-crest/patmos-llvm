@@ -630,6 +630,15 @@ public:
     }
     return result;
   }
+
+  void replaceUseOfBlockWith(PredicatedBlock* oldBlock, PredicatedBlock* newBlock){
+    for(auto block: Pub.getScopeBlocks()){
+      block->replaceUseOfBlockWith(oldBlock, newBlock);
+    }
+    for(auto subscope: Subscopes){
+      subscope->Priv->replaceUseOfBlockWith(oldBlock, newBlock);
+    }
+  }
 };
 
 SPScope::SPScope(bool isRootFunc, MachineFunction &MF, MachineLoopInfo &LI)
@@ -895,4 +904,55 @@ std::set<unsigned> SPScope::getAllPredicates() const
   }
 
   return result;
+}
+
+PredicatedBlock* SPScope::bundle(PredicatedBlock* b1, PredicatedBlock* b2){
+
+  errs() << "B1 before bundle:\n";
+  b1->dump(errs(), 0);
+  errs() << "B2 before bundle:\n";
+  b2->dump(errs(), 0);
+
+
+  b1->bundleWith(b2);
+
+  auto mbb1 = b1->getMBB(), mbb2 = b2->getMBB();
+  auto func = mbb2->getParent();
+
+  for(auto iter = func->begin(), end = func->end(); iter != end; iter++){
+    if(iter->isSuccessor(mbb2)){
+      iter->ReplaceUsesOfBlockWith(mbb2, mbb1);
+    }
+  }
+  for(auto iter = mbb2->succ_begin(), end = mbb2->succ_end(); iter != end; iter++){
+    mbb2->removeSuccessor(iter);
+  }
+
+  func->remove(b2->getMBB());
+  func->DeleteMachineBasicBlock(b2->getMBB());
+
+  for(auto iter = func->begin(), end = func->end(); iter != end; iter++){
+    errs() << "Succ: " << iter->succ_size() << "\n";
+    errs() << "Predec: " << iter->pred_size() << "\n";
+  }
+
+  Priv->replaceUseOfBlockWith(b2, b1);
+
+  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
+    if(iter->getMBB() == b2->getMBB()){
+      Priv->Blocks.erase(iter);
+      break;
+    }
+  }
+
+  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
+    if(iter->getMBB() == mbb1){
+      auto newb1 = &(*iter);
+      Priv->replaceUseOfBlockWith(b1, newb1);
+      return newb1;
+    }
+  }
+
+  assert("Unreachable");
+  return (PredicatedBlock*)NULL;
 }

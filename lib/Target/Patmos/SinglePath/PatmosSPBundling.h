@@ -38,9 +38,9 @@ private:
   PatmosSinglePathInfo *PSPI;
 
   /// doBundlingFunction - Bundle a given MachineFunction
-  void doBundlingFunction(MachineFunction &MF);
+  void doBundlingFunction(SPScope* root);
 
-  void printFunction(MachineFunction &MF);
+
 public:
   static char ID;
   PatmosSPBundling(const PatmosTargetMachine &tm):
@@ -57,7 +57,6 @@ public:
   /// getAnalysisUsage - Specify which passes this pass depends on
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequired<PatmosSinglePathInfo>();
-    AU.setPreservesAll();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
@@ -77,7 +76,7 @@ public:
     if ( PSPI->isConverting(MF) ) {
       // TODO: DEBUG( dbgs() << "[Single-Path] Reducing "
       //              << MF.getFunction()->getName() << "\n" );
-      doBundlingFunction(MF);
+      doBundlingFunction(PSPI->getRootScope());
     }
     return changed;
   }
@@ -85,6 +84,8 @@ public:
   SPScope* getRootScope(){
     return PSPI->getRootScope();
   }
+
+  static void printFunction(MachineFunction &MF);
 };
 
 }

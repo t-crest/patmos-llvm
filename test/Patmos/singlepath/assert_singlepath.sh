@@ -242,7 +242,10 @@ do
 	fi
 	if ! diff <(echo "$first_stats") <(echo "$rest_stats") ; then
 		echo "The execution of '$exec' for execution arguments '$5' and '$i' weren't equivalent."
-		ret_code=1
+		ret_code=1 
+	fi
+	if [ $ret_code -ne 0 ] ; then
+		patmos-llvm-objdump -d $exec > $bitcode-objdump.asm
 	fi
 done
 

@@ -24,35 +24,18 @@ FunctionPass *llvm::createPatmosSPBundlingPass(const PatmosTargetMachine &tm) {
   return new PatmosSPBundling(tm);
 }
 
-void checkSPPredicateConsistency(MachineFunction &MF){
-  for (MachineFunction::iterator MBB = MF.begin(), MBBE = MF.end();
-                                     MBB != MBBE; ++MBB) {
-    for( MachineBasicBlock::iterator MI = MBB->begin(),
-                                         ME = MBB->end();
-                                         MI != ME; ++MI) {
-      for(int i = 0; i< MI->getNumOperands(); i++){
-        MachineOperand &p = MI->getOperand(i);
-        if ( p.isMetadata()){
-          const MDNode *n = p.getMetadata();
-          if( MDString *t = cast<MDString>(n->getOperand(0))){
-            if(t->getString().startswith("SPPred:")){
-              //OK
-              return;
-            }
-          }
-        }
-      }
-      errs() << "Instruction does not have SPPred metadata:" ;
-      MI->print(errs(), &(MI->getParent()->getParent()->getTarget()));
-      abort();
+std::pair<PredicatedBlock*, PredicatedBlock*> findBranch(SPScope* root){
+  auto blocks = root->getScopeBlocks();
+
+  for(auto block: blocks){
+    auto mbb = block->getMBB();
+    if(mbb->succ_size() == 2){
+      auto defs = block->getDefinitions();
+      assert(defs.size() == 2);
+      return std::make_pair((PredicatedBlock*)(*defs.begin()).useBlock, (PredicatedBlock*)(*(++defs.begin())).useBlock);
     }
   }
-}
-
-void PatmosSPBundling::doBundlingFunction(MachineFunction &MF) {
-  //outs() << "------------ At bundling -----------------\n";
-  //printFunction(MF);
-//  checkSPPredicateConsistency(MF);
+  return std::make_pair((PredicatedBlock*)NULL, (PredicatedBlock*)NULL);
 }
 
 void printMetaData(MachineBasicBlock::iterator & MI){
@@ -61,38 +44,85 @@ void printMetaData(MachineBasicBlock::iterator & MI){
     MachineOperand &p = MI->getOperand(i);
     if ( p.isMetadata()){
       const MDNode *n = p.getMetadata();
-      outs() << "\t^MetaData: ";
-      n->print(outs());
-      outs() << "\n";
+      errs() << "\t^MetaData: ";
+      n->print(errs());
+      errs() << "\n";
     }
+  }
+}
+
+void printBlock(const PredicatedBlock* block){
+  auto MBB = block->getMBB();
+  const MachineFunction& MF = *MBB->getParent();
+  errs() << MBB->getFullName()<< ":\n";
+  for( MachineBasicBlock::iterator MI = MBB->begin(),
+                                       ME = MBB->getFirstTerminator();
+                                       MI != ME; ++MI) {
+    errs() << "\t(" << block->getInstructionPredicates().at(MI) << ") ";
+    MI->print(errs(), &(MF.getTarget()), false);
+    printMetaData(MI);
+  }
+  errs() << "Terminators:\n";
+  for( MachineBasicBlock::iterator MI = MBB->getFirstTerminator(),
+                                           ME = MBB->end();
+                                           MI != ME; ++MI) {
+    errs() << "\t(" << block->getInstructionPredicates().at(MI) << ") ";
+    MI->print(errs(), &(MF.getTarget()), false);
+    printMetaData(MI);
+  }
+  errs() << "\n";
+}
+
+void printMBB(MachineBasicBlock* MBB){
+  const MachineFunction& MF = *MBB->getParent();
+  errs() << MBB->getFullName()<< "(" << MBB <<") #" << MBB->getNumber() << ":\n";
+  for( MachineBasicBlock::iterator MI = MBB->begin(),
+                                       ME = MBB->getFirstTerminator();
+                                       MI != ME; ++MI) {
+    errs() << "\t";
+    MI->print(errs(), &(MF.getTarget()), false);
+    printMetaData(MI);
+  }
+  errs() << "Terminators:\n";
+  for( MachineBasicBlock::iterator MI = MBB->getFirstTerminator(),
+                                           ME = MBB->end();
+                                           MI != ME; ++MI) {
+    errs() << "\t";
+    MI->print(errs(), &(MF.getTarget()), false);
+    printMetaData(MI);
+  }
+  errs() << "\n";
+}
+
+void PatmosSPBundling::doBundlingFunction(SPScope* root) {
+  errs() << "------------ At bundling -----------------\n";
+  printFunction(*root->getHeader()->getMBB()->getParent());
+  PredicatedBlock *b1, *b2;
+  std::tie(b1, b2) = findBranch(root);
+  errs() << "blocks to bundle:\n";
+  printBlock(b1);
+  printBlock(b2);
+  b1 = root->bundle(b1, b2);
+  errs() << "Bundled:\n";
+  printBlock(b1);
+  printFunction(*root->getHeader()->getMBB()->getParent());
+
+  errs() << "Scope:\n";
+  for(auto block: root->getScopeBlocks()){
+    printBlock(block);
   }
 }
 
 void PatmosSPBundling::printFunction(MachineFunction &MF) {
-  outs() << "Bundle function '" << MF.getFunction()->getName() << "'\n";
-  outs() << "Block list:\n";
+  errs() << "Bundle function '" << MF.getFunction()->getName() << "'\n";
+  errs() << "Block list:\n";
   for (MachineFunction::iterator MBB = MF.begin(), MBBE = MF.end();
                                    MBB != MBBE; ++MBB) {
-//    outs() << MBB->getFullName()<< "\nScope: " << PSPI->getScopeFor(MBB)->getHeader()->getMBB()->getFullName() << "\n";
-    for( MachineBasicBlock::iterator MI = MBB->begin(),
-                                         ME = MBB->getFirstTerminator();
-                                         MI != ME; ++MI) {
-      outs() << "\t";
-      MI->print(outs(), &(MF.getTarget()), false);
-      printMetaData(MI);
-    }
-    outs() << "Terminators:\n";
-    for( MachineBasicBlock::iterator MI = MBB->getFirstTerminator(),
-                                             ME = MBB->end();
-                                             MI != ME; ++MI) {
-      outs() << "\t";
-      MI->print(outs(), &(MF.getTarget()), false);
-      printMetaData(MI);
-    }
-    outs() << "\n";
+    printMBB(MBB);
   }
 
-  outs() <<"\n";
+  errs() <<"\n";
 
 }
+
 

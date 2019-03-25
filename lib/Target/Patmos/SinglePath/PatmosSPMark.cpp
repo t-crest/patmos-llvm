@@ -103,28 +103,6 @@ private:
    */
   void removeUncalledSPFunctions(const Module &M);
 
-  /**
-   * Called on all SP functions. Adds an additional operand to all instructions
-   * (also terminals?) that is used in subsequent passes.
-   * The operand is used to track which branch in a scope the instruction is part of
-   * after two basic blocks have been merged to make use of bundling.
-   * This operand is always the last operand of the instruction.
-   * Also, for consistency, the operand value is always 123400  plus
-   * the operand number.
-   * This pass will assign the value of the operands to 123399. This
-   * means the operands have not been assigned yet, and must assigned by
-   * the PatmosSinglePathInfo to a valid operand number, such that
-   * its >= 123400.
-   *
-   * For normal instructions, the operand will be the last operand and can be
-   * retrieved using: `MI->getOperand(MI->getNumOperands()-1)`.
-   * For terminal instructions, the operand will be the first implicit operand
-   * and can be retrieved using `MI->getOperand(MI->getNumExplicitOperands())`
-   * The reasoning for this discrepancy between terminal and non-terminals
-   * is LLVM specific but otherwise unknown.
-   */
-  void addSPPredicateToInstruction(MachineFunction &MF);
-
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -192,7 +170,6 @@ bool PatmosSPMark::runOnMachineModule(const Module &M) {
     MachineFunction *MF = W.front();
     W.pop_front();
     scanAndRewriteCalls(MF, W);
-    addSPPredicateToInstruction(*MF);
   }
 
   removeUncalledSPFunctions(M);
@@ -372,19 +349,4 @@ void printFunction(MachineFunction &MF) {
 
   outs() <<"\n";
 
-}
-
-void PatmosSPMark::addSPPredicateToInstruction(MachineFunction &MF) {
-  for (MachineFunction::iterator MBB = MF.begin(), MBBE = MF.end();
-                                     MBB != MBBE; ++MBB) {
-    for( MachineBasicBlock::iterator MI = MBB->begin(),
-                                         ME = MBB->end();
-                                         MI != ME; ++MI) {
-      LLVMContext& C = MF.getFunction()->getContext();
-      MDNode* N = MDNode::get(C, MDString::get(C, "SPPred:-1"));
-      MachineOperand op = MachineOperand::CreateMetadata(N);
-      MachineOperand *newOp = new MachineOperand(op);
-      MI->addOperand(*newOp);
-    }
-  }
 }

@@ -171,6 +171,10 @@ namespace llvm {
       /// Returns all the predicates use by the blocks in this scope. (including subheaders)
       std::set<unsigned> getAllPredicates() const;
 
+      /// Bundles the two given blocks returning the new block.
+      /// Renders both given pointer invalid.
+      PredicatedBlock* bundle(PredicatedBlock* b1, PredicatedBlock* b2);
+
     private:
       class Impl;
       /// We use the PIMPL pattern to implement the private

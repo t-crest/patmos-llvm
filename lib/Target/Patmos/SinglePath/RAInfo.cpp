@@ -312,6 +312,7 @@ public:
     map<unsigned, Location> curLocs;
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
+    errs() << "Topo blocks: " << blocks.size() << "\n";
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
       auto block = blocks[i];
       MachineBasicBlock *MBB = block->getMBB();
@@ -470,7 +471,9 @@ public:
       if (!(usePred == getHeaderPred() && Pub.Scope->isRootTopLevel())) {
         assert(block == Pub.Scope->getHeader() || i > 0);
 
-        assert(!UseLocs.count(block->getMBB()));
+        errs() << "Block:\n";
+        block->dump(errs(), 0);
+        errs() << "Pred: " << usePred << "\n";
         UseLocs[block->getMBB()].insert(std::make_pair(usePred,
           (Pub.Scope->isHeader(block)) ?
             calculateHeaderUseLoc(FreeLocs, curLocs)

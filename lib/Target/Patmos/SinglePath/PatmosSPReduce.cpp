@@ -837,6 +837,8 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
       auto useBlock = def.useBlock;
       auto guardPred = def.guard;
       DEBUG(dbgs() << pred << " ");
+      errs() << "insertPredDefinitions: " << pred << ", " << useBlock->getMBB() << ", " << guardPred << "\n";
+      block->dump(errs(), 0);
       insertDefEdge(S, block, def);
     }
     DEBUG(dbgs() << "\n");
@@ -905,10 +907,11 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
                   const SmallVectorImpl<MachineOperand> &Cond,
                   bool isMultiDef, bool isFirstDef, bool isExitEdgeDef) {
 
+  PatmosSPBundling::printFunction(*MBB.getParent());
   // insert the predicate definitions before any branch at the MBB end
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
   DebugLoc DL(MI->getDebugLoc());
-
+  errs() << "insertDefToRegLoc: " << &MBB << ", " << AvailPredRegs[regloc] << "\n";
   MachineInstr *DefMI;
   if (isExitEdgeDef || (isMultiDef && !isFirstDef)) {
     DefMI = BuildMI(MBB, MI, DL,
@@ -929,6 +932,7 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
   if (guard == AvailPredRegs[regloc]) {
     DefUseGuardInsts.push_back(DefMI);
   }
+  PatmosSPBundling::printFunction(*MBB.getParent());
 }
 
 void PatmosSPReduce::
@@ -1125,7 +1129,7 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
       assert(instrPreds.count(&(*MI)));
       auto instrPred = instrPreds[&(*MI)];
       auto predReg = predRegs.count(instrPred) ? predRegs[instrPred] : Patmos::P0;
-
+      errs() << "(" << predReg << ") " << &(*MI) << "\n";
       if (MI->isCall()) {
           DEBUG_TRACE( dbgs() << "    call: " << *MI );
           assert(!TII->isPredicated(MI) && "call predicated");
@@ -1510,12 +1514,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   MachineBasicBlock *PrehdrMBB = MF.CreateMachineBasicBlock();
   MF.push_back(PrehdrMBB);
 
-  const SPScope *SParent = S->getParent();
-  auto headerBlock = S->getHeader();
-  const MachineBasicBlock *HeaderMBB = headerBlock->getMBB();
-
-  const RAInfo &RI = Pass.RAInfos.at(S),
-               &RP = Pass.RAInfos.at(SParent);
+  const RAInfo &RI = Pass.RAInfos.at(S);
 
   DebugLoc DL;
 
