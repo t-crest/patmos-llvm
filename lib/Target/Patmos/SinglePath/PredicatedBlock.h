@@ -84,7 +84,7 @@ namespace llvm {
 
     void dump(raw_ostream& os, unsigned indent) const
     {
-      os.indent(indent) << "PredicatedBlock(" << &MBB << "):\n";
+      os.indent(indent) << "PredicatedBlock(" << MBB << "):\n";
       os.indent(indent + 2) << "InstrPreds:{";
       for(auto pair: InstrPred)
       {
@@ -99,6 +99,12 @@ namespace llvm {
       os <<"}\n";
       os.indent(indent + 2) << "ExitTargets:{";
       for(auto t: ExitTargets)
+      {
+        os << t << ", ";
+      }
+      os <<"}\n";
+      os.indent(indent + 2) << "Successors:{";
+      for(auto t: Successors)
       {
         os << t << ", ";
       }
@@ -144,10 +150,6 @@ namespace llvm {
       auto mbb1 = getMBB(), mbb2 = b2->getMBB();
       assert(mbb1->getParent() == mbb2->getParent());
 
-      auto inst = &(*mbb2->begin());
-      mbb2->remove(inst);
-      mbb1->insert(mbb1->begin(), inst);
-      InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
       while(mbb2->begin() != mbb2->getFirstTerminator()){
         auto inst = &(*mbb2->begin());
         mbb2->remove(inst);
@@ -159,11 +161,15 @@ namespace llvm {
         auto inst = &(*mbb2->begin());
         mbb2->remove(inst);
         mbb1->insert(mbb1->end(), inst);
-        InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
+        if(b2->InstrPred.count(inst)){
+          InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
+        }
       }
 
       Definitions.insert(Definitions.end(), b2->Definitions.begin(), b2->Definitions.end());
       ExitTargets.insert(ExitTargets.end(), b2->ExitTargets.begin(), b2->ExitTargets.end());
+      Remnants.insert(b2->Remnants.begin(), b2->Remnants.begin());
+      Remnants.insert(mbb2);
     }
 
     void replaceUseOfBlockWith(PredicatedBlock* oldBlock, PredicatedBlock* newBlock){
@@ -178,12 +184,32 @@ namespace llvm {
           *iter = newBlock;
         }
       }
+
+      if(Successors.count(oldBlock)){
+        Successors.erase(oldBlock);
+        Successors.insert(newBlock);
+      }
+    }
+
+    std::set<MachineBasicBlock*> bundledMBBs(){
+      return std::set<MachineBasicBlock*>(Remnants.begin(), Remnants.end());
+    }
+
+    void addSuccessor(const PredicatedBlock *block){
+      Successors.insert(block);
+    }
+
+    std::set<const PredicatedBlock*> getSuccessors() const {
+      return std::set<const PredicatedBlock*>(Successors.begin(), Successors.end());
     }
 
   private:
 
     /// The MBB that this instance manages the predicates for.
     MachineBasicBlock *MBB;
+
+    /// The MBBs that were bundled into this blocks MBB.
+    std::set<MachineBasicBlock*> Remnants;
 
     /// A mapping of which predicate each instruction is predicated by.
     std::map<const MachineInstr*, unsigned> InstrPred;
@@ -197,6 +223,8 @@ namespace llvm {
     std::vector<Definition> Definitions;
 
     std::vector<const PredicatedBlock*> ExitTargets;
+
+    std::set<const PredicatedBlock*> Successors;
 
   };
 

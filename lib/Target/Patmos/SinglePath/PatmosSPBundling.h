@@ -39,7 +39,7 @@ private:
 
   /// doBundlingFunction - Bundle a given MachineFunction
   void doBundlingFunction(SPScope* root);
-
+  void printBlocksDetailed(SPScope* root);
 
 public:
   static char ID;
@@ -76,6 +76,7 @@ public:
     if ( PSPI->isConverting(MF) ) {
       // TODO: DEBUG( dbgs() << "[Single-Path] Reducing "
       //              << MF.getFunction()->getName() << "\n" );
+      printFunction(MF);
       doBundlingFunction(PSPI->getRootScope());
     }
     return changed;

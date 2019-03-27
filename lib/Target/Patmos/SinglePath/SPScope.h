@@ -55,15 +55,12 @@ namespace llvm {
   class SPScope {
 
     public:
-      /// Type for iteration through the basic blocks that are part of the scope.
-      typedef std::vector<MachineBasicBlock*>::iterator iterator;
-
       /// Type for iteration through the subscopes of this scope.
       typedef std::vector<SPScope*>::iterator child_iterator;
 
       /// Type representing control flow from one MachineBasicBlock to another.
-      typedef std::pair<const MachineBasicBlock *,
-                        const MachineBasicBlock *> Edge;
+      typedef std::pair<const PredicatedBlock *,
+                        const PredicatedBlock *> Edge;
 
       /// Create a top-level SPScope. I.e. the SPScope representing the function.
       ///
@@ -120,7 +117,7 @@ namespace llvm {
       /// Returns whether the loop represented by the scope has a loop bound.
       /// The top-level scope never has a loop bound, since it only represents the
       /// function.
-      bool hasLoopBound() const ;
+      bool hasLoopBound() const;
 
       /// Returns the loop bound for the scope. If the scope doesn't
       /// have a loop bound, none is returned.

@@ -833,12 +833,6 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 
     // for each definition edge: insert
     for(auto def: block->getDefinitions()){
-      auto pred = def.predicate;
-      auto useBlock = def.useBlock;
-      auto guardPred = def.guard;
-      DEBUG(dbgs() << pred << " ");
-      errs() << "insertPredDefinitions: " << pred << ", " << useBlock->getMBB() << ", " << guardPred << "\n";
-      block->dump(errs(), 0);
       insertDefEdge(S, block, def);
     }
     DEBUG(dbgs() << "\n");
@@ -869,6 +863,8 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
   // Get the location for predicate r.
   RAInfo::LocType type; unsigned loc;
   std::tie(type, loc) = R.getDefLoc(pred);
+  errs() << "Pred: " << pred << " -> Reg: " << loc << "\n";
+
 
   if (type == RAInfo::Register) {
     if (!S->isSubheader(block) || (!RI.needsScopeSpill())) {
@@ -907,7 +903,6 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
                   const SmallVectorImpl<MachineOperand> &Cond,
                   bool isMultiDef, bool isFirstDef, bool isExitEdgeDef) {
 
-  PatmosSPBundling::printFunction(*MBB.getParent());
   // insert the predicate definitions before any branch at the MBB end
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
   DebugLoc DL(MI->getDebugLoc());

@@ -180,8 +180,40 @@ TEST(PredicatedBlockTest, AddExitTest){
     }));
 }
 
-//TEST(PredicatedBlockTest, awdade){
-//
-//}
+TEST(PredicatedBlockTest, InitialSuccTest){
+  /*
+   * We test that a new block's successor are the same as the
+   */
+  MockMBB mockMBB1(1);
+
+  PredicatedBlock b1(&mockMBB1);
+
+  auto succs = b1.getSuccessors();
+
+  EXPECT_THAT(succs.size(), Eq(0));
+}
+
+TEST(PredicatedBlockTest, AddSuccTest){
+  /*
+   * We test that a new block's successor are the same as the
+   */
+  MockMBB mockMBB1(1);
+  MockMBB mockMBB2(1);
+  MockMBB mockMBB3(1);
+
+  PredicatedBlock b1(&mockMBB1);
+  PredicatedBlock b2(&mockMBB2);
+  PredicatedBlock b3(&mockMBB3);
+
+  b1.addSuccessor(&b2);
+  b1.addSuccessor(&b3);
+
+  auto succs = b1.getSuccessors();
+
+  EXPECT_THAT(succs, UnorderedElementsAreArray({
+    &b2,
+    &b3
+  }));
+}
 
 }

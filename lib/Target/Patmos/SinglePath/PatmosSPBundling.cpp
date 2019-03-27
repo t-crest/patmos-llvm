@@ -28,10 +28,10 @@ std::pair<PredicatedBlock*, PredicatedBlock*> findBranch(SPScope* root){
   auto blocks = root->getScopeBlocks();
 
   for(auto block: blocks){
+    if(root->isHeader(block) || root->isSubheader(block)) continue;
     auto mbb = block->getMBB();
-    if(mbb->succ_size() == 2){
+    if(mbb->succ_size() == 2 && block->getDefinitions().size() == 2){
       auto defs = block->getDefinitions();
-      assert(defs.size() == 2);
       return std::make_pair((PredicatedBlock*)(*defs.begin()).useBlock, (PredicatedBlock*)(*(++defs.begin())).useBlock);
     }
   }
@@ -51,22 +51,29 @@ void printMetaData(MachineBasicBlock::iterator & MI){
   }
 }
 
-void printBlock(const PredicatedBlock* block){
+void printBlock(const PredicatedBlock* block, unsigned indent){
   auto MBB = block->getMBB();
   const MachineFunction& MF = *MBB->getParent();
-  errs() << MBB->getFullName()<< ":\n";
+  errs().indent(indent) << MBB->getFullName() << " #" << MBB->getNumber() <<":\n";
   for( MachineBasicBlock::iterator MI = MBB->begin(),
                                        ME = MBB->getFirstTerminator();
                                        MI != ME; ++MI) {
-    errs() << "\t(" << block->getInstructionPredicates().at(MI) << ") ";
+    errs().indent(indent+2) << "[" << &(*MI) << "](" << block->getInstructionPredicates().at(MI) << ") ";
     MI->print(errs(), &(MF.getTarget()), false);
     printMetaData(MI);
   }
-  errs() << "Terminators:\n";
+  errs().indent(indent) << "Terminators:\n";
   for( MachineBasicBlock::iterator MI = MBB->getFirstTerminator(),
                                            ME = MBB->end();
                                            MI != ME; ++MI) {
-    errs() << "\t(" << block->getInstructionPredicates().at(MI) << ") ";
+    auto instructionPredicates = block->getInstructionPredicates();
+    errs().indent(indent + 2) << "[" << &(*MI) << "](";
+    if(instructionPredicates.count(MI)){
+      errs() << block->getInstructionPredicates().at(MI);
+    }else{
+      errs() << "-";
+    }
+    errs() << ") ";
     MI->print(errs(), &(MF.getTarget()), false);
     printMetaData(MI);
   }
@@ -94,23 +101,74 @@ void printMBB(MachineBasicBlock* MBB){
   errs() << "\n";
 }
 
-void PatmosSPBundling::doBundlingFunction(SPScope* root) {
-  errs() << "------------ At bundling -----------------\n";
-  printFunction(*root->getHeader()->getMBB()->getParent());
-  PredicatedBlock *b1, *b2;
-  std::tie(b1, b2) = findBranch(root);
-  errs() << "blocks to bundle:\n";
-  printBlock(b1);
-  printBlock(b2);
-  b1 = root->bundle(b1, b2);
-  errs() << "Bundled:\n";
-  printBlock(b1);
-  printFunction(*root->getHeader()->getMBB()->getParent());
-
-  errs() << "Scope:\n";
-  for(auto block: root->getScopeBlocks()){
-    printBlock(block);
+void PatmosSPBundling::printBlocksDetailed(SPScope* root) {
+  for (auto block : root->getBlocksTopoOrd()) {
+    if (root->isSubheader(block)) {
+      errs() << "[" << block << "] <SUB> (" <<block->getMBB() << ")\n\n";
+    } else {
+      errs() << "[" << block << "] ";
+      if (root->isHeader(block)) {
+        errs() << "<HEADER> ";
+      }
+      block->dump(errs(), 0);
+      printBlock(block, 2);
+    }
   }
+}
+
+void PatmosSPBundling::doBundlingFunction(SPScope* root) {
+  errs() << "-------- Bundling scope with header: " << root->getHeader() << " --------\n";
+
+  printBlocksDetailed(root);
+
+  bool tryAgain = true;
+
+  while(tryAgain){
+    tryAgain = false;
+    for(auto block: root->getScopeBlocks()){
+      auto mbb = block->getMBB();
+      if(mbb->succ_size() == 2 && block->getDefinitions().size() == 2){
+        auto defs = block->getDefinitions();
+        auto b1 = (PredicatedBlock*) (*defs.begin()).useBlock;
+        auto b2 = (PredicatedBlock*) (*(++defs.begin())).useBlock;
+        if(!(root->isSubheader(b1) || root->isSubheader(b2) || b1->getMBB()->succ_size() == 0 || b2->getMBB()->succ_size() == 0 ||
+            b1->bundledMBBs().size()>0 || b1->bundledMBBs().size()>0)){
+
+          PredicatedBlock *destination, *source;
+
+          auto farMBB = TII->getBranchTarget(mbb->getFirstInstrTerminator());
+          if(TII->mayFallthrough(*mbb) && farMBB == b1->getMBB()){
+            assert(++mbb->getFirstInstrTerminator() == mbb->end());
+            assert(farMBB == b1->getMBB() || farMBB == b2->getMBB());
+            destination = b2;
+            source = b1;
+            auto terminator = mbb->getFirstInstrTerminator();
+
+//            if(TII->mayFallthrough(*source->getMBB())){
+//              BuildMI(*source->getMBB(), source->getMBB()->end(), DebugLoc(), TII->get(Patmos::BR))
+//                .addReg(terminator->getOperand(0).getReg()).addImm(terminator->getOperand(1).getImm())
+//                .addMBB(source->getMBB()->getNextNode());
+//            }
+
+            mbb->remove(terminator);
+          }else{
+            destination = b1;
+            source = b2;
+          }
+
+          errs() << "Bundling: (" << destination << ", " << source << ")\n";
+          root->bundle(destination, source);
+
+          errs() << "Scope after bundling:\n";
+          printBlocksDetailed(root);
+          tryAgain = true;
+          break;
+        }
+      }
+    }
+  }
+
+  errs()  << "-------- Finished bundling scope with header: " << root->getHeader() << " --------\n";
 }
 
 void PatmosSPBundling::printFunction(MachineFunction &MF) {
