@@ -39,7 +39,10 @@ private:
 
   /// doBundlingFunction - Bundle a given MachineFunction
   void doBundlingFunction(SPScope* root);
-  void printBlocksDetailed(SPScope* root);
+
+  static void printFunction(MachineFunction &MF);
+  static void printBlocksDetailed(SPScope* root);
+  static void printBlock(const PredicatedBlock* block, unsigned indent);
 
 public:
   static char ID;
@@ -74,9 +77,7 @@ public:
     bool changed = false;
     // only convert function if marked
     if ( PSPI->isConverting(MF) ) {
-      // TODO: DEBUG( dbgs() << "[Single-Path] Reducing "
-      //              << MF.getFunction()->getName() << "\n" );
-      printFunction(MF);
+//      printFunction(MF);
       doBundlingFunction(PSPI->getRootScope());
     }
     return changed;
@@ -86,7 +87,6 @@ public:
     return PSPI->getRootScope();
   }
 
-  static void printFunction(MachineFunction &MF);
 };
 
 }

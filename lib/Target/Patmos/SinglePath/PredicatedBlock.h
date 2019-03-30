@@ -69,10 +69,15 @@ namespace llvm {
     void setPredicate(unsigned pred)
     {
       InstrPred.clear();
-      for( auto instr_iter = MBB->begin(), end = MBB->end(); instr_iter != end; instr_iter++){
+      for( auto instr_iter = MBB->begin(), end = MBB->getFirstTerminator(); instr_iter != end; instr_iter++){
         MachineInstr* instr = &(*instr_iter);
         assert(InstrPred.find(instr) == InstrPred.end());
         InstrPred.insert(std::make_pair(instr, pred));
+      }
+
+      // Reassign successor predicates
+      for(auto iter = Successors.begin(), end = Successors.end(); iter != end; iter++){
+        iter->second = pred;
       }
     }
 
@@ -106,7 +111,7 @@ namespace llvm {
       os.indent(indent + 2) << "Successors:{";
       for(auto t: Successors)
       {
-        os << t << ", ";
+        os << "(" << t.first << ", " << t.second << "), ";
       }
       os <<"}\n";
     }
@@ -161,15 +166,14 @@ namespace llvm {
         auto inst = &(*mbb2->begin());
         mbb2->remove(inst);
         mbb1->insert(mbb1->end(), inst);
-        if(b2->InstrPred.count(inst)){
-          InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
-        }
+//        InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
       }
 
       Definitions.insert(Definitions.end(), b2->Definitions.begin(), b2->Definitions.end());
       ExitTargets.insert(ExitTargets.end(), b2->ExitTargets.begin(), b2->ExitTargets.end());
       Remnants.insert(b2->Remnants.begin(), b2->Remnants.begin());
       Remnants.insert(mbb2);
+      Successors.insert(b2->Successors.begin(), b2->Successors.end());
     }
 
     void replaceUseOfBlockWith(PredicatedBlock* oldBlock, PredicatedBlock* newBlock){
@@ -185,9 +189,14 @@ namespace llvm {
         }
       }
 
-      if(Successors.count(oldBlock)){
-        Successors.erase(oldBlock);
-        Successors.insert(newBlock);
+      auto found = std::find_if(Successors.begin(), Successors.end(),
+          [&](auto succ){return succ.first == oldBlock;});
+      if(found != Successors.end()){
+        auto pred = found->second;
+        Successors.erase(found);
+        assert(std::find_if(Successors.begin(), Successors.end(),
+                          [&](auto succ){return succ.first == oldBlock;}) == Successors.end());
+        Successors.insert(std::make_pair(newBlock, pred));
       }
     }
 
@@ -195,12 +204,12 @@ namespace llvm {
       return std::set<MachineBasicBlock*>(Remnants.begin(), Remnants.end());
     }
 
-    void addSuccessor(const PredicatedBlock *block){
-      Successors.insert(block);
+    void addSuccessor(const PredicatedBlock *block, unsigned pred){
+      Successors.insert(std::make_pair(block, pred));
     }
 
-    std::set<const PredicatedBlock*> getSuccessors() const {
-      return std::set<const PredicatedBlock*>(Successors.begin(), Successors.end());
+    std::map<const PredicatedBlock*, unsigned> getSuccessors() const {
+      return std::map<const PredicatedBlock*, unsigned>(Successors.begin(), Successors.end());
     }
 
   private:
@@ -224,7 +233,7 @@ namespace llvm {
 
     std::vector<const PredicatedBlock*> ExitTargets;
 
-    std::set<const PredicatedBlock*> Successors;
+    std::map<const PredicatedBlock*, unsigned> Successors;
 
   };
 

@@ -34,6 +34,11 @@ namespace llvm{
       return instr.end();
     }
 
+    std::vector<MockInstr>::iterator getFirstTerminator()
+    {
+      return instr.end();
+    }
+
     MOCK_METHOD0(succ_begin, MockMBB**());
     MOCK_METHOD0(succ_end, MockMBB**());
 
@@ -205,14 +210,14 @@ TEST(PredicatedBlockTest, AddSuccTest){
   PredicatedBlock b2(&mockMBB2);
   PredicatedBlock b3(&mockMBB3);
 
-  b1.addSuccessor(&b2);
-  b1.addSuccessor(&b3);
+  b1.addSuccessor(&b2, 2);
+  b1.addSuccessor(&b3, 2);
 
   auto succs = b1.getSuccessors();
 
   EXPECT_THAT(succs, UnorderedElementsAreArray({
-    &b2,
-    &b3
+    std::make_pair(&b2, 2),
+    std::make_pair(&b3, 2)
   }));
 }
 

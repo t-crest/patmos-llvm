@@ -699,8 +699,9 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Insert predicate definitions (no particular order necessary)
   for (auto iter = df_begin(RootScope), end = df_end(RootScope);
         iter != end; ++iter) {
-    insertPredDefinitions(*iter);
-    insertStackLocInitializations(*iter);
+    auto scope = *iter;
+    insertPredDefinitions(scope);
+    insertStackLocInitializations(scope);
   }
 
   // After all scopes are handled, perform some global fixups
@@ -863,8 +864,6 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
   // Get the location for predicate r.
   RAInfo::LocType type; unsigned loc;
   std::tie(type, loc) = R.getDefLoc(pred);
-  errs() << "Pred: " << pred << " -> Reg: " << loc << "\n";
-
 
   if (type == RAInfo::Register) {
     if (!S->isSubheader(block) || (!RI.needsScopeSpill())) {
@@ -906,7 +905,6 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
   // insert the predicate definitions before any branch at the MBB end
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
   DebugLoc DL(MI->getDebugLoc());
-  errs() << "insertDefToRegLoc: " << &MBB << ", " << AvailPredRegs[regloc] << "\n";
   MachineInstr *DefMI;
   if (isExitEdgeDef || (isMultiDef && !isFirstDef)) {
     DefMI = BuildMI(MBB, MI, DL,
@@ -927,7 +925,6 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
   if (guard == AvailPredRegs[regloc]) {
     DefUseGuardInsts.push_back(DefMI);
   }
-  PatmosSPBundling::printFunction(*MBB.getParent());
 }
 
 void PatmosSPReduce::
@@ -1124,7 +1121,6 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
       assert(instrPreds.count(&(*MI)));
       auto instrPred = instrPreds[&(*MI)];
       auto predReg = predRegs.count(instrPred) ? predRegs[instrPred] : Patmos::P0;
-      errs() << "(" << predReg << ") " << &(*MI) << "\n";
       if (MI->isCall()) {
           DEBUG_TRACE( dbgs() << "    call: " << *MI );
           assert(!TII->isPredicated(MI) && "call predicated");
@@ -1586,13 +1582,6 @@ void LinearizeWalker::exitSubscope(SPScope *S) {
   // now we can fill the MBB with instructions:
   //
   // load the header predicate, if necessary
-//  unsigned header_preg = Pass.getUsePReg(RI, HeaderMBB);
-//  auto loadlocs = RI.getLoadLocs(HeaderMBB);
-//  if (!loadlocs.empty()) {
-//    Pass.insertPredicateLoad(BranchMBB, BranchMBB->end(),
-//        loadlocs.begin()->second, header_preg);
-//  }
-
   const auto predRegs = Pass.getPredicateRegisters(RI, headerBlock);
   auto neededLoads = RI.getLoadLocs(HeaderMBB);
   for(auto load: neededLoads){

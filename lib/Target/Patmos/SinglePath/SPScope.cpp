@@ -11,19 +11,20 @@
 #include "SPScope.h"
 #include "Patmos.h"
 #include "PatmosSinglePathInfo.h"
+#include "PatmosSPBundling.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/CodeGen/MachineFunction.h"
 
 using namespace llvm;
 
 /// Node - a node used internally in the scope to construct a forward CFG
-/// of the scope MBBs
+/// of the scope blocks
 class Node {
   public:
     typedef std::vector<Node*>::iterator child_iterator;
-    Node(const PredicatedBlock *mbb=NULL)
-      : MBB(mbb), num(-1), ipdom(NULL) {}
-    const PredicatedBlock *MBB;
+    Node(const PredicatedBlock *b=NULL)
+      : Block(b), num(-1), ipdom(NULL) {}
+    const PredicatedBlock *Block;
     int num;
     Node *ipdom;
     void connect(Node &n) {
@@ -60,11 +61,11 @@ class FCFG {
           std::make_pair((const PredicatedBlock *)NULL, header));
     }
     Node nentry, nexit;
-    Node &getNodeFor(const PredicatedBlock *MBB) {
-      if (!nodes.count(MBB)) {
-        nodes.insert(std::make_pair(MBB, Node(MBB)));
+    Node &getNodeFor(const PredicatedBlock *block) {
+      if (!nodes.count(block)) {
+        nodes.insert(std::make_pair(block, Node(block)));
       }
-      return nodes.at(MBB);
+      return nodes.at(block);
     }
     void toexit(Node &n) { n.connect(nexit); }
     void toexit(Node &n, SPScope::Edge &e) { n.connect(nexit, e); }
@@ -105,7 +106,7 @@ class FCFG {
       } else if (&n == &nexit) {
         os << "_T<" << n.num << ">";
       } else {
-        os << "BB#" << n.MBB->getMBB()->getNumber() << "<" << n.num << ">";
+        os << "BB#" << n.Block->getMBB()->getNumber() << "<" << n.num << ">";
       }
       return os;
     }
@@ -166,7 +167,7 @@ public:
   /**
    *  A map over which predicate is the guard for each basic block.
    */
-  typedef std::map<const PredicatedBlock*, unsigned> MBBPredicates_t;
+  typedef std::map<const PredicatedBlock*, unsigned> BlockPredicates;
 
 //Fields
 
@@ -186,7 +187,7 @@ public:
 
   /// The blocks that are exclusively contained in this scope.
   /// The header of the scope is always the first element.
-  std::vector<PredicatedBlock> Blocks;
+  std::vector<PredicatedBlock*> Blocks;
 
   // sub-scopes
   std::vector<SPScope*> Subscopes;
@@ -200,7 +201,7 @@ public:
     Pub(*pub), Parent(parent), LoopBound(boost::none), RootFunc(rootFunc),
     PredCount(0)
   {
-    Blocks.push_back(PredicatedBlock(header));
+    Blocks.push_back(new PredicatedBlock(header));
 
     // add the rest of the MBBs to the scope
     for (MachineFunction::iterator FI=MF.begin(), FE=MF.end();
@@ -231,14 +232,14 @@ public:
       if (Pub.isSubheader(block)) {
         auto subscopeOp = Pub.findScopeOf(block);
         assert(subscopeOp.is_initialized());
-        const SPScope *subloop = get(subscopeOp);
-        outedges = subloop->Priv->getOutEdges();
+        const SPScope *subscope = get(subscopeOp);
+        outedges = subscope->Priv->getOutEdges();
       } else {
         // simple block
         auto succs = block->getSuccessors();
         for (auto si = succs.begin(),
               se = succs.end(); si != se; ++si) {
-          outedges.insert(std::make_pair(block, *si));
+          outedges.insert(std::make_pair(block, si->first));
         }
       }
 
@@ -246,7 +247,7 @@ public:
       for(auto edge : outedges){
         auto succ = edge.second;
         // if succ is one of the fcfg blocks except the scope header.
-        if (std::find_if(succBlocks.begin(), succBlocks.end(), [&](auto pMBB){ return pMBB == succ;}) != succBlocks.end()) {
+        if (succBlocks.count(succ)) {
           Node &ns = fcfg.getNodeFor(succ);
           n.connect(ns, edge);
         } else {
@@ -262,7 +263,7 @@ public:
 
       // special case: top-level loop has no exit/backedge
       if (outedges.empty()) {
-        //assert(Pub.isTopLevel());
+        assert(Pub.isTopLevel());
         fcfg.toexit(n);
       }
     }
@@ -277,13 +278,13 @@ public:
     Node *t = b;
     while (t != a->ipdom) {
       // add edge e to control dependence of t
-      CD[t->MBB].insert(std::make_pair(edgesrc, e));
+      CD[t->Block].insert(std::make_pair(edgesrc, e));
       t = t->ipdom;
     }
   }
 
   void decompose(CD_map_t &CD, FCFG &fcfg, const PatmosInstrInfo* instrInfo) {
-    MBBPredicates_t mbbPreds;
+    BlockPredicates blockPreds;
     std::map<unsigned, CD_map_entry_t> K;
 
     int p;
@@ -308,15 +309,15 @@ public:
 
       if (q != -1) {
         // we already have handled this dependence
-        mbbPreds[block] = q;
+        blockPreds[block] = q;
       } else {
         // new dependence set:
         if(!Pub.isTopLevel() && block == Pub.getHeader()){
           K.insert(make_pair(*Pub.getHeader()->getBlockPredicates().begin(), t));
-          mbbPreds[block] = *Pub.getHeader()->getBlockPredicates().begin();
+          blockPreds[block] = *Pub.getHeader()->getBlockPredicates().begin();
         }else{
           K.insert(make_pair(p, t));
-          mbbPreds[block] = p++;
+          blockPreds[block] = p++;
         }
       }
     }
@@ -325,7 +326,7 @@ public:
       // dump R, K
       dbgs() << "Decomposed CD:\n";
       dbgs().indent(2) << "map R: MBB -> pN\n";
-      for (MBBPredicates_t::iterator RI = mbbPreds.begin(), RE = mbbPreds.end(); RI != RE; ++RI) {
+      for (BlockPredicates::iterator RI = blockPreds.begin(), RE = blockPreds.end(); RI != RE; ++RI) {
         dbgs().indent(4) << "R(" << RI->first->getMBB()->getNumber() << ") = p"
                          << RI->second << "\n";
       }
@@ -346,15 +347,13 @@ public:
     // Properly assign the Uses/Defs
     PredCount = K.size();
     // Assign each block's predicates
-    for(auto iter = Blocks.begin(), end = Blocks.end(); iter != end; ++iter)
-    {
-      auto b = &*iter;
-      b->setPredicate(mbbPreds[b]);
+    for(auto b: Blocks){
+      b->setPredicate(blockPreds[b]);
     }
 
     // Assign subHeader's predicates
     for(auto block: getSubheaders()){
-      block->setPredicate(mbbPreds[block]);
+      block->setPredicate(blockPreds[block]);
     }
 
     // For each predicate, compute defs
@@ -372,7 +371,7 @@ public:
         }
 
         // insert definition edge for predicate i
-        auto block = (PredicatedBlock*)n->MBB;
+        auto block = (PredicatedBlock*)n->Block;
         assert(!block->getBlockPredicates().empty());
 
         auto condition = getCondition(block, e.second, instrInfo);
@@ -480,8 +479,8 @@ public:
     assert(succs.size() == 2);
     for (auto si = succs.begin(),
         se = succs.end(); si != se; ++si) {
-      if (*si != e.second) {
-        return std::make_pair(src, *si);
+      if (si->first != e.second) {
+        return std::make_pair(src, si->first);
       }
     }
     llvm_unreachable("no dual edge found");
@@ -502,8 +501,8 @@ public:
   /// addMBB - Add an MBB to the SP scope
   void addMBB(MachineBasicBlock *MBB) {
 
-    if (Blocks.front().getMBB() != MBB) {
-      Blocks.push_back(PredicatedBlock(MBB));
+    if (Blocks.front()->getMBB() != MBB) {
+      Blocks.push_back(new PredicatedBlock(MBB));
     }
   }
 
@@ -517,26 +516,26 @@ public:
     // Sum the number of blocks that define the predicate.
     // Don't check the subheaders since they can't define predicates
     // for this scope.
-    std::for_each(Blocks.begin(), Blocks.end(), [&](auto b){
-      auto defs = b.getDefinitions();
+    for(auto b: Blocks){
+      auto defs = b->getDefinitions();
       if(std::find_if(defs.begin(), defs.end(), [&](auto def){
         return def.predicate == pred;
       }) != defs.end()){
         count++;
       }
-    });
+    }
     return count;
   }
 
   static boost::optional<PredicatedBlock*>
-  getPredicatedFrom(const MachineBasicBlock *mbb, std::vector<PredicatedBlock>* container)
+  getPredicatedFrom(const MachineBasicBlock *mbb, std::vector<PredicatedBlock*>* container)
   {
     auto found = std::find_if(container->begin(), container->end(), [&](auto block){
-      return block.getMBB() == mbb;
+      return block->getMBB() == mbb;
     });
 
     return found != container->end()?
-      boost::make_optional(&*found) :
+      boost::make_optional(*found) :
       boost::none;
   }
 
@@ -565,37 +564,18 @@ public:
 
   /// Returns all edges in the control flow who's source is inside the loop and
   /// target is outside the loop.
-  /// The source may therefore be a MBB that resides in a subscope of this scope.
-  /// The target will always be a MBB that is not in this scope or any subscope.
-  const std::set<std::pair<const PredicatedBlock*, const PredicatedBlock*>> getPredicatedOutEdges() const
+  /// The source may therefore be a block that resides in a subscope of this scope.
+  /// The target will always be a block that is not in this scope or any subscope.
+  const std::set<SPScope::Edge> getOutEdges() const
   {
     std::set<std::pair<const PredicatedBlock*, const PredicatedBlock*>> outs;
 
-    for(auto iter = Blocks.begin(), end = Blocks.end(); iter != end; iter++)
-    {
-      auto exits = iter->getExitTargets();
+    for(auto block: Blocks){
+      auto exits = block->getExitTargets();
       for(auto t: exits)
       {
-        outs.insert(std::make_pair(&(*iter),t));
+        outs.insert(std::make_pair(block,t));
       }
-    }
-
-    return outs;
-  }
-
-  /// Returns all edges in the control flow who's source is inside the loop and
-  /// target is outside the loop.
-  /// The source may therefore be a MBB that resides in a subscope of this scope.
-  /// The target will always be a MBB that is not in this scope or any subscope.
-  const std::set<SPScope::Edge> getOutEdges() const
-  {
-    auto predOuts = getPredicatedOutEdges();
-
-    std::set<SPScope::Edge> outs;
-
-    for(auto edge: predOuts)
-    {
-      outs.insert(std::make_pair(edge.first,edge.second));
     }
 
     return outs;
@@ -640,13 +620,13 @@ public:
       auto parentFcfgBlocks = Parent->getFcfgBlocks();
       fcfgBlocks.insert(fcfgBlocks.end(), parentFcfgBlocks.begin(), parentFcfgBlocks.end());
     }
-    for(auto iter = Blocks.begin(), end = Blocks.end(); iter != end; iter++){
-      auto mbb = iter->getMBB();
+    for(auto block: Blocks){
+      auto mbb = block->getMBB();
       std::for_each(mbb->succ_begin(), mbb->succ_end(), [&](MachineBasicBlock* succMbb){
         auto found = std::find_if(fcfgBlocks.begin(), fcfgBlocks.end(),
             [&](auto b){ return b->getMBB() == succMbb;});
         assert(found != fcfgBlocks.end());
-        iter->addSuccessor(*found);
+        block->addSuccessor(*found, 0);
       });
     }
 
@@ -672,9 +652,9 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
   loop.getExitEdges(ExitEdges);
 
   for(auto edge: ExitEdges){
-    for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
-      if(iter->getMBB() == edge.first){
-        iter->addExitTarget(get(Priv->getPredicatedParent(edge.second)));
+    for(auto block: Priv->Blocks){
+      if(block->getMBB() == edge.first){
+        block->addExitTarget(get(Priv->getPredicatedParent(edge.second)));
         break;
       }
     }
@@ -694,6 +674,9 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
 
 /// free the child scopes first, cleanup
 SPScope::~SPScope() {
+  for(auto block: Priv->Blocks){
+    delete block;
+  }
   for (unsigned i=0; i<Priv->Subscopes.size(); i++) {
     delete Priv->Subscopes[i];
   }
@@ -709,13 +692,13 @@ bool SPScope::isSubheader(const PredicatedBlock *block) const {
 }
 
 const std::set<const PredicatedBlock *> SPScope::getSucceedingBlocks() const {
-  std::set<const PredicatedBlock *> succMBBs;
-  auto outEdges = Priv->getPredicatedOutEdges();
+  std::set<const PredicatedBlock *> succblocks;
+  auto outEdges = Priv->getOutEdges();
   for(auto edge: outEdges)
   {
-    succMBBs.insert(edge.second);
+    succblocks.insert(edge.second);
   }
-  return succMBBs;
+  return succblocks;
 }
 
 void SPScope::walk(SPScopeWalker &walker) {
@@ -749,7 +732,8 @@ static void printUDInfo(raw_ostream& os, const PredicatedBlock *block) {
 }
 
 void SPScope::dump(raw_ostream& os) const {
-  os.indent(2*getDepth()) <<  "[BB#" << Priv->Blocks.front().getMBB()->getNumber() << ":" << Priv->Blocks.front().getMBB() <<"]";
+  os.indent(2*getDepth()) <<  "[BB#" << Priv->Blocks.front()->getMBB()->getNumber()
+      << ":" << Priv->Blocks.front()->getMBB() <<"]";
   auto succs = getSucceedingBlocks();
   if (!Priv->Parent) {
     os << " (top)";
@@ -764,7 +748,7 @@ void SPScope::dump(raw_ostream& os) const {
   }
 
   os << " |P|=" <<  Priv->PredCount;
-  printUDInfo(os, &Priv->Blocks.front());
+  printUDInfo(os, Priv->Blocks.front());
   os << " loopBound=";
   if(Priv->LoopBound.is_initialized()){
     os << get(Priv->LoopBound);
@@ -775,7 +759,7 @@ void SPScope::dump(raw_ostream& os) const {
 
   os.indent(2*getDepth()) << "Blocks: {\n";
   for(auto b: Priv->Blocks){
-    b.dump(os, 2*getDepth() + 2);
+    b->dump(os, 2*getDepth() + 2);
   }
   os.indent(2*getDepth()) << "}\n";
   os.indent(2*getDepth()) << "children:\n";
@@ -794,17 +778,11 @@ bool SPScope::hasLoopBound() const { return Priv->LoopBound.is_initialized(); }
 
 boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound; }
 
-PredicatedBlock *SPScope::getHeader() const { return &Priv->Blocks.front(); }
+PredicatedBlock *SPScope::getHeader() const { return Priv->Blocks.front(); }
 
 std::vector<PredicatedBlock*> SPScope::getScopeBlocks() const
 {
-  std::vector<PredicatedBlock*> result;
-  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++)
-  {
-    result.push_back(&(*iter));
-  }
-
-  return result;
+  return std::vector<PredicatedBlock*>(Priv->Blocks);
 }
 
 std::vector<PredicatedBlock*> SPScope::getBlocksTopoOrd() const
@@ -814,33 +792,12 @@ std::vector<PredicatedBlock*> SPScope::getBlocksTopoOrd() const
   std::vector<PredicatedBlock *> PO;
   for (po_iterator<FCFG*> I = po_begin(&fcfg), E = po_end(&fcfg);
       I != E; ++I) {
-    auto block = const_cast<PredicatedBlock*>((*I)->MBB);
+    auto block = const_cast<PredicatedBlock*>((*I)->Block);
     if (block) {
       PO.push_back(block);
     }
   }
   std::reverse(PO.begin(), PO.end());
-
-//  std::function<bool(const SPScope*, PredicatedBlock*)> tjek = [&](auto subscope, auto block){
-//    for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
-//      if(&(*iter) == block){
-//        return true;
-//      }
-//    }
-//
-//    for(auto subscope: Priv->Subscopes){
-//      if(tjek(subscope, block)){
-//        return true;
-//      }
-//    }
-//
-//    return false;
-//  };
-//
-//  for(auto block: PO){
-//    assert(tjek(this, block));
-//  }
-
   return PO;
 }
 
@@ -866,10 +823,8 @@ SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(
 boost::optional<SPScope*> SPScope::findScopeOf(const PredicatedBlock *block) const
 {
   // Look in this scope's blocks
-  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; ++iter){
-    if(block == &(*iter)){
-      return boost::make_optional((SPScope*)this);
-    }
+  if(std::find(Priv->Blocks.begin(), Priv->Blocks.end(), block) != Priv->Blocks.end()){
+    return boost::make_optional((SPScope*)this);
   }
 
   // Otherwise, look through the subscopes
@@ -957,25 +912,29 @@ PredicatedBlock* SPScope::bundle(PredicatedBlock* b1, PredicatedBlock* b2){
     mbb2->removeSuccessor(mbb2->succ_begin());
   }
 
-  func->remove(b2->getMBB());
-  func->DeleteMachineBasicBlock(b2->getMBB());
+  func->erase(b2->getMBB());
+//  func->remove(b2->getMBB());
+//  func->DeleteMachineBasicBlock(b2->getMBB());
 
   Priv->replaceUseOfBlockWith(b2, b1);
 
-  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
-    if(iter->getMBB() == b2->getMBB()){
-      Priv->Blocks.erase(iter);
-      break;
-    }
-  }
+//  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
+//    if((*iter)->getMBB() == b2->getMBB()){
+//      Priv->Blocks.erase(iter);
+//      break;
+//    }
+//  }
+//
+//  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
+//    if((*iter)->getMBB() == mbb1){
+//      auto newb1 = *iter;
+//      Priv->replaceUseOfBlockWith(b1, newb1);
+//      return newb1;
+//    }
+//  }
 
-  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
-    if(iter->getMBB() == mbb1){
-      auto newb1 = &(*iter);
-      Priv->replaceUseOfBlockWith(b1, newb1);
-      return newb1;
-    }
-  }
+  Priv->Blocks.erase(std::find(Priv->Blocks.begin(), Priv->Blocks.end(), b2));
+  return b1;
 
   assert("Unreachable");
   return (PredicatedBlock*)NULL;

@@ -281,12 +281,14 @@ public:
                  << Pub.Scope->getHeader()->getMBB()->getNumber() << "]\n");
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
+
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
       auto block = blocks[i];
-      auto pred = *block->getBlockPredicates().begin();
-      // insert use
-      getOrCreateLRFor(pred)->addUse(i);
-
+      auto preds = block->getBlockPredicates();
+      // insert uses
+      for(auto pred: preds){
+        getOrCreateLRFor(pred)->addUse(i);
+      }
       // insert defs
       for(auto def: block->getDefinitions()){
         getOrCreateLRFor(def.predicate)->addDef(i);
@@ -297,7 +299,10 @@ public:
     // TODO:(Emad) of the loop, therefore we say that the last block also uses P0? i.e. connecting
     // TODO:(Emad) the loop end with the start?
     if (!Pub.Scope->isTopLevel()) {
-      getOrCreateLRFor(getHeaderPred())->addUse(blocks.size());
+      auto preds = Pub.Scope->getHeader()->getBlockPredicates();
+      for(auto pred: preds){
+        getOrCreateLRFor(pred)->addUse(blocks.size());
+      }
     }
   }
 
@@ -312,7 +317,6 @@ public:
     map<unsigned, Location> curLocs;
 
     auto blocks = Pub.Scope->getBlocksTopoOrd();
-    errs() << "Topo blocks: " << blocks.size() << "\n";
     for (unsigned i = 0, e = blocks.size(); i < e; i++) {
       auto block = blocks[i];
       MachineBasicBlock *MBB = block->getMBB();
@@ -471,9 +475,6 @@ public:
       if (!(usePred == getHeaderPred() && Pub.Scope->isRootTopLevel())) {
         assert(block == Pub.Scope->getHeader() || i > 0);
 
-        errs() << "Block:\n";
-        block->dump(errs(), 0);
-        errs() << "Pred: " << usePred << "\n";
         UseLocs[block->getMBB()].insert(std::make_pair(usePred,
           (Pub.Scope->isHeader(block)) ?
             calculateHeaderUseLoc(FreeLocs, curLocs)
