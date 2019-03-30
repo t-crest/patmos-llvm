@@ -244,7 +244,21 @@ public:
       }
 
       Node &n = fcfg.getNodeFor(block);
-      for(auto edge : outedges){
+
+      std::set<std::pair<const MachineBasicBlock*, const MachineBasicBlock*>> outedgesMbb;
+      for(auto edge: outedges){
+        outedgesMbb.insert(std::make_pair(edge.first->getMBB(), edge.second->getMBB()));
+      }
+
+      // For some reason, RAInfo is dependent on 'outedges' running this for loop
+      // in the order dictated by the being comprised of MachineBasicBlock (i.e. outedgesMbb).
+      // Changing 'outedgesMbb' might cause predicate register allocation to fail for unknown reaons.
+      for(auto mbbEdge : outedgesMbb){
+        auto foundEdge = std::find_if(outedges.begin(), outedges.end(), [&](auto e){
+          return e.first->getMBB() == mbbEdge.first && e.second->getMBB() == mbbEdge.second;
+        });
+        assert(foundEdge != outedges.end());
+        auto edge = *foundEdge;
         auto succ = edge.second;
         // if succ is one of the fcfg blocks except the scope header.
         if (succBlocks.count(succ)) {
@@ -346,15 +360,10 @@ public:
 
     // Properly assign the Uses/Defs
     PredCount = K.size();
-    // Assign each block's predicates
-    for(auto b: Blocks){
-      b->setPredicate(blockPreds[b]);
-    }
-
-    // Assign subHeader's predicates
-    for(auto block: getSubheaders()){
-      block->setPredicate(blockPreds[block]);
-    }
+    // Assign predicates for each block in the fcfg of this scope
+    auto fcfgBlocks = Pub.getFcfgBlocks();
+    std::for_each(fcfgBlocks.begin(), fcfgBlocks.end(),
+            [&](auto b){ b->setPredicate(blockPreds[b]); });
 
     // For each predicate, compute defs
     for (auto pair: K) {
@@ -527,23 +536,17 @@ public:
     return count;
   }
 
-  static boost::optional<PredicatedBlock*>
-  getPredicatedFrom(const MachineBasicBlock *mbb, std::vector<PredicatedBlock*>* container)
-  {
-    auto found = std::find_if(container->begin(), container->end(), [&](auto block){
-      return block->getMBB() == mbb;
-    });
-
-    return found != container->end()?
-      boost::make_optional(*found) :
-      boost::none;
-  }
-
   /// Returns the PredicatedBlock of the given MBB, if it exists exclusively
   /// in this scope.
   boost::optional<PredicatedBlock*> getPredicated(const MachineBasicBlock *mbb)
   {
-    return getPredicatedFrom(mbb, &Blocks);
+    auto found = std::find_if(Blocks.begin(), Blocks.end(), [&](auto block){
+      return block->getMBB() == mbb;
+    });
+
+    return found != Blocks.end()?
+      boost::make_optional(*found) :
+      boost::none;
   }
 
   /// Returns the PredicatedBlock of the given MBB, if it is either exclusively
@@ -572,8 +575,7 @@ public:
 
     for(auto block: Blocks){
       auto exits = block->getExitTargets();
-      for(auto t: exits)
-      {
+      for(auto t: exits){
         outs.insert(std::make_pair(block,t));
       }
     }
@@ -616,7 +618,7 @@ public:
   void assignSuccessors(){
     // Add the successors to all blocks
     auto fcfgBlocks = Pub.getFcfgBlocks();
-    if(Parent){
+    if(!Pub.isTopLevel()){
       auto parentFcfgBlocks = Parent->getFcfgBlocks();
       fcfgBlocks.insert(fcfgBlocks.end(), parentFcfgBlocks.begin(), parentFcfgBlocks.end());
     }
@@ -652,12 +654,10 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
   loop.getExitEdges(ExitEdges);
 
   for(auto edge: ExitEdges){
-    for(auto block: Priv->Blocks){
-      if(block->getMBB() == edge.first){
-        block->addExitTarget(get(Priv->getPredicatedParent(edge.second)));
-        break;
-      }
-    }
+    auto found = std::find_if(Priv->Blocks.begin(), Priv->Blocks.end(),
+        [&](auto block){ return block->getMBB() == edge.first; });
+    assert(found != Priv->Blocks.end());
+    (*found)->addExitTarget(get(Priv->getPredicatedParent(edge.second)));
   }
 
   // scan the header for loopbound info

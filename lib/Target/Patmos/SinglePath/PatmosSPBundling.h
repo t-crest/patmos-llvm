@@ -78,7 +78,7 @@ public:
     // only convert function if marked
     if ( PSPI->isConverting(MF) ) {
 //      printFunction(MF);
-      doBundlingFunction(PSPI->getRootScope());
+//      doBundlingFunction(PSPI->getRootScope());
     }
     return changed;
   }
