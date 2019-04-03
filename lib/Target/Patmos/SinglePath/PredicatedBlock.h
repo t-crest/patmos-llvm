@@ -161,11 +161,41 @@ namespace llvm {
       auto mbb1 = getMBB(), mbb2 = b2->getMBB();
       assert(mbb1->getParent() == mbb2->getParent());
 
-      while(mbb2->begin() != mbb2->getFirstTerminator()){
+      auto moveInstruction = [&](auto moveAfter){
         auto inst = &(*mbb2->begin());
         mbb2->remove(inst);
-        mbb1->insert(mbb1->getFirstInstrTerminator(), inst);
+        mbb1->insert(moveAfter, inst);
         InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
+      };
+
+      auto moveNextInstruction = [&](unsigned movedInstructions){
+        auto mbb1next = mbb1->begin();
+        for(int i = 0; i<movedInstructions; i++){
+          // We advance by 2, because we have already inserted some instructions from mbb2
+          mbb1next++;
+          mbb1next++;
+        }
+        moveInstruction(mbb1next);
+      };
+      int nrMbb1Instrs = numberOfInstructions(mbb1);
+      if (nrMbb1Instrs > numberOfInstructions(mbb2)) {
+        for(auto movedInstructions = 0;
+            mbb2->begin() != mbb2->getFirstTerminator();
+            movedInstructions++)
+        {
+          moveNextInstruction(movedInstructions);
+        }
+      }else{
+        for(auto movedInstructions = 0;
+            movedInstructions < nrMbb1Instrs;
+            movedInstructions++)
+        {
+          moveNextInstruction(movedInstructions);
+        }
+
+        while(mbb2->begin() != mbb2->getFirstInstrTerminator()){
+          moveInstruction(mbb1->getFirstInstrTerminator());
+        }
       }
 
       while(mbb2->getFirstTerminator() != mbb2->end()){
@@ -239,6 +269,15 @@ namespace llvm {
     std::vector<const PredicatedBlock*> ExitTargets;
 
     std::map<const PredicatedBlock*, unsigned> Successors;
+
+    int numberOfInstructions(MachineBasicBlock* mbb){
+      auto count = 0;
+      for(auto begin = mbb->begin(), end = mbb->getFirstInstrTerminator();
+          begin != end ; begin++){
+        count++;
+      }
+      return count;
+    }
 
   };
 
