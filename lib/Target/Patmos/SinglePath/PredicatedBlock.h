@@ -114,6 +114,12 @@ namespace llvm {
         os << "(" << t.first << ", " << t.second << "), ";
       }
       os <<"}\n";
+      os.indent(indent + 2) << "Remnants:{";
+      for(auto t: Remnants)
+      {
+        os << t << ", ";
+      }
+      os <<"}\n";
     }
 
     /// Returns a list of predicates that are defined by this block, paired with the block
@@ -166,7 +172,6 @@ namespace llvm {
         auto inst = &(*mbb2->begin());
         mbb2->remove(inst);
         mbb1->insert(mbb1->end(), inst);
-//        InstrPred.insert(std::make_pair(inst, b2->InstrPred.at(inst)));
       }
 
       Definitions.insert(Definitions.end(), b2->Definitions.begin(), b2->Definitions.end());

@@ -2182,14 +2182,6 @@ namespace llvm {
 
     /// runOnMachineFunction - Run the function splitter on the given function.
     bool runOnMachineFunction(MachineFunction &MF) {
-//      errs() << "----- Function splitter -----\n";
-//      MF.print(errs());
-//      errs() << "----- Function splitter -----\n";
-
-      if(MF.getName() == "init_func"){
-//        abort();
-      }
-
       // the pass got disabled?
       if (DisableFunctionSplitter)
         return false;

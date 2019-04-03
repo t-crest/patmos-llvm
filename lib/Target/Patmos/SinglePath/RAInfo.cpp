@@ -454,6 +454,8 @@ public:
     Location loc = getAvailLoc(FreeLocs);
     UseLoc UL(loc.getLoc());
     auto headerPred = getHeaderPred();
+    // TODO: can't handle headers that have been merged yet
+    assert(Pub.Scope->getHeader()->getBlockPredicates().size() == 1);
     assert(DefLocs.find(headerPred) == DefLocs.end());
     DefLocs.insert(std::make_pair(headerPred,loc));
     map<unsigned, Location>::iterator curLoc0 = curLocs.find(headerPred);
@@ -481,6 +483,15 @@ public:
             : calculateNotHeaderUseLoc(i, usePred, curLocs, FreeLocs)
         ));
 
+      }
+    }
+
+    for(auto usePred: block->getBlockPredicates()){
+      // for the top-level entry of a single-path root,
+      // we don't need to assign a location, as we will use p0
+      if (!(usePred == getHeaderPred() && Pub.Scope->isRootTopLevel())) {
+        assert(block == Pub.Scope->getHeader() || i > 0);
+
         // (2) retire locations
         if (LRs.at(usePred).lastUse(i)) {
           DEBUG(dbgs() << "retire. ");
@@ -495,6 +506,9 @@ public:
         }
       }
     }
+
+
+
   }
 
   UseLoc handleIfNotInRegister(unsigned blockIndex, set<Location>& FreeLocs,
@@ -655,43 +669,47 @@ unsigned RAInfo::neededSpillLocs(){
 }
 
 void RAInfo::dump() const {
-  dbgs() << "[MBB#"     << Scope->getHeader()->getMBB()->getNumber()
+  dump(dbgs(), 0);
+}
+
+void RAInfo::dump(raw_ostream& os, unsigned indent) const{
+  os.indent(indent) << "[MBB#"     << Scope->getHeader()->getMBB()->getNumber()
          <<  "] depth=" << Scope->getDepth() << "\n";
 
   for(auto pair: Priv->LRs){
-    dbgs() << "  LR(p" << pair.first << ") = [" << pair.second.str() << "]\n";
+    os.indent(indent) << "  LR(p" << pair.first << ") = [" << pair.second.str() << "]\n";
   }
 
   auto blocks = Scope->getBlocksTopoOrd();
   for (unsigned i=0, e=blocks.size(); i<e; i++) {
     MachineBasicBlock *MBB = blocks[i]->getMBB();
-    dbgs() << "  " << i << "| MBB#" << MBB->getNumber();
-    dbgs() << " UseLocs{\n";
+    os.indent(indent) << "  " << i << "| MBB#" << MBB->getNumber();
+    os << " UseLocs{\n";
     for(auto predUl: Priv->UseLocs[MBB]){
-      dbgs() << "    (Pred: " << predUl.first << "loc=" << predUl.second.loc << " load=";
+      os << "    (Pred: " << predUl.first << ", loc=" << predUl.second.loc << ", load=";
       if (predUl.second.load.is_initialized()) {
-        dbgs() << get(predUl.second.load);
+        os << get(predUl.second.load);
       }else{
-        dbgs() << "none";
+        os << "none";
       }
-      dbgs() << " spill=";
+      dbgs() << ", spill=";
       if (predUl.second.spill.is_initialized()) {
-        dbgs() << get(predUl.second.spill);
+        os << get(predUl.second.spill);
       }else{
-        dbgs() << "none";
+        os << "none";
       }
-      dbgs() << "), ";
+      os << "), ";
     }
-    dbgs() << "}\n";
+    os << "}\n";
   }
 
-  dbgs() << "  DefLocs:     ";
+  os.indent(indent) << "  DefLocs:     ";
   for(auto pair: Priv->DefLocs){
-    dbgs() << " p" << pair.first << "=" << pair.second << ", ";
+    os << " p" << pair.first << "=" << pair.second << ", ";
   }
-  dbgs() << "\n";
+  os << "\n";
 
-  dbgs() << "  NumLocs:      " << Priv->NumLocs << "\n"
+  os.indent(indent) << "  NumLocs:      " << Priv->NumLocs << "\n"
             "  CumLocs:      " << Priv->getCumLocs() << "\n"
             "  Offset:       " << Priv->FirstUsableReg  << "\n"
             "  SpillOffset:  " << Priv->FirstUsableStackSlot  << "\n";

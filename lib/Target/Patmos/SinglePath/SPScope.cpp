@@ -250,9 +250,9 @@ public:
         outedgesMbb.insert(std::make_pair(edge.first->getMBB(), edge.second->getMBB()));
       }
 
-      // For some reason, RAInfo is dependent on 'outedges' running this for loop
+      // For some reason, 'RAInfo' is dependent on 'outedges' running this for loop
       // in the order dictated by the being comprised of MachineBasicBlock (i.e. outedgesMbb).
-      // Changing 'outedgesMbb' might cause predicate register allocation to fail for unknown reaons.
+      // Changing 'outedgesMbb' might cause predicate register allocation to fail for unknown reasons.
       for(auto mbbEdge : outedgesMbb){
         auto foundEdge = std::find_if(outedges.begin(), outedges.end(), [&](auto e){
           return e.first->getMBB() == mbbEdge.first && e.second->getMBB() == mbbEdge.second;
@@ -913,30 +913,10 @@ PredicatedBlock* SPScope::bundle(PredicatedBlock* b1, PredicatedBlock* b2){
   }
 
   func->erase(b2->getMBB());
-//  func->remove(b2->getMBB());
-//  func->DeleteMachineBasicBlock(b2->getMBB());
 
   Priv->replaceUseOfBlockWith(b2, b1);
 
-//  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
-//    if((*iter)->getMBB() == b2->getMBB()){
-//      Priv->Blocks.erase(iter);
-//      break;
-//    }
-//  }
-//
-//  for(auto iter = Priv->Blocks.begin(), end = Priv->Blocks.end(); iter != end; iter++){
-//    if((*iter)->getMBB() == mbb1){
-//      auto newb1 = *iter;
-//      Priv->replaceUseOfBlockWith(b1, newb1);
-//      return newb1;
-//    }
-//  }
-
   Priv->Blocks.erase(std::find(Priv->Blocks.begin(), Priv->Blocks.end(), b2));
   return b1;
-
-  assert("Unreachable");
-  return (PredicatedBlock*)NULL;
 }
 

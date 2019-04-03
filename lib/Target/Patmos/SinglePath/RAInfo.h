@@ -78,6 +78,8 @@ public:
   /// Dump this RAInfo to dbgs().
   void dump(void) const;
 
+  void dump(raw_ostream& os, unsigned indent) const;
+
   /// How many spill slots this RAInfo needs.
   unsigned neededSpillLocs();
 

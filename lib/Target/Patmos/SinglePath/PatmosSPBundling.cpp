@@ -108,7 +108,7 @@ void printMBB(MachineBasicBlock* MBB){
   errs() << "\n";
 }
 
-void PatmosSPBundling::printBlocksDetailed(SPScope* root) {
+void PatmosSPBundling::printBlocksDetailed(const SPScope* root) {
   for (auto block : root->getFcfgBlocks()) {
     errs() << "[" << block << "] ";
     if (root->isHeader(block)) {
@@ -122,10 +122,6 @@ void PatmosSPBundling::printBlocksDetailed(SPScope* root) {
 }
 
 void PatmosSPBundling::doBundlingFunction(SPScope* root) {
-//  errs() << "-------- Bundling scope with header: " << root->getHeader() << " --------\n";
-
-//  printBlocksDetailed(root);
-
   bool tryAgain = true;
 
   while(tryAgain){
@@ -136,8 +132,8 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
         auto defs = block->getDefinitions();
         auto b1 = (PredicatedBlock*) (*defs.begin()).useBlock;
         auto b2 = (PredicatedBlock*) (*(++defs.begin())).useBlock;
-        if(!(root->isSubheader(b1) || root->isSubheader(b2) || b1->getMBB()->succ_size() == 0 || b2->getMBB()->succ_size() == 0 ||
-            b1->bundledMBBs().size()>0 || b1->bundledMBBs().size()>0)){
+        if(!(root->isSubheader(b1) || root->isSubheader(b2) || b1->getSuccessors().size() == 0 || b2->getSuccessors().size() == 0 ||
+            b1->bundledMBBs().size()>0 || b2->bundledMBBs().size()>0)){
 
           PredicatedBlock *destination, *source;
 
@@ -161,9 +157,6 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
       }
     }
   }
-//  errs()  << "-------- Finished bundling scope with header: " << root->getHeader() << " --------\n";
-//  printBlocksDetailed(root);
-//  abort();
 }
 
 void PatmosSPBundling::printFunction(MachineFunction &MF) {

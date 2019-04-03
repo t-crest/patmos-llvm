@@ -41,7 +41,6 @@ private:
   void doBundlingFunction(SPScope* root);
 
   static void printFunction(MachineFunction &MF);
-  static void printBlocksDetailed(SPScope* root);
   static void printBlock(const PredicatedBlock* block, unsigned indent);
 
 public:
@@ -77,8 +76,7 @@ public:
     bool changed = false;
     // only convert function if marked
     if ( PSPI->isConverting(MF) ) {
-//      printFunction(MF);
-//      doBundlingFunction(PSPI->getRootScope());
+      doBundlingFunction(PSPI->getRootScope());
     }
     return changed;
   }
@@ -87,6 +85,7 @@ public:
     return PSPI->getRootScope();
   }
 
+  static void printBlocksDetailed(const SPScope* root);
 };
 
 }

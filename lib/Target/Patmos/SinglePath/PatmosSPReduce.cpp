@@ -684,7 +684,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   RAInfos.clear();
   RAInfos = RAInfo::computeRegAlloc(RootScope, AvailPredRegs.size());
 
-
   // before inserting code, we need to obtain additional instructions that are
   // spared from predication (i.e. need to execute unconditionally)
   // -> instructions that store/restore return information
