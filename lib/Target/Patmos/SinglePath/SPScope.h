@@ -148,7 +148,7 @@ namespace llvm {
       std::vector<PredicatedBlock*> getFcfgBlocks() const;
 
       /// Dump state of this scope and its subscopes recursively
-      void dump(raw_ostream&) const;
+      void dump(raw_ostream& os, unsigned indent, bool recursive) const;
 
       /// Beginning iterator over the subscopes of this scope.
       child_iterator child_begin() const;

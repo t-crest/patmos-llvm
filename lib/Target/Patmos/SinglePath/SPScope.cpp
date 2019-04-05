@@ -339,11 +339,6 @@ public:
     DEBUG_TRACE({
       // dump R, K
       dbgs() << "Decomposed CD:\n";
-      dbgs().indent(2) << "map R: MBB -> pN\n";
-      for (BlockPredicates::iterator RI = blockPreds.begin(), RE = blockPreds.end(); RI != RE; ++RI) {
-        dbgs().indent(4) << "R(" << RI->first->getMBB()->getNumber() << ") = p"
-                         << RI->second << "\n";
-      }
       dbgs().indent(2) << "map K: pN -> t \\in CD\n";
       for (auto pair: K) {
         dbgs().indent(4) << "K(p" << pair.first << ") -> {";
@@ -364,6 +359,22 @@ public:
     auto fcfgBlocks = Pub.getFcfgBlocks();
     std::for_each(fcfgBlocks.begin(), fcfgBlocks.end(),
             [&](auto b){ b->setPredicate(blockPreds[b]); });
+
+    DEBUG_TRACE({
+      dbgs() << "Assigned predicates for each FCFG block:\n";
+      for(auto block: fcfgBlocks){
+        block->printID(dbgs().indent(2)) << "\t: ";
+        auto preds = block->getBlockPredicates();
+        if(preds.size() == 0){
+          dbgs() << "none";
+        }else{
+          for(auto p: preds){
+            dbgs() << p;
+          }
+        }
+        dbgs() << "\n";
+      }
+    });
 
     // For each predicate, compute defs
     for (auto pair: K) {
@@ -731,40 +742,23 @@ static void printUDInfo(raw_ostream& os, const PredicatedBlock *block) {
   os << "\n";
 }
 
-void SPScope::dump(raw_ostream& os) const {
-  os.indent(2*getDepth()) <<  "[BB#" << Priv->Blocks.front()->getMBB()->getNumber()
-      << ":" << Priv->Blocks.front()->getMBB() <<"]";
-  auto succs = getSucceedingBlocks();
-  if (!Priv->Parent) {
-    os << " (top)";
-    assert(succs.empty());
-  }
-  if (!succs.empty()) {
-    os << " -> { ";
-    for (auto target: succs) {
-      os << "BB#" << target->getMBB()->getNumber() << ":" << target << ", ";
+void SPScope::dump(raw_ostream& os, unsigned indent, bool recursive) const {
+
+  os.indent(indent) << "Scope[" << this <<"]:\n";
+  auto blocks = getFcfgBlocks();
+  for(auto block: blocks){
+    if(isSubheader(block)){
+      block->printID(os.indent(indent + 2)) << "<SUBHEADER>\n";
+    } else {
+      block->dump(os, indent + 2);
     }
-    os << "}";
   }
 
-  os << " |P|=" <<  Priv->PredCount;
-  printUDInfo(os, Priv->Blocks.front());
-  os << " loopBound=";
-  if(Priv->LoopBound.is_initialized()){
-    os << get(Priv->LoopBound);
-  }else{
-    os << "none";
-  }
-  os << "\n";
-
-  os.indent(2*getDepth()) << "Blocks: {\n";
-  for(auto b: Priv->Blocks){
-    b->dump(os, 2*getDepth() + 2);
-  }
-  os.indent(2*getDepth()) << "}\n";
-  os.indent(2*getDepth()) << "children:\n";
-  for(auto sub: Priv->Subscopes){
-    sub->dump(os);
+  if(recursive){
+    os << "\n";
+    for(auto subscope: Priv->Subscopes){
+      subscope->dump(os, indent + 2, true);
+    }
   }
 }
 
@@ -871,6 +865,12 @@ SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI, c
   }
 
   Root->Priv->assignSuccessors();
+
+  DEBUG({
+      dbgs() << "Initial scope tree:\n";
+      Root->dump(dbgs(), 0, true);
+
+  });
 
   // analyze each scope
   // NB: this could be solved more elegantly by analyzing a scope when it is

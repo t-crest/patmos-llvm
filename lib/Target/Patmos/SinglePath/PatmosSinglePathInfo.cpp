@@ -200,7 +200,7 @@ PatmosSinglePathInfo::getScopeFor(const PredicatedBlock *block) const {
 void PatmosSinglePathInfo::print(raw_ostream &os, const Module *M) const {
   assert(Root);
   os << "========================================\n";
-  Root->dump(os);
+  Root->dump(os, 0, true);
   os << "========================================\n";
 }
 

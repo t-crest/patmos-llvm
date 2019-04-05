@@ -69,7 +69,7 @@ namespace llvm {
     void setPredicate(unsigned pred)
     {
       InstrPred.clear();
-      for( auto instr_iter = MBB->begin(), end = MBB->getFirstTerminator(); instr_iter != end; instr_iter++){
+      for( auto instr_iter = MBB->begin(), end = MBB->end(); instr_iter != end; instr_iter++){
         MachineInstr* instr = &(*instr_iter);
         assert(InstrPred.find(instr) == InstrPred.end());
         InstrPred.insert(std::make_pair(instr, pred));
@@ -89,13 +89,7 @@ namespace llvm {
 
     void dump(raw_ostream& os, unsigned indent) const
     {
-      os.indent(indent) << "PredicatedBlock(" << MBB << "):\n";
-      os.indent(indent + 2) << "InstrPreds:{";
-      for(auto pair: InstrPred)
-      {
-        os << "(" << pair.first << "," << pair.second << "), ";
-      }
-      os <<"}\n";
+      printID(os.indent(indent)) << ":\n";
       os.indent(indent + 2) << "Definitions:{";
       for(auto def: Definitions)
       {
@@ -120,6 +114,44 @@ namespace llvm {
         os << t << ", ";
       }
       os <<"}\n";
+      printInstructions(os, indent + 2);
+    }
+
+    raw_ostream& printID(raw_ostream& os) const {
+      return os << "BB#" << MBB->getNumber()<< " [" << this << "](" << MBB << ")";
+    }
+
+    void printInstructions(raw_ostream& os, unsigned indent) const{
+      auto MF = MBB->getParent();
+      os.indent(indent) << MBB->getFullName() <<":\n";
+      for( auto MI = MBB->begin(), ME = MBB->getFirstTerminator();
+              MI != ME; ++MI) {
+        auto instructionPredicates = getInstructionPredicates();
+        os.indent(indent + 2) << "[" << &(*MI) << "](";
+        if(instructionPredicates.count(MI)){
+          os << getInstructionPredicates().at(MI);
+        }else{
+          os << "-";
+        }
+        os << ") ";
+        MI->print(os, &(MF->getTarget()), false);
+        printMetaData(&(*MI), os);
+      }
+      os.indent(indent + 2) << "-\n";
+      for( auto MI = MBB->getFirstTerminator(), ME = MBB->end();
+              MI != ME; ++MI) {
+        auto instructionPredicates = getInstructionPredicates();
+        os.indent(indent + 2) << "[" << &(*MI) << "](";
+        if(instructionPredicates.count(MI)){
+          os << getInstructionPredicates().at(MI);
+        }else{
+          os << "-";
+        }
+        os << ") ";
+        MI->print(os, &(MF->getTarget()), false);
+        printMetaData(&(*MI), os);
+      }
+      os << "\n";
     }
 
     /// Returns a list of predicates that are defined by this block, paired with the block
@@ -278,6 +310,18 @@ namespace llvm {
         count++;
       }
       return count;
+    }
+
+    void printMetaData(MachineInstr* instr, raw_ostream& os) const {
+      for(int i = 0; i< instr->getNumOperands(); i++){
+        auto &p = instr->getOperand(i);
+        if ( p.isMetadata()){
+          const MDNode *n = p.getMetadata();
+          errs() << "\t^MetaData: ";
+          n->print(errs());
+          errs() << "\n";
+        }
+      }
     }
 
   };

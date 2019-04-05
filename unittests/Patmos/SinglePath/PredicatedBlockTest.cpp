@@ -13,16 +13,22 @@ using ::testing::Eq;
 
 namespace llvm{
 
-  class MockInstr {
-  };
+  class MockInstr {};
 
   class MockMBB{
   public:
-    MockMBB(unsigned length):
-      instr(length, MockInstr())
+
+    MockMBB(unsigned nrInstr):
+      instr(nrInstr, MockInstr()), firstTerm(nrInstr)
+    {}
+
+    MockMBB(unsigned nrInstr, unsigned nrTerm):
+      instr(nrInstr + nrTerm, MockInstr()), firstTerm(nrInstr)
     {}
 
     std::vector<MockInstr> instr;
+
+    unsigned firstTerm;
 
     std::vector<MockInstr>::iterator begin()
     {
@@ -36,7 +42,11 @@ namespace llvm{
 
     std::vector<MockInstr>::iterator getFirstTerminator()
     {
-      return instr.end();
+      auto result = instr.begin();
+      for(auto i = 0; i < firstTerm; i++){
+        result++;
+      }
+      return result;
     }
 
     MOCK_METHOD0(succ_begin, MockMBB**());
@@ -103,6 +113,26 @@ TEST(PredicatedBlockTest, SinglePredicateTest){
 
   EXPECT_THAT(preds, SizeIs(1));
   EXPECT_THAT(preds, Contains(2));
+}
+
+TEST(PredicatedBlockTest, OnlyTerminatorPredicateTest){
+  /*
+   * We test that if a block only has one instruction, which is a terminator,
+   * 'getBlockPredicates()' still returns the predicate set for the block.
+   *
+   * We have to support blocks with only terminators, such that the block still has
+   * a predicate assigned, even through is has only terminators.
+   */
+
+  MockMBB mockMBB(0,1);
+
+  PredicatedBlock b(&mockMBB);
+  b.setPredicate(1);
+
+  auto preds = b.getBlockPredicates();
+
+  EXPECT_THAT(preds, SizeIs(1));
+  EXPECT_THAT(preds, Contains(1));
 }
 
 TEST(PredicatedBlockTest, NoDefsAtInitTest){
