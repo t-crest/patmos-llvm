@@ -198,7 +198,8 @@ namespace llvm {
         }
       }
 
-      while(mbb2->getFirstTerminator() != mbb2->end()){
+      // Only terminators left
+      while(mbb2->begin() != mbb2->end()){
         auto inst = &(*mbb2->begin());
         mbb2->remove(inst);
         mbb1->insert(mbb1->end(), inst);

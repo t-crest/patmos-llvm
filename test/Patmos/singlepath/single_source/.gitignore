@@ -1,3 +1,5 @@
 
 #ignores objdumps from ../assert_singlepath.sh
 *.asm 
+#ignores debug dumps from ../assert_singlepath.sh
+*.debug

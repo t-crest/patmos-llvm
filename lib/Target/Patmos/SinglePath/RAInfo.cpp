@@ -486,13 +486,11 @@ public:
       }
     }
 
+    // retire locations
     for(auto usePred: block->getBlockPredicates()){
-      // for the top-level entry of a single-path root,
-      // we don't need to assign a location, as we will use p0
       if (!(usePred == getHeaderPred() && Pub.Scope->isRootTopLevel())) {
         assert(block == Pub.Scope->getHeader() || i > 0);
 
-        // (2) retire locations
         if (LRs.at(usePred).lastUse(i)) {
           DEBUG(dbgs() << "retire. ");
           map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
@@ -506,9 +504,6 @@ public:
         }
       }
     }
-
-
-
   }
 
   UseLoc handleIfNotInRegister(unsigned blockIndex, set<Location>& FreeLocs,

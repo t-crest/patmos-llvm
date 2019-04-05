@@ -739,8 +739,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Finally, we assign numbers in ascending order to MBBs again.
   MF.RenumberBlocks();
 
-  //DEBUG(MF.viewCFGOnly());
-  DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
 }
 
 SmallVector<MachineOperand, 2> PatmosSPReduce::getEdgeCondition(
@@ -1049,8 +1047,6 @@ void PatmosSPReduce::moveDefUseGuardInstsToEnd(void) {
 
 
 void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
-  DEBUG( dbgs() << " Fixing up kill flags of conditions\n" );
-
   for (std::map<MachineBasicBlock *, MachineOperand>::iterator
         I = KilledCondRegs.begin(), E = KilledCondRegs.end(); I != E; ++I) {
 
@@ -1067,8 +1063,6 @@ void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
       MachineOperand *MO;
       if ((MO = lastMI->findRegisterUseOperand(CondReg.getReg())) != NULL) {
         MO->setIsKill(true);
-        DEBUG( dbgs() << "   in MBB#" << MBB->getNumber() << ": ";
-               lastMI->dump() );
         break;
       }
     } // end of search

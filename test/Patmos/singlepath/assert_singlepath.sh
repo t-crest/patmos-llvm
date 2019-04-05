@@ -191,6 +191,9 @@ bitcode="$3"
 
 linked="$bitcode.link"
 
+debug="$bitcode.debug"
+objdump="$bitcode-objdump.asm"
+
 # The LLVM-linked object file, still missing final linked
 compiled="$linked.o"
 
@@ -204,12 +207,13 @@ if [ $? -ne 0 ]; then
 	exit 1
 fi
 
-$bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4"
-rm $linked #cleanup
-if [ $? -ne 0 ]; then 
+$bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4" -debug-only=patmos-singlepath &> $debug
+if [ $?-ne 0 ]; then 
 	echo "Failed to compile '$linked'."
+	rm $linked #cleanup
 	exit 1
 fi
+rm $linked #cleanup
 
 # Final assembly linking and generation of an executable patmos file
 patmos-ld -nostdlib -static --defsym __heap_start=end --defsym __heap_end=0x100000 --defsym _shadow_stack_base=0x1f8000 --defsym _stack_cache_base=0x200000 -o $exec $compiled 
@@ -244,10 +248,14 @@ do
 		echo "The execution of '$exec' for execution arguments '$5' and '$i' weren't equivalent."
 		ret_code=1 
 	fi
-	if [ $ret_code -ne 0 ] ; then
-		patmos-llvm-objdump -d $exec > $bitcode-objdump.asm
-	fi
 done
+
+if [ $ret_code -ne 0 ] ; then
+	patmos-llvm-objdump -d $exec > $objdump
+else
+	rm $objdump
+	rm $debug
+fi
 
 rm $exec #cleanup
 
