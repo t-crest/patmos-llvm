@@ -210,9 +210,9 @@ TEST(PredicatedBlockTest, AddExitTest){
   auto exits = b1.getExitTargets();
 
   EXPECT_THAT(exits, UnorderedElementsAreArray({
-      &b2,
-      &b3
-    }));
+    &b2,
+    &b3
+  }));
 }
 
 TEST(PredicatedBlockTest, InitialSuccTest){
@@ -248,6 +248,73 @@ TEST(PredicatedBlockTest, AddSuccTest){
   EXPECT_THAT(succs, UnorderedElementsAreArray({
     std::make_pair(&b2, 2),
     std::make_pair(&b3, 2)
+  }));
+}
+
+TEST(PredicatedBlockTest, MergeTest){
+  /*
+   * We test that merging two blocks
+   */
+
+  MockMBB mockMBB1(2,1);
+  MockMBB mockMBB2(2,2);
+  MockMBB mockMBB3(1);
+  MockMBB mockMBB4(1);
+
+  PredicatedBlock b1(&mockMBB1);
+  PredicatedBlock b2(&mockMBB2);
+  PredicatedBlock b3(&mockMBB3);
+  PredicatedBlock b4(&mockMBB4);
+
+  // We allow the implementation to assert that the added blocks actually
+  // are successors of the main block.
+  MockMBB* succs[3] = {&mockMBB3, &mockMBB4, NULL};
+  EXPECT_CALL(mockMBB1, succ_begin()).WillRepeatedly(Return(succs));
+  EXPECT_CALL(mockMBB1, succ_end()).WillRepeatedly(Return(succs+1));
+  EXPECT_CALL(mockMBB2, succ_begin()).WillRepeatedly(Return(succs+1));
+  EXPECT_CALL(mockMBB2, succ_end()).WillRepeatedly(Return(succs+2));
+
+  b1.setPredicate(1);
+  b2.setPredicate(2);
+
+  b1.addDefinition(3,1,&b3, 3, 1);
+  b2.addDefinition(4,2,&b4, 4, 2);
+
+  b1.addExitTarget(&b3);
+  b2.addExitTarget(&b4);
+
+  b1.addSuccessor(&b3, 3);
+  b2.addSuccessor(&b4, 4);
+
+  b1.merge(&b2);
+
+  auto instr1Iter = mockMBB1.begin();
+  auto instr2Iter = mockMBB2.begin();
+
+  EXPECT_THAT(b1.getInstructionPredicates(), UnorderedElementsAreArray({
+    std::make_pair(&(*instr1Iter), 1),
+    std::make_pair(&(*(instr1Iter+1)), 1),
+    std::make_pair(&(*(instr1Iter+2)), 1),
+    std::make_pair(&(*instr2Iter), 2),
+    std::make_pair(&(*(instr2Iter+1)), 2),
+    std::make_pair(&(*(instr2Iter+2)), 2),
+    std::make_pair(&(*(instr2Iter+3)), 2)
+  }));
+
+
+  EXPECT_THAT(b1.getDefinitions() , UnorderedElementsAreArray({
+    PredicatedBlock::Definition{3,1,&b3, 3, 1},
+    PredicatedBlock::Definition{4,2,&b4, 4, 2}
+  }));
+
+  EXPECT_THAT(b1.getExitTargets(), UnorderedElementsAreArray({
+    &b3,
+    &b4
+  }));
+
+  EXPECT_THAT(b1.getSuccessors(), UnorderedElementsAreArray({
+    std::make_pair(&b3, 3),
+    std::make_pair(&b4, 4)
   }));
 }
 

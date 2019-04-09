@@ -896,27 +896,10 @@ std::set<unsigned> SPScope::getAllPredicates() const
   return result;
 }
 
-PredicatedBlock* SPScope::bundle(PredicatedBlock* b1, PredicatedBlock* b2){
-
-  b1->bundleWith(b2);
-
-  auto mbb1 = b1->getMBB(), mbb2 = b2->getMBB();
-  auto func = mbb2->getParent();
-
-  for(auto iter = func->begin(), end = func->end(); iter != end; iter++){
-    if(iter->isSuccessor(mbb2)){
-      iter->ReplaceUsesOfBlockWith(mbb2, mbb1);
-    }
-  }
-  while(mbb2->succ_begin() != mbb2->succ_end()){
-    mbb2->removeSuccessor(mbb2->succ_begin());
-  }
-
-  func->erase(b2->getMBB());
+void SPScope::bundle(PredicatedBlock* b1, PredicatedBlock* b2){
 
   Priv->replaceUseOfBlockWith(b2, b1);
 
   Priv->Blocks.erase(std::find(Priv->Blocks.begin(), Priv->Blocks.end(), b2));
-  return b1;
 }
 

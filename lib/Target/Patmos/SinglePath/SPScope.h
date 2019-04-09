@@ -170,7 +170,7 @@ namespace llvm {
 
       /// Bundles the two given blocks returning the new block.
       /// Renders both given pointer invalid.
-      PredicatedBlock* bundle(PredicatedBlock* b1, PredicatedBlock* b2);
+      void bundle(PredicatedBlock* b1, PredicatedBlock* b2);
 
     private:
       class Impl;

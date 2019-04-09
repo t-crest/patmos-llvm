@@ -121,6 +121,60 @@ void PatmosSPBundling::printBlocksDetailed(const SPScope* root) {
   }
 }
 
+int numberOfInstructions(MachineBasicBlock* mbb){
+  auto count = 0;
+  for(auto begin = mbb->begin(), end = mbb->getFirstTerminator();
+      begin != end ; begin++){
+    count++;
+  }
+  return count;
+}
+
+void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2){
+  auto moveInstruction = [&](auto moveAfter){
+    auto inst = &(*mbb2->begin());
+    mbb2->remove(inst);
+    mbb1->insert(moveAfter, inst);
+  };
+
+  auto moveNextInstruction = [&](unsigned movedInstructions){
+    auto mbb1next = mbb1->begin();
+    for(int i = 0; i<movedInstructions; i++){
+      // We advance by 2, because we have already inserted some instructions from mbb2
+      mbb1next++;
+      mbb1next++;
+    }
+    moveInstruction(mbb1next);
+  };
+  int nrMbb1Instrs = numberOfInstructions(mbb1);
+  if (nrMbb1Instrs > numberOfInstructions(mbb2)) {
+    for(auto movedInstructions = 0;
+        mbb2->begin() != mbb2->getFirstTerminator();
+        movedInstructions++)
+    {
+      moveNextInstruction(movedInstructions);
+    }
+  }else{
+    for(auto movedInstructions = 0;
+        movedInstructions < nrMbb1Instrs;
+        movedInstructions++)
+    {
+      moveNextInstruction(movedInstructions);
+    }
+
+    while(mbb2->begin() != mbb2->getFirstInstrTerminator()){
+      moveInstruction(mbb1->getFirstInstrTerminator());
+    }
+  }
+
+  // Only terminators left
+  while(mbb2->begin() != mbb2->end()){
+    auto inst = &(*mbb2->begin());
+    mbb2->remove(inst);
+    mbb1->insert(mbb1->end(), inst);
+  }
+}
+
 void PatmosSPBundling::doBundlingFunction(SPScope* root) {
   bool tryAgain = true;
 
@@ -149,6 +203,24 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
             destination = b1;
             source = b2;
           }
+
+          mergeMBBs(destination->getMBB(), source->getMBB());
+
+          destination->merge(source);
+
+          auto mbb1 = destination->getMBB(), mbb2 = source->getMBB();
+          auto func = mbb2->getParent();
+
+          for(auto iter = func->begin(), end = func->end(); iter != end; iter++){
+            if(iter->isSuccessor(mbb2)){
+              iter->ReplaceUsesOfBlockWith(mbb2, mbb1);
+            }
+          }
+          while(mbb2->succ_begin() != mbb2->succ_end()){
+            mbb2->removeSuccessor(mbb2->succ_begin());
+          }
+
+          func->erase(source->getMBB());
 
           root->bundle(destination, source);
           tryAgain = true;
