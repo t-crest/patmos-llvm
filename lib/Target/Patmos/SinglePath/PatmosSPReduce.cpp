@@ -1088,11 +1088,10 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
     auto predRegs = getPredicateRegisters(R, block);
 
     // apply predicate to all instructions in block
-    for( MachineBasicBlock::iterator MI = MBB->begin(),
-                                     ME = MBB->getFirstTerminator();
+    for( auto MI = MBB->instr_begin(), ME = MBB->getFirstInstrTerminator();
                                      MI != ME; ++MI) {
-      assert(!MI->isBundle() &&
-             "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
+//      assert(!MI->isBundled() &&
+//             "PatmosInstrInfo::PredicateInstruction() can't handle bundles");
 
       if (MI->isReturn()) {
           DEBUG_TRACE( dbgs() << "    skip return: " << *MI );
@@ -1138,8 +1137,18 @@ void PatmosSPReduce::applyPredicates(SPScope *S, MachineFunction &MF) {
           continue;
       }
 
-      if (MI->isPredicable() && predReg != Patmos::P0) {
-        if (!TII->isPredicated(MI)) {
+      if (MI->isPredicable(MachineInstr::QueryType::IgnoreBundle) && predReg != Patmos::P0) {
+        auto isPredicated = [&](auto instr){
+        int i = instr->findFirstPredOperandIdx();
+          if (i != -1) {
+            unsigned preg = instr->getOperand(i).getReg();
+            int      flag = instr->getOperand(++i).getImm();
+            return (preg!=Patmos::NoRegister && preg!=Patmos::P0) || flag;
+          }
+          // no predicates at all
+          return false;
+        };
+        if (!isPredicated(MI)) {
           // find first predicate operand
           int i = MI->findFirstPredOperandIdx();
           assert(i != -1);

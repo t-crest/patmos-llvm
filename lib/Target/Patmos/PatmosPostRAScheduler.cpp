@@ -213,9 +213,9 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
       for(;I != MBB->begin(); --I, --StartIndex) {
         if (Scheduler->isSchedulingBoundary(llvm::prior(I), MBB, *MF))
           break;
-        assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
+        assert(!I->isBundled() && "Rescheduling bundled code is not supported.");
       }
-      assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
+      assert(!I->isBundled() && "Rescheduling bundled code is not supported.");
 
       // Notify the scheduler of the region, even if we may skip scheduling
       // it. Perhaps it still needs to be bundled.

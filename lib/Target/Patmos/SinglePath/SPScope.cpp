@@ -869,7 +869,6 @@ SPScope * SPScope::createSPScopeTree(MachineFunction &MF, MachineLoopInfo &LI, c
   DEBUG({
       dbgs() << "Initial scope tree:\n";
       Root->dump(dbgs(), 0, true);
-
   });
 
   // analyze each scope

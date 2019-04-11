@@ -208,7 +208,7 @@ if [ $? -ne 0 ]; then
 fi
 
 $bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4" -debug-only=patmos-singlepath &> $debug
-if [ $?-ne 0 ]; then 
+if [ $? -ne 0 ]; then 
 	echo "Failed to compile '$linked'."
 	rm $linked #cleanup
 	exit 1

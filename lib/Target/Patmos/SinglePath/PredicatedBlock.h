@@ -69,7 +69,7 @@ namespace llvm {
     void setPredicate(unsigned pred)
     {
       InstrPred.clear();
-      for( auto instr_iter = MBB->begin(), end = MBB->end(); instr_iter != end; instr_iter++){
+      for( auto instr_iter = MBB->instr_begin(), end = MBB->instr_end(); instr_iter != end; instr_iter++){
         MachineInstr* instr = &(*instr_iter);
         assert(InstrPred.find(instr) == InstrPred.end());
         InstrPred.insert(std::make_pair(instr, pred));
@@ -124,7 +124,7 @@ namespace llvm {
     void printInstructions(raw_ostream& os, unsigned indent) const{
       auto MF = MBB->getParent();
       os.indent(indent) << MBB->getFullName() <<":\n";
-      for( auto MI = MBB->begin(), ME = MBB->getFirstTerminator();
+      for( auto MI = MBB->instr_begin(), ME = MBB->getFirstInstrTerminator();
               MI != ME; ++MI) {
         auto instructionPredicates = getInstructionPredicates();
         os.indent(indent + 2) << "[" << &(*MI) << "](";

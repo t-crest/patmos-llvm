@@ -85,6 +85,8 @@ public:
   boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>>
   findMergePair(const SPScope*);
 
+  void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2);
+
 };
 
 }

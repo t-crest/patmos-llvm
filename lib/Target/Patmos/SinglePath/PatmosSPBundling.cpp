@@ -47,15 +47,23 @@ int numberOfInstructions(MachineBasicBlock* mbb){
   return count;
 }
 
-void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2){
-  auto moveInstruction = [&](auto moveAfter){
-    auto inst = &(*mbb2->begin());
+void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2){
+  auto moveInstruction = [&](auto bundleWith){
+    auto inst = &(*mbb2->instr_begin());
     mbb2->remove(inst);
-    mbb1->insert(moveAfter, inst);
+//    if(TII->canIssueInSlot(inst, 1)){
+//      mbb1->insertAfter(bundleWith, inst);
+//      inst->bundleWithPred();
+//    }else if (TII->canIssueInSlot(&(*bundleWith), 1)){
+//      mbb1->insert(bundleWith, inst);
+//      inst->bundleWithSucc();
+//    }else{
+      mbb1->insertAfter(bundleWith, inst);
+//    }
   };
 
   auto moveNextInstruction = [&](unsigned movedInstructions){
-    auto mbb1next = mbb1->begin();
+    auto mbb1next = mbb1->instr_begin();
     for(int i = 0; i<movedInstructions; i++){
       // We advance by 2, because we have already inserted some instructions from mbb2
       mbb1next++;
@@ -66,7 +74,7 @@ void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2){
   int nrMbb1Instrs = numberOfInstructions(mbb1);
   if (nrMbb1Instrs > numberOfInstructions(mbb2)) {
     for(auto movedInstructions = 0;
-        mbb2->begin() != mbb2->getFirstTerminator();
+        mbb2->instr_begin() != mbb2->getFirstInstrTerminator();
         movedInstructions++)
     {
       moveNextInstruction(movedInstructions);
@@ -79,16 +87,18 @@ void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2){
       moveNextInstruction(movedInstructions);
     }
 
-    while(mbb2->begin() != mbb2->getFirstInstrTerminator()){
-      moveInstruction(mbb1->getFirstInstrTerminator());
+    while(mbb2->instr_begin() != mbb2->getFirstInstrTerminator()){
+      auto inst = &(*mbb2->instr_begin());
+      mbb2->remove(inst);
+      mbb1->insert(mbb1->getFirstInstrTerminator(), inst);
     }
   }
 
   // Only terminators left
-  while(mbb2->begin() != mbb2->end()){
-    auto inst = &(*mbb2->begin());
+  while(mbb2->instr_begin() != mbb2->instr_end()){
+    auto inst = &(*mbb2->instr_begin());
     mbb2->remove(inst);
-    mbb1->insert(mbb1->end(), inst);
+    mbb1->insert(mbb1->instr_end(), inst);
   }
 }
 
@@ -101,8 +111,6 @@ boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::
       auto b2 = (PredicatedBlock*) (*(++defs.begin())).useBlock;
       if(!(scope->isSubheader(b1) || scope->isSubheader(b2) || b1->getSuccessors().size() == 0 || b2->getSuccessors().size() == 0 ||
           b1->bundledMBBs().size()>0 || b2->bundledMBBs().size()>0)){
-
-        PredicatedBlock *destination, *source;
 
         auto farMBB = TII->getBranchTarget(mbb->getFirstInstrTerminator());
         if(TII->mayFallthrough(*mbb) && farMBB == b1->getMBB()){
@@ -145,4 +153,9 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
 
     root->bundle(destination, source);
   }
+
+  DEBUG({
+      dbgs() << "Scope tree after bundling:\n";
+      root->dump(dbgs(), 0, true);
+  });
 }

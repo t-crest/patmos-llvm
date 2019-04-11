@@ -30,17 +30,17 @@ namespace llvm{
 
     unsigned firstTerm;
 
-    std::vector<MockInstr>::iterator begin()
+    std::vector<MockInstr>::iterator instr_begin()
     {
       return instr.begin();
     }
 
-    std::vector<MockInstr>::iterator end()
+    std::vector<MockInstr>::iterator instr_end()
     {
       return instr.end();
     }
 
-    std::vector<MockInstr>::iterator getFirstTerminator()
+    std::vector<MockInstr>::iterator getFirstInstrTerminator()
     {
       auto result = instr.begin();
       for(auto i = 0; i < firstTerm; i++){
@@ -288,8 +288,8 @@ TEST(PredicatedBlockTest, MergeTest){
 
   b1.merge(&b2);
 
-  auto instr1Iter = mockMBB1.begin();
-  auto instr2Iter = mockMBB2.begin();
+  auto instr1Iter = mockMBB1.instr_begin();
+  auto instr2Iter = mockMBB2.instr_begin();
 
   EXPECT_THAT(b1.getInstructionPredicates(), UnorderedElementsAreArray({
     std::make_pair(&(*instr1Iter), 1),
