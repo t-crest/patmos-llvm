@@ -40,9 +40,6 @@ private:
   /// doBundlingFunction - Bundle a given MachineFunction
   void doBundlingFunction(SPScope* root);
 
-  static void printFunction(MachineFunction &MF);
-  static void printBlock(const PredicatedBlock* block, unsigned indent);
-
 public:
   static char ID;
   PatmosSPBundling(const PatmosTargetMachine &tm):
@@ -85,7 +82,9 @@ public:
     return PSPI->getRootScope();
   }
 
-  static void printBlocksDetailed(const SPScope* root);
+  boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>>
+  findMergePair(const SPScope*);
+
 };
 
 }
