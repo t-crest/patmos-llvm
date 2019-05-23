@@ -193,7 +193,7 @@ namespace llvm {
       InstrPred.insert(b2->InstrPred.begin(), b2->InstrPred.end());
       Definitions.insert(Definitions.end(), b2->Definitions.begin(), b2->Definitions.end());
       ExitTargets.insert(ExitTargets.end(), b2->ExitTargets.begin(), b2->ExitTargets.end());
-      Remnants.insert(b2->Remnants.begin(), b2->Remnants.begin());
+      Remnants.insert(b2->Remnants.begin(), b2->Remnants.end());
       Remnants.insert(b2->getMBB());
       Successors.insert(b2->Successors.begin(), b2->Successors.end());
     }
@@ -232,6 +232,11 @@ namespace llvm {
 
     std::map<const PredicatedBlock*, unsigned> getSuccessors() const {
       return std::map<const PredicatedBlock*, unsigned>(Successors.begin(), Successors.end());
+    }
+
+    void replaceMbb(MachineBasicBlock* newMbb){
+      Remnants.insert(MBB);
+      MBB = newMbb;
     }
 
   private:

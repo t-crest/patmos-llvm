@@ -895,12 +895,45 @@ std::set<unsigned> SPScope::getAllPredicates() const
   return result;
 }
 
-void SPScope::bundle(PredicatedBlock* b1, PredicatedBlock* b2){
+void SPScope::merge(PredicatedBlock* b1, PredicatedBlock* b2){
 
   b1->merge(b2);
 
   Priv->replaceUseOfBlockWith(b2, b1);
 
-  Priv->Blocks.erase(std::find(Priv->Blocks.begin(), Priv->Blocks.end(), b2));
+  // Removes b2 from the scope that it resides in (if called on 'this')
+  // Returns whether b2 was found in the tree and removed.
+  std::function<bool(SPScope*)> recursiveErase = [&](auto scope){
+    auto iter = std::find(scope->Priv->Blocks.begin(), scope->Priv->Blocks.end(), b2);
+    if(iter != scope->Priv->Blocks.end()){
+      scope->Priv->Blocks.erase(iter);
+      return true;
+    }else{
+      for(auto subscope: scope->Priv->Subscopes){
+        if(recursiveErase(subscope)){
+          return true;
+        }
+      }
+      return false;
+    }
+  };
+
+  auto erased = recursiveErase(this);
+  assert( erased && "Block not in scope tree\n" );
 }
 
+boost::optional<PredicatedBlock*> SPScope::findBlockOf(const MachineBasicBlock* mbb) const {
+  auto inScope = Priv->getPredicated(mbb);
+
+  if(!inScope.is_initialized()){
+    for(auto subscope: Priv->Subscopes){
+      auto inSubscope = subscope->findBlockOf(mbb);
+      if(inSubscope.is_initialized()){
+        return inSubscope;
+      }
+    }
+    return boost::none;
+  }else{
+    return inScope;
+  }
+}

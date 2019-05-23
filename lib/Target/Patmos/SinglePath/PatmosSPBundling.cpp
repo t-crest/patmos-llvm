@@ -149,7 +149,7 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
     func->erase(source->getMBB());
 
     // Merge the two PredicatedBlocks into one
-    root->bundle(destination, source);
+    root->merge(destination, source);
   }
 
   DEBUG({

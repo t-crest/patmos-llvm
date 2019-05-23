@@ -1082,6 +1082,7 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
                                             E = order.end();
 
   MachineBasicBlock *BaseMBB = *I;
+  auto BaseBlock = RootScope->findBlockOf(BaseMBB);
   DEBUG_TRACE( dbgs() << "Base MBB#" << BaseMBB->getNumber() << "\n" );
   // iterate through order of MBBs
   while (++I != E) {
@@ -1099,6 +1100,17 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
       // remove MBB from MachineFunction
       MF.erase(MBB);
 
+      auto MBBBlock = RootScope->findBlockOf(MBB);
+      if(BaseBlock.is_initialized()){
+        if(MBBBlock.is_initialized()){
+          RootScope->merge(BaseBlock.get(), MBBBlock.get());
+        }
+      }else{
+        if(MBBBlock.is_initialized()){
+          get(MBBBlock)->replaceMbb(BaseMBB);
+        }
+      }
+
       if (BaseMBB->succ_size() > 1) {
         // we have encountered a backedge
         BaseMBB = *(++I);
@@ -1108,6 +1120,7 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
       BaseMBB = MBB;
       DEBUG_TRACE( dbgs() << "Base MBB#" << BaseMBB->getNumber() << "\n" );
     }
+    BaseBlock = RootScope->findBlockOf(BaseMBB);
   }
   // invalidate order
   order.clear();

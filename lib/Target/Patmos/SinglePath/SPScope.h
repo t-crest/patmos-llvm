@@ -157,9 +157,13 @@ namespace llvm {
       child_iterator child_end() const;
 
       /// Returns the deepest scope, starting from this scope, containing
-      /// the MBB represented by the given block.
-      /// If the MBB is not part of any scope, none is returned.
+      /// the given block.
+      /// If the block is not part of any scope, none is returned.
       boost::optional<SPScope*> findScopeOf(const PredicatedBlock *) const;
+
+      /// Returns the block that manages the given MBB, if it exists in this
+      /// scope. Otherwise, none is returned
+      boost::optional<PredicatedBlock*> findBlockOf(const MachineBasicBlock*) const;
 
       /// Create an SPScope tree, return the top-level scope.
       /// The tree needs to be destroyed by the client, by deleting the top-level scope.
@@ -168,9 +172,8 @@ namespace llvm {
       /// Returns all the predicates use by the blocks in this scope. (including subheaders)
       std::set<unsigned> getAllPredicates() const;
 
-      /// Bundles the two given blocks returning the new block.
-      /// Renders both given pointer invalid.
-      void bundle(PredicatedBlock* b1, PredicatedBlock* b2);
+      /// Merges the second block into the first and removes the it from the list of blocks.
+      void merge(PredicatedBlock* b1, PredicatedBlock* b2);
 
     private:
       class Impl;
