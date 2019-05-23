@@ -897,6 +897,8 @@ std::set<unsigned> SPScope::getAllPredicates() const
 
 void SPScope::bundle(PredicatedBlock* b1, PredicatedBlock* b2){
 
+  b1->merge(b2);
+
   Priv->replaceUseOfBlockWith(b2, b1);
 
   Priv->Blocks.erase(std::find(Priv->Blocks.begin(), Priv->Blocks.end(), b2));

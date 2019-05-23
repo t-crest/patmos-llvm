@@ -133,9 +133,6 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
     auto source = get(mergePair).second;
     mergeMBBs(destination->getMBB(), source->getMBB());
 
-    // Merge the two MBBs into one
-    destination->merge(source);
-
     auto mbb1 = destination->getMBB(), mbb2 = source->getMBB();
     auto func = mbb2->getParent();
 
@@ -151,6 +148,7 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
 
     func->erase(source->getMBB());
 
+    // Merge the two PredicatedBlocks into one
     root->bundle(destination, source);
   }
 
