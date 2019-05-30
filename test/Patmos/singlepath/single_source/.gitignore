@@ -1,5 +1,8 @@
+# ignore all
+*
 
-#ignores objdumps from ../assert_singlepath.sh
-*.asm 
-#ignores debug dumps from ../assert_singlepath.sh
-*.debug
+# Unignore this file
+!.gitignore
+
+# Unignore test files
+!*.ll
