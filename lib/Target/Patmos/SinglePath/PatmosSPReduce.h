@@ -36,8 +36,6 @@ namespace llvm {
 
   class PatmosSPReduce : public MachineFunctionPass {
   private:
-    /// Pass ID
-    static char ID;
 
     friend class LinearizeWalker;
 
@@ -209,6 +207,8 @@ namespace llvm {
     std::set<const MachineInstr *> ReturnInfoInsts;
 
   public:
+    /// Pass ID
+    static char ID;
 
     SPScope *RootScope;
 
@@ -233,7 +233,6 @@ namespace llvm {
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
-
     /// runOnMachineFunction - Run the SP converter on the given function.
     virtual bool runOnMachineFunction(MachineFunction &MF) {
       RootScope = getAnalysis<PatmosSPBundling>().getRootScope();
@@ -249,8 +248,6 @@ namespace llvm {
       return changed;
     }
   };
-
-  char PatmosSPReduce::ID = 0;
 
 }
 

@@ -7,6 +7,7 @@ add_llvm_library(LLVMPatmosSinglePath
   PatmosSPReduce.cpp
   RAInfo.cpp
   SPScope.cpp
+  SPScheduler.cpp
   )
 
 add_dependencies(LLVMPatmosSinglePath PatmosCommonTableGen)

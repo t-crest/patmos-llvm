@@ -155,6 +155,7 @@ namespace {
         addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
         addPass(createPatmosSPBundlingPass(getPatmosTargetMachine()));
         addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
+        addPass(createSPSchedulerPass(getPatmosTargetMachine()));
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
           addPass(&IfConverterID);

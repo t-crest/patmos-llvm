@@ -51,15 +51,15 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
   auto moveInstruction = [&](auto bundleWith){
     auto inst = &(*mbb2->instr_begin());
     mbb2->remove(inst);
-//    if(TII->canIssueInSlot(inst, 1)){
-//      mbb1->insertAfter(bundleWith, inst);
-//      inst->bundleWithPred();
-//    }else if (TII->canIssueInSlot(&(*bundleWith), 1)){
-//      mbb1->insert(bundleWith, inst);
-//      inst->bundleWithSucc();
-//    }else{
+    if(TII->canIssueInSlot(inst, 1)){
       mbb1->insertAfter(bundleWith, inst);
-//    }
+      inst->bundleWithPred();
+    }else if (TII->canIssueInSlot(&(*bundleWith), 1)){
+      mbb1->insert(bundleWith, inst);
+      inst->bundleWithSucc();
+    }else{
+      mbb1->insertAfter(bundleWith, inst);
+    }
   };
 
   auto moveNextInstruction = [&](unsigned movedInstructions){

@@ -46,7 +46,10 @@ public:
        MachineFunctionPass(ID), TM(tm),
        STC(tm.getSubtarget<PatmosSubtarget>()),
        TII(static_cast<const PatmosInstrInfo*>(tm.getInstrInfo())),
-       TRI(static_cast<const PatmosRegisterInfo*>(tm.getRegisterInfo())){ (void) TM; }
+       TRI(static_cast<const PatmosRegisterInfo*>(tm.getRegisterInfo()))
+  {
+    (void) TM;
+  }
 
   /// getPassName - Return the pass' name.
   virtual const char *getPassName() const {
@@ -72,7 +75,11 @@ public:
     PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
     bool changed = false;
     // only convert function if marked
-    if ( PSPI->isConverting(MF) ) {
+    if ( PSPI->isConverting(MF)
+        // TODO: We restrict SP scheduling and bundling to the root functions.
+        // TODO: This should be changed.
+        && PatmosSinglePathInfo::isRoot(MF)
+    ) {
       doBundlingFunction(PSPI->getRootScope());
     }
     return changed;

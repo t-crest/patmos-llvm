@@ -396,6 +396,8 @@ namespace llvm {
 
 }
 
+char PatmosSPReduce::ID = 0;
+
 /// createPatmosSPReducePass - Returns a new PatmosSPReduce
 /// \see PatmosSPReduce
 FunctionPass *llvm::createPatmosSPReducePass(const PatmosTargetMachine &tm) {
@@ -491,6 +493,11 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   // Finally, we assign numbers in ascending order to MBBs again.
   MF.RenumberBlocks();
 
+  DEBUG( dbgs() << "AFTER Single-Path Reduce\n"; MF.dump() );
+  DEBUG({
+      dbgs() << "Scope tree after Reduction:\n";
+      RootScope->dump(dbgs(), 0, true);
+  });
 }
 
 SmallVector<MachineOperand, 2> PatmosSPReduce::getEdgeCondition(
@@ -1063,8 +1070,11 @@ void PatmosSPReduce::insertPredicateLoad(MachineBasicBlock *MBB,
 
 
 void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
-  DEBUG( dbgs() << "Merge MBBs\n" );
-
+  DEBUG( dbgs() << "Function before block merge:\n"; MF.dump() );
+    DEBUG({
+        dbgs() << "Scope tree before block merge:\n";
+        RootScope->dump(dbgs(), 0, true);
+    });
   // first, obtain the sequence of MBBs in DF order (as copy!)
   // NB: have to use the version below, as some version of libcxx will not
   // compile it (similar to

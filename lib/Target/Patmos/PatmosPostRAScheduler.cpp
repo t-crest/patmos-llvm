@@ -25,6 +25,8 @@
 #include "PatmosPostRAScheduler.h"
 #include "PatmosSchedStrategy.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosMachineFunctionInfo.h"
+#include "SinglePath/PatmosSinglePathInfo.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -100,6 +102,7 @@ namespace {
     }
 
     bool runOnMachineFunction(MachineFunction &Fn);
+
   };
   char PatmosPostRAScheduler::ID = 0;
 
@@ -134,6 +137,17 @@ nextIfDebug(MachineBasicBlock::iterator I, MachineBasicBlock::iterator End) {
 
 
 bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
+
+  if( mf.getInfo<PatmosMachineFunctionInfo>()->isSinglePath()){
+    // TODO: We restrict SP scheduling and bundling to the root functions.
+    // TODO: This should be changed.
+    if(PatmosSinglePathInfo::isRoot(mf)){
+      DEBUG( dbgs() << "Not running PatmosPostRAScheduler on " << mf.getName() << "\n");
+      finalizeBundles(mf); // Must be called, otherwise bundles wont be emitted correctly
+      return true;
+    }
+  }
+
   // Initialize the context of the pass.
   MF = &mf;
   MLI = &getAnalysis<MachineLoopInfo>();
