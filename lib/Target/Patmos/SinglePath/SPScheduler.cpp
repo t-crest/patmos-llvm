@@ -24,12 +24,13 @@ FunctionPass *llvm::createSPSchedulerPass(const PatmosTargetMachine &tm) {
 }
 
 bool SPScheduler::runOnMachineFunction(MachineFunction &mf){
-  // TODO: We restrict SP scheduling and bundling to the root functions.
-  // TODO: This should be changed.
-  if(!PatmosSinglePathInfo::isRoot(mf)){
+
+  // Only schedule single-path function
+  if(! mf.getInfo<PatmosMachineFunctionInfo>()->isSinglePath()){
     return false;
   }
-  DEBUG( dbgs() << "Run SPScheduler on function '" <<  mf.getName() << "'\n");
+
+  DEBUG( dbgs() << "Running SPScheduler on function '" <<  mf.getName() << "'\n");
 
   auto reduceAnalysis = &getAnalysis<PatmosSPReduce>();
   auto rootScope = reduceAnalysis->RootScope;

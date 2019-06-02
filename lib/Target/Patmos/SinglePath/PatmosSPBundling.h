@@ -73,16 +73,12 @@ public:
   virtual bool runOnMachineFunction(MachineFunction &MF) {
     PSPI = &getAnalysis<PatmosSinglePathInfo>();
     PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
-    bool changed = false;
     // only convert function if marked
     if ( PSPI->isConverting(MF)
-        // TODO: We restrict SP scheduling and bundling to the root functions.
-        // TODO: This should be changed.
-        && PatmosSinglePathInfo::isRoot(MF)
     ) {
       doBundlingFunction(PSPI->getRootScope());
     }
-    return changed;
+    return true;
   }
 
   SPScope* getRootScope(){
