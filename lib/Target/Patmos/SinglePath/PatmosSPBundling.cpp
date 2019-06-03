@@ -24,6 +24,17 @@ FunctionPass *llvm::createPatmosSPBundlingPass(const PatmosTargetMachine &tm) {
   return new PatmosSPBundling(tm);
 }
 
+bool PatmosSPBundling::runOnMachineFunction(MachineFunction &MF) {
+  PSPI = &getAnalysis<PatmosSinglePathInfo>();
+  PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
+  // only convert function if marked
+  if ( PSPI->isConverting(MF)
+  ) {
+    doBundlingFunction(PSPI->getRootScope());
+  }
+  return true;
+}
+
 std::pair<PredicatedBlock*, PredicatedBlock*> findBranch(SPScope* root){
   auto blocks = root->getScopeBlocks();
 
@@ -51,6 +62,8 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
   auto moveInstruction = [&](auto bundleWith){
     auto inst = &(*mbb2->instr_begin());
     mbb2->remove(inst);
+#define DO-BUNDLE // for easily turning off bundling of instructions
+#ifdef DO-BUNDLE
     if(TII->canIssueInSlot(inst, 1)){
       mbb1->insertAfter(bundleWith, inst);
       inst->bundleWithPred();
@@ -58,8 +71,11 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
       mbb1->insert(bundleWith, inst);
       inst->bundleWithSucc();
     }else{
+#endif
       mbb1->insertAfter(bundleWith, inst);
+#ifdef DO-BUNDLE
     }
+#endif
   };
 
   auto moveNextInstruction = [&](unsigned movedInstructions){

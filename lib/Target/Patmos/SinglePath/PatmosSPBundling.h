@@ -70,16 +70,7 @@ public:
     return false;
   }
 
-  virtual bool runOnMachineFunction(MachineFunction &MF) {
-    PSPI = &getAnalysis<PatmosSinglePathInfo>();
-    PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
-    // only convert function if marked
-    if ( PSPI->isConverting(MF)
-    ) {
-      doBundlingFunction(PSPI->getRootScope());
-    }
-    return true;
-  }
+  virtual bool runOnMachineFunction(MachineFunction &MF);
 
   SPScope* getRootScope(){
     return PSPI->getRootScope();

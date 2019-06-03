@@ -70,7 +70,7 @@ unsigned SPScheduler::calculateLatency(MachineBasicBlock::iterator instr){
     instrInfo->insertNoop(*mbb, instr);
     instrInfo->insertNoop(*mbb, instr);
     instrInfo->insertNoop(*mbb, instr);
-  } else if (instr->mayLoad()){
+  } else if (instr->mayLoad() || (instr->getOpcode() == Patmos::MUL) || (instr->getOpcode() == Patmos::MULU)){
     DEBUG(dbgs() << "Inserting NOP after instruction: "; instr->print(dbgs(), NULL, false));
     instr++;
     auto sizebefore = mbb->size();
