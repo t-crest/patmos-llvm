@@ -1,0 +1,8 @@
+# ignore all
+*
+
+# Unignore this file
+!.gitignore
+
+# Unignore test files
+!*.ll

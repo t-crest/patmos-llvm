@@ -8,6 +8,6 @@
 ##===----------------------------------------------------------------------===##
 
 LEVEL = ../..
-PARALLEL_DIRS = googletest UnitTestMain
+PARALLEL_DIRS = googletest googlemock UnitTestMain
 
 include $(LEVEL)/Makefile.common

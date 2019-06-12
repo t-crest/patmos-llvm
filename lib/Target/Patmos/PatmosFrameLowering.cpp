@@ -15,7 +15,7 @@
 #include "PatmosFrameLowering.h"
 #include "PatmosInstrInfo.h"
 #include "PatmosMachineFunctionInfo.h"
-#include "PatmosSinglePathInfo.h"
+#include "SinglePath/PatmosSinglePathInfo.h"
 #include "PatmosSubtarget.h"
 #include "PatmosTargetMachine.h"
 #include "llvm/ADT/Statistic.h"

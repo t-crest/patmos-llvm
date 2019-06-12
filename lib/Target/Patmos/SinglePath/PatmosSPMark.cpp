@@ -103,7 +103,6 @@ private:
    */
   void removeUncalledSPFunctions(const Module &M);
 
-
 public:
   static char ID; // Pass identification, replacement for typeid
 
@@ -325,4 +324,29 @@ void PatmosSPMark::removeUncalledSPFunctions(const Module &M) {
       };
     }
   }
+}
+
+void printFunction(MachineFunction &MF) {
+  outs() << "Bundle function '" << MF.getFunction()->getName() << "'\n";
+  outs() << "Block list:\n";
+  for (MachineFunction::iterator MBB = MF.begin(), MBBE = MF.end();
+                                   MBB != MBBE; ++MBB) {
+    for( MachineBasicBlock::iterator MI = MBB->begin(),
+                                         ME = MBB->getFirstTerminator();
+                                         MI != ME; ++MI) {
+      outs() << "\t";
+      MI->print(outs(), &(MF.getTarget()), false);
+    }
+    outs() << "Terminators:\n";
+    for( MachineBasicBlock::iterator MI = MBB->getFirstTerminator(),
+                                             ME = MBB->end();
+                                             MI != ME; ++MI) {
+      outs() << "\t";
+      MI->print(outs(), &(MF.getTarget()), false);
+    }
+    outs() << "\n";
+  }
+
+  outs() <<"\n";
+
 }

@@ -13,7 +13,7 @@
 
 #include "Patmos.h"
 #include "PatmosTargetMachine.h"
-#include "PatmosSinglePathInfo.h"
+#include "SinglePath/PatmosSinglePathInfo.h"
 #include "PatmosSchedStrategy.h"
 #include "PatmosStackCacheAnalysis.h"
 #include "llvm/PassManager.h"
@@ -153,7 +153,9 @@ namespace {
 
       if (PatmosSinglePathInfo::isEnabled()) {
         addPass(createPatmosSinglePathInfoPass(getPatmosTargetMachine()));
+        addPass(createPatmosSPBundlingPass(getPatmosTargetMachine()));
         addPass(createPatmosSPReducePass(getPatmosTargetMachine()));
+        addPass(createSPSchedulerPass(getPatmosTargetMachine()));
       } else {
         if (getOptLevel() != CodeGenOpt::None && !DisableIfConverter) {
           addPass(&IfConverterID);

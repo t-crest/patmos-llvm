@@ -11,6 +11,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Signals.h"
 #include "gtest/gtest.h"
+#include "gmock/gmock.h"
 
 
 #if defined(LLVM_ON_WIN32)
@@ -24,7 +25,10 @@ const char *TestMainArgv0;
 
 int main(int argc, char **argv) {
   llvm::sys::PrintStackTraceOnErrorSignal();
-  testing::InitGoogleTest(&argc, argv);
+  
+  // Initialize both gmock and gtest.
+  testing::InitGoogleMock(&argc, argv);
+  
   llvm::cl::ParseCommandLineOptions(argc, argv);
 
   // Make it easy for a test to re-execute itself by saving argv[0].

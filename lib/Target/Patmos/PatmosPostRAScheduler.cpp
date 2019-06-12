@@ -25,6 +25,8 @@
 #include "PatmosPostRAScheduler.h"
 #include "PatmosSchedStrategy.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosMachineFunctionInfo.h"
+#include "SinglePath/PatmosSinglePathInfo.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -100,6 +102,7 @@ namespace {
     }
 
     bool runOnMachineFunction(MachineFunction &Fn);
+
   };
   char PatmosPostRAScheduler::ID = 0;
 
@@ -134,6 +137,13 @@ nextIfDebug(MachineBasicBlock::iterator I, MachineBasicBlock::iterator End) {
 
 
 bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
+
+  if( mf.getInfo<PatmosMachineFunctionInfo>()->isSinglePath()){
+      DEBUG( dbgs() << "Not running PatmosPostRAScheduler on " << mf.getName() << "\n");
+      finalizeBundles(mf); // Must be called, otherwise bundles wont be emitted correctly
+      return true;
+  }
+
   // Initialize the context of the pass.
   MF = &mf;
   MLI = &getAnalysis<MachineLoopInfo>();
@@ -213,9 +223,9 @@ bool PatmosPostRAScheduler::runOnMachineFunction(MachineFunction &mf) {
       for(;I != MBB->begin(); --I, --StartIndex) {
         if (Scheduler->isSchedulingBoundary(llvm::prior(I), MBB, *MF))
           break;
-        assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
+        assert(!I->isBundled() && "Rescheduling bundled code is not supported.");
       }
-      assert(!I->isBundle() && "Rescheduling bundled code is not supported.");
+      assert(!I->isBundled() && "Rescheduling bundled code is not supported.");
 
       // Notify the scheduler of the region, even if we may skip scheduling
       // it. Perhaps it still needs to be bundled.

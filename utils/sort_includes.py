@@ -44,7 +44,7 @@ def sort_includes(f):
         api_headers.append(header)
         look_for_api_header = False
         continue
-      if header.startswith('<') or header.startswith('"gtest/'):
+      if header.startswith('<') or header.startswith('"gtest/') or header.startswith('"gmock/'):
         system_headers.append(header)
         continue
       if (header.startswith('"llvm/') or header.startswith('"llvm-c/') or

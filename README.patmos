@@ -71,19 +71,23 @@ enable building of the gold plugin:
     --with-binutils-include=`readlink -f ../../patmos-gold/include/` \
     --prefix=$INSTALL_DIR
 
+	Emad: Can't make above work.
+	
 With cmake:
     
     mkdir build
     cd build
-    cmake .. -DCMAKE_BUILD_DIR=Debug 
-	     -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR
-	     -DLLVM_BINUTILS_INCDIR=`readlink -f ../patmos-gold/include`
-	     -DLLVM_TARGETS_TO_BUILD=Patmos
+    cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR -DLLVM_BINUTILS_INCDIR=`readlink -f $GOLD_INCLUDE_DIR` -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_ENABLE_ASSERTIONS=true -DLLVM_DEFAULT_TARGET_TRIPLE=patmos-unknown-unknown-elf -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
+		 
+
+$INSTALL_DIR: the local installation folder. typicalling '../local'
+$GOLD_INCLUDE_DIR: the include directory of the patmos-gold repo. typically '../gold/include'
 
 In both cases, LLVM is build using make
 
-    make all
+    make -j4
 
+where (-j4) tells make to use 4 cores. Change to fit your machine.
 
 To install libraries for LTO support:
     - Go to the directory where your patmos gold, ar and nm binaries with 
@@ -93,9 +97,22 @@ To install libraries for LTO support:
       the lib/bfd-plugins directory
     - Specify -plugin /path/to/LLVMgold.so when you use gold
 
+--------------------------------------------------------------------------------
+3. Run Tests
+
+To run test that are specific to Patmos, navigate to the folder `llvm/build` and run:
+```make -j4 UnitTests llc && ./bin/llvm-lit ../test --filter=Patmos -v```
+
+This command will first build `llc` and unit tests, and if successfull then run all Patmos tests.
+
+To only run unit tests use:
+```make -j4 UnitTests && ./bin/llvm-lit ../test --filter="Unit.*Patmos" -v```
+
+This will run quicker, as it doesn't build the whole LLVM. But it also does
+not run all tests.
 
 --------------------------------------------------------------------------------
-3. Use it
+4. Use it
 
 To build an application, the following command can be used to compile and link
 the application:
@@ -272,7 +289,11 @@ To setup Eclipse with C++ and GDB support for developing LLVM, follow those step
     - Select Eclipse as generator type
     - Do not use clang and clang++ as compilers, use defaults (g++)
       Otherwise gdb python scripts do not work properly for libstdc++ !
-    - Make sure to set CMAKE_BUILD_TYPE to Debug, enable assertions, ...
+    - Make sure to:
+		* Set CMAKE_BUILD_TYPE to Debug
+		* Enable assertions
+		* Change LLVM_DEFAULT_TARGET_TRIPLE to 'patmos-unknown-unknown-elf'
+		* Change LLVM_TARGETS_TO_BUILD to 'Patmos'
 - Setup Eclipse project
     - Use File->Import->General->Import Existing Project. Do not check Copy Sources.
     - Setup Resource->Resource Filters in Project settings on project root, 
