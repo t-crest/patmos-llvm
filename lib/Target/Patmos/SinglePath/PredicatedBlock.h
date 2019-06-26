@@ -13,7 +13,7 @@
 #define TARGET_PATMOS_SINGLEPATH_PREDICATEDBLOCK_H_
 
 #include "llvm/CodeGen/MachineBasicBlock.h"
-
+#include "llvm/IR/Metadata.h"
 #include <map>
 #include <set>
 
