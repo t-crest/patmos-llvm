@@ -6,8 +6,13 @@ The scipt `assert_singlepath.sh` compiles LLVM IR programs and ensures they are 
 It does so by using `pasim` to get statistics on the execution of the program on different input. 
 It then checks the statistics are identical across executions, which is the fundamental characteristic of single-path. 
 The script is intended to be used in `llvm-lit` tests, and be called as part of the `; RUN:` command in the tests. 
-E.g. `; RUN: %p/assert_singlepath.sh llc -O2 %s sp_func 0=0 1=1 2=2`.
+E.g. `; RUN: %p/assert_singlepath.sh llc -O2 %s sp_func %DEBUG_TYPE 0=0 1=1 2=2`.
 For a detailed description of how the script works, see the documentation in the script itself.
+
+In `lit.local.cfg` `llvm-lit` is configured to replace any `%DEBUG_TYPE` in a 
+`; RUN ..` command with the value of the environmental variable `DEBUG_TYPE`.
+This is usefull for changing what debug output the tests should print, or turn 
+debug output off. 
 
 ### Folders:
 

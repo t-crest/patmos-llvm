@@ -83,11 +83,9 @@ With cmake:
 $INSTALL_DIR: the local installation folder. typicalling '../local'
 $GOLD_INCLUDE_DIR: the include directory of the patmos-gold repo. typically '../gold/include'
 
-In both cases, LLVM is build using make
+In both cases, LLVM is built using make
 
-    make -j4
-
-where (-j4) tells make to use 4 cores. Change to fit your machine.
+    make -j
 
 To install libraries for LTO support:
     - Go to the directory where your patmos gold, ar and nm binaries with 
@@ -101,15 +99,27 @@ To install libraries for LTO support:
 3. Run Tests
 
 To run test that are specific to Patmos, navigate to the folder `llvm/build` and run:
-```make -j4 UnitTests llc && ./bin/llvm-lit ../test --filter=Patmos -v```
+```make -j UnitTests llc && ./bin/llvm-lit ../test --filter=Patmos -v```
 
 This command will first build `llc` and unit tests, and if successfull then run all Patmos tests.
 
 To only run unit tests use:
-```make -j4 UnitTests && ./bin/llvm-lit ../test --filter="Unit.*Patmos" -v```
+```make -j UnitTests && ./bin/llvm-lit ../test --filter="Unit.*Patmos" -v```
 
 This will run quicker, as it doesn't build the whole LLVM. But it also does
 not run all tests.
+
+#### Debug output
+
+By default, debug output is turned on for all tests, outputting debug info
+for the debug type "patmos-singlepath".
+To change the debug type the environmental variable "DEBUG_TYPE" must be set
+to the desired type.
+Alternatively, if no debug output is wanted, "DEBUG_TYPE" can be set to the
+the empty string. This is especially relevant if the tests are run using 
+"Release" mode, since debug does not work in it. An example command with no debug:
+
+```env DEBUG_TYPE= ./bin/llvm-lit ../test --filter="Patmos" -v```
 
 --------------------------------------------------------------------------------
 4. Use it

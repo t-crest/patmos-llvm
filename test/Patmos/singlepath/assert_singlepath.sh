@@ -7,7 +7,7 @@
 # that 'pasim's execution statistics are equivalent for all runs.
 #
 # usage:
-# It takes >= 6 arguments:
+# It takes >= 7 arguments:
 #	1. The path to LLVM's binary folder. E.g. '$t-crest-home/llvm/build/bin'.
 #		May contain a '.'. If so, everything after (and including) the '.' is ignored.
 #		This allows the use of llvm-lit's substition, where 'llc' will give the correct path.
@@ -20,7 +20,9 @@
 #		they should be wrapped in quotes. E.g. "-O2 -v".
 #		I no arguments are needed, "" must be used.
 #	4. A singlepath function to compile as singlepath and run statistics on
-#	>5. a list of execution arguments.
+#	5. The name of the debug type for LLC to output while compiling.
+#		If it is empty ("" must be used in that case), no debug output is produced.
+#	>6. a list of execution arguments.
 #		Each execution argument has the input to send to the program through stdin
 #		and the expected output of the program (on stdout). The two values are separated by '='.
 #		E.g '1=2' will run the program, send it '1' through the stdin. when the program finishes
@@ -40,14 +42,17 @@
 # Requirements:
 #	The design of this script assumes that setup of t-crest on the machine was done by
 #	the 'build.sh' script in the patmos-misc repository (github.com/t-crest/patmos-misc).
-#	Specifically, this scripts uses the 'local' directory created by the script, assuming
-#	it is in the same directory as LLVM. 
-#	Additionally, it requires 'pasim' and 'patmos-ld' are discoverable on the path.
+#	Specifically, this scripts uses the 'local' directory created by 'build.sh' 
+#	and assumes it is in the same directory as LLVM. 
+#	Additionally, it requires 'pasim' and 'patmos-ld' are discoverable on the path,
+#	and that all LLVM tools have been built and are in 'llvm/build/bin'.
 #	Lastly, this script uses python code, therefore, 'python3' must also be on the path.
 #
 # Notes:
-#	This script will create files as part of its build but deletes them before terminating.
-#	Some messages printed by the script may refer to these files even though they have been deleted.
+#	For each .ll test file, a folder will be created by this script 
+#	(named the same as the test file without .ll) that contains temporary files
+#	and an output file.
+#	Some messages printed by the script may refer to these files.
 #
 # TODO: Currently only supports running 'pasim' statistics on 1 function. Should support multiple.
 #
@@ -174,8 +179,8 @@ execute_and_stat(){
 
 # Ensure that at least 2 execution arguments were given,
 # such that we can compare at least 2 executions
-if [ $# -lt 6 ]; then
-	echo "Must have at least 2 execution arguments but was: ${@:4}"
+if [ $# -lt 7 ]; then
+	echo "Must have at least 2 execution arguments but was: ${@:6}"
 	exit 1
 fi
 
@@ -222,7 +227,11 @@ if [ $? -ne 0 ]; then
 	exit 1
 fi
 
-$bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4" -debug-only=patmos-singlepath &> $debug
+if [ "$5" != "" ]; then 
+	llc_debug_arg="-debug-only=$5" 
+fi
+
+$bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4" $llc_debug_arg &> $debug
 if [ $? -ne 0 ]; then 
 	echo "Failed to compile '$linked'."
 	exit 1
@@ -240,7 +249,7 @@ ret_code=0
 # Run the first execution argument on its own,
 # such that its stats result can be compared to
 # all other executions
-first_stats=$(execute_and_stat "$exec" "$4" "$5")
+first_stats=$(execute_and_stat "$exec" "$4" "$6")
 if [ $? -ne 0 ]; then
 	ret_code=1
 fi
@@ -249,7 +258,7 @@ fi
 # For each one, compare to the first. If they all
 # are equal to the first, they must also be equal to each other,
 # so we don't need to compare them to each other.
-for i in "${@:6}" 
+for i in "${@:7}" 
 do
 	rest_stats=$(execute_and_stat "$exec" "$4" "$i")
 	if [ $? -ne 0 ]; then
