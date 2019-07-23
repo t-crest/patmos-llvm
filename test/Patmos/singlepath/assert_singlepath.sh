@@ -93,9 +93,9 @@ for inst in input:
 	fetch_count = int(split_line[1]) + int(split_line[4])
 	print(name + " " + str(fetch_count))
 
-#Find and output operation count
+#Find and output cycle count
 for line in input:
-	if line.strip().startswith("Operations:"):
+	if line.strip().startswith("Cycles:"):
 		split = line.split()
 		print(split[0] + " " + split[1])
 		break
@@ -145,7 +145,9 @@ execute_and_stat(){
 	# It then pipes the stdout of the program to the variable 'actual_out' 
 	# and the 'pasim' stats (which are printed to stderr) to 'pasim_stats'.
 	# An explanation of the line can be found at https://stackoverflow.com/a/26827443/8171453
-	. <({ pasim_stats=$({ actual_out=$(echo "$input" | pasim "$1" --print-stats "$2" -V); } 2>&1; declare -p actual_out >&2); declare -p pasim_stats; } 2>&1)
+	# We configure pasim to use an "ideal" data cache, such that any variance in cycle count 
+	# because of cache-misses are negated (an ideal cache never misses).
+	. <({ pasim_stats=$({ actual_out=$(echo "$input" | pasim "$1" --print-stats "$2" -V -D ideal); } 2>&1; declare -p actual_out >&2); declare -p pasim_stats; } 2>&1)
 	
 	# Test the the stdout of the program is as expected
 	if ! diff <(echo "$expected_out") <(echo "$actual_out") &> /dev/null ; then
