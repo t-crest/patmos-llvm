@@ -260,6 +260,7 @@ namespace llvm {
 
     std::vector<const PredicatedBlock*> ExitTargets;
 
+    /// A map over successor blocks and which predicates take that branch.
     std::map<const PredicatedBlock*, unsigned> Successors;
 
     void printMetaData(MachineInstr* instr, raw_ostream& os) const {

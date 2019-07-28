@@ -26,6 +26,7 @@ FunctionPass *llvm::createPatmosSPBundlingPass(const PatmosTargetMachine &tm) {
 
 bool PatmosSPBundling::runOnMachineFunction(MachineFunction &MF) {
   PSPI = &getAnalysis<PatmosSinglePathInfo>();
+  PostDom = &getAnalysis<MachinePostDominatorTree>();
   PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
   // only convert function if marked
   if ( PSPI->isConverting(MF)
@@ -62,8 +63,8 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
   auto moveInstruction = [&](auto bundleWith){
     auto inst = &(*mbb2->instr_begin());
     mbb2->remove(inst);
-#define DO-BUNDLE // for easily turning off bundling of instructions
-#ifdef DO-BUNDLE
+#define DO_BUNDLE // for easily turning off bundling of instructions
+#ifdef DO_BUNDLE
     if(TII->canIssueInSlot(inst, 1)){
       mbb1->insertAfter(bundleWith, inst);
       inst->bundleWithPred();
@@ -73,7 +74,7 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
     }else{
 #endif
       mbb1->insertAfter(bundleWith, inst);
-#ifdef DO-BUNDLE
+#ifdef DO_BUNDLE
     }
 #endif
   };
@@ -120,11 +121,21 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
 
 boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::findMergePair(const SPScope* scope){
   for(auto block: scope->getScopeBlocks()){
-    auto mbb = block->getMBB();
-    if(mbb->succ_size() == 2 && block->getDefinitions().size() == 2){
-      auto defs = block->getDefinitions();
-      auto b1 = (PredicatedBlock*) (*defs.begin()).useBlock;
-      auto b2 = (PredicatedBlock*) (*(++defs.begin())).useBlock;
+    DEBUG(dbgs() << "Looking for merge pair at: #" << block->getMBB()->getNumber() << "\n");
+    auto succs = block->getSuccessors();
+    if(succs.size() == 2 && block->getExitTargets().size() == 0){
+      auto mbb = block->getMBB();
+
+      auto b1 = (PredicatedBlock*) (*succs.begin()).first;
+      auto b2 = (PredicatedBlock*) (*(++succs.begin())).first;
+
+      if( scope->isHeader(b1) || scope->isHeader(b2) ||
+          scope->isSubheader(b1) || scope->isSubheader(b2) ||
+          PostDom->dominates(b1->getMBB(), b2->getMBB()) ||
+          PostDom->dominates(b2->getMBB(), b1->getMBB())){
+        continue;
+      }
+
       if(!(scope->isSubheader(b1) || scope->isSubheader(b2) || b1->getSuccessors().size() == 0 || b2->getSuccessors().size() == 0 ||
           b1->bundledMBBs().size()>0 || b2->bundledMBBs().size()>0)){
 
@@ -142,11 +153,14 @@ boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::
   return boost::none;
 }
 
-void PatmosSPBundling::doBundlingFunction(SPScope* root) {
+void PatmosSPBundling::bundleScope(SPScope* root){
   boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> mergePair;
   while( (mergePair = findMergePair(root)).is_initialized() ){
     auto destination = get(mergePair).first;
     auto source = get(mergePair).second;
+
+    DEBUG(dbgs() << "Merge pair: (#" << destination->getMBB()->getNumber() << ", #" << source->getMBB()->getNumber() << ")\n");
+
     mergeMBBs(destination->getMBB(), source->getMBB());
 
     auto mbb1 = destination->getMBB(), mbb2 = source->getMBB();
@@ -168,8 +182,21 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
     root->merge(destination, source);
   }
 
+  std::for_each(root->child_begin(), root->child_end(), [&](auto subscope){
+    bundleScope(subscope);
+  });
+}
+
+void PatmosSPBundling::doBundlingFunction(SPScope* root) {
+
+  DEBUG(dbgs() << "========= Begin bundling ========= \n");
+
+  bundleScope(root);
+
   DEBUG({
       dbgs() << "Scope tree after bundling:\n";
       root->dump(dbgs(), 0, true);
+      dbgs() << "========= End bundling ========= \n";
   });
+
 }

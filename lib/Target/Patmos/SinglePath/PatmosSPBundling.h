@@ -14,6 +14,7 @@
 #include "PatmosTargetMachine.h"
 #include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/CodeGen/MachinePostDominators.h"
 
 #include "PatmosSinglePathInfo.h"
 
@@ -37,6 +38,8 @@ private:
 
   PatmosSinglePathInfo *PSPI;
 
+  MachinePostDominatorTree *PostDom;
+
   /// doBundlingFunction - Bundle a given MachineFunction
   void doBundlingFunction(SPScope* root);
 
@@ -59,6 +62,7 @@ public:
   /// getAnalysisUsage - Specify which passes this pass depends on
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequired<PatmosSinglePathInfo>();
+    AU.addRequired<MachinePostDominatorTree>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
@@ -81,6 +85,7 @@ public:
 
   void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2);
 
+  void bundleScope(SPScope* root);
 };
 
 }
