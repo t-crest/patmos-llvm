@@ -160,7 +160,7 @@ execute_and_stat(){
 	fi
 	
 	# Clean 'pasim's statistics
-	cleaned_stats=$(echo "$pasim_stats" | python3 -c "$python_pasim_stat_clean" 2> /dev/null)
+	cleaned_stats=$(echo "$pasim_stats" | python -c "$python_pasim_stat_clean" 2> /dev/null)
 	if [ $? -ne 0 ]; then
 		(>&2 echo "Failed to clean pasim statistics from run of '$1' with functions '$2' and execution argument '$3'")
 		(>&2 echo "Pasim statistics were:")
