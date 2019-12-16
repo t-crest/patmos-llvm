@@ -271,6 +271,6 @@ do
 	fi
 done
 
-patmos-llvm-objdump -d $exec > $objdump
+$bin_dir/llvm-objdump -d $exec > $objdump
 
 exit $ret_code
