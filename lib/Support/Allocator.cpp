@@ -111,7 +111,7 @@ void *BumpPtrAllocator::Allocate(size_t Size, size_t Alignment) {
     // Update the allocation point of this memory block in MemorySanitizer.
     // Without this, MemorySanitizer messages for values originated from here
     // will point to the allocation of the entire slab.
-    __msan_allocated_memory(Ptr, Size);
+    //__msan_allocated_memory(Ptr, Size);
     return Ptr;
   }
 
@@ -127,7 +127,7 @@ void *BumpPtrAllocator::Allocate(size_t Size, size_t Alignment) {
 
     Ptr = AlignPtr((char*)(NewSlab + 1), Alignment);
     assert((uintptr_t)Ptr + Size <= (uintptr_t)NewSlab + NewSlab->Size);
-    __msan_allocated_memory(Ptr, Size);
+    //__msan_allocated_memory(Ptr, Size);
     return Ptr;
   }
 
@@ -136,7 +136,7 @@ void *BumpPtrAllocator::Allocate(size_t Size, size_t Alignment) {
   Ptr = AlignPtr(CurPtr, Alignment);
   CurPtr = Ptr + Size;
   assert(CurPtr <= End && "Unable to allocate memory!");
-  __msan_allocated_memory(Ptr, Size);
+  //__msan_allocated_memory(Ptr, Size);
   return Ptr;
 }
 
