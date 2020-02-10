@@ -127,6 +127,13 @@ EndOfPython
 # Tests that the output of the program match the expected output. If not, reports an error.
 # Returns the cleaned statistics.
 execute_and_stat(){
+	# First, check that 'pasim' is installed
+	if ! command -v pasim ; then
+		# Explanation: '(>&2 ...)' outputs the result of command '...' on stderr
+		(>&2 echo "Patmos simulator 'pasim' could not be found.")
+		return 1
+	fi
+
 	# Split the execution argument into input and expected output.
 	
 	# We rename spaces such that they are not recognized as list separators when we split
@@ -157,7 +164,6 @@ execute_and_stat(){
 		(>&2 echo "--------------------- Actual ---------------------")
 		(>&2 echo "$actual_out")
 		(>&2 echo "--------------------------------------------------")
-		# '(>&2 ...)' outputs '...' on stderr
 		ret_code=1
 	fi
 	
@@ -276,6 +282,10 @@ fi
 # so we don't need to compare them to each other.
 for i in "${@:7}" 
 do
+	if [ $ret_code -ne 0 ] ; then
+		# If an error has already been encountered, stop.
+		continue
+	fi
 	rest_stats=$(execute_and_stat "$exec" "$singlepath" "$i")
 	if [ $? -ne 0 ]; then
 		# There was an error in executing the program or cleaning the stats
