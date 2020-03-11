@@ -133,7 +133,7 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
   }
 }
 
-boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::findMergePair(const SPScope* scope){
+std::pair<bool, std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::findMergePair(const SPScope* scope){
   for(auto block: scope->getScopeBlocks()){
     DEBUG(dbgs() << "Looking for merge pair at: #" << block->getMBB()->getNumber() << "\n");
     auto succs = block->getSuccessors();
@@ -159,24 +159,24 @@ boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::
           if(TII->mayFallthrough(*mbb) && farMBB == b1->getMBB()){
             assert(++mbb->getFirstInstrTerminator() == mbb->end());
             assert(farMBB == b1->getMBB() || farMBB == b2->getMBB());
-            return boost::make_optional(std::make_pair(b2, b1));
+            return std::make_pair(true, std::make_pair(b2, b1));
           }else{
-            return boost::make_optional(std::make_pair(b1, b2));
+            return std::make_pair(true, std::make_pair(b1, b2));
           }
         }
 	  }
     }
   }
-  return boost::none;
+  return std::make_pair(false, std::make_pair((PredicatedBlock*)NULL, (PredicatedBlock*)NULL));
 }
 
 void PatmosSPBundling::bundleScope(SPScope* root){
-  boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> mergePair;
-  while( (mergePair = findMergePair(root)).is_initialized() ){
+  std::pair<bool, std::pair<PredicatedBlock*,PredicatedBlock*>> mergePair;
+  while( (mergePair = findMergePair(root)).first ){
     PairsSuccess++;
 
-    auto destination = get(mergePair).first;
-    auto source = get(mergePair).second;
+    auto destination = mergePair.second.first;
+    auto source = mergePair.second.second;
 
     DEBUG(dbgs() << "Merge pair: (#" << destination->getMBB()->getNumber() << ", #" << source->getMBB()->getNumber() << ")\n");
 

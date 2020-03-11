@@ -80,7 +80,11 @@ public:
     return PSPI->getRootScope();
   }
 
-  boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>>
+  /// Tries to find a pair of blocks to merge.
+  ///
+  /// If a pair is found, true is returned with the pair of blocks found.
+  /// If no pair is found, false is returned with a pair of NULLs.
+  std::pair<bool, std::pair<PredicatedBlock*,PredicatedBlock*>>
   findMergePair(const SPScope*);
 
   void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2);

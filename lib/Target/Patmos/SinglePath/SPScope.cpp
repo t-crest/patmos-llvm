@@ -179,8 +179,8 @@ public:
   // parent SPScope
   SPScope *Parent;
 
-  // loop bound
-  boost::optional<unsigned> LoopBound;
+  // loop bound. If negative, there is no loop bound. Otherwise, its value is the loop bound.
+  int LoopBound;
 
   // Whether this scope is part of a root single-path function
   const bool RootFunc;
@@ -198,7 +198,7 @@ public:
 //Constructors
   Impl(SPScope *pub, SPScope * parent, bool rootFunc, MachineLoop *loop,
       MachineBasicBlock *header, MachineFunction &MF, MachineLoopInfo &LI):
-    Pub(*pub), Parent(parent), LoopBound(boost::none), RootFunc(rootFunc),
+    Pub(*pub), Parent(parent), LoopBound(-1), RootFunc(rootFunc),
     PredCount(0)
   {
     Blocks.push_back(new PredicatedBlock(header));
@@ -230,9 +230,7 @@ public:
     for(auto block: fcfgBlocks){
       std::set<Edge> outedges;
       if (Pub.isSubheader(block)) {
-        auto subscopeOp = Pub.findScopeOf(block);
-        assert(subscopeOp.is_initialized());
-        const SPScope *subscope = get(subscopeOp);
+        auto subscope = Pub.findScopeOf(block);
         outedges = subscope->Priv->getOutEdges();
       } else {
         // simple block
@@ -548,28 +546,26 @@ public:
   }
 
   /// Returns the PredicatedBlock of the given MBB, if it exists exclusively
-  /// in this scope.
-  boost::optional<PredicatedBlock*> getPredicated(const MachineBasicBlock *mbb)
+  /// in this scope. If not, NULL is returned.
+  PredicatedBlock* getPredicated(const MachineBasicBlock *mbb)
   {
     auto found = std::find_if(Blocks.begin(), Blocks.end(), [&](auto block){
       return block->getMBB() == mbb;
     });
 
-    return found != Blocks.end()?
-      boost::make_optional(*found) :
-      boost::none;
+    return found != Blocks.end()? *found : NULL;
   }
 
   /// Returns the PredicatedBlock of the given MBB, if it is either exclusively
-  /// in this scope, or is a subheader of the scope.
-  boost::optional<PredicatedBlock*> getPredicatedFcfg(const MachineBasicBlock *mbb)
+  /// in this scope, or is a subheader of the scope. If not, returns NULL.
+  PredicatedBlock* getPredicatedFcfg(const MachineBasicBlock *mbb)
   {
     auto pBlocks = getPredicated(mbb);
-    if(!pBlocks.is_initialized())
+    if(!pBlocks)
     {
       for(auto subheader: getSubheaders()){
         if(subheader->getMBB() == mbb){
-          return boost::make_optional(subheader);
+          return subheader;
         }
       }
     }
@@ -596,16 +592,18 @@ public:
 
   /// Searches for the given block's PredicatedBlock recursively in the parent of
   /// this scope.
-  /// Returns none of no block was found in any ancestor.
-  boost::optional<PredicatedBlock*> getPredicatedParent(const MachineBasicBlock *mbb)
+  /// Causes an error if the block is not found.
+  PredicatedBlock* getPredicatedParent(const MachineBasicBlock *mbb)
   {
     if(Parent){
       auto pb = Parent->Priv->getPredicatedFcfg(mbb);
-      return pb.is_initialized() ?
-          pb :
+      return pb ? pb :
           Parent->Priv->getPredicatedParent(mbb);
     }
-    return boost::none;
+    report_fatal_error(
+        "Single-path code generation failed! "
+        "Could not find the PredicatedBlock of MBB: '" +
+        mbb->getParent()->getFunction()->getName() + "'!");
   }
 
   std::vector<PredicatedBlock*> getSubheaders()
@@ -615,6 +613,28 @@ public:
       result.push_back(subscope->getHeader());
     }
     return result;
+  }
+
+  /// Returns the deepest scope, starting from this scope, containing
+  /// the given block.
+  /// If the block is not part of any scope, return NULL.
+  SPScope* findScopeOf(const PredicatedBlock *block) const
+  {
+    // Look in this scope's blocks
+    if(std::find(Blocks.begin(), Blocks.end(), block) != Blocks.end()){
+      return &Pub;
+    }
+
+    // Otherwise, look through the subscopes
+    for(auto subscope: Subscopes){
+      auto inSubscope = subscope->Priv->findScopeOf(block);
+      if(inSubscope){
+        return inSubscope;
+      }
+    }
+
+    // Not found
+    return NULL;
   }
 
   void replaceUseOfBlockWith(PredicatedBlock* oldBlock, PredicatedBlock* newBlock){
@@ -668,7 +688,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
     auto found = std::find_if(Priv->Blocks.begin(), Priv->Blocks.end(),
         [&](auto block){ return block->getMBB() == edge.first; });
     assert(found != Priv->Blocks.end());
-    (*found)->addExitTarget(get(Priv->getPredicatedParent(edge.second)));
+    (*found)->addExitTarget(Priv->getPredicatedParent(edge.second));
   }
 
   // scan the header for loopbound info
@@ -676,11 +696,11 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
       MI != ME; ++MI) {
     if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
       // max is the second operand (idx 1)
-      Priv->LoopBound = boost::make_optional(MI->getOperand(1).getImm() + 1);
+      Priv->LoopBound = MI->getOperand(1).getImm() + 1;
       break;
     }
   }
-  assert(Priv->LoopBound.is_initialized());
+  assert(Priv->LoopBound >= 0);
 }
 
 /// free the child scopes first, cleanup
@@ -718,9 +738,7 @@ void SPScope::walk(SPScopeWalker &walker) {
   for(auto block: blocks){
     auto MBB = block->getMBB();
     if (isSubheader(block)) {
-      auto opt = findScopeOf(block);
-      assert(opt.is_initialized());
-      get(opt)->walk(walker);
+      findScopeOf(block)->walk(walker);
     } else {
       walker.nextMBB(MBB);
     }
@@ -768,9 +786,17 @@ const SPScope *SPScope::getParent() const { return Priv->Parent; }
 
 bool SPScope::isRootTopLevel() const { return Priv->RootFunc && isTopLevel(); }
 
-bool SPScope::hasLoopBound() const { return Priv->LoopBound.is_initialized(); }
+bool SPScope::hasLoopBound() const { return Priv->LoopBound >= 0; }
 
-boost::optional<unsigned> SPScope::getLoopBound() const { return Priv->LoopBound; }
+unsigned SPScope::getLoopBound() const {
+  if( !hasLoopBound() ) {
+    report_fatal_error(
+            "Single-path code generation failed! "
+            "Scope has no bound. MBB: '" +
+            (getHeader()->getMBB()->getParent()->getFunction()->getName()) + "'!");
+  }
+  return (unsigned) Priv->LoopBound;
+}
 
 PredicatedBlock *SPScope::getHeader() const { return Priv->Blocks.front(); }
 
@@ -814,23 +840,18 @@ SPScope::child_iterator SPScope::child_begin() const { return Priv->Subscopes.be
 
 SPScope::child_iterator SPScope::child_end() const { return Priv->Subscopes.end(); }
 
-boost::optional<SPScope*> SPScope::findScopeOf(const PredicatedBlock *block) const
+SPScope* SPScope::findScopeOf(const PredicatedBlock *block) const
 {
-  // Look in this scope's blocks
-  if(std::find(Priv->Blocks.begin(), Priv->Blocks.end(), block) != Priv->Blocks.end()){
-    return boost::make_optional((SPScope*)this);
-  }
+  auto found = Priv->findScopeOf(block);
 
-  // Otherwise, look through the subscopes
-  for(auto subscope: Priv->Subscopes){
-    auto inSubscope = subscope->findScopeOf(block);
-    if(inSubscope.is_initialized()){
-      return inSubscope;
-    }
+  if( !found ){
+    report_fatal_error(
+            "Single-path code generation failed! "
+            "Could not find the the scope of PredicatedBlock with MBB: '" +
+            (block->getMBB()->getParent()->getFunction()->getName()) + "'!");
+  } else {
+    return found;
   }
-
-  // Not found
-  return boost::none;
 }
 
 unsigned SPScope::getDepth() const { return (Priv->Parent == NULL)? 0 : Priv->Parent->getDepth() + 1; }
@@ -922,17 +943,17 @@ void SPScope::merge(PredicatedBlock* b1, PredicatedBlock* b2){
   assert( erased && "Block not in scope tree\n" );
 }
 
-boost::optional<PredicatedBlock*> SPScope::findBlockOf(const MachineBasicBlock* mbb) const {
+PredicatedBlock* SPScope::findBlockOf(const MachineBasicBlock* mbb) const {
   auto inScope = Priv->getPredicated(mbb);
 
-  if(!inScope.is_initialized()){
+  if(!inScope){
     for(auto subscope: Priv->Subscopes){
       auto inSubscope = subscope->findBlockOf(mbb);
-      if(inSubscope.is_initialized()){
+      if(inSubscope){
         return inSubscope;
       }
     }
-    return boost::none;
+    return NULL;
   }else{
     return inScope;
   }

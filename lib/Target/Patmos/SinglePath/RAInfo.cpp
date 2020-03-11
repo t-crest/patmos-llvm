@@ -21,7 +21,6 @@
 #include <sstream>
 
 using namespace llvm;
-using namespace boost;
 using namespace std;
 
 STATISTIC( SPNumPredicates, "Number of predicates for single-path code");
@@ -212,14 +211,16 @@ public:
 
     /// From which spill location to load the predicate
     /// before using it (load it into 'loc').
-    /// If 'none' does not need to load before use.
-    optional<unsigned> load;
+    /// If the boolean is false, does not need to load before use and the integer is undefined.
+    std::pair<bool, unsigned> load;
 
     /// To which spill location to spill the predicate (from 'loc')
     /// after the MBB is done.
-    /// If 'none' does not need to spill after use.
-    optional<unsigned> spill;
-    UseLoc(unsigned loc) : loc(loc), load(none), spill(none) {}
+    /// If the boolean is false, does not need to spill after use and the integer is undefined.
+    std::pair<bool, unsigned> spill;
+    UseLoc(unsigned loc) : loc(loc), load(std::make_pair(false, 0)),
+        spill(std::make_pair(false, 0))
+    {}
   };
 
   // Map of MBB -> (map of Predicate ->UseLoc), for an SPScope
@@ -380,7 +381,7 @@ public:
 
         auto curPredLoc = curLocs.at(headerPred).getLoc();
         if (predUseLoc->loc != curPredLoc) {
-          predUseLoc->load = boost::make_optional(curPredLoc);
+          predUseLoc->load = std::make_pair(true, curPredLoc);
         }
       }
     }
@@ -517,7 +518,7 @@ public:
     if (hasFreeRegister(FreeLocs)) {
       Location newLoc = getAvailLoc(FreeLocs);
       UseLoc UL(newLoc.getLoc());
-      UL.load = make_optional(curUseLoc.getLoc());
+      UL.load = std::make_pair(true, curUseLoc.getLoc());
       curUseLoc = newLoc;
       assert(UL.loc <= MaxRegs);
       return UL;
@@ -544,11 +545,11 @@ public:
       assert(findFurthest != curLocs.end());
 
       UseLoc UL(findFurthest->second.getLoc());
-      UL.load = make_optional(curUseLoc.getLoc());
+      UL.load = std::make_pair(true, curUseLoc.getLoc());
 
       // differentiate between already used and not yet used
       if (LRs.at(furthestPred).anyUseBefore(blockIndex)) {
-        UL.spill = make_optional(stackLoc.getLoc());
+        UL.spill = std::make_pair(true, stackLoc.getLoc());
       } else {
         // if it has not been used, we change the initial
         // definition location
@@ -575,14 +576,18 @@ public:
     return *Pub.Scope->getHeader()->getBlockPredicates().begin();
   }
 
-  std::map<unsigned, unsigned> getAnyLoc(const MachineBasicBlock *MBB, std::function<boost::optional<unsigned>(UseLoc)> f)
+  /// Gets the use location of the given mbb.
+  ///
+  /// The given function handles extracting the correct location type needed.
+  /// If the location returned is negative, it means the location type has no value.
+  std::map<unsigned, unsigned> getAnyLoc(const MachineBasicBlock *MBB, std::function<std::pair<bool, unsigned> (UseLoc)> f)
   {
     std::map<unsigned, unsigned> result;
     if (UseLocs.count(MBB)) {
       for(auto ul: UseLocs[MBB]){
         auto opLoc = f(ul.second);
-        if(opLoc.is_initialized()){
-          result[ul.first] = unifyRegister(get(opLoc));
+        if(opLoc .first){
+          result[ul.first] = unifyRegister(opLoc.second);
         }
       }
     }
@@ -616,7 +621,7 @@ bool RAInfo::isFirstDef(const MachineBasicBlock *MBB, unsigned pred) const {
 bool RAInfo::hasSpillLoad(const MachineBasicBlock *MBB) const {
   if (Priv->UseLocs.count(MBB)) {
     for(auto ul: Priv->UseLocs[MBB]){
-      if(ul.second.spill.is_initialized() || ul.second.load.is_initialized()){
+      if(ul.second.spill.first || ul.second.load.first){
         return true;
       }
     }
@@ -682,14 +687,14 @@ void RAInfo::dump(raw_ostream& os, unsigned indent) const{
     os << " UseLocs{\n";
     for(auto predUl: Priv->UseLocs[MBB]){
       os << "    (Pred: " << predUl.first << ", loc=" << predUl.second.loc << ", load=";
-      if (predUl.second.load.is_initialized()) {
-        os << get(predUl.second.load);
+      if (predUl.second.load.first) {
+        os << predUl.second.load.second;
       }else{
         os << "none";
       }
       dbgs() << ", spill=";
-      if (predUl.second.spill.is_initialized()) {
-        os << get(predUl.second.spill);
+      if (predUl.second.spill.first) {
+        os << predUl.second.spill.second;
       }else{
         os << "none";
       }

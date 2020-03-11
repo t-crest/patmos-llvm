@@ -26,7 +26,6 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/Support/Debug.h"
-#include "boost/optional.hpp"
 #include "spimpl.h"
 #include "PredicatedBlock.h"
 #include "PatmosInstrInfo.h"
@@ -119,9 +118,10 @@ namespace llvm {
       /// function.
       bool hasLoopBound() const;
 
-      /// Returns the loop bound for the scope. If the scope doesn't
-      /// have a loop bound, none is returned.
-      boost::optional<unsigned> getLoopBound() const;
+      /// Returns the loop bound for the scope.
+      ///
+      /// Causes an error if the scope has no bound
+      unsigned getLoopBound() const;
 
       /// Walk this SPScope recursively
       void walk(SPScopeWalker &walker);
@@ -158,12 +158,12 @@ namespace llvm {
 
       /// Returns the deepest scope, starting from this scope, containing
       /// the given block.
-      /// If the block is not part of any scope, none is returned.
-      boost::optional<SPScope*> findScopeOf(const PredicatedBlock *) const;
+      /// If the block is not part of any scope, it causes an error.
+      SPScope* findScopeOf(const PredicatedBlock *) const;
 
       /// Returns the block that manages the given MBB, if it exists in this
-      /// scope. Otherwise, none is returned
-      boost::optional<PredicatedBlock*> findBlockOf(const MachineBasicBlock*) const;
+      /// scope. Otherwise, NULL is returned.
+      PredicatedBlock* findBlockOf(const MachineBasicBlock*) const;
 
       /// Create an SPScope tree, return the top-level scope.
       /// The tree needs to be destroyed by the client, by deleting the top-level scope.

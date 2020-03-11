@@ -47,8 +47,6 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "boost/optional.hpp"
-
 #include <map>
 #include <set>
 #include <queue>
@@ -57,7 +55,6 @@
 #include <iostream>
 
 using namespace llvm;
-using namespace boost;
 
 STATISTIC( RemovedBranchInstrs, "Number of branch instructions removed");
 STATISTIC( InsertedInstrs,      "Number of instructions inserted");
@@ -606,7 +603,7 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
 
   RAInfo &R = RAInfos.at(S); // local scope of definitions
   // inner scope
-  RAInfo &RI = S->isSubheader(block) ? RAInfos.at(get(S->findScopeOf(block)))
+  RAInfo &RI = S->isSubheader(block) ? RAInfos.at(S->findScopeOf(block))
                                      : R;
   auto useBlock = def.useBlock;
   auto pred = def.predicate, guardPred = def.guard;
@@ -1111,13 +1108,13 @@ void PatmosSPReduce::mergeMBBs(MachineFunction &MF) {
       MF.erase(MBB);
 
       auto MBBBlock = RootScope->findBlockOf(MBB);
-      if(BaseBlock.is_initialized()){
-        if(MBBBlock.is_initialized()){
-          RootScope->merge(BaseBlock.get(), MBBBlock.get());
+      if(BaseBlock){
+        if(MBBBlock){
+          RootScope->merge(BaseBlock, MBBBlock);
         }
       }else{
-        if(MBBBlock.is_initialized()){
-          get(MBBBlock)->replaceMbb(BaseMBB);
+        if(MBBBlock){
+          MBBBlock->replaceMbb(BaseMBB);
         }
       }
 
@@ -1310,7 +1307,7 @@ void LinearizeWalker::enterSubscope(SPScope *S) {
   // Initialize the loop bound and store it to the stack slot
   if (S->hasLoopBound()) {
     unsigned tmpReg = Pass.GuardsReg;
-    uint32_t loop = get(S->getLoopBound());
+    uint32_t loop = S->getLoopBound();
     // Create an instruction to load the loop bound
     // TODO try to find an unused register
     AddDefaultPred(BuildMI(*PrehdrMBB, PrehdrMBB->end(), DL,
