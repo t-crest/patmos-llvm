@@ -1,4 +1,4 @@
-; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func %DEBUG_TYPE 0=10 1=10 6=10 7=17 9=17 13=17
+; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func %DEBUG_TYPE %LINK_LIBS 0=10 1=10 6=10 7=17 9=17 13=17
 ; END.
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 

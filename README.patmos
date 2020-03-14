@@ -109,6 +109,19 @@ To only run unit tests use:
 This will run quicker, as it doesn't build the whole LLVM. But it also does
 not run all tests.
 
+### Links libs
+
+By default, the test setup assumes the t-crest installation was done using `build.sh`
+from the `patmos-misc` repository. If, however, this is not the case, it might be
+necessary to override where the tests think the newlib and compiler-rt dynamic libraries
+reside. 
+
+Therefore, you can override the location the tests assume the libraries reside.
+The following command will run the tests, making them use the libraries in the `$NEW_DIR`
+directory:
+
+```env LINK_LIBS=$NEW_DIR ./bin/llvm-lit ../test --filter="Patmos" -v```
+
 #### Debug output
 
 By default, debug output is turned on for all tests, outputting debug info
