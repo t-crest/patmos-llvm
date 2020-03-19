@@ -529,3 +529,71 @@ if(MSVC_VERSION EQUAL 1600)
   endif()
 endif()
 
+# Save the target triple in a variable
+execute_process( COMMAND gcc -dumpmachine OUTPUT_VARIABLE TARGET_TRIPLE OUTPUT_STRIP_TRAILING_WHITESPACE )
+set( PROJECT_NAME "patmos-llvm")
+set( PACKAGE_TAR "${PROJECT_NAME}-${TARGET_TRIPLE}.tar")
+set( PACKAGE_TAR_GZ "${PACKAGE_TAR}.gz")
+set( PACKAGE_INFO_FILE "${PROJECT_NAME}-info.yml")
+set( PACKAGE_TARGETS "llc" "llvm-link" "clang" "llvm-config" "llvm-objdump" "opt")
+set( TARGET_TRIPLE_LIBS "local/patmos-unknown-unknown-elf" )
+set( RECREATED_SYMLINKS "symlink-clang" "symlink-clang++" )
+set( PACKAGE_ITEMS
+	# Package binaries
+	"bin/llc" "bin/llvm-link" "bin/clang-3.4" "bin/llvm-config" "bin/llvm-objdump" "bin/opt"
+	${RECREATED_SYMLINKS}
+	
+	# Clang headers
+	"lib/clang" 
+	
+	# newlib
+	"${TARGET_TRIPLE_LIBS}/include"
+	"${TARGET_TRIPLE_LIBS}/lib/crt0.o"
+	"${TARGET_TRIPLE_LIBS}/lib/crtbegin.o"
+	"${TARGET_TRIPLE_LIBS}/lib/crtend.o"
+	"${TARGET_TRIPLE_LIBS}/lib/libc.a"
+	"${TARGET_TRIPLE_LIBS}/lib/libg.a"
+	"${TARGET_TRIPLE_LIBS}/lib/libm.a"
+	"${TARGET_TRIPLE_LIBS}/lib/libnosys.a"
+	"${TARGET_TRIPLE_LIBS}/lib/libpatmos.a"
+)
+ADD_CUSTOM_TARGET(symlink-clang ALL
+                  COMMAND ${CMAKE_COMMAND} -E create_symlink patmos-clang-3.4 symlink-clang)
+ADD_CUSTOM_TARGET(symlink-clang++ ALL
+                  COMMAND ${CMAKE_COMMAND} -E create_symlink patmos-clang symlink-clang++)				  
+# Build release tarball containing binaries and metadata
+add_custom_command(
+	OUTPUT ${PACKAGE_TAR_GZ} 
+		# We add all generated files to the list of outputs to ensure that cleaning will remove them.
+		${PACKAGE_TAR} ${PACKAGE_INFO_FILE} 
+
+	# Package binaries
+	COMMAND tar -cf ${PACKAGE_TAR} 
+		# Rename add "patmos-*" to all binary names
+		--transform 's,^bin/,bin/patmos-,' 
+		# Remove "local" from paths
+		--transform 's,^${TARGET_TRIPLE_LIBS},patmos-unknown-unknown-elf,'
+		# Rename symlinks and put in 'bin' folder
+		--transform 's,^symlink,bin/patmos,'
+		${PACKAGE_ITEMS}
+
+	# Build YAML info file
+	COMMAND ${CMAKE_COMMAND} -E echo "name: ${PROJECT_NAME}" > ${PACKAGE_INFO_FILE}
+	COMMAND ${CMAKE_COMMAND} -E echo "target: ${TARGET_TRIPLE}" >> ${PACKAGE_INFO_FILE}
+	COMMAND ${CMAKE_COMMAND} -E echo_append "version: " >> ${PACKAGE_INFO_FILE}
+	COMMAND git describe --tags >> ${PACKAGE_INFO_FILE}
+	COMMAND ${CMAKE_COMMAND} -E echo_append "commit: " >> ${PACKAGE_INFO_FILE}
+	COMMAND git rev-parse HEAD >> ${PACKAGE_INFO_FILE}
+	COMMAND ${CMAKE_COMMAND} -E echo "files:" >> ${PACKAGE_INFO_FILE}
+	COMMAND tar -tf ${PACKAGE_TAR} | sed "s/^/- /" >> ${PACKAGE_INFO_FILE}
+	
+	# Add the info file to the package
+	COMMAND tar -rf ${PACKAGE_TAR} ${PACKAGE_INFO_FILE}
+	
+	# Compress the tar
+	COMMAND gzip -9 < ${PACKAGE_TAR} > ${PACKAGE_TAR_GZ}
+	
+	DEPENDS ${PACKAGE_TARGETS} ${RECREATED_SYMLINKS}
+)
+# Rename release tarball target to something better.
+add_custom_target(box DEPENDS ${PACKAGE_TAR_GZ})
