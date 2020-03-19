@@ -145,13 +145,14 @@ execute_and_stat(){
 	ret_code=0
 	
 	# The next line runs the program ($1) on 'pasim' with the input. 
-	# It then pipes the stdout of the program to the variable 'actual_out' 
-	# and the 'pasim' stats (which are printed to stderr) to 'pasim_stats'.
+	# It then pipes the stdout of the program to the variable 'actual_out',
+	# the 'pasim' stats (which are printed to stderr) to 'pasim_stats',
+	# and the return code to 'pasim_return_code'.
 	# An explanation of the line can be found at https://stackoverflow.com/a/26827443/8171453
 	# We configure pasim to use an "ideal" data cache, such that any variance in cycle count 
 	# because of cache-misses are negated (an ideal cache never misses).
-	. <({ pasim_stats=$({ actual_out=$(echo "$input" | pasim "$1" --print-stats "$2" -V -D ideal); } 2>&1; declare -p actual_out >&2); declare -p pasim_stats; } 2>&1)
-	
+	. <({ pasim_stats=$({ actual_out=$(echo "$input" | pasim "$1" --print-stats "$2" -V -D ideal); pasim_return_code=$?; } 2>&1; declare -p actual_out pasim_return_code>&2); declare -p pasim_stats; } 2>&1)
+
 	# Test the the stdout of the program is as expected
 	if ! diff <(echo "$expected_out") <(echo "$actual_out") &> /dev/null ; then
 		# Explanation: '(>&2 ...)' outputs the result of command '...' on stderr
@@ -160,6 +161,11 @@ execute_and_stat(){
 		(>&2 echo "$expected_out")
 		(>&2 echo "--------------------- Actual ---------------------")
 		(>&2 echo "$actual_out")
+		
+		if [ $pasim_return_code -ne 0 ] ; then 
+			(>&2 echo "--------------------- Error ----------------------")
+			(>&2 echo "$pasim_stats")
+		fi
 		(>&2 echo "--------------------------------------------------")
 		ret_code=1
 	fi
