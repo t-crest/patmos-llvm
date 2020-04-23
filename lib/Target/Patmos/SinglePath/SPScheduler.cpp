@@ -13,9 +13,11 @@
 #include "SPScheduler.h"
 
 #include "llvm/Support/Debug.h"
-
+#include "llvm/ADT/Statistic.h"
 
 using namespace llvm;
+
+STATISTIC(SPInstructions,     "Number of instruction bundles in single-path code (both single and double)");
 
 char SPScheduler::ID = 0;
 
@@ -38,11 +40,11 @@ bool SPScheduler::runOnMachineFunction(MachineFunction &mf){
   for(auto mbbIter = mf.begin(), mbbEnd = mf.end(); mbbIter != mbbEnd; mbbIter++){
     auto mbb = &(*mbbIter);
     DEBUG(dbgs() << "MBB: [" << mbb << "]: #" << mbb->getNumber() << "\n");
-    auto block = rootScope->findBlockOf(mbb);
     for(auto instrIter = mbb->begin(), instrEnd = mbb->end();
         instrIter != instrEnd; instrIter++)
     {
-      calculateLatency(instrIter);
+      SPInstructions++;
+	  calculateLatency(instrIter);
     }
 
 

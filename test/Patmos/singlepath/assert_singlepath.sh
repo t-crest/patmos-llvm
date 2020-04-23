@@ -7,7 +7,7 @@
 # that 'pasim's execution statistics are equivalent for all runs.
 #
 # usage:
-# It takes >= 7 arguments:
+# It takes >= 8 arguments:
 #	1. The path to LLVM's binary folder. E.g. '$t-crest-home/llvm/build/bin'.
 #		May contain a '.'. If so, everything after (and including) the '.' is ignored.
 #		This allows the use of llvm-lit's substition, where 'llc' will give the correct path.
@@ -22,7 +22,10 @@
 #	4. A singlepath function to compile as singlepath and run statistics on
 #	5. The name of the debug type for LLC to output while compiling.
 #		If it is empty ("" must be used in that case), no debug output is produced.
-#	>6. a list of execution arguments.
+#	6. The path to the directory containing newlib and compiler-rt object files to
+#		link with the program. If empty (I.e. ""), uses the default location used
+#		when the the machine has been setup using 'misc/build.sh'. See more below.
+#	>7. a list of execution arguments.
 #		Each execution argument has the input to send to the program through stdin
 #		and the expected output of the program (on stdout). The two values are separated by '='.
 #		E.g '1=2' will run the program, send it '1' through the stdin. when the program finishes
@@ -93,9 +96,9 @@ for inst in input:
 	fetch_count = int(split_line[1]) + int(split_line[4])
 	print(name + " " + str(fetch_count))
 
-#Find and output operation count
+#Find and output cycle count
 for line in input:
-	if line.strip().startswith("Operations:"):
+	if line.strip().startswith("Cycles:"):
 		split = line.split()
 		print(split[0] + " " + split[1])
 		break
@@ -142,20 +145,28 @@ execute_and_stat(){
 	ret_code=0
 	
 	# The next line runs the program ($1) on 'pasim' with the input. 
-	# It then pipes the stdout of the program to the variable 'actual_out' 
-	# and the 'pasim' stats (which are printed to stderr) to 'pasim_stats'.
+	# It then pipes the stdout of the program to the variable 'actual_out',
+	# the 'pasim' stats (which are printed to stderr) to 'pasim_stats',
+	# and the return code to 'pasim_return_code'.
 	# An explanation of the line can be found at https://stackoverflow.com/a/26827443/8171453
-	. <({ pasim_stats=$({ actual_out=$(echo "$input" | pasim "$1" --print-stats "$2" -V); } 2>&1; declare -p actual_out >&2); declare -p pasim_stats; } 2>&1)
-	
+	# We configure pasim to use an "ideal" data cache, such that any variance in cycle count 
+	# because of cache-misses are negated (an ideal cache never misses).
+	. <({ pasim_stats=$({ actual_out=$(echo "$input" | pasim "$1" --print-stats "$2" -V -D ideal); pasim_return_code=$?; } 2>&1; declare -p actual_out pasim_return_code>&2); declare -p pasim_stats; } 2>&1)
+
 	# Test the the stdout of the program is as expected
 	if ! diff <(echo "$expected_out") <(echo "$actual_out") &> /dev/null ; then
+		# Explanation: '(>&2 ...)' outputs the result of command '...' on stderr
 		(>&2 echo "The execution of '$1' for input argument '$input' gave the wrong output through stdout.")
 		(>&2 echo "-------------------- Expected --------------------")
 		(>&2 echo "$expected_out")
 		(>&2 echo "--------------------- Actual ---------------------")
 		(>&2 echo "$actual_out")
+		
+		if [ $pasim_return_code -ne 0 ] ; then 
+			(>&2 echo "--------------------- Error ----------------------")
+			(>&2 echo "$pasim_stats")
+		fi
 		(>&2 echo "--------------------------------------------------")
-		# '(>&2 ...)' outputs '...' on stderr
 		ret_code=1
 	fi
 	
@@ -177,22 +188,46 @@ execute_and_stat(){
 
 #------------------------------------ Start of script execution -----------------------------------
 
-# Ensure that at least 2 execution arguments were given,
-# such that we can compare at least 2 executions
-if [ $# -lt 7 ]; then
-	echo "Must have at least 2 execution arguments but was: ${@:6}"
+# Check required binaries are installed
+if ! [ -x "$(command -v patmos-ld)" ] ; then
+	echo "Patmos port of the Gold linker 'patmos-ld' could not be found."
+	exit 1
+fi
+if ! [ -x "$(command -v pasim)" ] ; then
+	echo "Patmos simulator 'pasim' could not be found."
 	exit 1
 fi
 
+# Ensure that at least 2 execution arguments were given,
+# such that we can compare at least 2 executions
+if [ $# -lt 8 ]; then
+	echo "Must have at least 2 execution arguments but was: ${@:7}"
+	exit 1
+fi
+
+# Rename arguments for later use
+
 # Takes the path to LLVM's build binaries and removes 
-# everything (and including) the first '.'
+# everything after (and including) the first '.'
 bin_dir=(${1//./ })
 
-# Find the path to the standard library to link with
-link_libs_dir=$bin_dir../../../local/patmos-unknown-unknown-elf/lib
+# Additional arguments to pass to LLC
+llc_args="$2"
 
 # The source file to test
 bitcode="$3"
+
+# Which function to compile as singlepath
+singlepath="$4"
+
+# The debug type for LLC to output
+debug_type="$5"
+
+# Find the path to the standard library to link with
+link_libs_dir=${6:-$bin_dir../../../local/patmos-unknown-unknown-elf/lib}
+
+# The first execution argument
+exec_arg="$7"
 
 # Folder to put all files generated by this script for this test case 
 # (this is a full path)
@@ -227,11 +262,11 @@ if [ $? -ne 0 ]; then
 	exit 1
 fi
 
-if [ "$5" != "" ]; then 
-	llc_debug_arg="-debug-only=$5" 
+if [ "$debug_type" != "" ]; then 
+	llc_debug_arg="-debug-only=$debug_type" 
 fi
 
-$bin_dir/llc $linked $2 -mforce-block-labels -disable-separate-nested-loops -filetype=obj -o $compiled -mpatmos-singlepath="$4" $llc_debug_arg &> $debug
+$bin_dir/llc $linked $llc_args -mforce-block-labels -disable-separate-nested-loops -filetype=obj -mpatmos-singlepath=$singlepath -o $compiled $llc_debug_arg &> $debug
 if [ $? -ne 0 ]; then 
 	echo "Failed to compile '$linked'."
 	exit 1
@@ -249,7 +284,7 @@ ret_code=0
 # Run the first execution argument on its own,
 # such that its stats result can be compared to
 # all other executions
-first_stats=$(execute_and_stat "$exec" "$4" "$6")
+first_stats=$(execute_and_stat "$exec" "$singlepath" "$exec_arg")
 if [ $? -ne 0 ]; then
 	ret_code=1
 fi
@@ -258,19 +293,23 @@ fi
 # For each one, compare to the first. If they all
 # are equal to the first, they must also be equal to each other,
 # so we don't need to compare them to each other.
-for i in "${@:7}" 
+for i in "${@:8}" 
 do
-	rest_stats=$(execute_and_stat "$exec" "$4" "$i")
+	if [ $ret_code -ne 0 ] ; then
+		# If an error has already been encountered, stop.
+		continue
+	fi
+	rest_stats=$(execute_and_stat "$exec" "$singlepath" "$i")
 	if [ $? -ne 0 ]; then
 		# There was an error in executing the program or cleaning the stats
 		ret_code=1 
 	fi
 	if ! diff <(echo "$first_stats") <(echo "$rest_stats") ; then
-		echo "The execution of '$exec' for execution arguments '$5' and '$i' weren't equivalent."
+		echo "The execution of '$exec' for execution arguments '$exec_arg' and '$i' weren't equivalent."
 		ret_code=1 
 	fi
 done
 
-patmos-llvm-objdump -d $exec > $objdump
+$bin_dir/llvm-objdump -d $exec > $objdump
 
 exit $ret_code

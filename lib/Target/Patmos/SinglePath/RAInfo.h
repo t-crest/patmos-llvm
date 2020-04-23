@@ -21,7 +21,6 @@
 #define USE_BCOPY
 #define NOSPILL_OPTIMIZATION
 
-#include "boost/optional.hpp"
 #include "spimpl.h"
 #include "SPScope.h"
 

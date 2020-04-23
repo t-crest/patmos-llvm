@@ -14,6 +14,7 @@
 #include "PatmosTargetMachine.h"
 #include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/CodeGen/MachinePostDominators.h"
 
 #include "PatmosSinglePathInfo.h"
 
@@ -37,6 +38,8 @@ private:
 
   PatmosSinglePathInfo *PSPI;
 
+  MachinePostDominatorTree *PostDom;
+
   /// doBundlingFunction - Bundle a given MachineFunction
   void doBundlingFunction(SPScope* root);
 
@@ -59,6 +62,7 @@ public:
   /// getAnalysisUsage - Specify which passes this pass depends on
   virtual void getAnalysisUsage(AnalysisUsage &AU) const {
     AU.addRequired<PatmosSinglePathInfo>();
+    AU.addRequired<MachinePostDominatorTree>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
@@ -76,11 +80,16 @@ public:
     return PSPI->getRootScope();
   }
 
-  boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>>
+  /// Tries to find a pair of blocks to merge.
+  ///
+  /// If a pair is found, true is returned with the pair of blocks found.
+  /// If no pair is found, false is returned with a pair of NULLs.
+  std::pair<bool, std::pair<PredicatedBlock*,PredicatedBlock*>>
   findMergePair(const SPScope*);
 
   void mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2);
 
+  void bundleScope(SPScope* root);
 };
 
 }

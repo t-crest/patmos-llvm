@@ -13,8 +13,16 @@
 //===----------------------------------------------------------------------===//
 
 #include "PatmosSPBundling.h"
+#include "llvm/ADT/Statistic.h"
 
 using namespace llvm;
+
+STATISTIC(PairsTried,     "Number of basic blocks tried to bundle");
+STATISTIC(PairsSuccess,     "Number of basic blocks tried to bundle and succeeded");
+STATISTIC(InstPairsTried,     "Number of instructions tried to bundle");
+STATISTIC(InstPairsSwitched,     "Number of instructions tried to bundle and but instead switched");
+STATISTIC(InstPairsSuccess,     "Number of instructions tried to bundle and succeeded");
+STATISTIC(SPBlocks,     "Number of basic blocks in single-path code (before bundle)");
 
 char PatmosSPBundling::ID = 0;
 
@@ -26,11 +34,14 @@ FunctionPass *llvm::createPatmosSPBundlingPass(const PatmosTargetMachine &tm) {
 
 bool PatmosSPBundling::runOnMachineFunction(MachineFunction &MF) {
   PSPI = &getAnalysis<PatmosSinglePathInfo>();
+  PostDom = &getAnalysis<MachinePostDominatorTree>();
   PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
+    
   // only convert function if marked
   if ( PSPI->isConverting(MF)
   ) {
-    doBundlingFunction(PSPI->getRootScope());
+    SPBlocks += MF.size();
+	doBundlingFunction(PSPI->getRootScope());
   }
   return true;
 }
@@ -59,21 +70,25 @@ int numberOfInstructions(MachineBasicBlock* mbb){
 }
 
 void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb2){
+
   auto moveInstruction = [&](auto bundleWith){
+    InstPairsTried++;
     auto inst = &(*mbb2->instr_begin());
     mbb2->remove(inst);
-#define DO-BUNDLE // for easily turning off bundling of instructions
-#ifdef DO-BUNDLE
+#define DO_BUNDLE // for easily turning off bundling of instructions
+#ifdef DO_BUNDLE
     if(TII->canIssueInSlot(inst, 1)){
+      InstPairsSuccess++;
       mbb1->insertAfter(bundleWith, inst);
       inst->bundleWithPred();
     }else if (TII->canIssueInSlot(&(*bundleWith), 1)){
+      InstPairsSwitched++;
       mbb1->insert(bundleWith, inst);
       inst->bundleWithSucc();
     }else{
 #endif
       mbb1->insertAfter(bundleWith, inst);
-#ifdef DO-BUNDLE
+#ifdef DO_BUNDLE
     }
 #endif
   };
@@ -118,35 +133,53 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
   }
 }
 
-boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::findMergePair(const SPScope* scope){
+std::pair<bool, std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::findMergePair(const SPScope* scope){
   for(auto block: scope->getScopeBlocks()){
-    auto mbb = block->getMBB();
-    if(mbb->succ_size() == 2 && block->getDefinitions().size() == 2){
-      auto defs = block->getDefinitions();
-      auto b1 = (PredicatedBlock*) (*defs.begin()).useBlock;
-      auto b2 = (PredicatedBlock*) (*(++defs.begin())).useBlock;
-      if(!(scope->isSubheader(b1) || scope->isSubheader(b2) || b1->getSuccessors().size() == 0 || b2->getSuccessors().size() == 0 ||
+    DEBUG(dbgs() << "Looking for merge pair at: #" << block->getMBB()->getNumber() << "\n");
+    auto succs = block->getSuccessors();
+    if(succs.size() == 2){
+      PairsTried++;
+      if(block->getExitTargets().size() == 0){
+        auto mbb = block->getMBB();
+
+        auto b1 = (PredicatedBlock*) (*succs.begin()).first;
+        auto b2 = (PredicatedBlock*) (*(++succs.begin())).first;
+
+        if( scope->isHeader(b1) || scope->isHeader(b2) ||
+            scope->isSubheader(b1) || scope->isSubheader(b2) ||
+            PostDom->dominates(b1->getMBB(), b2->getMBB()) ||
+            PostDom->dominates(b2->getMBB(), b1->getMBB())){
+          continue;
+        }
+
+        if(!(scope->isSubheader(b1) || scope->isSubheader(b2) || b1->getSuccessors().size() == 0 || b2->getSuccessors().size() == 0 ||
           b1->bundledMBBs().size()>0 || b2->bundledMBBs().size()>0)){
 
-        auto farMBB = TII->getBranchTarget(mbb->getFirstInstrTerminator());
-        if(TII->mayFallthrough(*mbb) && farMBB == b1->getMBB()){
-          assert(++mbb->getFirstInstrTerminator() == mbb->end());
-          assert(farMBB == b1->getMBB() || farMBB == b2->getMBB());
-          return boost::make_optional(std::make_pair(b2, b1));
-        }else{
-          return boost::make_optional(std::make_pair(b1, b2));
+          auto farMBB = TII->getBranchTarget(mbb->getFirstInstrTerminator());
+          if(TII->mayFallthrough(*mbb) && farMBB == b1->getMBB()){
+            assert(++mbb->getFirstInstrTerminator() == mbb->end());
+            assert(farMBB == b1->getMBB() || farMBB == b2->getMBB());
+            return std::make_pair(true, std::make_pair(b2, b1));
+          }else{
+            return std::make_pair(true, std::make_pair(b1, b2));
+          }
         }
-      }
+	  }
     }
   }
-  return boost::none;
+  return std::make_pair(false, std::make_pair((PredicatedBlock*)NULL, (PredicatedBlock*)NULL));
 }
 
-void PatmosSPBundling::doBundlingFunction(SPScope* root) {
-  boost::optional<std::pair<PredicatedBlock*,PredicatedBlock*>> mergePair;
-  while( (mergePair = findMergePair(root)).is_initialized() ){
-    auto destination = get(mergePair).first;
-    auto source = get(mergePair).second;
+void PatmosSPBundling::bundleScope(SPScope* root){
+  std::pair<bool, std::pair<PredicatedBlock*,PredicatedBlock*>> mergePair;
+  while( (mergePair = findMergePair(root)).first ){
+    PairsSuccess++;
+
+    auto destination = mergePair.second.first;
+    auto source = mergePair.second.second;
+
+    DEBUG(dbgs() << "Merge pair: (#" << destination->getMBB()->getNumber() << ", #" << source->getMBB()->getNumber() << ")\n");
+
     mergeMBBs(destination->getMBB(), source->getMBB());
 
     auto mbb1 = destination->getMBB(), mbb2 = source->getMBB();
@@ -168,8 +201,21 @@ void PatmosSPBundling::doBundlingFunction(SPScope* root) {
     root->merge(destination, source);
   }
 
+  std::for_each(root->child_begin(), root->child_end(), [&](auto subscope){
+    bundleScope(subscope);
+  });
+}
+
+void PatmosSPBundling::doBundlingFunction(SPScope* root) {
+
+  DEBUG(dbgs() << "========= Begin bundling ========= \n");
+
+  bundleScope(root);
+
   DEBUG({
       dbgs() << "Scope tree after bundling:\n";
       root->dump(dbgs(), 0, true);
+      dbgs() << "========= End bundling ========= \n";
   });
+
 }
