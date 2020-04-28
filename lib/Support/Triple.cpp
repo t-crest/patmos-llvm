@@ -245,7 +245,6 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("mips64el", Triple::mips64el)
     .Case("r600", Triple::r600)
     .Case("hexagon", Triple::hexagon)
-    .Case("patmos", Triple::patmos)
     .Case("s390x", Triple::systemz)
     .Case("sparc", Triple::sparc)
     .Cases("sparcv9", "sparc64", Triple::sparcv9)
