@@ -4,7 +4,9 @@ os: linux
 dist: bionic
 
 cache:
-  directories: build/local
+  directories: 
+  - build/local
+  - build/bench
 
 before_script:
 # Set path to binary dependencies
@@ -15,7 +17,7 @@ before_script:
 
 jobs:
   include:
-  - stage: dependencies
+  - stage: "Get Dependencies"
     script:
     - mkdir -p build/local
     - cd build/local
@@ -30,8 +32,10 @@ jobs:
     - tar -xvf patmos-gold.tar.gz
     - tar -xvf patmos-simulator.tar.gz
     - cd ../..
+    # Delete benchmark if present
+    - rm -rf build/bench
       
-  - stage: build
+  - stage: "Build and Test LLVM"
     script:
     # print contents of cache:
     - ls build/local
@@ -59,10 +63,31 @@ jobs:
     - mv patmos-llvm*.tar.gz local/
     - cd ..
   
-  - stage: deploy
+  - stage: "Build Test Suite"
+    script:
+    - cd build/local
+    # Extract LLVM artifacts
+    - tar -xvf patmos-llvm*.tar.gz
+    - cd ..
+    # Download benchmark repo
+    - git clone https://github.com/emoun/patmos-benchmarks bench
+    - cd bench
+    - mkdir build
+    - cd build
+    - cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/patmos-clang-toolchain.cmake -DENABLE_TESTING=true
+    - make
+    - cd ../../..
+       
+  - stage: "Run Test Suite"
+    script:
+    - cd build/bench/build
+    - ctest -j$(grep -c ^processor /proc/cpuinfo)
+    - cd ../../..
+    - rm -rf build/bench
+    
+  - stage: "Deploy"
+    if: tag IS present
     before_script:
-    # print contents of cache:
-    - ls build/local
     script: skip
     deploy:
     - provider: releases
