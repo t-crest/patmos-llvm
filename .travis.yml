@@ -1,64 +1,76 @@
 language: cpp
 compiler: gcc
+os: linux
+dist: bionic
+
+cache:
+  directories: build/local
+
+before_script:
+# Set path to binary dependencies
+- export PATH=$TRAVIS_BUILD_DIR/build/local/bin:$PATH
+# Install boost because of pasim
+- sudo apt-get update -qq
+- sudo apt-get install libboost-program-options-dev
 
 jobs:
   include:
-    - os: linux
-      dist: bionic
-      before_script:
-      - mkdir build
-      - cd build
-      - mkdir local
-      - cd local
-      # Dowload Dependencies (compiler-rt, gold, patmos-simulator)
-      - wget -O patmos-compiler-rt.tar.gz "https://github.com/t-crest/patmos-compiler-rt/releases/download/v1.0.0-rc-1/patmos-compiler-rt-v1.0.0-rc-1.tar.gz"
-      - wget -O patmos-gold.tar.gz "https://github.com/t-crest/patmos-gold/releases/download/v1.0.0-rc-1/patmos-gold-v1.0.0-rc-1.tar.gz"
-      - wget -O patmos-simulator.tar.gz "https://github.com/t-crest/patmos-simulator/releases/download/1.0.0/patmos-simulator-x86_64-linux-gnu.tar.gz"
-      # Extract dependencies
-      - tar -xvf patmos-compiler-rt.tar.gz
-      - tar -xvf patmos-gold.tar.gz
-      - tar -xvf patmos-simulator.tar.gz
-      - cd ../..
-      # Install boost because of pasim
-      - sudo apt-get update -qq
-      - sudo apt-get install libboost-program-options-dev
-      # Set path to binary dependencies
-      - export PATH=$TRAVIS_BUILD_DIR/build/local/bin:$PATH
+  - stage: dependencies
+    script:
+    - mkdir -p build/local
+    - cd build/local
+    # Empty cache from last run (no-op if no cache)
+    - rm -rf *
+    # Dowload Dependencies (compiler-rt, gold, patmos-simulator)
+    - wget -O patmos-compiler-rt.tar.gz "https://github.com/t-crest/patmos-compiler-rt/releases/download/v1.0.0-rc-1/patmos-compiler-rt-v1.0.0-rc-1.tar.gz"
+    - wget -O patmos-gold.tar.gz "https://github.com/t-crest/patmos-gold/releases/download/v1.0.0-rc-1/patmos-gold-v1.0.0-rc-1.tar.gz"
+    - wget -O patmos-simulator.tar.gz "https://github.com/t-crest/patmos-simulator/releases/download/1.0.0/patmos-simulator-x86_64-linux-gnu.tar.gz"
+    # Extract dependencies
+    - tar -xvf patmos-compiler-rt.tar.gz
+    - tar -xvf patmos-gold.tar.gz
+    - tar -xvf patmos-simulator.tar.gz
+    - cd ../..
       
-script:
-# Download clang
-- cd tools
-- git clone https://github.com/t-crest/patmos-clang/ clang
-- cd ..
-# Build LLVM
-- cd build
-- cmake .. -DCMAKE_CXX_STANDARD=14 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=local -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_DEFAULT_TARGET_TRIPLE=patmos-unknown-unknown-elf -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
-- make UnitTests llc llvm-link clang llvm-config llvm-objdump opt 
-# Build newlib
-- git clone https://github.com/t-crest/patmos-newlib
-- cd patmos-newlib
-- mkdir build
-- cd build
-- ../configure  --target=patmos-unknown-unknown-elf AR_FOR_TARGET=ar RANLIB_FOR_TARGET=ranlib LD_FOR_TARGET=ld CC_FOR_TARGET=$TRAVIS_BUILD_DIR/build/bin/clang CFLAGS_FOR_TARGET="-target patmos-unknown-unknown-elf -O3" --prefix=$TRAVIS_BUILD_DIR/build/local
-# We use 'MAKEINFO=true' to avoid building documentation
-- make -j MAKEINFO=true
-- make -j MAKEINFO=true install
-- cd ../..
-- env DEBUG_TYPE="" LINK_LIBS=$TRAVIS_BUILD_DIR/build/local/patmos-unknown-unknown-elf/lib ./bin/llvm-lit ../test --filter=Patmos -v
-- cd ..
-
-before_deploy:
-- cd build
-- make box
-- cd ..
-
-deploy:
-- provider: releases
-  api_key:
-    secure: NhHMOmBieRgW+0YCmnG2M4GSiv614JKTxLg3PWh4AkqxUCWCvCEovy0QcvHTJslDD9Y1ZDlo5P84pwDziODCt2bmVPXhGOQSiBL8gD/bMaI7Xw8uQAha9gQ3lgfBKm0TWk6lPOBKG7ECh7bQHjIvR6oN/F5Q7DWHxdLmi2sMblgQIE9HloB5aCtvbjH24GBJZbMTPd65g7CgMIyQUGB5yQWeLwOHONCmtyXFgTH3tbaMKL17wEhHwwNgWOrM7H0kdlqKCOu9BJ2d63p/539BdV7sMWuoZo33KLuC9XizGEHDak1Xab7jc2gKts4qpAoew1s1CREk63FuNnrSp+ujmeLluHrdWzvI9mJrciRvpLr+RozO+JGbXumAv9zlZhYqpYvMm81QFF1o/Zo1pzBcmz7bt49p+wlD3mipMxPFrv6gZ49xJ+pEfKTnZ6+NOFW+Q4rikHsRYNV8l+FCdre97w1t8Wup+EwKQ7INiBR378RNP7p+51UgOaRyDAnyNdc34ms27D2HI/+KyKWBtVJOKKrtZyCYBSsGJ+yRACTaBhK4gpi3uzF0HAPlq41V1+Ioa9P2mrbZ0zakA9EM5WToihZv0f66Qey8r3R5lpU5i+d8wa8YBr0TnE+JaLDXZC8Nf7dllmRP+anO1v3PinyXQ/qTMxgt/iwKtJHuP4ZZk3w=
-  file_glob: true
-  file: "build/patmos-llvm*.tar.gz"
-  skip_cleanup: true
-  on:
-    tags: true
-    repo: t-crest/patmos-llvm
+  - stage: build
+    script:
+    # print contents of cache:
+    - ls build/local
+    # Download clang
+    - cd tools
+    - git clone https://github.com/t-crest/patmos-clang/ clang
+    - cd ..
+    # Build LLVM
+    - cd build
+    - cmake .. -DCMAKE_CXX_STANDARD=14 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=local -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_DEFAULT_TARGET_TRIPLE=patmos-unknown-unknown-elf -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
+    - make UnitTests llc llvm-link clang llvm-config llvm-objdump opt 
+    # Build newlib
+    - git clone https://github.com/t-crest/patmos-newlib
+    - cd patmos-newlib
+    - mkdir build
+    - cd build
+    - ../configure  --target=patmos-unknown-unknown-elf AR_FOR_TARGET=ar RANLIB_FOR_TARGET=ranlib LD_FOR_TARGET=ld CC_FOR_TARGET=$TRAVIS_BUILD_DIR/build/bin/clang CFLAGS_FOR_TARGET="-target patmos-unknown-unknown-elf -O3" --prefix=$TRAVIS_BUILD_DIR/build/local
+    # We use 'MAKEINFO=true' to avoid building documentation
+    - make -j MAKEINFO=true
+    - make -j MAKEINFO=true install
+    - cd ../..
+    - env DEBUG_TYPE="" LINK_LIBS=$TRAVIS_BUILD_DIR/build/local/patmos-unknown-unknown-elf/lib ./bin/llvm-lit ../test --filter=Patmos -v
+    # Prepare release artifact and put it in cache
+    - make box
+    - mv patmos-llvm*.tar.gz local/
+    - cd ..
+  
+  - stage: deploy
+    before_script:
+    # print contents of cache:
+    - ls build/local
+    script: skip
+    deploy:
+    - provider: releases
+      api_key:
+        secure: NhHMOmBieRgW+0YCmnG2M4GSiv614JKTxLg3PWh4AkqxUCWCvCEovy0QcvHTJslDD9Y1ZDlo5P84pwDziODCt2bmVPXhGOQSiBL8gD/bMaI7Xw8uQAha9gQ3lgfBKm0TWk6lPOBKG7ECh7bQHjIvR6oN/F5Q7DWHxdLmi2sMblgQIE9HloB5aCtvbjH24GBJZbMTPd65g7CgMIyQUGB5yQWeLwOHONCmtyXFgTH3tbaMKL17wEhHwwNgWOrM7H0kdlqKCOu9BJ2d63p/539BdV7sMWuoZo33KLuC9XizGEHDak1Xab7jc2gKts4qpAoew1s1CREk63FuNnrSp+ujmeLluHrdWzvI9mJrciRvpLr+RozO+JGbXumAv9zlZhYqpYvMm81QFF1o/Zo1pzBcmz7bt49p+wlD3mipMxPFrv6gZ49xJ+pEfKTnZ6+NOFW+Q4rikHsRYNV8l+FCdre97w1t8Wup+EwKQ7INiBR378RNP7p+51UgOaRyDAnyNdc34ms27D2HI/+KyKWBtVJOKKrtZyCYBSsGJ+yRACTaBhK4gpi3uzF0HAPlq41V1+Ioa9P2mrbZ0zakA9EM5WToihZv0f66Qey8r3R5lpU5i+d8wa8YBr0TnE+JaLDXZC8Nf7dllmRP+anO1v3PinyXQ/qTMxgt/iwKtJHuP4ZZk3w=
+      file_glob: true
+      file: "build/local/patmos-llvm*.tar.gz"
+      skip_cleanup: true
+      on:
+        tags: true
+        repo: t-crest/patmos-llvm
