@@ -202,7 +202,7 @@ void PatmosSPBundling::bundleScope(SPScope* root){
   }
 
   std::for_each(root->child_begin(), root->child_end(), [&](auto subscope){
-    bundleScope(subscope);
+    this->bundleScope(subscope);
   });
 }
 
