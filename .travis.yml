@@ -50,6 +50,7 @@ jobs:
     # Build newlib
     - git clone https://github.com/t-crest/patmos-newlib
     - cd patmos-newlib
+    - git checkout 87c47d06e216c1d54c7b0cb7a580dff85f19e2cd
     - mkdir build
     - cd build
     - ../configure  --target=patmos-unknown-unknown-elf AR_FOR_TARGET=ar RANLIB_FOR_TARGET=ranlib LD_FOR_TARGET=ld CC_FOR_TARGET=$TRAVIS_BUILD_DIR/build/bin/clang CFLAGS_FOR_TARGET="-target patmos-unknown-unknown-elf -O3" --prefix=$TRAVIS_BUILD_DIR/build/local
@@ -70,7 +71,7 @@ jobs:
     - tar -xvf patmos-llvm*.tar.gz
     - cd ..
     # Download benchmark repo
-    - git clone https://github.com/emoun/patmos-benchmarks bench
+    - git clone https://github.com/t-crest/patmos-benchmarks bench
     - cd bench
     - mkdir build
     - cd build
