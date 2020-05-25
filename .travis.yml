@@ -42,7 +42,9 @@ jobs:
     # Download clang
     - cd tools
     - git clone https://github.com/t-crest/patmos-clang/ clang
-    - cd ..
+    - cd clang
+    - git checkout 73474a8ae98f1a281a03c440a4d8b9987029cf4e
+    - cd ../..
     # Build LLVM
     - cd build
     - cmake .. -DCMAKE_CXX_STANDARD=14 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=local -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_DEFAULT_TARGET_TRIPLE=patmos-unknown-unknown-elf -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
@@ -73,6 +75,7 @@ jobs:
     # Download benchmark repo
     - git clone https://github.com/t-crest/patmos-benchmarks bench
     - cd bench
+    - git checkout 8bca6cc6490540599c7e9ec5b25816e58f611560
     - mkdir build
     - cd build
     - cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/patmos-clang-toolchain.cmake -DENABLE_TESTING=true
