@@ -52,7 +52,7 @@ jobs:
     # Build newlib
     - git clone https://github.com/t-crest/patmos-newlib
     - cd patmos-newlib
-    - git checkout 87c47d06e216c1d54c7b0cb7a580dff85f19e2cd
+    - git checkout 4c149a53f8cb2478d99aac731b61b5e4ed63543f
     - mkdir build
     - cd build
     - ../configure  --target=patmos-unknown-unknown-elf AR_FOR_TARGET=ar RANLIB_FOR_TARGET=ranlib LD_FOR_TARGET=ld CC_FOR_TARGET=$TRAVIS_BUILD_DIR/build/bin/clang CFLAGS_FOR_TARGET="-target patmos-unknown-unknown-elf -O3" --prefix=$TRAVIS_BUILD_DIR/build/local
