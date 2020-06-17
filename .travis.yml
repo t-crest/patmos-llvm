@@ -18,76 +18,16 @@ before_script:
 jobs:
   include:
   - stage: "Get Dependencies"
-    script:
-    - mkdir -p build/local
-    - cd build/local
-    # Empty cache from last run (no-op if no cache)
-    - rm -rf *
-    # Dowload Dependencies (compiler-rt, gold, patmos-simulator)
-    - wget -O patmos-compiler-rt.tar.gz "https://github.com/t-crest/patmos-compiler-rt/releases/download/v1.0.0-rc-1/patmos-compiler-rt-v1.0.0-rc-1.tar.gz"
-    - wget -O patmos-gold.tar.gz "https://github.com/t-crest/patmos-gold/releases/download/v1.0.0-rc-1/patmos-gold-v1.0.0-rc-1.tar.gz"
-    - wget -O patmos-simulator.tar.gz "https://github.com/t-crest/patmos-simulator/releases/download/1.0.0/patmos-simulator-x86_64-linux-gnu.tar.gz"
-    # Extract dependencies
-    - tar -xvf patmos-compiler-rt.tar.gz
-    - tar -xvf patmos-gold.tar.gz
-    - tar -xvf patmos-simulator.tar.gz
-    - cd ../..
-    # Delete benchmark if present
-    - rm -rf build/bench
+    script: ci/get_dependencies.sh
       
   - stage: "Build and Test LLVM"
-    script:
-    # print contents of cache:
-    - ls build/local
-    # Download clang
-    - cd tools
-    - git clone https://github.com/t-crest/patmos-clang/ clang
-    - cd clang
-    - git checkout 73474a8ae98f1a281a03c440a4d8b9987029cf4e
-    - cd ../..
-    # Build LLVM
-    - cd build
-    - cmake .. -DCMAKE_CXX_STANDARD=14 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=local -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_DEFAULT_TARGET_TRIPLE=patmos-unknown-unknown-elf -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
-    - make UnitTests llc llvm-link clang llvm-config llvm-objdump opt 
-    # Build newlib
-    - git clone https://github.com/t-crest/patmos-newlib
-    - cd patmos-newlib
-    - git checkout 4c149a53f8cb2478d99aac731b61b5e4ed63543f
-    - mkdir build
-    - cd build
-    - ../configure  --target=patmos-unknown-unknown-elf AR_FOR_TARGET=ar RANLIB_FOR_TARGET=ranlib LD_FOR_TARGET=ld CC_FOR_TARGET=$TRAVIS_BUILD_DIR/build/bin/clang CFLAGS_FOR_TARGET="-target patmos-unknown-unknown-elf -O3" --prefix=$TRAVIS_BUILD_DIR/build/local
-    # We use 'MAKEINFO=true' to avoid building documentation
-    - make -j MAKEINFO=true
-    - make -j MAKEINFO=true install
-    - cd ../..
-    - env DEBUG_TYPE="" LINK_LIBS=$TRAVIS_BUILD_DIR/build/local/patmos-unknown-unknown-elf/lib ./bin/llvm-lit ../test --filter=Patmos -v
-    # Prepare release artifact and put it in cache
-    - make box
-    - mv patmos-llvm*.tar.gz local/
-    - cd ..
-  
+    script: ci/build_test_llvm.sh
+    
   - stage: "Build Test Suite"
-    script:
-    - cd build/local
-    # Extract LLVM artifacts
-    - tar -xvf patmos-llvm*.tar.gz
-    - cd ..
-    # Download benchmark repo
-    - git clone https://github.com/t-crest/patmos-benchmarks bench
-    - cd bench
-    - git checkout 8bca6cc6490540599c7e9ec5b25816e58f611560
-    - mkdir build
-    - cd build
-    - cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/patmos-clang-toolchain.cmake -DENABLE_TESTING=true
-    - make
-    - cd ../../..
-       
+    script: ci/build_test_suite.sh
+    
   - stage: "Run Test Suite"
-    script:
-    - cd build/bench/build
-    - ctest -j$(grep -c ^processor /proc/cpuinfo)
-    - cd ../../..
-    - rm -rf build/bench
+    script: ci/run_test_suite.sh
     
   - stage: "Deploy"
     if: tag IS present
