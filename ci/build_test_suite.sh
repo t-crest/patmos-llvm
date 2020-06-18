@@ -1,5 +1,6 @@
 #!/bin/sh -x
 # Downloads and build the test suite for testing LLVM
+set -e
 
 BENCH_LINK=https://github.com/t-crest/patmos-benchmarks
 

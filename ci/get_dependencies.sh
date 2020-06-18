@@ -1,5 +1,6 @@
 #!/bin/sh -x
 # Downloads and extract all dependencies necessary to build and test LLVM
+set -e
 
 PATH_DIR=build/local
 BENCH_DIR=build/bench

@@ -1,5 +1,6 @@
 #!/bin/sh -x
 # Build LLVM and runs automatic tests
+set -e
 
 CLANG_LINK=https://github.com/t-crest/patmos-clang/
 NEWLIB_LINK=https://github.com/t-crest/patmos-newlib/

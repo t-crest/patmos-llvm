@@ -1,5 +1,6 @@
 #!/bin/sh -x
 # Runs the test suite for testing LLVM
+set -e
 
 BENCH_DIR=build/bench
 BENCH_BUILD_DIR=$BENCH_DIR/build
