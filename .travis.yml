@@ -19,15 +19,23 @@ jobs:
   include:
   - stage: "Get Dependencies"
     script: ci/get_dependencies.sh
+  - script: ci/get_dependencies.sh
+    dist: xenial
       
   - stage: "Build and Test LLVM"
     script: ci/build_test_llvm.sh
+  - script: ci/build_test_llvm.sh
+    dist: xenial
     
   - stage: "Build Test Suite"
     script: ci/build_test_suite.sh
+  - script: ci/build_test_suite.sh
+    dist: xenial
     
   - stage: "Run Test Suite"
     script: ci/run_test_suite.sh
+  - script: ci/run_test_suite.sh
+    dist: xenial
     
   - stage: "Deploy"
     if: tag IS present
