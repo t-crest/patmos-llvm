@@ -11,7 +11,7 @@ SIMULAROT_TAR=patmos-simulator.tar.gz
 
 COMPILER_RT_LINK=https://github.com/t-crest/patmos-compiler-rt/releases/download/v1.0.0-rc-1/patmos-compiler-rt-v1.0.0-rc-1.tar.gz
 GOLD_LINK=https://github.com/t-crest/patmos-gold/releases/download/v1.0.0-rc-1/patmos-gold-v1.0.0-rc-1.tar.gz
-SIMULATOR_LINK=https://github.com/t-crest/patmos-simulator/releases/download/1.0.0/patmos-simulator-x86_64-linux-gnu.tar.gz
+SIMULATOR_LINK=https://github.com/t-crest/patmos-simulator/releases/download/1.0.1/patmos-simulator-x86_64-linux-gnu.tar.gz
 
 mkdir -p $PATH_DIR
 cd $PATH_DIR
