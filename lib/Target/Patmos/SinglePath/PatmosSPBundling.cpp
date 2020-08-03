@@ -38,7 +38,7 @@ bool PatmosSPBundling::runOnMachineFunction(MachineFunction &MF) {
   PMFI = MF.getInfo<PatmosMachineFunctionInfo>();
     
   // only convert function if marked
-  if ( PSPI->isConverting(MF)
+  if ( PSPI->isConverting(MF) && STC.enableBundling(TM.getOptLevel())
   ) {
     SPBlocks += MF.size();
 	doBundlingFunction(PSPI->getRootScope());
