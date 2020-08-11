@@ -175,30 +175,68 @@ namespace llvm {
     void addDefinition(unsigned pred, unsigned guard, const PredicatedBlock* useBlock,
         MachineOperand condition, MachineOperand condFlag)
     {
-      Definitions.push_back(Definition{pred, guard, useBlock, condition, condFlag});
+      auto earliest_insert_pos = Definitions.begin(), latest_insert_pos = Definitions.end();
+
+      for(auto iter = Definitions.begin(), end = Definitions.end(); iter<end; iter++) {
+        auto def = *iter;
+        if(def.guard == pred) {
+          earliest_insert_pos = std::next(iter);
+        }
+        if(def.predicate == guard && iter < latest_insert_pos){
+          latest_insert_pos = iter;
+        }
+      }
+      assert(earliest_insert_pos <= latest_insert_pos && "Couldn't find a valid definition ordering");
+
+      Definitions.insert(latest_insert_pos, Definition{pred, guard, useBlock, condition, condFlag});
     }
 
+    /// Removes all definitions assigned to this block.
+    void dropDefinitions()
+    {
+      Definitions.clear();
+    }
+
+    /// Gets the list of blocks that success this one,
+    /// but are not part of the same loop.
+    /// 'Exit' refers to the edge between this block and the 
+    /// target 'exiting' the loop.
     std::vector<const PredicatedBlock*> getExitTargets() const
     {
       return std::vector<const PredicatedBlock*>(ExitTargets.begin(), ExitTargets.end());
     }
 
+    /// Assign the given block as an exit target of this one.
+    /// An exit target is a successor block to this block
+    /// that is not part of the same loop.
+    /// 'Exit' refers to the edge between this block and the 
+    /// target 'exiting' the loop.
     void addExitTarget(const PredicatedBlock *block)
     {
       assert(std::find_if(MBB->succ_begin(), MBB->succ_end(), [&](auto o){return o == block->getMBB();}) != MBB->succ_end());
       ExitTargets.push_back(block);
     }
 
-    void merge(const PredicatedBlock* b2){
+    /// Merge the given block into this one, adding all its
+    /// predicates, successors, definitions, etc. to this one.
+    void merge(const PredicatedBlock* b2)
+    {
       InstrPred.insert(b2->InstrPred.begin(), b2->InstrPred.end());
-      Definitions.insert(Definitions.end(), b2->Definitions.begin(), b2->Definitions.end());
+
+	  // Ensure new definitions are ordered correctly.
+	  for(auto def: b2->Definitions){
+		addDefinition(def.predicate, def.guard, def.useBlock, def.condPred, def.condFlag);
+	  }
+
       ExitTargets.insert(ExitTargets.end(), b2->ExitTargets.begin(), b2->ExitTargets.end());
       Remnants.insert(b2->Remnants.begin(), b2->Remnants.end());
       Remnants.insert(b2->getMBB());
       Successors.insert(b2->Successors.begin(), b2->Successors.end());
     }
 
-    void replaceUseOfBlockWith(PredicatedBlock* oldBlock, PredicatedBlock* newBlock){
+    /// Replace any reference to the first block by references to the second block.
+    void replaceUseOfBlockWith(PredicatedBlock* oldBlock, PredicatedBlock* newBlock)
+    {
       for(auto iter = Definitions.begin(), end = Definitions.end(); iter != end; iter ++){
         if((*iter).useBlock == oldBlock){
           (*iter).useBlock = newBlock;
@@ -222,23 +260,39 @@ namespace llvm {
       }
     }
 
-    std::set<MachineBasicBlock*> bundledMBBs(){
+    /// Gets the list of MBB that were bundled with this block using 'merge()'
+    std::set<MachineBasicBlock*> bundledMBBs() const 
+    {
       return std::set<MachineBasicBlock*>(Remnants.begin(), Remnants.end());
     }
 
-    void addSuccessor(const PredicatedBlock *block, unsigned pred){
+    /// Adds the given block as a successor of this one with
+    /// the given predicate guarding the branch leading to that block.
+    void addSuccessor(const PredicatedBlock *block, unsigned pred)
+    {
       Successors.insert(std::make_pair(block, pred));
     }
 
-    std::map<const PredicatedBlock*, unsigned> getSuccessors() const {
+    /// Gets all successors to this block with which predicates
+    /// that dictate whether their respective branches are taken.
+    std::map<const PredicatedBlock*, unsigned> getSuccessors() const 
+    {
       return std::map<const PredicatedBlock*, unsigned>(Successors.begin(), Successors.end());
     }
 
-    void replaceMbb(MachineBasicBlock* newMbb){
+    /// Replaces which MBB this block is managing.
+    /// The old MBB is added to the list of 'bundled blocks'
+    void replaceMbb(MachineBasicBlock* newMbb)
+    {
       Remnants.insert(MBB);
       MBB = newMbb;
     }
 
+    /// Whether this block is a result of bundling at least 2 blocks.
+    bool bundled() const 
+    {
+      return !Remnants.empty();
+    }
   private:
 
     /// The MBB that this instance manages the predicates for.

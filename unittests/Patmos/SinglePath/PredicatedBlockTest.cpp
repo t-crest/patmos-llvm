@@ -316,6 +316,19 @@ TEST(PredicatedBlockTest, MergeTest){
     std::make_pair(&b3, 3),
     std::make_pair(&b4, 4)
   }));
+
+  EXPECT_THAT(b1.bundled(), Eq(true));
+}
+
+TEST(PredicatedBlockTest, NotBundledAtInitTest){
+  /*
+   * We test that initially a block is not bundled
+   */
+  MockMBB mockMBB(5);
+
+  PredicatedBlock b(&mockMBB);
+
+  ASSERT_THAT(b.bundled(), Eq(false));
 }
 
 }

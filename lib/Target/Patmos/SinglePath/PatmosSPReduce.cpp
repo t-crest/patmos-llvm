@@ -475,6 +475,17 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   LinearizeWalker LW(*this, MF);
   RootScope->walk(LW);
 
+  // Since we have now issued the definition instructions,
+  // we can clear them from the blocks, so that we can later
+  // merge subsequent blocks into each other without having
+  // to worry about their definitions conflicting.
+  for (auto iter = df_begin(RootScope), end = df_end(RootScope);
+        iter != end; ++iter) {
+    for(auto block: (*iter)->getScopeBlocks()){
+      block->dropDefinitions();
+    }
+  }
+
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
   mergeMBBs(MF);

@@ -136,35 +136,43 @@ void PatmosSPBundling::mergeMBBs(MachineBasicBlock *mbb1, MachineBasicBlock *mbb
 std::pair<bool, std::pair<PredicatedBlock*,PredicatedBlock*>> PatmosSPBundling::findMergePair(const SPScope* scope){
   for(auto block: scope->getScopeBlocks()){
     DEBUG(dbgs() << "Looking for merge pair at: #" << block->getMBB()->getNumber() << "\n");
+    auto mbb = block->getMBB();
     auto succs = block->getSuccessors();
-    if(succs.size() == 2){
-      PairsTried++;
-      if(block->getExitTargets().size() == 0){
-        auto mbb = block->getMBB();
+    auto exits = block->getExitTargets();
 
-        auto b1 = (PredicatedBlock*) (*succs.begin()).first;
-        auto b2 = (PredicatedBlock*) (*(++succs.begin())).first;
+    // Remove any exit targets
+    for (auto iter = succs.begin(), last = succs.end(); iter != last; ) {
+      auto succ = (*iter).first;
+      if (std::count(exits.begin(), exits.end(), succ)) {
+        iter = succs.erase(iter);
+      } else {
+        iter++;
+      }
+    }
+
+    for(auto iter1 = succs.begin(), end = succs.end(); iter1 != end; iter1++){
+      auto b1 = (PredicatedBlock*) (*iter1).first;
+      if(b1->bundled()) continue;
+
+      for(auto iter2 = std::next(iter1); iter2 != end; iter2++){
+        PairsTried++;
+        auto b2 = (PredicatedBlock*) (*iter2).first;
 
         if( scope->isHeader(b1) || scope->isHeader(b2) ||
             scope->isSubheader(b1) || scope->isSubheader(b2) ||
             PostDom->dominates(b1->getMBB(), b2->getMBB()) ||
-            PostDom->dominates(b2->getMBB(), b1->getMBB())){
+            PostDom->dominates(b2->getMBB(), b1->getMBB())
+        ){
           continue;
         }
 
-        if(!(scope->isSubheader(b1) || scope->isSubheader(b2) || b1->getSuccessors().size() == 0 || b2->getSuccessors().size() == 0 ||
-          b1->bundledMBBs().size()>0 || b2->bundledMBBs().size()>0)){
-
-          auto farMBB = TII->getBranchTarget(mbb->getFirstInstrTerminator());
-          if(TII->mayFallthrough(*mbb) && farMBB == b1->getMBB()){
-            assert(++mbb->getFirstInstrTerminator() == mbb->end());
-            assert(farMBB == b1->getMBB() || farMBB == b2->getMBB());
-            return std::make_pair(true, std::make_pair(b2, b1));
-          }else{
-            return std::make_pair(true, std::make_pair(b1, b2));
-          }
+        if(!( scope->isSubheader(b1) || scope->isSubheader(b2) || 
+              b1->getSuccessors().size() == 0 || b2->getSuccessors().size() == 0 ||
+              b1->bundledMBBs().size()>0 || b2->bundledMBBs().size()>0
+        )){
+          return std::make_pair(true, std::make_pair(b1, b2));
         }
-	  }
+      }
     }
   }
   return std::make_pair(false, std::make_pair((PredicatedBlock*)NULL, (PredicatedBlock*)NULL));
