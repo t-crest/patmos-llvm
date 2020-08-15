@@ -27,10 +27,25 @@ namespace llvm {
     typedef _PredicatedBlock<MachineBasicBlock, MachineInstr, MachineOperand> PredicatedBlock;
   public:
 
+    /// A definition of a predicate that is defined by a block, I.e. at runtime,
+    /// the predicate's true/false value is calculated in the block.
     struct Definition{
-      unsigned predicate, guard;
+      /// The predicate being defined
+      unsigned predicate; 
+
+      /// The guard under which the condition is calculated
+      unsigned guard;
+
+      /// The block that uses the predicate to guard some of its instructions.
       const PredicatedBlock* useBlock;
-      MachineOperand condPred, condFlag;
+
+      /// Which predicate register the condition result is in.
+      MachineOperand condPred; 
+
+      /// Whether the condition predicate register has the negate flag on it.
+      /// I.e. if the condition is in '$p1', then this flag is disabled, while '!p1'
+      /// has it enabled.
+      MachineOperand condFlag;
 
       bool operator==(const Definition &o) const{
         return
@@ -154,12 +169,11 @@ namespace llvm {
       os << "\n";
     }
 
-    /// Returns a list of predicates that are defined by this block, paired with the block
-    /// that uses the predicate and the guard predicate of the condition that gives it value.
-    /// The first element is the predicate being defined, the second is the block that use the
-    /// the predicate, and the last element is the guard of the defining condition.
-    /// A predicate definition is where it gets its true/false value that the next
-    /// block uses to predicate some of its instructions.
+    /// Returns a list of definitions assigned to this block.
+    /// The list is ordered, such that the first definition's code should
+    /// precede the second definition's in the block. The ordering
+    /// ensures that no predicate overwritten by one definition is
+    /// a guard of a following definition.
     std::vector<Definition>
     getDefinitions() const
     {
@@ -172,23 +186,22 @@ namespace llvm {
     /// that predicate and the predicate of the condition that gives it value.
     /// A predicate definition is where it gets its true/false value that the next
     /// block uses to predicate some of its instructions.
-    void addDefinition(unsigned pred, unsigned guard, const PredicatedBlock* useBlock,
-        MachineOperand condition, MachineOperand condFlag)
+    void addDefinition(Definition newDef)
     {
       auto earliest_insert_pos = Definitions.begin(), latest_insert_pos = Definitions.end();
 
       for(auto iter = Definitions.begin(), end = Definitions.end(); iter<end; iter++) {
         auto def = *iter;
-        if(def.guard == pred) {
+        if(def.guard == newDef.predicate) {
           earliest_insert_pos = std::next(iter);
         }
-        if(def.predicate == guard && iter < latest_insert_pos){
+        if(def.predicate == newDef.guard && iter < latest_insert_pos){
           latest_insert_pos = iter;
         }
       }
       assert(earliest_insert_pos <= latest_insert_pos && "Couldn't find a valid definition ordering");
 
-      Definitions.insert(latest_insert_pos, Definition{pred, guard, useBlock, condition, condFlag});
+      Definitions.insert(latest_insert_pos, newDef);
     }
 
     /// Removes all definitions assigned to this block.
@@ -225,7 +238,7 @@ namespace llvm {
 
 	  // Ensure new definitions are ordered correctly.
 	  for(auto def: b2->Definitions){
-		addDefinition(def.predicate, def.guard, def.useBlock, def.condPred, def.condFlag);
+		addDefinition(def);
 	  }
 
       ExitTargets.insert(ExitTargets.end(), b2->ExitTargets.begin(), b2->ExitTargets.end());
@@ -261,6 +274,7 @@ namespace llvm {
     }
 
     /// Gets the list of MBB that were bundled with this block using 'merge()'
+	/// or 'replaceMbb()'
     std::set<MachineBasicBlock*> bundledMBBs() const 
     {
       return std::set<MachineBasicBlock*>(Remnants.begin(), Remnants.end());
@@ -306,10 +320,10 @@ namespace llvm {
 
     /// A list of predicates that are defined by this block, I.e. at runtime
     /// the predicate's true/false value is calculated in this block.
-    /// The second element is a block that uses the predicate
-    /// to predicate some of its instructions.
-    /// The last element is the predicate of the condition that gives the first
-    /// element its value.
+    /// The list must be ordered, such that the first definition's code should
+    /// precede the second definition's in the block. The ordering
+    /// ensures that no predicate overwritten by one definition is
+    /// a guard of a following definition.
     std::vector<Definition> Definitions;
 
     std::vector<const PredicatedBlock*> ExitTargets;

@@ -394,10 +394,10 @@ public:
 
         auto condition = getCondition(block, e.second, instrInfo);
 
-        block->addDefinition(
+        block->addDefinition( PredicatedBlock::Definition{
             pair.first, *block->getBlockPredicates().begin(),
-            e.second,
-            std::get<0>(condition), std::get<1>(condition));
+            e.second, std::get<0>(condition), std::get<1>(condition)
+        });
       } // end for each definition edge
     }
   }

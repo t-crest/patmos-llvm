@@ -43,7 +43,7 @@ namespace llvm{
     std::vector<MockInstr>::iterator getFirstInstrTerminator()
     {
       auto result = instr.begin();
-      for(auto i = 0; i < firstTerm; i++){
+      for(unsigned i = 0; i < firstTerm; i++){
         result++;
       }
       return result;
@@ -161,8 +161,8 @@ TEST(PredicatedBlockTest, AddDefinitionTest){
   PredicatedBlock b2(&mockMBB2);
   PredicatedBlock b3(&mockMBB3);
 
-  b1.addDefinition(2, 4, &b2, 1, 2);
-  b1.addDefinition(3, 5, &b3, 3, 4);
+  b1.addDefinition(PredicatedBlock::Definition{2, 4, &b2, 1, 2});
+  b1.addDefinition(PredicatedBlock::Definition{3, 5, &b3, 3, 4});
 
   auto defs = b1.getDefinitions();
 
@@ -277,8 +277,8 @@ TEST(PredicatedBlockTest, MergeTest){
   b1.setPredicate(1);
   b2.setPredicate(2);
 
-  b1.addDefinition(3,1,&b3, 3, 1);
-  b2.addDefinition(4,2,&b4, 4, 2);
+  b1.addDefinition(PredicatedBlock::Definition{3,1,&b3, 3, 1});
+  b2.addDefinition(PredicatedBlock::Definition{4,2,&b4, 4, 2});
 
   b1.addExitTarget(&b3);
   b2.addExitTarget(&b4);
