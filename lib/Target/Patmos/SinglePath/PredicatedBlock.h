@@ -30,10 +30,12 @@ namespace llvm {
     /// A definition of a predicate that is defined by a block, I.e. at runtime,
     /// the predicate's true/false value is calculated in the block.
     struct Definition{
-      /// The predicate being defined
+      /// The abstract predicate being defined.
+      /// This doesn't refer to predicate registers.
       unsigned predicate; 
 
-      /// The guard under which the condition is calculated
+      /// The guard predicate under which the condition is calculated.
+      /// This doesn't refer to predicate registers.
       unsigned guard;
 
       /// The block that uses the predicate to guard some of its instructions.
@@ -51,7 +53,9 @@ namespace llvm {
         return
             predicate == o.predicate  &&
             guard     == o.guard      &&
-            useBlock  == o.useBlock;
+            useBlock  == o.useBlock   &&
+            condPred  == o.condPred   &&
+            condFlag  == o.condFlag;
       }
     };
 
@@ -170,10 +174,6 @@ namespace llvm {
     }
 
     /// Returns a list of definitions assigned to this block.
-    /// The list is ordered, such that the first definition's code should
-    /// precede the second definition's in the block. The ordering
-    /// ensures that no predicate overwritten by one definition is
-    /// a guard of a following definition.
     std::vector<Definition>
     getDefinitions() const
     {
@@ -188,26 +188,7 @@ namespace llvm {
     /// block uses to predicate some of its instructions.
     void addDefinition(Definition newDef)
     {
-      auto earliest_insert_pos = Definitions.begin(), latest_insert_pos = Definitions.end();
-
-      for(auto iter = Definitions.begin(), end = Definitions.end(); iter<end; iter++) {
-        auto def = *iter;
-        if(def.guard == newDef.predicate) {
-          earliest_insert_pos = std::next(iter);
-        }
-        if(def.predicate == newDef.guard && iter < latest_insert_pos){
-          latest_insert_pos = iter;
-        }
-      }
-      assert(earliest_insert_pos <= latest_insert_pos && "Couldn't find a valid definition ordering");
-
-      Definitions.insert(latest_insert_pos, newDef);
-    }
-
-    /// Removes all definitions assigned to this block.
-    void dropDefinitions()
-    {
-      Definitions.clear();
+      Definitions.insert(Definitions.end(), newDef);
     }
 
     /// Gets the list of blocks that success this one,
@@ -235,12 +216,7 @@ namespace llvm {
     void merge(const PredicatedBlock* b2)
     {
       InstrPred.insert(b2->InstrPred.begin(), b2->InstrPred.end());
-
-	  // Ensure new definitions are ordered correctly.
-	  for(auto def: b2->Definitions){
-		addDefinition(def);
-	  }
-
+      Definitions.insert(Definitions.end(), b2->Definitions.begin(), b2->Definitions.end());
       ExitTargets.insert(ExitTargets.end(), b2->ExitTargets.begin(), b2->ExitTargets.end());
       Remnants.insert(b2->Remnants.begin(), b2->Remnants.end());
       Remnants.insert(b2->getMBB());
@@ -320,10 +296,6 @@ namespace llvm {
 
     /// A list of predicates that are defined by this block, I.e. at runtime
     /// the predicate's true/false value is calculated in this block.
-    /// The list must be ordered, such that the first definition's code should
-    /// precede the second definition's in the block. The ordering
-    /// ensures that no predicate overwritten by one definition is
-    /// a guard of a following definition.
     std::vector<Definition> Definitions;
 
     std::vector<const PredicatedBlock*> ExitTargets;

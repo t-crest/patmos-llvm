@@ -125,12 +125,6 @@ namespace llvm {
                            bool isMultiDef, bool isFirstDef,
                            bool isExitEdgeDef);
 
-    /// moveDefUseGuardInstsToEnd - move instructions, which define a predicate
-    /// register that is also their guard to the end of their MBB.
-    /// The instructions were collected in insertDefToRegLoc() calls
-    /// in the private member DefUseGuardInsts.
-    void moveDefUseGuardInstsToEnd(void);
-
     /// fixupKillFlagOfCondRegs - predicate registers, which are killed at the
     /// branch at the end of the MBB and used in predicate definitions, are
     /// collected in the private member KilledCondRegs.
@@ -190,11 +184,6 @@ namespace llvm {
     // At each doReduce on a function, an instance of the
     // RedundantLdStEliminator is created
     RedundantLdStEliminator *GuardsLdStElim;
-
-    // Instructions which define a predicate register that is also their guard.
-    // Collected while insertDefToRegLoc(), read and cleared in
-    // moveDefUseGuardInsts().
-    std::vector<MachineInstr *> DefUseGuardInsts;
 
     // Branches that set the kill flag on condition operands are remembered,
     // as the branches themselves are removed. The last use of these

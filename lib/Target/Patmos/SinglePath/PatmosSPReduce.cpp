@@ -456,9 +456,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
 
   // After all scopes are handled, perform some global fixups
 
-  // Fixup instructions that define their own guard
-  moveDefUseGuardInstsToEnd();
-
   // Fixup kill flag of condition predicate registers
   fixupKillFlagOfCondRegs();
 
@@ -474,17 +471,6 @@ void PatmosSPReduce::doReduceFunction(MachineFunction &MF) {
   DEBUG( dbgs() << "Linearize MBBs\n" );
   LinearizeWalker LW(*this, MF);
   RootScope->walk(LW);
-
-  // Since we have now issued the definition instructions,
-  // we can clear them from the blocks, so that we can later
-  // merge subsequent blocks into each other without having
-  // to worry about their definitions conflicting.
-  for (auto iter = df_begin(RootScope), end = df_end(RootScope);
-        iter != end; ++iter) {
-    for(auto block: (*iter)->getScopeBlocks()){
-      block->dropDefinitions();
-    }
-  }
 
   // Following function merges MBBs in the linearized CFG in order to
   // simplify it
@@ -594,14 +580,64 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 
   auto blocks = S->getScopeBlocks();
   for(auto block: blocks){
-    DEBUG(dbgs() << " - MBB#" << block->getMBB()->getNumber() << ": ");
+    DEBUG(dbgs() << " - MBB#" << block->getMBB()->getNumber() << ":\n");
 
-    // for each definition edge: insert
-    for(auto def: block->getDefinitions()){
+    RAInfo &R = RAInfos.at(S);// local scope of definitions
+    // inner scope
+    RAInfo &RI = S->isSubheader(block) ? RAInfos.at(S->findScopeOf(block))
+                                       : R;
+    // get the guard register from the source block
+    auto useLocs = getPredicateRegisters(RI, block);
+    auto defs = block->getDefinitions();
+
+    DEBUG(dbgs() << "\n  Definitions before sorting: [");
+    DEBUG(
+      for(auto def: defs){
+        auto tuple = R.getDefLoc(def.predicate);
+        dbgs() << "(" << (std::get<0>(tuple) == RAInfo::Register ? "R ": "") << 
+        AvailPredRegs[std::get<1>(tuple)] << ", " << 
+        (useLocs.count(def.guard)? useLocs[def.guard] : Patmos::P0) << "), ";
+      }
+    );
+    DEBUG(dbgs() << "]\n");
+
+    // We sort the definitions, such that no definition
+    // overwrite the guard predicate of a succeeding definition.
+    std::vector< PredicatedBlock::Definition> defs_sorted;
+    for(auto def: defs){
+      auto iter = defs_sorted.begin();
+      for(auto end=defs_sorted.end(); iter<end; iter++) {
+        auto def2 = *iter;
+        RAInfo::LocType x_pred_type, y_pred_type; 
+        unsigned x_pred_loc, y_pred_loc;
+        std::tie(x_pred_type, x_pred_loc) = R.getDefLoc(def.predicate);
+        std::tie(y_pred_type, y_pred_loc) = R.getDefLoc(def2.predicate);
+
+        unsigned x_guard_reg = useLocs.count(def.guard)? useLocs[def.guard] : Patmos::P0;
+        unsigned y_guard_reg = useLocs.count(def2.guard)? useLocs[def2.guard] : Patmos::P0;
+
+        if(y_pred_type == RAInfo::Register) {
+          if(AvailPredRegs[y_pred_loc] == x_guard_reg) {
+            break; 
+          }
+        }
+      }
+      defs_sorted.insert(iter, def);
+    }
+    DEBUG(dbgs() << "  Definitions after sorting: [");
+    DEBUG(
+      for(auto def: defs_sorted){
+        auto tuple = R.getDefLoc(def.predicate);
+        dbgs() << "(" << (std::get<0>(tuple) == RAInfo::Register ? "R ": "") << 
+        AvailPredRegs[std::get<1>(tuple)] << ", " << 
+        (useLocs.count(def.guard)? useLocs[def.guard] : Patmos::P0) << "), ";
+      }
+    );
+    DEBUG(dbgs() << "]\n");
+    for(auto def: defs_sorted){
       insertDefEdge(S, block, def);
     }
     DEBUG(dbgs() << "\n");
-
   }
 }
 
@@ -638,6 +674,8 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
       // FIXME assumes direct parent-child relationship, if nested
       assert(!S->isSubheader(block) || (RI.Scope->getParent() == S));
 
+      DEBUG(dbgs() << "Insert Register Definition. Pred(" << AvailPredRegs[loc] << ") Guard(" << guardLoc << ")\n");
+
       // The definition location of the predicate is a physical register.
       insertDefToRegLoc(
           *SrcMBB, loc, guardLoc, Cond,
@@ -653,10 +691,13 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
       assert(RI.Scope->getParent() == S);
       unsigned slot = RI.Scope->getDepth()-1;
 
+      DEBUG(dbgs() << "Insert Definition to S0 Spill. Pred(" << AvailPredRegs[loc] << ") Guard(" << guardLoc << ")\n");
+
       // set a bit in the appropriate S0 spill slot
       insertDefToS0SpillSlot(*SrcMBB, slot, loc, guardLoc, Cond);
     }
   } else {
+    DEBUG(dbgs() << "Insert Definition to stack. Loac(" << AvailPredRegs[loc] << ") Guard(" << guardLoc << ")\n");
     insertDefToStackLoc(*SrcMBB, loc, guardLoc, Cond);
   }
 }
@@ -683,11 +724,6 @@ insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
       .addReg(guard).addImm(0) // current guard as source
       .addOperand(Cond[0]).addOperand(Cond[1]); // condition
     InsertedInstrs++; // STATISTIC
-  }
-
-  // remember this instruction if it has to be the last one
-  if (guard == AvailPredRegs[regloc]) {
-    DefUseGuardInsts.push_back(DefMI);
   }
 }
 
@@ -790,28 +826,6 @@ insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot, unsigned regloc,
     .addReg(tmpReg, RegState::Kill);
   InsertedInstrs += 2; // STATISTIC
 }
-
-
-void PatmosSPReduce::moveDefUseGuardInstsToEnd(void) {
-  DEBUG( dbgs() << " Moving DefUse instrs to MBB end\n" );
-  // Move definitions of the currently in use predicate to the end of their MBB
-  for (unsigned i = 0; i < DefUseGuardInsts.size(); i++) {
-    MachineInstr *DefUseMI = DefUseGuardInsts[i];
-    // get containing MBB
-    MachineBasicBlock *MBB = DefUseMI->getParent();
-    // the first branch at the end of MBB
-    MachineBasicBlock::iterator MI = MBB->getFirstTerminator();
-    // if it is not the last instruction, make it the last
-    if (static_cast<MachineInstr*>(prior(MI)) != DefUseMI) {
-      MBB->splice(MI, MBB, DefUseMI);
-
-      DEBUG( dbgs() << "   in MBB#" << MBB->getNumber() << ": ";
-             DefUseMI->dump() );
-    }
-  }
-  DefUseGuardInsts.clear();
-}
-
 
 void PatmosSPReduce::fixupKillFlagOfCondRegs(void) {
   for (std::map<MachineBasicBlock *, MachineOperand>::iterator

@@ -166,6 +166,8 @@ TEST(PredicatedBlockTest, AddDefinitionTest){
 
   auto defs = b1.getDefinitions();
 
+  // We don't care about the ordering in this case, because they don't
+  // share any predicates or guards
   EXPECT_THAT(defs, UnorderedElementsAreArray({
     PredicatedBlock::Definition{2, 4, &b2, 1, 2},
     PredicatedBlock::Definition{3, 5, &b3, 3, 4}
