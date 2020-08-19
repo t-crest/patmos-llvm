@@ -603,11 +603,16 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 
     // We sort the definitions, such that no definition
     // overwrite the guard predicate of a succeeding definition.
-    std::vector< PredicatedBlock::Definition> defs_sorted;
+	// We also track for each definition if it's the first definition
+	// of the given predicate (the bool).
+    std::vector<std::pair<PredicatedBlock::Definition, bool>> defs_sorted;
     for(auto def: defs){
+      auto insert_at = defs_sorted.end();
+      auto is_first_pred_def = true;
+
       auto iter = defs_sorted.begin();
       for(auto end=defs_sorted.end(); iter<end; iter++) {
-        auto def2 = *iter;
+        auto def2 = (*iter).first;
         RAInfo::LocType x_pred_type, y_pred_type; 
         unsigned x_pred_loc, y_pred_loc;
         std::tie(x_pred_type, x_pred_loc) = R.getDefLoc(def.predicate);
@@ -616,33 +621,49 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
         unsigned x_guard_reg = useLocs.count(def.guard)? useLocs[def.guard] : Patmos::P0;
         unsigned y_guard_reg = useLocs.count(def2.guard)? useLocs[def2.guard] : Patmos::P0;
 
-        if(y_pred_type == RAInfo::Register) {
-          if(AvailPredRegs[y_pred_loc] == x_guard_reg) {
-            break; 
+        if( y_pred_type == RAInfo::Register &&
+            AvailPredRegs[y_pred_loc] == x_guard_reg &&
+            insert_at == end
+        ){
+          insert_at = iter; 
+
+          if( def.predicate == def2.predicate ){
+            // If it was the first, it no longer is.
+            (*iter).second = false; 
+          }
+        } else if( def.predicate == def2.predicate ){
+          if( insert_at == end ) {
+            // We will insert 'def' after the other
+            is_first_pred_def = false;
+          } else {
+            // We have already inserted 'def' before this definition
+            (*iter).second = false; 
           }
         }
       }
-      defs_sorted.insert(iter, def);
+      defs_sorted.insert(insert_at, std::make_pair(def, is_first_pred_def));
     }
     DEBUG(dbgs() << "  Definitions after sorting: [");
     DEBUG(
-      for(auto def: defs_sorted){
+      for(auto entry: defs_sorted){
+        auto def = entry.first;
         auto tuple = R.getDefLoc(def.predicate);
-        dbgs() << "(" << (std::get<0>(tuple) == RAInfo::Register ? "R ": "") << 
+        dbgs() << "(" << (std::get<0>(tuple) == RAInfo::Register ? "R": "") << 
+        (entry.second ? "F ": " ") <<
         AvailPredRegs[std::get<1>(tuple)] << ", " << 
         (useLocs.count(def.guard)? useLocs[def.guard] : Patmos::P0) << "), ";
       }
     );
     DEBUG(dbgs() << "]\n");
     for(auto def: defs_sorted){
-      insertDefEdge(S, block, def);
+      insertDefEdge(S, block, def.first, def.second);
     }
     DEBUG(dbgs() << "\n");
   }
 }
 
 void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
-     PredicatedBlock::Definition def)
+     PredicatedBlock::Definition def, bool is_first_def_of_pred_in_block)
 {
 
   // the MBB we need to insert the defining instruction is the edge source
@@ -674,13 +695,10 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
       // FIXME assumes direct parent-child relationship, if nested
       assert(!S->isSubheader(block) || (RI.Scope->getParent() == S));
 
-      DEBUG(dbgs() << "Insert Register Definition. Pred(" << AvailPredRegs[loc] << ") Guard(" << guardLoc << ")\n");
-
       // The definition location of the predicate is a physical register.
       insertDefToRegLoc(
           *SrcMBB, loc, guardLoc, Cond,
-          R.Scope->hasMultDefEdges(pred),
-          R.isFirstDef(block->getMBB(), pred),         // isFirstDef
+          R.isFirstDef(block->getMBB(), pred) && is_first_def_of_pred_in_block,
           S->isSubheader(block)              // isExitEdgeDef
           );
     } else {
@@ -705,26 +723,29 @@ void PatmosSPReduce::insertDefEdge(SPScope *S, const PredicatedBlock *block,
 void PatmosSPReduce::
 insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc, unsigned guard,
                   const SmallVectorImpl<MachineOperand> &Cond,
-                  bool isMultiDef, bool isFirstDef, bool isExitEdgeDef) {
+                  bool isFirstDef, bool isExitEdgeDef) {
 
   // insert the predicate definitions before any branch at the MBB end
   MachineBasicBlock::iterator MI = MBB.getFirstTerminator();
   DebugLoc DL(MI->getDebugLoc());
   MachineInstr *DefMI;
-  if (isExitEdgeDef || (isMultiDef && !isFirstDef)) {
+  if (isExitEdgeDef || !isFirstDef) {
+    DEBUG(dbgs() << "Insert Register Definition Using PMOV. Pred(" << AvailPredRegs[regloc] << ") Guard(" << guard << ")\n");
+
     DefMI = BuildMI(MBB, MI, DL,
         TII->get(Patmos::PMOV), AvailPredRegs[regloc])
       .addReg(guard).addImm(0) // guard operand
       .addOperand(Cond[0]).addOperand(Cond[1]); // condition
-    InsertedInstrs++; // STATISTIC
   } else {
+    DEBUG(dbgs() << "Insert Register Definition Using PAND. Pred(" << AvailPredRegs[regloc] << ") Guard(" << guard << ")\n");
+
     // the PAND instruction must not be predicated
     DefMI = AddDefaultPred(BuildMI(MBB, MI, DL,
           TII->get(Patmos::PAND), AvailPredRegs[regloc]))
       .addReg(guard).addImm(0) // current guard as source
       .addOperand(Cond[0]).addOperand(Cond[1]); // condition
-    InsertedInstrs++; // STATISTIC
   }
+  InsertedInstrs++; // STATISTIC
 }
 
 void PatmosSPReduce::

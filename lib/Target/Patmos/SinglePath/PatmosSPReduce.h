@@ -82,7 +82,7 @@ namespace llvm {
     ///          the source of the edge and Node are equal, otherwise the
     ///          the edge is an exit edge of he subloop)
     void insertDefEdge(SPScope *S, const PredicatedBlock *block,
-        PredicatedBlock::Definition def);
+        PredicatedBlock::Definition def, bool is_first_def_of_pred_in_block);
 
     /// insertDefToStackLoc - insert a predicate definition to a predicate
     /// which is located on a stack spill location
@@ -114,7 +114,6 @@ namespace llvm {
     /// @param regloc the reg location (index)
     /// @param guard the guard of MBB
     /// @param Cond the condition which should be assigned to the predicate
-    /// @param isMultiDef    true if the predicate has multiple definitions
     /// @param isFirstDef    true if the definition is the first definition
     ///                      in the local scope
     /// @param isExitEdgeDef true if the definition is on an exit edge of a
@@ -122,8 +121,7 @@ namespace llvm {
     void insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc,
                            unsigned guard,
                            const SmallVectorImpl<MachineOperand> &Cond,
-                           bool isMultiDef, bool isFirstDef,
-                           bool isExitEdgeDef);
+                           bool isFirstDef, bool isExitEdgeDef);
 
     /// fixupKillFlagOfCondRegs - predicate registers, which are killed at the
     /// branch at the end of the MBB and used in predicate definitions, are

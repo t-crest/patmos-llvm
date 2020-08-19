@@ -493,7 +493,7 @@ public:
         assert(block == Pub.Scope->getHeader() || i > 0);
 
         if (LRs.at(usePred).lastUse(i)) {
-          DEBUG(dbgs() << "retire. ");
+          DEBUG(dbgs() << "retire " << usePred << ". ");
           map<unsigned, Location>::iterator findCurUseLoc = curLocs.find(usePred);
           assert(findCurUseLoc != curLocs.end());
           Location& curUseLoc = findCurUseLoc->second;
