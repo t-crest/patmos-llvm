@@ -75,14 +75,22 @@ namespace llvm {
 
     /// insertDefEdge - insert instructions for definition of a predicate
     /// by a definition edge.
-    /// @param S local scope
-    /// @param Node node of local scope that defines a local predicate
-    /// @param pred the predicate which is defined
-    /// @param e the definition edge (NB if Node is not a subloop, then
-    ///          the source of the edge and Node are equal, otherwise the
-    ///          the edge is an exit edge of he subloop)
+    /// @param S          local scope
+    /// @param block      the block whos definition to insert
+    /// @param predType   type of the predicate, i.e., physical predicate
+    ///                     or stack location
+    /// @param predLoc    either physical predicate register or stack location
+    ///                     to be defined. (depends on 'predType')
+    /// @param guardLoc   physical predicate register guarding the definition
+    /// @param cond       condition predicate register and its flag
+    /// @param first_def  whether this definition is the first defintion of the 
+    ///                     physical predicate register. If false, the register
+    ///                     already contains a another definition of the abstract 
+    ///                     predicate from a different control flow path.
+    ///                     If 'predType' isn't a register, this boolean is undefined.
     void insertDefEdge(SPScope *S, const PredicatedBlock *block,
-        PredicatedBlock::Definition def, bool is_first_def_of_pred_in_block);
+        RAInfo::LocType predType, unsigned predLoc, unsigned guardLoc, 
+        SmallVector<MachineOperand, 2> cond, bool first_def);
 
     /// insertDefToStackLoc - insert a predicate definition to a predicate
     /// which is located on a stack spill location
@@ -100,28 +108,26 @@ namespace llvm {
     /// @param MBB the machine basic block at which end the definition
     ///            should be placed
     /// @param slot the slot number (depth)
-    /// @param regloc the reg location (index)
+    /// @param predReg the physical predicate register
     /// @param guard the guard of MBB
     /// @param Cond the condition which should be assigned to the predicate
     void insertDefToS0SpillSlot(MachineBasicBlock &MBB, unsigned slot,
-                    unsigned regloc, unsigned guard,
+                    unsigned predReg, unsigned guard,
                     const SmallVectorImpl<MachineOperand> &Cond);
 
-    /// insertDefToRegLoc - insert a predicate definition to a predicate
-    /// which is located in a physical register
-    /// @param MBB the machine basic block at which end the definition
-    ///            should be placed
-    /// @param regloc the reg location (index)
-    /// @param guard the guard of MBB
-    /// @param Cond the condition which should be assigned to the predicate
-    /// @param isFirstDef    true if the definition is the first definition
-    ///                      in the local scope
-    /// @param isExitEdgeDef true if the definition is on an exit edge of a
-    ///                      subloop
-    void insertDefToRegLoc(MachineBasicBlock &MBB, unsigned regloc,
+    /// insertDefToRegLoc - insert a predicate definition to a  a physical register
+    /// @param MBB       the machine basic block at which end the definition
+    ///                    should be placed
+    /// @param predReg   the predicate register to define
+    /// @param guard     the guard of MBB
+    /// @param Cond      the condition which should be assigned to the predicate
+    /// @param usePmov   whether to define the register using a guarded PMOV instructions
+	///                    if false, instead uses a non-guarded PAND 
+	///                    (the 'guard' is used as an operand instead)
+    void insertDefToRegLoc(MachineBasicBlock &MBB, unsigned predReg,
                            unsigned guard,
                            const SmallVectorImpl<MachineOperand> &Cond,
-                           bool isFirstDef, bool isExitEdgeDef);
+                           bool usePmov);
 
     /// fixupKillFlagOfCondRegs - predicate registers, which are killed at the
     /// branch at the end of the MBB and used in predicate definitions, are
