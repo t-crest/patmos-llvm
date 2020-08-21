@@ -10,7 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PatmosSPReduce.h"
-
+#include "PredicateDefinition.h"
 #define DEBUG_TYPE "patmos-singlepath"
 
 #define USE_BCOPY
@@ -600,12 +600,18 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
       }
       dbgs() << "]\n";
     );
-
-    // We sort the definitions, such that no definition
+    
+	// We sort the definitions, such that no definition
     // overwrite the guard predicate of a succeeding definition.
-	// We also track for each definition if it's the first definition
-	// of the given predicate (the bool).
-    std::vector<std::tuple<RAInfo::LocType, unsigned, unsigned, SmallVector<MachineOperand, 2>, bool >> defs_sorted;
+    // We also track for each definition if it's the first definition
+    // of the given predicate (the bool).
+    std::vector<std::tuple< 
+      PredicateDefinition,
+      // If not swap, whether this definition is the first for this predicate
+      // If swap, undefined
+      bool>
+    > defs_sorted;
+
     for(auto def: defs){
       RAInfo::LocType x_pred_type; unsigned x_pred_loc;
       std::tie(x_pred_type, x_pred_loc) = R.getDefLoc(def.predicate);
@@ -614,51 +620,109 @@ void PatmosSPReduce::insertPredDefinitions(SPScope *S) {
 	  
 	  auto insert_at = defs_sorted.end();
       auto is_first_pred_def = R.isFirstDef(block->getMBB(), def.predicate);
+      auto cond = getEdgeCondition(block, def);
+
+      PredicateDefinition x_def(x_pred_type, x_pred_loc, x_guard_reg, cond);
 
       auto iter = defs_sorted.begin();
       for(auto end=defs_sorted.end(); iter<end; iter++) {
-        RAInfo::LocType y_pred_type = std::get<0>(*iter); 
-        unsigned y_pred_loc = std::get<1>(*iter);
-
-        if( y_pred_type == RAInfo::Register &&
-            y_pred_loc == x_guard_reg &&
-            insert_at == end
-        ){
+		assert(!x_def.is_swap() && "Shouldn't be possible");
+		
+		auto y_def = std::get<0>(*iter);
+        
+        if( y_def.is_swap() ) {
+          if( y_def.overwrites_guard_of(x_def) ) {
+            insert_at = iter; 
+          }
+          assert( 
+            !x_def.overwrites_guard_of(y_def) &&
+            "Definition for predicate that is already part of a swap definition"
+          );
+        } else if( x_def.merge_into_swap(y_def) ) {
+          iter = defs_sorted.erase(iter);
+          insert_at = defs_sorted.end();
+          end=insert_at; //update to make its valid.
+          break; // end loop to ensure swap is insertet at the end
+        } else if( y_def.overwrites_guard_of(x_def) && insert_at == end ){
           insert_at = iter; 
 
-          if( x_pred_type == RAInfo::Register && x_pred_loc == y_pred_loc ){
+          if( x_def.share_predicate_target(y_def)){
             // If it was the first, it no longer is.
-            std::get<4>(*iter) = false; 
+            std::get<1>(*iter) = false; 
           }
-        } else if( y_pred_type == RAInfo::Register && 
-                   x_pred_type == RAInfo::Register && 
-                   x_pred_loc == y_pred_loc 
-        ){
+        } else if( x_def.share_predicate_target(y_def) ){	
           if( insert_at == end ) {
-            // We will insert 'def' after the other
+            // We will insert 'x_def' after the other
             is_first_pred_def = false;
           } else {
-            // We have already inserted 'def' before this definition
-            std::get<4>(*iter) = false; 
+            // We have already inserted 'x_def' before this definition
+            std::get<1>(*iter) = false; 
           }
         }
       }
-	  
-      defs_sorted.insert(insert_at, std::make_tuple(x_pred_type, x_pred_loc, x_guard_reg, getEdgeCondition(block, def), is_first_pred_def));
+      defs_sorted.insert(insert_at, std::make_tuple(x_def, is_first_pred_def));
     }
 
     DEBUG(
       dbgs() << "  Definitions after sorting: [";
       for(auto entry: defs_sorted){
-        dbgs() << "(" << (std::get<0>(entry) == RAInfo::Register ? "R": "") << 
-        (std::get<4>(entry) ? "F ": " ") << std::get<1>(entry) << ", " << 
-        std::get<2>(entry) << "), ";
+		auto def = std::get<0>(entry);
+        dbgs() << "(";
+		dbgs().flush();
+        if(	def.is_swap() ){
+          dbgs() << "SWP ";
+		  dbgs() << std::get<0>(entry).swap.predicate_1 << ", " << 
+          std::get<0>(entry).swap.predicate_2 << "), ";
+        } else if( def.is_simple() ){
+          dbgs() << (def.simple.type == RAInfo::Register ? "R": "") 
+                 << (std::get<1>(entry) ? "F ": " ");
+		  dbgs() << std::get<0>(entry).simple.predicate << ", " << 
+          std::get<0>(entry).simple.guard << "), ";
+        }
       }
       dbgs() << "]\n";
     );
 	
-    for(auto def: defs_sorted){
-      insertDefEdge(S, block, std::get<0>(def), std::get<1>(def), std::get<2>(def), std::get<3>(def), std::get<4>(def));
+    for(auto entry: defs_sorted){
+      auto definition = std::get<0>(entry);
+	  SmallVector<MachineOperand, 2> cond1;
+	  cond1.push_back(definition.conditions[0]);
+	  cond1.push_back(definition.conditions[1]);
+      if( definition.is_swap() ){
+        auto pred1 = definition.swap.predicate_1, pred2 = definition.swap.predicate_2;
+        DEBUG(dbgs() << "Insert Swap Definition Pred(" << pred1 << ") Pred2(" << pred2 << ")\n");
+
+        auto insertPXOR = [&](auto r1, auto r2){
+          MachineBasicBlock::iterator MI = block->getMBB()->getFirstTerminator();
+          DebugLoc DL(MI->getDebugLoc());
+
+          AddDefaultPred(BuildMI(*block->getMBB(), MI, DL,
+            TII->get(Patmos::PXOR), r1)
+          )
+          .addReg(r1).addImm(0)
+          .addReg(r2).addImm(0);
+
+          InsertedInstrs++; // STATISTIC
+        };
+
+        // We first swap the values of the two predicates
+        insertPXOR(pred1, pred2);
+        insertPXOR(pred2, pred1);
+        insertPXOR(pred1, pred2);
+		
+		SmallVector<MachineOperand, 2> cond2;
+		cond2.push_back(definition.conditions[2]);
+		cond2.push_back(definition.conditions[3]);
+
+        // Then define them using the swapped guards, 
+        // i.e. each register becomes its own guard
+        insertDefEdge(S, block, RAInfo::Register, pred1, pred1, cond1, true);
+        insertDefEdge(S, block, RAInfo::Register, pred2, pred2, cond2, true);
+      }	else if( definition.is_simple() ) {	
+        insertDefEdge(S, block, definition.simple.type, definition.simple.predicate, definition.simple.guard, cond1, std::get<1>(entry));
+      } else {
+		report_fatal_error("PatmosSPReduce::insertPredDefinitions unsupported definition type."); 
+	  }
     }
     DEBUG(dbgs() << "\n");
   }
