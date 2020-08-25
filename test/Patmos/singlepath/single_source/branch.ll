@@ -1,4 +1,5 @@
 ; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func %DEBUG_TYPE %LINK_LIBS 0=-2 1=1
+; RUN: %p/../assert_singlepath.sh llc "-O2 -mpatmos-disable-vliw=false" %s init_func %DEBUG_TYPE %LINK_LIBS 0=-2 1=1
 ; END.
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
