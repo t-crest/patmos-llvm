@@ -553,7 +553,6 @@ public:
       } else {
         // if it has not been used, we change the initial
         // definition location
-        assert(DefLocs.find(furthestPred) == DefLocs.end());
         DefLocs.insert(std::make_pair(furthestPred, stackLoc));
       }
       curUseLoc = findFurthest->second;
