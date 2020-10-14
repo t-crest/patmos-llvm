@@ -45,7 +45,6 @@ def PatmosInstrInfo : InstrInfo;
 def PatmosInstPrinter : AsmWriter {
   let AsmWriterClassName  = "InstPrinter";
   let isMCAsmWriter = 1;
-  let PrintPrefixMethod = "printInstPrefix";
 }
 
 //===----------------------------------------------------------------------===//
