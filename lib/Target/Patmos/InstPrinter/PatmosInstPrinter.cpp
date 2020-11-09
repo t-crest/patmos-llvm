@@ -80,17 +80,74 @@ void PatmosInstPrinter::printInstPrefix(const MCInst *MI, raw_ostream &O) {
   O << " ";
 }
 
+/// Returns true if the given opcode represents a load instruction.
+/// Pseudo-instructions aren't considered.
+bool isLoadInst(unsigned opcode) {
+  switch( opcode ){
+    default:
+      return false;
+    case Patmos::LBC:
+    case Patmos::LBL:
+    case Patmos::LBM:
+    case Patmos::LBS:
+    case Patmos::LBUC:
+    case Patmos::LBUL:
+    case Patmos::LBUM:
+    case Patmos::LBUS:
+    case Patmos::LHC:
+    case Patmos::LHL:
+    case Patmos::LHM:
+    case Patmos::LHS:
+    case Patmos::LHUC:
+    case Patmos::LHUL:
+    case Patmos::LHUM:
+    case Patmos::LHUS:
+    case Patmos::LWC:
+    case Patmos::LWL:
+    case Patmos::LWM:
+    case Patmos::LWS:
+      return true;
+  }
+}
+
+/// Returns true if the given opcode represents a save instruction.
+/// Pseudo-instructions aren't considered.
+bool isStoreInst(unsigned opcode) {
+  switch( opcode ){
+    default:
+      return false;
+	case Patmos::SBC:
+    case Patmos::SBL:
+    case Patmos::SBM:
+    case Patmos::SBS:
+    case Patmos::SHC:
+    case Patmos::SHL:
+    case Patmos::SHM:
+    case Patmos::SHS:
+    case Patmos::SWC:
+    case Patmos::SWL:
+    case Patmos::SWM:
+    case Patmos::SWS:
+      return true;
+  }
+}
+
 void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                      raw_ostream &O, const char *Modifier)
 {
   // Note: this code is not used to generate inline-assembly. See
   // PatmosAsmPrinter for that.
+  // This is used when outputting assembly instead of machine code.
 
   const MCOperand &Op = MI->getOperand(OpNo);
+  auto opcode = MI->getOpcode();
   if (Op.isReg()) {
     // do not print register R0 in addressing modes
-    if ( !(Modifier && strcmp(Modifier, "addrmod") == 0) ||
-         (Op.getReg() != Patmos::R0)) {
+    if (!(
+          (isLoadInst(opcode) && OpNo == 3) || 
+          (isStoreInst(opcode) && OpNo == 2)
+        ) || Op.getReg() != Patmos::R0
+    ) {
       printRegisterName(Op.getReg(), O);
     }
   } else if (Op.isImm()) {
@@ -99,37 +156,38 @@ void PatmosInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
     // Print as bytes if requested
     bool IsShifted = false;
     if (PrintBytes == PrintAllAsBytes ||
-        (PrintBytes == PrintCallAsBytes && MI->getOpcode() == Patmos::CALL))
+        (PrintBytes == PrintCallAsBytes && opcode == Patmos::CALL))
     {
-      const MCInstrDesc &MID = MII.get(MI->getOpcode());
+      const MCInstrDesc &MID = MII.get(opcode);
       unsigned ImmShift = getPatmosImmediateShift( MID.TSFlags );
       Value <<= ImmShift;
       IsShifted = true;
     }
 
-    if (Modifier && strcmp(Modifier, "addrmod") == 0) {
-      const MCOperand &baseOp = MI->getOperand(OpNo - 1);
-      if (baseOp.getReg() == Patmos::R0)
-        O << Value;
-      else if (Value != 0)
-        O << ((Value < 0) ? " - " : " + ") << std::abs(Value);
-    }
-    else {
-      // Print as hex only for some instructions, and only if it is in bytes
-      // We have the hex value in the disassembly output anyway, and we do not
-      // want to print hex for LIin
-      if (IsShifted && MI->getOpcode() == Patmos::CALL) {
-        O << format("0x%x", Value);
+    // Print as hex only for some instructions, and only if it is in bytes
+    // We have the hex value in the disassembly output anyway, and we do not
+    // want to print hex for LIin
+    if (IsShifted && opcode == Patmos::CALL) {
+      O << format("0x%x", Value);
+    } else {
+      if ( (isLoadInst(opcode) && OpNo == 4) || 
+           (isStoreInst(opcode) && OpNo == 3)) 
+      {
+        const MCOperand &baseOp = MI->getOperand(OpNo - 1);
+        if (baseOp.getReg() == Patmos::R0) {
+          // r0 is not printed, so no need for special formatting
+          // because of signs
+          O << Value;
+        } else if (Value != 0) {
+          O << ((Value < 0) ? " - " : " + ") << std::abs(Value);
+        }
+        // If value is 0, print nothing
       } else {
         O << Value;
       }
     }
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
-
-    if (Modifier && strcmp(Modifier, "addrmod") == 0)
-      O << " + ";
-
     O << *Op.getExpr();
   }
 }

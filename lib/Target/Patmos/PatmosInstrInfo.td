@@ -859,27 +859,27 @@ multiclass LoadTyped<bits<3> ty, Operand immTy, string asmop>
   let Uses = [ST] in
   def S  : LDT<ty, 0b0, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "s", "$rd = [${ra:addrmod}${imm:addrmod}]",
+               asmop # "s", "$rd = [$ra$imm]",
                [], IIC_LDs>;
 
   // load from local memory
   def L  : LDT<ty, 0b0, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "l", "$rd = [${ra:addrmod}${imm:addrmod}]",
+               asmop # "l", "$rd = [$ra$imm]",
                [], IIC_LD>;
 
   // load from data cache
   let mayStall = 1 in
   def C  : LDT<ty, 0b1, 0b0, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "c", "$rd = [${ra:addrmod}${imm:addrmod}]",
+               asmop # "c", "$rd = [$ra$imm]",
                [], IIC_LD>;
 
   // load from main memory
   let mayStall = 1 in
   def M  : LDT<ty, 0b1, 0b1, (outs RRegs:$rd),
                (ins pred:$p, RRegs:$ra, immTy:$imm),
-               asmop # "m", "$rd = [${ra:addrmod}${imm:addrmod}]",
+               asmop # "m", "$rd = [$ra$imm]",
                [], IIC_LD>;
 }
 
@@ -900,27 +900,27 @@ multiclass StoreTyped<bits<3> ty, Operand immTy, string asmop>
   let Uses = [ST] in
   def S  : STT<ty, 0b00, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "s", "[${ra:addrmod}${imm:addrmod}] = $rs",
+               asmop # "s", "[$ra$imm] = $rs",
                [], IIC_STs>;
 
   // store to local memory
   def L  : STT<ty, 0b01, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "l", "[${ra:addrmod}${imm:addrmod}] = $rs",
+               asmop # "l", "[$ra$imm] = $rs",
                [], IIC_ST>;
 
   // store to data cache (and to main memory; with data cache allocation?)
   let mayStall = 1 in
   def C  : STT<ty, 0b10, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "c", "[${ra:addrmod}${imm:addrmod}] = $rs",
+               asmop # "c", "[$ra$imm] = $rs",
                [], IIC_ST>;
 
   // store to main memory (no data cache allocate)
   let mayStall = 1 in
   def M  : STT<ty, 0b11, (outs /*empty*/),
                (ins pred:$p, RRegs:$ra, immTy:$imm, RRegs:$rs),
-               asmop # "m", "[${ra:addrmod}${imm:addrmod}] = $rs",
+               asmop # "m", "[$ra$imm] = $rs",
                [], IIC_ST>;
 }
 
