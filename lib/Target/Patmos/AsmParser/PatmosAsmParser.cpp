@@ -78,7 +78,7 @@ public:
   }
 
   virtual bool ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                           bool &HasPrefix);
+                           bool &HasPrefix, StringRef PrevToken);
 
   virtual bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
                                 SmallVectorImpl<MCParsedAsmOperand*> &Operands);
@@ -339,18 +339,58 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
 			bool MatchingInlineAsm) {
   MCInst Inst;
   SMLoc ErrorLoc;
+  
+  // Extract the predicate operands, as 'MatchInstructionImpl' cannot 
+  // handle them. They will be reinstated later.
+  auto p = Operands[1];
+  auto flag = Operands[2];
+  Operands.erase(next(Operands.begin()));
+  Operands.erase(next(Operands.begin()));
 
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm, 0))
   {
   default: break;
   case Match_Success:
   {
+    const MCInstrDesc &MID = MII.get(Inst.getOpcode());
+
+    // The predicate operands must be the first input operands
+    // i.e. after the output operands (also called definitions)
+    auto insert_pred_at = MID.getNumDefs();
+    auto insert_pred_flag_at = insert_pred_at + 1;
+
+    // Insert the predicate register
+    Inst.insert(
+      next(Inst.begin(), insert_pred_at),
+      MCOperand::CreateReg(static_cast<PatmosOperand*>(p)->getReg())
+    );
+
+    // Insert the predicate flag.
+    int64_t flag_value;
+    static_cast<PatmosOperand*>(flag)->getImm()->EvaluateAsAbsolute(flag_value);
+    // For some instructions a stray immediate operand is present at this point
+    // that should not be there. It is a remnant of a '=' being represented by it
+    // before the call to 'MatchInstructionImpl'.
+    // We overwrite this immediate value with the flag, if its there.
+    // Otherwise we make a new immediate for the flag.
+    //
+    // Note:
+    // I don't know why the immediate is there for instruction with '=', 
+    // it probably has something to do
+    // with how the tablegen is implemented (which dictates how 'MatchInstructionImpl' 
+    // works). If this is fixed in the tablegen, such that the immediate is no longer
+    // there at this point, a new immediate should always be created for the flag.	
+    // For now, the if statement below is a workaround.
+    if ( !next(Inst.begin(),insert_pred_flag_at)->isImm() || Inst.getNumOperands()<3 ) {
+      Inst.insert(next(Inst.begin(),insert_pred_flag_at), MCOperand::CreateImm(0));
+    }
+    next(Inst.begin(),insert_pred_flag_at)->setImm(flag_value);
+
     // Add bundle marker
     Inst.addOperand(MCOperand::CreateImm(InBundle));
 
     // If we have an ALUi immediate instruction and the immediate does not fit
     // 12bit, use ALUl version of instruction
-    const MCInstrDesc &MID = MII.get(Inst.getOpcode());
     uint64_t Format = MID.TSFlags & PatmosII::FormMask;
     unsigned ImmOpNo = getPatmosImmediateOpNo( MID.TSFlags );
     bool ImmSigned = isPatmosImmediateSigned( MID.TSFlags );
@@ -463,8 +503,6 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     }
 
     BundleCounter = InBundle ? BundleCounter + 1 : 0;
-
-    Opcode = Inst.getOpcode();
 
     Out.EmitInstruction(Inst);
     return false;
@@ -704,7 +742,7 @@ bool PatmosAsmParser::ParseToken(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
 
 bool PatmosAsmParser::
 ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-    bool &HasPrefix)
+    bool &HasGuard, StringRef PrevToken)
 {
   MCAsmLexer &Lexer = getLexer();
 
@@ -719,12 +757,14 @@ ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
   }
 
   // Check if we start a new bundle
-  if (Lexer.is(AsmToken::LCurly)) {
+  if (PrevToken == "{" || Lexer.is(AsmToken::LCurly)) {
     if (InBundle) {
       return Error(Lexer.getLoc(), "previous bundle has not been closed.");
     }
     InBundle = true;
-    Lexer.Lex();
+    if (PrevToken != "{") {
+      Lexer.Lex();
+    }
 
     // Allow newline(s) following '{'
     while (Lexer.is(AsmToken::EndOfStatement) &&
@@ -736,12 +776,14 @@ ParsePrefix(SMLoc &PrefixLoc, SmallVectorImpl<MCParsedAsmOperand*> &Operands,
   }
 
   // If it starts with '(', assume this is a guard, and try to parse it, otherwise skip
-  if (Lexer.isNot(AsmToken::LParen)) {
-    return false;
+  if (PrevToken != "(") {
+    if (Lexer.isNot(AsmToken::LParen)) {
+      return false;
+    }
+    Lexer.Lex();
   }
-  Lexer.Lex();
 
-  HasPrefix = true;
+  HasGuard = true;
 
   if (ParsePredicateOperand(Operands)) {
     return true;
@@ -759,8 +801,20 @@ bool PatmosAsmParser::
 ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
                  SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 {
-  // Check if we parsed any guards already
-  bool HasGuard = !Operands.empty();
+  bool HasGuard = false;
+  ParsePrefix(NameLoc, Operands, HasGuard, Name);
+
+  MCAsmLexer &Lexer = getLexer();
+  if (Name == "{" || Name == "(") {
+    // The prefix has some tokens. Therefore, 'Name' doesn't contain
+    // the mnemonic. We need it to do so.	
+    if (Lexer.isNot(AsmToken::Identifier) && Lexer.isNot(AsmToken::String)) {
+      return Error(Lexer.getLoc(), "Couldn't find Mnemonic");
+    }
+    Name = getTok().getIdentifier();
+    NameLoc = Lexer.getLoc();
+    Lex();
+  }
 
   // The first operand is the token for the instruction name
   // We need to split at . in mnemonic names, this is the way the matcher
@@ -788,8 +842,6 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
   }
 
   unsigned OpNo = 0;
-
-  MCAsmLexer &Lexer = getLexer();
 
   // If there are no more operands then finish
   while (Lexer.isNot(AsmToken::EndOfStatement)) {

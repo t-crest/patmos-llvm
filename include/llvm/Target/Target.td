@@ -972,10 +972,6 @@ class AsmWriter {
   // generation of the printInstruction() method. For MC printers, it takes
   // an MCInstr* operand, otherwise it takes a MachineInstr*.
   bit isMCAsmWriter = 0;
-
-  // PrintPrefixMethod - The name of a method that will be called before the 
-  // opcode of an instruction is printed.
-  string PrintPrefixMethod = "";
 }
 def DefaultAsmWriter : AsmWriter;
 

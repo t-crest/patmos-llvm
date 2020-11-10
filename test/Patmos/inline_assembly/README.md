@@ -30,3 +30,4 @@ of the test file.
 ### Folders
 
 * `instructions`: Tests the semantics of specific instructions.
+* `combinations`: Tests specific combinations of instructions or syntactic elements.
