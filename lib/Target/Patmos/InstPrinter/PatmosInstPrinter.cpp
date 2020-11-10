@@ -37,7 +37,7 @@ void PatmosInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                   StringRef Annot)
 {
   // Prints bundle marker '{' and/or guard predicate.
-  // This is a workaround. The they cannot be printed before the mnemonic by
+  // This is a workaround. They cannot be printed before the mnemonic by
   // tablegen, otherwise we would not be able to generate matcher tables.
   // We therefore skip printing them in the AsmString and print here before 
   // the rest of the instruction.
@@ -110,7 +110,7 @@ bool isLoadInst(unsigned opcode) {
   }
 }
 
-/// Returns true if the given opcode represents a save instruction.
+/// Returns true if the given opcode represents a store instruction.
 /// Pseudo-instructions aren't considered.
 bool isStoreInst(unsigned opcode) {
   switch( opcode ){

@@ -428,11 +428,6 @@ void AsmWriterEmitter::EmitPrintInstruction(raw_ostream &O) {
 
   O << "  O << \"\\t\";\n\n";
 
-  std::string PrintPrefixMethod = AsmWriter->getValueAsString("PrintPrefixMethod");
-  if (!PrintPrefixMethod.empty()) {
-    O << "  " << PrintPrefixMethod << "(MI, O);\n\n";
-  }
-
   O << "  // Emit the opcode for the instruction.\n";
   if (BitsLeft < 32) {
     // If we have two tables then we need to perform two lookups and combine

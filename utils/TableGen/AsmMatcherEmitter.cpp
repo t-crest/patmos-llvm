@@ -310,9 +310,6 @@ struct MatchableInfo {
     /// The operand name this is, if anything.
     StringRef SrcOpName;
 
-    /// The modifier for this operand, if used.
-    StringRef Modifier;
-
     /// The suboperand index within SrcOpName, or -1 for the entire operand.
     int SubOpIdx;
 
@@ -878,7 +875,6 @@ void MatchableInfo::tokenizeAsmString(const AsmMatcherInfo &Info) {
   if (AsmOperands.empty())
     PrintFatalError(TheDef->getLoc(),
                   "Instruction '" + TheDef->getName() + "' has no tokens");
-
   Mnemonic = AsmOperands[0].Token;
   if (Mnemonic.empty())
     PrintFatalError(TheDef->getLoc(),
@@ -921,14 +917,10 @@ bool MatchableInfo::validate(StringRef CommentDelimiter, bool Hack) const {
   std::set<std::string> OperandNames;
   for (unsigned i = 0, e = AsmOperands.size(); i != e; ++i) {
     StringRef Tok = AsmOperands[i].Token;
-
-    // Check for special format ('$:..' or '${:..}'), this is not supported yet
-    if (Tok[0] == '$' && ((Tok.size() > 1 && Tok[1] == ':') ||
-                          (Tok.size() > 2 && Tok[1] == '{' && Tok[2] == ':'))) {
+    if (Tok[0] == '$' && Tok.find(':') != StringRef::npos)
       PrintFatalError(TheDef->getLoc(),
                     "matchable with operand modifier '" + Tok.str() +
                     "' not supported by asm matcher.  Mark isCodeGenOnly!");
-    }
 
     // Verify that any operand is only mentioned once.
     // We reject aliases and ignore instructions for now.
@@ -1456,11 +1448,6 @@ void AsmMatcherInfo::buildInfo() {
         OperandName = Token.substr(2, Token.size() - 3);
       else
         OperandName = Token.substr(1);
-
-      // check for modifiers (we ruled out special modifiers ($:.. / ${:..}) in Verify
-      std::pair<StringRef,StringRef> mod = OperandName.split(':');
-      OperandName = mod.first;
-      Op.Modifier = mod.second;
 
       if (II->DefRec.is<const CodeGenInstruction*>())
         buildInstructionOperandReference(II, OperandName, i);

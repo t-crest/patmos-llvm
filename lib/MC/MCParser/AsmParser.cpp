@@ -246,8 +246,6 @@ public:
 private:
 
   bool parseStatement(ParseStatementInfo &Info);
-  bool parseInstruction(StringRef IDVal, SMLoc IDLoc,
-                        ParseStatementInfo &Info);
   void eatToEndOfLine();
   bool parseCppHashLineFilenameComment(const SMLoc &L);
 
@@ -1144,7 +1142,7 @@ bool AsmParser::parseBinOpRHS(unsigned Precedence, const MCExpr *&Res,
 /// ParseStatement:
 ///   ::= EndOfStatement
 ///   ::= Label* Directive ...Operands... EndOfStatement
-///   ::= Label* Prefix* Identifier OperandList* EndOfStatement
+///   ::= Label* Identifier OperandList* EndOfStatement
 bool AsmParser::parseStatement(ParseStatementInfo &Info) {
   if (Lexer.is(AsmToken::EndOfStatement)) {
     Out.AddBlankLine();
@@ -1180,26 +1178,20 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
     // Treat '.' as a valid identifier in this context.
     Lex();
     IDVal = ".";
+  } else if (Lexer.is(AsmToken::LCurly)) {
+    // Treat '{' as a valid identifier in this context.
+    Lex();
+    IDVal = "{";
 
-  } else {
-    bool HasPrefix = false;
+  } else if (Lexer.is(AsmToken::LParen)) {
+    // Treat '(' as a valid identifier in this context.
+    Lex();
+    IDVal = "(";
 
-    if (getTargetParser().ParsePrefix(IDLoc, Info.ParsedOperands, HasPrefix)) {
-      if (!TheCondState.Ignore)
-        return TokError("unexpected token in prefix of instruction");
-      IDVal = "";
-
-    } else if (parseIdentifier(IDVal)) {
-      if (!TheCondState.Ignore)
-        return TokError("unexpected token at start of statement");
-      IDVal = "";
-    }
-
-    // If an instruction prefix has been matched, the rest of the statement
-    // must be an instruction.
-    if (HasPrefix && !TheCondState.Ignore) {
-      return parseInstruction(IDVal, IDLoc, Info);
-    }
+  } else if (parseIdentifier(IDVal)) {
+    if (!TheCondState.Ignore)
+      return TokError("unexpected token at start of statement");
+    IDVal = "";
   }
 
   // Handle conditional assembly here before checking for skipping.  We
@@ -1523,12 +1515,6 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
   // __asm align
   if (ParsingInlineAsm && (IDVal == "align" || IDVal == "ALIGN"))
     return parseDirectiveMSAlign(IDLoc, Info);
-
-  return parseInstruction(IDVal, IDLoc, Info);
-}
-
-bool AsmParser::parseInstruction(StringRef IDVal, SMLoc IDLoc,
-                                 ParseStatementInfo &Info) {
 
   checkForValidSection();
 
@@ -4316,6 +4302,10 @@ bool AsmParser::parseMSInlineAsm(
       break;
     }
     case AOK_DotOperator:
+      // Insert the dot if the user omitted it.
+      OS.flush();
+      if (AsmStringIR.at(AsmStringIR.size() - 1) != '.')
+        OS << '.';
       OS << (*I).Val;
       break;
     }

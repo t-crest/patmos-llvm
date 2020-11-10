@@ -397,4 +397,12 @@ To setup Eclipse with C++ and GDB support for developing LLVM, follow those step
     set print sevenbit-strings off
     ---- END ----
 
+--------------------------------------------------------------------------------
 
+(D) Known customization of LLVM code
+
+* lib/MC/MCParser/AsmParser.cpp
+
+In 'parseStatement()', added '{' and '(' as an allowed identifiers.
+The first is already allowed in LLVM version, and is therefore forward compatible.
+The second is not.
