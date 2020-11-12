@@ -45,9 +45,8 @@ entry:
 for.cond:                                         ; preds = %for.inc, %entry
   %result.0 = phi i32 [ 0, %entry ], [ %add, %for.inc ]
   %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
-  call void @llvm.loopbound(i32 0, i32 9)
   %cmp = icmp slt i32 %i.0, %x
-  br i1 %cmp, label %for.body, label %for.end
+  br i1 %cmp, label %for.body, label %for.end, !llvm.loop !0
 
 for.body:                                         ; preds = %for.cond
   %0 = load volatile i32* @_1
@@ -64,9 +63,8 @@ for.end:                                          ; preds = %for.cond
 for.cond2:                                        ; preds = %for.inc6, %for.end
   %result.1 = phi i32 [ %result.0, %for.end ], [ %add5, %for.inc6 ]
   %i1.0 = phi i32 [ 0, %for.end ], [ %inc7, %for.inc6 ]
-  call void @llvm.loopbound(i32 0, i32 9)
   %cmp3 = icmp slt i32 %i1.0, %y
-  br i1 %cmp3, label %for.body4, label %for.end8
+  br i1 %cmp3, label %for.body4, label %for.end8, !llvm.loop !0
 
 for.body4:                                        ; preds = %for.cond2
   %1 = load volatile i32* @_2
@@ -80,8 +78,6 @@ for.inc6:                                         ; preds = %for.body4
 for.end8:                                         ; preds = %for.cond2
   ret i32 %result.1
 }
-
-declare void @llvm.loopbound(i32, i32)
 
 define i32 @main() {
 entry:
@@ -98,3 +94,6 @@ entry:
 declare i32 @scanf(i8*, ...)
 
 declare i32 @printf(i8*, ...)
+
+!0 = metadata !{metadata !0, metadata !1}
+!1 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 9}
