@@ -68,9 +68,8 @@ entry:
 for.cond:                                         ; preds = %for.inc, %entry
   %result.0 = phi i32 [ 0, %entry ], [ %result.6, %for.inc ]
   %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
-  call void @llvm.loopbound(i32 0, i32 19)
   %cmp = icmp slt i32 %i.0, %x
-  br i1 %cmp, label %for.body, label %for.end
+  br i1 %cmp, label %for.body, label %for.end, !llvm.loop !0
 
 for.body:                                         ; preds = %for.cond
   %cmp1 = icmp slt i32 %i.0, 6
@@ -161,8 +160,6 @@ for.end:                                          ; preds = %for.cond
   ret i32 %result.0
 }
 
-declare void @llvm.loopbound(i32, i32) 
-
 define i32 @main()  {
 entry:
   %x = alloca i32
@@ -176,3 +173,6 @@ entry:
 declare i32 @scanf(i8*, ...) 
 
 declare i32 @printf(i8*, ...) 
+
+!0 = metadata !{metadata !0, metadata !1}
+!1 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 19}

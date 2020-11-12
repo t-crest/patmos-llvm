@@ -59,12 +59,11 @@ if.then:                                          ; preds = %entry
   br label %for.cond
 
 for.cond:                                         ; preds = %for.inc, %if.then
-  call void @llvm.loopbound(i32 0, i32 99)
   %1 = load i32* %i
   %2 = load i32* %cond.addr
   %mul = mul nsw i32 10, %2
   %cmp = icmp slt i32 %1, %mul
-  br i1 %cmp, label %for.body, label %for.end
+  br i1 %cmp, label %for.body, label %for.end, !llvm.loop !0
 
 for.body:                                         ; preds = %for.cond
   %3 = load i32* %i
@@ -89,12 +88,11 @@ if.else:                                          ; preds = %entry
   br label %for.cond3
 
 for.cond3:                                        ; preds = %for.inc8, %if.else
-  call void @llvm.loopbound(i32 0, i32 199)
   %7 = load i32* %i2
   %8 = load i32* %cond.addr
   %mul4 = mul nsw i32 20, %8
   %cmp5 = icmp slt i32 %7, %mul4
-  br i1 %cmp5, label %for.body6, label %for.end10
+  br i1 %cmp5, label %for.body6, label %for.end10, !llvm.loop !2
 
 for.body6:                                        ; preds = %for.cond3
   %9 = load i32* %i2
@@ -119,8 +117,6 @@ if.end:                                           ; preds = %for.end10, %for.end
   ret i32 %13
 }
 
-declare void @llvm.loopbound(i32, i32) 
-
 define i32 @main()  {
 entry:
   %x = alloca i32
@@ -134,3 +130,8 @@ entry:
 declare i32 @scanf(i8*, ...) 
 
 declare i32 @printf(i8*, ...) 
+
+!0 = metadata !{metadata !0, metadata !1}
+!1 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 99}
+!2 = metadata !{metadata !2, metadata !3}
+!3 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 199}

@@ -56,9 +56,8 @@ entry:
 for.cond:                                         ; preds = %for.inc42, %entry
   %l1.0 = phi i32 [ 0, %entry ], [ %inc43, %for.inc42 ]
   %x.0 = phi i32 [ 0, %entry ], [ %x.7, %for.inc42 ]
-  call void @llvm.loopbound(i32 0, i32 4)
   %cmp = icmp slt i32 %l1.0, %y
-  br i1 %cmp, label %for.body, label %for.end44
+  br i1 %cmp, label %for.body, label %for.end44, !llvm.loop !0
 
 for.body:                                         ; preds = %for.cond
   br label %for.cond1
@@ -66,10 +65,9 @@ for.body:                                         ; preds = %for.cond
 for.cond1:                                        ; preds = %for.inc33, %for.body
   %l2.0 = phi i32 [ 0, %for.body ], [ %inc34, %for.inc33 ]
   %x.1 = phi i32 [ %x.0, %for.body ], [ %x.6, %for.inc33 ]
-  call void @llvm.loopbound(i32 0, i32 9)
   %mul = shl nsw i32 %y, 1
   %cmp2 = icmp slt i32 %l2.0, %mul
-  br i1 %cmp2, label %for.body3, label %for.end35
+  br i1 %cmp2, label %for.body3, label %for.end35, !llvm.loop !2
 
 for.body3:                                        ; preds = %for.cond1
   br label %for.cond5
@@ -77,10 +75,9 @@ for.body3:                                        ; preds = %for.cond1
 for.cond5:                                        ; preds = %for.inc24, %for.body3
   %l3.0 = phi i32 [ 0, %for.body3 ], [ %inc25, %for.inc24 ]
   %x.2 = phi i32 [ %x.1, %for.body3 ], [ %x.5, %for.inc24 ]
-  call void @llvm.loopbound(i32 0, i32 14)
   %mul6 = mul nsw i32 %y, 3
   %cmp7 = icmp slt i32 %l3.0, %mul6
-  br i1 %cmp7, label %for.body8, label %for.end26
+  br i1 %cmp7, label %for.body8, label %for.end26, !llvm.loop !4
 
 for.body8:                                        ; preds = %for.cond5
   br label %for.cond11
@@ -88,10 +85,9 @@ for.body8:                                        ; preds = %for.cond5
 for.cond11:                                       ; preds = %for.inc, %for.body8
   %x.3 = phi i32 [ %x.2, %for.body8 ], [ %x.4, %for.inc ]
   %l4.0 = phi i32 [ 0, %for.body8 ], [ %inc17, %for.inc ]
-  call void @llvm.loopbound(i32 0, i32 19)
   %mul12 = shl nsw i32 %y, 2
   %cmp13 = icmp slt i32 %l4.0, %mul12
-  br i1 %cmp13, label %for.body14, label %for.end
+  br i1 %cmp13, label %for.body14, label %for.end, !llvm.loop !6
 
 for.body14:                                       ; preds = %for.cond11
   %add15 = and i32 %y, 1
@@ -181,8 +177,6 @@ for.end44:                                        ; preds = %for.cond
   ret i32 %x.0
 }
 
-declare void @llvm.loopbound(i32, i32) 
-
 define i32 @main()  {
 entry:
   %x = alloca i32
@@ -196,3 +190,12 @@ entry:
 declare i32 @scanf(i8*, ...) 
 
 declare i32 @printf(i8*, ...) 
+
+!0 = metadata !{metadata !0, metadata !1}
+!1 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 4}
+!2 = metadata !{metadata !2, metadata !3}
+!3 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 9}
+!4 = metadata !{metadata !4, metadata !5}
+!5 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 14}
+!6 = metadata !{metadata !6, metadata !7}
+!7 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 19}

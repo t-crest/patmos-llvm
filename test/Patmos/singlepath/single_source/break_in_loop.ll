@@ -38,9 +38,8 @@ entry:
 
 while.cond:                                       ; preds = %if.end, %entry
   %x.addr.0 = phi i32 [ %x, %entry ], [ %dec, %if.end ]
-  call void @llvm.loopbound(i32 0, i32 5)
   %cmp = icmp sgt i32 %x.addr.0, 0
-  br i1 %cmp, label %while.body, label %while.end
+  br i1 %cmp, label %while.body, label %while.end, !llvm.loop !0
 
 while.body:                                       ; preds = %while.cond
   %0 = load volatile i32* @_7
@@ -56,8 +55,6 @@ while.end:                                        ; preds = %while.body, %while.
   ret i32 %add
 }
 
-declare void @llvm.loopbound(i32, i32)
-
 define i32 @main() {
 entry:
   %x = alloca i32
@@ -72,4 +69,5 @@ declare i32 @scanf(i8*, ...)
 
 declare i32 @printf(i8*, ...)
 
-
+!0 = metadata !{metadata !0, metadata !1}
+!1 = metadata !{metadata !"llvm.loop.bound", i32 0, i32 5}
