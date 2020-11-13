@@ -1,6 +1,6 @@
-# Inline Assembly Tests
+# Assembly Tests
 
-This folder contains tests of inline assembly.
+This folder contains tests of Patmos assembly.
 
 The `lit.local.cfg` file provides custom commands that can be used by `.ll` test files
 for easy test setup.
@@ -29,5 +29,6 @@ of the test file.
 
 ### Folders
 
-* `instructions`: Tests the semantics of specific instructions.
-* `combinations`: Tests specific combinations of instructions or syntactic elements.
+* `instructions`: Tests the semantics of specific instructions in inline_assembly.
+* `combinations`: Tests specific combinations of instructions or syntactic elements in inline_assembly.
+* `output`: Tests the output produced when LLC is asked to produce assembly (using `-filetype=asm`)

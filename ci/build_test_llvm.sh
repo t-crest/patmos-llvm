@@ -23,7 +23,7 @@ cd ../..
 # Build LLVM
 cd build
 cmake .. -DCMAKE_CXX_STANDARD=14 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=local -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_DEFAULT_TARGET_TRIPLE=$PATMOS_TRIPLE -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
-make UnitTests llc llvm-link clang llvm-config llvm-objdump opt 
+make UnitTests llc llvm-link clang llvm-config llvm-objdump opt FileCheck
 
 # Build newlib
 git clone $NEWLIB_LINK

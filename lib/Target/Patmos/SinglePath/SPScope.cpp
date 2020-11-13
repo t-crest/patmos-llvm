@@ -10,6 +10,7 @@
 
 #include "SPScope.h"
 #include "Patmos.h"
+#include "PatmosUtil.h"
 #include "PatmosSinglePathInfo.h"
 #include "PatmosSPBundling.h"
 #include "llvm/ADT/PostOrderIterator.h"
@@ -691,44 +692,7 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
     (*found)->addExitTarget(Priv->getPredicatedParent(edge.second));
   }
 
-  // Get the loop bound info
-  if (auto loop_bound_meta = header->getBasicBlock()->getTerminator()->getMetadata("llvm.loop")) {
-
-    // We ignore the first metadata operand, as it is always a self-reference
-    // in "llvm.loop".
-    for(int i = 1, end = loop_bound_meta->getNumOperands(); i < end; i++) {
-      auto meta_op = loop_bound_meta->getOperand(i);
-
-      if (meta_op->getType()->isMetadataTy()) {
-        auto meta_op_node = (llvm::MDNode*) meta_op;
-
-        if( meta_op_node->getNumOperands() > 1 ){
-          auto name = meta_op_node->getOperand(0);
-
-          if(
-              name->getType()->isMetadataTy() &&
-              ((MDNode*)name)->getName() == "llvm.loop.bound" &&
-              meta_op_node->getNumOperands() == 3
-          ) {
-            auto min_node = meta_op_node->getOperand(1);
-            auto max_node = meta_op_node->getOperand(2);
-
-            if(min_node->getType()->isIntegerTy() && max_node->getType()->isIntegerTy()) {
-              auto max = ((llvm::ConstantInt*) max_node)->getZExtValue();
-
-              Priv->LoopBound = max + 1;
-              break;
-            } else {
-              report_fatal_error(
-                        "Single-path code generation failed! "
-                        "Invalid loop bound in MBB: '" +
-                        header->getName() + "'!");
-            }
-          }
-        }
-      }
-    }
-  }
+  Priv->LoopBound = getLoopBounds(header).second + 1;
 
   if(!hasLoopBound()) {
     report_fatal_error(
