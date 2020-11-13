@@ -19,7 +19,6 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/ADT/SmallString.h"
 
-
 namespace llvm {
 
 
@@ -27,16 +26,16 @@ namespace llvm {
 /// LLVM IR. If there is no mapping from IR code, an <anonymous> is used.
 /// For uniqueness, the function name and current MBB number are included.
 /// Format: #FunctionName#BasicBlockName#MBBNumber
-inline void getMBBIRName(const MachineBasicBlock *MBB,
-                         SmallString<128> &result) {
-  const BasicBlock *BB = MBB->getBasicBlock();
-  const Twine bbname = (BB && BB->hasName()) ? BB->getName()
-                                             : "<anonymous>";
-  const Twine bb_ir_label = "#" + MBB->getParent()->getFunction()->getName() +
-                            "#" + bbname +
-                            "#" + Twine(MBB->getNumber());
-  bb_ir_label.toVector(result);
-}
+void getMBBIRName(const MachineBasicBlock *MBB,
+                         SmallString<128> &result);
+
+/// Extracts loop bound information from the metadata of the block
+/// terminator, if available.
+///
+/// The first element is the minimum iteration count.
+/// The second element is the maximum iteration count.
+/// If a bound is not available, -1 is returned.
+std::pair<int,int> getLoopBounds(const MachineBasicBlock * MBB);
 
 } // End llvm namespace
 

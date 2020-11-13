@@ -78,6 +78,26 @@ void PatmosAsmPrinter::EmitBasicBlockBegin(const MachineBasicBlock *MBB) {
     }
     OutStreamer.EmitELFSize(bbsym, MCConstantExpr::Create(bbsize, OutContext));
   }
+
+  // Print loop bound information if needed
+  auto loop_bounds = getLoopBounds(MBB);
+  if (loop_bounds.first > -1 || loop_bounds.second > -1){
+    OutStreamer.GetCommentOS() << "Loop bound: [";
+    if (loop_bounds.first > -1){
+      OutStreamer.GetCommentOS() << loop_bounds.first;
+    } else {
+      OutStreamer.GetCommentOS() << "-";
+    }
+    OutStreamer.GetCommentOS() << ", ";
+    if (loop_bounds.second > -1){
+      OutStreamer.GetCommentOS() << loop_bounds.second;
+    } else {
+      OutStreamer.GetCommentOS() << "-";
+    }
+    OutStreamer.GetCommentOS() << "]\n";
+    OutStreamer.AddBlankLine();
+  }
+
 }
 
 
@@ -190,10 +210,6 @@ void PatmosAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   }
   else {
     if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
-      int LoopBoundMin = MI->getOperand(0).getImm();
-      int LoopBoundMax = MI->getOperand(1).getImm();
-      OutStreamer.GetCommentOS() << "Loop bound: ["
-        << LoopBoundMin << ", " << LoopBoundMax << "]\n";
       return;
     }
     BundleMIs.push_back(MI);

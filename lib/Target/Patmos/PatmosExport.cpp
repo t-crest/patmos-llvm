@@ -19,6 +19,7 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosStackCacheAnalysis.h"
 #include "PatmosTargetMachine.h"
+#include "PatmosUtil.h"
 #include "InstPrinter/PatmosInstPrinter.h"
 #include "llvm/IR/Function.h"
 #include "llvm/CodeGen/Analysis.h"
@@ -610,17 +611,8 @@ namespace llvm {
       if (!isSinglepathFunction(MF)) return;
 
       // scan the header for loopbound info
-      // TODO this is copied from PatmosSinglePathInfo.cpp
       MachineBasicBlock *Header = Loop->getHeader();
-      int LoopBound = -1;
-      for (MachineBasicBlock::iterator MI = Header->begin(), ME = Header->end();
-          MI != ME; ++MI) {
-        if (MI->getOpcode() == Patmos::PSEUDO_LOOPBOUND) {
-          // max is the second operand (idx 1)
-          LoopBound = MI->getOperand(1).getImm() + 1;
-          break;
-        }
-      }
+      int LoopBound = getLoopBounds(Header).second;
       if (LoopBound >= 0) {
         yaml::FlowFact *FF = new yaml::FlowFact(yaml::level_machinecode);
 
