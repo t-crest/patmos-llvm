@@ -1,15 +1,14 @@
-; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func %DEBUG_TYPE %LINK_LIBS 0=1 1=1 2=2 9=9 10=10
-; RUN: %p/../assert_singlepath.sh llc "-O2 -mpatmos-disable-vliw=false" %s init_func %DEBUG_TYPE %LINK_LIBS 0=1 1=1 2=2 9=9 10=10
+; RUN: %test_singlepath_execution -O2 0=1 1=1 2=2 9=9 10=10
+; RUN: %test_singlepath_execution "-O2 -mpatmos-disable-vliw=false" 0=1 1=1 2=2 9=9 10=10
 ; END.
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
 ; Tests a do/while statement.
 ; The following is the equivalent C code:
-; #include <stdio.h>
-; 
+;
 ; volatile int _1 = 1;
 ; 
-; int init_func(int x){
+; int main(int x){
 ; 	int y = 0;
 ; 	#pragma loopbound min 1 max 9
 ; 	do{
@@ -17,19 +16,11 @@
 ; 	}while(y < x);
 ; 	return y;
 ; }
-; 
-; int main(){
-; 	int x;
-; 	scanf("%d", &x);
-; 	printf("%d\n", init_func(x));
-; }
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 
 @_1 = global i32 1
-@.str = private unnamed_addr constant [3 x i8] c"%d\00"
-@.str1 = private unnamed_addr constant [4 x i8] c"%d\0A\00"
 
-define i32 @init_func(i32 %x) {
+define i32 @main(i32 %x) {
 entry:
   br label %do.body
 
@@ -46,20 +37,6 @@ do.cond:                                          ; preds = %do.body
 do.end:                                           ; preds = %do.cond
   ret i32 %add
 }
-
-define i32 @main() {
-entry:
-  %x = alloca i32
-  %call = call i32 (i8*, ...)* @scanf(i8* getelementptr inbounds ([3 x i8]* @.str, i32 0, i32 0), i32* %x)
-  %0 = load i32* %x
-  %call1 = call i32 @init_func(i32 %0)
-  %call2 = call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([4 x i8]* @.str1, i32 0, i32 0), i32 %call1)
-  ret i32 0
-}
-
-declare i32 @scanf(i8*, ...)
-
-declare i32 @printf(i8*, ...)
 
 !0 = metadata !{metadata !0, metadata !1}
 !1 = metadata !{metadata !"llvm.loop.bound", i32 1, i32 9}

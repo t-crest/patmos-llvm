@@ -1,5 +1,5 @@
-; RUN: %p/../assert_singlepath.sh llc -O2 %s init_func %DEBUG_TYPE %LINK_LIBS 0=-26 1=-27 2=-21 3=-16 6=5 7=14 8=15
-; RUN: %p/../assert_singlepath.sh llc "-O2 -mpatmos-disable-vliw=false" %s init_func %DEBUG_TYPE %LINK_LIBS 0=-26 1=-27 2=-21 3=-16 6=5 7=14 8=15
+; RUN: %test_singlepath_execution -O2 0=230 1=229 2=235 3=240 6=5 7=14 8=15
+; RUN: %test_singlepath_execution "-O2 -mpatmos-disable-vliw=false" 0=230 1=229 2=235 3=240 6=5 7=14 8=15
 ; END.
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
@@ -7,8 +7,6 @@
 ; 
 ; The following is the equivalent C code:
 ; 
-; #include <stdio.h>
-;  
 ; volatile int cond = 0;
 ;  
 ; int init_func(){
@@ -51,15 +49,13 @@
 ; 	return x;
 ; }
 ;  
-;  int main(){
-;  	scanf("%d", &cond);
-;  	printf("%d\n", init_func());
+;  int main(int x){
+;  	cond = x;
+;	return init_func();
 ;  }
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 
 @cond = global i32 0
-@.str = private unnamed_addr constant [3 x i8] c"%d\00"
-@.str1 = private unnamed_addr constant [4 x i8] c"%d\0A\00"
 
 define i32 @init_func()  {
 entry:
@@ -165,14 +161,9 @@ if.end36:                                         ; preds = %if.else34, %if.end3
   ret i32 %x.6
 }
 
-define i32 @main()  {
-entry:
-  %call = call i32 (i8*, ...)* @scanf(i8* getelementptr inbounds ([3 x i8]* @.str, i32 0, i32 0), i32* @cond) 
+define i32 @main(i32 %x)  {
+entry: 
+  store volatile i32 %x, i32* @cond
   %call1 = call i32 @init_func()
-  %call2 = call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([4 x i8]* @.str1, i32 0, i32 0), i32 %call1) 
-  ret i32 0
+  ret i32 %call1
 }
-
-declare i32 @scanf(i8*, ...) 
-
-declare i32 @printf(i8*, ...) 

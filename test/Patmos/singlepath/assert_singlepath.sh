@@ -1,13 +1,14 @@
 #!/bin/bash
-# Ensures that a program, when compiled as using singlepath code, 
+# Ensures that a program, when compiled using singlepath code, 
 # executes in the same way regardless of input, and that its output is correct.
 #
-# The program is expected to be in LLVM IR. The script will compile it,
+# The program is expected to be in LLVM IR and have a main function
+# that takes one i32 input. The script will compile it,
 # run it using 'pasim' once for each execution argument, and check
 # that 'pasim's execution statistics are equivalent for all runs.
 #
 # usage:
-# It takes >= 8 arguments:
+# It takes >= 6 arguments:
 #	1. The path to LLVM's binary folder. E.g. '$t-crest-home/llvm/build/bin'.
 #		May contain a '.'. If so, everything after (and including) the '.' is ignored.
 #		This allows the use of llvm-lit's substition, where 'llc' will give the correct path.
@@ -15,17 +16,13 @@
 #		The llvm binary folder must be exactly 3 levels below '$t-crest-home', otherwise the script
 #		will fail.
 #	2. The path to the source program to test.
-#	3. Additional build arguments for llc. E.g. '-O2' for a specific optimization flag.
+#	3. The path to the temporary file available to the test.
+#	4. The path to the _start.ll to link with the test program
+#	5. Additional build arguments for llc. E.g. '-O2' for a specific optimization flag.
 #		Must be exactly 1 argument to the script, so if you want to pass multiple arguments to llc
 #		they should be wrapped in quotes. E.g. "-O2 -v".
 #		I no arguments are needed, "" must be used.
-#	4. A singlepath function to compile as singlepath and run statistics on
-#	5. The name of the debug type for LLC to output while compiling.
-#		If it is empty ("" must be used in that case), no debug output is produced.
-#	6. The path to the directory containing newlib and compiler-rt object files to
-#		link with the program. If empty (I.e. ""), uses the default location used
-#		when the the machine has been setup using 'misc/build.sh'. See more below.
-#	>7. a list of execution arguments.
+#	>6. a list of execution arguments.
 #		Each execution argument has the input to send to the program through stdin
 #		and the expected output of the program (on stdout). The two values are separated by '='.
 #		E.g '1=2' will run the program, send it '1' through the stdin. when the program finishes
@@ -43,21 +40,9 @@
 # and the same number of operations are executed. This ensures that the code is singlepath. 
 #
 # Requirements:
-#	The design of this script assumes that setup of t-crest on the machine was done by
-#	the 'build.sh' script in the patmos-misc repository (github.com/t-crest/patmos-misc).
-#	Specifically, this scripts uses the 'local' directory created by 'build.sh' 
-#	and assumes it is in the same directory as LLVM. 
-#	Additionally, it requires 'pasim' and 'patmos-ld' are discoverable on the path,
+#   It requires 'pasim' and 'patmos-ld' are discoverable on the path,
 #	and that all LLVM tools have been built and are in 'llvm/build/bin'.
-#	Lastly, this script uses python code, therefore, 'python3' must also be on the path.
-#
-# Notes:
-#	For each .ll test file, a folder will be created by this script 
-#	(named the same as the test file without .ll) that contains temporary files
-#	and an output file.
-#	Some messages printed by the script may refer to these files.
-#
-# TODO: Currently only supports running 'pasim' statistics on 1 function. Should support multiple.
+#	Lastly, this script uses python code, therefore, 'python' must also be on the path.
 #
 
 # This is imbedded python code. Can be accessed through the $python_pasim_stat_clean
@@ -135,37 +120,44 @@ execute_and_stat(){
 	# We rename spaces such that they are not recognized as list separators when we split
 	# the input from the expected output
 	placeholder="<!!SPACE!!>"
-	no_space=${3// /$placeholder}
+	no_space=${2// /$placeholder}
 	split=(${no_space//=/ })
 	
 	#We now reinsert the spaces
 	input=${split[0]//$placeholder/ }
 	expected_out=${split[1]//$placeholder/ }
 	
+	# The final name of the ELF to execute
+	exec=$1_$input
+	
 	ret_code=0
 	
-	# The next line runs the program ($1) on 'pasim' with the input. 
+	# Final generation of ELF with added input
+	patmos-ld -nostdlib -static -o $exec $1 --defsym input=$input
+	if [ $? -ne 0 ]; then
+		echo "Failed to generate executable from '$1' for argument '$input'."
+		return 1
+	fi
+	
+	# The next line runs the program ($exec) on 'pasim'. 
 	# It then pipes the stdout of the program to the variable 'actual_out',
 	# the 'pasim' stats (which are printed to stderr) to 'pasim_stats',
 	# and the return code to 'pasim_return_code'.
 	# An explanation of the line can be found at https://stackoverflow.com/a/26827443/8171453
 	# We configure pasim to use an "ideal" data cache, such that any variance in cycle count 
 	# because of cache-misses are negated (an ideal cache never misses).
-	. <({ pasim_stats=$({ actual_out=$(echo "$input" | pasim "$1" --print-stats "$2" -V -D ideal); pasim_return_code=$?; } 2>&1; declare -p actual_out pasim_return_code>&2); declare -p pasim_stats; } 2>&1)
+	. <({ pasim_stats=$({ actual_out=$(pasim "$exec" -V -D ideal); pasim_return_code=$?; } 2>&1; declare -p actual_out pasim_return_code>&2); declare -p pasim_stats; } 2>&1)
 
 	# Test the the stdout of the program is as expected
-	if ! diff <(echo "$expected_out") <(echo "$actual_out") &> /dev/null ; then
+	if ! diff <(echo "$expected_out") <(echo "$pasim_return_code") &> /dev/null ; then
 		# Explanation: '(>&2 ...)' outputs the result of command '...' on stderr
 		(>&2 echo "The execution of '$1' for input argument '$input' gave the wrong output through stdout.")
 		(>&2 echo "-------------------- Expected --------------------")
 		(>&2 echo "$expected_out")
 		(>&2 echo "--------------------- Actual ---------------------")
+		(>&2 echo "$pasim_return_code")
+		(>&2 echo "--------------------- stdout ---------------------")
 		(>&2 echo "$actual_out")
-		
-		if [ $pasim_return_code -ne 0 ] ; then 
-			(>&2 echo "--------------------- Error ----------------------")
-			(>&2 echo "$pasim_stats")
-		fi
 		(>&2 echo "--------------------------------------------------")
 		ret_code=1
 	fi
@@ -173,9 +165,11 @@ execute_and_stat(){
 	# Clean 'pasim's statistics
 	cleaned_stats=$(echo "$pasim_stats" | python -c "$python_pasim_stat_clean" 2> /dev/null)
 	if [ $? -ne 0 ]; then
-		(>&2 echo "Failed to clean pasim statistics from run of '$1' with functions '$2' and execution argument '$3'")
-		(>&2 echo "Pasim statistics were:")
+		# If cleaning failed it means the stderr is not statistics and some other
+		# error was printed
+		(>&2 echo "--------------------- stderr ---------------------")
 		(>&2 echo "$pasim_stats")
+		(>&2 echo "--------------------------------------------------")
 		ret_code=1
 	fi
 	
@@ -200,8 +194,8 @@ fi
 
 # Ensure that at least 2 execution arguments were given,
 # such that we can compare at least 2 executions
-if [ $# -lt 8 ]; then
-	echo "Must have at least 2 execution arguments but was: ${@:7}"
+if [ $# -lt 7 ]; then
+	echo "Must have at least 2 execution arguments but was: ${@:6}"
 	exit 1
 fi
 
@@ -211,71 +205,42 @@ fi
 # everything after (and including) the first '.'
 bin_dir=(${1//./ })
 
-# Additional arguments to pass to LLC
-llc_args="$2"
-
 # The source file to test
-bitcode="$3"
+bitcode="$2"
 
-# Which function to compile as singlepath
-singlepath="$4"
+# The temporary file available to the test
+temp="$3"
 
-# The debug type for LLC to output
-debug_type="$5"
+# The object file of the start function to be linked with the program
+start_function="$4"
 
-# Find the path to the standard library to link with
-link_libs_dir=${6:-$bin_dir../../../local/patmos-unknown-unknown-elf/lib}
+# Additional arguments to pass to LLC
+llc_args="$5"
 
 # The first execution argument
-exec_arg="$7"
+exec_arg="$6"
 
-# Folder to put all files generated by this script for this test case 
-# (this is a full path)
-generated_dir=${bitcode%.ll}
-mkdir -p $generated_dir
+# The object file of the program
+compiled="$temp"
 
-# Name of the test (same name as the test file, except without the ending ".ll")
-test_name=${generated_dir##*/}
-
-# The prefix for any file generated by this script
-generated_prefix="$generated_dir/$test_name"
-
-# The linked bitcode file
-linked="$generated_prefix.link"
-
-# Debug output file
-debug="$generated_prefix.debug"
-
-# The LLVM-linked object file, still missing final linking
-compiled="$generated_prefix.o"
-
-# Final executable
-exec="$generated_prefix"
-
-# Objdump of the final executable
-objdump="$generated_prefix-objdump.asm"
-
-# Link the source LLVM IR with the standard library and then compile to assembly
-$bin_dir/llvm-link -nostdlib -L$link_libs_dir/ $link_libs_dir/crt0.o $link_libs_dir/crtbegin.o $bitcode $link_libs_dir/libcsyms.o -lc -lpatmos $link_libs_dir/librtsfsyms.o -lrtsf $link_libs_dir/librtsyms.o -lrt $link_libs_dir/crtend.o -o $linked
+# Try to compile the program to rule out compile errors. Throw out the result.
+$bin_dir/llc $bitcode $llc_args -filetype=obj -mpatmos-singlepath=main -o $compiled
 if [ $? -ne 0 ]; then 
-	echo "Failed to link '$bitcode'."
+	echo "Failed to compile '$bitcode'."
 	exit 1
 fi
 
-if [ "$debug_type" != "" ]; then 
-	llc_debug_arg="-debug-only=$debug_type" 
-fi
-
-$bin_dir/llc $linked $llc_args -mforce-block-labels -disable-separate-nested-loops -filetype=obj -mpatmos-singlepath=$singlepath -o $compiled $llc_debug_arg &> $debug
+# Link start function with program
+$bin_dir/llvm-link -nostdlib -B=static $start_function $bitcode -o $compiled
 if [ $? -ne 0 ]; then 
-	echo "Failed to compile '$linked'."
+	echo "Failed to link '$bitcode' and '$start_function'."
 	exit 1
 fi
 
-# Final assembly linking and generation of an executable patmos file
-patmos-ld -nostdlib -static --defsym __heap_start=end --defsym __heap_end=0x100000 --defsym _shadow_stack_base=0x1f8000 --defsym _stack_cache_base=0x200000 -o $exec $compiled 
-if [ $? -ne 0 ]; then
-	echo "Failed to generate executable from '$compiled'."
+# Compile into object file (not ELF yet)
+$bin_dir/llc $compiled $llc_args -filetype=obj -mpatmos-singlepath=main -o $compiled
+if [ $? -ne 0 ]; then 
+	echo "Failed to compile '$bitcode'."
 	exit 1
 fi
 
@@ -284,8 +249,9 @@ ret_code=0
 # Run the first execution argument on its own,
 # such that its stats result can be compared to
 # all other executions
-first_stats=$(execute_and_stat "$exec" "$singlepath" "$exec_arg")
+first_stats=$(execute_and_stat "$compiled" "$exec_arg")
 if [ $? -ne 0 ]; then
+	echo "$first_stats"
 	ret_code=1
 fi
 
@@ -293,23 +259,21 @@ fi
 # For each one, compare to the first. If they all
 # are equal to the first, they must also be equal to each other,
 # so we don't need to compare them to each other.
-for i in "${@:8}" 
+for i in "${@:7}" 
 do
 	if [ $ret_code -ne 0 ] ; then
 		# If an error has already been encountered, stop.
 		continue
 	fi
-	rest_stats=$(execute_and_stat "$exec" "$singlepath" "$i")
+	rest_stats=$(execute_and_stat "$compiled" "$i")
 	if [ $? -ne 0 ]; then
 		# There was an error in executing the program or cleaning the stats
 		ret_code=1 
 	fi
 	if ! diff <(echo "$first_stats") <(echo "$rest_stats") ; then
-		echo "The execution of '$exec' for execution arguments '$exec_arg' and '$i' weren't equivalent."
+		echo "The execution of '$compiled' for execution arguments '$exec_arg' and '$i' weren't equivalent."
 		ret_code=1 
 	fi
 done
-
-$bin_dir/llvm-objdump -d $exec > $objdump
 
 exit $ret_code
