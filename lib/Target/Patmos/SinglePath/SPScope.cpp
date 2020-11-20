@@ -692,7 +692,10 @@ SPScope::SPScope(SPScope *parent, MachineLoop &loop, MachineFunction &MF, Machin
     (*found)->addExitTarget(Priv->getPredicatedParent(edge.second));
   }
 
-  Priv->LoopBound = getLoopBounds(header).second + 1;
+  int bound_max = getLoopBounds(header).second;
+  if( bound_max != -1) {
+      Priv->LoopBound = bound_max + 1;
+  }
 
   if(!hasLoopBound()) {
     report_fatal_error(
