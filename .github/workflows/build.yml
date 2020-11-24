@@ -1,0 +1,125 @@
+name: Build
+
+on:
+  push: 
+    branches: '**'
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-**'
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  
+jobs:
+  test:
+    name: Test (${{matrix.platform}})
+    runs-on: ${{matrix.platform}}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-16.04, ubuntu-18.04]
+
+    env:
+      CC: gcc-7
+      CXX: g++-7
+      BUILD_PATH: build
+      INSTALL_PATH: build/local
+      RELEASE_TAR: patmos-llvm*.tar.gz
+      PATMOS_TRIPLE: patmos-unknown-unknown-elf
+      COMPILER_RT_TAR: patmos-compiler-rt.tar.gz
+      GOLD_TAR: patmos-gold.tar.gz
+      SIMULAROT_TAR: patmos-simulator.tar.gz
+      
+    steps: 
+      - uses: actions/checkout@v2
+      - name: Install Dependencies
+        env:
+          COMPILER_RT_LINK: https://github.com/t-crest/patmos-compiler-rt/releases/download/v1.0.0-rc-1/patmos-compiler-rt-v1.0.0-rc-1.tar.gz
+          GOLD_LINK: https://github.com/t-crest/patmos-gold/releases/download/v1.0.0-rc-1/patmos-gold-v1.0.0-rc-1.tar.gz
+          SIMULATOR_LINK: https://github.com/t-crest/patmos-simulator/releases/download/1.0.2/patmos-simulator-x86_64-linux-gnu.tar.gz
+        run: |
+          mkdir -p $INSTALL_PATH
+          cd $INSTALL_PATH
+          # Dowload Dependencies
+          wget -O $COMPILER_RT_TAR $COMPILER_RT_LINK
+          wget -O $GOLD_TAR $GOLD_LINK
+          wget -O $SIMULAROT_TAR $SIMULATOR_LINK
+          # Extract dependencies
+          tar -xvf $COMPILER_RT_TAR
+          tar -xvf $GOLD_TAR
+          tar -xvf $SIMULAROT_TAR
+          # Set path
+          echo "$GITHUB_WORKSPACE/$INSTALL_PATH/bin" >> $GITHUB_PATH
+      - name: Clone Clang
+        env:
+          CLANG_LINK: https://github.com/t-crest/patmos-clang/
+          CLANG_COMMIT: 73474a8ae98f1a281a03c440a4d8b9987029cf4e
+        run: |
+          cd tools
+          git clone $CLANG_LINK clang
+          cd clang
+          git checkout $CLANG_COMMIT
+      - name: Build LLVM
+        run: |
+          cd $BUILD_PATH
+          cmake .. -DCMAKE_CXX_STANDARD=14 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=local -DLLVM_TARGETS_TO_BUILD=Patmos -DLLVM_DEFAULT_TARGET_TRIPLE=$PATMOS_TRIPLE -DCLANG_ENABLE_ARCMT=false -DCLANG_ENABLE_STATIC_ANALYZER=false -DCLANG_ENABLE_TESTS=false -DCLANG_ENABLE_DOCS=false -DCLANG_BUILD_EXAMPLES=false
+          # We can only use 2 jobs, as the VM doesn't have enough memory for more
+          make -j2 UnitTests llc llvm-link clang llvm-config llvm-objdump opt FileCheck
+      - name: Test LLVM
+        run: $BUILD_PATH/bin/llvm-lit test --filter=Patmos -v
+      - name: Clone Newlib
+        env:
+          NEWLIB_LINK: https://github.com/t-crest/patmos-newlib/
+          NEWLIB_COMMIT: 4c149a53f8cb2478d99aac731b61b5e4ed63543f
+        run: |
+          cd $BUILD_PATH
+          git clone $NEWLIB_LINK
+          cd patmos-newlib
+          git checkout $NEWLIB_COMMIT
+      - name: Build Newlib
+        run: |
+          mkdir $BUILD_PATH/patmos-newlib/build
+          cd $BUILD_PATH/patmos-newlib/build
+          ../configure  --target=$PATMOS_TRIPLE AR_FOR_TARGET=ar RANLIB_FOR_TARGET=ranlib LD_FOR_TARGET=ld CC_FOR_TARGET=$GITHUB_WORKSPACE/$BUILD_PATH/bin/clang CFLAGS_FOR_TARGET="-target $PATMOS_TRIPLE -O3" --prefix=$GITHUB_WORKSPACE/$INSTALL_PATH
+          # We use 'MAKEINFO=true' to avoid building documentation
+          make -j MAKEINFO=true
+          make -j MAKEINFO=true install
+      - name: Package Release
+        run: |
+            cd $BUILD_PATH
+            make box
+      - name: Clean Path and Install Release
+        run: |
+          cd $INSTALL_PATH
+          rm -rf bin
+          rm -rf patmos-unknown-unknown-elf
+          mv $GITHUB_WORKSPACE/$BUILD_PATH/$RELEASE_TAR $GITHUB_WORKSPACE/$INSTALL_PATH/
+          tar -xvf $RELEASE_TAR
+          tar -xvf $COMPILER_RT_TAR
+          tar -xvf $GOLD_TAR
+          tar -xvf $SIMULAROT_TAR
+      - name: Clone Benchmark
+        env:
+          BENCH_LINK: https://github.com/t-crest/patmos-benchmarks
+          BENCH_COMMIT: 8bca6cc6490540599c7e9ec5b25816e58f611560
+        run: |
+          cd $BUILD_PATH
+          git clone $BENCH_LINK bench
+          cd bench
+          git checkout $BENCH_COMMIT
+      - name: Prepare Benchmark
+        run: |
+          cd $BUILD_PATH/bench
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/patmos-clang-toolchain.cmake -DENABLE_TESTING=true
+      - name: Build Benchmark
+        run: |
+          cd $BUILD_PATH/bench/build
+          make -j2
+      - name: Run Benchmark
+        run: |
+          cd $BUILD_PATH/bench/build
+          ctest -j2
+        
