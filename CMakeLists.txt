@@ -581,7 +581,7 @@ add_custom_command(
 	COMMAND ${CMAKE_COMMAND} -E echo "name: ${PROJECT_NAME}" > ${PACKAGE_INFO_FILE}
 	COMMAND ${CMAKE_COMMAND} -E echo "target: ${TARGET_TRIPLE}" >> ${PACKAGE_INFO_FILE}
 	COMMAND ${CMAKE_COMMAND} -E echo_append "version: " >> ${PACKAGE_INFO_FILE}
-	COMMAND git describe --tags >> ${PACKAGE_INFO_FILE}
+	COMMAND git describe --tags --always >> ${PACKAGE_INFO_FILE}
 	COMMAND ${CMAKE_COMMAND} -E echo_append "commit: " >> ${PACKAGE_INFO_FILE}
 	COMMAND git rev-parse HEAD >> ${PACKAGE_INFO_FILE}
 	COMMAND ${CMAKE_COMMAND} -E echo "files:" >> ${PACKAGE_INFO_FILE}
