@@ -24,10 +24,8 @@
 #include "llvm/MC/MCValue.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCAsmLayout.h"
-#include "llvm/MC/MCELFSymbolFlags.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/ELF.h"
 
 using namespace llvm;
 using namespace Patmos;

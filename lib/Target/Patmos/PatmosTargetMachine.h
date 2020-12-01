@@ -22,7 +22,6 @@
 #include "PatmosRegisterInfo.h"
 #include "PatmosSubtarget.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
