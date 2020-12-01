@@ -1,0 +1,18 @@
+; RUN: llc < %s | FileCheck %s
+; END.
+;//////////////////////////////////////////////////////////////////////////////////////////////////
+;
+; Tests that unsigned division by 2 is optimized into a sr instruction.
+;
+;//////////////////////////////////////////////////////////////////////////////////////////////////
+
+; CHECK-LABEL: main:
+define i32 @main(i32 %value)  {
+entry:
+  %0 = udiv i32 %value, 2
+
+; CHECK: sr $r{{[0-9]+}} = $r{{[0-9]+}}, 1
+
+  ret i32 %0
+}
+

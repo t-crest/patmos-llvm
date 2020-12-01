@@ -158,8 +158,6 @@ def : Pat<(mul (zext (i1 predsel:$p)), RRegs:$rs),
 def : Pat<(mul RRegs:$r, (i32 3)), (SHADDr RRegs:$r, RRegs:$r)>;
 def : Pat<(mul RRegs:$r, (i32 5)), (SHADD2r RRegs:$r, RRegs:$r)>;
 
-// following mul by constant patterns only pay off if mul takes > 2 cycles
-// and offers no immediate variant
 // mul x, (3 * 2^n)
 def : Pat<(mul RRegs:$r, (i32   6)), (SLi (SHADDr RRegs:$r, RRegs:$r), 1)>;
 def : Pat<(mul RRegs:$r, (i32  12)), (SLi (SHADDr RRegs:$r, RRegs:$r), 2)>;
@@ -179,7 +177,7 @@ def : Pat<(mul RRegs:$r, (i32  320)), (SLi (SHADD2r RRegs:$r, RRegs:$r), 6)>;
 def : Pat<(mul RRegs:$r, (i32  640)), (SLi (SHADD2r RRegs:$r, RRegs:$r), 7)>;
 def : Pat<(mul RRegs:$r, (i32 1280)), (SLi (SHADD2r RRegs:$r, RRegs:$r), 8)>;
 // mul x, (2^n + 1) = x<<n + x
-// for n>2
+// for n>2 because n<=2 is covered by the above patterns
 def : Pat<(mul RRegs:$r, (i32   9)), (ADDr (SLi RRegs:$r, 3), RRegs:$r)>;
 def : Pat<(mul RRegs:$r, (i32  17)), (ADDr (SLi RRegs:$r, 4), RRegs:$r)>;
 def : Pat<(mul RRegs:$r, (i32  33)), (ADDr (SLi RRegs:$r, 5), RRegs:$r)>;
@@ -187,7 +185,7 @@ def : Pat<(mul RRegs:$r, (i32  65)), (ADDr (SLi RRegs:$r, 6), RRegs:$r)>;
 def : Pat<(mul RRegs:$r, (i32 129)), (ADDr (SLi RRegs:$r, 7), RRegs:$r)>;
 def : Pat<(mul RRegs:$r, (i32 257)), (ADDr (SLi RRegs:$r, 8), RRegs:$r)>;
 // mul x, (2^n - 1) = x<<n - x
-// for n>2
+// for n>2 because n<=2 is covered by the above patterns
 def : Pat<(mul RRegs:$r, (i32   7)), (SUBr (SLi RRegs:$r, 3), RRegs:$r)>;
 def : Pat<(mul RRegs:$r, (i32  15)), (SUBr (SLi RRegs:$r, 4), RRegs:$r)>;
 def : Pat<(mul RRegs:$r, (i32  31)), (SUBr (SLi RRegs:$r, 5), RRegs:$r)>;
