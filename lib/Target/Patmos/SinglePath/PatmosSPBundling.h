@@ -1,10 +1,3 @@
-/*
- * PatmosSPBundling.h
- *
- *  Created on: 20 Mar 2019
- *      Author: Emad
- */
-
 #ifndef TARGET_PATMOS_SINGLEPATH_PATMOSSPBUNDLING_H_
 #define TARGET_PATMOS_SINGLEPATH_PATMOSSPBUNDLING_H_
 
@@ -12,7 +5,6 @@
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosSinglePathInfo.h"
 #include "PatmosTargetMachine.h"
-#include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/CodeGen/MachinePostDominators.h"
 

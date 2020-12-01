@@ -21,7 +21,6 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/ADT/SmallSet.h"

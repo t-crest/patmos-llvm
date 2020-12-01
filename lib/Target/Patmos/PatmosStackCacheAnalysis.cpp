@@ -27,7 +27,6 @@
 #undef PATMOS_TRACE_PATH_OCCUPANCY
 #undef PATMOS_TRACE_DETAILED_RESULTS
 
-#include "Patmos.h"
 #include "PatmosCallGraphBuilder.h"
 #include "PatmosMachineFunctionInfo.h"
 #include "PatmosStackCacheAnalysis.h"
@@ -36,7 +35,6 @@
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/CodeGen/MachineModulePass.h"
 #include "llvm/CodeGen/PMLExport.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"

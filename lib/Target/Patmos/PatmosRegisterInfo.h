@@ -14,8 +14,6 @@
 #ifndef _LLVM_TARGET_PATMOS_REGISTERINFO_H_
 #define _LLVM_TARGET_PATMOS_REGISTERINFO_H_
 
-#include "llvm/Target/TargetRegisterInfo.h"
-
 #define GET_REGINFO_HEADER
 #include "PatmosGenRegisterInfo.inc"
 

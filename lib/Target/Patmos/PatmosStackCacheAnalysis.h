@@ -19,9 +19,6 @@
 #ifndef PATMOSSTACKCACHEANALYSIS
 #define PATMOSSTACKCACHEANALYSIS
 
-#include "Patmos.h"
-#include "llvm/CodeGen/MachineModulePass.h"
-
 namespace llvm {
 
 class PatmosStackCacheAnalysisInfo : public ImmutablePass {
