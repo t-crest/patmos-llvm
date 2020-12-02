@@ -1,5 +1,8 @@
 ; RUN: %test_no_runtime_execution
 ; XFAIL: *
+;
+; That this doesn't work is a known bug. See github.com/t-crest/patmos-llvm/issues/18
+;
 define i32 @main() {
 entry:
   %0 = call i32 asm sideeffect "

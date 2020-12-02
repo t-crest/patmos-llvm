@@ -1,5 +1,4 @@
-; RUN: llc %s -mpatmos-singlepath=main -o %t
-; XFAIL: *
+; RUN: llc %s -mpatmos-singlepath=main -o %t %XFAIL-filecheck %s
 ; END.
 ;//////////////////////////////////////////////////////////////////////////////////////////////////
 ; 
@@ -18,6 +17,8 @@ for.cond:                                         ; preds = %for.inc, %entry
   %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
   %cmp = icmp slt i32 %i.0, %iteration_count
   br i1 %cmp, label %for.body, label %for.end     ; Should have loop bounds, but doesn't
+
+; CHECK: Loop has no bound
 
 for.body:                                         ; preds = %for.cond
   %0 = load volatile i32* @_1
