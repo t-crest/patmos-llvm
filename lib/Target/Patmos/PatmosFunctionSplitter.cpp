@@ -1936,13 +1936,16 @@ namespace llvm {
         // for branches, assume we need to add a NOP to make it BRCF.
         if (i->isBranch()) i_size += branchFixup;
 
-        // should we check for i_size > MaxSize as well and issue a warning?
-        // => No, user should not get warnings if he cannot do anything about it
-
         if (i_size > cache_size) {
-          report_fatal_error("Inline assembly in function " +
+          report_fatal_error("Inline assembly in function '" +
                              MBB->getParent()->getFunction()->getName() +
-                             " is larger than the method cache size!");
+                             "' is larger than the method cache size!");
+        }
+        if (i_size > MaxSize) {
+            report_fatal_error("Inline assembly in function '" +
+                               MBB->getParent()->getFunction()->getName() +
+                               "' is larger than maximum allowed size for subfunctions!\n" +
+			       "Max allowed size: " + Twine(MaxSize) + ", actual size: " + Twine(i_size));
         }
 
         // we must not split live ranges of the RTR register
