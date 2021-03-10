@@ -45,8 +45,9 @@ static cl::opt<unsigned> MethodCacheSize("mpatmos-method-cache-size",
 
 static cl::opt<unsigned> MinSubfunctionAlign("mpatmos-subfunction-align",
                    cl::init(16),
-                   cl::desc("Alignment for functions and subfunctions in bytes "
-                           "(default: 16 word aligned)."));
+                   cl::desc("Alignment for functions and subfunctions (including "
+                           " the preceding size-declaration word) in bytes "
+                           "(default: 16 byte aligned)."));
 
 static cl::opt<unsigned> MinBasicBlockAlign("mpatmos-basicblock-align",
                    cl::init(0),
