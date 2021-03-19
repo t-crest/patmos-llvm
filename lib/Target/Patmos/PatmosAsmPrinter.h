@@ -51,6 +51,7 @@ namespace llvm {
 
     virtual void EmitFunctionEntryLabel();
 
+    virtual void EmitBasicBlockStart(const MachineBasicBlock *MBB);
     virtual void EmitBasicBlockBegin(const MachineBasicBlock *MBB);
     virtual void EmitBasicBlockEnd(const MachineBasicBlock *);
 
