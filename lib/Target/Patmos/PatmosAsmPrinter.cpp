@@ -58,6 +58,44 @@ void PatmosAsmPrinter::EmitFunctionEntryLabel() {
   AsmPrinter::EmitFunctionEntryLabel();
 }
 
+void PatmosAsmPrinter::EmitBasicBlockStart(const MachineBasicBlock *MBB) {
+
+  // First align the block if needed (don't align the first block).
+  // We must align first to ensure that any added nops are put
+  // before the .fstart, such that when object code is emitted
+  // the .size is put right before the label of the block with no nops
+  // between.
+  unsigned Align = MBB->getAlignment();
+  if (Align && (MBB->getParent()->getBlockNumbered(0) != MBB)) {
+      EmitAlignment(Align);
+  }
+
+  // Then emit .fstart/.size if needed
+  if (isFStart(MBB) && (MBB->getParent()->getBlockNumbered(0) != MBB)) {
+    // We need an address symbol from the next block
+    assert(!MBB->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
+
+    MCSymbol *SymStart = MBB->getSymbol();
+
+    // create new end symbol
+    CurrCodeEnd = OutContext.CreateTempSymbol();
+
+    // mark the symbol as method-cache-cacheable code
+    OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
+
+    // emit a .size directive
+    EmitDotSize(SymStart, CurrCodeEnd);
+
+    // emit a function/subfunction start directive
+    EmitFStart(SymStart, CurrCodeEnd, FStartAlignment);
+  }
+
+  // We remove any alignment assigned to the block, to ensure
+  // AsmPrinter::EmitBasicBlockStart doesn't also try to align the block
+  ((MachineBasicBlock *) MBB)->setAlignment(0);
+  AsmPrinter::EmitBasicBlockStart(MBB);
+  ((MachineBasicBlock *) MBB)->setAlignment(Align);
+}
 
 void PatmosAsmPrinter::EmitBasicBlockBegin(const MachineBasicBlock *MBB) {
   // If special generation of BB symbols is enabled,
@@ -102,6 +140,7 @@ void PatmosAsmPrinter::EmitBasicBlockBegin(const MachineBasicBlock *MBB) {
 
 
 void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
+
   // EmitBasicBlockBegin emits after the label, too late for emitting .fstart,
   // so we do it at the end of the previous block of a cache block start MBB.
   if (&MBB->getParent()->back() == MBB) return;
@@ -113,32 +152,6 @@ void PatmosAsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock *MBB) {
     // Next is the start of a new cache block, close the old one before the
     // alignment of the next block
     OutStreamer.EmitLabel(CurrCodeEnd);
-  }
-
-  // Align the next basic block. Emitting the alignment in EmitBasicBlockStart
-  // would be too late as we emit .fstart here already.
-  if (Next->getAlignment()) {
-    EmitAlignment(Next->getAlignment());
-  }
-
-  // Emit the start code for the next subfunction
-  if (followedByFStart) {
-    // We need an address symbol from the next block
-    assert(!Next->pred_empty() && "Basic block without predecessors do not emit labels, unsupported.");
-
-    MCSymbol *SymStart = Next->getSymbol();
-
-    // create new end symbol
-    CurrCodeEnd = OutContext.CreateTempSymbol();
-
-    // mark the symbol as method-cache-cacheable code
-    OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
-
-    // emit a .size directive
-    EmitDotSize(SymStart, CurrCodeEnd);
-
-    // emit a function/subfunction start directive
-    EmitFStart(SymStart, CurrCodeEnd, FStartAlignment);
   }
 }
 
