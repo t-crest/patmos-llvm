@@ -126,7 +126,6 @@ namespace llvm {
 
   private:
     const PatmosSubtarget &Subtarget;
-    const DataLayout *TD;
 
     SDValue LowerCCCCallTo(CallLoweringInfo &CLI,
                            SmallVectorImpl<SDValue> &InVals) const;
