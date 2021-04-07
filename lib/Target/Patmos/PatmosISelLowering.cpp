@@ -44,8 +44,6 @@ PatmosTargetLowering::PatmosTargetLowering(PatmosTargetMachine &tm) :
   TargetLowering(tm, new PatmosTargetObjectFile()),
   Subtarget(*tm.getSubtargetImpl()) {
 
-  TD = getDataLayout();
-
   // Set up the register classes.
   // SRegs are not used for computations.
   addRegisterClass(MVT::i32, &Patmos::RRegsRegClass);

@@ -26,7 +26,6 @@
 #include "PatmosSchedStrategy.h"
 #include "PatmosTargetMachine.h"
 #include "PatmosMachineFunctionInfo.h"
-#include "SinglePath/PatmosSinglePathInfo.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
