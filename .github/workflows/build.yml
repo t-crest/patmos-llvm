@@ -21,8 +21,8 @@ jobs:
         platform: [ubuntu-16.04, ubuntu-18.04]
 
     env:
-      CC: gcc-7
-      CXX: g++-7
+      CC: gcc
+      CXX: g++
       BUILD_PATH: build
       INSTALL_PATH: build/local
       RELEASE_TAR: patmos-llvm*.tar.gz
