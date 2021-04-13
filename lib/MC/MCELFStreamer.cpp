@@ -220,10 +220,6 @@ bool MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
                                           ELF::STT_FUNC));
     break;
 
-  case MCSA_ELF_TypeCode:
-    MCELF::SetType(SD, ELF::STT_CODE);
-    break;
-
   case MCSA_ELF_TypeIndFunction:
     MCELF::SetType(SD, CombineSymbolTypes(MCELF::GetType(SD),
                                           ELF::STT_GNU_IFUNC));

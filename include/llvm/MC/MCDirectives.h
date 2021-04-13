@@ -42,9 +42,6 @@ enum MCSymbolAttr {
   MCSA_WeakDefinition,      ///< .weak_definition (MachO)
   MCSA_WeakReference,       ///< .weak_reference (MachO)
   MCSA_WeakDefAutoPrivate,  ///< .weak_def_can_be_hidden (MachO)
-
-  // Patmos-specific directives
-  MCSA_ELF_TypeCode         ///< .type _foo, STT_CODE
 };
 
 enum MCAssemblerFlag {

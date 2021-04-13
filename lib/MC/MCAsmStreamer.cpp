@@ -434,7 +434,6 @@ bool MCAsmStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
   case MCSA_ELF_TypeCommon:      /// .type _foo, STT_COMMON  # aka @common
   case MCSA_ELF_TypeNoType:      /// .type _foo, STT_NOTYPE  # aka @notype
   case MCSA_ELF_TypeGnuUniqueObject:  /// .type _foo, @gnu_unique_object
-  case MCSA_ELF_TypeCode:        /// .type _foo, STT_CODE
     if (!MAI->hasDotTypeDotSizeDirective())
       return false; // Symbol attribute not supported
     OS << "\t.type\t" << *Symbol << ','
@@ -448,7 +447,6 @@ bool MCAsmStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
     case MCSA_ELF_TypeCommon:      OS << "common"; break;
     case MCSA_ELF_TypeNoType:      OS << "no_type"; break;
     case MCSA_ELF_TypeGnuUniqueObject: OS << "gnu_unique_object"; break;
-    case MCSA_ELF_TypeCode:        OS << "code"; break;
     }
     EmitEOL();
     return true;

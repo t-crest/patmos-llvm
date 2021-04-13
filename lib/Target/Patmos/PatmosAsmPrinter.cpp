@@ -80,8 +80,8 @@ void PatmosAsmPrinter::EmitBasicBlockStart(const MachineBasicBlock *MBB) {
     // create new end symbol
     CurrCodeEnd = OutContext.CreateTempSymbol();
 
-    // mark the symbol as method-cache-cacheable code
-    OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeCode);
+    // mark subfunction labels as function labels
+    OutStreamer.EmitSymbolAttribute(SymStart, MCSA_ELF_TypeFunction);
 
     // emit a .size directive
     EmitDotSize(SymStart, CurrCodeEnd);

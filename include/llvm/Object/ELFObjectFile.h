@@ -261,7 +261,6 @@ error_code ELFObjectFile<ELFT>::getSymbolFileOffset(DataRefImpl Symb,
     Result = ESec ? ESec->sh_offset : UnknownAddressOrSize;
     return object_error::success;
   case ELF::STT_FUNC:
-  case ELF::STT_CODE:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
     Result = ESym->st_value + (ESec ? ESec->sh_offset : 0);
@@ -294,7 +293,6 @@ error_code ELFObjectFile<ELFT>::getSymbolAddress(DataRefImpl Symb,
     Result = ESec ? ESec->sh_addr : UnknownAddressOrSize;
     return object_error::success;
   case ELF::STT_FUNC:
-  case ELF::STT_CODE:
   case ELF::STT_OBJECT:
   case ELF::STT_NOTYPE:
     bool IsRelocatable;
@@ -386,7 +384,7 @@ error_code ELFObjectFile<ELFT>::getSymbolFlags(DataRefImpl Symb,
     Result |= SymbolRef::SF_Absolute;
 
   if (ESym->getType() == ELF::STT_FILE || ESym->getType() == ELF::STT_SECTION ||
-      ESym->getType() == ELF::STT_CODE || ESym == &*EF.begin_symbols())
+      ESym == &*EF.begin_symbols())
     Result |= SymbolRef::SF_FormatSpecific;
 
   if (EF.getSymbolTableIndex(ESym) == ELF::SHN_UNDEF)
