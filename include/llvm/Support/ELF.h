@@ -343,16 +343,6 @@ enum {
   R_PATMOS_CFLI_PCREL = 12
 };
 
-// Patmos symbol types.
-enum {
-  // processor-specific symbol type: 13-15
-
-  // Code region cache-able by the method cache. this is similar to STT_FUNC, 
-  // but is intended for sub-sets of functions and not entire functions.
-  STT_CODE = 13
-};
-
-
 // X86_64 relocations.
 enum {
   R_X86_64_NONE       = 0,
